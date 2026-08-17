@@ -1331,7 +1331,12 @@ export class AgentRegistry {
     async syncBranchContext(
         targetId: string,
     ): Promise<{
-        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly status:
+            | "synced"
+            | "unchanged"
+            | "busy"
+            | "stale_cursor"
+            | "not_found";
         readonly turns: number;
     }> {
         const target = this.agents.get(targetId);
@@ -1367,8 +1372,11 @@ export class AgentRegistry {
         const cursorIndex = cursor === null
             ? -1
             : completed.findIndex((entry) => entry.id === cursor);
+        // A rewind of the primary drops the synced entry from its history, so
+        // the branch can never catch up again. It is a distinct outcome: the
+        // caller drops this branch instead of retrying against a dead cursor.
         if (cursor !== null && cursorIndex < 0) {
-            return { status: "not_found", turns: 0 };
+            return { status: "stale_cursor", turns: 0 };
         }
         const additions = completed.slice(cursorIndex + 1);
         const turns = additions.filter((entry) =>

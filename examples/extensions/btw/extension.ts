@@ -31,11 +31,20 @@ export function activateClient(vera: any): void {
         );
     }
 
+    /**
+     * Returns `"stale"` when the primary was rewound past the point this
+     * branch synced from: the branch can never catch up, so the caller drops
+     * it and branches again. The lost side conversation is the accepted cost
+     * of `/btw` being ephemeral.
+     */
     async function syncPrimaryContext(
         agentId: string,
         signal: AbortSignal,
-    ): Promise<void> {
+    ): Promise<"ok" | "stale"> {
         const synced = await vera.agents.syncContext(agentId, signal);
+        if (synced.outcome === "stale_cursor") {
+            return "stale";
+        }
         if (synced.outcome === "busy") {
             throw new Error("BTW context can sync only between turns");
         }
@@ -45,6 +54,7 @@ export function activateClient(vera: any): void {
         if (synced.outcome === "failed") {
             throw new Error("BTW primary context could not be synchronized");
         }
+        return "ok";
     }
 
     async function openAgent(
@@ -55,11 +65,12 @@ export function activateClient(vera: any): void {
         inheritPrimary: boolean,
         workspace: string,
         signal: AbortSignal,
+        fresh: boolean = false,
     ): Promise<string> {
-        let agentId = agents[mention]
+        let agentId = fresh ? undefined : (agents[mention]
             ?? vera.agents.visible().find((agent: { mention?: string }) =>
                 agent.mention === mention
-            )?.agentId;
+            )?.agentId);
         if (agentId === undefined) {
             const primaryAgentId = inheritPrimary
                 ? vera.agents.visible().find(
@@ -129,7 +140,7 @@ export function activateClient(vera: any): void {
                 imagePaths: readonly string[];
                 signal: AbortSignal;
             }) {
-                const target = await openAgent(
+                let target = await openAgent(
                     name,
                     mention,
                     approvalMode,
@@ -140,8 +151,21 @@ export function activateClient(vera: any): void {
                 );
                 const text = argumentsText.trim();
                 if (text.length > 0 || imagePaths.length > 0) {
-                    if (inheritPrimary) {
-                        await syncPrimaryContext(target, signal);
+                    if (
+                        inheritPrimary
+                        && await syncPrimaryContext(target, signal) === "stale"
+                    ) {
+                        agents[mention] = undefined;
+                        target = await openAgent(
+                            name,
+                            mention,
+                            approvalMode,
+                            attachmentLifetime,
+                            inheritPrimary,
+                            workspace,
+                            signal,
+                            true,
+                        );
                     }
                     await vera.agents.message({
                         agentId: target,
@@ -165,11 +189,28 @@ export function activateClient(vera: any): void {
     // Bare prompts sent while the hosted surface is open bypass slash-command
     // dispatch. Synchronize here too so focusing the sidekick and continuing
     // the conversation has the same semantics as `/btw message`.
-    vera.messages.intercept(async (_message: unknown, signal: AbortSignal) => {
-        const target = agents[SIDEKICK];
-        if (target !== undefined) await syncPrimaryContext(target, signal);
-        return { kind: "pass" };
-    });
+    vera.messages.intercept(
+        async (message: { workspace: string }, signal: AbortSignal) => {
+            const target = agents[SIDEKICK];
+            if (
+                target !== undefined
+                && await syncPrimaryContext(target, signal) === "stale"
+            ) {
+                agents[SIDEKICK] = undefined;
+                await openAgent(
+                    "btw",
+                    SIDEKICK,
+                    "readonly",
+                    "ephemeral",
+                    true,
+                    message.workspace,
+                    signal,
+                    true,
+                );
+            }
+            return { kind: "pass" };
+        },
+    );
     register(
         "pair",
         PEER,

@@ -28,7 +28,13 @@ export interface ConfiguredTuiAgentClients {
         signal?: AbortSignal,
     ): Promise<TuiAgentClient>;
     sync(agentId: string, signal?: AbortSignal): Promise<{
-        readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+        readonly outcome:
+            | "synced"
+            | "unchanged"
+            | "busy"
+            | "stale_cursor"
+            | "not_found"
+            | "failed";
         readonly turns: number;
     }>;
     clone(agentId: string): Promise<TuiAgentClient>;

@@ -965,6 +965,88 @@ test("a branch synchronizes completed source turns before its next request", asy
     }
 });
 
+test("a rewound primary leaves its branch with a stale cursor", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-stale-cursor-"));
+    let answers = 0;
+    const registry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                answers += 1;
+                return new FauxAdapter([
+                    textResponse(`answer ${answers}`),
+                ]).stream(request);
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const primary = await registry.create({
+            id: "primary",
+            workspace: root,
+            sessionPath: join(root, "primary.jsonl"),
+        });
+        const primaryClient = primary.attach();
+        await runPrompt(primaryClient, "P1");
+
+        const side = await registry.branch({
+            sourceId: "primary",
+            position: "at",
+            id: "side",
+            sessionPath: join(root, "side.jsonl"),
+        });
+        side!.agent.attach();
+
+        await runPrompt(primaryClient, "P2", false);
+        expect(await registry.syncBranchContext("side")).toEqual({
+            status: "synced",
+            turns: 1,
+        });
+
+        primaryClient.send({ type: "list_timeline", requestId: "list-1" });
+        let timeline = await primaryClient.receive();
+        while (timeline.type !== "timeline") {
+            timeline = await primaryClient.receive();
+        }
+        const boundaryId = timeline.boundaries.at(-1)?.userMessageId;
+        if (boundaryId === undefined) {
+            throw new Error("Expected a timeline boundary");
+        }
+        primaryClient.send({
+            type: "preview_timeline_action",
+            requestId: "preview-1",
+            boundaryId,
+            action: "rewind_conversation",
+        });
+        let preview = await primaryClient.receive();
+        while (preview.type !== "timeline_action_preview") {
+            preview = await primaryClient.receive();
+        }
+        primaryClient.send({
+            type: "apply_timeline_action",
+            requestId: "apply-1",
+            planId: preview.plan.planId,
+        });
+        while ((await primaryClient.receive()).type !== "timeline_action_applied") {
+            // The rewind publishes a fresh history before it reports success.
+        }
+
+        await runPrompt(primaryClient, "P3", false);
+
+        // The synced entry is gone from the primary's active line, so the
+        // branch can never catch up. That is not a missing agent: the caller
+        // has to drop this branch and take a fresh one.
+        expect(await registry.syncBranchContext("side")).toEqual({
+            status: "stale_cursor",
+            turns: 0,
+        });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a resident agent applies new model settings at the next turn", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-settings-"));
     const faux = new FauxAdapter([

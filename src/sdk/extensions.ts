@@ -179,7 +179,13 @@ export interface VeraClientAgentMessageRequest {
 }
 
 export interface VeraClientAgentContextSyncResult {
-    readonly outcome: "synced" | "unchanged" | "busy" | "not_found" | "failed";
+    readonly outcome:
+        | "synced"
+        | "unchanged"
+        | "busy"
+        | "stale_cursor"
+        | "not_found"
+        | "failed";
     readonly turns: number;
 }
 
