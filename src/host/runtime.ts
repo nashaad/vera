@@ -1072,7 +1072,7 @@ export function ollamaContextWindow(value: unknown): number | undefined {
     return lengths[0];
 }
 
-function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
+export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
     const catalog = catalogModels(config);
     return catalog.some((item) =>
         item.provider === config.provider && item.model === config.model
@@ -1087,10 +1087,23 @@ function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {
 }
 
 function catalogModels(config: VeraConfig): SuggestedModel[] {
-    return [...availableModels()].filter((model) =>
+    const models = [...availableModels()].filter((model) =>
         model.provider !== "openrouter"
         || hasOpenRouterCredential(config)
     );
+    const seen = new Set(models.map((model) => `${model.provider}/${model.model}`));
+    for (const configured of config.models ?? []) {
+        const id = `${configured.provider}/${configured.model}`;
+        if (seen.has(id)) continue;
+        seen.add(id);
+        models.push({
+            provider: configured.provider,
+            model: configured.model,
+            label: configured.name,
+            description: "configured model",
+        });
+    }
+    return models;
 }
 
 export interface DeepSeekDiscoveryOptions {
