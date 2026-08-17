@@ -176,6 +176,12 @@ const IMAGE_ATTACHMENT_LIMITS = {
 } as const;
 const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
+/** How many peer messages may chain before the host stops waking anyone. */
+const MAX_PEER_HOP = 3;
+/** Peer wakes one session may take inside {@link PEER_WAKE_WINDOW_MS}. */
+const MAX_PEER_WAKES_PER_WINDOW = 6;
+const PEER_WAKE_WINDOW_MS = 60_000;
+
 export interface RegisteredAgentSummary {
     readonly id: string;
     /**
@@ -848,6 +854,14 @@ interface RegisteredAgentEntry {
     /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
+    /**
+     * How many peer messages deep the work in this session is. A message sent
+     * while running at hop N arrives at hop N + 1, and a client prompt puts it
+     * back to zero, so two agents cannot keep each other awake forever.
+     */
+    peerHop: number;
+    /** Epoch milliseconds of the peer messages that woke this session. */
+    peerWakes: number[];
     run: Promise<void>;
     completed: boolean;
     pendingAsyncTurns: number;
@@ -1834,6 +1848,11 @@ export class AgentRegistry {
             address: effect.to,
             payload: JSON.stringify(payload),
         });
+        const delivery = await this.wakeForPeerMessage(
+            caller,
+            recipient,
+            stored.seq,
+        );
         return {
             kind: "output",
             output: JSON.stringify({
@@ -1841,12 +1860,70 @@ export class AgentRegistry {
                 stored: true,
                 recipient_live: recipientLive,
                 notice,
+                delivered: delivery.delivered,
+                ...(delivery.delivered
+                    ? {}
+                    : { not_delivered_because: delivery.reason }),
                 ...(effect.replyTo === undefined
                     ? {}
                     : { reply_to_applied: replyTo !== undefined }),
             }),
             isError: false,
         };
+    }
+
+    /**
+     * Wakes the recipient for a peer message it just received, when the host
+     * is willing to. Three things can hold it back, and the sender is told
+     * which: a session that does not run tools on its own does not get its
+     * turn taken by another agent either, a chain of messages may only run so
+     * deep, and no session may be woken faster than a person could follow.
+     *
+     * What arrives is a notice, never the message. The text stays in the inbox
+     * until the recipient reads it there, so the read receipt keeps meaning
+     * what it says.
+     */
+    private async wakeForPeerMessage(
+        caller: RegisteredAgentEntry,
+        recipient: RegisteredAgentEntry,
+        seq: number,
+    ): Promise<{
+        readonly delivered: boolean;
+        readonly reason?: "approval_mode" | "hop_limit" | "rate_limit" | "unavailable";
+    }> {
+        if (
+            recipient.approvalMode !== "auto"
+            && recipient.approvalMode !== "full_access"
+        ) {
+            return { delivered: false, reason: "approval_mode" };
+        }
+        const hop = caller.peerHop + 1;
+        if (hop > MAX_PEER_HOP) {
+            return { delivered: false, reason: "hop_limit" };
+        }
+        const now = Date.now();
+        const wakes = recipient.peerWakes.filter(
+            (at) => now - at < PEER_WAKE_WINDOW_MS,
+        );
+        if (wakes.length >= MAX_PEER_WAKES_PER_WINDOW) {
+            recipient.peerWakes = wakes;
+            return { delivered: false, reason: "rate_limit" };
+        }
+        try {
+            await recordDeliveryAndNotify(recipient.store, recipient.events, {
+                id: `peer:${caller.store.header.id}:${seq}`,
+                sourceAgentId: caller.store.header.id,
+                content: `Peer ${caller.store.header.id} sent message ${seq}. `
+                    + "Read it with agent_inbox.",
+                kind: "peer",
+            });
+            recipient.agent.triggerDeliveryTurn();
+        } catch {
+            return { delivered: false, reason: "unavailable" };
+        }
+        recipient.peerWakes = [...wakes, now];
+        recipient.peerHop = hop;
+        return { delivered: true };
     }
 
     private async applyAgentInboxEffect(
@@ -2245,6 +2322,12 @@ export class AgentRegistry {
             attachImage: (path, signal) =>
                 imageAttachments.attachFile(path, signal),
             onRunStateChanged: () => this.notifyRosterChanged(),
+            onClientPrompt: () => {
+                const woken = this.agents.get(store.header.id);
+                if (woken !== undefined) {
+                    woken.peerHop = 0;
+                }
+            },
             ...(clientPromptRefusal === undefined
                 ? {}
                 : { clientPromptRefusal }),
@@ -2283,6 +2366,8 @@ export class AgentRegistry {
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
             run: Promise.resolve(),
             completed: false,
+            peerHop: 0,
+            peerWakes: [],
             pendingAsyncTurns: 0,
             pendingCompletionDeliveries: 0,
             completionSequence: 0,

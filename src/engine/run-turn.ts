@@ -1501,7 +1501,7 @@ async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
 
 function deliveryMessage(delivery: SessionDeliveryEntry): UserMessage {
     const kind = delivery.kind ?? "completion";
-    const body = kind === "attention"
+    const body = kind === "attention" || kind === "peer"
         ? [
             "<agent_message>",
             `  <delivery_id>${escapeXml(delivery.id)}</delivery_id>`,

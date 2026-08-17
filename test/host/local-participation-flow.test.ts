@@ -58,10 +58,12 @@ test("two native sessions send, explicitly read, receipt, reply, and read again"
             textResponse("reply sent"),
         ],
     ];
+    // Ask mode: neither side may take the other's turn, so every message in
+    // this flow is read because the agent went looking for it.
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
         model: "faux/test",
-        approvalMode: "auto",
+        approvalMode: "ask",
         inboxDelivery: coordinator,
     });
     const leftPath = join(root, "left.jsonl");
@@ -99,6 +101,8 @@ test("two native sessions send, explicitly read, receipt, reply, and read again"
             stored: true,
             recipient_live: true,
             notice: "ui",
+            delivered: false,
+            not_delivered_because: "approval_mode",
         });
         expect(await eventTypes(rightEvents)).not.toContain("turn_started");
         expect(await eventTypes(rightEvents)).not.toContain("delivery_turn_started");
@@ -437,6 +441,227 @@ test("agent_inbox cannot skip an earlier outside-harness message", async () => {
         inbox.close();
     }
 });
+
+test("an auto-mode recipient is woken with a notice, never the message", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-wake-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+    );
+    const secret = "the parser race is in the tokenizer";
+    const scripts: AssistantMessage[][] = [
+        [
+            toolCall("send", "agent_send", { to: "right", text: secret }),
+            textResponse("sent"),
+        ],
+        [textResponse("noted")],
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+    const rightPath = join(root, "right.jsonl");
+
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+        });
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: rightPath,
+        });
+        const leftAttachment = left.attach();
+        const rightAttachment = right.attach();
+        await leftAttachment.receive();
+        await rightAttachment.receive();
+
+        await runPrompt(leftAttachment, "Tell the right participant.");
+        expect(JSON.parse(await lastToolResult(leftPath))).toMatchObject({
+            message_id: 1,
+            stored: true,
+            delivered: true,
+        });
+        const notification = await receiveType(
+            rightAttachment,
+            "task_notification",
+        );
+        expect(notification).toMatchObject({
+            kind: "peer",
+            sourceAgentId: "left",
+        });
+        await receiveType(rightAttachment, "turn_finished");
+
+        const transcript = await readFile(rightPath, "utf8");
+        expect(transcript).toContain("<agent_message>");
+        expect(transcript).toContain("agent_inbox");
+        expect(transcript).not.toContain(secret);
+        expect(inbox.offsetOf({ nodeId: "node-a", label: "right" })).toBe(0);
+
+        leftAttachment.detach();
+        rightAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("a chain of peer messages stops waking sessions at the hop cap", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-hop-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+    );
+    const pingPong = (to: string): AssistantMessage[] => [
+        toolCall(`${to}-1`, "agent_send", { to, text: "ping" }),
+        textResponse("sent"),
+        toolCall(`${to}-2`, "agent_send", { to, text: "ping" }),
+        textResponse("sent"),
+        toolCall(`${to}-3`, "agent_send", { to, text: "ping" }),
+        textResponse("sent"),
+    ];
+    const scripts = [pingPong("right"), pingPong("left")];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+    const rightPath = join(root, "right.jsonl");
+
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+        });
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: rightPath,
+        });
+        const leftAttachment = left.attach();
+        const rightAttachment = right.attach();
+        await leftAttachment.receive();
+        await rightAttachment.receive();
+
+        await runPrompt(leftAttachment, "Start the exchange.");
+        const blocked = await waitForToolResult(
+            rightPath,
+            (value) => value.not_delivered_because === "hop_limit",
+        );
+        expect(blocked).toMatchObject({
+            stored: true,
+            delivered: false,
+            not_delivered_because: "hop_limit",
+        });
+
+        leftAttachment.detach();
+        rightAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("a session cannot be woken faster than the rate limit allows", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-rate-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+    );
+    const burst: AssistantMessage[] = [];
+    for (let index = 1; index <= 7; index += 1) {
+        burst.push(
+            toolCall(`send-${index}`, "agent_send", {
+                to: "right",
+                text: `ping ${index}`,
+            }),
+        );
+    }
+    burst.push(textResponse("sent the burst"));
+    const scripts = [burst, []];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    const leftPath = join(root, "left.jsonl");
+
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: leftPath,
+        });
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: join(root, "right.jsonl"),
+        });
+        const leftAttachment = left.attach();
+        const rightAttachment = right.attach();
+        await leftAttachment.receive();
+        await rightAttachment.receive();
+
+        await runPrompt(leftAttachment, "Send a burst.");
+        const results = (await SessionStore.open(leftPath)).messages()
+            .filter((entry) => entry.role === "tool_result")
+            .map((entry) =>
+                JSON.parse(
+                    entry.role === "tool_result"
+                        ? entry.content[0]?.text ?? "{}"
+                        : "{}",
+                ) as Record<string, unknown>
+            );
+        expect(results.filter((value) => value.delivered === true))
+            .toHaveLength(6);
+        expect(results.at(-1)).toMatchObject({
+            stored: true,
+            delivered: false,
+            not_delivered_because: "rate_limit",
+        });
+
+        leftAttachment.detach();
+        rightAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+async function waitForToolResult(
+    sessionPath: string,
+    matches: (value: Record<string, unknown>) => boolean,
+): Promise<Record<string, unknown>> {
+    const deadline = Date.now() + 5_000;
+    while (Date.now() < deadline) {
+        const results = (await SessionStore.open(sessionPath)).messages()
+            .filter((entry) => entry.role === "tool_result");
+        for (const entry of results) {
+            if (entry.role !== "tool_result") continue;
+            let value: Record<string, unknown>;
+            try {
+                value = JSON.parse(entry.content[0]?.text ?? "{}");
+            } catch {
+                continue;
+            }
+            if (matches(value)) return value;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+    throw new Error(`No matching tool result in ${sessionPath}`);
+}
 
  async function runPrompt(
     attachment: AgentAttachment,

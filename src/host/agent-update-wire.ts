@@ -159,7 +159,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.content === "string"
                 && (update.kind === undefined
                     || update.kind === "attention"
-                    || update.kind === "completion")
+                    || update.kind === "completion"
+                    || update.kind === "peer")
             ? value as AgentUpdate
             : undefined;
     }

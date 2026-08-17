@@ -52,6 +52,12 @@ export interface ResidentAgentOptions {
      * becoming steering.
      */
     readonly clientPromptRefusal?: string;
+    /**
+     * Called when an attached client prompts this session. The host uses it to
+     * forget how deep a chain of peer messages had reached: a person typing is
+     * a new starting point, not another hop.
+     */
+    readonly onClientPrompt?: () => void;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
         path: string,
@@ -199,6 +205,9 @@ export class ResidentAgent {
                         reason: this.options.clientPromptRefusal,
                     });
                     return;
+                }
+                if (command.type === "prompt") {
+                    this.options.onClientPrompt?.();
                 }
                 if (command.type === "attach_image") {
                     void this.attachImage(

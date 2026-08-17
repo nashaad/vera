@@ -393,9 +393,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         };
     }
     if (update.type === "task_notification") {
+        // A peer message shows who wrote, and nothing else. The body and the
+        // instructions that come with it are for the agent reading its inbox,
+        // and dumping them here reads as noise the user cannot act on.
         return appendEntry(state, {
             kind: "notification",
-            text: update.kind === "attention"
+            text: update.kind === "peer"
+                ? `Message from ${update.sourceAgentId}`
+                : update.kind === "attention"
                 ? `Async subagent ${update.sourceAgentId} needs attention:\n${update.content}`
                 : `Async subagent ${update.sourceAgentId}:\n${update.content}`,
         });

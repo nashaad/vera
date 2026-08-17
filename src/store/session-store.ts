@@ -65,7 +65,7 @@ export interface PendingDelivery {
     readonly id: string;
     readonly sourceAgentId: string;
     readonly content: string;
-    readonly kind?: "attention" | "completion";
+    readonly kind?: "attention" | "completion" | "peer";
 }
 
 export interface SessionDeliveryEntry extends PendingDelivery {
@@ -1025,8 +1025,8 @@ export class SessionStore {
     private async commitDelivery(delivery: PendingDelivery): Promise<boolean> {
         const id = nonEmpty(delivery.id, "delivery ID");
         const kind = delivery.kind ?? "completion";
-        if (kind !== "attention" && kind !== "completion") {
-            throw new Error("delivery kind must be attention or completion");
+        if (kind !== "attention" && kind !== "completion" && kind !== "peer") {
+            throw new Error("delivery kind must be attention, completion or peer");
         }
         if (typeof delivery.content !== "string") {
             throw new Error("delivery content must be a string");
@@ -1051,7 +1051,7 @@ export class SessionStore {
             id,
             sourceAgentId,
             content: delivery.content,
-            ...(kind === "attention" ? { kind } : {}),
+            ...(kind === "completion" ? {} : { kind }),
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
@@ -1767,6 +1767,7 @@ function parseDeliveryEntry(
             value.kind !== undefined
             && value.kind !== "attention"
             && value.kind !== "completion"
+            && value.kind !== "peer"
         )
         || typeof value.timestamp !== "string"
     ) {
