@@ -5,7 +5,10 @@ import {
     type VeraModelAssignmentsConfig,
 } from "../../src/config/model-assignments.ts";
 import type { VeraModelCatalogConfig } from "../../src/config/model-catalog.ts";
-import { tuiModelAssignmentOptions } from "../../clients/tui/settings-picker.ts";
+import {
+    MODEL_ASSIGNMENT_BROWSE_VALUE,
+    tuiModelAssignmentOptions,
+} from "../../clients/tui/settings-picker.ts";
 
 const CATALOG: VeraModelCatalogConfig = {
     models: [
@@ -120,7 +123,7 @@ test("a assignments row resolves to its assignment, not to a model", async () =>
             option.label.startsWith("extra")
         ),
         query: "",
-        tab: "assigned" as const,
+        tab: "defaults" as const,
         assignmentOptions: options,
     };
     const selection = handleTuiSettingsPickerKey(pane, { name: "return" })
@@ -139,7 +142,7 @@ test("the session row moves to the list that changes it", async () => {
         options,
         selectedIndex: 0,
         query: "",
-        tab: "assigned" as const,
+        tab: "defaults" as const,
         assignmentOptions: options,
     };
     const transition = handleTuiSettingsPickerKey(pane, { name: "return" });
@@ -162,10 +165,14 @@ test("a assignment is bound only from the pool", async () => {
             levels: [],
         },
     ]);
-    expect(pane.options.map((option) => option.label)).toEqual([
+    expect(pane.options.slice(0, 2).map((option) => option.label)).toEqual([
         "Not set",
         "big",
     ]);
+    // The way out is the last row, so a model that is not kept yet is a step
+    // away rather than absent with no reason given. Asserted by value, since
+    // the label is built from the collection tab's own name.
+    expect(pane.options.at(-1)?.value).toBe(MODEL_ASSIGNMENT_BROWSE_VALUE);
     // The intent names the pane, and the unset row says what unset does.
     expect(pane.title).toBe("Assign a model to extra");
     expect(pane.subtitle).toBe("more thinking");
@@ -187,7 +194,7 @@ test("assignment rows survive a snapshot from the host", async () => {
         assignmentOptions: options,
     };
     const synced = syncTuiModelPicker(opened, { model: "session-model" });
-    expect(switchedModelTab(synced, "assigned").options.length).toBe(
+    expect(switchedModelTab(synced, "defaults").options.length).toBe(
         options.length,
     );
 });

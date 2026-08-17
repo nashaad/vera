@@ -245,7 +245,7 @@ export interface TuiProviderRow {
  * first section, above the providers, and the same models keep their rows in
  * the provider sections below.
  */
-export type TuiModelPickerTab = "all" | "pool" | "assigned" | "help";
+export type TuiModelPickerTab = "all" | "pool" | "defaults" | "help";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -283,7 +283,7 @@ export interface TuiSettingsPickerState {
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
     /**
-     * The Assigned tab's rows, which are jobs rather than models and so cannot be
+     * The Defaults tab's rows, which are jobs rather than models and so cannot be
      * filtered out of `allOptions` the way the other tabs are. Set by the
      * client after the pane opens, since assignments come from config and the
      * pool rather than from the settings snapshot the pane is built from.
@@ -387,7 +387,9 @@ export type TuiSettingsPickerSelection =
         readonly provider?: string;
         readonly model?: string;
     }
-    /** An Assigned-tab row was chosen: open the model list for it. */
+    /** The Defaults pane was left for the collection defaults are chosen from. */
+    | { readonly kind: "model_assignment_browse" }
+    /** A Defaults-tab row was chosen: open the model list for it. */
     | { readonly kind: "model_assignment_open"; readonly assignment: ModelAssignmentId }
     | {
         readonly kind: "model_assignment";
@@ -937,6 +939,15 @@ export function tuiPickerAfterSelection(
 export const REVIEWER_CLEAR_VALUE = "\u0000clear";
 
 /**
+ * The row that leaves this pane for the collection a default is chosen from.
+ *
+ * A default can only name a model the user has already kept, so a user whose
+ * model is not kept yet finds a list that does not contain it and no reason
+ * given. The row says the reason and goes to the place that fixes it.
+ */
+export const MODEL_ASSIGNMENT_BROWSE_VALUE = "\u0000browse";
+
+/**
  * Slot rows share a list with model rows, so their values are namespaced to
  * keep an assignment named like a model from ever being mistaken for one.
  */
@@ -956,7 +967,7 @@ function modelAssignmentOfValue(value: string): ModelAssignmentId | undefined {
 }
 
 /**
- * The Assigned tab's rows: the session's own model first, because it is the
+ * The Defaults tab's rows: the session's own model first, because it is the
  * model most of Vera's work runs on and a tab claiming to show everything that
  * would omit it is lying, then one row per assignment.
  *
@@ -1211,7 +1222,12 @@ export function startTuiModelAssignmentPicker(
         label: "Not set",
         description: unsetAssignmentMeans(assignment),
     };
-    const options = [clearRow, ...rows];
+    const browseRow: TuiSettingsPickerOption = {
+        value: MODEL_ASSIGNMENT_BROWSE_VALUE,
+        label: `Keep another model on ${modelTabLabel("pool")}\u2026`,
+        description: `a default can only name a model on ${modelTabLabel("pool")}`,
+    };
+    const options = [clearRow, ...rows, browseRow];
     return {
         kind: "model_assignment",
         // What this assignment is for belongs to the pane, not to one of its
@@ -1727,7 +1743,7 @@ export function handleTuiSettingsPickerKey(
         const cycle: readonly TuiModelPickerTab[] = [
             "pool",
             "all",
-            "assigned",
+            "defaults",
             "help",
         ];
         const at = cycle.indexOf(state.tab ?? "all");
@@ -2118,7 +2134,7 @@ export function tuiPickerViewportRows(
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
-    return tab === "pool" || tab === "assigned";
+    return tab === "pool" || tab === "defaults";
 }
 
 /** The narrowest the detail column is worth drawing at. */
@@ -2222,7 +2238,7 @@ function stackedDetailLines(
     width: number,
 ): readonly (readonly TextChunk[])[] {
     if (
-        state.kind !== "model" || state.tab !== "assigned"
+        state.kind !== "model" || state.tab !== "defaults"
         || option?.detailFacts === undefined
     ) {
         return [];
@@ -2765,12 +2781,20 @@ function modelStripStop(
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Pool"],
     ["all", "All models"],
-    ["assigned", "Assigned"],
+    ["defaults", "Defaults"],
     ["help", "Help"],
 ];
 
+/**
+ * The name a tab is drawn with, read from the one list that names them, so
+ * prose that points at a tab cannot drift from the tab's own label.
+ */
+function modelTabLabel(tab: TuiModelPickerTab): string {
+    return MODEL_TAB_LABELS.find(([id]) => id === tab)?.[1] ?? tab;
+}
+
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
-    assigned: "Every job Vera runs a model for, and what it is assigned.",
+    defaults: "Every job Vera runs a model for, and the model it runs.",
     pool: "Your curated shortlist. ^s adds or removes models here.",
     all: "Everything your providers offer. Enter runs one without pooling it.",
     help: "What the marks and the keys in this pane mean.",
@@ -2983,11 +3007,11 @@ function pickerFooterText(
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
     }
-    // The Assigned tab's rows are jobs, and a two-word state cell cannot say
+    // The Defaults tab's rows are jobs, and a two-word state cell cannot say
     // what to do about one, so the cursor's row explains itself down here.
-    // The Assigned tab's rows explain themselves in the column beside the
+    // The Defaults tab's rows explain themselves in the column beside the
     // list, so the footer stays keys.
-    if (state.kind === "model" && state.tab === "assigned") {
+    if (state.kind === "model" && state.tab === "defaults") {
         return fittedHints([
             { text: "\u2191\u2193 move", drop: 0 },
             { text: "\u23ce change", drop: 0 },
@@ -3297,7 +3321,7 @@ function optionMeta(
     // An assignment row's whole content is what runs it, so the column carries
     // rather than the facts a model row shows.
     // The status word is the row's whole right-hand column, at any width.
-    if (state.tab === "assigned") {
+    if (state.tab === "defaults") {
         return option.description === ""
             ? undefined
             : [{ text: option.description }];
@@ -3709,7 +3733,7 @@ function modelTabRows(
     if (tab === "help") {
         return [];
     }
-    if (tab === "assigned") {
+    if (tab === "defaults") {
         return assignmentOptions;
     }
     if (tab === "all") {
@@ -3755,10 +3779,10 @@ function modelPickerOptions(
     const matched = query === "" ? rows : matching(rows, query);
     // Neither list is sectioned by provider: the pool is one short list, and a
     // assignment row is a job, which has no provider to be grouped under.
-    if ((tab === "pool" || tab === "assigned") && query === "") {
+    if ((tab === "pool" || tab === "defaults") && query === "") {
         return matched;
     }
-    if (tab === "assigned") {
+    if (tab === "defaults") {
         return matched;
     }
     return sectionedOptions(
@@ -3950,7 +3974,7 @@ function pickerSelection(
 ): TuiSettingsPickerSelection {
     const kind = state.kind;
     if (kind === "model") {
-        // The Assigned tab shares the model pane but its rows are jobs, so
+        // The Defaults tab shares the model pane but its rows are jobs, so
         // they resolve to the assignment rather than to a model.
         const assignment = modelAssignmentOfValue(option.value);
         if (assignment !== undefined) {
@@ -4013,6 +4037,9 @@ function pickerSelection(
         return { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
     if (kind === "model_assignment") {
+        if (value === MODEL_ASSIGNMENT_BROWSE_VALUE) {
+            return { kind: "model_assignment_browse" };
+        }
         // The clear row carries no model, which is what unbinds the slot.
         return {
             kind,
