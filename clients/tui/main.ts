@@ -8401,6 +8401,7 @@ export async function startTui(
                 state,
                 `theme changed: ${selectedTheme}`,
                 "soft",
+                "theme",
             );
         }
         renderState();

@@ -4,6 +4,7 @@ import { TextAttributes, type StyledText } from "@opentui/core";
 import {
     appendTuiExtensionBlock,
     appendTuiDiagnostic,
+    appendTuiNotice,
     appendTuiThought,
     toggleTuiThinking,
     toggleTuiToolDetails,
@@ -1438,6 +1439,36 @@ test("TUI spacing accepts separate message and activity-group gaps", () => {
     expect(entries.map((_, index) =>
         tuiEntryMarginTop(entries, index, { message: 2, toolGroup: 1 })
     )).toEqual([0, 2, 0, 1, 2]);
+});
+
+test("notices of one weight sit flush, and a receipt replaces its own", () => {
+    const entries: readonly TuiTranscriptEntry[] = [
+        { kind: "user", text: "theme" },
+        { kind: "notice", text: "theme changed: synthwave", tone: "soft" },
+        { kind: "notice", text: "theme changed: system", tone: "soft" },
+        { kind: "notice", text: "sign in at https://example.test" },
+        { kind: "notice", text: "connected", tone: "soft" },
+    ];
+
+    expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
+        .toEqual([0, 1, 0, 1, 1]);
+
+    let state = createTuiState();
+    for (const theme of ["synthwave", "system", "midnight-blue"]) {
+        state = appendTuiNotice(state, `theme changed: ${theme}`, "soft", "theme");
+    }
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "theme changed: midnight-blue",
+        tone: "soft",
+        supersedes: "theme",
+    }]);
+
+    // A receipt only overwrites the one directly above it: anything in between
+    // means the earlier receipt is history the user watched happen.
+    state = appendTuiNotice(state, "connected", "soft");
+    state = appendTuiNotice(state, "theme changed: synthwave", "soft", "theme");
+    expect(state.entries).toHaveLength(3);
 });
 
 test("diagnostics stay compact while a fatal keeps a blank row above", () => {
