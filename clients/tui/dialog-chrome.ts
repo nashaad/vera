@@ -50,8 +50,6 @@ export const DIALOG_CARD_PADDING = 4;
 export const DIALOG_BACKGROUND_Z_INDEX = 4;
 export const DIALOG_SCRIM_Z_INDEX = 10;
 export const DIALOG_CARD_Z_INDEX = 20;
-/** Foreground attenuation for conversation chrome behind an active modal. */
-export const DIALOG_BACKGROUND_OPACITY = 0.35;
 
 // Below this height an overlay cannot spare a row. The question overlay draws
 // the same line for its own height cap, so "short" means one thing in the TUI
