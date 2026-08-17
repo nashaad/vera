@@ -3184,7 +3184,7 @@ function optionMeta(
     // view. It is the one thing about a row that a provider heading cannot
     // tell you, and choosing it is a dead end.
     if (option.unavailable === true) {
-        separated({ text: "unavailable" });
+        separated({ text: "unavail" });
     }
     // Only a yes is worth a word. The question this answers is whether an
     // attachment will go through, so the mark being there is the answer and
@@ -3456,7 +3456,7 @@ function modelOptions(
         const value = providerModelKey(model.provider, model.model);
         return {
             value,
-            label: model.label,
+            label: modelRowLabel(model),
             description: model.description,
             searchText: `${model.provider} ${model.model}${
                 poolEntry.get(value)?.entry.poolName === undefined
@@ -3494,7 +3494,7 @@ function modelOptions(
         const value = providerModelKey(entry.provider, entry.model);
         return runnable.some((option) => option.value === value) ? [] : [{
             value,
-            label: entry.poolName ?? entry.label,
+            label: entry.poolName ?? modelRowLabel(entry),
             description: "not available right now",
             searchText: `${entry.provider} ${entry.model}${
                 entry.poolName === undefined ? "" : ` ${entry.poolName}`
@@ -3515,6 +3515,26 @@ function modelOptions(
         left.provider.localeCompare(right.provider)
             || left.label.localeCompare(right.label)
     );
+}
+
+/**
+ * Marketplace catalogs sometimes prefix a model name with its maker even
+ * though the model id already carries that namespace. The picker has a
+ * separate provider column, so lead with the name users are scanning for.
+ */
+function modelRowLabel(
+    model: Pick<SuggestedModel, "model" | "label">,
+): string {
+    const maker = model.model.split("/", 1)[0];
+    if (maker === undefined || !model.model.includes("/")) {
+        return model.label;
+    }
+    const colon = model.label.indexOf(":");
+    if (colon === -1) return model.label;
+    const prefix = model.label.slice(0, colon);
+    return prefix.localeCompare(maker, undefined, { sensitivity: "base" }) === 0
+        ? model.label.slice(prefix.length + 1).trimStart()
+        : model.label;
 }
 
 /**
