@@ -35,6 +35,7 @@ import {
     tuiProviderFormFields,
     tuiProviderFormRows,
     type TuiProviderFormState,
+    startTuiPoolVerifyScopePicker,
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     startTuiModelAssignmentPicker,
 } from "../../clients/tui/settings-picker.ts";
@@ -2755,4 +2756,35 @@ test("the defaults pane offers a way to the collection it draws from", () => {
         { name: "enter" },
     ).selection;
     expect(selected).toEqual({ kind: "model_assignment_browse" });
+});
+
+test("the sweep key asks how much of the kept collection it covers", () => {
+    const transition = handleTuiSettingsPickerKey(
+        {
+            kind: "model",
+            allOptions: [],
+            options: [],
+            selectedIndex: 0,
+            query: "",
+            tab: "pool",
+        },
+        { name: "v", ctrl: true },
+    );
+    expect(transition.handled).toBe(true);
+    expect(transition.poolVerifySweep).toBe(true);
+});
+
+test("the sweep scope pane offers the cheaper answer first", () => {
+    const pane = startTuiPoolVerifyScopePicker(2, 9);
+    expect(pane.options.map((option) => option.label)).toEqual([
+        "Only the ones never probed (2)",
+        "Everything you keep (9)",
+    ]);
+    // Nothing left unprobed makes the first row a no-op, so the cursor starts
+    // on the one that would actually do something.
+    expect(pane.selectedIndex).toBe(0);
+    expect(startTuiPoolVerifyScopePicker(0, 9).selectedIndex).toBe(1);
+    expect(
+        handleTuiSettingsPickerKey(pane, { name: "enter" }).selection,
+    ).toEqual({ kind: "pool_verify_scope", onlyUnverified: true });
 });
