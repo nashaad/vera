@@ -16,9 +16,9 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera doctor", description: "Check resident hosts, Vera process health, and providers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
-    { usage: "vera pool list", description: "List pooled models" },
-    { usage: "vera pool add <provider/model> [--verify]", description: "Add a model to the pool" },
-    { usage: "vera pool remove <pool name|id>", description: "Remove a model from the pool" },
+    { usage: "vera shortlist list", description: "List the models you keep" },
+    { usage: "vera shortlist add <provider/model> [--verify]", description: "Pin a model to your shortlist" },
+    { usage: "vera shortlist remove <name|id>", description: "Remove a model from your shortlist" },
     { usage: "vera schedule add ID --cron EXPR --to ID --text TEXT [--timezone TZ]", description: "Create a cron schedule" },
     { usage: "vera schedule list", description: "List schedules" },
     { usage: "vera schedule show ID", description: "Inspect a schedule and its runs" },
@@ -41,7 +41,7 @@ export function renderCliHelp(): string {
         + "  --bare                    Skip model extensions, project guidance, memory, and scratch prompt state\n"
         + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
-        + "  --model <pool name|id>    Run on one pooled model, by name or provider/model\n"
+        + "  --model <name|id>         Run on one shortlisted model, by name or provider/model\n"
         + "  --effort <level>          Run at one reasoning effort\n";
 }
 

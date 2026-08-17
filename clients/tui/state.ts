@@ -752,14 +752,14 @@ export function tuiAdmissionStepLines(
 }
 
 /**
- * The pool as prose, one line per entry: what it is, at what effort, whether a
+ * The shortlist as prose, one line per entry: what it is, at what effort, whether a
  * probe has confirmed it, and where it runs.
  */
 export function tuiPoolListing(
     pooled: readonly PooledModel[] | undefined,
 ): string {
     if (pooled === undefined || pooled.length === 0) {
-        return "Your pool is empty. ^s in the model picker adds a model to it.";
+        return "Your shortlist is empty. ^s in the model picker pins a model to it.";
     }
     const lines = pooled.map((entry) => {
         const effort = entry.defaultLevel ?? "provider default";
@@ -772,7 +772,7 @@ export function tuiPoolListing(
             : `${entry.poolName} (${entry.model})`;
         return `  ${named} · ${effort} · ${state} · ${entry.provider}${availability}`;
     });
-    return [`Pool (${pooled.length}):`, ...lines].join("\n");
+    return [`Shortlist (${pooled.length}):`, ...lines].join("\n");
 }
 
 /**
@@ -785,18 +785,18 @@ export function tuiAdmissionVerdictLine(
 ): string | undefined {
     if (admission.verdict === "added") {
         return admission.verifiedLevels === undefined
-            ? "Added to the pool"
-            : `Added to the pool (${admission.verifiedLevels} ${
+            ? "Pinned to your shortlist"
+            : `Pinned to your shortlist (${admission.verifiedLevels} ${
                 admission.verifiedLevels === 1 ? "level" : "levels"
             } verified)`;
     }
     if (admission.verdict === "incompatible") {
-        return `Not added, incompatible${
+        return `Not pinned, incompatible${
             admission.reason === undefined ? "" : `: ${admission.reason}`
         }`;
     }
     if (admission.verdict === "pool_write_refused") {
-        return `Not added, the pool file was left untouched${
+        return `Not pinned, your shortlist was left untouched${
             admission.reason === undefined ? "" : `: ${admission.reason}`
         }`;
     }
@@ -1182,6 +1182,18 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "notice" || entry.kind === "review") {
+        if (entry.diagnostic === undefined && entry.admission !== undefined) {
+            // The heading keeps a colour so a probe block can be found on the
+            // way back up; the steps under it are Vera narrating itself and
+            // sit back. One block, two weights, rather than a wall of one.
+            const [heading, ...steps] = entry.text.split("\n");
+            return new StyledText([
+                fg(TUI_NOTICE)(heading ?? ""),
+                ...(steps.length === 0
+                    ? []
+                    : [fg(TUI_MUTED)(`\n${steps.join("\n")}`)]),
+            ]);
+        }
         if (entry.diagnostic === undefined) {
             const color = entry.tone === "soft"
                 ? TUI_MUTED

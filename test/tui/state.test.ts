@@ -847,7 +847,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         verdict: "added",
         seq: 1,
     });
-    expect(state.entries[0]?.text).toContain("Added to the pool");
+    expect(state.entries[0]?.text).toContain("Pinned to your shortlist");
 
     state = applyAgentUpdate(state, {
         type: "model_settings",
@@ -871,7 +871,7 @@ test("an added verdict waits for the snapshot to report verified levels", () => 
         seq: 2,
     });
     expect(state.entries[0]?.text)
-        .toContain("Added to the pool (2 levels verified)");
+        .toContain("Pinned to your shortlist (2 levels verified)");
     // Settled rather than dropped: the dialog showing this verdict still
     // renders from the record.
     expect(state.admission?.settled).toBe(true);
@@ -891,7 +891,7 @@ test("failed admission verdicts carry the reason and invite a retry", () => {
     });
     expect((state.entries[0] as { diagnostic?: { message: string } })
         ?.diagnostic?.message)
-        .toContain("Not added, incompatible: no tool calling");
+        .toContain("Not pinned, incompatible: no tool calling");
     expect(state.admission?.settled).toBe(true);
 
     let retried = beginTuiAdmission(createTuiState(), "pool-2", "or/glm");
@@ -2080,12 +2080,12 @@ test("the pool listing names the effort, the probe state and the provider", () =
             levels: [],
         },
     ])).toBe([
-        "Pool (2):",
+        "Shortlist (2):",
         "  z-ai/glm-5.2 · medium · verified · openrouter",
         "  gpt-5.6-sol · provider default · unverified · openai-codex,"
             + " unavailable right now",
     ].join("\n"));
-    expect(tuiPoolListing([])).toContain("Your pool is empty");
+    expect(tuiPoolListing([])).toContain("Your shortlist is empty");
 });
 
 test("a named pool entry lists by its name, with the model id behind it", () => {

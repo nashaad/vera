@@ -328,14 +328,14 @@ export async function runCli(
         return code;
     }
 
-    if (args.length === 2 && args[0] === "pool" && args[1] === "list") {
+    if (args.length === 2 && args[0] === "shortlist" && args[1] === "list") {
         output.write(await (dependencies.listPool ?? listPool)(process.cwd()));
         return 0;
     }
 
     if (
         (args.length === 3 || (args.length === 4 && args[3] === "--verify"))
-        && args[0] === "pool"
+        && args[0] === "shortlist"
         && args[1] === "add"
         && typeof args[2] === "string"
         && args[2].length > 0
@@ -355,14 +355,14 @@ export async function runCli(
             return 1;
         }
         output.write(
-            `${ref} added to the pool${verify ? " (verified)" : " (unverified)"}.\n`,
+            `${ref} pinned to your shortlist${verify ? " (verified)" : " (unverified)"}.\n`,
         );
         return 0;
     }
 
     if (
         args.length === 3
-        && args[0] === "pool"
+        && args[0] === "shortlist"
         && args[1] === "remove"
         && typeof args[2] === "string"
         && args[2].length > 0
@@ -372,7 +372,7 @@ export async function runCli(
             process.cwd(),
             ref,
         );
-        output.write(`${ref} removed from the pool.\n`);
+        output.write(`${ref} removed from your shortlist.\n`);
         return 0;
     }
 
@@ -690,10 +690,10 @@ async function removePoolRef(workspace: string, ref: string): Promise<void> {
     const pool = loadPoolFile({ projectRoot: workspace }).merged;
     const id = resolvePoolRef(pool, ref);
     if (id === undefined) {
-        throw new Error(`Model "${ref}" is not in the pool`);
+        throw new Error(`Model "${ref}" is not on your shortlist`);
     }
     if (readUserPoolFile().models[id] === undefined) {
-        throw new Error(`Model "${ref}" is not in the user pool file`);
+        throw new Error(`Model "${ref}" is not in your own shortlist file`);
     }
     removePoolModel(id);
 }
@@ -716,7 +716,7 @@ function poolAdmissionFailure(
     outcome: PoolAdmissionOutcome,
 ): string {
     const reason = outcome.reason === undefined ? "" : `: ${outcome.reason}`;
-    return `${ref} was not added to the pool (${outcome.verdict})${reason}\n`;
+    return `${ref} was not pinned (${outcome.verdict})${reason}\n`;
 }
 
 async function runConfiguredTui(

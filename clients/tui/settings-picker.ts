@@ -2873,7 +2873,7 @@ function modelTabLabel(tab: TuiModelPickerTab): string {
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Models you keep close. ^s adds or removes models here.",
+    pool: "Models you keep close. ^s pins one here, or unpins it.",
     all: "Everything your providers offer. Enter runs one without adding it.",
     help: "What the marks and the keys in this pane mean.",
 };
@@ -3137,7 +3137,7 @@ function pickerFooterText(
             : isPooled(state, selected)
                 // Removal is the same key saying the opposite thing, which is
                 // the one hint the table cannot hold for us.
-                ? tuiKeyHint("toggle_pooled").replace("add", "remove")
+                ? tuiKeyHint("toggle_pooled").replace("pin", "unpin")
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
             // The movement entry carries the half-page keys rather than taking

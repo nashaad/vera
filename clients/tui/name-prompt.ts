@@ -192,7 +192,7 @@ export function createTuiNamePromptView(
         update(state): void {
             title.content = state.target.kind === "session"
                 ? "Rename conversation"
-                : "Name pooled model";
+                : "Name shortlisted model";
             hint.content = state.label;
             entry.content = tuiNamePromptEntryLine(state.value);
         },
