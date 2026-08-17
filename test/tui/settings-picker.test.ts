@@ -1173,7 +1173,7 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     expect(frame).toContain("All models");
     expect(frame).toContain("Pool");
     expect(frame).toMatch(
-        /Pool \(2\).*All models \(2\).*\n.*Your curated shortlist\..*\n.*GPT-5\.6-Sol/,
+        /Pool \(2\).*All models \(2\).*\n.*Your curated shortlist\..*\n\s*\n.*GPT-5\.6-Sol/,
     );
 });
 
@@ -1221,7 +1221,7 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     view.update(state);
     try {
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(24);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(23);
         expect(view.box.height).toBeLessThan(40);
     } finally {
         setup.renderer.destroy();
