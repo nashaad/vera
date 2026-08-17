@@ -51,10 +51,14 @@ function modelValues(state: ReturnType<typeof picker>): readonly string[] {
 }
 
 test("the model pane opens without the folded rows", () => {
-    const values = modelValues(picker());
+    const state = picker();
+    const values = modelValues(state);
     expect(values).toContain("anthropic/claude-opus-5");
     expect(values).not.toContain("anthropic/claude-opus-5:batch");
     expect(values).not.toContain("openai/gpt-3.5-turbo");
+    expect(state.options.find((option) =>
+        option.model === "anthropic/claude-opus-5"
+    )?.label).toBe("Claude Opus 5");
 });
 
 test("the reveal key adds the folded rows and takes them away again", () => {

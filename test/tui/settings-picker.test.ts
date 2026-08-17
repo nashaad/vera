@@ -581,7 +581,7 @@ const availableModels = [
     {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
-        label: "GLM-5.2",
+        label: "Z-AI: GLM-5.2",
         description: "fast fallback model",
     },
 ] as const;
@@ -1166,7 +1166,10 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     // there, so only the user takes it out. It says so in the column that would
     // otherwise carry its provider, since that is the one fact about the row a
     // heading could never carry.
-    expect(frame).toContain("unavailable");
+    expect(frame).toContain("unavail");
+    expect(frame).not.toContain("unavailable");
+    expect(frame).toContain("GLM-5.2");
+    expect(frame).not.toContain("Z-AI: GLM-5.2");
     expect(frame).toContain("All models");
     expect(frame).toContain("Pool");
     expect(frame).toContain("Your curated shortlist.");
