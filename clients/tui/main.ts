@@ -44,7 +44,7 @@ import type {
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
-import type { UserMessage } from "../../src/model/types.ts";
+import type { ModelReasoningEffort, UserMessage } from "../../src/model/types.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -6127,6 +6127,7 @@ export async function startTui(
             assignmentOptions: tuiModelAssignmentOptions(
                 currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
+                targetState.modelSettings?.reasoningEffort,
             ),
         };
         // Auth changes happen outside the host's original model snapshot.
@@ -6183,6 +6184,7 @@ export async function startTui(
             readonly assignment: ModelAssignmentId;
             readonly provider?: string;
             readonly model?: string;
+            readonly reasoningEffort?: ModelReasoningEffort;
         },
     ): void {
         const unbinding = selection.model === undefined;
@@ -6198,6 +6200,9 @@ export async function startTui(
                             ),
                             provider: selection.provider as VeraProviderId,
                             model: selection.model as string,
+                            ...(selection.reasoningEffort === undefined
+                                ? {}
+                                : { reasoning_effort: selection.reasoningEffort }),
                         }],
                     },
                 },
@@ -6216,7 +6221,11 @@ export async function startTui(
             state,
             unbinding
                 ? `${selection.assignment} unset. New sessions use it.`
-                : `${selection.assignment} → ${selection.model}. New sessions use it.`,
+                : `${selection.assignment} → ${
+                    selection.reasoningEffort === undefined
+                        ? selection.model
+                        : `${selection.model} (${selection.reasoningEffort})`
+                }. New sessions use it.`,
         );
     }
 
@@ -7097,6 +7106,36 @@ export async function startTui(
                 );
                 return;
             } else if (selection.kind === "model_assignment") {
+                // A model with levels asks for one before the write, the same
+                // chain the session's own model goes through: an assignment
+                // that named a model but no level would run the provider's
+                // default rather than the one the user meant.
+                const assignedLevels = selection.model === undefined
+                    || selection.reasoningEffort !== undefined
+                    ? undefined
+                    : modelLevelFacts(selection.provider, selection.model);
+                if (
+                    assignedLevels !== undefined
+                    && assignedLevels.levels.length > 0
+                    && previousPicker?.kind === "model_assignment"
+                ) {
+                    settingsPicker = startTuiReasoningPicker(
+                        assignedLevels.levels,
+                        assignedLevels.defaultLevel,
+                        undefined,
+                        {
+                            provider: selection.provider as string,
+                            model: selection.model as string,
+                            modelPaneState: previousPicker,
+                            assignment: selection.assignment,
+                        },
+                    );
+                    composer.blur();
+                    settingsPickerView.update(settingsPicker);
+                    settingsPickerView.box.focus();
+                    renderState();
+                    return;
+                }
                 bindModelAssignmentFromPicker(selection);
             } else {
                 beginSessionResume(selection.sessionPath, selection.sessionId);

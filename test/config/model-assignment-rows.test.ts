@@ -229,3 +229,46 @@ test("no row can leave its work unrun", () => {
         ]);
     }
 });
+
+test("the session row names its level the way every other row does", () => {
+    const withLevel = tuiModelAssignmentOptions(rows({}), "session-model", "high");
+    expect(withLevel[0]?.detailFacts).toEqual([["Runs", "session-model (high)"]]);
+    const withoutLevel = tuiModelAssignmentOptions(rows({}), "session-model");
+    expect(withoutLevel[0]?.detailFacts).toEqual([["Runs", "session-model"]]);
+});
+
+test("a level pane chained from an assignment binds the assignment", async () => {
+    const { handleTuiSettingsPickerKey, startTuiReasoningPicker } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const modelPane = {
+        kind: "model_assignment" as const,
+        allOptions: [],
+        options: [],
+        selectedIndex: 0,
+        query: "" as const,
+        modelAssignment: "extra" as const,
+    };
+    const pane = startTuiReasoningPicker(
+        [{ id: "high", label: "high" }],
+        "high",
+        undefined,
+        {
+            provider: "openrouter",
+            model: "big-1",
+            modelPaneState: modelPane,
+            assignment: "extra",
+        },
+    );
+    expect(handleTuiSettingsPickerKey(pane, { name: "return" }).selection)
+        .toEqual({
+            kind: "model_assignment",
+            assignment: "extra",
+            provider: "openrouter",
+            model: "big-1",
+            reasoningEffort: "high",
+        });
+    // Escape still steps back to the pane the chain started on.
+    expect(handleTuiSettingsPickerKey(pane, { name: "escape" }).state?.kind)
+        .toBe("model_assignment");
+});
