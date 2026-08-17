@@ -2128,9 +2128,13 @@ export async function startTui(
                 change?.target === pane.client
                 && update.updatedDefaults === true
             ) {
+                // A settings change the user just made reports itself and
+                // then gets out of the way: it is a receipt, not something
+                // the transcript needs read.
                 pane.state.state = appendTuiNotice(
                     pane.state.state,
                     defaultModelChangeNotice(change.patch, update.settings),
+                    "soft",
                 );
             }
             if (
@@ -4876,6 +4880,7 @@ export async function startTui(
                                 change.patch,
                                 update.settings,
                             ),
+                            "soft",
                         );
                     } else if (
                         change?.target === client
@@ -6226,6 +6231,7 @@ export async function startTui(
                         ? selection.model
                         : `${selection.model} (${selection.reasoningEffort})`
                 }. New sessions use it.`,
+            "soft",
         );
     }
 
@@ -7714,7 +7720,11 @@ export async function startTui(
         sidebar.setTheme(sidebarTheme(), markdownStyle);
 
         if (announce) {
-            state = appendTuiNotice(state, `theme changed: ${selectedTheme}`);
+            state = appendTuiNotice(
+                state,
+                `theme changed: ${selectedTheme}`,
+                "soft",
+            );
         }
         renderState();
     }
