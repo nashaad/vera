@@ -16,6 +16,8 @@ import {
     type UserMessage,
 } from "../model/types.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
+import type { SessionModelSettingsResult } from "./inbound-command-router.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { sanitizeDiagnosticText } from "../model/diagnostic-text.ts";
 import {
@@ -277,6 +279,17 @@ export interface RunHeadlessLoopOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly updateSessionModelSettings?: (
+        patch: ModelSettingsPatch,
+    ) => Promise<SessionModelSettingsResult | undefined>;
+    readonly readSessionModelSettingsHistory?: () => readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
+    readonly updateSessionPermissionMode?: (
+        mode: ApprovalMode,
+    ) => Promise<ApprovalMode | undefined>;
     readonly poolAdd?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -491,6 +504,23 @@ export async function runHeadlessLoop(
         ...(options.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: options.updateModelSettings }),
+        ...(options.updateSessionModelSettings === undefined
+            ? {}
+            : {
+                updateSessionModelSettings: options.updateSessionModelSettings,
+            }),
+        ...(options.readSessionModelSettingsHistory === undefined
+            ? {}
+            : {
+                readSessionModelSettingsHistory:
+                    options.readSessionModelSettingsHistory,
+            }),
+        ...(options.updateSessionPermissionMode === undefined
+            ? {}
+            : {
+                updateSessionPermissionMode:
+                    options.updateSessionPermissionMode,
+            }),
         ...(options.poolAdd === undefined
             ? {}
             : { poolAdd: options.poolAdd }),

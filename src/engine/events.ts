@@ -28,6 +28,7 @@ import type {
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
@@ -160,6 +161,26 @@ export interface ModelSettingsChangedEvent {
     readonly pending: boolean;
     /** Present only when this edit also became the new-session default. */
     readonly updatedDefaults?: true;
+    /** Present when the edit changed this session alone. Never with the above. */
+    readonly updatedSession?: true;
+    /** Where the session's setting now says it came from. */
+    readonly origin?: SessionSettingOrigin;
+}
+
+/**
+ * The session's model settings over time, in reply to a read.
+ *
+ * The dial strip's recents come from here. Derived rather than remembered:
+ * there is no client-side list that could disagree with the session file.
+ */
+export interface SessionModelSettingsHistoryEvent {
+    readonly type: "session_model_settings_history";
+    readonly requestId: string;
+    readonly entries: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
 }
 
 export interface ModelSettingsRejectedEvent {
@@ -436,6 +457,7 @@ export type EngineEvent =
     | UiResponseEvent
     | UiRequestClosedEvent
     | ModelSettingsChangedEvent
+    | SessionModelSettingsHistoryEvent
     | ModelSettingsRejectedEvent
     | PoolAdmissionProgressEvent
     | PoolAdmissionResultEvent

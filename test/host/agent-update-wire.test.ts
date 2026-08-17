@@ -642,12 +642,20 @@ test("host wire carries a model substitution and rejects an unknown scope", () =
         using: "medium",
         reason: "unsupported value for reasoning_effort",
         scope: "effort" as const,
+        source: "turn" as const,
         seq: 3,
     };
     expect(parseAgentUpdate(substitution)).toEqual(substitution);
     expect(parseAgentUpdate({ ...substitution, scope: "guess" }))
         .toBeUndefined();
     expect(parseAgentUpdate({ ...substitution, reason: 7 })).toBeUndefined();
+    // The source is what tells a parent-turn fallback from a spawn's own, and
+    // the status line reads only the former. An update without it is refused
+    // rather than guessed at.
+    const { source: _dropped, ...sourceless } = substitution;
+    expect(parseAgentUpdate(sourceless)).toBeUndefined();
+    expect(parseAgentUpdate({ ...substitution, source: "elsewhere" }))
+        .toBeUndefined();
 });
 
 test("host wire replays a substitution entry inside a history update", () => {

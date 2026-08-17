@@ -35,6 +35,13 @@ import type {
     PermissionPreference,
 } from "./permissions.ts";
 import type { ModelMessage } from "../model/types.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
+
+/** A session-scoped model write, and how it was classified. */
+export interface SessionModelSettingsResult {
+    readonly settings: ModelTurnSettings;
+    readonly origin: SessionSettingOrigin;
+}
 
 /**
  * What the approval is actually agreeing to. The line is the last thing read
@@ -172,6 +179,21 @@ export interface InboundCommandRouterOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Writes the session's own model settings and answers with the origin the
+     * write was classified as. Undefined means the patch did not apply.
+     */
+    readonly updateSessionModelSettings?: (
+        patch: ModelSettingsPatch,
+    ) => Promise<SessionModelSettingsResult | undefined>;
+    readonly readSessionModelSettingsHistory?: () => readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
+    readonly updateSessionPermissionMode?: (
+        mode: ApprovalMode,
+    ) => Promise<ApprovalMode | undefined>;
     /**
      * Admits one model and returns the verdict, with the settings snapshot as
      * it stands afterwards so the reply carries the new pool. `verify` asks
@@ -602,6 +624,27 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "update_session_model_settings") {
+                    await this.updateSessionModelSettings(
+                        command.requestId,
+                        command.patch,
+                    );
+                    continue;
+                }
+
+                if (command.type === "get_session_model_settings_history") {
+                    this.sendSessionModelSettingsHistory(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "update_session_permission_mode") {
+                    await this.updateSessionPermissionMode(
+                        command.requestId,
+                        command.mode,
+                    );
+                    continue;
+                }
+
                 if (command.type === "pool_add") {
                     await this.poolAdd(command.requestId, {
                         provider: command.provider,
@@ -761,6 +804,87 @@ export class InboundCommandRouter {
                 ? { updatedDefaults: true as const }
                 : {}),
         });
+    }
+
+    /**
+     * Dial the session, leaving the host's defaults where they are.
+     *
+     * The reply never carries `updatedDefaults`. A client that saw both flags
+     * on one update would have no way to tell which of the two writes actually
+     * happened, and "the strip quietly rewrote my defaults" is precisely the
+     * outcome this command exists to make impossible.
+     */
+    private async updateSessionModelSettings(
+        requestId: string,
+        patch: ModelSettingsPatch,
+    ): Promise<void> {
+        if (this.options.updateSessionModelSettings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        let result: SessionModelSettingsResult | undefined;
+        try {
+            result = await this.options.updateSessionModelSettings(patch);
+        } catch {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        if (result === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(result.settings),
+            pending: this.hasPendingTurn(),
+            updatedSession: true,
+            origin: result.origin,
+        });
+    }
+
+    private sendSessionModelSettingsHistory(requestId: string): void {
+        this.events.emit({
+            type: "session_model_settings_history",
+            requestId,
+            entries: this.options.readSessionModelSettingsHistory?.() ?? [],
+        });
+    }
+
+    private async updateSessionPermissionMode(
+        requestId: string,
+        mode: ApprovalMode,
+    ): Promise<void> {
+        if (this.options.updateSessionPermissionMode === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        const result = await this.options.updateSessionPermissionMode(mode);
+        if (result === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "invalid",
+            });
+            return;
+        }
+        this.sendPermissions(requestId);
     }
 
     private async poolAdd(

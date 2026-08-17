@@ -1094,6 +1094,7 @@ test("model fallback stays selected through the tool loop", async () => {
         requested: "primary",
         using: "backup",
         scope: "model",
+        source: "turn",
         seq: 3,
     });
     // The fallback re-measures: the same request now runs against the backup
@@ -3184,6 +3185,7 @@ test("a refused reasoning effort coarsens the turn and is written down", async (
         using: "medium",
         reason: "Unsupported value for reasoning_effort: high",
         scope: "effort",
+        source: "turn",
         seq: 3,
     });
     await turn;
@@ -3264,6 +3266,7 @@ test("a level the pool already forbids never reaches the provider", async () => 
         using: "medium",
         reason: "the provider rejected it on 2026-08-06",
         scope: "effort",
+        source: "turn",
         seq: 2,
     });
     await turn;

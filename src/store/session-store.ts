@@ -79,16 +79,29 @@ export interface SessionDeliveryReceiptEntry {
     readonly timestamp: string;
 }
 
+/**
+ * Where a session-scoped setting came from.
+ *
+ * `agent-default` means nobody dialed it: the setting is whatever the worn
+ * agent's default was at the time, and it follows the next agent you wear.
+ * `user` means it was chosen deliberately and survives an agent switch. A
+ * record written before origins existed reads as `user`, because a legacy
+ * session's setting was always the user's own.
+ */
+export type SessionSettingOrigin = "agent-default" | "user";
+
 export interface SessionModelSettingsEntry {
     readonly type: "model_settings";
     readonly timestamp: string;
     readonly settings: ModelTurnSettings;
+    readonly origin?: SessionSettingOrigin;
 }
 
 export interface SessionPermissionsEntry {
     readonly type: "permissions";
     readonly timestamp: string;
     readonly mode: ApprovalMode;
+    readonly origin?: SessionSettingOrigin;
 }
 
 export interface SessionHarnessMessageEntry {
@@ -469,8 +482,41 @@ export class SessionStore {
         return settings === undefined ? undefined : { ...settings };
     }
 
+    /**
+     * Where the model settings in force came from, or nothing when the session
+     * has never written any.
+     *
+     * No record at all is not the same as a `user` record: a session nobody
+     * dialed follows the worn agent's default, and the status line says so by
+     * leaving the override marker off.
+     */
+    modelSettingsOrigin(): SessionSettingOrigin | undefined {
+        const entry = this.modelSettingsEntries.at(-1);
+        return entry === undefined ? undefined : entry.origin ?? "user";
+    }
+
+    /**
+     * Every model setting this session has held, oldest first.
+     *
+     * Read-only, and the reason the dial strip has no store of its own:
+     * recents are derived from what the session did rather than remembered
+     * beside it, so they cannot drift from it.
+     */
+    modelSettingsHistory(): readonly SessionModelSettingsEntry[] {
+        return this.modelSettingsEntries.map((entry) => ({
+            ...entry,
+            settings: { ...entry.settings },
+            origin: entry.origin ?? "user",
+        }));
+    }
+
     approvalMode(): ApprovalMode | undefined {
         return this.permissionsEntries.at(-1)?.mode;
+    }
+
+    approvalModeOrigin(): SessionSettingOrigin | undefined {
+        const entry = this.permissionsEntries.at(-1);
+        return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
     name(): string | undefined {
@@ -527,10 +573,11 @@ export class SessionStore {
 
     appendModelSettings(
         settings: ModelTurnSettings,
+        origin?: SessionSettingOrigin,
     ): Promise<SessionModelSettingsEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitModelSettings(settings);
+            return this.commitModelSettings(settings, origin);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -539,10 +586,13 @@ export class SessionStore {
         return result;
     }
 
-    appendApprovalMode(mode: ApprovalMode): Promise<SessionPermissionsEntry> {
+    appendApprovalMode(
+        mode: ApprovalMode,
+        origin?: SessionSettingOrigin,
+    ): Promise<SessionPermissionsEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
-            return this.commitApprovalMode(mode);
+            return this.commitApprovalMode(mode, origin);
         });
         this.pendingAppend = result.then(
             () => undefined,
@@ -785,6 +835,7 @@ export class SessionStore {
 
     private async commitModelSettings(
         settings: ModelTurnSettings,
+        origin?: SessionSettingOrigin,
     ): Promise<SessionModelSettingsEntry> {
         if (!isModelTurnSettings(settings)) {
             throw new Error("Cannot append invalid model settings");
@@ -801,6 +852,7 @@ export class SessionStore {
                     ? {}
                     : { reasoningEffort: settings.reasoningEffort }),
             },
+            ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
         this.modelSettingsEntries.push(entry);
@@ -829,6 +881,7 @@ export class SessionStore {
 
     private async commitApprovalMode(
         mode: ApprovalMode,
+        origin?: SessionSettingOrigin,
     ): Promise<SessionPermissionsEntry> {
         if (!isApprovalMode(mode)) {
             throw new Error("Cannot append invalid permissions mode");
@@ -837,6 +890,7 @@ export class SessionStore {
             type: "permissions",
             timestamp: this.now().toISOString(),
             mode,
+            ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
         this.permissionsEntries.push(entry);
@@ -1815,6 +1869,9 @@ function parseModelSettingsEntry(
     return {
         type: "model_settings",
         timestamp: value.timestamp,
+        ...(isSessionSettingOrigin(value.origin)
+            ? { origin: value.origin }
+            : {}),
         settings: {
             // Entries written before providers were persisted have no
             // provider. They stay absent here so the resume path can tell
@@ -1847,7 +1904,17 @@ function parsePermissionsEntry(
         type: "permissions",
         timestamp: value.timestamp,
         mode,
+        ...(isSessionSettingOrigin(value.origin)
+            ? { origin: value.origin }
+            : {}),
     };
+}
+
+/** A written origin, refused rather than guessed when it is anything else. */
+function isSessionSettingOrigin(
+    value: unknown,
+): value is SessionSettingOrigin {
+    return value === "agent-default" || value === "user";
 }
 
 function parseSessionNameEntry(
