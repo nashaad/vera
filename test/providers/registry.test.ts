@@ -4,6 +4,7 @@ import { createConfiguredModelAdapter } from "../../src/providers/configured.ts"
 import { VERA_PROVIDER_IDS, type VeraConfig } from "../../src/config.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
+    configuredProviders,
     findProvider,
     isProviderConnected,
     PROVIDERS,
@@ -100,4 +101,24 @@ test("the registry, the adapter map, and the config ids list the same providers"
             )
         ).not.toThrow(`Unknown provider ${id}`);
     }
+});
+
+test("a shipped provider's row shows the endpoint the config points it at", () => {
+    const shipped = configuredProviders(undefined)
+        .find((provider) => provider.id === "cerebras");
+    expect(shipped?.baseUrl).toBe("https://api.cerebras.ai/v1");
+
+    const moved = configuredProviders({
+        provider_endpoints: { cerebras: "https://eu.cerebras.example/v1" },
+    }).find((provider) => provider.id === "cerebras");
+    expect(moved?.baseUrl).toBe("https://eu.cerebras.example/v1");
+});
+
+test("every shipped provider names a host, and only Codex fixes it", () => {
+    for (const provider of PROVIDERS) {
+        expect(provider.baseUrl).toBeString();
+    }
+    expect(PROVIDERS.filter((provider) => provider.fixedEndpoint === true)
+        .map((provider) => provider.id))
+        .toEqual(["openai-codex"]);
 });

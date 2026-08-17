@@ -11,6 +11,7 @@ import {
 } from "./openai-compatible.ts";
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
+import { providerEndpointUrl } from "./endpoint-url.ts";
 
 export interface CustomAnthropicAdapterOptions {
     readonly provider: string;
@@ -31,7 +32,7 @@ export function createCustomAnthropicAdapter(
     options: CustomAnthropicAdapterOptions,
 ): ModelAdapter {
     const fetchImplementation = options.fetch ?? globalThis.fetch;
-    const endpoint = `${options.baseUrl.replace(/\/+$/, "")}/messages`;
+    const endpoint = providerEndpointUrl(options.baseUrl, "/messages");
     const profile: ChatProviderProfile = {
         provider: options.provider,
         api: "anthropic-messages",

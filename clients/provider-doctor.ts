@@ -125,7 +125,7 @@ const BUILT_IN_ENDPOINTS: Readonly<Record<string, ProviderEndpoint>> = {
 };
 
 export async function diagnoseProviders(
-    config: Pick<VeraConfig, "providers"> | undefined,
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
     options: ProviderDoctorOptions = {},
 ): Promise<ProviderDoctorReport> {
     const env = options.env ?? process.env;
@@ -143,14 +143,14 @@ export async function diagnoseProviders(
 
 async function diagnoseProvider(
     descriptor: ProviderDescriptor,
-    config: Pick<VeraConfig, "providers"> | undefined,
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
     captures: ReadonlyMap<string, readonly ProviderCaptureSummary[]>,
     options: ProviderDoctorOptions,
     env: Readonly<Record<string, string | undefined>>,
 ): Promise<ProviderDiagnosis> {
     const custom = config?.providers?.[descriptor.id];
     const endpoint = custom === undefined
-        ? endpointFor(descriptor.id, env)
+        ? endpointFor(descriptor.id, env, config?.provider_endpoints?.[descriptor.id])
         : { baseUrl: custom.base_url, protocol: custom.protocol };
     const envVarPresent = descriptor.envVar !== undefined
         && Boolean(env[descriptor.envVar]);
@@ -206,16 +206,27 @@ function resolveCredentialSource(
 function endpointFor(
     id: string,
     env: Readonly<Record<string, string | undefined>>,
+    moved?: string,
 ): ProviderEndpoint | undefined {
     if (id === "ollama") {
-        const host = env.OLLAMA_HOST ?? "http://127.0.0.1:11434";
+        const host = (moved ?? env.OLLAMA_HOST ?? "http://127.0.0.1:11434")
+            .replace(/\/+$/, "")
+            .replace(/\/v1$/, "");
         const withScheme = /^https?:\/\//.test(host) ? host : `http://${host}`;
         return {
             baseUrl: `${withScheme.replace(/\/+$/, "")}/v1`,
             protocol: "openai-chat",
         };
     }
-    return BUILT_IN_ENDPOINTS[id];
+    const shipped = BUILT_IN_ENDPOINTS[id];
+    if (moved === undefined || shipped === undefined) {
+        return shipped;
+    }
+    // The report probes where Vera would actually send the turn. A probe
+    // against the shipped host would carry the credential somewhere the user
+    // has said not to go, and report a reachable provider that is not the one
+    // in use.
+    return { baseUrl: moved, protocol: shipped.protocol };
 }
 
 /**

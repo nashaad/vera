@@ -35,6 +35,8 @@ export type { SendOpenRouterChat } from "./openrouter-wire.ts";
 
 export interface OpenRouterAdapterOptions {
     readonly apiKey: string;
+    /** Where requests go, when it is not the endpoint the SDK ships with. */
+    readonly baseUrl?: string;
     readonly reasoningMappings?: ReadonlyMap<
         string,
         ReadonlyMap<ModelReasoningEffort, string>
@@ -275,6 +277,7 @@ export function createOpenRouterAdapter(
     const client = new OpenRouter({
         apiKey: options.apiKey,
         retryConfig: { strategy: "none" },
+        ...(options.baseUrl === undefined ? {} : { serverURL: options.baseUrl }),
     });
 
     return new OpenRouterAdapter(async (request, signal) => {

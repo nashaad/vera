@@ -197,6 +197,8 @@ export interface TuiSettingsPickerOption {
     readonly action?: boolean;
     /** A provider row whose endpoint the user wrote and can rewrite. */
     readonly declared?: boolean;
+    /** A provider row whose endpoint the user may point elsewhere. */
+    readonly endpointEditable?: boolean;
     /**
      * Set only on a section header row: the section it opens and closes. A
      * header is an option like any other so the cursor reaches it by moving,
@@ -227,6 +229,11 @@ export interface TuiProviderRow {
     readonly connected: boolean;
     /** Declared in config rather than shipped, so its endpoint is editable. */
     readonly declared?: boolean;
+    /**
+     * Whether the endpoint is the user's to move. False for a provider reached
+     * over a flow bound to the account it signs in to.
+     */
+    readonly endpointEditable?: boolean;
 }
 
 /**
@@ -448,6 +455,8 @@ export interface TuiSettingsPickerTransition {
     readonly declareProvider?: boolean;
     /** A declared provider whose form should reopen filled in. */
     readonly editProvider?: string;
+    /** A shipped provider whose endpoint the user wants to move. */
+    readonly editEndpoint?: string;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -814,6 +823,9 @@ export function startTuiProviderPicker(
         group: provider.group,
         connected: provider.connected,
         ...(provider.declared === true ? { declared: true } : {}),
+        ...(provider.endpointEditable === true
+            ? { endpointEditable: true }
+            : {}),
     }));
     const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
@@ -1752,6 +1764,18 @@ export function handleTuiSettingsPickerKey(
         && tuiBindingId("model_picker", key) === "declare_provider"
     ) {
         return { state, handled: true, declareProvider: true };
+    }
+    if (
+        state.kind === "provider"
+        && tuiBindingId("model_picker", key) === "edit_endpoint"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected?.endpointEditable !== true) {
+            return unchanged(state, true);
+        }
+        return selected.declared === true
+            ? { state, handled: true, editProvider: selected.value }
+            : { state, handled: true, editEndpoint: selected.value };
     }
     // Forgetting is a fact about the store, so the pane only names the row and
     // the caller decides whether there is anything there to forget.
@@ -2946,6 +2970,12 @@ function pickerFooterText(
                 : []),
             // The chord and ⏎ are the same action, so the row that already
             // offers it on ⏎ does not advertise it twice.
+            // The chord and ⏎ are the same action on a declared row, which
+            // already says "⏎ edit", so only a shipped row advertises it.
+            ...(selected?.endpointEditable === true
+                && selected.declared !== true
+                ? [tuiKeyHint("edit_endpoint")]
+                : []),
             ...(selected?.action === true
                 ? []
                 : [tuiKeyHint("declare_provider")]),
@@ -4090,9 +4120,17 @@ export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
 export function tuiProviderFormFields(
     state: TuiProviderFormState,
 ): readonly TuiProviderFormFieldId[] {
+    // A provider Vera ships already owns its name and its wire protocol: the
+    // adapter is written against them. What moves is where it answers, and the
+    // key that reaches it.
+    const shown = state.shipped === true
+        ? TUI_PROVIDER_FORM_FIELDS.filter(
+            (field) => field === "base_url" || field === "api_key",
+        )
+        : TUI_PROVIDER_FORM_FIELDS;
     return state.credential === "api_key"
-        ? TUI_PROVIDER_FORM_FIELDS
-        : TUI_PROVIDER_FORM_FIELDS.filter((field) => field !== "api_key");
+        ? shown
+        : shown.filter((field) => field !== "api_key");
 }
 
 export interface TuiProviderFormState {
@@ -4113,6 +4151,12 @@ export interface TuiProviderFormState {
      * rename, which the caller settles by moving the stored credential.
      */
     readonly editing?: string;
+    /**
+     * Set when the form opened on a provider Vera ships. Its endpoint is the
+     * only thing it declares, so the rest of the fields are not shown and the
+     * submit is an override rather than a declaration.
+     */
+    readonly shipped?: boolean;
 }
 
 /** A finished form, on its way to the caller that owns the config file. */
@@ -4126,6 +4170,13 @@ export interface TuiProviderFormDeclaration {
     readonly apiKey?: string;
     /** The name this declaration replaces, when the form opened on one. */
     readonly replaces?: string;
+    /**
+     * Set when this is a shipped provider's endpoint rather than a
+     * declaration. The caller writes `provider_endpoints`, not `providers`.
+     */
+    readonly shipped?: boolean;
+    /** Set when a shipped provider goes back to the host Vera ships with. */
+    readonly restore?: boolean;
 }
 
 export interface TuiProviderFormKey {
@@ -4161,6 +4212,8 @@ export function startTuiProviderForm(
         readonly protocol: VeraProviderProtocol;
         readonly credential: VeraProviderCredential;
         readonly apiKey?: string;
+        /** A provider Vera ships, opened to move its endpoint. */
+        readonly shipped?: boolean;
     },
 ): TuiProviderFormState {
     return {
@@ -4172,6 +4225,7 @@ export function startTuiProviderForm(
         field: existing === undefined ? "id" : "base_url",
         ...(parent === undefined ? {} : { parent }),
         ...(existing === undefined ? {} : { editing: existing.id }),
+        ...(existing?.shipped === true ? { shipped: true } : {}),
     };
 }
 
@@ -4289,10 +4343,12 @@ function submittedProviderForm(
     if (/\s/.test(id)) {
         return providerFormError(state, "id", "a name cannot contain spaces");
     }
-    if (isVeraProviderId(id)) {
+    if (state.shipped !== true && isVeraProviderId(id)) {
         return providerFormError(state, "id", `${id} is a provider Vera ships`);
     }
-    if (baseUrl.length === 0) {
+    // A shipped provider always has a host to fall back to, so an emptied
+    // field is the way back to it rather than a mistake.
+    if (baseUrl.length === 0 && state.shipped !== true) {
         return providerFormError(state, "base_url", "a base URL is required");
     }
     const apiKey = state.credential === "api_key" ? state.apiKey.trim() : "";
@@ -4311,6 +4367,10 @@ function submittedProviderForm(
             ...(state.editing === undefined || state.editing === id
                 ? {}
                 : { replaces: state.editing }),
+            ...(state.shipped === true ? { shipped: true } : {}),
+            ...(state.shipped === true && baseUrl.length === 0
+                ? { restore: true }
+                : {}),
         },
     };
 }
@@ -4503,10 +4563,15 @@ export function createTuiProviderFormView(
         box,
         surface,
         update(state): void {
-            title.content = state.editing === undefined
+            title.content = state.shipped === true
+                ? `Edit ${state.id}`
+                : state.editing === undefined
                 ? "Declare a provider"
                 : "Edit provider";
-            hint.content = state.editing === undefined
+            hint.content = state.shipped === true
+                ? "Where it answers, and the key that reaches it. Empty the"
+                    + " URL to go back to the one Vera ships."
+                : state.editing === undefined
                 ? "An OpenAI- or Anthropic-compatible endpoint of your own."
                 : "Change the endpoint, the protocol, or the key you stored.";
             const lines = tuiProviderFormRows(state);

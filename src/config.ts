@@ -181,6 +181,12 @@ export interface VeraConfig {
     readonly provider: VeraProviderId;
     /** Named instances of standard model-provider wire protocols. */
     readonly providers?: Readonly<Record<string, VeraCustomProviderConfig>>;
+    /**
+     * The endpoint to use for a provider Vera ships, in place of the one it
+     * ships with. A region, a proxy, or a gateway is the same provider on a
+     * different host, so the host is the user's to set.
+     */
+    readonly provider_endpoints?: Readonly<Record<string, string>>;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly approval_mode: ApprovalMode;
@@ -299,6 +305,14 @@ export interface VeraConfigDefaultsPatch {
     readonly custom_provider?: {
         readonly id: string;
         readonly declaration: VeraCustomProviderConfig | null;
+    };
+    /**
+     * One shipped provider's endpoint, written whole. `null` restores the one
+     * Vera ships with. Only the named one is touched.
+     */
+    readonly provider_endpoint?: {
+        readonly id: string;
+        readonly url: string | null;
     };
 }
 
@@ -459,6 +473,9 @@ export function updateVeraConfigDefaults(
         ...(patch.custom_provider === undefined
             ? {}
             : { providers: patchedCustomProviders(path, current.providers, patch.custom_provider) }),
+        ...(patch.provider_endpoint === undefined
+            ? {}
+            : { provider_endpoints: patchedProviderEndpoints(path, current.provider_endpoints, patch.provider_endpoint) }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -615,6 +632,33 @@ function patchedCustomProviders(
     return { ...rest, [id]: parsed[id] };
 }
 
+/**
+ * One shipped provider's endpoint replaced or restored, the rest carried
+ * across untouched. Validated on the same terms the loader uses, so a written
+ * entry and a hand-written one cannot diverge.
+ */
+function patchedProviderEndpoints(
+    path: string,
+    current: Readonly<Record<string, string>> | undefined,
+    patch: { readonly id: string; readonly url: string | null },
+): Readonly<Record<string, string>> | undefined {
+    const id = patch.id.trim();
+    const rest = Object.fromEntries(
+        Object.entries(current ?? {}).filter(([name]) => name !== id),
+    );
+    if (patch.url === null) {
+        return Object.keys(rest).length === 0 ? undefined : rest;
+    }
+    const parsed = parseProviderEndpoints({ [id]: patch.url });
+    if (parsed === undefined || parsed[id] === undefined) {
+        throw new VeraConfigError(
+            path,
+            `provider "${patch.id}" cannot take endpoint "${patch.url}"`,
+        );
+    }
+    return { ...rest, [id]: parsed[id] };
+}
+
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;
     try {
@@ -691,6 +735,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
 
     const config = value as Record<string, unknown>;
     const providers = parseCustomProviders(config.providers);
+    const providerEndpoints = parseProviderEndpoints(config.provider_endpoints);
     const fallback = parseModelFallback(config.fallback, config.model);
     const reviewer = parseReviewer(config.reviewer, providers ?? {});
     const subagent = parseSubagentModel(config.subagent, providers ?? {});
@@ -754,6 +799,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     if (
         (config.reviewer !== undefined && reviewer === undefined)
         || providers === undefined
+        || providerEndpoints === undefined
         || (config.subagent !== undefined && subagent === undefined)
         || modelCatalog === undefined
         || permissionModes === undefined
@@ -790,6 +836,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: config.provider ?? "openrouter",
         ...(config.providers === undefined ? {} : { providers }),
+        ...(config.provider_endpoints === undefined
+            ? {}
+            : { provider_endpoints: providerEndpoints }),
         model: config.model.trim(),
         approval_mode: approvalMode,
         ...(config.reasoning_effort === undefined
@@ -915,6 +964,45 @@ function parseCustomProviders(
     }
     return parsed;
 }
+
+/**
+ * Endpoint overrides for providers Vera ships.
+ *
+ * Only a shipped provider can be overridden here, because a name Vera does not
+ * ship has no adapter to point somewhere else: that is what `providers` is
+ * for. A provider whose endpoint is not the user's to set is refused by name,
+ * so the file says the same thing the pane does.
+ */
+function parseProviderEndpoints(
+    value: unknown,
+): Readonly<Record<string, string>> | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const parsed: Record<string, string> = {};
+    for (const [rawId, rawUrl] of Object.entries(value)) {
+        const id = rawId.trim();
+        if (
+            !isVeraProviderId(id)
+            || FIXED_ENDPOINT_PROVIDERS.includes(id)
+            || typeof rawUrl !== "string"
+            || !validProviderUrl(rawUrl.trim())
+        ) {
+            return undefined;
+        }
+        parsed[id] = rawUrl.trim().replace(/\/+$/, "");
+    }
+    return parsed;
+}
+
+/**
+ * Providers reached over an endpoint that is not a host the user can move.
+ * Codex is a subscription flow bound to the account it signs in to.
+ */
+const FIXED_ENDPOINT_PROVIDERS: readonly string[] = ["openai-codex"];
 
 function validProviderUrl(value: string): boolean {
     try {

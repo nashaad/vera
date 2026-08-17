@@ -10,6 +10,7 @@ import {
     decodeOpenAiSse,
     encodeOpenAiMessage,
 } from "./ollama-openai.ts";
+import { providerEndpointUrl } from "./endpoint-url.ts";
 
 export interface CerebrasAdapterOptions {
     readonly apiKey: string;
@@ -33,9 +34,10 @@ export function createCerebrasAdapter(
     options: CerebrasAdapterOptions,
 ): ModelAdapter {
     const fetchImplementation = options.fetch ?? globalThis.fetch;
-    const endpoint = `${
-        (options.baseUrl ?? "https://api.cerebras.ai/v1").replace(/\/+$/, "")
-    }/chat/completions`;
+    const endpoint = providerEndpointUrl(
+        options.baseUrl ?? "https://api.cerebras.ai/v1",
+        "/chat/completions",
+    );
 
     return new OpenRouterAdapter(
         async (request, signal) => {

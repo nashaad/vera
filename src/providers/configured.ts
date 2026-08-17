@@ -57,15 +57,17 @@ export interface ConfiguredProviderOptions {
  */
 const ADAPTERS: Readonly<Record<
     string,
-    (options: ConfiguredProviderOptions) => ModelAdapter
+    (options: ConfiguredProviderOptions, baseUrl?: string) => ModelAdapter
 >> = {
-    cerebras: (options) => createCerebrasAdapter({
+    cerebras: (options, baseUrl) => createCerebrasAdapter({
         apiKey: requiredApiKey("cerebras", options),
+        ...(baseUrl === undefined ? {} : { baseUrl }),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
     }),
-    deepseek: (options) => createDeepSeekAdapter({
+    deepseek: (options, baseUrl) => createDeepSeekAdapter({
         apiKey: requiredApiKey("deepseek", options),
+        ...(baseUrl === undefined ? {} : { baseUrl }),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
     }),
@@ -77,13 +79,18 @@ const ADAPTERS: Readonly<Record<
             ? {}
             : { fetch: options.fetch as typeof globalThis.fetch }),
     }),
-    ollama: (options) => createOllamaAdapter({
-        host: (options.env ?? process.env).OLLAMA_HOST,
+    ollama: (options, baseUrl) => createOllamaAdapter({
+        // Ollama is reached by host, and the adapter adds the OpenAI path
+        // itself. A pasted URL that already carries it would otherwise be
+        // asked for /v1/v1.
+        host: baseUrl === undefined
+            ? (options.env ?? process.env).OLLAMA_HOST
+            : ollamaHost(baseUrl),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...(options.log === undefined ? {} : { log: options.log }),
         ...capture(options),
     }),
-    openrouter: (options) => {
+    openrouter: (options, baseUrl) => {
         const pool = createPoolEffortPool(
             options.projectRoot === undefined
                 ? {}
@@ -91,6 +98,7 @@ const ADAPTERS: Readonly<Record<
         );
         return createOpenRouterAdapter({
             apiKey: requiredApiKey("openrouter", options),
+            ...(baseUrl === undefined ? {} : { baseUrl }),
             effortLevels: options.effortLevels
                 ?? poolEffortLevels({ provider: "openrouter", pool }),
             imageSupport: options.imageSupport
@@ -99,6 +107,11 @@ const ADAPTERS: Readonly<Record<
         });
     },
 };
+
+/** A host, from whatever shape of Ollama URL the config carries. */
+function ollamaHost(value: string): string {
+    return value.replace(/\/+$/, "").replace(/\/v1$/, "");
+}
 
 function capture(
     options: ConfiguredProviderOptions,
@@ -114,7 +127,10 @@ export function createConfiguredModelAdapter(
 ): ModelAdapter {
     const build = ADAPTERS[config.provider];
     if (build !== undefined) {
-        return build(options);
+        // A shipped provider keeps its own adapter when the endpoint moves:
+        // the wire quirks, error classification, and effort mapping belong to
+        // the provider, not to the host it happens to answer on.
+        return build(options, config.provider_endpoints?.[config.provider]);
     }
     const custom = config.providers?.[config.provider];
     if (custom === undefined) {

@@ -234,3 +234,56 @@ test("a refused declaration on a fresh machine writes no file", () => {
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test("a shipped provider's endpoint writes, reads back, and restores", () => {
+    withConfigFile((path) => {
+        updateVeraConfigDefaults(
+            {
+                provider_endpoint: {
+                    id: "cerebras",
+                    url: "https://eu.cerebras.example/v1/",
+                },
+            },
+            { path },
+        );
+        expect(loadVeraConfig({ path }).provider_endpoints?.cerebras)
+            .toBe("https://eu.cerebras.example/v1");
+        updateVeraConfigDefaults(
+            { provider_endpoint: { id: "cerebras", url: null } },
+            { path },
+        );
+        expect(loadVeraConfig({ path }).provider_endpoints).toBeUndefined();
+    });
+});
+
+test("an endpoint is refused for a name Vera does not ship", () => {
+    withConfigFile((path) => {
+        expect(() =>
+            updateVeraConfigDefaults(
+                {
+                    provider_endpoint: {
+                        id: "gateway",
+                        url: "https://gateway.example/v1",
+                    },
+                },
+                { path },
+            )
+        ).toThrow(VeraConfigError);
+    });
+});
+
+test("an endpoint is refused for a provider whose host is fixed", () => {
+    withConfigFile((path) => {
+        expect(() =>
+            updateVeraConfigDefaults(
+                {
+                    provider_endpoint: {
+                        id: "openai-codex",
+                        url: "https://codex.example",
+                    },
+                },
+                { path },
+            )
+        ).toThrow(VeraConfigError);
+    });
+});

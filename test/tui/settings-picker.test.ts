@@ -1797,6 +1797,7 @@ const PROVIDER_ROWS = [
         group: "Popular",
         hint: "API key, pay per token",
         connected: false,
+        endpointEditable: true,
     },
     {
         id: "ollama",
@@ -1804,6 +1805,7 @@ const PROVIDER_ROWS = [
         group: "Providers",
         hint: "local, no account",
         connected: true,
+        endpointEditable: true,
     },
     {
         id: "gemini",
@@ -1812,6 +1814,7 @@ const PROVIDER_ROWS = [
         hint: "API key",
         connected: true,
         declared: true,
+        endpointEditable: true,
     },
 ] as const;
 
@@ -2652,6 +2655,64 @@ test("opening a declared row edits it, and a shipped row still connects", () => 
     );
     expect("editProvider" in shipped ? shipped.editProvider : undefined)
         .toBeUndefined();
+});
+
+test("a shipped row's endpoint opens on the chord, and Codex's does not", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "ollama" });
+    const chord = { name: "r", ctrl: true };
+
+    const moved = handleTuiSettingsPickerKey(pane, chord);
+    expect("editEndpoint" in moved ? moved.editEndpoint : undefined)
+        .toBe("ollama");
+    expect(pickerFooter(pane)).toContain("endpoint");
+
+    // A declared row's endpoint is already what ⏎ opens, so the chord lands on
+    // the same form rather than a second one.
+    const declared = handleTuiSettingsPickerKey(
+        startTuiProviderPicker(PROVIDER_ROWS, { selected: "gemini" }),
+        chord,
+    );
+    expect("editProvider" in declared ? declared.editProvider : undefined)
+        .toBe("gemini");
+
+    const fixed = startTuiProviderPicker(PROVIDER_ROWS, {
+        selected: "openai-codex",
+    });
+    const refused = handleTuiSettingsPickerKey(fixed, chord);
+    expect("editEndpoint" in refused ? refused.editEndpoint : undefined)
+        .toBeUndefined();
+    expect(pickerFooter(fixed)).not.toContain("endpoint");
+});
+
+test("a shipped provider's form asks for the endpoint and the key, nothing else", () => {
+    const form = startTuiProviderForm(undefined, {
+        id: "cerebras",
+        baseUrl: "https://api.cerebras.ai/v1",
+        protocol: "openai-chat",
+        credential: "api_key",
+        shipped: true,
+    });
+
+    expect(tuiProviderFormFields(form)).toEqual(["base_url", "api_key"]);
+
+    const saved = handleTuiProviderFormKey(
+        { ...form, baseUrl: "https://eu.cerebras.example/v1" },
+        { name: "return" },
+    );
+    // The name is a provider Vera ships, which the declaration form refuses
+    // and this one is for.
+    expect(saved.submitted?.id).toBe("cerebras");
+    expect(saved.submitted?.shipped).toBe(true);
+    expect(saved.submitted?.declaration.base_url)
+        .toBe("https://eu.cerebras.example/v1");
+
+    // An emptied URL is the way back to the host Vera ships, which a shipped
+    // provider always has and a declared one never does.
+    const restored = handleTuiProviderFormKey(
+        { ...form, baseUrl: "" },
+        { name: "return" },
+    );
+    expect(restored.submitted?.restore).toBe(true);
 });
 
 test("the edit form opens filled in and a rename says what it replaces", () => {

@@ -7,6 +7,7 @@ import {
 import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { decodeOpenAiSse, encodeOpenAiMessage } from "./ollama-openai.ts";
+import { providerEndpointUrl } from "./endpoint-url.ts";
 
 export interface CustomOpenAIAdapterOptions {
     readonly provider: string;
@@ -25,7 +26,7 @@ export function createCustomOpenAIAdapter(
     options: CustomOpenAIAdapterOptions,
 ): ModelAdapter {
     const fetchImplementation = options.fetch ?? globalThis.fetch;
-    const endpoint = `${options.baseUrl.replace(/\/+$/, "")}/chat/completions`;
+    const endpoint = providerEndpointUrl(options.baseUrl, "/chat/completions");
     const profile: ChatProviderProfile = {
         provider: options.provider,
         api: "openai-chat-completions",
