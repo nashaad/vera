@@ -249,6 +249,24 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^e providers",
     },
     {
+        // Connect-pane only, like `forget_provider`. `ctrl+n` already names a
+        // pool entry in this scope, so the shifted chord carries the new row.
+        id: "declare_provider",
+        keys: ["ctrl+shift+n"],
+        scope: "model_picker",
+        description: "Declare a provider Vera does not ship",
+        hint: "^⇧n declare",
+    },
+    {
+        // The connect pane's rows are the only ones this acts on, so the model
+        // list ignores it rather than binding a second meaning to the key.
+        id: "forget_provider",
+        keys: ["delete"],
+        scope: "model_picker",
+        description: "Forget the selected provider's stored credential",
+        hint: "del forget",
+    },
+    {
         id: "reveal_all_models",
         keys: ["ctrl+a"],
         scope: "model_picker",

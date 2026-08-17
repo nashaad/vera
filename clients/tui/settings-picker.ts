@@ -26,6 +26,12 @@ import type {
 } from "../../src/model/catalog-shape.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import {
+    isVeraProviderId,
+    type VeraCustomProviderConfig,
+    type VeraProviderCredential,
+    type VeraProviderProtocol,
+} from "../../src/config.ts";
 import type {
     ReviewerModelDefault,
     ReviewerModelSelection,
@@ -49,6 +55,7 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
+    centeredDialogSurface,
     DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     DIALOG_CHROME_HEIGHT,
@@ -181,6 +188,12 @@ export interface TuiSettingsPickerOption {
     readonly group?: string;
     /** Set only on provider rows: whether Vera already holds a credential. */
     readonly connected?: boolean;
+    /**
+     * A row that does something rather than naming a thing. It carries no
+     * heading, no marker of its own, and nothing that counts providers or
+     * models may include it.
+     */
+    readonly action?: boolean;
     /**
      * Set only on a section header row: the section it opens and closes. A
      * header is an option like any other so the cursor reaches it by moving,
@@ -416,6 +429,18 @@ export interface TuiSettingsPickerTransition {
      * the caller can read it.
      */
     readonly openProviders?: boolean;
+    /**
+     * The connect pane asking for a provider's stored credential to be
+     * forgotten. A request rather than a state, for the same reason
+     * `openProviders` is: only the caller can read or write the store.
+     */
+    readonly forgetProvider?: string;
+    /**
+     * The connect pane asking for the declaration form over it. A request for
+     * the same reason `forgetProvider` is one: the form ends in a write to
+     * `config.json`, and only the caller touches the disk.
+     */
+    readonly declareProvider?: boolean;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -768,7 +793,7 @@ const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
 export function startTuiProviderPicker(
     providers: readonly TuiProviderRow[],
 ): TuiSettingsPickerState {
-    const options = providers.map((provider) => ({
+    const rows: TuiSettingsPickerOption[] = providers.map((provider) => ({
         value: provider.id,
         label: provider.label,
         description: provider.hint ?? "",
@@ -776,9 +801,10 @@ export function startTuiProviderPicker(
         group: provider.group,
         connected: provider.connected,
     }));
-    const firstUnconnected = options.findIndex(
+    const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
     );
+    const options = [...rows, TUI_DECLARE_PROVIDER_OPTION];
     return {
         kind: "provider",
         allOptions: options,
@@ -787,6 +813,28 @@ export function startTuiProviderPicker(
         query: "",
     };
 }
+
+/**
+ * The value of the row that opens the declaration form.
+ *
+ * Prefixed so it cannot collide with a provider id, which is what every other
+ * row on this pane carries.
+ */
+export const TUI_DECLARE_PROVIDER_VALUE = "action:declare_provider";
+
+/**
+ * The last row on the connect pane: the way in that does not need the chord.
+ *
+ * It sits below the groups because it is not one of them, and it survives
+ * search because it is the answer to a query that matched nothing.
+ */
+const TUI_DECLARE_PROVIDER_OPTION: TuiSettingsPickerOption = {
+    value: TUI_DECLARE_PROVIDER_VALUE,
+    label: "Declare a provider…",
+    description: "one Vera does not ship, by base URL",
+    searchText: "declare custom new add provider",
+    action: true,
+};
 
 /**
  * The pane, remembering where it was opened from.
@@ -1675,6 +1723,25 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state: state.parent, handled: true };
     }
+    // Ahead of the modifier bail-out below, because the chord carries shift.
+    if (
+        state.kind === "provider"
+        && tuiBindingId("model_picker", key) === "declare_provider"
+    ) {
+        return { state, handled: true, declareProvider: true };
+    }
+    // Forgetting is a fact about the store, so the pane only names the row and
+    // the caller decides whether there is anything there to forget.
+    if (
+        state.kind === "provider"
+        && tuiBindingId("model_picker", key) === "forget_provider"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected === undefined || selected.action === true) {
+            return unchanged(state, true);
+        }
+        return { state, handled: true, forgetProvider: selected.value };
+    }
     // Fold and unfold everything, ahead of the modifier bail-out below because
     // both chords carry shift. Either one replaces whatever mix of open and
     // closed sections the user had: it is one answer to "show me less" or
@@ -1817,6 +1884,10 @@ export function handleTuiSettingsPickerKey(
         }
         if (state.kind === "model" && selected.section !== undefined) {
             return toggledSection(state, selected.section);
+        }
+        // The same request ctrl+shift+n makes, from a row anyone can see.
+        if (state.kind === "provider" && selected.action === true) {
+            return { state, handled: true, declareProvider: true };
         }
         // The session's model is shown on the Slots tab but is not changed
         // there: choosing it moves to the list that does change it, which is
@@ -2834,7 +2905,15 @@ function pickerFooterText(
         const selected = state.options[state.selectedIndex];
         return [
             "↑↓ move",
-            selected?.connected === true ? "⏎ reconnect" : "⏎ connect",
+            selected?.action === true
+                ? "⏎ declare"
+                : selected?.connected === true
+                ? "⏎ reconnect"
+                : "⏎ connect",
+            ...(selected?.connected === true
+                ? [tuiKeyHint("forget_provider")]
+                : []),
+            tuiKeyHint("declare_provider"),
             ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
@@ -2945,7 +3024,11 @@ function listDisplayRows(
     const grouped = state.kind === "provider";
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
-        if (grouped && groupLabel(state.options[index - 1]) !== groupLabel(option)) {
+        if (
+            grouped
+            && option.action !== true
+            && groupLabel(state.options[index - 1]) !== groupLabel(option)
+        ) {
             rows.push({ kind: "group", label: groupLabel(option) ?? "Other" });
         }
         rows.push({ kind: "option", option, index });
@@ -3095,6 +3178,9 @@ function optionMarker(
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
     if (state.kind === "provider") {
+        if (option.action === true) {
+            return "+";
+        }
         return option.connected === true ? "✓" : undefined;
     }
     // A filled dot, at the weight of the fold arrows it shares a column with.
@@ -3371,9 +3457,13 @@ function matching(
 ): readonly TuiSettingsPickerOption[] {
     const normalized = query.toLowerCase();
     return options.filter((option) =>
-        `${option.label} ${option.value} ${option.description} ${
-            option.searchText ?? ""
-        }`
+        // An action row is not a search result. It stays through every query,
+        // because a search that found nothing is exactly when the thing to do
+        // next is declare the provider that is missing.
+        option.action === true
+        || `${option.label} ${option.value} ${option.description} ${
+                option.searchText ?? ""
+            }`
             .toLowerCase()
             .includes(normalized)
     );
@@ -3930,4 +4020,371 @@ function unchanged(
         return { state, handled };
     }
     return { state, handled };
+}
+
+/**
+ * The declaration form for a provider Vera does not ship: an OpenAI- or
+ * Anthropic-compatible endpoint the user runs or pays for themselves.
+ *
+ * Four fields, and nothing else. The quirk flags a declaration can carry
+ * (`images`, `max_tokens`, `thinking`) stay hand-edited in `config.json`,
+ * which remains the file this form writes and never a second source of truth.
+ */
+export type TuiProviderFormFieldId =
+    | "id"
+    | "base_url"
+    | "protocol"
+    | "credential";
+
+export const TUI_PROVIDER_FORM_FIELDS: readonly TuiProviderFormFieldId[] = [
+    "id",
+    "base_url",
+    "protocol",
+    "credential",
+];
+
+export interface TuiProviderFormState {
+    readonly id: string;
+    readonly baseUrl: string;
+    readonly protocol: VeraProviderProtocol;
+    readonly credential: VeraProviderCredential;
+    readonly field: TuiProviderFormFieldId;
+    /** Set by a refused submit, cleared by the next edit. */
+    readonly error?: string;
+    /** The pane this was opened over, restored when it closes. */
+    readonly parent?: TuiSettingsPickerState;
+}
+
+/** A finished form, on its way to the caller that owns the config file. */
+export interface TuiProviderFormDeclaration {
+    readonly id: string;
+    readonly declaration: VeraCustomProviderConfig;
+}
+
+export interface TuiProviderFormKey {
+    readonly name: string;
+    readonly sequence?: string;
+    readonly ctrl?: boolean;
+    readonly meta?: boolean;
+    readonly shift?: boolean;
+    readonly super?: boolean;
+    readonly hyper?: boolean;
+}
+
+export interface TuiProviderFormTransition {
+    readonly state?: TuiProviderFormState;
+    readonly handled: boolean;
+    /** Present only on a submit that passed the form's own checks. */
+    readonly submitted?: TuiProviderFormDeclaration;
+}
+
+export interface TuiProviderFormView {
+    /** The visible card; focus lives here. */
+    readonly box: BoxRenderable;
+    /** Full-screen centering surface; visibility lives here. */
+    readonly surface: BoxRenderable;
+    update(state: TuiProviderFormState): void;
+}
+
+export function startTuiProviderForm(
+    parent?: TuiSettingsPickerState,
+): TuiProviderFormState {
+    return {
+        id: "",
+        baseUrl: "",
+        protocol: "openai-chat",
+        credential: "api_key",
+        field: "id",
+        ...(parent === undefined ? {} : { parent }),
+    };
+}
+
+/**
+ * A pasted base URL. Same reason the secret prompt takes one: the terminal
+ * delivers a bracketed paste as its own event rather than as keystrokes, and a
+ * URL is the field most likely to arrive that way.
+ */
+export function handleTuiProviderFormPaste(
+    state: TuiProviderFormState,
+    text: string,
+): TuiProviderFormState {
+    const pasted = text.replaceAll(PROVIDER_FORM_CONTROL_RUN, "").trim();
+    if (pasted.length === 0 || !providerFormTextField(state.field)) {
+        return state;
+    }
+    return editedProviderFormField(
+        state,
+        providerFormFieldValue(state, state.field) + pasted,
+    );
+}
+
+export function handleTuiProviderFormKey(
+    state: TuiProviderFormState,
+    key: TuiProviderFormKey,
+): TuiProviderFormTransition {
+    if (key.name === "escape") {
+        return { handled: true };
+    }
+    // Swallowed rather than passed down, for the same reason the name prompt
+    // swallows them: the pane behind this card is a list with its own
+    // bindings, and a key falling through would move a row nobody can see.
+    // Interrupt is decided ahead of every overlay and never reaches here.
+    if (key.ctrl || key.meta || key.super || key.hyper) {
+        return { state, handled: true };
+    }
+    if (key.name === "up" || key.name === "down") {
+        const at = TUI_PROVIDER_FORM_FIELDS.indexOf(state.field);
+        const next = key.name === "up"
+            ? (at + TUI_PROVIDER_FORM_FIELDS.length - 1)
+                % TUI_PROVIDER_FORM_FIELDS.length
+            : (at + 1) % TUI_PROVIDER_FORM_FIELDS.length;
+        return {
+            state: { ...state, field: TUI_PROVIDER_FORM_FIELDS[next]! },
+            handled: true,
+        };
+    }
+    if (
+        !providerFormTextField(state.field)
+        && (key.name === "left" || key.name === "right" || key.name === "space")
+    ) {
+        return { state: toggledProviderFormChoice(state), handled: true };
+    }
+    if (key.name === "return" || key.name === "enter") {
+        return submittedProviderForm(state);
+    }
+    if (!providerFormTextField(state.field)) {
+        return { state, handled: true };
+    }
+    if (key.name === "backspace") {
+        return {
+            state: editedProviderFormField(
+                state,
+                providerFormFieldValue(state, state.field).slice(0, -1),
+            ),
+            handled: true,
+        };
+    }
+    const typed = key.sequence !== undefined && key.sequence.length > 0
+        ? key.sequence
+        : key.name.length === 1
+        ? key.name
+        : undefined;
+    if (typed === undefined || PROVIDER_FORM_CONTROL_CHARACTERS.test(typed)) {
+        return { state, handled: true };
+    }
+    return {
+        state: editedProviderFormField(
+            state,
+            providerFormFieldValue(state, state.field) + typed,
+        ),
+        handled: true,
+    };
+}
+
+/**
+ * What the form can decide on its own: a name that is usable as a key and a
+ * URL that is there at all. Whether the URL is one Vera will accept is the
+ * config writer's call, and its refusal comes back on the same error line.
+ */
+function submittedProviderForm(
+    state: TuiProviderFormState,
+): TuiProviderFormTransition {
+    const id = state.id.trim();
+    const baseUrl = state.baseUrl.trim();
+    if (id.length === 0) {
+        return providerFormError(state, "id", "a name is required");
+    }
+    if (/\s/.test(id)) {
+        return providerFormError(state, "id", "a name cannot contain spaces");
+    }
+    if (isVeraProviderId(id)) {
+        return providerFormError(state, "id", `${id} is a provider Vera ships`);
+    }
+    if (baseUrl.length === 0) {
+        return providerFormError(state, "base_url", "a base URL is required");
+    }
+    return {
+        handled: true,
+        submitted: {
+            id,
+            declaration: {
+                protocol: state.protocol,
+                base_url: baseUrl,
+                credential: state.credential,
+            },
+        },
+    };
+}
+
+function providerFormError(
+    state: TuiProviderFormState,
+    field: TuiProviderFormFieldId,
+    error: string,
+): TuiProviderFormTransition {
+    return { state: { ...state, field, error }, handled: true };
+}
+
+function providerFormTextField(field: TuiProviderFormFieldId): boolean {
+    return field === "id" || field === "base_url";
+}
+
+function providerFormFieldValue(
+    state: TuiProviderFormState,
+    field: TuiProviderFormFieldId,
+): string {
+    return field === "id" ? state.id : state.baseUrl;
+}
+
+function editedProviderFormField(
+    state: TuiProviderFormState,
+    value: string,
+): TuiProviderFormState {
+    const { error: _error, ...rest } = state;
+    return state.field === "id"
+        ? { ...rest, id: value }
+        : { ...rest, baseUrl: value };
+}
+
+function toggledProviderFormChoice(
+    state: TuiProviderFormState,
+): TuiProviderFormState {
+    const { error: _error, ...rest } = state;
+    return state.field === "protocol"
+        ? {
+            ...rest,
+            protocol: state.protocol === "openai-chat"
+                ? "anthropic-messages"
+                : "openai-chat",
+        }
+        : {
+            ...rest,
+            credential: state.credential === "api_key" ? "none" : "api_key",
+        };
+}
+
+/** The four rows as they read on screen, cursor and all. */
+export function tuiProviderFormRows(
+    state: TuiProviderFormState,
+): readonly StyledText[] {
+    return TUI_PROVIDER_FORM_FIELDS.map((field) => {
+        const focused = state.field === field;
+        const value = providerFormTextField(field)
+            ? providerFormFieldValue(state, field)
+            : field === "protocol"
+            ? state.protocol
+            : state.credential === "api_key"
+            ? "API key"
+            : "none";
+        const empty = value.length === 0;
+        return new StyledText([
+            fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
+            fg(TUI_MUTED)(`${PROVIDER_FORM_LABELS[field].padEnd(10)} `),
+            fg(empty ? TUI_MUTED : TUI_TEXT)(
+                empty ? PROVIDER_FORM_PLACEHOLDERS[field] : value,
+            ),
+            ...(focused && providerFormTextField(field)
+                ? [fg(TUI_ACCENT)("▏")]
+                : []),
+        ]);
+    });
+}
+
+const PROVIDER_FORM_CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+
+const PROVIDER_FORM_CONTROL_RUN = /[\u0000-\u001f\u007f]/g;
+
+const PROVIDER_FORM_LABELS: Readonly<Record<TuiProviderFormFieldId, string>> = {
+    id: "Name",
+    base_url: "Base URL",
+    protocol: "Protocol",
+    credential: "Credential",
+};
+
+const PROVIDER_FORM_PLACEHOLDERS: Readonly<
+    Record<TuiProviderFormFieldId, string>
+> = {
+    id: "my-endpoint",
+    base_url: "https://…/v1",
+    protocol: "openai-chat",
+    credential: "API key",
+};
+
+export function createTuiProviderFormView(
+    renderer: RenderContext,
+): TuiProviderFormView {
+    const title = new TextRenderable(renderer, {
+        content: "Declare a provider",
+        fg: TUI_TEXT,
+        attributes: 1,
+        width: "100%",
+        height: 1,
+    });
+    const hint = new TextRenderable(renderer, {
+        content: "An OpenAI- or Anthropic-compatible endpoint of your own.",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+    });
+    const rows = TUI_PROVIDER_FORM_FIELDS.map((field, index) =>
+        new TextRenderable(renderer, {
+            id: `provider-form-${field}`,
+            content: "",
+            width: "100%",
+            height: "auto",
+            wrapMode: "char",
+            ...(index === 0 ? { marginTop: 1 } : {}),
+        })
+    );
+    const error = new TextRenderable(renderer, {
+        content: "",
+        fg: TUI_ACCENT,
+        width: "100%",
+        height: "auto",
+        wrapMode: "word",
+        marginTop: 1,
+    });
+    const footer = new TextRenderable(renderer, {
+        content:
+            "↑↓ field · ←→ change · ⏎ save · esc cancel",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        marginTop: 1,
+    });
+    const box = new BoxRenderable(renderer, {
+        id: "provider-form",
+        border: false,
+        backgroundColor: TUI_PANEL,
+        width: "70%",
+        height: "auto",
+        flexDirection: "column",
+        paddingLeft: 2,
+        paddingRight: 2,
+        paddingTop: 1,
+        paddingBottom: 1,
+        focusable: true,
+    });
+    box.add(title);
+    box.add(hint);
+    for (const row of rows) {
+        box.add(row);
+    }
+    box.add(error);
+    box.add(footer);
+    const surface = centeredDialogSurface(renderer, "provider-form-surface", box);
+    return {
+        box,
+        surface,
+        update(state): void {
+            const lines = tuiProviderFormRows(state);
+            lines.forEach((line, index) => {
+                const row = rows[index];
+                if (row !== undefined) {
+                    row.content = line;
+                }
+            });
+            error.content = state.error ?? "";
+        },
+    };
 }

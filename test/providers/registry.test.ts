@@ -21,6 +21,9 @@ function storage(tokens: Record<string, string>) {
                 ? credential.key
                 : credential.token;
         },
+        deleteCredential: (provider: string) => {
+            delete tokens[provider];
+        },
     };
 }
 

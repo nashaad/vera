@@ -231,6 +231,22 @@ describe("failed request capture", () => {
         expect(content).toContain("the word token stays readable");
     });
 
+    test("redacts the credential shapes a bare Bearer pass misses", () => {
+        const redacted = redactSecrets({
+            query: "GET https://example.test/v1?key=pl4inQuerySecret123",
+            basic: "Authorization: Basic pl4inBasicSecret123",
+            opaque: "sent Authorization: Bearer opaque:t4ilOfTheToken",
+            bare: "token: pl4inAssignedSecret123",
+        }) as Record<string, string>;
+
+        expect(redacted.query).toBe(
+            "GET https://example.test/v1?key=[redacted]",
+        );
+        expect(redacted.basic).toBe("Authorization: [redacted]");
+        expect(redacted.opaque).not.toContain("t4ilOfTheToken");
+        expect(redacted.bare).toBe("token: [redacted]");
+    });
+
     test("redacts a credential reaching the file through the request body", async () => {
         const capture = createFailedRequestCapture({
             sessionId: "session-secret",

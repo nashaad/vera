@@ -479,6 +479,7 @@ describe("OpenAI Codex adapter", () => {
                     }),
                 }),
                 setCredential() {},
+                deleteCredential() {},
             },
             now: () => 0,
             fetch: (async () => new Response("request timed out", {

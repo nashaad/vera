@@ -1,6 +1,7 @@
 import type { PooledModel } from "../../src/model/catalog-view.ts";
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import type { StyledText } from "@opentui/core";
 
 import {
     handleTuiSettingsPickerKey,
@@ -9,6 +10,7 @@ import {
     startTuiSettingsPicker,
     switchedModelTab,
     startTuiProviderPicker,
+    TUI_DECLARE_PROVIDER_VALUE,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     startTuiExtensionPicker,
@@ -25,6 +27,11 @@ import {
     startTuiReviewerMenu,
     startTuiReviewerPicker,
     REVIEWER_CLEAR_VALUE,
+    handleTuiProviderFormKey,
+    handleTuiProviderFormPaste,
+    startTuiProviderForm,
+    tuiProviderFormRows,
+    type TuiProviderFormState,
 } from "../../clients/tui/settings-picker.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -1822,6 +1829,89 @@ test("the connect pane opens on the first provider still to be connected", () =>
         .toEqual({ kind: "provider", providerId: "openrouter" });
 });
 
+test("delete on the connect pane names the row to forget", () => {
+    // Whether there is a stored credential behind the row is a fact about the
+    // disk, so the pane reports the row and the client that can read it answers.
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const connected = { ...pane, selectedIndex: 0 };
+
+    const transition = handleTuiSettingsPickerKey(connected, {
+        name: "delete",
+    });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.forgetProvider).toBe("openai-codex");
+    // The pane stays put: the caller reopens it once the store has changed.
+    expect(transition.state).toBe(connected);
+});
+
+test("the connect pane offers forgetting only on a connected row", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    expect(pickerFooter({ ...pane, selectedIndex: 0 })).toContain("del forget");
+    expect(pickerFooter({ ...pane, selectedIndex: 1 }))
+        .not.toContain("del forget");
+});
+
+test("the declare row is last on the connect pane and is not a provider", async () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    const last = pane.options[pane.options.length - 1];
+    expect(last?.value).toBe(TUI_DECLARE_PROVIDER_VALUE);
+    expect(last?.action).toBe(true);
+    // Nothing that counts providers counts it, and it carries no connected
+    // mark: it names a thing to do, not a provider to sign in to.
+    expect(pane.options.filter((option) => option.action !== true))
+        .toHaveLength(PROVIDER_ROWS.length);
+    expect(last?.connected).toBeUndefined();
+    expect(pane.selectedIndex).toBe(1);
+
+    const frame = await pickerFrame(pane);
+    expect(frame).toContain("Declare a provider…");
+    // It sits below the groups without inventing one of its own.
+    expect(frame).not.toContain("Other");
+});
+
+test("⏎ on the declare row asks for the same form the chord asks for", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
+
+    const transition = handleTuiSettingsPickerKey(onDeclare, { name: "enter" });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.declareProvider).toBe(true);
+    expect(transition.selection).toBeUndefined();
+    expect(pickerFooter(onDeclare)).toContain("⏎ declare");
+});
+
+test("delete on the declare row asks to forget nothing", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
+
+    const transition = handleTuiSettingsPickerKey(onDeclare, { name: "delete" });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.forgetProvider).toBeUndefined();
+    expect(pickerFooter(onDeclare)).not.toContain("del forget");
+});
+
+test("the declare row survives a search that matches no provider", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    let filtered = pane;
+    for (const character of "zzz") {
+        filtered = handleTuiSettingsPickerKey(filtered, { name: character })
+            .state as TuiSettingsPickerState;
+    }
+
+    // A search that found nothing is exactly when declaring is the next thing
+    // to do, so the row stays and stays last.
+    expect(filtered.options.map((option) => option.value))
+        .toEqual([TUI_DECLARE_PROVIDER_VALUE]);
+    expect(handleTuiSettingsPickerKey(filtered, { name: "enter" })
+        .declareProvider).toBe(true);
+});
+
 test("ctrl+e asks for the connect pane instead of building it", () => {
     // Which providers are connected is a fact about the disk, so the pane
     // reports the request and the client that can read it answers.
@@ -2189,4 +2279,165 @@ test("choosing the clear row returns the slot with no model", () => {
     const picker = startTuiReviewerPicker("primary");
     expect(handleTuiSettingsPickerKey(picker, { name: "enter" }).selection)
         .toEqual({ kind: "reviewer", slot: "primary" });
+});
+
+test("ctrl+shift+n on the connect pane asks for the declaration form", () => {
+    // The form ends in a write to config.json, so the pane reports the request
+    // and the client that owns the file answers.
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    const transition = handleTuiSettingsPickerKey(pane, {
+        name: "n",
+        ctrl: true,
+        shift: true,
+    });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.declareProvider).toBe(true);
+    expect(transition.state).toBe(pane);
+});
+
+test("the connect pane offers declaring on every row", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+
+    expect(pickerFooter({ ...pane, selectedIndex: 0 })).toContain("declare");
+    expect(pickerFooter({ ...pane, selectedIndex: 1 })).toContain("declare");
+});
+
+test("the declaration form opens on the name, ready to type", () => {
+    const form = startTuiProviderForm();
+
+    expect(form.field).toBe("id");
+    expect(form.id).toBe("");
+    expect(form.protocol).toBe("openai-chat");
+    expect(form.credential).toBe("api_key");
+});
+
+test("typing fills the focused field and arrows move between them", () => {
+    let form = startTuiProviderForm();
+    for (const character of "gateway") {
+        form = handleTuiProviderFormKey(form, {
+            name: character,
+            sequence: character,
+        }).state!;
+    }
+    form = handleTuiProviderFormKey(form, { name: "down" }).state!;
+    form = handleTuiProviderFormKey(form, { name: "h", sequence: "h" }).state!;
+
+    expect(form.id).toBe("gateway");
+    expect(form.field).toBe("base_url");
+    expect(form.baseUrl).toBe("h");
+});
+
+test("the choice fields toggle rather than take text", () => {
+    let form = startTuiProviderForm();
+    form = { ...form, field: "protocol" };
+    form = handleTuiProviderFormKey(form, { name: "right" }).state!;
+    expect(form.protocol).toBe("anthropic-messages");
+
+    form = { ...form, field: "credential" };
+    form = handleTuiProviderFormKey(form, { name: "space" }).state!;
+    expect(form.credential).toBe("none");
+
+    const typed = handleTuiProviderFormKey(form, { name: "x", sequence: "x" });
+    expect(typed.handled).toBe(true);
+    expect(typed.state?.credential).toBe("none");
+});
+
+test("a paste lands in the focused text field", () => {
+    const form = handleTuiProviderFormPaste(
+        { ...startTuiProviderForm(), field: "base_url" },
+        "https://gateway.example/v1\n",
+    );
+
+    expect(form.baseUrl).toBe("https://gateway.example/v1");
+});
+
+test("a finished form submits the declaration", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "gateway",
+        baseUrl: "https://gateway.example/v1",
+        field: "credential",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.state).toBeUndefined();
+    expect(transition.submitted).toEqual({
+        id: "gateway",
+        declaration: {
+            protocol: "openai-chat",
+            base_url: "https://gateway.example/v1",
+            credential: "api_key",
+        },
+    });
+});
+
+test("an id Vera already ships is refused in the form", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "openrouter",
+        baseUrl: "https://gateway.example/v1",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.submitted).toBeUndefined();
+    expect(transition.state?.field).toBe("id");
+    expect(transition.state?.error).toContain("openrouter");
+});
+
+test("an empty base URL is refused and lands the cursor on it", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "gateway",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.submitted).toBeUndefined();
+    expect(transition.state?.field).toBe("base_url");
+});
+
+test("editing clears a refusal", () => {
+    const refused: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "openrouter",
+        error: "openrouter is a provider Vera ships",
+    };
+
+    const transition = handleTuiProviderFormKey(refused, {
+        name: "x",
+        sequence: "x",
+    });
+
+    expect(transition.state?.error).toBeUndefined();
+});
+
+test("escape closes the form without a declaration", () => {
+    const transition = handleTuiProviderFormKey(startTuiProviderForm(), {
+        name: "escape",
+    });
+
+    expect(transition.handled).toBe(true);
+    expect(transition.state).toBeUndefined();
+    expect(transition.submitted).toBeUndefined();
+});
+
+test("the form draws its four fields", () => {
+    const rows = tuiProviderFormRows({
+        ...startTuiProviderForm(),
+        id: "gateway",
+        baseUrl: "https://gateway.example/v1",
+    });
+
+    const text = (row: StyledText | undefined): string =>
+        (row?.chunks ?? []).map((chunk) => chunk.text).join("");
+
+    expect(rows).toHaveLength(4);
+    expect(text(rows[0])).toContain("gateway");
+    expect(text(rows[1])).toContain("https://gateway.example/v1");
+    expect(text(rows[2])).toContain("openai-chat");
+    expect(text(rows[3])).toContain("API key");
 });

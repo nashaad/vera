@@ -344,12 +344,61 @@ test("vera doctor renders process health and exits nonzero for a finding", async
                 sustainedHighCpu: true,
             }],
         }),
+        providerDoctor: async () => ({
+            providers: [],
+            networkChecked: false,
+        }),
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(1);
     expect(output).toContain("Vera doctor");
     expect(output).toContain("PID 201");
+    expect(output).toContain("Providers");
+});
+
+test("vera doctor --check-providers asks for the network probe", async () => {
+    let output = "";
+    let requested: boolean | undefined;
+    const exitCode = await runCli(["doctor", "--check-providers"], {
+        doctor: async () => ({
+            healthy: true,
+            currentHostPid: 200,
+            currentHostMissing: false,
+            highCpuPercent: 50,
+            processes: [],
+        }),
+        providerDoctor: async (options) => {
+            requested = options.checkNetwork;
+            return {
+                providers: [{
+                    id: "my-endpoint",
+                    custom: true,
+                    connected: true,
+                    credentialSource: "env",
+                    envVar: "MY_ENDPOINT_KEY",
+                    envVarPresent: true,
+                    endpoint: {
+                        baseUrl: "https://llm.example.test/v1",
+                        protocol: "openai-chat",
+                    },
+                    probe: {
+                        reachability: "rejected",
+                        url: "https://llm.example.test/v1/models",
+                        status: 401,
+                    },
+                    captures: [],
+                }],
+                networkChecked: true,
+            };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(requested).toBe(true);
+    expect(output).toContain("which rejected the credential (HTTP 401)");
+    expect(output).toContain("Credential: from MY_ENDPOINT_KEY");
 });
 
 test("vera abort requests cancellation through a resident agent", async () => {
