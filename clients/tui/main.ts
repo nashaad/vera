@@ -15,6 +15,7 @@ import {
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
@@ -433,6 +434,9 @@ registerTuiParsers();
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
+/** The blank row the whole screen holds above its first surface. */
+const APP_PADDING_TOP = 1;
+
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
@@ -1805,7 +1809,7 @@ export async function startTui(
         // rather than under the surfaces that need it is what keeps a strip of
         // a different shade from showing wherever one of them is hidden.
         backgroundColor: theme.background,
-        paddingTop: 1,
+        paddingTop: APP_PADDING_TOP,
         paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
@@ -2238,13 +2242,19 @@ export async function startTui(
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
-        width: "100%",
-        height: "100%",
+        // Sized against the terminal and lifted back over the app's top
+        // padding. An absolute child is placed inside its parent's content
+        // box, so a scrim at 100%/100% left the padding row at full theme
+        // brightness: a lit bar across the top of an otherwise dimmed screen.
+        left: 0,
+        top: -APP_PADDING_TOP,
+        width: renderer.width,
+        height: renderer.height,
         // Enough to push the transcript behind the card, not enough to erase
         // it. A heavier wash reads fine on paper and fails on the dark themes,
         // where the ground is already near black and the text lands on top of
         // it: what is behind a dialog still has to be legible as context.
-        backgroundColor: RGBA.fromInts(0, 0, 0, 140),
+        backgroundColor: RGBA.fromInts(0, 0, 0, 150),
         zIndex: DIALOG_SCRIM_Z_INDEX,
         visible: false,
     });
@@ -2438,6 +2448,8 @@ export async function startTui(
     watchBackgroundAgents(dependencies.client);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
+        overlayScrim.width = renderer.width;
+        overlayScrim.height = renderer.height;
         appearance = fitTuiAppearance(configuredAppearance, renderer.width);
         composerContentIndent = tuiComposerContentIndent(appearance);
         composerHorizontalInset = composerContentIndent * 2;
