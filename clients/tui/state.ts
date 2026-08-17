@@ -70,6 +70,12 @@ export interface TuiTextTranscriptEntry {
     readonly prefix?: string;
     /** How many times in a row the same call or diagnostic occurred. */
     readonly repeat?: number;
+    /**
+     * What this notice is a receipt for. A second receipt under the same key
+     * overwrites the first: cycling four themes is one decision, and only the
+     * one that stuck is worth a line.
+     */
+    readonly supersedes?: string;
     /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
     /** Whether a `thought` summary is showing its reasoning. */
@@ -947,12 +953,27 @@ export function appendTuiNotice(
     state: TuiState,
     message: string,
     tone?: "primary" | "soft" | "error",
+    supersedes?: string,
 ): TuiState {
-    return appendEntry(state, {
+    const entry: TuiTranscriptEntry = {
         kind: "notice",
         text: message,
         ...(tone === undefined ? {} : { tone }),
-    });
+        ...(supersedes === undefined ? {} : { supersedes }),
+    };
+    const previous = state.entries.at(-1);
+    if (
+        supersedes !== undefined && previous?.kind === "notice"
+        && previous.supersedes === supersedes
+    ) {
+        return {
+            ...state,
+            entries: state.entries.map((existing, index) =>
+                index === state.entries.length - 1 ? entry : existing
+            ),
+        };
+    }
+    return appendEntry(state, entry);
 }
 
 export function appendTuiDiagnostic(
@@ -1348,6 +1369,16 @@ export function tuiEntryMarginTop(
         if (previous?.kind !== "diff" && previous?.diagnostic !== undefined) {
             return 0;
         }
+    }
+    // Notices of one weight arriving back to back are one run of the same
+    // thought, so they sit flush rather than as a stack of spaced blocks.
+    if (
+        current?.kind === "notice" && previous?.kind === "notice"
+        && current.diagnostic === undefined && previous.diagnostic === undefined
+        && current.admission === undefined && previous.admission === undefined
+        && current.tone === previous.tone
+    ) {
+        return 0;
     }
     // Rows inside a group sit flush under their header. A new header also
     // continues directly from the activity row that preceded it, so changing
