@@ -85,6 +85,7 @@ const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "approval", title: "Approvals" },
     { scope: "question", title: "Questions" },
     { scope: "secret_prompt", title: "Key entry" },
+    { scope: "provider_form", title: "Provider declaration" },
     { scope: "preferences_list", title: "Preferences" },
     { scope: "help", title: "This card" },
 ];

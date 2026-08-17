@@ -18,6 +18,7 @@ import {
 import type { ModelFallbackPolicy } from "./engine/recovery.ts";
 import type { ToolReviewerSettings } from "./engine/reviewer.ts";
 import type { ModelReasoningEffort } from "./model/types.ts";
+import { loadRecommendedModels } from "./model/recommended-models.ts";
 import {
     parseCompactionConfig,
     parseModelCatalogConfig,
@@ -432,7 +433,9 @@ export function updateVeraConfigDefaults(
     options: LoadVeraConfigOptions = {},
 ): VeraConfig {
     const path = options.path ?? defaultVeraConfigPath();
-    const current = loadVeraConfig({ path });
+    const current = existsSync(path)
+        ? loadVeraConfig({ path })
+        : startingVeraConfig();
     const updated: VeraConfig = {
         ...current,
         ...(patch.provider === undefined ? {} : { provider: patch.provider }),
@@ -463,6 +466,43 @@ export function updateVeraConfigDefaults(
             ? { fallback: undefined }
             : {}),
     };
+    writeVeraConfigFile(path, updated);
+    return updated;
+}
+
+/**
+ * The config as it stands, creating the starting file when the machine has
+ * none.
+ *
+ * For the entry points that have to come up on a fresh install. A missing file
+ * is not a misconfiguration to report: nobody has configured anything yet, and
+ * refusing to start leaves the user hand-writing JSON to reach the panes that
+ * would have written it for them. A file that exists and cannot be parsed
+ * still throws, because that one is an edit to be fixed rather than an absence
+ * to be filled.
+ */
+export function loadOrCreateVeraConfig(
+    options: LoadVeraConfigOptions = {},
+): VeraConfig {
+    const path = options.path ?? defaultVeraConfigPath();
+    if (existsSync(path)) {
+        return loadVeraConfig(options);
+    }
+    const { approval_mode: _unwritten, ...starting } = startingVeraConfig();
+    writeVeraConfigFile(path, starting);
+    return loadVeraConfig(options);
+}
+
+/**
+ * The whole file, replaced in one step.
+ *
+ * Written to a temporary name and renamed over the old one, so a reader either
+ * sees the previous file or the new one and never a half-written config.
+ */
+function writeVeraConfigFile(
+    path: string,
+    config: VeraConfig | Omit<VeraConfig, "approval_mode">,
+): void {
     const directory = dirname(path);
     const temporaryPath = join(directory, `.config-${randomUUID()}.tmp`);
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -471,18 +511,51 @@ export function updateVeraConfigDefaults(
         `${JSON.stringify(
             {
                 ...foreignConfigEntries(path),
-                ...configForDisk(updated),
+                ...configForDisk(config),
                 ...writtenHooks(path),
             },
             null,
             2,
         )}\n`,
-        {
-        mode: 0o600,
-        },
+        { mode: 0o600 },
     );
     renameSync(temporaryPath, path);
-    return updated;
+}
+
+/**
+ * The config a machine with no `config.json` starts from.
+ *
+ * A first save creates the file rather than refusing, so the first setting a
+ * new user changes is also what brings the file into being. The engine owns
+ * this because the reader that defines a valid file lives here: any client
+ * writing its own starting file would be guessing at that shape.
+ *
+ * Exported for the read-only paths, which pair it with
+ * `loadOptionalVeraConfig` to answer for a machine that has none. Writing it
+ * is `loadOrCreateVeraConfig`'s job, so a command that only reports on the
+ * config cannot bring one into being as a side effect.
+ *
+ * The selection is the top row of the shipped recommendations, which is the
+ * same pair the getting-started page opens with.
+ *
+ * The approval mode is the parser's own default rather than a decision. The
+ * created file omits the key so that a first save settles a model and leaves
+ * the permissions posture to whoever chooses one.
+ */
+export function startingVeraConfig(): VeraConfig {
+    const recommended = loadRecommendedModels()[0];
+    if (recommended === undefined) {
+        throw new Error("No recommended model to start a Vera config from.");
+    }
+    return {
+        schema_version: VERA_CONFIG_SCHEMA_VERSION,
+        provider: recommended.provider,
+        model: recommended.model,
+        approval_mode: "auto",
+        ...(recommended.reasoning_effort === undefined
+            ? {}
+            : { reasoning_effort: recommended.reasoning_effort }),
+    };
 }
 
 /**
@@ -579,7 +652,9 @@ function writtenHooks(path: string): Record<string, unknown> {
     }
 }
 
-function configForDisk(config: VeraConfig): Record<string, unknown> {
+function configForDisk(
+    config: VeraConfig | Omit<VeraConfig, "approval_mode">,
+): Record<string, unknown> {
     return {
         ...config,
         ...(config.permission_modes === undefined

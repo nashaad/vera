@@ -7,7 +7,8 @@ import { createInterface } from "node:readline/promises";
 
 import {
     isVeraProviderId,
-    loadVeraConfig,
+    loadOptionalVeraConfig,
+    startingVeraConfig,
     VERA_PROVIDER_IDS,
     VeraConfigError,
     type VeraConfig,
@@ -84,7 +85,10 @@ const PROVIDER_CHECK_FLAG = "--check-providers";
 async function defaultProviderDoctor(
     options: ProviderDoctorOptions,
 ): Promise<ProviderDoctorReport> {
-    return diagnoseProviders(loadVeraConfig(), {
+    // A machine that has never run Vera is diagnosed against what a first
+    // start would give it, rather than being refused for having no file yet.
+    // Doctor reports; it does not write one.
+    return diagnoseProviders(loadOptionalVeraConfig() ?? startingVeraConfig(), {
         ...options,
         authStorage: createAuthStorage(),
     });
@@ -660,7 +664,7 @@ async function addPoolRef(
     }
     // Verification talks to the provider, so it needs the same config and
     // stored credentials the host builds its adapters from.
-    const config = loadVeraConfig();
+    const config = loadOptionalVeraConfig() ?? startingVeraConfig();
     const authStorage = createAuthStorage();
     return admitToPool(parsed, options.onStep, {
         verify: true,

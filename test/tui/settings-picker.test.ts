@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { StyledText } from "@opentui/core";
 
+import { tuiKeyHint } from "../../clients/tui/keymap.ts";
+
 import {
     handleTuiSettingsPickerKey,
     handleTuiSettingsPickerScroll,
@@ -30,6 +32,7 @@ import {
     handleTuiProviderFormKey,
     handleTuiProviderFormPaste,
     startTuiProviderForm,
+    tuiProviderFormFields,
     tuiProviderFormRows,
     type TuiProviderFormState,
 } from "../../clients/tui/settings-picker.ts";
@@ -1884,6 +1887,43 @@ test("⏎ on the declare row asks for the same form the chord asks for", () => {
     expect(pickerFooter(onDeclare)).toContain("⏎ declare");
 });
 
+test("the connect pane can open on a named row", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, {
+        selected: "ollama",
+    });
+
+    expect(pane.options[pane.selectedIndex]?.value).toBe("ollama");
+});
+
+test("a row the pane cannot find falls back to the first unconnected one", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "gone" });
+
+    expect(pane.options[pane.selectedIndex]?.value).toBe("openrouter");
+});
+
+test("the connect pane carries a line the caller needs it to say", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, {
+        selected: "openai-codex",
+        subtitle: "OpenAI Codex has no stored credential to forget",
+    });
+
+    expect(pane.subtitle).toBe(
+        "OpenAI Codex has no stored credential to forget",
+    );
+    expect(pane.options[pane.selectedIndex]?.value).toBe("openai-codex");
+});
+
+test("the declare row offers its action once", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
+
+    const footer = pickerFooter(onDeclare);
+    expect(footer).toContain("⏎ declare");
+    expect(footer.split("declare")).toHaveLength(2);
+    // The chord still reads on a row that does not offer ⏎ declare.
+    expect(pickerFooter(pane)).toContain(tuiKeyHint("declare_provider"));
+});
+
 test("delete on the declare row asks to forget nothing", () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
     const onDeclare = { ...pane, selectedIndex: pane.options.length - 1 };
@@ -2425,19 +2465,166 @@ test("escape closes the form without a declaration", () => {
     expect(transition.submitted).toBeUndefined();
 });
 
-test("the form draws its four fields", () => {
+const providerFormRowText = (row: StyledText | undefined): string =>
+    (row?.chunks ?? []).map((chunk) => chunk.text).join("");
+
+test("the form draws a key row while the credential is a key", () => {
     const rows = tuiProviderFormRows({
         ...startTuiProviderForm(),
         id: "gateway",
         baseUrl: "https://gateway.example/v1",
     });
 
-    const text = (row: StyledText | undefined): string =>
-        (row?.chunks ?? []).map((chunk) => chunk.text).join("");
+    expect(rows).toHaveLength(5);
+    expect(providerFormRowText(rows[0])).toContain("gateway");
+    expect(providerFormRowText(rows[1])).toContain(
+        "https://gateway.example/v1",
+    );
+    expect(providerFormRowText(rows[2])).toContain("openai-chat");
+    expect(providerFormRowText(rows[3])).toContain("API key");
+    expect(providerFormRowText(rows[4])).toContain("Key");
+});
 
-    expect(rows).toHaveLength(4);
-    expect(text(rows[0])).toContain("gateway");
-    expect(text(rows[1])).toContain("https://gateway.example/v1");
-    expect(text(rows[2])).toContain("openai-chat");
-    expect(text(rows[3])).toContain("API key");
+test("the key row leaves the form when the credential does", () => {
+    let form = startTuiProviderForm();
+    expect(tuiProviderFormFields(form)).toContain("api_key");
+
+    form = { ...form, field: "credential" };
+    form = handleTuiProviderFormKey(form, { name: "space" }).state!;
+
+    expect(form.credential).toBe("none");
+    expect(tuiProviderFormFields(form)).not.toContain("api_key");
+    expect(tuiProviderFormRows(form)).toHaveLength(4);
+
+    form = handleTuiProviderFormKey(form, { name: "space" }).state!;
+    expect(tuiProviderFormFields(form)).toContain("api_key");
+});
+
+test("the entered key is drawn in the clear while it is being edited", () => {
+    let form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        field: "api_key",
+    };
+    form = handleTuiProviderFormPaste(form, "sk-live-secret");
+
+    expect(form.apiKey).toBe("sk-live-secret");
+    // A paste that arrived short has to be visible while it can still be
+    // fixed, which dots would hide.
+    const drawn = tuiProviderFormRows(form).map(providerFormRowText).join("\n");
+    expect(drawn).toContain("sk-live-secret");
+    expect(drawn).not.toContain("•");
+});
+
+test("an empty field draws its placeholder softened, not as a value", () => {
+    const name = tuiProviderFormRows(startTuiProviderForm())[0]!;
+
+    expect(providerFormRowText(name)).toContain("my-endpoint");
+    const placeholder = name.chunks.find((chunk) =>
+        chunk.text.includes("my-endpoint")
+    );
+    expect(placeholder?.attributes ?? 0).not.toBe(0);
+    const filled = tuiProviderFormRows({
+        ...startTuiProviderForm(),
+        id: "gateway",
+    })[0]!;
+    const value = filled.chunks.find((chunk) => chunk.text.includes("gateway"));
+    expect(value?.attributes ?? 0).toBe(0);
+});
+
+test("turning the credential off drops the key that was typed", () => {
+    let form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        apiKey: "sk-live-secret",
+        field: "credential",
+    };
+    form = handleTuiProviderFormKey(form, { name: "space" }).state!;
+
+    expect(form.apiKey).toBe("");
+});
+
+test("tab and shift+tab walk the fields and wrap both ways", () => {
+    let form = startTuiProviderForm();
+    const seen: string[] = [];
+    for (let step = 0; step < 5; step += 1) {
+        form = handleTuiProviderFormKey(form, { name: "tab" }).state!;
+        seen.push(form.field);
+    }
+
+    expect(seen).toEqual([
+        "base_url",
+        "protocol",
+        "credential",
+        "api_key",
+        "id",
+    ]);
+
+    form = handleTuiProviderFormKey(form, { name: "tab", shift: true }).state!;
+    expect(form.field).toBe("api_key");
+    form = handleTuiProviderFormKey(form, { name: "backtab" }).state!;
+    expect(form.field).toBe("credential");
+});
+
+test("tab skips the hidden key field", () => {
+    let form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        credential: "none",
+        field: "credential",
+    };
+    form = handleTuiProviderFormKey(form, { name: "tab" }).state!;
+
+    expect(form.field).toBe("id");
+});
+
+test("a refused save keeps every other typed value and names the field", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "gateway",
+        apiKey: "sk-live-secret",
+        field: "api_key",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.submitted).toBeUndefined();
+    expect(transition.state?.field).toBe("base_url");
+    expect(transition.state?.error).toContain("base URL");
+    expect(transition.state?.error).not.toContain("sk-live-secret");
+    expect(transition.state?.id).toBe("gateway");
+    expect(transition.state?.apiKey).toBe("sk-live-secret");
+});
+
+test("a filled form submits the declaration and the key together", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "gateway",
+        baseUrl: "https://gateway.example/v1",
+        apiKey: "sk-live-secret",
+        field: "api_key",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.state).toBeUndefined();
+    expect(transition.submitted).toEqual({
+        id: "gateway",
+        declaration: {
+            protocol: "openai-chat",
+            base_url: "https://gateway.example/v1",
+            credential: "api_key",
+        },
+        apiKey: "sk-live-secret",
+    });
+});
+
+test("a keyless declaration submits without a key", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "gateway",
+        baseUrl: "https://gateway.example/v1",
+        credential: "none",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.submitted?.apiKey).toBeUndefined();
 });
