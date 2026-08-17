@@ -56,6 +56,13 @@ test("no two reachable bindings claim the same chord", () => {
     expect(tuiKeymapConflicts()).toEqual([]);
 });
 
+test("a surface can explicitly override a global chord while it is open", () => {
+    expect(tuiBindingId("global", { name: "tab", shift: true }))
+        .toBe("cycle-quickslot");
+    expect(tuiBindingId("model_picker", { name: "tab", shift: true }))
+        .toBe("switch_tab");
+});
+
 test("a scope sees its own bindings, the ones it inherits, and the globals", () => {
     expect(tuiBindingId("model_picker", { name: "s", ctrl: true }))
         .toBe("toggle_pooled");

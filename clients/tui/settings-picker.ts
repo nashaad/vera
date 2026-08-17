@@ -1029,7 +1029,7 @@ function sessionRunsFact(
  */
 function assignmentStatusWord(row: ModelAssignmentRow): string {
     if (row.bound) {
-        return row.source === "assignment" ? "set" : "not in pool";
+        return row.source === "assignment" ? "set" : "not shortlisted";
     }
     return row.inherits === undefined
         ? "uses session"
@@ -1073,7 +1073,7 @@ function assignmentFacts(
         // is in the pool is not a fact about this row.
         ...(row.bound
             ? [[
-                "In pool",
+                "Shortlisted",
                 row.source === "assignment" ? "yes" : "no",
             ] as const]
             : []),
@@ -1096,8 +1096,8 @@ function assignmentNote(row: ModelAssignmentRow): string {
         return purpose;
     }
     const runs = `${row.inherits ?? "this session's model"} runs it instead`;
-    return `${purpose} The model it is set to is not in your pool, so ${runs}.`
-        + ` Add that model to your pool, or point ${row.label} at one that is.`;
+    return `${purpose} The model it is set to is not on your shortlist, so ${runs}.`
+        + ` Add that model to your shortlist, or point ${row.label} at one that is.`;
 }
 
 function reviewerSlotLabel(selection?: ReviewerModelSelection): string {
@@ -1782,9 +1782,8 @@ export function handleTuiSettingsPickerKey(
     ) {
         return { state, handled: true, openProviders: true };
     }
-    // Tab walks the strip, which ends in Providers. Shift is tolerated rather
-    // than given its own direction: the strip is short enough that forward
-    // always gets there.
+    // Tab walks right across the strip and Shift+Tab walks left. The model
+    // pane's scoped binding overrides the global quickslot chord while open.
     if (
         state.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
@@ -1796,6 +1795,19 @@ export function handleTuiSettingsPickerKey(
             "help",
         ];
         const at = cycle.indexOf(state.tab ?? "all");
+        if (key.shift === true) {
+            if (at === 0) {
+                return {
+                    state: switchedModelTab(state, cycle.at(-1)!),
+                    handled: true,
+                    openProviders: true,
+                };
+            }
+            return {
+                state: switchedModelTab(state, cycle[at - 1] ?? cycle.at(-1)!),
+                handled: true,
+            };
+        }
         // Providers is the last stop, and it swaps what the card lists rather
         // than what the model list shows, so the list under it wraps to the
         // first tab. Both ways out of that pane then land on the start of the
@@ -1821,7 +1833,12 @@ export function handleTuiSettingsPickerKey(
         && state.parent?.kind === "model"
         && tuiBindingId("model_picker", key) === "switch_tab"
     ) {
-        return { state: state.parent, handled: true };
+        return {
+            state: key.shift === true
+                ? switchedModelTab(state.parent, "help")
+                : state.parent,
+            handled: true,
+        };
     }
     // Ahead of the modifier bail-out below, because the chord carries shift.
     if (
@@ -2220,12 +2237,12 @@ function modelPaneSplit(
         return undefined;
     }
     const cardWidth = pickerCardWidth(renderer, state);
-    const listWidth = Math.max(
-        MODEL_LIST_MIN_WIDTH,
-        Math.floor(cardWidth * 0.5),
+    const detailWidth = Math.max(
+        MODEL_DETAIL_MIN_WIDTH,
+        Math.floor(cardWidth * 0.32),
     );
-    const detailWidth = cardWidth - listWidth - MODEL_DETAIL_RULE.length;
-    return detailWidth < MODEL_DETAIL_MIN_WIDTH
+    const listWidth = cardWidth - detailWidth - MODEL_DETAIL_RULE.length;
+    return listWidth < MODEL_LIST_MIN_WIDTH
         ? undefined
         : { listWidth, detailWidth };
 }
@@ -2356,15 +2373,15 @@ function modelDetailNode(
         ]);
         line();
         for (const fact of modelDetailFacts(state, option)) {
-            line(factChunks(fact, width));
+            const [label, value, tone] = fact;
+            line([fg(TUI_MUTED)(label)]);
+            line([
+                fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
+                    clippedTo(value, width),
+                ),
+            ]);
         }
         line();
-    }
-    // What this collection is, said in the column that has room for it rather
-    // than on a line under the tabs. A sentence there would sit between the
-    // tabs and the rows it describes and push the list down for nothing.
-    for (const text of wrappedTo(modelPaneNote(state), width)) {
-        line([fg(TUI_MUTED)(text)]);
     }
     while (drawn < height) {
         line();
@@ -2447,23 +2464,22 @@ const MODEL_HELP_TERM_WIDTH = 14;
  */
 const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["The two lists"],
-    ["Pool", "the shortlist you keep. Ordered by you, not by provider."],
+    ["Shortlist", "the models you keep. Ordered by you, not by provider."],
     ["All models", "every model your connected providers offer."],
     ["Top picks", "models Vera is built and tested against."],
     [""],
     ["Marks"],
     ["●", "the model this conversation is running."],
-    ["✓", "on Pool: answered a live probe, so its abilities are known."],
-    ["in pool", "on All models: already on your shortlist."],
+    ["✓", "on Shortlist: answered a live probe, so its abilities are known."],
+    ["shortlisted", "on All models: already on your shortlist."],
     ["top pick", "a model Vera is built and tested against."],
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
     ["Keys"],
-    ["⏎", "run this model. On All models it does not pool it."],
-    ["^s", "add the highlighted model to the pool, or remove it."],
-    ["^n", "give a pooled model a short name of your own."],
-    ["^⇧r", "probe a model and record what it can do."],
-    ["^v", "probe everything you keep, or only what was never probed."],
+    ["⏎", "run this model. On All models it does not add it."],
+    ["^s", "add the highlighted model to the shortlist, or remove it."],
+    ["^n", "give a shortlisted model a short name of your own."],
+    ["^⇧r ^v", "probe a model, or every model you keep."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -2483,11 +2499,11 @@ function modelDetailHeight(
         return 3 + option.detailFacts.length
             + wrappedTo(option.note ?? "", width).length;
     }
-    // The name, the source, a blank, the facts, and a blank under them.
+    // The name, the source, a blank, two lines per fact, and a blank under them.
     const facts = described
-        ? 3 + modelDetailFacts(state, option).length + 1
+        ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts + wrappedTo(modelPaneNote(state), width).length;
+    return facts;
 }
 
 /** How wide the block's own label column is, so its values line up. */
@@ -2506,8 +2522,8 @@ function modelDetailFacts(
     // On the pool tab every row is pooled, so the fact says nothing there.
     if (state.kind === "model" && state.tab !== "pool") {
         facts.push(option.pooledRank === undefined
-            ? ["Pool", "not pooled"]
-            : ["Pool", "in your pool", "positive"]);
+            ? ["Shortlist", "not shortlisted"]
+            : ["Shortlist", "on your shortlist", "positive"]);
     }
     // The word on its own says nothing about what was checked, so the value
     // says it: a probe is a real call to the provider for this model.
@@ -2590,10 +2606,18 @@ function renderListPickerRows(
         nodes.push(search);
     }
     if (stop !== undefined && stripPane !== undefined) {
-        const strip = modelTabStripNode(renderer, stop, {
-            pool: modelTabRows(stripPane.allOptions, "pool").length,
-            all: modelTabRows(stripPane.allOptions, "all").length,
-        }, onTab, onConfigure);
+        const strip = modelTabStripNode(
+            renderer,
+            stop,
+            {
+                pool: modelTabRows(stripPane.allOptions, "pool").length,
+                all: modelTabRows(stripPane.allOptions, "all").length,
+            },
+            pickerContentWidth(renderer, state),
+            tab === undefined || tab === "help" ? undefined : modelPaneNote(state),
+            onTab,
+            onConfigure,
+        );
         box.add(strip);
         nodes.push(strip);
     }
@@ -2791,9 +2815,10 @@ function renderListPickerRows(
     box.height = "auto";
 }
 
-// The strip and the blank line under it. What each collection is now sits in
-// the detail column, which has the room for it without pushing the list down.
-const MODEL_TAB_STRIP_HEIGHT = 2;
+// The strip, breathing room, its one-line collection explanation, and another
+// blank before the rows. The explanation is content of its own, not a label
+// attached to either the tabs above or the list below.
+const MODEL_TAB_STRIP_HEIGHT = 4;
 const MODEL_ALL_MAX_ROWS = 28;
 
 /**
@@ -2829,7 +2854,7 @@ function modelStripStop(
 }
 
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
-    ["pool", "Pool"],
+    ["pool", "Shortlist"],
     ["all", "All models"],
     ["defaults", "Defaults"],
     ["help", "Help"],
@@ -2845,12 +2870,12 @@ function modelTabLabel(tab: TuiModelPickerTab): string {
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Your curated shortlist. ^s adds or removes models here.",
-    all: "Everything your providers offer. Enter runs one without pooling it.",
+    pool: "Models you keep close. ^s adds or removes models here.",
+    all: "Everything your providers offer. Enter runs one without adding it.",
     help: "What the marks and the keys in this pane mean.",
 };
 
-/** What the detail column says about the collection under the cursor. */
+/** What the line below the tabs says about the active collection. */
 function modelPaneNote(state: TuiAnySettingsPickerState): string {
     const tab = state.kind === "model" ? state.tab ?? "all" : "all";
     return MODEL_TAB_DESCRIPTIONS[tab];
@@ -2861,6 +2886,8 @@ function modelTabStripNode(
     renderer: RenderContext,
     tab: ModelStripStop,
     counts: Readonly<Partial<Record<TuiModelPickerTab, number>>>,
+    width: number,
+    note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
 ): BoxRenderable {
@@ -2874,7 +2901,25 @@ function modelTabStripNode(
         height: 1,
         flexDirection: "row",
     });
-    MODEL_TAB_LABELS.forEach(([id, label], index) => {
+    const fullNames = MODEL_TAB_LABELS.map(([id, label]) => {
+        const count = counts[id];
+        return count === undefined ? label : `${label} (${count})`;
+    });
+    const namesWithoutCounts = MODEL_TAB_LABELS.map(([, label]) => label);
+    const stripWidth = (names: readonly string[], gap: number) =>
+        names.reduce((total, name) => total + Bun.stringWidth(name) + 2, 0)
+        + gap * MODEL_TAB_LABELS.length
+        // The active Providers stop carries padding on both sides.
+        + Bun.stringWidth(" Providers ^e ");
+    const fullFits = stripWidth(fullNames, 2) <= width;
+    const labelsFit = stripWidth(namesWithoutCounts, 2) <= width;
+    const names = fullFits
+        ? fullNames
+        : labelsFit
+        ? namesWithoutCounts
+        : namesWithoutCounts.map((name) => name === "All models" ? "All" : name);
+    const gap = fullFits || labelsFit ? 2 : 1;
+    MODEL_TAB_LABELS.forEach(([id], index) => {
         // The active tab is a filled chip, as the help card's tabs are: a tab
         // that differs from its neighbour only in colour reads as a heading
         // rather than as one of a set you can move between. The first chip
@@ -2883,8 +2928,7 @@ function modelTabStripNode(
         // The count belongs to the tab, not to the line under it: how many
         // models a collection holds is the first thing asked of a shortlist.
         // Help is a page, not a collection, so it carries no count.
-        const count = counts[id];
-        const named = count === undefined ? label : `${label} (${count})`;
+        const named = names[index]!;
         const text = index === 0 ? `${named} ` : ` ${named} `;
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
@@ -2906,7 +2950,7 @@ function modelTabStripNode(
         }
         chips.add(chip);
         chips.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_PANEL)("  ")]),
+            content: new StyledText([fg(TUI_PANEL)(" ".repeat(gap))]),
             flexShrink: 0,
             height: 1,
         }));
@@ -2936,7 +2980,18 @@ function modelTabStripNode(
     strip.add(new TextRenderable(renderer, {
         content: "",
         width: "100%",
-        height: MODEL_TAB_STRIP_HEIGHT - 1,
+        height: 1,
+    }));
+    strip.add(new TextRenderable(renderer, {
+        content: note ?? "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+    }));
+    strip.add(new TextRenderable(renderer, {
+        content: "",
+        width: "100%",
+        height: 1,
     }));
     return strip;
 }
@@ -3079,7 +3134,7 @@ function pickerFooterText(
             : isPooled(state, selected)
                 // Removal is the same key saying the opposite thing, which is
                 // the one hint the table cannot hold for us.
-                ? tuiKeyHint("toggle_pooled").replace("pool", "remove")
+                ? tuiKeyHint("toggle_pooled").replace("add", "remove")
                 : tuiKeyHint("toggle_pooled");
         return fittedHints([
             // The movement entry carries the half-page keys rather than taking
@@ -3414,7 +3469,7 @@ function optionMeta(
     // view. It is the one thing about a row that a provider heading cannot
     // tell you, and choosing it is a dead end.
     if (option.unavailable === true) {
-        separated({ text: "unavailable" });
+        separated({ text: "unavail" });
     }
     // Only a yes is worth a word. The question this answers is whether an
     // attachment will go through, so the mark being there is the answer and
@@ -3436,7 +3491,7 @@ function optionMeta(
                 separated({ text: "✓", tone: "positive" });
             }
         } else {
-            separated({ text: "in pool", tone: "positive" });
+            separated({ text: "shortlisted", tone: "positive" });
         }
     }
     return parts.length === 0 ? undefined : parts;
@@ -3447,10 +3502,10 @@ function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
         return "No options available";
     }
     if (state.kind === "model" && state.tab === "pool") {
-        return "No pooled models match. Tab switches to All models.";
+        return "No shortlisted models match. Tab switches to All models.";
     }
     if (state.kind === "model_assignment") {
-        return "No pooled models. Add one to the pool to assign it here.";
+        return "No shortlisted models. Add one to the shortlist to assign it here.";
     }
     if (state.kind !== "session") {
         return "No matches found";
@@ -3690,7 +3745,7 @@ function modelOptions(
         const value = providerModelKey(model.provider, model.model);
         return {
             value,
-            label: model.label,
+            label: modelRowLabel(model),
             description: model.description,
             searchText: `${model.provider} ${model.model}${
                 poolEntry.get(value)?.entry.poolName === undefined
@@ -3728,7 +3783,7 @@ function modelOptions(
         const value = providerModelKey(entry.provider, entry.model);
         return runnable.some((option) => option.value === value) ? [] : [{
             value,
-            label: entry.poolName ?? entry.label,
+            label: entry.poolName ?? modelRowLabel(entry),
             description: "not available right now",
             searchText: `${entry.provider} ${entry.model}${
                 entry.poolName === undefined ? "" : ` ${entry.poolName}`
@@ -3749,6 +3804,26 @@ function modelOptions(
         left.provider.localeCompare(right.provider)
             || left.label.localeCompare(right.label)
     );
+}
+
+/**
+ * Marketplace catalogs sometimes prefix a model name with its maker even
+ * though the model id already carries that namespace. The picker has a
+ * separate provider column, so lead with the name users are scanning for.
+ */
+function modelRowLabel(
+    model: Pick<SuggestedModel, "model" | "label">,
+): string {
+    const maker = model.model.split("/", 1)[0];
+    if (maker === undefined || !model.model.includes("/")) {
+        return model.label;
+    }
+    const colon = model.label.indexOf(":");
+    if (colon === -1) return model.label;
+    const prefix = model.label.slice(0, colon);
+    return prefix.localeCompare(maker, undefined, { sensitivity: "base" }) === 0
+        ? model.label.slice(prefix.length + 1).trimStart()
+        : model.label;
 }
 
 /**

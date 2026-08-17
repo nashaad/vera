@@ -73,8 +73,8 @@ test("a row is its name and one status word", () => {
     // Nothing in the list is longer than a word or two, so no row can clip.
     expect(status.get("this session")).toBe("");
     expect(status.get("extra")).toBe("set");
-    expect(status.get("snappy")).toBe("not in pool");
-    expect(status.get("critic")).toBe("not in pool");
+    expect(status.get("snappy")).toBe("not shortlisted");
+    expect(status.get("critic")).toBe("not shortlisted");
     // Nothing is ever left unrun: an unset row names what runs it instead.
     expect(status.get("eco")).toBe("uses session");
     // eco is unset in this fixture, so compaction falls past it to the session.
@@ -212,10 +212,10 @@ test("the highlighted row explains itself beside the list", () => {
         ["Runs", "this session's model"],
         ["Set to", 'route "cheap"'],
         ["If unset", "this session's model"],
-        ["In pool", "no"],
+        ["Shortlisted", "no"],
     ]);
     expect(cell.get("snappy")?.note).toContain(
-        "not in your pool, so this session's model runs it instead",
+        "not on your shortlist, so this session's model runs it instead",
     );
     // A job row names the substitute that actually ran.
     expect(cell.get("reviewer")?.detailFacts).toEqual([
@@ -223,7 +223,7 @@ test("the highlighted row explains itself beside the list", () => {
         ["Set to", "nothing"],
         ["If unset", "whatever extra uses"],
     ]);
-    expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["In pool", "yes"]);
+    expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["Shortlisted", "yes"]);
 });
 
 test("no row can leave its work unrun", () => {

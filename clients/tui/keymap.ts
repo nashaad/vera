@@ -84,6 +84,8 @@ export interface TuiBinding {
      * that depends on how quickly the two bytes arrived is not a quit key.
      */
     readonly anyModifiers?: true;
+    /** A broader binding this surface intentionally replaces while it is open. */
+    readonly overrides?: readonly string[];
     /**
      * The extension that owns this chord, when one does.
      *
@@ -188,6 +190,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["ctrl+shift+m"],
         scope: "global",
         description: "Open the model picker",
+        hint: "ctrl+shift+m model",
     },
     {
         id: "cycle-reasoning",
@@ -233,14 +236,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_pooled",
         keys: ["ctrl+s"],
         scope: "model_picker",
-        description: "Add or remove the selected model from the pool",
-        hint: "^s pool",
+        description: "Add or remove the selected model from the shortlist",
+        hint: "^s add",
     },
     {
         id: "undo_pool_change",
         keys: ["ctrl+z"],
         scope: "model_picker",
-        description: "Undo the last pool add or remove",
+        description: "Undo the last shortlist add or remove",
         hint: "^z undo",
     },
     {
@@ -265,7 +268,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "name_pooled",
         keys: ["ctrl+n"],
         scope: "model_picker",
-        description: "Name the selected pool entry",
+        description: "Name the selected shortlisted model",
         hint: "^n name",
     },
     {
@@ -312,10 +315,11 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "switch_tab",
-        keys: ["tab"],
+        keys: ["tab", "shift+tab"],
         scope: "model_picker",
-        description: "Switch between pool and all models",
+        description: "Switch between the shortlist and all models",
         hint: "tab switch",
+        overrides: ["cycle-quickslot"],
     },
     {
         id: "rename_session",
@@ -447,13 +451,15 @@ export function tuiBindingId(
 ): string | undefined {
     const exact = tuiChord(key);
     const loose = coreChord(key);
-    return TUI_KEYMAP.find((binding) => {
+    const matches = TUI_KEYMAP.filter((binding) => {
         if (!appliesIn(binding, scope)) {
             return false;
         }
         const chord = binding.anyModifiers === true ? loose : exact;
         return chord !== undefined && binding.keys.includes(chord);
-    })?.id;
+    });
+    return matches.find((binding) => binding.scope === scope)?.id
+        ?? matches[0]?.id;
 }
 
 /** How a binding is written on screen, empty when it is not shown anywhere. */
@@ -516,6 +522,12 @@ export function tuiKeymapConflicts(
             }
             for (const chord of binding.keys) {
                 if (other.keys.includes(chord)) {
+                    if (
+                        binding.overrides?.includes(other.id) === true
+                        || other.overrides?.includes(binding.id) === true
+                    ) {
+                        continue;
+                    }
                     conflicts.push(`${chord}: ${binding.id} and ${other.id}`);
                 }
             }
