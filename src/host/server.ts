@@ -102,7 +102,12 @@ export interface StartHostServerOptions {
     readonly discardBranch?: (agentId: string) => Promise<void>;
     readonly commitBranch?: (agentId: string) => boolean;
     readonly syncAgentContext?: (agentId: string) => Promise<{
-        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly status:
+            | "synced"
+            | "unchanged"
+            | "busy"
+            | "stale_cursor"
+            | "not_found";
         readonly turns: number;
     }>;
     readonly trashSession?: (
@@ -379,7 +384,12 @@ function receiveConnection(
     discardBranch: (agentId: string) => Promise<void>,
     commitBranch: (agentId: string) => boolean,
     syncAgentContext: (agentId: string) => Promise<{
-        readonly status: "synced" | "unchanged" | "busy" | "not_found";
+        readonly status:
+            | "synced"
+            | "unchanged"
+            | "busy"
+            | "stale_cursor"
+            | "not_found";
         readonly turns: number;
     }>,
     trashSession: (

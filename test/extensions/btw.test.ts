@@ -9,7 +9,7 @@ async function start(visible: readonly {
     agentId: string;
     pane: "main" | "sidebar";
     mention?: string;
-}[] = [{ agentId: "main", pane: "main" }]) {
+}[] = [{ agentId: "main", pane: "main" }], syncOutcomes: string[] = []) {
     const calls: unknown[] = [];
     const syncs: string[] = [];
     let mentions: readonly string[] = [];
@@ -88,7 +88,8 @@ async function start(visible: readonly {
             },
             async syncContext(_extensionId, agentId) {
                 syncs.push(agentId);
-                return { outcome: "unchanged" as const, turns: 0 };
+                const outcome = syncOutcomes.shift() ?? "unchanged";
+                return { outcome: outcome as "unchanged", turns: 0 };
             },
             async message(extensionId, request) {
                 calls.push({ operation: "message", extensionId, request });
@@ -300,5 +301,40 @@ test("a new main conversation gets a new sidekick", async () => {
         extensionId: "vera.btw",
         request: { agentId: "side-2", text: "second" },
     });
+    await harness.registry.close();
+});
+
+test("a stale cursor drops the sidekick and branches again", async () => {
+    const harness = await start(undefined, ["stale_cursor"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.calls.length = 0;
+    harness.syncs.length = 0;
+
+    await harness.registry.invokeCommand("btw", "second", "/workspace");
+
+    // The primary was rewound past the sync point, so the old branch is dead:
+    // the second message goes to a fresh branch off the rewound primary.
+    expect(harness.syncs).toEqual(["side-1"]);
+    expect(harness.calls).toMatchObject([
+        { operation: "open", request: { agentId: "side-1" } },
+        { operation: "create", request: { source: { type: "branch", agentId: "main" } } },
+        { operation: "message", request: { agentId: "side-2", text: "second" } },
+    ]);
+    await harness.registry.close();
+});
+
+test("a stale cursor on a bare follow-up branches again", async () => {
+    const harness = await start(undefined, ["stale_cursor"]);
+    await harness.registry.invokeCommand("btw", "", "/workspace");
+    harness.calls.length = 0;
+
+    expect(await harness.registry.interceptMessage({
+        text: "follow up",
+        workspace: "/workspace",
+        imageCount: 0,
+    })).toEqual({ kind: "pass" });
+    expect(harness.calls).toMatchObject([
+        { operation: "create", request: { source: { type: "branch", agentId: "main" } } },
+    ]);
     await harness.registry.close();
 });
