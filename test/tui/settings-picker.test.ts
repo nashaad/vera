@@ -1805,6 +1805,14 @@ const PROVIDER_ROWS = [
         hint: "local, no account",
         connected: true,
     },
+    {
+        id: "gemini",
+        label: "gemini",
+        group: "Providers",
+        hint: "API key",
+        connected: true,
+        declared: true,
+    },
 ] as const;
 
 test("the connect pane groups providers, marks the connected ones, and says what each wants", async () => {
@@ -2627,4 +2635,48 @@ test("a keyless declaration submits without a key", () => {
     const transition = handleTuiProviderFormKey(form, { name: "enter" });
 
     expect(transition.submitted?.apiKey).toBeUndefined();
+});
+
+
+test("opening a declared row edits it, and a shipped row still connects", () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS, { selected: "gemini" });
+
+    const edit = handleTuiSettingsPickerKey(pane, { name: "return" });
+    expect("editProvider" in edit ? edit.editProvider : undefined)
+        .toBe("gemini");
+    expect(pickerFooter(pane)).toContain("⏎ edit");
+
+    const shipped = handleTuiSettingsPickerKey(
+        { ...pane, selectedIndex: 0 },
+        { name: "return" },
+    );
+    expect("editProvider" in shipped ? shipped.editProvider : undefined)
+        .toBeUndefined();
+});
+
+test("the edit form opens filled in and a rename says what it replaces", () => {
+    const form = startTuiProviderForm(undefined, {
+        id: "gemini",
+        baseUrl: "https://example.test/v1",
+        protocol: "openai-chat",
+        credential: "api_key",
+        apiKey: "stored-key",
+    });
+
+    // The cursor skips the name, since the field a user came to change is the
+    // one they could not reach before.
+    expect(form.field).toBe("base_url");
+    expect(form.editing).toBe("gemini");
+
+    const saved = handleTuiProviderFormKey(form, { name: "return" });
+    expect(saved.submitted?.id).toBe("gemini");
+    expect(saved.submitted?.apiKey).toBe("stored-key");
+    expect(saved.submitted?.replaces).toBeUndefined();
+
+    const renamed = handleTuiProviderFormKey(
+        { ...form, id: "gemini-eu" },
+        { name: "return" },
+    );
+    expect(renamed.submitted?.id).toBe("gemini-eu");
+    expect(renamed.submitted?.replaces).toBe("gemini");
 });

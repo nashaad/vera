@@ -6605,6 +6605,39 @@ export async function startTui(
         }
     }
 
+    /**
+     * The declaration form, opened on a provider that already exists. The key
+     * is read back so saving without touching it keeps it, rather than the
+     * blank field reading as "no key" and silently dropping one.
+     */
+    function openProviderEditForm(
+        provider: string,
+        parent?: TuiSettingsPickerState,
+    ): void {
+        const declaration = loadOptionalVeraConfig()?.providers?.[provider];
+        if (declaration === undefined) {
+            return;
+        }
+        let apiKey: string | undefined;
+        try {
+            const stored = authStorage.getCredential(provider);
+            apiKey = stored?.type === "api_key" ? stored.key : undefined;
+        } catch {
+            apiKey = undefined;
+        }
+        providerForm = startTuiProviderForm(parent, {
+            id: provider,
+            baseUrl: declaration.base_url,
+            protocol: declaration.protocol,
+            credential: declaration.credential,
+            ...(apiKey === undefined ? {} : { apiKey }),
+        });
+        settingsPicker = undefined;
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
     function openProviderPicker(
         parent?: TuiSettingsPickerState,
         options: {
@@ -6612,7 +6645,9 @@ export async function startTui(
             readonly subtitle?: string;
         } = {},
     ): void {
-        const providers = configuredProviders(loadOptionalVeraConfig());
+        const config = loadOptionalVeraConfig();
+        const providers = configuredProviders(config);
+        const declared = new Set(Object.keys(config?.providers ?? {}));
         settingsPicker = withTuiPickerParent(
             startTuiProviderPicker(
                 providers.map((provider) => ({
@@ -6625,6 +6660,7 @@ export async function startTui(
                         ? {}
                         : { hint: provider.hint }),
                     connected: providerConnected(provider),
+                    ...(declared.has(provider.id) ? { declared: true } : {}),
                 })),
                 options,
             ),
@@ -6850,7 +6886,36 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        state = appendTuiNotice(state, `declared ${submitted.id}`);
+        // A rename is a move, not a second declaration: the old entry and the
+        // credential under the old name both go, or the pane comes back
+        // showing a provider nobody asked for.
+        if (submitted.replaces !== undefined) {
+            try {
+                updateVeraConfigDefaults({
+                    custom_provider: {
+                        id: submitted.replaces,
+                        declaration: null,
+                    },
+                });
+                authStorage.deleteCredential(submitted.replaces);
+            } catch (error) {
+                state = appendTuiError(
+                    state,
+                    `renamed to ${submitted.id}, but ${submitted.replaces} `
+                        + `could not be removed: ${
+                            error instanceof Error ? error.message : String(error)
+                        }`,
+                );
+            }
+        }
+        state = appendTuiNotice(
+            state,
+            submitted.replaces !== undefined
+                ? `renamed ${submitted.replaces} to ${submitted.id}`
+                : form.editing === undefined
+                ? `declared ${submitted.id}`
+                : `updated ${submitted.id}`,
+        );
         // The key entered on the form goes to the credential store, which is a
         // separate file from the declaration that just landed in config.json.
         if (submitted.apiKey !== undefined) {
@@ -7241,6 +7306,16 @@ export async function startTui(
                 previousPicker?.kind === "provider"
                     ? previousPicker.parent
                     : undefined,
+            );
+            return;
+        }
+        if (
+            "editProvider" in transition
+            && transition.editProvider !== undefined
+        ) {
+            openProviderEditForm(
+                transition.editProvider,
+                previousPicker?.kind === "provider" ? previousPicker : undefined,
             );
             return;
         }

@@ -195,6 +195,8 @@ export interface TuiSettingsPickerOption {
      * models may include it.
      */
     readonly action?: boolean;
+    /** A provider row whose endpoint the user wrote and can rewrite. */
+    readonly declared?: boolean;
     /**
      * Set only on a section header row: the section it opens and closes. A
      * header is an option like any other so the cursor reaches it by moving,
@@ -223,6 +225,8 @@ export interface TuiProviderRow {
     readonly group: string;
     readonly hint?: string;
     readonly connected: boolean;
+    /** Declared in config rather than shipped, so its endpoint is editable. */
+    readonly declared?: boolean;
 }
 
 /**
@@ -442,6 +446,8 @@ export interface TuiSettingsPickerTransition {
      * `config.json`, and only the caller touches the disk.
      */
     readonly declareProvider?: boolean;
+    /** A declared provider whose form should reopen filled in. */
+    readonly editProvider?: string;
     readonly previewTheme?: TuiThemeName;
     readonly trashCandidate?: {
         readonly sessionId: string;
@@ -807,6 +813,7 @@ export function startTuiProviderPicker(
         searchText: provider.id,
         group: provider.group,
         connected: provider.connected,
+        ...(provider.declared === true ? { declared: true } : {}),
     }));
     const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
@@ -1905,6 +1912,12 @@ export function handleTuiSettingsPickerKey(
         if (state.kind === "provider" && selected.action === true) {
             return { state, handled: true, declareProvider: true };
         }
+        // A declared row carries an endpoint the user wrote, so opening it
+        // means opening what they wrote. The form's key field covers the
+        // credential, which is the only thing a shipped row has to offer.
+        if (state.kind === "provider" && selected.declared === true) {
+            return { state, handled: true, editProvider: selected.value };
+        }
         // The session's model is shown on the Slots tab but is not changed
         // there: choosing it moves to the list that does change it, which is
         // the same list every other way in reaches.
@@ -2923,6 +2936,8 @@ function pickerFooterText(
             "↑↓ move",
             selected?.action === true
                 ? "⏎ declare"
+                : selected?.declared === true
+                ? "⏎ edit"
                 : selected?.connected === true
                 ? "⏎ reconnect"
                 : "⏎ connect",
@@ -4092,6 +4107,12 @@ export interface TuiProviderFormState {
     readonly error?: string;
     /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
+    /**
+     * The name this form opened on, when it opened on an existing declaration.
+     * Absent on a new one. A submit whose name moved away from this is a
+     * rename, which the caller settles by moving the stored credential.
+     */
+    readonly editing?: string;
 }
 
 /** A finished form, on its way to the caller that owns the config file. */
@@ -4103,6 +4124,8 @@ export interface TuiProviderFormDeclaration {
      * on a declaration that carries no key, so the caller stores nothing.
      */
     readonly apiKey?: string;
+    /** The name this declaration replaces, when the form opened on one. */
+    readonly replaces?: string;
 }
 
 export interface TuiProviderFormKey {
@@ -4132,15 +4155,23 @@ export interface TuiProviderFormView {
 
 export function startTuiProviderForm(
     parent?: TuiSettingsPickerState,
+    existing?: {
+        readonly id: string;
+        readonly baseUrl: string;
+        readonly protocol: VeraProviderProtocol;
+        readonly credential: VeraProviderCredential;
+        readonly apiKey?: string;
+    },
 ): TuiProviderFormState {
     return {
-        id: "",
-        baseUrl: "",
-        protocol: "openai-chat",
-        credential: "api_key",
-        apiKey: "",
-        field: "id",
+        id: existing?.id ?? "",
+        baseUrl: existing?.baseUrl ?? "",
+        protocol: existing?.protocol ?? "openai-chat",
+        credential: existing?.credential ?? "api_key",
+        apiKey: existing?.apiKey ?? "",
+        field: existing === undefined ? "id" : "base_url",
         ...(parent === undefined ? {} : { parent }),
+        ...(existing === undefined ? {} : { editing: existing.id }),
     };
 }
 
@@ -4277,6 +4308,9 @@ function submittedProviderForm(
             // An empty key field is a declaration without a key yet, not an
             // empty key, so it is left off rather than stored as "".
             ...(apiKey.length === 0 ? {} : { apiKey }),
+            ...(state.editing === undefined || state.editing === id
+                ? {}
+                : { replaces: state.editing }),
         },
     };
 }
@@ -4359,12 +4393,18 @@ export function tuiProviderFormRows(
             ? "API key"
             : "none";
         const empty = value.length === 0;
+        // A key already stored is covered until the cursor is on it. Typing
+        // one stays in the clear: a row of dots hides whether a paste landed
+        // whole, which is the mistake this field exists to catch.
+        const shown = field === "api_key" && !focused
+            ? "•".repeat(value.length)
+            : value;
         return new StyledText([
             fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
             fg(TUI_MUTED)(`${PROVIDER_FORM_LABELS[field].padEnd(10)} `),
             empty
                 ? italic(fg(TUI_MUTED)(PROVIDER_FORM_PLACEHOLDERS[field]))
-                : fg(TUI_TEXT)(value),
+                : fg(TUI_TEXT)(shown),
             ...(focused && providerFormTextField(field)
                 ? [fg(TUI_ACCENT)("▏")]
                 : []),
@@ -4463,6 +4503,12 @@ export function createTuiProviderFormView(
         box,
         surface,
         update(state): void {
+            title.content = state.editing === undefined
+                ? "Declare a provider"
+                : "Edit provider";
+            hint.content = state.editing === undefined
+                ? "An OpenAI- or Anthropic-compatible endpoint of your own."
+                : "Change the endpoint, the protocol, or the key you stored.";
             const lines = tuiProviderFormRows(state);
             rows.forEach((row, index) => {
                 const line = lines[index];
