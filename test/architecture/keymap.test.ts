@@ -72,7 +72,6 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "scroll_half_page_down",
     "jump_to_bottom",
     "cycle-reasoning",
-    "cycle-quickslot",
     "complete_command",
     "focus_composer",
     "half_page_down",
@@ -128,7 +127,7 @@ test("no two reachable bindings claim the same chord", () => {
 
 test("a surface can explicitly override a global chord while it is open", () => {
     expect(tuiBindingId("global", { name: "tab", shift: true }))
-        .toBe("cycle-quickslot");
+        .toBe("dials.open");
     expect(tuiBindingId("model_picker", { name: "tab", shift: true }))
         .toBe("switch_tab");
 });
