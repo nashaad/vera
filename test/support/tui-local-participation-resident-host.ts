@@ -121,7 +121,9 @@ const host = await startResidentHost({
         schema_version: 1,
         provider: "openrouter",
         model: "faux/test",
-        approval_mode: "auto",
+        // Ask mode: a peer message notifies, and the recipient reads it only
+        // when its own turn comes around, which is the loop under test.
+        approval_mode: "ask",
         experimental: { inbox: true },
     },
     createAdapter: () => adapters.shift() ?? new FauxAdapter([]),

@@ -522,7 +522,7 @@ export interface TaskNotificationUpdate {
     readonly deliveryId: string;
     readonly sourceAgentId: string;
     readonly content: string;
-    readonly kind?: "attention" | "completion";
+    readonly kind?: "attention" | "completion" | "peer";
     readonly seq: number;
 }
 
