@@ -53,6 +53,12 @@ export async function createSessionBranch(
                 options.source.modelSettingsOrigin(),
             );
         }
+        // The agent goes with the branch: a fork of a reviewer session is a
+        // reviewer session, and its snapshot is what resume compares against.
+        const wear = options.source.agentWear();
+        if (wear !== undefined) {
+            await destination.appendAgentWear(wear.name, wear.snapshot);
+        }
         // The permission mode is deliberately not carried: a fork resets
         // execution authority, so there is no posture record to keep an origin
         // on either.

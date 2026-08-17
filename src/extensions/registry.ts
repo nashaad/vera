@@ -13,6 +13,7 @@ import type {
     VeraExtensionDisposer,
     VeraExtensionModule,
     VeraExtensionToolHandler,
+    VeraExtensionAgentSpec,
     VeraExtensionToolSpec,
 } from "../sdk/extensions.ts";
 import type {
@@ -67,6 +68,11 @@ export interface StartExtensionRegistryOptions {
     readonly onFailure?: (failure: ExtensionRegistryFailure) => void;
 }
 
+import {
+    parseAgentDefinition,
+    type AgentDefinition,
+} from "../agents/definition.ts";
+
 export interface ExtensionRegistryFailure {
     readonly path: string;
     readonly extensionId?: string;
@@ -76,6 +82,7 @@ export interface ExtensionRegistryFailure {
 export interface ExtensionRegistry {
     commands(): readonly ExtensionCommandDescriptor[];
     tools(): readonly RegisteredTool[];
+    agents(): readonly AgentDefinition[];
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
@@ -104,6 +111,7 @@ interface LoadedRegistryExtension {
     readonly path: string;
     readonly commands: readonly RegisteredExtensionCommand[];
     readonly tools: readonly RegisteredExtensionTool[];
+    readonly agents: readonly AgentDefinition[];
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
@@ -237,6 +245,9 @@ export async function startExtensionRegistry(
                 extension.tools.map((registered) => registered.tool)
             );
         },
+        agents(): readonly AgentDefinition[] {
+            return loaded.flatMap((extension) => extension.agents);
+        },
         preToolUseHooks(): readonly PreToolUseHook[] {
             return loaded.flatMap((extension) => extension.preToolUseHooks);
         },
@@ -354,6 +365,8 @@ async function activateExtension(
     const commands: RegisteredExtensionCommand[] = [];
     const commandNames = new Set<string>();
     const tools: RegisteredExtensionTool[] = [];
+    const agents: AgentDefinition[] = [];
+    const agentNames = new Set<string>();
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
@@ -396,6 +409,31 @@ async function activateExtension(
                     handlerTimeoutMs,
                     activeInvocations,
                 );
+            },
+        }),
+        agents: Object.freeze({
+            register(spec: VeraExtensionAgentSpec): void {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension agents must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes("agents.register")) {
+                    throw new Error(
+                        "Extension did not declare agents.register",
+                    );
+                }
+                // Parsed through the same rules a file goes through, and a
+                // failure fails activation: an agent that half-parsed would be
+                // an agent whose scope nobody can state.
+                const definition = parseExtensionAgent(spec);
+                if (agentNames.has(definition.name)) {
+                    throw new Error(
+                        `Duplicate extension agent: ${definition.name}`,
+                    );
+                }
+                agentNames.add(definition.name);
+                agents.push(definition);
             },
         }),
         hooks: Object.freeze({
@@ -533,6 +571,7 @@ async function activateExtension(
             path: loaded.directory,
             commands,
             tools,
+            agents,
             preToolUseHooks,
             postToolUseHooks,
             modelRequestHooks,
@@ -1043,4 +1082,36 @@ function safelyReportFailure(
 
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+/**
+ * An extension's agent, through the same parser a file goes through.
+ *
+ * Round-tripped as markdown rather than hand-mapped, so an extension cannot
+ * express an agent a file could not, and the rules only live in one place.
+ */
+function parseExtensionAgent(spec: VeraExtensionAgentSpec): AgentDefinition {
+    if (
+        typeof spec !== "object" || spec === null
+        || typeof spec.name !== "string"
+        || typeof spec.instructions !== "string"
+    ) {
+        throw new Error("Invalid extension agent registration");
+    }
+    const frontmatter: Record<string, unknown> = {
+        ...(spec.description === undefined
+            ? {}
+            : { description: spec.description }),
+        ...(spec.tools === undefined ? {} : { tools: spec.tools }),
+        ...(spec.skills === undefined ? {} : { skills: spec.skills }),
+        ...(spec.posture === undefined ? {} : { posture: spec.posture }),
+        ...(spec.defaultPair === undefined
+            ? {}
+            : { default_pair: spec.defaultPair }),
+        ...(spec.nudges === undefined ? {} : { nudges: spec.nudges }),
+    };
+    return parseAgentDefinition(
+        spec.name,
+        `---\n${JSON.stringify(frontmatter)}\n---\n${spec.instructions}`,
+    );
 }

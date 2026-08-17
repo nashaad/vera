@@ -33,6 +33,7 @@ export interface PromptContributionInput {
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
+    readonly agentInstructions?: string;
 }
 
 export interface StablePromptContributionInput {
@@ -40,6 +41,15 @@ export interface StablePromptContributionInput {
     readonly workspace: string;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
+    /**
+     * The worn agent's instructions.
+     *
+     * Stable, and engine-owned: it sits after core instructions and before
+     * anything contextual, so it shares the cached prefix for as long as the
+     * same agent is worn. Wearing another agent re-prefills by design, which
+     * is why wearing one is a deliberate act and dialling is not.
+     */
+    readonly agentInstructions?: string;
 }
 
 export interface ContextualPromptContributionInput {
@@ -136,6 +146,25 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
                     + "The OS deletes this directory; keep nothing you need "
                     + "later.",
             },
+    },
+    {
+        // Last of the stable contributions and first of the agent's own
+        // voice: core says what Vera is, the agent says what it is being worn
+        // as, and nothing contextual has churned the prefix yet.
+        id: "core.agent-instructions",
+        owner: "core",
+        target: "stable",
+        contribute: (input) =>
+            (input as StablePromptContributionInput).agentInstructions
+                    ?.trim()
+                    .length
+                ? {
+                    title: "Agent",
+                    content:
+                        (input as StablePromptContributionInput)
+                            .agentInstructions!.trim(),
+                }
+                : null,
     },
     {
         id: "core.date",

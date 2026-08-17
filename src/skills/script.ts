@@ -43,7 +43,15 @@ export const skillScriptTool: RegisteredTool = {
             projectRoot: context.instructionRoot,
         });
         const skill = findSkill(catalog, skillName);
-        if (skill === undefined) {
+        // A skill the worn agent's list leaves out is refused the same way a
+        // skill that does not exist is. Naming it differently would tell the
+        // model what it cannot have, which is the catalog's job, not a
+        // refusal's.
+        if (
+            skill === undefined
+            || (context.allowedSkills !== undefined
+                && !context.allowedSkills.includes(skillName))
+        ) {
             throw new Error(`Unknown skill: ${skillName}`);
         }
         if (!isDeclaredScript(script, skill.instructions)) {
