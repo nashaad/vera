@@ -112,6 +112,7 @@ import type {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionSettingOrigin,
 } from "../store/session-store.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import {
@@ -835,6 +836,22 @@ interface InheritedAgentSettings {
     readonly parentId?: string;
 }
 
+/**
+ * Whether two pairs are the same dial setting.
+ *
+ * Absent effort is its own value rather than a wildcard: a model with no
+ * effort dial has exactly one pair, and treating "no effort" as matching any
+ * effort would make the override marker wrong on every such model.
+ */
+function samePair(
+    left: ModelTurnSettings,
+    right: ModelTurnSettings,
+): boolean {
+    return left.model === right.model
+        && (left.provider ?? "") === (right.provider ?? "")
+        && left.reasoningEffort === right.reasoningEffort;
+}
+
 interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
@@ -1511,37 +1528,20 @@ export class AgentRegistry {
         return true;
     }
 
-    async updateModelSettings(
-        id: string,
+    /**
+     * Validate a pair patch and answer with the settings it resolves to.
+     *
+     * Shared by the global write and the session-scoped one so a chord and a
+     * picker cannot disagree about which levels a model publishes, or coerce an
+     * unpublished level differently.
+     */
+    private resolveModelPatch(
+        entry: RegisteredAgentEntry,
         patch: ModelSettingsPatch,
-    ): Promise<ModelTurnSettings | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        if (patch.reviewer !== undefined) {
-            if (!this.applyReviewerPatch(patch.reviewer)) {
-                return undefined;
-            }
-            if (
-                patch.provider === undefined
-                && patch.model === undefined
-                && patch.reasoningEffort === undefined
-            ) {
-                // A reviewer-only patch changes no running model, so the reply
-                // is the current settings carrying the new reviewer.
-                return settingsForClient(
-                    entry.modelSettings,
-                    entry.modelSettings.provider ?? this.defaultProvider,
-                    this.catalog,
-                    this.modelsForClient(),
-                    this.options.readPool?.(entry.store.header.cwd),
-                    this.options.subagentModel,
-                    entry.requestedReasoningEffort,
-                    this.reviewerDefault(),
-                );
-            }
-        }
+    ): {
+        readonly settings: ModelTurnSettings;
+        readonly requestedReasoningEffort?: ModelReasoningEffort;
+    } | undefined {
         if (
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
             || (patch.provider !== undefined && patch.provider.trim().length === 0)
@@ -1622,13 +1622,60 @@ export class AgentRegistry {
                 ? {}
                 : { reasoningEffort }),
         };
-        await entry.store.appendModelSettings(settings);
+        return {
+            settings,
+            ...(requestedReasoningEffort === undefined
+                ? {}
+                : { requestedReasoningEffort }),
+        };
+    }
+
+    async updateModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<ModelTurnSettings | undefined> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        if (patch.reviewer !== undefined) {
+            if (!this.applyReviewerPatch(patch.reviewer)) {
+                return undefined;
+            }
+            if (
+                patch.provider === undefined
+                && patch.model === undefined
+                && patch.reasoningEffort === undefined
+            ) {
+                // A reviewer-only patch changes no running model, so the reply
+                // is the current settings carrying the new reviewer.
+                return settingsForClient(
+                    entry.modelSettings,
+                    entry.modelSettings.provider ?? this.defaultProvider,
+                    this.catalog,
+                    this.modelsForClient(),
+                    this.options.readPool?.(entry.store.header.cwd),
+                    this.options.subagentModel,
+                    entry.requestedReasoningEffort,
+                    this.reviewerDefault(),
+                );
+            }
+        }
+        const resolved = this.resolveModelPatch(entry, patch);
+        if (resolved === undefined) {
+            return undefined;
+        }
+        const settings = resolved.settings;
+        await entry.store.appendModelSettings(
+            settings,
+            this.originFor(entry, settings),
+        );
         this.options.updateModelDefaults?.(settings);
         this.defaultModel = settings.model;
         this.defaultProvider = settings.provider ?? this.defaultProvider;
         this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
-        entry.requestedReasoningEffort = requestedReasoningEffort;
+        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
         return settingsForClient(
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
@@ -1640,6 +1687,139 @@ export class AgentRegistry {
             this.reviewerDefault(),
         );
     }
+
+    /**
+     * The pair a session falls back to when nobody has dialed it.
+     *
+     * Today that is the host default. Once an agent can carry a `default_pair`
+     * the worn agent's answer comes first, and everything that compares against
+     * "the default" goes through here so there is one answer to compare with.
+     */
+    private effectiveDefaultPair(
+        entry: RegisteredAgentEntry,
+    ): ModelTurnSettings {
+        const agentPair = this.wornAgentDefaultPair?.(entry);
+        return agentPair ?? {
+            provider: this.defaultProvider,
+            model: this.defaultModel,
+            ...(this.defaultReasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: this.defaultReasoningEffort }),
+        };
+    }
+
+    /**
+     * Derived at write time on every path, never carried forward.
+     *
+     * Reclassifying here is what makes dialing back to the default clear the
+     * override: a stale `user` origin sitting on a pair that equals the default
+     * would show a marker the user could not get rid of by any means except
+     * knowing about the record.
+     */
+    private originFor(
+        entry: RegisteredAgentEntry,
+        settings: ModelTurnSettings,
+    ): SessionSettingOrigin {
+        return samePair(settings, this.effectiveDefaultPair(entry))
+            ? "agent-default"
+            : "user";
+    }
+
+    /**
+     * Dial one session. The host's defaults, and every session that is not this
+     * one, are left exactly as they were.
+     */
+    async updateSessionModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<
+        { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
+    > {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        const resolved = this.resolveModelPatch(entry, patch);
+        if (resolved === undefined) {
+            return undefined;
+        }
+        const origin = this.originFor(entry, resolved.settings);
+        await entry.store.appendModelSettings(resolved.settings, origin);
+        entry.modelSettings = resolved.settings;
+        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
+        return {
+            settings: settingsForClient(
+                entry.modelSettings,
+                entry.modelSettings.provider ?? this.defaultProvider,
+                this.catalog,
+                this.modelsForClient(),
+                this.options.readPool?.(entry.store.header.cwd),
+                this.options.subagentModel,
+                entry.requestedReasoningEffort,
+                this.reviewerDefault(),
+            ),
+            origin,
+        };
+    }
+
+    sessionModelSettingsHistory(id: string): readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[] {
+        const entry = this.agents.get(id);
+        if (entry === undefined) return [];
+        return entry.store.modelSettingsHistory().map((record) => ({
+            settings: record.settings,
+            origin: record.origin ?? "user",
+            timestamp: record.timestamp,
+        }));
+    }
+
+    /** The posture for this session alone, leaving the host default alone. */
+    async updateSessionPermissionMode(
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<ApprovalMode | undefined> {
+        const entry = this.agents.get(id);
+        if (
+            entry === undefined
+            || entry.agent.closed
+            || entry.agent.failed
+            || !isApprovalMode(mode)
+            || (
+                builtInPermissionMode(mode) === undefined
+                && this.options.permissionModes?.[mode] === undefined
+            )
+        ) {
+            return undefined;
+        }
+        await entry.store.appendApprovalMode(
+            mode,
+            mode === this.wornAgentPosture(entry) ? "agent-default" : "user",
+        );
+        entry.approvalMode = mode;
+        return entry.approvalMode;
+    }
+
+    /**
+     * The worn agent's default pair, once agents exist. Left as a seam rather
+     * than a branch so the origin rule has one shape from the start.
+     */
+    private wornAgentDefaultPair?: (
+        entry: RegisteredAgentEntry,
+    ) => ModelTurnSettings | undefined;
+
+    /** The worn agent's posture, same seam, same reason. */
+    private wornAgentPosture(
+        entry: RegisteredAgentEntry,
+    ): ApprovalMode | undefined {
+        return this.wornAgentPostureOf?.(entry) ?? this.defaultApprovalMode;
+    }
+
+    private wornAgentPostureOf?: (
+        entry: RegisteredAgentEntry,
+    ) => ApprovalMode | undefined;
 
     /**
      * Editing the pool never changes which model runs, so the settings that
@@ -2634,6 +2814,12 @@ export class AgentRegistry {
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
+                updateSessionModelSettings: (patch) =>
+                    this.updateSessionModelSettings(agent.id, patch),
+                readSessionModelSettingsHistory: () =>
+                    this.sessionModelSettingsHistory(agent.id),
+                updateSessionPermissionMode: (mode) =>
+                    this.updateSessionPermissionMode(agent.id, mode),
                 poolAdd: (entry, onStep, options) =>
                     this.poolAdd(agent.id, entry, onStep, options),
                 poolRemove: (entry) =>

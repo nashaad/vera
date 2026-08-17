@@ -38,6 +38,7 @@ import type {
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -214,6 +215,37 @@ export interface UpdateModelSettingsCommand {
 }
 
 /**
+ * Dial this session, and nothing else.
+ *
+ * A separate command rather than a scope flag on `update_model_settings`: the
+ * flag would parse on a host that has never heard of it and then quietly write
+ * the global defaults anyway, which is the exact failure the dial strip cannot
+ * afford. An old host refuses an unknown command outright, which is honest.
+ */
+export interface UpdateSessionModelSettingsCommand {
+    readonly type: "update_session_model_settings";
+    readonly requestId: string;
+    readonly patch: ModelSettingsPatch;
+}
+
+export interface GetSessionModelSettingsHistoryCommand {
+    readonly type: "get_session_model_settings_history";
+    readonly requestId: string;
+}
+
+/**
+ * Set the permission mode for this session without touching the host default.
+ *
+ * The pre-existing `update_permissions` keeps its behaviour, which is to write
+ * both; it is what the explicit "set as global default" action calls.
+ */
+export interface UpdateSessionPermissionModeCommand {
+    readonly type: "update_session_permission_mode";
+    readonly requestId: string;
+    readonly mode: ApprovalMode;
+}
+
+/**
  * Admitting a model is not choosing one, so this is its own command rather
  * than a field on `update_model_settings`: adding a model the user is only
  * looking at must not switch the turn to it.
@@ -350,6 +382,9 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
+    | UpdateSessionModelSettingsCommand
+    | GetSessionModelSettingsHistoryCommand
+    | UpdateSessionPermissionModeCommand
     | ConsultCommand
     | PoolAddCommand
     | PoolRemoveCommand
@@ -411,6 +446,15 @@ export interface ModelSubstitutionUpdate {
     readonly using?: string;
     readonly reason: string;
     readonly scope: "effort" | "model";
+    /**
+     * Whether the parent turn was substituted, or a spawn inside it was.
+     *
+     * `scope` already means something else — which dial moved — so this is a
+     * field of its own rather than a third value there. Only a `turn`
+     * substitution belongs in the status line: a subagent's fallback is the
+     * subagent's business and reaches the transcript alone.
+     */
+    readonly source: "turn" | "subagent";
     readonly seq: number;
 }
 
@@ -575,6 +619,27 @@ export interface ModelSettingsUpdate {
     readonly settings: ModelTurnSettings;
     readonly pending: boolean;
     readonly updatedDefaults?: true;
+    /** Present when the edit changed this session alone. Never with the above. */
+    readonly updatedSession?: true;
+    /** Where the session's setting now says it came from. */
+    readonly origin?: SessionSettingOrigin;
+    readonly seq: number;
+}
+
+/**
+ * Every model setting the session has held, oldest first.
+ *
+ * The dial strip derives its recents from this rather than keeping a list of
+ * its own, so what the strip offers cannot drift from what the session did.
+ */
+export interface SessionModelSettingsHistoryUpdate {
+    readonly type: "session_model_settings_history";
+    readonly requestId: string;
+    readonly entries: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
     readonly seq: number;
 }
 
@@ -764,6 +829,7 @@ export type AgentUpdate =
     | UiRequestUpdate
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
+    | SessionModelSettingsHistoryUpdate
     | ModelSettingsRejectedUpdate
     | PoolAdmissionProgressUpdate
     | PoolAdmissionResultUpdate
@@ -917,17 +983,38 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         };
     }
     if (
-        command.type === "update_model_settings"
+        (command.type === "update_model_settings"
+            || command.type === "update_session_model_settings")
         && isRequestId(command.requestId)
     ) {
         const patch = parseModelSettingsPatch(command.patch);
         if (patch !== undefined) {
             return {
-                type: "update_model_settings",
+                type: command.type,
                 requestId: command.requestId,
                 patch,
             };
         }
+    }
+    if (
+        command.type === "get_session_model_settings_history"
+        && isRequestId(command.requestId)
+    ) {
+        return {
+            type: "get_session_model_settings_history",
+            requestId: command.requestId,
+        };
+    }
+    if (
+        command.type === "update_session_permission_mode"
+        && isRequestId(command.requestId)
+        && isApprovalMode(command.mode)
+    ) {
+        return {
+            type: "update_session_permission_mode",
+            requestId: command.requestId,
+            mode: command.mode,
+        };
     }
     if (command.type === "consult" && isRequestId(command.requestId)) {
         const parsed = parseConsultCommand(command, command.requestId);
@@ -1330,6 +1417,21 @@ export function createProtocolEncoder(
                 ...(event.updatedDefaults === true
                     ? { updatedDefaults: true as const }
                     : {}),
+                ...(event.updatedSession === true
+                    ? { updatedSession: true as const }
+                    : {}),
+                ...(event.origin === undefined ? {} : { origin: event.origin }),
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "session_model_settings_history") {
+            seq += 1;
+            sender.send({
+                type: "session_model_settings_history",
+                requestId: event.requestId,
+                entries: event.entries,
                 seq,
             });
             return;
@@ -1444,6 +1546,7 @@ export function createProtocolEncoder(
                 using: event.toModel,
                 reason: event.failure.message,
                 scope: "model",
+                source: "turn",
                 seq,
             });
         }
@@ -1457,6 +1560,7 @@ export function createProtocolEncoder(
                 ...(event.using === undefined ? {} : { using: event.using }),
                 reason: event.reason,
                 scope: "effort",
+                source: "turn",
                 seq,
             });
         }
@@ -1466,6 +1570,7 @@ export function createProtocolEncoder(
             sender.send({
                 type: "model_substitution",
                 ...event.substitution,
+                source: "subagent",
                 seq,
             });
         }

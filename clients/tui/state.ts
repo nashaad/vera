@@ -156,12 +156,34 @@ export interface TuiState {
      * without one is what says the requested level works again.
      */
     readonly turnSubstituted?: boolean;
+    /**
+     * The model this turn actually ran on, when the parent turn fell back.
+     *
+     * Transient by construction: the committed pair is unchanged and retried
+     * next turn, so this is cleared when the parent turn ends rather than
+     * carried. A subagent's own fallback never lands here.
+     */
+    readonly modelFallback?: { readonly from: string; readonly to: string };
     /** Whether new `thought` summaries open showing their reasoning. */
     readonly thinkingExpanded?: boolean;
     /** Whether completed tool groups are forced open or closed. */
     readonly toolDetailsExpanded?: boolean;
     /** The admission run in flight, or awaiting its refreshed pool snapshot. */
     readonly admission?: TuiAdmissionState;
+    /**
+     * Every pair this session has held, oldest first, as the host reported it.
+     *
+     * The dial strip derives its recents from this. Derived rather than
+     * remembered: a list of its own could disagree with the session file, and
+     * the session file is the thing that actually decides what the turn runs.
+     */
+    readonly modelSettingsHistory?: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: "agent-default" | "user";
+        readonly timestamp: string;
+    }[];
+    /** Where the pair in force came from, when the host has said. */
+    readonly modelSettingsOrigin?: "agent-default" | "user";
 }
 
 export interface TuiAdmissionStep {
@@ -467,7 +489,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ? state
                 : { ...state, effortSubstitution: undefined }),
             modelSettings: update.settings,
+            ...(update.origin === undefined
+                ? {}
+                : { modelSettingsOrigin: update.origin }),
         }, update.settings);
+    }
+    if (update.type === "session_model_settings_history") {
+        return { ...state, modelSettingsHistory: update.entries };
     }
     if (update.type === "pool_admission_progress") {
         return applyAdmissionProgress(state, update);
@@ -532,8 +560,20 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return applyCompaction(state, update);
     }
     if (update.type === "model_substitution") {
-        if (update.scope !== "effort") {
+        // A spawn's substitution is the spawn's business: it reaches the
+        // transcript and stops there, because the status line describes the
+        // pair this session is dialed to, which a child never changes.
+        if (update.source === "subagent") {
             return appendEntry(state, substitutionEntry(update));
+        }
+        if (update.scope !== "effort") {
+            return appendEntry({
+                ...state,
+                modelFallback: {
+                    from: update.model,
+                    to: update.using ?? update.model,
+                },
+            }, substitutionEntry(update));
         }
         const substitution: TuiEffortSubstitution = {
             model: update.model,
@@ -918,6 +958,11 @@ function appliesToSettings(
  * again, and it is said once, in the same place the substitution was.
  */
 function clearedSubstitution(state: TuiState): TuiState {
+    // The fallback lasted exactly one turn, which is what the committed pair
+    // being retried next turn means. Clearing it here is the terminal event.
+    state = state.modelFallback === undefined
+        ? state
+        : { ...state, modelFallback: undefined };
     const substitution = state.effortSubstitution;
     if (substitution === undefined) {
         return state;

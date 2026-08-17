@@ -9,6 +9,16 @@ export const HOST_CAPABILITY_AGENT_BRANCH_COMPACTION_BARRIERS =
 export const HOST_CAPABILITY_AGENT_ATTACH_RESUME = "agent.attach-resume.v1";
 export const HOST_CAPABILITY_AGENT_CONTEXT_SYNC = "agent.context-sync.v1";
 export const HOST_CAPABILITY_HARNESS_MESSAGES = "harness-messages.v1";
+/**
+ * Session-scoped settings: dial a model or a posture for this session without
+ * rewriting the host's defaults, read back what the session has held, and tell
+ * a parent-turn fallback from a subagent's own substitution.
+ *
+ * One capability for the whole set on purpose. A host that has some of these
+ * and not others would leave the dial strip half working, and a strip that
+ * silently rewrites global defaults is worse than no strip.
+ */
+export const HOST_CAPABILITY_SESSION_SCOPED_STATE = "session-scoped-state.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -17,6 +27,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_SESSION_SCOPED_STATE,
 ] as const;
 
 export function parseHostCapabilities(

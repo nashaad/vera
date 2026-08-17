@@ -68,6 +68,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || typeof update.using === "string")
                 && typeof update.reason === "string"
                 && (update.scope === "effort" || update.scope === "model")
+                && (update.source === "turn" || update.source === "subagent")
             ? value as AgentUpdate
             : undefined;
     }
@@ -182,7 +183,27 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.pending === "boolean"
                 && (update.updatedDefaults === undefined
                     || update.updatedDefaults === true)
+                && (update.updatedSession === undefined
+                    || update.updatedSession === true)
+                && (update.origin === undefined
+                    || update.origin === "agent-default"
+                    || update.origin === "user")
                 && isModelTurnSettings(update.settings)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "session_model_settings_history") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && Array.isArray(update.entries)
+                && update.entries.every((entry: unknown) =>
+                    typeof entry === "object"
+                    && entry !== null
+                    && isModelTurnSettings(Reflect.get(entry, "settings"))
+                    && typeof Reflect.get(entry, "timestamp") === "string"
+                    && (Reflect.get(entry, "origin") === "agent-default"
+                        || Reflect.get(entry, "origin") === "user")
+                )
             ? value as AgentUpdate
             : undefined;
     }
