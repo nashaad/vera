@@ -22,7 +22,7 @@
     },
     "orng": {
       "accent": "#EC5B2B", "text": "#c6c6c6", "muted": "#808080",
-      "notice": "#EC5B2B", "danger": "#FF5F56", "success": "#6ba1e6", "diffAdded": "#2F8F46", "diffRemoved": "#B94A48", "code": "#6ba1e6",
+      "notice": "#E8A33D", "danger": "#FF5F56", "success": "#6ba1e6", "diffAdded": "#2F8F46", "diffRemoved": "#B94A48", "code": "#6ba1e6",
       "background": "#111111",
       "panel": "#181818", "element": "#222222"
     },
