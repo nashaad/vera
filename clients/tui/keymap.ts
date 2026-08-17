@@ -38,7 +38,8 @@ export type TuiKeyScope =
     | "preferences_list"
     | "approval"
     | "question"
-    | "help";
+    | "help"
+    | "dials";
 
 /** Every scope name, for validating one that arrived from an extension. */
 export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
@@ -79,6 +80,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "approval",
     "question",
     "help",
+    "dials",
 ];
 
 /** The panes that inherit every `picker` binding on top of their own. */
@@ -241,12 +243,43 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "cycle-reasoning",
     },
     {
-        id: "cycle-quickslot",
+        id: "dials.open",
         keys: ["shift+tab"],
         scope: "global",
-        description: "Cycle quickslots",
-        hint: "shift+tab",
-        extensionId: "cycle-quickslot",
+        description: "Open the dial strip: model and reasoning effort",
+        hint: "⇧⇥ dials",
+        remappable: true,
+    },
+    // Movement inside the strip. Remappable, because a strip is a picker and
+    // its movement is the movement of a picker; commit and cancel are not,
+    // because enter and escape are structural everywhere in the TUI.
+    {
+        id: "dials.pair.prev",
+        keys: ["left"],
+        scope: "dials",
+        description: "Move to the pair on the left",
+        remappable: true,
+    },
+    {
+        id: "dials.pair.next",
+        keys: ["right"],
+        scope: "dials",
+        description: "Move to the pair on the right",
+        remappable: true,
+    },
+    {
+        id: "dials.effort.up",
+        keys: ["up"],
+        scope: "dials",
+        description: "Raise the reasoning effort on the highlighted pair",
+        remappable: true,
+    },
+    {
+        id: "dials.effort.down",
+        keys: ["down"],
+        scope: "dials",
+        description: "Lower the reasoning effort on the highlighted pair",
+        remappable: true,
     },
     {
         id: "complete_command",
@@ -359,7 +392,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Switch between the shortlist and all models",
         hint: "tab switch",
-        overrides: ["cycle-quickslot"],
+        overrides: ["dials.open"],
     },
     {
         id: "rename_session",
@@ -410,6 +443,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["shift+tab", "backtab"],
         scope: "provider_form",
         description: "Move to the previous field",
+        // The form owns shift+tab while it is open, the way the model picker
+        // does. The strip is unreachable from inside an overlay anyway.
+        overrides: ["dials.open"],
     },
     {
         id: "revoke_permission",

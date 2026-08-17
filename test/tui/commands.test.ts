@@ -578,32 +578,7 @@ test("extension command results preserve their typed presentation", () => {
     })).toBe("test.extension/check [warning]: check this");
 });
 
-test("quickslot is supplied by the bundled extension, not the core catalog", () => {
-    const registry = createBuiltinTuiCommandRegistry();
 
-    expect(registry.dispatch("/quickslot")).toBeUndefined();
-    expect(registry.suggestions("/p").map((command) => command.name))
-        .toEqual(["permissions", "parent", "providers", "palette"]);
-    expect(registry.dispatch("/p")).toBeUndefined();
-    expect(registry.dispatch("/pa")).toBeUndefined();
-    expect(registry.dispatch("/pal")).toEqual({ type: "open_command_palette" });
-    expect(registry.dispatch("/shortlist")).toEqual({ type: "show_pool" });
-    expect(registry.dispatch("/shortlist add"))
-        .toEqual({ type: "pool_current_model" });
-    expect(registry.dispatch("/par")).toEqual({ type: "go_to_parent" });
-    expect(registry.dispatch("/pe")).toEqual({ type: "open_permissions_picker" });
-});
-
-test("the bundled quickslot can be explicitly disabled for a replacement", () => {
-    const registry = createConfiguredBuiltinTuiCommandRegistry([
-        "vera.model-presets",
-    ]);
-
-    expect(registry.dispatch("/quickslot")).toBeUndefined();
-    expect(registry.registeredPaletteActions().some(
-        (action) => action.name === "quickslot",
-    )).toBe(false);
-});
 
 test("only a declaring command completes its first argument", () => {
     const registry = new TuiCommandRegistry();

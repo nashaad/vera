@@ -131,6 +131,23 @@ export interface TuiStatusChunk {
     readonly tone: TuiStatusTone;
 }
 
+/**
+ * What the status line says about the dials beyond the pair itself.
+ *
+ * `*` means the pair in force is the user's own rather than the worn agent's
+ * default, and `!` means the same about the posture. Both read off a recorded
+ * origin rather than a comparison done here, so the marker cannot disagree
+ * with what a later agent switch will do.
+ */
+export interface TuiStatusDials {
+    /** The worn agent, once agents exist. Absent leaves the segment off. */
+    readonly agent?: string;
+    readonly pairOverridden?: boolean;
+    readonly postureOverridden?: boolean;
+    /** The model this turn actually ran on, while a fallback is in force. */
+    readonly fallbackTo?: string;
+}
+
 export function renderTuiStatusDetailsLine(
     settings: ModelTurnSettings | undefined,
     approvalMode: ApprovalMode | undefined,
@@ -140,6 +157,7 @@ export function renderTuiStatusDetailsLine(
     substitution: TuiEffortSubstitution | undefined = undefined,
     includePermissions = true,
     branch: string | undefined = undefined,
+    dials: TuiStatusDials = {},
 ): string {
     return renderTuiStatusDetailsRows(
         settings,
@@ -150,6 +168,7 @@ export function renderTuiStatusDetailsLine(
         substitution,
         includePermissions,
         branch,
+        dials,
     )
         .map((row) => row.map((chunk) => chunk.text).join(""))
         .join("\n");
@@ -169,6 +188,7 @@ export function renderTuiStatusDetailsRows(
     substitution: TuiEffortSubstitution | undefined = undefined,
     includePermissions = true,
     branch: string | undefined = undefined,
+    dials: TuiStatusDials = {},
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -216,7 +236,24 @@ export function renderTuiStatusDetailsRows(
     // share needs.
     const first: TuiStatusChunk[] = [
         ...background,
-        { text: model, tone: "text" },
+        ...(dials.agent === undefined ? [] : [
+            {
+                text: `${dials.agent}${
+                    dials.postureOverridden === true ? "!" : ""
+                }`,
+                tone: "accent",
+            } as TuiStatusChunk,
+            separator,
+        ]),
+        {
+            text: dials.fallbackTo === undefined
+                ? model
+                : `${model}→${dials.fallbackTo}`,
+            tone: "text",
+        },
+        ...(dials.pairOverridden === true
+            ? [{ text: "*", tone: "accent" } as TuiStatusChunk]
+            : []),
         separator,
         muted(thinking.toUpperCase()),
         ...contextChunks(context),

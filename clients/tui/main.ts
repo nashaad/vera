@@ -101,7 +101,10 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
-import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_SESSION_SCOPED_STATE,
+} from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
     hostEntrypointMismatchNotice,
@@ -311,9 +314,19 @@ import {
     isTuiKeyScope,
     tuiBindingId,
     tuiChord,
+    tuiKeyChord,
     tuiKeyHint,
 } from "./keymap.ts";
 import { resolveTuiKeymap } from "./keybindings.ts";
+import {
+    composeDialStrip,
+    handleDialStripKey,
+    openDialStrip,
+    renderDialStrip,
+    type DialPair,
+    type DialPoolEntry,
+    type DialStripState,
+} from "./dials.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -410,8 +423,11 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
+    loadTuiFavoritePairs,
     loadTuiKeybindingOverlay,
     loadTuiRecentSessionId,
+    migrateTuiQuickslotsToFavoritePairs,
+    saveTuiFavoritePairs,
     loadTuiThemePreference,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
@@ -945,6 +961,8 @@ export async function startTui(
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     const keybindingOverlay = loadTuiKeybindingOverlay();
     const announcedKeymapNotices = new Set<string>();
+    /** The dial strip, open only while it is on screen. */
+    let dialStrip: DialStripState | undefined;
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
@@ -1983,6 +2001,209 @@ export async function startTui(
             : state;
     }
 
+    /** The pool as the strip needs it: identity, name, and published levels. */
+    function dialPool(): readonly DialPoolEntry[] {
+        return (focusedAgentState().modelSettings?.pooled ?? []).map(
+            (entry) => ({
+                provider: entry.provider,
+                model: entry.model,
+                ...(entry.poolName === undefined
+                    ? {}
+                    : { poolName: entry.poolName }),
+                levels: entry.levels.map((level) => level.id),
+            }),
+        );
+    }
+
+    function committedDialPair(): DialPair | undefined {
+        const settings = focusedAgentState().modelSettings;
+        return settings === undefined ? undefined : {
+            ...(settings.provider === undefined
+                ? {}
+                : { provider: settings.provider }),
+            model: settings.model,
+            ...(settings.reasoningEffort === undefined
+                ? {}
+                : { effort: settings.reasoningEffort }),
+        };
+    }
+
+    /**
+     * Show the strip. Nothing is sent, nothing changes: the strip proposes.
+     *
+     * The recents come from the session's own model-setting history, which is
+     * re-read here so the next open reflects whatever this session did since.
+     */
+    function openDials(): void {
+        const target = focusedAgentClient();
+        if (
+            target.supportsHostCapability?.(
+                HOST_CAPABILITY_SESSION_SCOPED_STATE,
+            ) === false
+        ) {
+            state = appendTuiNotice(
+                state,
+                "This host does not support session-scoped state, so the dial strip is unavailable.",
+            );
+            renderState();
+            return;
+        }
+        void target.send({
+            type: "get_session_model_settings_history",
+            requestId: randomUUID(),
+        }).catch(() => {
+            // A history the host would not answer leaves the strip with the
+            // current pair and the favourites, which is still a strip.
+        });
+        const favorites = loadTuiFavoritePairs();
+        const composition = composeDialStrip({
+            current: committedDialPair(),
+            favorites,
+            recents: (focusedAgentState().modelSettingsHistory ?? []).map(
+                (entry) => ({
+                    ...(entry.settings.provider === undefined
+                        ? {}
+                        : { provider: entry.settings.provider }),
+                    model: entry.settings.model,
+                    ...(entry.settings.reasoningEffort === undefined
+                        ? {}
+                        : { effort: entry.settings.reasoningEffort }),
+                }),
+            ),
+            pool: dialPool(),
+        });
+        // A favourite whose pool name moved is rewritten now, while the id
+        // still finds it. Left alone it would go stale the moment the id
+        // stopped matching too.
+        if (composition.healed.length > 0) {
+            saveTuiFavoritePairs(favorites.map((favorite) => {
+                const healed = composition.healed.find(
+                    (candidate) => candidate.from === favorite,
+                );
+                return healed === undefined
+                    ? favorite
+                    : { ...favorite, name: healed.name };
+            }));
+        }
+        dialStrip = openDialStrip(composition, committedDialPair());
+        composer.blur();
+        renderState();
+    }
+
+    /**
+     * Turn saved quickslots into favourite pairs, once, on the first snapshot.
+     *
+     * Run here rather than at startup because a name-form slot has to be
+     * resolved against the pool while the name still means something, and the
+     * pool arrives with the first model settings the host sends.
+     */
+    let quickslotsMigrated = false;
+    function migrateQuickslotsOnce(): void {
+        if (quickslotsMigrated) return;
+        quickslotsMigrated = true;
+        try {
+            const pool = dialPool();
+            const outcome = migrateTuiQuickslotsToFavoritePairs((name) => {
+                const entry = pool.find(
+                    (candidate) => candidate.poolName === name,
+                );
+                return entry === undefined
+                    ? undefined
+                    : { provider: entry.provider, model: entry.model };
+            });
+            if (outcome.migrated > 0 || outcome.skipped > 0) {
+                state = appendTuiNotice(
+                    state,
+                    `Quickslots are now dial favourites: ${outcome.migrated} kept${
+                        outcome.skipped === 0
+                            ? ""
+                            : `, ${outcome.skipped} unreadable and skipped`
+                    }. Shift+Tab opens the strip.`,
+                    "soft",
+                );
+            }
+        } catch {
+            // A preferences file that will not migrate is not a reason the
+            // session cannot run. The old blocks are still on disk.
+        }
+    }
+
+    /**
+     * Starring a model keeps a dial for it too.
+     *
+     * Stored by id rather than by pool name: the strip reads the label off the
+     * pool at paint time, so an id-form favourite follows a rename without
+     * having to be rewritten, and starring happens before the pool has decided
+     * what the entry is called.
+     *
+     * The effort is the session's own when the starred row is the model in
+     * force, and the model's published default otherwise. There is no per-row
+     * effort control in the picker to read, and inventing a level a model does
+     * not publish would make a favourite that cannot be applied.
+     */
+    function starFavoritePair(toggle: {
+        readonly action: "add" | "remove";
+        readonly provider: string;
+        readonly model: string;
+    }): void {
+        try {
+            const favorites = loadTuiFavoritePairs().filter((favorite) =>
+                favorite.provider !== toggle.provider
+                || favorite.modelId !== toggle.model
+            );
+            if (toggle.action === "remove") {
+                saveTuiFavoritePairs(favorites);
+                return;
+            }
+            const settings = focusedAgentState().modelSettings;
+            const onIt = settings?.model === toggle.model
+                && (settings.provider ?? toggle.provider) === toggle.provider;
+            const published = settings?.availableModels?.find((candidate) =>
+                candidate.provider === toggle.provider
+                && candidate.model === toggle.model
+            );
+            const effort = onIt
+                ? settings?.reasoningEffort
+                : published?.defaultLevel;
+            saveTuiFavoritePairs([...favorites, {
+                provider: toggle.provider,
+                modelId: toggle.model,
+                ...(effort === undefined ? {} : { effort }),
+            }]);
+        } catch {
+            // A favourite that could not be written is not a reason the pool
+            // edit fails: the pool is the thing the key is about.
+        }
+    }
+
+    function closeDials(): void {
+        dialStrip = undefined;
+        renderState();
+    }
+
+    /** The pair as the next request will carry it. Nothing reaches the API now. */
+    function commitDials(pair: DialPair): void {
+        const target = focusedAgentClient();
+        closeDials();
+        void target.send({
+            type: "update_session_model_settings",
+            requestId: randomUUID(),
+            patch: {
+                ...(pair.provider === undefined
+                    ? {}
+                    : { provider: pair.provider }),
+                model: pair.model,
+                reasoningEffort: pair.effort ?? null,
+            },
+        }).catch((error) => {
+            state = appendTuiNotice(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            renderState();
+        });
+    }
+
     function setSidebarFocused(focused: boolean): void {
         sidebar.setFocused(focused);
         flightRecorder?.record({
@@ -2677,6 +2898,36 @@ export async function startTui(
             return;
         }
 
+        // The strip owns the keyboard while it is open, after the escape
+        // hatches above it. Every key here either moves the highlight, commits,
+        // cancels, or bounces the keystroke into the composer.
+        if (dialStrip !== undefined) {
+            key.preventDefault();
+            key.stopPropagation();
+            const action = handleDialStripKey(
+                dialStrip,
+                key as { name: string; ctrl?: boolean; sequence?: string },
+                tuiBindingId("dials", key),
+            );
+            if (action.kind === "state") {
+                dialStrip = action.state;
+                renderState();
+            } else if (action.kind === "cancel") {
+                closeDials();
+            } else if (action.kind === "commit") {
+                commitDials(action.pair);
+            } else if (action.kind === "type") {
+                closeDials();
+                composer.focus();
+                composer.setComposerText(
+                    `${composer.plainText}${action.text}`,
+                );
+                renderCommandSuggestions();
+                renderState();
+            }
+            return;
+        }
+
         if (experimentalTuiHost.hasModal()) {
             key.preventDefault();
             key.stopPropagation();
@@ -3239,6 +3490,16 @@ export async function startTui(
                     sidebar.scrollToBottom();
                 }
             }
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "dials.open"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openDials();
             return;
         }
 
@@ -5103,6 +5364,9 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (update.type === "model_settings") {
+                    migrateQuickslotsOnce();
+                }
                 if (
                     update.type === "pool_admission_result"
                     && poolVerifySweepResult(update.requestId, update.verdict)
@@ -7524,6 +7788,7 @@ export async function startTui(
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
+            starFavoritePair(toggle);
             poolChangeUndo = undefined;
             if (settingsPicker?.kind === "model") {
                 settingsPicker = {
@@ -8890,9 +9155,25 @@ export async function startTui(
                 && !focusedAbort
             ? workingHint
             : "";
-        activityHintText.content = activityHint;
+        const stripLines = dialStrip === undefined
+            ? undefined
+            : renderDialStrip(
+                dialStrip,
+                [
+                    `${tuiKeyChord("dials.pair.prev")}/${
+                        tuiKeyChord("dials.pair.next")
+                    } pair`,
+                    `${tuiKeyChord("dials.effort.up")}/${
+                        tuiKeyChord("dials.effort.down")
+                    } effort`,
+                    "1-9 jump",
+                    "⏎ set",
+                    "esc cancel",
+                ].join(" · "),
+            );
+        activityHintText.content = stripLines?.[1]?.trim() ?? activityHint;
         activityHintText.visible = statusText.visible
-            && activityHint.length > 0;
+            && (stripLines !== undefined || activityHint.length > 0);
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
@@ -8921,6 +9202,15 @@ export async function startTui(
                     statusState.effortSubstitution,
                     hostedSidebar.pane === undefined,
                     workspaceBranch.current(),
+                    {
+                        // `*` reads off the recorded origin, so dialling back
+                        // to the default clears it on every path.
+                        pairOverridden:
+                            statusState.modelSettingsOrigin === "user",
+                        ...(statusState.modelFallback === undefined
+                            ? {}
+                            : { fallbackTo: statusState.modelFallback.to }),
+                    },
                 )
                 : [[{
                     tone: "muted",
@@ -9012,7 +9302,9 @@ export async function startTui(
         setComposerMargin(
             cardRows + 1,
         );
-        statusText.content = quietActivity
+        statusText.content = stripLines !== undefined
+            ? stripLines[0]!
+            : quietActivity
             ? MODEL_PICKER_HINT
             : statusState.working
                 && statusNotice === undefined
