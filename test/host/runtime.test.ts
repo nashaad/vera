@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    chmod,
     mkdir,
     mkdtemp,
     readFile,
@@ -23,6 +24,7 @@ import {
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { loadVeraConfig } from "../../src/config.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostIdentity,
@@ -268,6 +270,75 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
                     content: [{
                         type: "text",
                         text: expect.stringContaining("extension policy"),
+                    }],
+                }));
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host runs the hooks the config points at",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-config-hook-"));
+        const profile = join(root, "profile");
+        await mkdir(join(profile, "hooks"), { recursive: true });
+        const script = join(profile, "hooks", "deny-read.ts");
+        await writeFile(script, `#!/usr/bin/env bun
+process.stdout.write(JSON.stringify({
+    power: "block",
+    reason: "hooks directory policy",
+}));
+`);
+        await chmod(script, 0o755);
+        const configPath = join(profile, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            model: "faux/test",
+            approval_mode: "full_access",
+            hooks: [{
+                phase: "pre_tool_use",
+                argv: ["deny-read.ts"],
+                timeout_ms: 20_000,
+            }],
+        }));
+
+        // The config is loaded the way the CLI loads it, so the test proves the
+        // whole door: the file names a script, the loader binds it to the
+        // profile's hooks directory, and the host runs it on a real tool call.
+        const sessionPath = join(root, "agent.jsonl");
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => new FauxAdapter([
+                toolResponse("read", { path: "missing.txt" }),
+                textResponse("done"),
+            ]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+        try {
+            const agent = await host.registry.create({
+                id: "config-hook-agent",
+                workspace: root,
+                sessionPath,
+                eventLogPath: join(root, "events.jsonl"),
+            });
+            const client = agent.attach();
+            await client.receive();
+            client.send({ type: "prompt", content: "read the file" });
+            await receiveUntilType(client, "turn_finished");
+            expect((await SessionStore.open(sessionPath)).messages())
+                .toContainEqual(expect.objectContaining({
+                    role: "tool_result",
+                    toolName: "read",
+                    isError: true,
+                    content: [{
+                        type: "text",
+                        text: expect.stringContaining("hooks directory policy"),
                     }],
                 }));
         } finally {
