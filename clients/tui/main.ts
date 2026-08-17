@@ -419,6 +419,7 @@ registerTuiParsers();
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
@@ -8329,7 +8330,7 @@ export async function startTui(
             cardRows + 1,
         );
         statusText.content = quietActivity
-            ? ""
+            ? MODEL_PICKER_HINT
             : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined

@@ -1151,7 +1151,7 @@ function modelPickerWithPool(
     );
 }
 
-test("the model pane opens on Pool, in the order the user's own use produced", async () => {
+test("the model pane opens on Shortlist, in the order the user's own use produced", async () => {
     const state = modelPickerWithPool();
     const frame = await pickerFrame(state);
 
@@ -1171,13 +1171,24 @@ test("the model pane opens on Pool, in the order the user's own use produced", a
     expect(frame).toContain("GLM-5.2");
     expect(frame).not.toContain("Z-AI: GLM-5.2");
     expect(frame).toContain("All models");
-    expect(frame).toContain("Pool");
+    expect(frame).toContain("Shortlist");
     expect(frame).toMatch(
-        /Pool \(2\).*All models \(2\).*\n\s*\n.*Your curated shortlist\..*\n\s*\n.*GPT-5\.6-Sol/,
+        /Shortlist \(2\).*All models \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
     );
 });
 
-test("the pane opens on Pool even when the running model is not in it", () => {
+test("the model tab strip keeps every stop at narrow widths", async () => {
+    for (const width of [70, 60]) {
+        const frame = await pickerFrame(modelPickerWithPool(), width, 40);
+        expect(frame).toContain("Shortlist");
+        expect(frame).toContain("All");
+        expect(frame).toContain("Assigned");
+        expect(frame).toContain("Help");
+        expect(frame).toContain("Providers ^e");
+    }
+});
+
+test("the pane opens on Shortlist even when the running model is not in it", () => {
     // The pool is the list the user built for this moment, so it opens whether
     // or not the model in effect happens to be on it.
     const state = modelPickerWithPool(pooledModels, "sonnet-4.5", "anthropic");
@@ -1354,7 +1365,7 @@ test("the Help tab explains the pane in the pane", async () => {
         .filter((line) => line.length > 0);
     const title = lines.findIndex((line) => line.startsWith("Select model"));
     expect(lines[title + 1]).toBe("Search");
-    expect(lines[title + 2]).toStartWith("Pool (2)");
+    expect(lines[title + 2]).toStartWith("Shortlist (2)");
     expect(frame).toContain("⇥ tabs · esc close");
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
@@ -1732,7 +1743,7 @@ test("the model picker footer names the action the highlighted row would take", 
     };
     expect(onUnpooledRow.options[onUnpooledRow.selectedIndex]?.model)
         .toBe("moonshotai/kimi-k3");
-    expect(await pickerFrame(onUnpooledRow)).toContain("^s pool");
+    expect(await pickerFrame(onUnpooledRow)).toContain("^s add");
 });
 
 test("a settings snapshot rebuilds the open pane without moving the cursor", () => {
@@ -1889,7 +1900,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Pool \(2\)\s+All models \(\d+\)\s+Assigned\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(/Shortlist \(2\)\s+All models \(\d+\)\s+Assigned\s+Help\s+Providers \^e/);
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });
@@ -1911,6 +1922,32 @@ test("⇥ walks from the last tab onto the connect pane and back off it", () => 
     const off = handleTuiSettingsPickerKey(providers, { name: "tab" });
     expect(off.handled).toBe(true);
     expect(off.state).toBe(onto.state);
+});
+
+test("shift+tab walks left across model tabs and the providers pane", () => {
+    const all = switchedModelTab(modelPickerWithPool(), "all");
+    const pool = handleTuiSettingsPickerKey(all, {
+        name: "tab",
+        shift: true,
+    });
+    expect((pool.state as TuiSettingsPickerState).tab).toBe("pool");
+
+    const ontoProviders = handleTuiSettingsPickerKey(pool.state!, {
+        name: "tab",
+        shift: true,
+    });
+    expect(ontoProviders.openProviders).toBe(true);
+    expect((ontoProviders.state as TuiSettingsPickerState).tab).toBe("help");
+
+    const providers = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        ontoProviders.state as TuiSettingsPickerState,
+    );
+    const help = handleTuiSettingsPickerKey(providers, {
+        name: "tab",
+        shift: true,
+    });
+    expect((help.state as TuiSettingsPickerState).tab).toBe("help");
 });
 
 test("the wheel moves the cursor, so enter still means the row on screen", () => {

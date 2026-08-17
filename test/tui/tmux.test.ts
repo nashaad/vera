@@ -684,10 +684,24 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Vera keeps agent sessions resident",
             );
-            // Two rows since the status split across footer lines: the
-            // lifecycle hint, then the model details. Waiting for them joined
-            // was waiting for a line that no longer renders.
-            await waitForVisiblePane(socket, session, "ready · ctrl+p commands");
+            // Two rows since the status split across footer lines: the model
+            // shortcut above, then the persistent ready and command controls.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "ctrl+shift+m model",
+            );
+            expect(pane).toContain("ready · ctrl+p commands");
+            const footerLines = pane.split("\n");
+            const modelHintLine = footerLines.findIndex((line) =>
+                line.includes("ctrl+shift+m model")
+            );
+            const readyLine = footerLines.findIndex((line) =>
+                line.includes("ready · ctrl+p commands")
+            );
+            expect(modelHintLine).toBe(readyLine - 1);
+            expect(Bun.stringWidth(footerLines[modelHintLine]!))
+                .toBeLessThanOrEqual(100);
             // One key at a time, each waiting for the card it opened. Sending
             // both and typing straight after raced the redraw, and a key that
             // lands mid-redraw is a key the surface never sees.
