@@ -2564,7 +2564,10 @@ function renderListPickerRows(
     // The help page keeps the field so that tabbing onto it does not lift the
     // tabs and everything under them by three lines. It draws inert, without
     // the caret, since this page holds nothing to filter.
-    const searchable = state.kind !== "extension";
+    // A pane whose whole list is two fixed answers has nothing to filter, and
+    // an empty field above them reads as a row the cursor has landed on.
+    const searchable = state.kind !== "extension"
+        && state.kind !== "pool_verify_scope";
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
@@ -4620,7 +4623,10 @@ export function tuiProviderFormRows(
         // one stays in the clear: a row of dots hides whether a paste landed
         // whole, which is the mistake this field exists to catch.
         const shown = field === "api_key" && !focused
-            ? "•".repeat(value.length)
+            // A fixed count rather than one dot per character: the real length
+            // wraps the card at any real key, and it is a fact about the
+            // secret that the field has no reason to publish.
+            ? "•".repeat(Math.min(value.length, 12))
             : value;
         return new StyledText([
             fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
@@ -4693,9 +4699,7 @@ export function createTuiProviderFormView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: `↑↓ ${
-            tuiKeyHint("next_form_field")
-        } · ←→ change · ⏎ save · esc cancel`,
+        content: "",
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -4746,6 +4750,12 @@ export function createTuiProviderFormView(
                 row.content = line ?? new StyledText([]);
             });
             error.content = state.error ?? "";
+            // ←→ picks between the choices on a toggle row and moves the
+            // cursor on a typed one, so the hint says whichever the field
+            // under the cursor actually does.
+            footer.content = `↑↓ ${tuiKeyHint("next_form_field")} · ${
+                providerFormTextField(state.field) ? "←→ move" : "←→ change"
+            } · ⏎ save · esc cancel`;
         },
     };
 }
