@@ -285,6 +285,7 @@ export async function startResidentHost(
             credentialFingerprint(authStorage, provider),
         createAdapter,
         provider: options.config.provider,
+        customProviderIds: Object.keys(options.config.providers ?? {}),
         model: options.config.model,
         approvalMode: options.config.approval_mode,
         availableModels: models,

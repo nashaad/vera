@@ -254,6 +254,8 @@ export interface AgentRegistryOptions {
      */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
     readonly provider?: string;
+    /** Config-declared provider ids accepted alongside Vera's built-ins. */
+    readonly customProviderIds?: readonly string[];
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
@@ -925,6 +927,11 @@ export class AgentRegistry {
         return this.availableModels;
     }
 
+    private isKnownProvider(provider: string): boolean {
+        return isVeraProviderId(provider)
+            || this.options.customProviderIds?.includes(provider) === true;
+    }
+
     async create(
         options: CreateRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
@@ -1146,7 +1153,7 @@ export class AgentRegistry {
             store.agentFailure() === undefined
             && storedProvider !== undefined
             && !(storedProvider === "unknown" && this.defaultProvider === "unknown")
-            && !isVeraProviderId(storedProvider)
+            && !this.isKnownProvider(storedProvider)
         ) {
             throw new ProviderUnavailableError(storedProvider);
         }
@@ -1535,7 +1542,7 @@ export class AgentRegistry {
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
             || (patch.provider !== undefined && patch.provider.trim().length === 0)
             || (patch.provider !== undefined
-                && !isVeraProviderId(patch.provider.trim()))
+                && !this.isKnownProvider(patch.provider.trim()))
             || (patch.model !== undefined && patch.model.trim().length === 0)
             || (patch.reasoningEffort !== undefined
                 && patch.reasoningEffort !== null
