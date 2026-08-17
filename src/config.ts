@@ -581,6 +581,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.models,
         config.model_routes,
         config.reviewer_profiles,
+        new Set(Object.keys(providers ?? {})),
     );
     const hasModelCatalog = config.models !== undefined
         || config.model_routes !== undefined
