@@ -1003,8 +1003,13 @@ export function appendTuiExtensionBlock(
     );
 }
 
-export function failTuiConnection(state: TuiState, message: string): TuiState {
-    return appendTuiDiagnostic({
+/**
+ * Settles the transcript for a host that went away. Being disconnected is a
+ * state the status line holds until it is fixed, so nothing is written into
+ * the transcript: a row would scroll away from the thing that is still true.
+ */
+export function failTuiConnection(state: TuiState): TuiState {
+    return {
         ...state,
         entries: applyToolDetailPreference(
             settleToolEntries(state.entries),
@@ -1012,7 +1017,7 @@ export function failTuiConnection(state: TuiState, message: string): TuiState {
         ),
         working: false,
         queuedPrompts: [],
-    }, "connection_failed", `Connection error: ${message}`);
+    };
 }
 
 export function appendTuiThought(state: TuiState, seconds: number): TuiState {
