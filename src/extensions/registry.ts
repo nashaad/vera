@@ -16,12 +16,14 @@ import type {
     VeraExtensionToolSpec,
 } from "../sdk/extensions.ts";
 import type {
+    ModelRequestHook,
     PostToolUseHook,
     PostToolUseHookPayload,
     PostToolUseHookResult,
     PreToolUseHook,
     PreToolUseHookPayload,
     PreToolUseHookResult,
+    RegisteredModelRequestHook,
 } from "../sdk/hooks.ts";
 import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
 import type { RegisteredTool } from "../tools/types.ts";
@@ -55,6 +57,7 @@ const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
+const MODEL_REQUEST_HOOK_CAPABILITY = "hooks.model_request";
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -75,6 +78,7 @@ export interface ExtensionRegistry {
     tools(): readonly RegisteredTool[];
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
+    modelRequestHooks(): readonly RegisteredModelRequestHook[];
     contributions(): HostContributionSet;
     invokeCommand(
         name: string,
@@ -102,6 +106,7 @@ interface LoadedRegistryExtension {
     readonly tools: readonly RegisteredExtensionTool[];
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
+    readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -130,6 +135,7 @@ export async function startExtensionRegistry(
     const owners = new Map<string, LoadedRegistryExtension>();
     const commands = new Map<string, RegisteredCommandOwner>();
     const tools = new Map<string, LoadedRegistryExtension>();
+    const modelRequestNamespaces = new Set<string>();
     const contributions = createHostContributionSet();
     let closing: Promise<void> | undefined;
 
@@ -172,6 +178,13 @@ export async function startExtensionRegistry(
             );
             validateCommandOwnership(extension, commands);
             validateToolOwnership(extension, tools);
+            for (const hook of extension.modelRequestHooks) {
+                if (modelRequestNamespaces.has(hook.namespace)) {
+                    throw new Error(
+                        `Duplicate model request namespace: ${hook.namespace}`,
+                    );
+                }
+            }
             loaded.push(extension);
             owners.set(extension.id, extension);
             for (const command of extension.commands) {
@@ -182,6 +195,9 @@ export async function startExtensionRegistry(
             }
             for (const registered of extension.tools) {
                 tools.set(registered.tool.definition.name, extension);
+            }
+            for (const hook of extension.modelRequestHooks) {
+                modelRequestNamespaces.add(hook.namespace);
             }
         } catch (error) {
             let message = errorMessage(error);
@@ -226,6 +242,9 @@ export async function startExtensionRegistry(
         },
         postToolUseHooks(): readonly PostToolUseHook[] {
             return loaded.flatMap((extension) => extension.postToolUseHooks);
+        },
+        modelRequestHooks(): readonly RegisteredModelRequestHook[] {
+            return loaded.flatMap((extension) => extension.modelRequestHooks);
         },
         async invokeCommand(
             name: string,
@@ -316,6 +335,7 @@ export async function startExtensionRegistry(
         }
         loaded.length = 0;
         owners.clear();
+        modelRequestNamespaces.clear();
         if (failures.length > 0) {
             throw new Error(
                 `Extension registry cleanup failed: ${failures.join("; ")}`,
@@ -336,6 +356,7 @@ async function activateExtension(
     const tools: RegisteredExtensionTool[] = [];
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
+    const modelRequestHooks: RegisteredModelRequestHook[] = [];
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const activeInvocations = new Set<ActiveExtensionInvocation>();
@@ -414,6 +435,35 @@ async function activateExtension(
                 postToolUseHooks.push(safe);
                 return () => removeHook(postToolUseHooks, safe);
             },
+            registerModelRequest(
+                namespace: string,
+                hook: ModelRequestHook,
+            ): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension hooks must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes(MODEL_REQUEST_HOOK_CAPABILITY)) {
+                    throw new Error(
+                        `Extension did not declare ${MODEL_REQUEST_HOOK_CAPABILITY}`,
+                    );
+                }
+                if (!/^[a-z][a-z0-9_-]*$/.test(namespace)) {
+                    throw new Error("Invalid model request namespace");
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid model request hook registration");
+                }
+                if (modelRequestHooks.some((entry) => entry.namespace === namespace)) {
+                    throw new Error(
+                        `Duplicate model request namespace: ${namespace}`,
+                    );
+                }
+                const registered = { namespace, run: hook };
+                modelRequestHooks.push(registered);
+                return () => removeHook(modelRequestHooks, registered);
+            },
             registerCommand(spec: VeraExtensionCommandHookSpec): VeraExtensionDisposer {
                 if (phase !== "activating") {
                     throw new Error(
@@ -485,6 +535,7 @@ async function activateExtension(
             tools,
             preToolUseHooks,
             postToolUseHooks,
+            modelRequestHooks,
             disposers,
             activeInvocations,
             disposing: false,

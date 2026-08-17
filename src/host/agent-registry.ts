@@ -137,6 +137,7 @@ import {
     sessionAttachmentName,
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
+import type { PrepareModelRequest } from "../providers/routing.ts";
 import {
     createFailedRequestCapture,
     type FailedRequestCapture,
@@ -338,6 +339,10 @@ export interface AgentRegistryOptions {
     readonly disabledPromptContributions?: readonly string[];
     /** Builds each resident agent's tool hooks; absent means none. */
     readonly createToolHooks?: () => ToolHooks;
+    /** Adds extension-owned, namespaced fields before a provider request. */
+    readonly prepareModelRequest?: (
+        context: { readonly sessionId: string; readonly workspace: string },
+    ) => PrepareModelRequest;
     /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
     /**
@@ -2312,6 +2317,10 @@ export class AgentRegistry {
                     ),
                 this.defaultProvider,
                 this.options.credentialFingerprint,
+                this.options.prepareModelRequest?.({
+                    sessionId: store.header.id,
+                    workspace: store.header.cwd,
+                }),
             )
             : undefined;
         const imageAttachments = new ImageAttachmentService(

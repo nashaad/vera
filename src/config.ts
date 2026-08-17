@@ -58,10 +58,32 @@ export const VERA_PROVIDER_IDS = [
     "deepseek",
 ] as const;
 
-export type VeraProviderId = typeof VERA_PROVIDER_IDS[number];
+export type VeraBuiltInProviderId = typeof VERA_PROVIDER_IDS[number];
 
-export function isVeraProviderId(value: string): value is VeraProviderId {
+/**
+ * A provider reference is either one of Vera's built-ins or a named endpoint
+ * declared in `providers`. It stays a string at the model boundary because
+ * user-owned instance names cannot be represented by a closed union.
+ */
+export type VeraProviderId = string;
+
+export function isVeraProviderId(value: string): value is VeraBuiltInProviderId {
     return (VERA_PROVIDER_IDS as readonly string[]).includes(value);
+}
+
+export type VeraProviderProtocol = "openai-chat" | "anthropic-messages";
+export type VeraProviderCredential = "api_key" | "none";
+export type VeraAnthropicThinkingMode = "adaptive";
+
+export interface VeraCustomProviderConfig {
+    readonly protocol: VeraProviderProtocol;
+    readonly base_url: string;
+    readonly credential: VeraProviderCredential;
+    readonly api_key_env?: string;
+    readonly images?: boolean;
+    readonly max_tokens?: number;
+    /** Opts an Anthropic-compatible endpoint into the current thinking API. */
+    readonly thinking?: VeraAnthropicThinkingMode;
 }
 
 export interface VeraModelFallbackConfig {
@@ -156,6 +178,8 @@ export interface VeraHookConfig {
 export interface VeraConfig {
     readonly schema_version: typeof VERA_CONFIG_SCHEMA_VERSION;
     readonly provider: VeraProviderId;
+    /** Named instances of standard model-provider wire protocols. */
+    readonly providers?: Readonly<Record<string, VeraCustomProviderConfig>>;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
     readonly approval_mode: ApprovalMode;
@@ -330,7 +354,8 @@ export function loadVeraConfig(
             path,
             "it is valid JSON but not a Vera config. It expected"
                 + " schema_version 1, provider openrouter, openai-codex,"
-                + " ollama, cerebras, or deepseek, a non-empty model string, an optional"
+                + " ollama, cerebras, deepseek, or a name declared in providers,"
+                + " a non-empty model string, an optional"
                 + " non-empty reasoning_effort string, optional approval_mode"
                 + " ask, auto, or full_access, and optional fallback with a"
                 + " different model and after_failures from 1 to 3.",
@@ -548,9 +573,10 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     }
 
     const config = value as Record<string, unknown>;
+    const providers = parseCustomProviders(config.providers);
     const fallback = parseModelFallback(config.fallback, config.model);
-    const reviewer = parseReviewer(config.reviewer);
-    const subagent = parseSubagentModel(config.subagent);
+    const reviewer = parseReviewer(config.reviewer, providers ?? {});
+    const subagent = parseSubagentModel(config.subagent, providers ?? {});
     const modelCatalog = parseModelCatalogConfig(
         config.models,
         config.model_routes,
@@ -609,6 +635,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         );
     if (
         (config.reviewer !== undefined && reviewer === undefined)
+        || providers === undefined
         || (config.subagent !== undefined && subagent === undefined)
         || modelCatalog === undefined
         || permissionModes === undefined
@@ -630,7 +657,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.schema_version !== VERA_CONFIG_SCHEMA_VERSION
         || (config.provider !== undefined
             && (typeof config.provider !== "string"
-                || !isVeraProviderId(config.provider)))
+                || !isConfiguredProviderId(config.provider, providers)))
         || typeof config.model !== "string"
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
@@ -644,6 +671,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     return {
         schema_version: VERA_CONFIG_SCHEMA_VERSION,
         provider: config.provider ?? "openrouter",
+        ...(config.providers === undefined ? {} : { providers }),
         model: config.model.trim(),
         approval_mode: approvalMode,
         ...(config.reasoning_effort === undefined
@@ -690,6 +718,102 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? { model_picker_collapse_versions: collapseVersions }
             : {}),
     };
+}
+
+function parseCustomProviders(
+    value: unknown,
+): Readonly<Record<string, VeraCustomProviderConfig>> | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const parsed: Record<string, VeraCustomProviderConfig> = {};
+    for (const [rawId, rawValue] of Object.entries(value)) {
+        const id = rawId.trim();
+        if (
+            id.length === 0
+            || isVeraProviderId(id)
+            || typeof rawValue !== "object"
+            || rawValue === null
+            || Array.isArray(rawValue)
+        ) {
+            return undefined;
+        }
+        const raw = rawValue as Record<string, unknown>;
+        if (
+            raw.protocol !== "openai-chat"
+            && raw.protocol !== "anthropic-messages"
+        ) {
+            return undefined;
+        }
+        if (typeof raw.base_url !== "string" || !validProviderUrl(raw.base_url)) {
+            return undefined;
+        }
+        const credential = raw.credential ?? "api_key";
+        if (credential !== "api_key" && credential !== "none") {
+            return undefined;
+        }
+        if (
+            raw.api_key_env !== undefined
+            && (
+                typeof raw.api_key_env !== "string"
+                || !/^[A-Z_][A-Z0-9_]*$/.test(raw.api_key_env)
+            )
+        ) {
+            return undefined;
+        }
+        if (raw.images !== undefined && typeof raw.images !== "boolean") {
+            return undefined;
+        }
+        if (
+            raw.max_tokens !== undefined
+            && (!Number.isInteger(raw.max_tokens) || (raw.max_tokens as number) <= 0)
+        ) {
+            return undefined;
+        }
+        if (
+            raw.thinking !== undefined
+            && (raw.protocol !== "anthropic-messages" || raw.thinking !== "adaptive")
+        ) {
+            return undefined;
+        }
+        parsed[id] = {
+            protocol: raw.protocol,
+            base_url: raw.base_url.replace(/\/+$/, ""),
+            credential,
+            ...(raw.api_key_env === undefined
+                ? {}
+                : { api_key_env: raw.api_key_env }),
+            ...(raw.images === undefined ? {} : { images: raw.images }),
+            ...(raw.max_tokens === undefined
+                ? {}
+                : { max_tokens: raw.max_tokens as number }),
+            ...(raw.thinking === undefined
+                ? {}
+                : { thinking: raw.thinking as VeraAnthropicThinkingMode }),
+        };
+    }
+    return parsed;
+}
+
+function validProviderUrl(value: string): boolean {
+    try {
+        const url = new URL(value);
+        return url.protocol === "https:"
+            || (url.protocol === "http:"
+                && (url.hostname === "127.0.0.1" || url.hostname === "localhost"));
+    } catch {
+        return false;
+    }
+}
+
+function isConfiguredProviderId(
+    value: string,
+    providers: Readonly<Record<string, VeraCustomProviderConfig>>,
+): boolean {
+    return isVeraProviderId(value) || providers[value] !== undefined;
 }
 
 function parseTuiConfig(value: unknown): VeraTuiConfig | undefined {
@@ -1044,7 +1168,10 @@ function isJsonValue(value: unknown): value is JsonValue {
     return Object.values(value).every(isJsonValue);
 }
 
-function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
+function parseReviewer(
+    value: unknown,
+    providers: Readonly<Record<string, VeraCustomProviderConfig>>,
+): VeraReviewerConfig | undefined {
     if (typeof value !== "object" || value === null) {
         return undefined;
     }
@@ -1054,7 +1181,7 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
         || reviewer.model.trim().length === 0
         || (reviewer.provider !== undefined
             && (typeof reviewer.provider !== "string"
-                || !isVeraProviderId(reviewer.provider)))
+                || !isConfiguredProviderId(reviewer.provider, providers)))
         || (reviewer.reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.reasoning_effort))
         || (reviewer.fallback_model !== undefined
@@ -1062,7 +1189,7 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
                 || reviewer.fallback_model.trim().length === 0))
         || (reviewer.fallback_provider !== undefined
             && (typeof reviewer.fallback_provider !== "string"
-                || !isVeraProviderId(reviewer.fallback_provider)))
+                || !isConfiguredProviderId(reviewer.fallback_provider, providers)))
         || (reviewer.fallback_reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.fallback_reasoning_effort))
         || (reviewer.timeout_ms !== undefined
@@ -1077,7 +1204,7 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
                 || reviewer.escalation_model.trim().length === 0))
         || (reviewer.escalation_provider !== undefined
             && (typeof reviewer.escalation_provider !== "string"
-                || !isVeraProviderId(reviewer.escalation_provider)))
+                || !isConfiguredProviderId(reviewer.escalation_provider, providers)))
         || (reviewer.escalation_reasoning_effort !== undefined
             && !isReasoningEffort(reviewer.escalation_reasoning_effort))
     ) {
@@ -1118,7 +1245,10 @@ function parseReviewer(value: unknown): VeraReviewerConfig | undefined {
     };
 }
 
-function parseSubagentModel(value: unknown): VeraSubagentConfig | undefined {
+function parseSubagentModel(
+    value: unknown,
+    providers: Readonly<Record<string, VeraCustomProviderConfig>>,
+): VeraSubagentConfig | undefined {
     if (typeof value !== "object" || value === null) {
         return undefined;
     }
@@ -1128,7 +1258,7 @@ function parseSubagentModel(value: unknown): VeraSubagentConfig | undefined {
         || subagent.model.trim().length === 0
         || (subagent.provider !== undefined
             && (typeof subagent.provider !== "string"
-                || !isVeraProviderId(subagent.provider)))
+                || !isConfiguredProviderId(subagent.provider, providers)))
         || (subagent.reasoning_effort !== undefined
             && !isReasoningEffort(subagent.reasoning_effort))
     ) {
