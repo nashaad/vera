@@ -278,6 +278,16 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^⇧n declare",
     },
     {
+        // Connect-pane only. Unshifted, because a terminal outside the kitty
+        // keyboard protocol never reports the shift on a ctrl+letter chord,
+        // and this is the only way to reach a provider's host.
+        id: "edit_endpoint",
+        keys: ["ctrl+r"],
+        scope: "model_picker",
+        description: "Change where the selected provider answers",
+        hint: "^r endpoint",
+    },
+    {
         // The connect pane's rows are the only ones this acts on, so the model
         // list ignores it rather than binding a second meaning to the key.
         id: "forget_provider",

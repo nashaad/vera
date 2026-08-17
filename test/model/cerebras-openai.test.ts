@@ -1,6 +1,8 @@
 import { expect, test } from "bun:test";
 
 import { createCerebrasAdapter } from "../../src/providers/cerebras-openai.ts";
+import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import type { VeraConfig } from "../../src/config.ts";
 
 test("Cerebras streams reasoning, text, and tool calls", async () => {
     let request: Request | undefined;
@@ -129,4 +131,32 @@ test("malformed Cerebras stream data names Cerebras in the terminal error", asyn
     expect(result.errorMessage).toContain(
         "Cerebras returned an invalid stream chunk",
     );
+});
+
+test("a configured endpoint is where the request goes", async () => {
+    let request: Request | undefined;
+    const adapter = createConfiguredModelAdapter(
+        {
+            provider: "cerebras",
+            model: "gpt-oss-120b",
+            provider_endpoints: { cerebras: "https://eu.cerebras.example/v1" },
+        } as unknown as VeraConfig,
+        {
+            env: { CEREBRAS_API_KEY: "csk-test" },
+            fetch: async (input, init) => {
+                request = new Request(String(input), init);
+                return new Response("data: [DONE]\n\n", {
+                    headers: { "content-type": "text/event-stream" },
+                });
+            },
+        },
+    );
+
+    await adapter.stream({
+        model: "gpt-oss-120b",
+        messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
+    }).result();
+
+    expect(request?.url)
+        .toBe("https://eu.cerebras.example/v1/chat/completions");
 });

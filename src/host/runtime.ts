@@ -66,7 +66,9 @@ import {
     type AuthStorage,
 } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import { providerEndpointUrl } from "../providers/endpoint-url.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
+import { normalizeOllamaHost } from "../providers/ollama-openai.ts";
 import { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
 import {
     defaultSessionDirectory,
@@ -720,7 +722,12 @@ async function discoverAvailableModels(
     // wait, and the host is not discoverable until all of them have answered,
     // so serial waits add up into the client's startup deadline.
     const [ollama, openrouter, cerebras] = await Promise.all([
-        discoveredOllamaModels({ log: hostLog }),
+        discoveredOllamaModels({
+            log: hostLog,
+            ...(config.provider_endpoints?.ollama === undefined
+                ? {}
+                : { host: config.provider_endpoints.ollama }),
+        }),
         discoveredOpenRouterModels(config),
         discoveredCerebrasModels(config, { authStorage }),
     ]);
@@ -774,8 +781,14 @@ export async function discoveredCerebrasModels(
     }
     try {
         const fetchImplementation = options.fetch ?? globalThis.fetch;
+        // A moved provider is discovered where it was moved to. Its own
+        // public list lives on a different path from the chat endpoint, so
+        // only the shipped case uses that path.
+        const moved = config.provider_endpoints?.cerebras;
         const response = await fetchImplementation(
-            "https://api.cerebras.ai/public/v1/models",
+            moved === undefined
+                ? "https://api.cerebras.ai/public/v1/models"
+                : providerEndpointUrl(moved, "/models"),
             { signal: AbortSignal.timeout(2_000) },
         );
         if (!response.ok) return [];
@@ -903,11 +916,9 @@ const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
 export async function discoveredOllamaModels(
     options: OllamaDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
-    const configuredHost = options.host ?? process.env.OLLAMA_HOST
-        ?? "http://127.0.0.1:11434";
-    const host = (/^https?:\/\//.test(configuredHost)
-        ? configuredHost
-        : `http://${configuredHost}`).replace(/\/+$/, "");
+    const host = normalizeOllamaHost(
+        options.host ?? process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
+    );
     const fetchImplementation = options.fetch ?? globalThis.fetch;
     const log = options.log ?? (() => {});
 
@@ -1189,7 +1200,12 @@ export async function discoveredOpenRouterModels(
     if (!hasOpenRouterCredential(config)) {
         return [];
     }
-    const catalog = await refreshOpenRouterCatalog(options);
+    const moved = config.provider_endpoints?.openrouter;
+    const catalog = await refreshOpenRouterCatalog(
+        moved === undefined || options.endpoint !== undefined
+            ? options
+            : { ...options, endpoint: providerEndpointUrl(moved, "/models") },
+    );
     if (catalog === undefined) {
         return [];
     }

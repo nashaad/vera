@@ -12,6 +12,7 @@ import {
     decodeOpenAiSse,
     encodeOpenAiMessage,
 } from "./ollama-openai.ts";
+import { providerEndpointUrl } from "./endpoint-url.ts";
 
 export interface DeepSeekAdapterOptions {
     readonly apiKey: string;
@@ -35,9 +36,10 @@ export function createDeepSeekAdapter(
     options: DeepSeekAdapterOptions,
 ): ModelAdapter {
     const fetchImplementation = options.fetch ?? globalThis.fetch;
-    const endpoint = `${(
-        options.baseUrl ?? "https://api.deepseek.com"
-    ).replace(/\/+$/, "")}/chat/completions`;
+    const endpoint = providerEndpointUrl(
+        options.baseUrl ?? "https://api.deepseek.com",
+        "/chat/completions",
+    );
 
     return new OpenAICompatibleAdapter(
         async (request, signal) => {

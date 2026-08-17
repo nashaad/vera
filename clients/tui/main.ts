@@ -6648,6 +6648,7 @@ export async function startTui(
         const config = loadOptionalVeraConfig();
         const providers = configuredProviders(config);
         const declared = new Set(Object.keys(config?.providers ?? {}));
+        const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
         settingsPicker = withTuiPickerParent(
             startTuiProviderPicker(
                 providers.map((provider) => ({
@@ -6656,11 +6657,19 @@ export async function startTui(
                     group: provider.group === "popular"
                         ? "Popular"
                         : "Providers",
-                    ...(provider.hint === undefined
+                    // A provider pointed somewhere other than where it ships
+                    // says so on its own row: it is the more surprising fact
+                    // about it than which credential it takes.
+                    ...(moved.has(provider.id)
+                        ? { hint: provider.baseUrl ?? "" }
+                        : provider.hint === undefined
                         ? {}
                         : { hint: provider.hint }),
                     connected: providerConnected(provider),
                     ...(declared.has(provider.id) ? { declared: true } : {}),
+                    ...(provider.fixedEndpoint === true
+                        ? {}
+                        : { endpointEditable: true }),
                 })),
                 options,
             ),
@@ -6853,6 +6862,43 @@ export async function startTui(
      * the same file a user can still edit by hand, so a refusal from the config
      * writer comes straight back to the form rather than being softened here.
      */
+    /**
+     * The endpoint form for a provider Vera ships.
+     *
+     * Prefilled with wherever it answers today, which is the shipped host
+     * until the user moves it. A region, a proxy, or a gateway is the same
+     * provider somewhere else, so the host is theirs to set.
+     */
+    function openProviderEndpointForm(
+        providerId: string,
+        parent?: TuiSettingsPickerState,
+    ): void {
+        const config = loadOptionalVeraConfig();
+        const provider = findConfiguredProvider(providerId, config);
+        if (provider === undefined || provider.fixedEndpoint === true) {
+            return;
+        }
+        let apiKey: string | undefined;
+        try {
+            const stored = authStorage.getCredential(providerId);
+            apiKey = stored?.type === "api_key" ? stored.key : undefined;
+        } catch {
+            apiKey = undefined;
+        }
+        providerForm = startTuiProviderForm(parent, {
+            id: providerId,
+            baseUrl: provider.baseUrl ?? "",
+            protocol: "openai-chat",
+            credential: provider.credential === "api_key" ? "api_key" : "none",
+            shipped: true,
+            ...(apiKey === undefined ? {} : { apiKey }),
+        });
+        settingsPicker = undefined;
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
     function applyProviderFormTransition(
         form: TuiProviderFormState,
         transition: TuiProviderFormTransition,
@@ -6870,12 +6916,23 @@ export async function startTui(
             return;
         }
         try {
-            updateVeraConfigDefaults({
-                custom_provider: {
-                    id: submitted.id,
-                    declaration: submitted.declaration,
-                },
-            });
+            updateVeraConfigDefaults(
+                submitted.shipped === true
+                    ? {
+                        provider_endpoint: {
+                            id: submitted.id,
+                            url: submitted.restore === true
+                                ? null
+                                : submitted.declaration.base_url,
+                        },
+                    }
+                    : {
+                        custom_provider: {
+                            id: submitted.id,
+                            declaration: submitted.declaration,
+                        },
+                    },
+            );
         } catch (error) {
             providerForm = {
                 ...form,
@@ -6912,6 +6969,10 @@ export async function startTui(
             state,
             submitted.replaces !== undefined
                 ? `renamed ${submitted.replaces} to ${submitted.id}`
+                : submitted.restore === true
+                ? `${submitted.id} answers where Vera ships it again`
+                : submitted.shipped === true
+                ? `${submitted.id} now answers at ${submitted.declaration.base_url}`
                 : form.editing === undefined
                 ? `declared ${submitted.id}`
                 : `updated ${submitted.id}`,
@@ -7315,6 +7376,16 @@ export async function startTui(
         ) {
             openProviderEditForm(
                 transition.editProvider,
+                previousPicker?.kind === "provider" ? previousPicker : undefined,
+            );
+            return;
+        }
+        if (
+            "editEndpoint" in transition
+            && transition.editEndpoint !== undefined
+        ) {
+            openProviderEndpointForm(
+                transition.editEndpoint,
                 previousPicker?.kind === "provider" ? previousPicker : undefined,
             );
             return;

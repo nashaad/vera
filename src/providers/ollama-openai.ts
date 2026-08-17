@@ -280,9 +280,32 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
     } as unknown as ChatStreamChunk;
 }
 
-function normalizeHost(value: string): string {
+/**
+ * A host, from whatever the config or the environment carries.
+ *
+ * The daemon is addressed by host and every path is added by the caller, so a
+ * value that already carries the OpenAI path, a query, or a fragment is cut
+ * back to the host: the alternative is a request for `/v1/v1` or a query
+ * stranded in the middle of a URL. Trimming here rather than at each caller
+ * means chat, discovery, and the doctor all read the same value the same way.
+ */
+export function normalizeOllamaHost(value: string): string {
     const withScheme = /^https?:\/\//.test(value) ? value : `http://${value}`;
-    return withScheme.replace(/\/+$/, "");
+    try {
+        const url = new URL(withScheme);
+        url.search = "";
+        url.hash = "";
+        url.username = "";
+        url.password = "";
+        url.pathname = url.pathname.replace(/\/v1\/*$/, "").replace(/\/+$/, "");
+        return url.toString().replace(/\/+$/, "");
+    } catch {
+        return withScheme.replace(/\/+$/, "");
+    }
+}
+
+function normalizeHost(value: string): string {
+    return normalizeOllamaHost(value);
 }
 
 function ollamaReasoningEffort(effort: ModelReasoningEffort): string {

@@ -33,6 +33,18 @@ export interface ProviderDescriptor {
      * stored. Kept so a setup that predates stored credentials keeps working.
      */
     readonly envVar?: string;
+    /**
+     * Where requests go. Shipped with a default that the user can point
+     * elsewhere, because a region, a proxy, or a gateway is the same provider
+     * on a different host.
+     */
+    readonly baseUrl?: string;
+    /**
+     * Set when the endpoint is not the user's to move: a subscription flow is
+     * bound to the account it signs in to. The pane shows the URL and offers
+     * no field.
+     */
+    readonly fixedEndpoint?: boolean;
 }
 
 /**
@@ -54,6 +66,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         credential: "api_key",
         hint: "API key",
         envVar: "CEREBRAS_API_KEY",
+        baseUrl: "https://api.cerebras.ai/v1",
     },
     {
         id: "deepseek",
@@ -63,6 +76,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         credential: "api_key",
         hint: "API key, pay per token",
         envVar: "DEEPSEEK_API_KEY",
+        baseUrl: "https://api.deepseek.com",
     },
     {
         id: "openai-codex",
@@ -71,6 +85,8 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         group: "popular",
         credential: "oauth",
         hint: "ChatGPT Plus/Pro subscription",
+        baseUrl: "https://chatgpt.com/backend-api/codex",
+        fixedEndpoint: true,
     },
     {
         id: "openrouter",
@@ -80,6 +96,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         credential: "api_key",
         hint: "API key, pay per token",
         envVar: "OPENROUTER_API_KEY",
+        baseUrl: "https://openrouter.ai/api/v1",
     },
     {
         id: "ollama",
@@ -89,6 +106,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         credential: "none",
         hint: "local, no account",
         envVar: "OLLAMA_HOST",
+        baseUrl: "http://127.0.0.1:11434",
     },
 ];
 
@@ -97,7 +115,7 @@ export function findProvider(id: string): ProviderDescriptor | undefined {
 }
 
 export function configuredProviders(
-    config: Pick<VeraConfig, "providers"> | undefined,
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
 ): readonly ProviderDescriptor[] {
     const custom = Object.entries(config?.providers ?? {}).map(
         ([id, provider]): ProviderDescriptor => ({
@@ -111,17 +129,23 @@ export function configuredProviders(
                 : provider.api_key_env === undefined
                     ? "API key"
                     : `API key or ${provider.api_key_env}`,
+            baseUrl: provider.base_url,
             ...(provider.api_key_env === undefined
                 ? {}
                 : { envVar: provider.api_key_env }),
         }),
     );
-    return [...PROVIDERS, ...custom];
+    const endpoints = config?.provider_endpoints ?? {};
+    const shipped = PROVIDERS.map((provider) => {
+        const override = endpoints[provider.id];
+        return override === undefined ? provider : { ...provider, baseUrl: override };
+    });
+    return [...shipped, ...custom];
 }
 
 export function findConfiguredProvider(
     id: string,
-    config: Pick<VeraConfig, "providers"> | undefined,
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
 ): ProviderDescriptor | undefined {
     return configuredProviders(config).find((provider) => provider.id === id);
 }
