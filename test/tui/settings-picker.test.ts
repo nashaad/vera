@@ -1562,8 +1562,23 @@ test("a verified pool row says so beside its provider", async () => {
     // the verification, the pane beside it names the provider.
     // A tick on the row, the word in the facts block above it.
     expect(frame).toMatch(/GLM-5\.2\s+✓/);
-    expect(frame).toContain("Verified");
-    expect(frame).toContain("answered a live probe");
+    expect(frame).toMatch(/│  Verified\s*\n.*│  answered a live probe/);
+});
+
+test("the stacked facts leave most of a wide model pane to model names", async () => {
+    const state = modelPickerWithPool([{
+        provider: "openrouter",
+        model: "openai/gpt-5.3-codex-spark",
+        label: "OpenAI: GPT-5.3-Codex-Spark",
+        available: true,
+        verified: true,
+        levels: [],
+    }]);
+    const frame = await pickerFrame(state, 100);
+
+    expect(frame).toContain("GPT-5.3-Codex-Spark");
+    expect(frame).toMatch(/│  Images\s*\n.*│  not known/);
+    expect(frame).toMatch(/│  Model ID\s*\n.*│  openai\/gpt-5\.3-codex-spark/);
 });
 
 test("the verify key asks for a probe of the selected pool row", () => {

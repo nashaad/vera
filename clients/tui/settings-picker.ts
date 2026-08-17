@@ -2031,12 +2031,12 @@ function modelPaneSplit(
         return undefined;
     }
     const cardWidth = pickerCardWidth(renderer, state);
-    const listWidth = Math.max(
-        MODEL_LIST_MIN_WIDTH,
-        Math.floor(cardWidth * 0.5),
+    const detailWidth = Math.max(
+        MODEL_DETAIL_MIN_WIDTH,
+        Math.floor(cardWidth * 0.32),
     );
-    const detailWidth = cardWidth - listWidth - MODEL_DETAIL_RULE.length;
-    return detailWidth < MODEL_DETAIL_MIN_WIDTH
+    const listWidth = cardWidth - detailWidth - MODEL_DETAIL_RULE.length;
+    return listWidth < MODEL_LIST_MIN_WIDTH
         ? undefined
         : { listWidth, detailWidth };
 }
@@ -2167,7 +2167,13 @@ function modelDetailNode(
         ]);
         line();
         for (const fact of modelDetailFacts(state, option)) {
-            line(factChunks(fact, width));
+            const [label, value, tone] = fact;
+            line([fg(TUI_MUTED)(label)]);
+            line([
+                fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
+                    clippedTo(value, width),
+                ),
+            ]);
         }
         line();
     }
@@ -2293,9 +2299,9 @@ function modelDetailHeight(
         return 3 + option.detailFacts.length
             + wrappedTo(option.note ?? "", width).length;
     }
-    // The name, the source, a blank, the facts, and a blank under them.
+    // The name, the source, a blank, two lines per fact, and a blank under them.
     const facts = described
-        ? 3 + modelDetailFacts(state, option).length + 1
+        ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
     return facts + wrappedTo(modelPaneNote(state), width).length;
 }
