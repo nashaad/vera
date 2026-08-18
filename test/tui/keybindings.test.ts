@@ -7,6 +7,7 @@ import {
 } from "../../clients/tui/keybindings.ts";
 import {
     TUI_KEYMAP,
+    isTuiComposerClearKey,
     tuiBindingId,
     type TuiBinding,
 } from "../../clients/tui/keymap.ts";
@@ -61,6 +62,14 @@ test("shift-tab opens dials for both terminal encodings", () => {
         .toBe("dials.open");
     expect(tuiBindingId("global", { name: "backtab" }))
         .toBe("dials.open");
+});
+
+test("Option-delete is not mistaken for Command-delete", () => {
+    expect(isTuiComposerClearKey({
+        name: "backspace",
+        meta: true,
+        option: true,
+    })).toBe(false);
 });
 
 test("alt, meta and option are refused rather than accepted and never fired", () => {
