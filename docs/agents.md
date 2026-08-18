@@ -138,8 +138,8 @@ v1 accepts.
 An extension can register an agent (`agents.register`) and, on the client side,
 a compose-time suggester (`client.compose.suggester`) that offers to wear it.
 Core never guesses intent from what you are typing; a suggester does, and it
-exists only inside an extension you installed. See
-`examples/extensions/plan` for the pattern.
+exists only inside an extension you installed. See `examples/extensions/plan`
+and `examples/extensions/explore` for the pattern.
 
 Extension-registered agents are read-only definitions: a file of the same name
 shadows them, and `[d]` refuses to write into them because there is no file of
