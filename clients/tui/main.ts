@@ -121,6 +121,7 @@ import {
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
+import { tuiTranscriptAtBottom } from "./transcript-scroll.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
@@ -9304,15 +9305,18 @@ export async function startTui(
      * anything, which is the whole point.
      */
     function renderJumpToBottom(): void {
-        const following = transcript.scrollTop
-            >= transcript.scrollHeight - transcript.viewport.height;
+        const following = tuiTranscriptAtBottom(
+            transcript.scrollTop,
+            transcript.scrollHeight,
+            transcript.viewport.height,
+        );
         // OpenTUI's wheel handler marks every wheel event as manual after it
         // updates scrollTop, including the event that reaches the bottom. If
         // streaming grows the transcript before the next layout pass, that
         // stale manual flag prevents sticky scroll from following the new
         // content. Crossing from the visible pill back to the bottom is an
         // explicit request to resume following, so reapply the bottom here.
-        if (following && jumpToBottom.visible) {
+        if (following) {
             transcript.scrollTo(transcript.scrollHeight);
         }
         const visible = !following && !anyOverlayOpen();
