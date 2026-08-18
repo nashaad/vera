@@ -43,10 +43,25 @@ export async function createSessionBranch(
     });
 
     try {
+        // Carried with its origin, not as a bare payload. Dropping the origin
+        // would turn a setting the branch merely inherited from its agent into
+        // a sticky override nobody chose, and the status line would mark it.
         const modelSettings = options.source.modelSettings();
         if (modelSettings !== undefined) {
-            await destination.appendModelSettings(modelSettings);
+            await destination.appendModelSettings(
+                modelSettings,
+                options.source.modelSettingsOrigin(),
+            );
         }
+        // The agent goes with the branch: a fork of a reviewer session is a
+        // reviewer session, and its snapshot is what resume compares against.
+        const wear = options.source.agentWear();
+        if (wear !== undefined) {
+            await destination.appendAgentWear(wear.name, wear.snapshot);
+        }
+        // The permission mode is deliberately not carried: a fork resets
+        // execution authority, so there is no posture record to keep an origin
+        // on either.
         await copySessionMessageAttachments(
             options.source,
             destination,

@@ -50,18 +50,6 @@ test("direct client extension calls have a fixed deadline", async () => {
     )).rejects.toThrow("timed out after 10ms");
 });
 
-test("quickslots are a default bundled extension with no private tier", () => {
-    const [configured] = bundledClientExtensionConfigs([]);
-
-    expect(configured?.enabled).toBe(true);
-    expect(loadExtensionManifest(configured!.path).manifest.id)
-        .toBe("vera.model-presets");
-    expect(
-        bundledClientExtensionConfigs(["vera.model-presets"]).map(
-            (config) => loadExtensionManifest(config.path).manifest.id,
-        ),
-    ).toEqual(["vera.reasoning-cycle"]);
-});
 
 test("reasoning cycle is a default bundled extension with no private tier", () => {
     const configured = bundledClientExtensionConfigs([]).find(
@@ -71,7 +59,8 @@ test("reasoning cycle is a default bundled extension with no private tier", () =
     );
 
     expect(configured?.enabled).toBe(true);
-    expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]).map(
-        (config) => loadExtensionManifest(config.path).manifest.id,
-    )).toEqual(["vera.model-presets"]);
+    // Disabling it leaves nothing bundled: quickslots retired with the dial
+    // strip, so reasoning cycle is the last bundled client extension.
+    expect(bundledClientExtensionConfigs(["vera.reasoning-cycle"]))
+        .toEqual([]);
 });

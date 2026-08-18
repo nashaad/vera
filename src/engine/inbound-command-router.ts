@@ -35,6 +35,13 @@ import type {
     PermissionPreference,
 } from "./permissions.ts";
 import type { ModelMessage } from "../model/types.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
+
+/** A session-scoped model write, and how it was classified. */
+export interface SessionModelSettingsResult {
+    readonly settings: ModelTurnSettings;
+    readonly origin: SessionSettingOrigin;
+}
 
 /**
  * What the approval is actually agreeing to. The line is the last thing read
@@ -146,14 +153,29 @@ interface QueuedTurnContext {
 interface QueuedPrompt extends QueuedTurnContext {
     readonly prompt: PromptCommand;
     readonly triggeredByDelivery?: never;
+    readonly wear?: never;
 }
 
 interface QueuedDeliveryTurn extends QueuedTurnContext {
     readonly prompt?: never;
     readonly triggeredByDelivery: true;
+    readonly wear?: never;
 }
 
-type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn;
+/**
+ * A wear waiting its turn in the same queue as the prompts.
+ *
+ * It is not a turn: `startTurn` applies it and keeps waiting. That is what
+ * makes "applies after the current work" true without hybridising a prompt
+ * that was queued before it.
+ */
+interface QueuedWear extends Partial<QueuedTurnContext> {
+    readonly wear: { readonly requestId: string; readonly name: string };
+    readonly prompt?: never;
+    readonly triggeredByDelivery?: never;
+}
+
+type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn | QueuedWear;
 
 export interface InboundCommandRouterOptions {
     readonly appendHarnessMessage?: (
@@ -172,6 +194,52 @@ export interface InboundCommandRouterOptions {
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
     ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Writes the session's own model settings and answers with the origin the
+     * write was classified as. Undefined means the patch did not apply.
+     */
+    readonly updateSessionModelSettings?: (
+        patch: ModelSettingsPatch,
+    ) => Promise<SessionModelSettingsResult | undefined>;
+    readonly readSessionModelSettingsHistory?: () => readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
+    readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;
+    readonly updateSessionPermissionMode?: (
+        mode: ApprovalMode,
+    ) => Promise<ApprovalMode | undefined>;
+    /** Applies the wear and answers with what is now in force. */
+    readonly wearAgent?: (name: string) => Promise<{
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly notice?: string;
+    } | undefined>;
+    readonly listAgents?: () => Promise<{
+        readonly worn: string;
+        readonly agents: readonly {
+            readonly name: string;
+            readonly description?: string;
+            readonly scope: "project" | "user" | "extension";
+            readonly writable: boolean;
+            readonly tools?: readonly string[];
+            readonly skills?: readonly string[];
+            readonly posture?: string;
+            readonly defaultPair?: {
+                readonly name: string;
+                readonly effort?: string;
+            };
+        }[];
+        readonly notices: readonly string[];
+    }>;
+    /** Answers with why the write was refused, or nothing when it happened. */
+    readonly updateAgentDefaultPair?: (
+        name: string,
+        pair: { readonly name: string; readonly effort?: string } | null,
+    ) => Promise<string | undefined>;
     /**
      * Admits one model and returns the verdict, with the settings snapshot as
      * it stands afterwards so the reply carries the new pool. `verify` asks
@@ -296,6 +364,10 @@ export class InboundCommandRouter {
             while (true) {
                 queued = await this.prompts.receive();
                 this.pendingPromptCount -= 1;
+                if (queued.wear !== undefined) {
+                    await this.applyWear(queued.wear);
+                    continue;
+                }
                 if (
                     queued.triggeredByDelivery !== true
                     || this.options.hasPendingDeliveryTurn?.() !== false
@@ -602,6 +674,54 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "update_session_model_settings") {
+                    await this.updateSessionModelSettings(
+                        command.requestId,
+                        command.patch,
+                    );
+                    continue;
+                }
+
+                if (command.type === "get_session_model_settings_history") {
+                    this.sendSessionModelSettingsHistory(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "wear_agent") {
+                    // Queued, never applied here: FIFO with the prompts is
+                    // the whole point.
+                    this.pendingPromptCount += 1;
+                    this.prompts.push({
+                        wear: {
+                            requestId: command.requestId,
+                            name: command.name,
+                        },
+                    });
+                    continue;
+                }
+
+                if (command.type === "list_agents") {
+                    await this.listAgents(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "update_agent_default_pair") {
+                    await this.updateAgentDefaultPair(
+                        command.requestId,
+                        command.name,
+                        command.pair,
+                    );
+                    continue;
+                }
+
+                if (command.type === "update_session_permission_mode") {
+                    await this.updateSessionPermissionMode(
+                        command.requestId,
+                        command.mode,
+                    );
+                    continue;
+                }
+
                 if (command.type === "pool_add") {
                     await this.poolAdd(command.requestId, {
                         provider: command.provider,
@@ -761,6 +881,153 @@ export class InboundCommandRouter {
                 ? { updatedDefaults: true as const }
                 : {}),
         });
+    }
+
+    /**
+     * Dial the session, leaving the host's defaults where they are.
+     *
+     * The reply never carries `updatedDefaults`. A client that saw both flags
+     * on one update would have no way to tell which of the two writes actually
+     * happened, and "the strip quietly rewrote my defaults" is precisely the
+     * outcome this command exists to make impossible.
+     */
+    private async updateSessionModelSettings(
+        requestId: string,
+        patch: ModelSettingsPatch,
+    ): Promise<void> {
+        if (this.options.updateSessionModelSettings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        let result: SessionModelSettingsResult | undefined;
+        try {
+            result = await this.options.updateSessionModelSettings(patch);
+        } catch {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        if (result === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(result.settings),
+            pending: this.hasPendingTurn(),
+            updatedSession: true,
+            origin: result.origin,
+        });
+    }
+
+    private async applyWear(
+        wear: { readonly requestId: string; readonly name: string },
+    ): Promise<void> {
+        if (this.options.wearAgent === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId: wear.requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        const worn = await this.options.wearAgent(wear.name);
+        if (worn === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId: wear.requestId,
+                reason: `No agent named ${wear.name}`,
+            });
+            return;
+        }
+        this.events.emit({
+            type: "agent_worn",
+            update: { requestId: wear.requestId, ...worn },
+        });
+    }
+
+    private async listAgents(requestId: string): Promise<void> {
+        if (this.options.listAgents === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "agent_catalog",
+            update: { requestId, ...(await this.options.listAgents()) },
+        });
+    }
+
+    private async updateAgentDefaultPair(
+        requestId: string,
+        name: string,
+        pair: { readonly name: string; readonly effort?: string } | null,
+    ): Promise<void> {
+        if (this.options.updateAgentDefaultPair === undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: "This host does not support agents.",
+            });
+            return;
+        }
+        const failure = await this.options.updateAgentDefaultPair(name, pair);
+        if (failure !== undefined) {
+            this.events.emit({
+                type: "agent_rejected",
+                requestId,
+                reason: failure,
+            });
+            return;
+        }
+        await this.listAgents(requestId);
+    }
+
+    private sendSessionModelSettingsHistory(requestId: string): void {
+        this.events.emit({
+            type: "session_model_settings_history",
+            requestId,
+            entries: this.options.readSessionModelSettingsHistory?.() ?? [],
+        });
+    }
+
+    private async updateSessionPermissionMode(
+        requestId: string,
+        mode: ApprovalMode,
+    ): Promise<void> {
+        if (this.options.updateSessionPermissionMode === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
+        const result = await this.options.updateSessionPermissionMode(mode);
+        if (result === undefined) {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "invalid",
+            });
+            return;
+        }
+        this.sendPermissions(requestId);
     }
 
     private async poolAdd(
@@ -966,12 +1233,14 @@ export class InboundCommandRouter {
             return;
         }
         const inspection = this.options.readPermissionInspection?.();
+        const origin = this.options.readApprovalModeOrigin?.();
         this.events.emit({
             type: "permissions_changed",
             requestId,
             mode,
             pending: this.hasPendingTurn(),
             ...(inspection === undefined ? {} : { inspection }),
+            ...(origin === undefined ? {} : { origin }),
         });
     }
 

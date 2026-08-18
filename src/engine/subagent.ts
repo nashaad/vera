@@ -13,6 +13,11 @@ import {
 } from "../store/session-store.ts";
 import type { ReviewLog } from "./review-log.ts";
 import { EngineEventBus } from "./events.ts";
+import type { AgentDefinition } from "../agents/definition.ts";
+import {
+    resolveAgentSnapshot,
+    type AgentWearSnapshot,
+} from "../agents/wear.ts";
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import type { InstructionRoot } from "./memory.ts";
@@ -96,6 +101,13 @@ export interface CreateSubagentEffectApplierOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    /**
+     * Resolves an agent a spawn named. Absent means this host has no agents,
+     * and a spawn that names one is refused rather than run without it.
+     */
+    readonly loadAgent?: (
+        name: string,
+    ) => Promise<AgentDefinition | undefined>;
 }
 
 export interface SpawnModelDefault {
@@ -366,6 +378,14 @@ export interface RunSubagentOptions {
     readonly reviewLog?: ReviewLog;
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    /**
+     * The agent this child wears, already intersected with what the parent
+     * could reach. Delegation never widens: a tool the agent grants but the
+     * parent does not have is not in this list.
+     */
+    readonly agentWear?: AgentWearSnapshot;
+    /** The parent's mode, which clamps every action the child takes. */
+    readonly clampPermissionMode?: ApprovalMode;
 }
 
 export type ChildToolApprovalRelay = (
@@ -401,8 +421,66 @@ export function createSubagentEffectApplier(
                 isError: true,
             };
         }
+        // The agent's own default pair is the fallback between the explicit
+        // arguments and the ladder: it is a default, so it loses to what the
+        // caller asked for and beats what nobody asked for.
+        let wear: AgentWearSnapshot | undefined;
+        let effectWithAgentPair = effect;
+        if (effect.agent !== undefined) {
+            if (options.loadAgent === undefined) {
+                return {
+                    kind: "output",
+                    output: "This host does not support agents.",
+                    isError: true,
+                };
+            }
+            const definition = await options.loadAgent(effect.agent);
+            if (definition === undefined) {
+                return {
+                    kind: "output",
+                    output: `No agent named ${effect.agent}`,
+                    isError: true,
+                };
+            }
+            if (definition.nudges !== undefined) {
+                // A spawn has no surface to show one on, so carrying nudges
+                // here is a validation error rather than a silent no-op.
+                return {
+                    kind: "output",
+                    output:
+                        `Agent ${definition.name} carries nudges, which a subagent cannot show.`,
+                    isError: true,
+                };
+            }
+            wear = narrowAgainstParent(
+                resolveAgentSnapshot(definition),
+                context.agentWear,
+            );
+            if (
+                effect.model === undefined
+                && definition.defaultPair !== undefined
+            ) {
+                const named = poolNamed(
+                    definition.defaultPair.name,
+                    options.readPool?.() ?? [],
+                );
+                if (named !== undefined) {
+                    effectWithAgentPair = {
+                        ...effect,
+                        model: named,
+                        ...(effect.reasoningEffort === undefined
+                                && definition.defaultPair.effort !== undefined
+                            ? {
+                                reasoningEffort: definition.defaultPair
+                                    .effort as ModelReasoningEffort,
+                            }
+                            : {}),
+                    };
+                }
+            }
+        }
         const resolved = resolveSpawnModelChoice(
-            effect,
+            effectWithAgentPair,
             context,
             options.readPool,
             options.subagentModel,
@@ -473,6 +551,10 @@ export function createSubagentEffectApplier(
                     ? {}
                     : { readReviewer: options.readReviewer }),
                 ...(permissionModes === undefined ? {} : { permissionModes }),
+                ...(wear === undefined ? {} : { agentWear: wear }),
+                // The parent's mode clamps every action the child takes, per
+                // action. Delegation narrows; it never widens.
+                clampPermissionMode: context.approvalMode,
             });
             return {
                 kind: "output",
@@ -559,6 +641,13 @@ export async function runSubagent(
             events,
             hooks: new ToolHooks(),
             approvalMode: options.approvalMode,
+            ...(options.agentWear === undefined ? {} : {
+                readAgentWear: () => options.agentWear,
+            }),
+            ...(options.clampPermissionMode === undefined
+                ? {}
+                : { clampPermissionMode: options.clampPermissionMode }),
+            firedNudges: new Set<string>(),
             extensionTools: options.extensionTools,
             ...(options.loadContextualContributions === undefined ? {} : {
                 loadContextualContributions:
@@ -673,4 +762,33 @@ function finalText(message: AssistantMessage): string {
     const error = message.errorMessage?.trim() ?? "";
     return [text, error].filter((value) => value.length > 0).join("\n")
         || `Subagent stopped with ${message.stopReason}.`;
+}
+
+/**
+ * The child's lists, narrowed by the parent's.
+ *
+ * An agent that grants a tool the parent does not have does not hand it over:
+ * the child's scope is the intersection, and an absent list on either side
+ * means "everything that side can reach", not "everything".
+ */
+export function narrowAgainstParent(
+    child: AgentWearSnapshot,
+    parent: AgentWearSnapshot | undefined,
+): AgentWearSnapshot {
+    return {
+        ...child,
+        ...narrowList("tools", child.tools, parent?.tools),
+        ...narrowList("skills", child.skills, parent?.skills),
+    };
+}
+
+function narrowList(
+    key: "tools" | "skills",
+    child: readonly string[] | undefined,
+    parent: readonly string[] | undefined,
+): Record<string, readonly string[]> {
+    if (child === undefined && parent === undefined) return {};
+    if (child === undefined) return { [key]: [...parent!] };
+    if (parent === undefined) return { [key]: [...child] };
+    return { [key]: child.filter((name) => parent.includes(name)) };
 }

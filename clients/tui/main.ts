@@ -26,8 +26,10 @@ import {
 } from "./flight-recorder.ts";
 
 import {
-    DIALOG_BACKGROUND_Z_INDEX,
+    APP_PADDING_BOTTOM,
     APP_PADDING_TOP,
+    DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_SCRIM_Z_INDEX,
     refreshDialogChrome,
     registerDialogCard,
@@ -105,7 +107,10 @@ import {
     type RenameSessionResult,
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
-import { HOST_CAPABILITY_HARNESS_MESSAGES } from "../../src/host/capabilities.ts";
+import {
+    HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_SESSION_SCOPED_STATE,
+} from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
     hostEntrypointMismatchNotice,
@@ -119,6 +124,7 @@ import {
 } from "./question.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
+import { tuiTranscriptAtBottom } from "./transcript-scroll.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
@@ -310,10 +316,36 @@ import {
     type TuiNamePromptTransition,
 } from "./name-prompt.ts";
 import {
+    activeTuiKeymap,
+    installTuiKeymap,
+    isTuiComposerClearKey,
+    isTuiKeyScope,
     tuiBindingId,
     tuiChord,
+    tuiKeyChord,
     tuiKeyHint,
 } from "./keymap.ts";
+import { resolveTuiKeymap } from "./keybindings.ts";
+import type { AgentCatalogUpdate } from "../../src/engine/protocol.ts";
+
+/** The agent list a /agent surface renders, as the host last reported it. */
+type TuiAgentCatalog = {
+    readonly worn: string;
+    readonly agents: AgentCatalogUpdate["agents"];
+    readonly notices: readonly string[];
+};
+type TuiAgentCatalogRow = AgentCatalogUpdate["agents"][number];
+import {
+    composeDialStrip,
+    handleDialStripKey,
+    openDialStrip,
+    renderDialStrip,
+    DIAL_EXIT_SEPARATOR,
+    DIAL_PROVIDER_SEPARATOR,
+    type DialPair,
+    type DialPoolEntry,
+    type DialStripState,
+} from "./dials.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -410,6 +442,7 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
+    loadTuiKeybindingOverlay,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
     saveTuiRecentSessionId,
@@ -439,6 +472,7 @@ registerTuiParsers();
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
+const HUD_HINT = tuiKeyHint("dials.open");
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
@@ -822,6 +856,7 @@ export async function startTui(
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
     let sessionTitle: string | undefined;
+    let sidebarSessionTitle: string | undefined;
     applyTerminalTitle();
     refreshTerminalTitle();
     let themeName = loadTuiThemePreference();
@@ -840,6 +875,8 @@ export async function startTui(
     }
     let shuttingDown = false;
     let clientSurfaceReady = false;
+    let transcriptSeeded = false;
+    const deferredKeymapNotices: string[] = [];
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -911,6 +948,7 @@ export async function startTui(
             }
             sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
             applyTerminalTitle();
+            if (clientSurfaceReady) renderState();
         }).catch(() => {
             // The title keeps its last value when the host cannot be reached.
         });
@@ -942,6 +980,19 @@ export async function startTui(
     >();
     const extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
+    const keybindingOverlay = loadTuiKeybindingOverlay();
+    const announcedKeymapNotices = new Set<string>();
+    /** The dial strip, open only while it is on screen. */
+    let dialStrip: DialStripState | undefined;
+    /** The last catalog the host sent, which /agent opens against. */
+    let agentCatalog: TuiAgentCatalog | undefined;
+    /** Suggesters escape put away, for the rest of this session. */
+    const dismissedComposeSuggesters = new Set<string>();
+
+    const pendingAgentCatalogs = new Map<
+        string,
+        (catalog: TuiAgentCatalog | undefined) => void
+    >();
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
@@ -1032,6 +1083,7 @@ export async function startTui(
     let phaseSince: number | undefined;
     let activity = "thinking";
     let themeApplicationVersion = 0;
+    let pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
     /**
      * Bumped by every switch, so the update pump reading the session being left
      * can tell that it is stale and stop instead of writing that session's
@@ -1064,6 +1116,10 @@ export async function startTui(
     let pendingSessionRename: {
         readonly requestId: string;
         /** Restored to the composer if the rename never lands, when it came from one. */
+        readonly commandText?: string;
+    } | undefined;
+    let pendingSidebarSessionRename: {
+        readonly requestId: string;
         readonly commandText?: string;
     } | undefined;
     /**
@@ -1178,19 +1234,7 @@ export async function startTui(
             },
             closeSidebar(extensionId) {
                 requireSidebarOwner(extensionId);
-                const attached = hostedSidebar.release(extensionId);
-                if (attached !== undefined) {
-                    rejectPendingExtensionSettingsFor(
-                        attached.client,
-                        new Error("The sidebar agent closed"),
-                    );
-                }
-                forgetPersistedAgentPane();
-                void attached?.detach().catch(() => attached.close());
-                clearSidebarEntryNodes();
-                sidebar.setHeader(undefined);
-                sidebar.close();
-                renderState();
+                closeSidebarPane(extensionId);
             },
             setMentions(names) {
                 extensionMentions = names;
@@ -1287,6 +1331,7 @@ export async function startTui(
         startConfiguredClientExtensionHost,
         (registry) => {
             clientExtensionRegistry = registry;
+            refreshKeymap();
             if (registry === undefined) {
                 extensionMentions = [];
                 extensionAddressee = undefined;
@@ -1306,6 +1351,7 @@ export async function startTui(
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
                 sidebar.clear();
+                sidebarSessionTitle = undefined;
                 sidebar.setHeader(undefined);
                 sidebar.close();
             }
@@ -1316,6 +1362,7 @@ export async function startTui(
         },
     );
     await clientExtensionHost.reload();
+    refreshKeymap();
     const directClientExtensions = bundledClientExtensions();
     for (const extension of directClientExtensions) {
         if (
@@ -1333,6 +1380,50 @@ export async function startTui(
             "direct",
         );
     }
+    /**
+     * Rebuild the one table the TUI dispatches from.
+     *
+     * Static rows, whatever the extension generation registered, and the
+     * user's `keybindings` block go through one merge, so dispatch, footer
+     * hints and the help pane cannot disagree about where a key lives. Run
+     * again after an extension reload, since the chords on offer changed.
+     */
+    function refreshKeymap(): void {
+        const resolution = resolveTuiKeymap({
+            extensions: (clientExtensionRegistry?.keybindings() ?? []).map(
+                (descriptor) => ({
+                    id: descriptor.id,
+                    keys: descriptor.keys,
+                    description: descriptor.description,
+                    ...(isTuiKeyScope(descriptor.scope)
+                        ? { scope: descriptor.scope }
+                        : {}),
+                    ...(descriptor.remappable === undefined
+                        ? {}
+                        : { remappable: descriptor.remappable }),
+                    ...(descriptor.hint === undefined
+                        ? {}
+                        : { hint: descriptor.hint }),
+                }),
+            ),
+            overlay: keybindingOverlay,
+        });
+        installTuiKeymap(resolution.bindings);
+        // Said once per distinct set. A reload that changes nothing about the
+        // keys must not repeat the banner it already showed.
+        for (const notice of resolution.notices) {
+            if (announcedKeymapNotices.has(notice)) continue;
+            announcedKeymapNotices.add(notice);
+            // The first history rebuilds the transcript from the session, so a
+            // notice settled before it would be painted and then dropped.
+            if (transcriptSeeded) {
+                state = appendTuiNotice(state, notice);
+            } else {
+                deferredKeymapNotices.push(notice);
+            }
+        }
+    }
+
     function coreHelpCommands(): readonly TuiCommandCatalogEntry[] {
         const hostCommandNames = new Set(
             hostExtensionCommands.map((command) => command.name),
@@ -1353,8 +1444,10 @@ export async function startTui(
         return SyntaxStyle.fromStyles({
         default: { fg: activeTheme.text },
         "markup.heading": { fg: activeTheme.accent, bold: true },
-        "markup.strong": { bold: true },
-        "markup.italic": { italic: true },
+        // Assistant prose uses a quieter base foreground, but emphasis is a
+        // deliberate signal and must not inherit that muted color.
+        "markup.strong": { fg: activeTheme.text, bold: true },
+        "markup.italic": { fg: activeTheme.text, italic: true },
         "markup.raw": { fg: activeTheme.code },
         "markup.raw.block": { fg: activeTheme.code },
         "markup.list": { fg: activeTheme.accent },
@@ -1477,6 +1570,28 @@ export async function startTui(
         }
     }
 
+    /** Close the attached peer without ending its durable session. */
+    function closeSidebarPane(extensionId?: string): void {
+        const attached = hostedSidebar.release(extensionId);
+        if (attached !== undefined) {
+            rejectPendingExtensionSettingsFor(
+                attached.client,
+                new Error("The sidebar agent closed"),
+            );
+        }
+        pendingSidebarSessionRename = undefined;
+        forgetPersistedAgentPane();
+        sidebarSessionTitle = undefined;
+        void attached?.detach().catch(() => attached.close());
+        clearSidebarEntryNodes();
+        sidebar.clear();
+        sidebar.setHeader(undefined);
+        sidebar.close();
+        setSidebarFocused(false);
+        composer.focus();
+        renderState();
+    }
+
     const statusText = new TextRenderable(renderer, {
         id: "status",
         content: READY_HINT,
@@ -1493,6 +1608,40 @@ export async function startTui(
         flexShrink: 0,
         alignSelf: "flex-end",
     });
+    const dialCardTitle = new TextRenderable(renderer, {
+        id: "dial-card-title",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: 3,
+        flexShrink: 0,
+    });
+    const dialCardHint = new TextRenderable(renderer, {
+        id: "dial-card-hint",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+    });
+    const dialCard = new BoxRenderable(renderer, {
+        id: "dial-card",
+        border: true,
+        borderStyle: "rounded",
+        borderColor: TUI_ELEMENT,
+        height: 6,
+        marginLeft: appearance.composerMarginHorizontal,
+        marginRight: appearance.composerMarginHorizontal,
+        marginBottom: 1,
+        paddingLeft: appearance.composerPaddingHorizontal,
+        paddingRight: appearance.composerPaddingHorizontal,
+        flexDirection: "column",
+        zIndex: DIALOG_CARD_Z_INDEX,
+        focusable: true,
+        visible: false,
+    });
+    dialCard.add(dialCardTitle);
+    dialCard.add(dialCardHint);
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
         content: "",
@@ -1527,7 +1676,7 @@ export async function startTui(
         id: "status-band",
         position: "absolute",
         left: 0,
-        bottom: 0,
+        bottom: APP_PADDING_BOTTOM,
         width: "100%",
         height: "auto",
         flexDirection: "column",
@@ -1642,6 +1791,16 @@ export async function startTui(
         () => submitPrompt(),
         attachPastedImage,
     );
+    composer.onCommandDelete = () => {
+        if (
+            composer.plainText.length === 0
+            || anyOverlayOpen()
+        ) return false;
+        composer.clearComposer();
+        renderCommandSuggestions();
+        renderState();
+        return true;
+    };
     composer.onImageChipRemoved = (requestId) => {
         pendingImages = pendingImages.filter(
             (image) => image.requestId !== requestId,
@@ -1927,6 +2086,8 @@ export async function startTui(
             signal,
             activate(_attached, previousModeLabel) {
                 rememberOpenPaneGroup();
+                sidebarSessionTitle = undefined;
+                pendingSidebarSessionRename = undefined;
                 clearSidebarEntryNodes();
                 sidebar.clear();
                 sidebar.setHeader(undefined);
@@ -1958,6 +2119,335 @@ export async function startTui(
         return sidebar.isFocused() && hostedSidebar.pane !== undefined
             ? hostedSidebar.pane.state.state
             : state;
+    }
+
+    /** The pool as the strip needs it: identity, name, and published levels. */
+    function dialPool(): readonly DialPoolEntry[] {
+        return (focusedAgentState().modelSettings?.pooled ?? []).map(
+            (entry) => ({
+                provider: entry.provider,
+                model: entry.model,
+                ...(entry.poolName === undefined
+                    ? {}
+                    : { poolName: entry.poolName }),
+                levels: entry.levels.map((level) => level.id),
+            }),
+        );
+    }
+
+    function committedDialPair(): DialPair | undefined {
+        const settings = focusedAgentState().modelSettings;
+        return settings === undefined ? undefined : {
+            ...(settings.provider === undefined
+                ? {}
+                : { provider: settings.provider }),
+            model: settings.model,
+            ...(settings.reasoningEffort === undefined
+                ? {}
+                : { effort: settings.reasoningEffort }),
+        };
+    }
+
+    /**
+     * Show the strip. Nothing is sent, nothing changes: the strip proposes.
+     *
+     * The recents come from the session's own model-setting history, which is
+     * re-read here so the next open reflects whatever this session did since.
+     */
+    function openDials(): void {
+        const target = focusedAgentClient();
+        if (
+            target.supportsHostCapability?.(
+                HOST_CAPABILITY_SESSION_SCOPED_STATE,
+            ) === false
+        ) {
+            state = appendTuiNotice(
+                state,
+                "This host does not support session-scoped state, so the dial strip is unavailable.",
+            );
+            renderState();
+            return;
+        }
+        const catalog = agentCatalog;
+        void target.send({
+            type: "get_session_model_settings_history",
+            requestId: randomUUID(),
+        }).catch(() => {
+            // A history the host would not answer leaves the strip with the
+            // current pair and admitted pool, which is still useful.
+        });
+        const composition = composeDialStrip({
+            current: committedDialPair(),
+            recents: (focusedAgentState().modelSettingsHistory ?? []).map(
+                (entry) => ({
+                    ...(entry.settings.provider === undefined
+                        ? {}
+                        : { provider: entry.settings.provider }),
+                    model: entry.settings.model,
+                    ...(entry.settings.reasoningEffort === undefined
+                        ? {}
+                        : { effort: entry.settings.reasoningEffort }),
+                }),
+            ),
+            pool: dialPool(),
+            includePool: true,
+            cap: Number.POSITIVE_INFINITY,
+        });
+        dialStrip = openDialStrip(composition, committedDialPair(), {
+            agents: catalog?.agents.map((agent) => agent.name),
+            currentAgent: catalog?.worn ?? focusedAgentState().agent?.name,
+            agentPostures: Object.fromEntries(
+                catalog?.agents.flatMap((agent) =>
+                    agent.posture === undefined
+                        ? []
+                        : [[agent.name, agent.posture] as const]
+                ) ?? [],
+            ),
+            agentForbiddenAccess: Object.fromEntries(
+                catalog?.agents.flatMap((agent) =>
+                    agent.forbiddenAccess === undefined
+                        ? []
+                        : [[agent.name, agent.forbiddenAccess] as const]
+                ) ?? [],
+            ),
+            permissionModes: ["readonly", "ask", "auto"],
+            currentPermission: focusedAgentState().approvalMode,
+        });
+        renderState();
+        focusActiveSurface();
+        if (catalog === undefined) {
+            void requestAgentCatalog(target).then((loaded) => {
+                if (dialStrip === undefined || loaded === undefined) return;
+                const agents = loaded.agents.map((agent) => agent.name);
+                dialStrip = {
+                    ...dialStrip,
+                    agents,
+                    agentIndex: Math.max(0, agents.indexOf(loaded.worn)),
+                    openedAgent: loaded.worn,
+                    agentPostures: Object.fromEntries(
+                        loaded.agents.flatMap((agent) =>
+                            agent.posture === undefined
+                                ? []
+                                : [[agent.name, agent.posture] as const]
+                        ),
+                    ),
+                    agentForbiddenAccess: Object.fromEntries(
+                        loaded.agents.flatMap((agent) =>
+                            agent.forbiddenAccess === undefined
+                                ? []
+                                : [[agent.name, agent.forbiddenAccess] as const]
+                        ),
+                    ),
+                };
+                renderState();
+            });
+        }
+    }
+
+    /**
+     * The agent surface: what is live, and how to change it.
+     *
+     * A readout first. Switching is the loud action it also offers, and `[d]`
+     * writes the session's pair into the highlighted agent's file — the only
+     * write into an agent a wire command can do.
+     */
+    async function openAgentPicker(): Promise<void> {
+        const target = focusedAgentClient();
+        let catalog = agentCatalog;
+        if (catalog === undefined) {
+            catalog = await requestAgentCatalog(target);
+        }
+        if (catalog === undefined) {
+            state = appendTuiNotice(
+                state,
+                "This host does not support agents.",
+            );
+            renderState();
+            return;
+        }
+        for (const notice of catalog.notices) {
+            state = appendTuiNotice(state, notice, "soft");
+        }
+        while (true) {
+            const current = agentCatalog ?? catalog;
+            const result = await requestExtensionPicker({
+                title: "Agents",
+                subtitle:
+                    "Switching agents re-reads the prefix, so the next turn is slower once.",
+                rows: current.agents.map((agent) => ({
+                    id: agent.name,
+                    label: agent.scope === "extension" && agent.name !== "default"
+                        ? `${agent.name} (ext)`
+                        : agent.name,
+                    description: describeAgentRow(agent),
+                    current: agent.name === current.worn,
+                })),
+                selectedId: current.worn,
+                actions: [
+                    { id: "wear", label: "switch", keys: ["enter"] },
+                    {
+                        id: "default",
+                        label: "save session pair as default",
+                        keys: ["d"],
+                    },
+                ],
+            }, new AbortController().signal);
+            if (result.outcome === "cancelled") return;
+            const agent = current.agents.find(
+                (candidate) => candidate.name === result.rowId,
+            );
+            if (agent === undefined) return;
+            if (result.actionId === "wear") {
+                wearAgent(agent.name);
+                return;
+            }
+            if (!agent.writable) {
+                state = appendTuiNotice(
+                    state,
+                    `${agent.name} is registered by an extension, so its file cannot be written.`,
+                );
+                renderState();
+                continue;
+            }
+            const pair = committedDialPair();
+            const named = pair === undefined ? undefined : dialPool().find(
+                (entry) =>
+                    entry.model === pair.model
+                    && (pair.provider === undefined
+                        || entry.provider === pair.provider),
+            )?.poolName;
+            if (named === undefined) {
+                // The agent file names a pool entry, so a model with no pool
+                // name has nothing to write. Saying so beats writing an id the
+                // format does not carry.
+                state = appendTuiNotice(
+                    state,
+                    "Name this model in /model before saving it as an agent default.",
+                );
+                renderState();
+                continue;
+            }
+            void target.send({
+                type: "update_agent_default_pair",
+                requestId: randomUUID(),
+                name: agent.name,
+                pair: {
+                    name: named,
+                    ...(pair?.effort === undefined ? {} : { effort: pair.effort }),
+                },
+            }).catch(() => undefined);
+            state = appendTuiNotice(
+                state,
+                `${agent.name}: default pair is now ${named}${
+                    pair?.effort === undefined ? "" : `·${pair.effort}`
+                }.`,
+                "soft",
+            );
+            renderState();
+        }
+    }
+
+    function describeAgentRow(agent: TuiAgentCatalogRow): string {
+        return [
+            agent.tools === undefined
+                ? "all tools"
+                : `${agent.tools.length} tool${
+                    agent.tools.length === 1 ? "" : "s"
+                }`,
+            agent.skills === undefined
+                ? "all skills"
+                : `${agent.skills.length} skill${
+                    agent.skills.length === 1 ? "" : "s"
+                }`,
+            `posture: ${agent.posture ?? "host default"}`,
+            ...(agent.defaultPair === undefined ? [] : [
+                `default ${agent.defaultPair.name}${
+                    agent.defaultPair.effort === undefined
+                        ? ""
+                        : `·${agent.defaultPair.effort}`
+                }`,
+            ]),
+        ].join(" · ");
+    }
+
+    /** Enqueued, never applied here: the host decides where in the queue it lands. */
+    function wearAgent(name: string): void {
+        void focusedAgentClient().send({
+            type: "wear_agent",
+            requestId: randomUUID(),
+            name,
+        }).catch((error) => {
+            state = appendTuiNotice(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            renderState();
+        });
+        if (focusedAgentState().working) {
+            state = appendTuiNotice(
+                state,
+                `${name}: queued; applies after the current work.`,
+                "soft",
+            );
+            renderState();
+        }
+    }
+
+    function requestAgentCatalog(
+        target: TuiAgentClient,
+    ): Promise<TuiAgentCatalog | undefined> {
+        const requestId = randomUUID();
+        return new Promise((resolve) => {
+            pendingAgentCatalogs.set(requestId, resolve);
+            void target.send({ type: "list_agents", requestId }).catch(() => {
+                pendingAgentCatalogs.delete(requestId);
+                resolve(undefined);
+            });
+            // A host that answers nothing must not leave /agent hanging.
+            setTimeout(() => {
+                if (pendingAgentCatalogs.delete(requestId)) resolve(undefined);
+            }, 5_000);
+        });
+    }
+
+    function closeDials(): void {
+        dialStrip = undefined;
+        renderState();
+        focusActiveSurface();
+    }
+
+    /** The pair as the next request will carry it. Nothing reaches the API now. */
+    function commitDials(
+        pair: DialPair,
+        agent: string | undefined,
+        permission: string | undefined,
+    ): void {
+        const target = focusedAgentClient();
+        const opened = dialStrip;
+        closeDials();
+        if (opened?.opened === undefined
+            || pair.model !== opened.opened.model
+            || pair.provider !== opened.opened.provider
+            || pair.effort !== opened.opened.effort) {
+            void target.send({
+                type: "update_session_model_settings",
+                requestId: randomUUID(),
+                patch: {
+                    ...(pair.provider === undefined
+                        ? {}
+                        : { provider: pair.provider }),
+                    model: pair.model,
+                    reasoningEffort: pair.effort ?? null,
+                },
+            }).catch(reportConnectionError);
+        }
+        if (agent !== undefined && agent !== opened?.openedAgent) {
+            wearAgent(agent);
+        }
+        if (permission !== undefined
+            && permission !== opened?.openedPermission) {
+            requestPermissionsChange(permission, target);
+        }
     }
 
     function setSidebarFocused(focused: boolean): void {
@@ -2068,7 +2558,11 @@ export async function startTui(
                 id,
                 entry,
                 markdownStyle,
-                TUI_TEXT,
+                // Assistant prose stays readable but yields to the session
+                // chrome and user-authored prompts in the visual hierarchy.
+                entry.kind === "assistant" || entry.kind === "notification"
+                    ? TUI_MUTED
+                    : TUI_TEXT,
                 inner,
             );
         const node = entry.kind === "tool"
@@ -2191,6 +2685,36 @@ export async function startTui(
         if (pane !== hostedSidebar.pane) return;
         if (update.type === "ui_request") {
             setSidebarFocused(true);
+        }
+        if (
+            (update.type === "session_name"
+                || update.type === "session_name_rejected")
+            && update.requestId === pendingSidebarSessionRename?.requestId
+        ) {
+            const pending = pendingSidebarSessionRename;
+            pendingSidebarSessionRename = undefined;
+            if (update.type === "session_name") {
+                sidebarSessionTitle = update.name ?? undefined;
+                pane.state.state = appendTuiNotice(
+                    pane.state.state,
+                    update.name === null
+                        ? "session name cleared"
+                        : `session renamed: ${update.name}`,
+                );
+            } else {
+                if (
+                    pending.commandText !== undefined
+                    && composer.expandedText().length === 0
+                ) {
+                    composer.setComposerText(pending.commandText);
+                }
+                pane.state.state = appendTuiError(
+                    pane.state.state,
+                    update.reason === "invalid"
+                        ? "Session name must be 1 to 200 UTF-8 bytes"
+                        : "Could not rename this conversation",
+                );
+            }
         }
         if (update.type === "turn_finished") {
             pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
@@ -2404,6 +2928,7 @@ export async function startTui(
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
+    app.add(dialCard);
     app.add(composerBox);
     app.add(statusBand);
     renderer.root.add(app);
@@ -2476,6 +3001,12 @@ export async function startTui(
         composerBox.marginRight = appearance.composerMarginHorizontal;
         composerBox.paddingLeft = appearance.composerPaddingHorizontal;
         composerBox.paddingRight = appearance.composerPaddingHorizontal;
+        dialCard.marginLeft = appearance.composerMarginHorizontal;
+        dialCard.marginRight = appearance.composerMarginHorizontal;
+        dialCard.paddingLeft = appearance.composerPaddingHorizontal;
+        dialCard.paddingRight = appearance.composerPaddingHorizontal;
+        commandSuggestionsBox.paddingLeft = composerContentIndent;
+        commandSuggestionsBox.paddingRight = composerContentIndent;
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
         commandSuggestionsBox.left = appearance.composerMarginHorizontal;
@@ -2625,6 +3156,37 @@ export async function startTui(
             }
             return;
         }
+        if (
+            isTuiComposerClearKey(key)
+            && composer.focused
+            && composer.plainText.length > 0
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            composer.clearComposer();
+            renderCommandSuggestions();
+            renderState();
+            return;
+        }
+        if (
+            key.option === true
+            && (key.name === "delete" || key.name === "backspace")
+            && composer.focused
+            && composer.plainText.length > 0
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            if (key.name === "backspace") {
+                composer.deleteWordBackward();
+            } else {
+                composer.deleteWordForward();
+            }
+            renderCommandSuggestions();
+            renderState();
+            return;
+        }
         if (parseRawInputEvent(key)?.type === "interrupt") {
             // A trash in flight still consumes ctrl+c: it is destructive, it
             // is bounded by its own deadline, and the confirmation card is on
@@ -2661,6 +3223,33 @@ export async function startTui(
             } else if (action === "abort") {
                 abortFocusedAgent();
                 renderStatus();
+            }
+            return;
+        }
+
+        // The strip owns the keyboard while it is open, after the escape
+        // hatches above it. Every key here either moves the highlight, commits,
+        // cancels, or bounces the keystroke into the composer.
+        if (dialStrip !== undefined) {
+            key.preventDefault();
+            key.stopPropagation();
+            const action = handleDialStripKey(
+                dialStrip,
+                key as {
+                    name: string;
+                    ctrl?: boolean;
+                    shift?: boolean;
+                    sequence?: string;
+                },
+                tuiBindingId("dials", key),
+            );
+            if (action.kind === "state") {
+                dialStrip = action.state;
+                renderState();
+            } else if (action.kind === "cancel") {
+                closeDials();
+            } else if (action.kind === "commit") {
+                commitDials(action.pair, action.agent, action.permission);
             }
             return;
         }
@@ -3117,6 +3706,49 @@ export async function startTui(
             }
         }
 
+        const composeSuggester = activeComposeSuggester();
+        if (
+            (key.name === "return" || key.name === "enter")
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && composeSuggester !== undefined
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            dismissedComposeSuggesters.add(
+                `${composeSuggester.source}:${composeSuggester.agent}`,
+            );
+            wearAgent(composeSuggester.agent);
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+
+        // Ahead of clearing the composer, because putting away an offer you
+        // did not ask for should not also throw away what you were writing.
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && activeComposeSuggester() !== undefined
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            const suggester = activeComposeSuggester();
+            if (suggester !== undefined) {
+                dismissedComposeSuggesters.add(
+                    `${suggester.source}:${suggester.agent}`,
+                );
+            }
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+
         // Ahead of clearing the composer, so dropping a quote does not also
         // throw away the message being written to send it with.
         if (
@@ -3231,6 +3863,16 @@ export async function startTui(
         }
 
         if (
+            tuiBindingId("global", key) === "dials.open"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openDials();
+            return;
+        }
+
+        if (
             tuiBindingId("global", key) === "open_model_picker"
             && !anyOverlayOpen()
         ) {
@@ -3303,11 +3945,22 @@ export async function startTui(
             return;
         }
 
+        // Through the merged table rather than the registry's own chords, so a
+        // chord the user moved in tui.json reaches the extension that owns the
+        // id rather than the place the extension originally asked for.
         const extensionKey = tuiChord(key);
-        const extensionBinding = extensionKey === undefined
+        const bound = extensionKey === undefined
+            ? undefined
+            : activeTuiKeymap().find((binding) =>
+                binding.keys.includes(extensionKey)
+            );
+        // A row in the static table names the extension that owns it under a
+        // different id than the row's own, so both are candidates.
+        const boundId = bound?.extensionId ?? bound?.id;
+        const extensionBinding = boundId === undefined
             ? undefined
             : clientExtensionRegistry?.keybindings().find((binding) =>
-                binding.keys.includes(extensionKey)
+                binding.id === boundId
             );
         if (extensionBinding !== undefined && !anyOverlayOpen()) {
             key.preventDefault();
@@ -3506,6 +4159,7 @@ export async function startTui(
             blocked: promptSubmitting
                 || sessionSwitchPending
                 || pendingSessionRename
+                || pendingSidebarSessionRename
                 || extensionCommandPending
                 || sidebarPromptSubmitting
                 || messageInterceptPending,
@@ -3514,6 +4168,7 @@ export async function startTui(
             promptSubmitting
             || sessionSwitchPending
             || pendingSessionRename
+            || pendingSidebarSessionRename
             || extensionCommandPending
             || sidebarPromptSubmitting
             || messageInterceptPending
@@ -4068,7 +4723,11 @@ export async function startTui(
                 confirmingFullAccessAgent = focusedAgentClient();
                 focusActiveSurface();
             } else {
-                requestPermissionsChange(commandAction.mode);
+                requestPermissionsChange(
+                    commandAction.mode,
+                    focusedAgentClient(),
+                    commandAction.scope ?? "session",
+                );
             }
             renderState();
             return;
@@ -4081,6 +4740,16 @@ export async function startTui(
         if (commandAction?.type === "open_permissions_picker") {
             composer.clearComposer();
             openPermissionsPicker();
+            return;
+        }
+        if (commandAction?.type === "open_agent_picker") {
+            composer.clearComposer();
+            void openAgentPicker();
+            return;
+        }
+        if (commandAction?.type === "wear_agent") {
+            composer.clearComposer();
+            wearAgent(commandAction.name);
             return;
         }
         if (commandAction?.type === "open_theme_picker") {
@@ -4323,6 +4992,15 @@ export async function startTui(
             composer.clearComposer();
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
+            // A blank peer has nothing useful to reset. Treating a second
+            // clear as close makes it possible to get rid of an empty pair
+            // pane without requiring the user to remember `/pair close`.
+            const clearingBlankSidebar = clearingSidebar
+                && !sidebarEntryNodes.some((node) => node.visible);
+            if (clearingBlankSidebar) {
+                closeSidebarPane();
+                return;
+            }
             if (
                 clearingSidebar
                     ? dependencies.createAgent === undefined
@@ -4482,9 +5160,33 @@ export async function startTui(
         }
         if (commandAction?.type === "update_session_name") {
             const requestId = randomUUID();
-            pendingSessionRename = { requestId, commandText: prompt };
             composer.clearComposer();
-            void client.send({
+            const target = focusedAgentClient();
+            if (target !== client) {
+                pendingSidebarSessionRename = { requestId, commandText: prompt };
+                void target.send({
+                    type: "update_session_name",
+                    requestId,
+                    name: commandAction.name,
+                }).catch((error) => {
+                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                        return;
+                    }
+                    pendingSidebarSessionRename = undefined;
+                    if (composer.expandedText().length === 0) {
+                        composer.setComposerText(prompt);
+                    }
+                    reportConnectionError(error);
+                });
+                showStatusNotice(
+                    commandAction.name === null
+                        ? "clearing peer session name…"
+                        : "renaming peer session…",
+                );
+                return;
+            }
+            pendingSessionRename = { requestId, commandText: prompt };
+            void target.send({
                 type: "update_session_name",
                 requestId,
                 name: commandAction.name,
@@ -5083,6 +5785,20 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (update.type === "agent_catalog") {
+                    agentCatalog = {
+                        worn: update.worn,
+                        agents: update.agents,
+                        notices: update.notices,
+                    };
+                    pendingAgentCatalogs.get(update.requestId)?.(agentCatalog);
+                    pendingAgentCatalogs.delete(update.requestId);
+                }
+                if (update.type === "agent_worn" && agentCatalog !== undefined) {
+                    agentCatalog = { ...agentCatalog, worn: update.name };
+                }
+                if (update.type === "model_settings") {
+                }
                 if (
                     update.type === "pool_admission_result"
                     && poolVerifySweepResult(update.requestId, update.verdict)
@@ -5225,6 +5941,10 @@ export async function startTui(
                         adoptFallbackSessionTitle(userTexts[0]);
                     }
                     clearTranscriptNodes();
+                    transcriptSeeded = true;
+                    for (const notice of deferredKeymapNotices.splice(0)) {
+                        state = appendTuiNotice(state, notice);
+                    }
                 }
                 if (
                     update.type === "turn_finished"
@@ -5599,6 +6319,9 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
     function activeOverlayFocus(): (() => void) | undefined {
+        if (dialStrip !== undefined) {
+            return () => dialCard.focus();
+        }
         if (experimentalTuiHost.hasModal()) {
             return () => experimentalTuiHost.focus();
         }
@@ -5842,11 +6565,19 @@ export async function startTui(
         submitAfterImageAttachment = false;
         const interruptedRename = pendingSessionRename;
         pendingSessionRename = undefined;
+        const interruptedSidebarRename = pendingSidebarSessionRename;
+        pendingSidebarSessionRename = undefined;
         if (
             interruptedRename?.commandText !== undefined
             && composer.expandedText().length === 0
         ) {
             composer.setComposerText(interruptedRename.commandText);
+        }
+        if (
+            interruptedSidebarRename?.commandText !== undefined
+            && composer.expandedText().length === 0
+        ) {
+            composer.setComposerText(interruptedSidebarRename.commandText);
         }
         pendingUiRequest = undefined;
         queuedUiRequests.length = 0;
@@ -6083,7 +6814,8 @@ export async function startTui(
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && providerForgetCandidate !== undefined;
-        const overlayVisible = approvalView.box.visible
+        const overlayVisible = dialStrip !== undefined
+            || approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
@@ -6249,7 +6981,8 @@ export async function startTui(
      * when, so they ask the same question here.
      */
     function anyOverlayOpen(): boolean {
-        return experimentalTuiHost.hasModal()
+        return dialStrip !== undefined
+            || experimentalTuiHost.hasModal()
             || focusedUiRequest() !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
@@ -7324,6 +8057,10 @@ export async function startTui(
         if (action.type === "open_permissions_picker") {
             return openPermissionsPicker();
         }
+        if (action.type === "open_agent_picker") {
+            void openAgentPicker();
+            return;
+        }
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
@@ -7388,7 +8125,7 @@ export async function startTui(
             "previewTheme" in transition
             && transition.previewTheme !== undefined
         ) {
-            void applySelectedTheme(transition.previewTheme, false);
+            scheduleThemePreview(transition.previewTheme);
         }
         if (
             "trashCandidate" in transition
@@ -8341,24 +9078,46 @@ export async function startTui(
         renderState();
     }
 
+    /**
+     * Change the posture for this session.
+     *
+     * Session-scoped by default. Writing the host default too used to be
+     * implicit and unavoidable; it is now its own action, so choosing a
+     * posture for one conversation stops deciding it for every future one. A
+     * host too old to know the session-scoped command gets the old behaviour,
+     * which is the only honest fallback.
+     */
     function requestPermissionsChange(
         mode: string,
         target: TuiAgentClient = focusedAgentClient(),
+        scope: "session" | "global" = "session",
     ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
+        const sessionScoped = scope === "session"
+            && target.supportsHostCapability?.(
+                    HOST_CAPABILITY_SESSION_SCOPED_STATE,
+                ) !== false;
         void target.send({
-            type: "update_permissions",
+            type: sessionScoped
+                ? "update_session_permission_mode"
+                : "update_permissions",
             requestId,
             mode,
         }).catch(reportConnectionError);
-        showStatusNotice(`permissions → ${mode}`);
+        showStatusNotice(
+            `permissions → ${mode}${sessionScoped ? "" : " (default too)"}`,
+        );
     }
 
     async function applySelectedTheme(
         selectedTheme: typeof themeName,
         announce: boolean,
     ): Promise<void> {
+        if (announce && pendingThemePreview !== undefined) {
+            clearTimeout(pendingThemePreview);
+            pendingThemePreview = undefined;
+        }
         const version = ++themeApplicationVersion;
         const resolvedTheme = await resolveTuiTheme(renderer, selectedTheme);
         if (version !== themeApplicationVersion || shuttingDown) {
@@ -8433,6 +9192,21 @@ export async function startTui(
             );
         }
         renderState();
+    }
+
+    /**
+     * Theme rows preview live, but rebuilding a long Markdown transcript for
+     * every key repeat makes the picker itself lag behind the cursor. Coalesce
+     * a run of arrows and paint the row the cursor actually settles on.
+     */
+    function scheduleThemePreview(selectedTheme: typeof themeName): void {
+        if (pendingThemePreview !== undefined) {
+            clearTimeout(pendingThemePreview);
+        }
+        pendingThemePreview = setTimeout(() => {
+            pendingThemePreview = undefined;
+            void applySelectedTheme(selectedTheme, false);
+        }, 50);
     }
 
     /**
@@ -8520,7 +9294,7 @@ export async function startTui(
                 ),
                 commandSuggestionIndex - window.start,
             );
-            commandSuggestionsBox.height = Math.max(1, window.rows);
+            commandSuggestionsBox.height = Math.max(1, window.rows) + 1;
             commandSuggestionsBox.visible = argumentSuggestions.length > 0
                 && overlaysClearOfSuggestions();
             return;
@@ -8572,10 +9346,49 @@ export async function startTui(
         );
         commandSuggestionsBox.height = suggestions.length > 0
             ? window.rows + tuiSuggestionGaps(visible, grouped)
-                + (window.hidden > 0 ? 1 : 0)
+                + (window.hidden > 0 ? 1 : 0) + 1
             : 1;
+        const suggester = suggestions.length > 0
+            ? undefined
+            : activeComposeSuggester();
+        if (suggester !== undefined) {
+            // One line, under the composer, from an extension the user chose
+            // to install. Core never reads composer text; this does, and it
+            // only exists because installing the extension said it could.
+            commandSuggestionsText.content = new StyledText([
+                fg(TUI_MUTED)(
+                    `${suggester.hint} · enter switch to ${suggester.agent} · esc dismiss`,
+                ),
+            ]);
+            commandSuggestionsBox.height = 2;
+            commandSuggestionsBox.visible = overlaysClearOfSuggestions();
+            return;
+        }
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
+    }
+
+    /**
+     * The one suggester that applies right now, if any.
+     *
+     * First registered wins, so a second extension cannot talk over the first,
+     * and a suggester dismissed with escape stays dismissed for the session.
+     */
+    function activeComposeSuggester():
+        | { readonly source: string; readonly agent: string; readonly hint: string }
+        | undefined
+    {
+        const text = composer.plainText;
+        if (text.trim().length === 0 || text.startsWith("/")) return undefined;
+        return (clientExtensionRegistry?.composeSuggesters() ?? []).find(
+            (suggester) =>
+                focusedAgentState().agent?.name !== suggester.agent
+                &&
+                !dismissedComposeSuggesters.has(
+                    `${suggester.source}:${suggester.agent}`,
+                )
+                && suggester.matches(text),
+        );
     }
 
     function overlaysClearOfSuggestions(): boolean {
@@ -8655,14 +9468,31 @@ export async function startTui(
      * anything, which is the whole point.
      */
     function renderJumpToBottom(): void {
-        const following = transcript.scrollTop
-            >= transcript.scrollHeight - transcript.viewport.height;
+        const following = tuiTranscriptAtBottom(
+            transcript.scrollTop,
+            transcript.scrollHeight,
+            transcript.viewport.height,
+        );
+        // OpenTUI's wheel handler marks every wheel event as manual after it
+        // updates scrollTop, including the event that reaches the bottom. If
+        // streaming grows the transcript before the next layout pass, that
+        // stale manual flag prevents sticky scroll from following the new
+        // content. Crossing from the visible pill back to the bottom is an
+        // explicit request to resume following, so reapply the bottom here.
+        if (following) {
+            transcript.scrollTo(transcript.scrollHeight);
+        }
         const visible = !following && !anyOverlayOpen();
         jumpToBottom.visible = visible;
         if (!visible) {
             return;
         }
-        jumpToBottom.top = transcript.y + transcript.height - 1;
+        jumpToBottom.top = commandSuggestionsBox.visible
+            ? Math.min(
+                transcript.y + transcript.height - 1,
+                commandSuggestionsBox.y - 1,
+            )
+            : transcript.y + transcript.height - 1;
         jumpToBottom.left = Math.max(
             0,
             transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
@@ -8761,21 +9591,20 @@ export async function startTui(
             ?? elapsedWorkingTime();
         const layout = sidebar.layout();
         const sideState = hostedSidebar.pane?.state.state;
-        const paneHeadersVisible = hostedSidebar.pane !== undefined
-            && !anyOverlayOpen();
+        const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
-        sidebar.setMainHeader(paneHeadersVisible
-            ? paneHeaderText(
-                "Vera",
-                state.approvalMode,
-                state.modelSettings,
-                layout === "split" ? mainWidth : renderer.width,
-            )
+        sidebar.setMainHeader(paneHeadersVisible && sessionTitle !== undefined
+            ? `  SESSION  ${sessionTitle}`
             : undefined);
-        sidebar.setHeader(paneHeadersVisible && sideState !== undefined
+        sidebar.setHeader(
+            paneHeadersVisible
+                && hostedSidebar.pane !== undefined
+                && sideState !== undefined
             ? paneHeaderText(
-                hostedSidebar.mention ?? hostedSidebar.pane!.agentId,
+                sidebarSessionTitle
+                    ?? hostedSidebar.mention
+                    ?? hostedSidebar.pane!.agentId,
                 sideState.approvalMode,
                 sideState.modelSettings,
                 layout === "split" ? sideWidth : renderer.width,
@@ -8871,6 +9700,117 @@ export async function startTui(
                 && !focusedAbort
             ? workingHint
             : "";
+        const stripLines = dialStrip === undefined
+            ? undefined
+            : renderDialStrip(
+                dialStrip,
+                [
+                    "tab/shift+tab lane",
+                    `${tuiKeyChord("dials.pair.prev")}/${
+                        tuiKeyChord("dials.pair.next")
+                    } change`,
+                    "⏎ apply",
+                    "/permissions for more",
+                ].join(" · "),
+                Math.max(1, renderer.width - composerHorizontalInset),
+                Math.max(3, Math.min(9, renderer.height - 23)),
+            );
+        dialCard.visible = stripLines !== undefined;
+        const hudRows = stripLines?.slice(0, -1) ?? [];
+        const effortRowIndex = hudRows.findIndex((line) =>
+            line.includes("EFFORT")
+        );
+        const modelRowCount = effortRowIndex >= 0
+            ? effortRowIndex
+            : Math.max(0, hudRows.length - 4);
+        const effortScaleRows = effortRowIndex >= 0
+            && hudRows[effortRowIndex + 1]?.includes("Faster") === true
+            ? 3
+            : 0;
+        dialCardTitle.height = Math.max(1, hudRows.length);
+        dialCard.height = hudRows.length + 3;
+        dialCardTitle.content = new StyledText(hudRows.flatMap((line, index) => {
+            const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
+            const main = providerParts[0] ?? "";
+            const activeRow = dialStrip?.lane === "model"
+                ? index < modelRowCount + 1
+                : dialStrip?.lane === "agent"
+                    ? index === modelRowCount + 1 + effortScaleRows
+                    : dialStrip?.lane === "access"
+                        ? index === modelRowCount + 2 + effortScaleRows
+                        : false;
+            const selectedColor = (part: string): string =>
+                dialStrip?.lane !== "access"
+                    ? TUI_TEXT
+                    : part.includes("readonly")
+                        ? "#c586c0"
+                        : part.includes("ask")
+                            ? TUI_ACCENT
+                            : part.includes("auto")
+                                ? VERA_TUI_THEME.success
+                                : TUI_TEXT;
+            const isEffortScale = effortScaleRows > 0
+                && index > effortRowIndex
+                && index <= effortRowIndex + effortScaleRows;
+            if (isEffortScale) {
+                const scaleChunks = index === effortRowIndex + 1
+                    ? [fg(TUI_ACCENT)(main)]
+                    : main.split(/(▲)/u).filter(Boolean).map((part) =>
+                        fg(part === "▲" ? TUI_NOTICE : TUI_ACCENT)(part)
+                    );
+                return [
+                    ...scaleChunks,
+                    ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+                ];
+            }
+            let mainChunks;
+            if (!activeRow) {
+                mainChunks = [fg(TUI_MUTED)(main)];
+            } else if (index < modelRowCount) {
+                if (main.includes("[")) {
+                    mainChunks = [fg(TUI_TEXT)(main)];
+                } else if (index === 0) {
+                    const prefixLength = main.startsWith("› MODEL") ? 14 : 2;
+                    mainChunks = [
+                        fg(TUI_TEXT)(main.slice(0, prefixLength)),
+                        fg(TUI_MUTED)(main.slice(prefixLength)),
+                    ];
+                } else {
+                    mainChunks = [fg(TUI_MUTED)(main)];
+                }
+            } else {
+                const prefix = main.match(/^[› ] (?:EFFORT|AGENT|ACCESS)\s*/)?.[0]
+                    ?? main.slice(0, 2);
+                const choices = main.slice(prefix.length)
+                    .split(/(\[[^\]]+\])/)
+                    .filter(Boolean);
+                mainChunks = [
+                    fg(TUI_TEXT)(prefix),
+                    ...choices.map((part) => fg(
+                        part.startsWith("[")
+                            ? selectedColor(part)
+                            : TUI_MUTED,
+                    )(part)),
+                ];
+            }
+            return [
+                ...mainChunks,
+                ...(providerParts.length < 2
+                    ? []
+                    : [fg(TUI_MUTED)(providerParts.slice(1).join(""))]),
+                ...(index === hudRows.length - 1
+                    ? []
+                    : [fg(TUI_TEXT)("\n")]),
+            ];
+        }));
+        const dialHintParts = (stripLines?.at(-1) ?? "")
+            .split(DIAL_EXIT_SEPARATOR);
+        dialCardHint.content = stripLines === undefined
+            ? ""
+            : new StyledText([
+                fg(TUI_MUTED)(dialHintParts[0] ?? ""),
+                fg(TUI_NOTICE)(dialHintParts[1] ?? ""),
+            ]);
         activityHintText.content = activityHint;
         activityHintText.visible = statusText.visible
             && activityHint.length > 0;
@@ -8902,6 +9842,22 @@ export async function startTui(
                     statusState.effortSubstitution,
                     hostedSidebar.pane === undefined,
                     workspaceBranch.current(),
+                    {
+                        // `*` reads off the recorded origin, so dialling back
+                        // to the default clears it on every path.
+                        pairOverridden:
+                            statusState.modelSettingsOrigin === "user",
+                        ...(statusState.agent === undefined
+                            ? {}
+                            : { agent: statusState.agent.name }),
+                        postureOverridden:
+                            statusState.approvalModeOrigin === "user"
+                            && statusState.approvalMode
+                                !== statusState.agent?.posture,
+                        ...(statusState.modelFallback === undefined
+                            ? {}
+                            : { fallbackTo: statusState.modelFallback.to }),
+                    },
                 )
                 : [[{
                     tone: "muted",
@@ -8994,7 +9950,11 @@ export async function startTui(
             cardRows + 1,
         );
         statusText.content = quietActivity
-            ? MODEL_PICKER_HINT
+            ? new StyledText([
+                fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
+                fg(TUI_ACCENT)("HUD"),
+                fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
+            ])
             : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined

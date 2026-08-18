@@ -31,7 +31,7 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { TUI_KEYMAP, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
+import { activeTuiKeymap, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
 
 export type TuiHelpTab =
     | "general"
@@ -116,9 +116,9 @@ function chordLabel(chord: string): string {
  * Whether a terminal can be relied on to deliver the chord at all.
  *
  * Shift on a ctrl+letter chord is only reported under the kitty keyboard
- * protocol; elsewhere ctrl+shift+u is indistinguishable from ctrl+u and the
- * binding never matches. Saying so beside the row is the difference between a
- * key that looks broken and one the user knows to swap for its alias.
+ * protocol; elsewhere the unshifted Ctrl-D/U aliases remain available. Saying
+ * so beside the row is the difference between a key that looks broken and one
+ * the user knows to swap for its alias.
  */
 function needsKittyKeyboard(chord: string): boolean {
     const parts = chord.split("+");
@@ -132,7 +132,7 @@ function keyRows(): readonly {
     readonly meta: string;
 }[] {
     return HELP_KEY_SCOPES.flatMap(({ scope, title }) =>
-        TUI_KEYMAP.filter((binding) => binding.scope === scope).map((
+        activeTuiKeymap().filter((binding) => binding.scope === scope).map((
             binding,
         ) => ({
             label: binding.keys.map(chordLabel).join(" / "),

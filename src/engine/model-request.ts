@@ -33,6 +33,8 @@ export interface ModelRequestSnapshot {
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledPromptContributions?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
+    /** The worn agent's instructions, which live in the stable prefix. */
+    readonly agentInstructions?: string;
     readonly signal: AbortSignal;
 }
 
@@ -97,6 +99,9 @@ export function projectModelRequest(
                 additionalContextualContributions:
                     snapshot.additionalContextualContributions,
             }),
+        ...(snapshot.agentInstructions === undefined
+            ? {}
+            : { agentInstructions: snapshot.agentInstructions }),
     });
     const request = Object.freeze({
         ...(snapshot.provider === undefined ? {} : { provider: snapshot.provider }),

@@ -11,22 +11,62 @@ import {
     tuiGutterWidth,
 } from "../../clients/tui/gutter.ts";
 import {
+    createTuiToolHeader,
+    createTuiToolRow,
+} from "../../clients/tui/tool-row.ts";
+import {
     renderTuiEntry,
     TUI_ELEMENT,
     TUI_MUTED,
 } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 
-test("tool rows do not add a second activity indent", () => {
+test("tool detail rows reserve their own gutter, headers keep the indent", () => {
     expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 2)).toBe(2);
     expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 2))
-        .toBe(0);
+        .toBe(2);
     expect(tuiGutterWidth({ kind: "tool", text: "Read file" }, 2)).toBe(0);
     expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 1)).toBe(2);
     expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 1))
-        .toBe(0);
-    expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 4))
         .toBe(2);
+    expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 4))
+        .toBe(4);
+});
+
+test("live tool groups keep their activity column in the character frame", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const headerEntry = { kind: "tool_header" as const, text: "Running", header: "Running" };
+    const detailEntry = { kind: "tool" as const, text: "sleep 30", prefix: "  └ " };
+    const header = createTuiGutterEntry(
+        setup.renderer,
+        "running-header",
+        headerEntry,
+        createTuiToolHeader(setup.renderer, "running-header-content", headerEntry, 0),
+        0,
+        false,
+        { width: tuiGutterWidth(headerEntry, 2) },
+    );
+    const detail = createTuiGutterEntry(
+        setup.renderer,
+        "running-detail",
+        detailEntry,
+        createTuiToolRow(setup.renderer, "running-detail-content", detailEntry, 0),
+        0,
+        false,
+        { width: tuiGutterWidth(detailEntry, 2) },
+    );
+    setup.renderer.root.add(header);
+    setup.renderer.root.add(detail);
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        expect(lines.find((line) => line.includes("Running")))
+            .toStartWith("  Running");
+        expect(lines.find((line) => line.includes("sleep 30")))
+            .toStartWith("  └ sleep 30");
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 async function frameFor(ruled: boolean): Promise<string> {
@@ -189,7 +229,7 @@ test("the assistant marker is a muted weighted bullet", async () => {
     }
 });
 
-test("thought markers use the same compact bullet as assistant rows", async () => {
+test("thought rows leave the fold control as their only marker", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
@@ -208,9 +248,7 @@ test("thought markers use the same compact bullet as assistant rows", async () =
         const marker = node.findDescendantById("thought-marker");
         expect(marker).toBeInstanceOf(TextRenderable);
         expect(marker instanceof TextRenderable ? marker.plainText : undefined)
-            .toBe("•");
-        expect(marker instanceof TextRenderable ? marker.attributes : undefined)
-            .toBe(TextAttributes.BOLD);
+            .toBe(" ");
     } finally {
         setup.renderer.destroy();
     }

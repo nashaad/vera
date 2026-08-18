@@ -76,6 +76,8 @@ export interface TuiTextTranscriptEntry {
      * one that stuck is worth a line.
      */
     readonly supersedes?: string;
+    /** Client-only row preserved across canonical history rebuilds. */
+    readonly liveOnly?: boolean;
     /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
     /** Whether a `thought` summary is showing its reasoning. */
@@ -156,12 +158,44 @@ export interface TuiState {
      * without one is what says the requested level works again.
      */
     readonly turnSubstituted?: boolean;
+    /**
+     * The model this turn actually ran on, when the parent turn fell back.
+     *
+     * Transient by construction: the committed pair is unchanged and retried
+     * next turn, so this is cleared when the parent turn ends rather than
+     * carried. A subagent's own fallback never lands here.
+     */
+    readonly modelFallback?: { readonly from: string; readonly to: string };
     /** Whether new `thought` summaries open showing their reasoning. */
     readonly thinkingExpanded?: boolean;
     /** Whether completed tool groups are forced open or closed. */
     readonly toolDetailsExpanded?: boolean;
     /** The admission run in flight, or awaiting its refreshed pool snapshot. */
     readonly admission?: TuiAdmissionState;
+    /**
+     * Every pair this session has held, oldest first, as the host reported it.
+     *
+     * The dial strip derives its recents from this. Derived rather than
+     * remembered: a list of its own could disagree with the session file, and
+     * the session file is the thing that actually decides what the turn runs.
+     */
+    readonly modelSettingsHistory?: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: "agent-default" | "user";
+        readonly timestamp: string;
+    }[];
+    /** Where the pair in force came from, when the host has said. */
+    readonly modelSettingsOrigin?: "agent-default" | "user";
+    /** Where the posture in force came from, when the host has said. */
+    readonly approvalModeOrigin?: "agent-default" | "user";
+    /** The agent this session is wearing, as the host last reported it. */
+    readonly agent?: {
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
+    };
 }
 
 export interface TuiAdmissionStep {
@@ -477,7 +511,45 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ? state
                 : { ...state, effortSubstitution: undefined }),
             modelSettings: update.settings,
+            ...(update.origin === undefined
+                ? {}
+                : { modelSettingsOrigin: update.origin }),
         }, update.settings);
+    }
+    if (update.type === "agent_worn") {
+        const next = {
+            ...state,
+            agent: {
+                name: update.name,
+                ...(update.tools === undefined ? {} : { tools: update.tools }),
+                ...(update.skills === undefined
+                    ? {}
+                    : { skills: update.skills }),
+                ...(update.posture === undefined
+                    ? {}
+                    : { posture: update.posture }),
+                ...(update.forbiddenAccess === undefined
+                    ? {}
+                    : { forbiddenAccess: update.forbiddenAccess }),
+            },
+        };
+        // Switching is loud by design: the transcript says it happened, at the
+        // moment it applied rather than when it was asked for.
+        return appendTuiNotice(
+            next,
+            update.notice ?? `Switched to ${update.name}.`,
+            "soft",
+        );
+    }
+    if (update.type === "agent_catalog") {
+        // The catalog answers a request the surface is already waiting on.
+        return state;
+    }
+    if (update.type === "agent_rejected") {
+        return appendTuiNotice(state, update.reason);
+    }
+    if (update.type === "session_model_settings_history") {
+        return { ...state, modelSettingsHistory: update.entries };
     }
     if (update.type === "pool_admission_progress") {
         return applyAdmissionProgress(state, update);
@@ -498,6 +570,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.inspection === undefined
                 ? {}
                 : { permissionInspection: update.inspection }),
+            ...(update.origin === undefined
+                ? {}
+                : { approvalModeOrigin: update.origin }),
         };
     }
     if (update.type === "permissions_rejected") {
@@ -542,8 +617,20 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return applyCompaction(state, update);
     }
     if (update.type === "model_substitution") {
-        if (update.scope !== "effort") {
+        // A spawn's substitution is the spawn's business: it reaches the
+        // transcript and stops there, because the status line describes the
+        // pair this session is dialed to, which a child never changes.
+        if (update.source === "subagent") {
             return appendEntry(state, substitutionEntry(update));
+        }
+        if (update.scope !== "effort") {
+            return appendEntry({
+                ...state,
+                modelFallback: {
+                    from: update.model,
+                    to: update.using ?? update.model,
+                },
+            }, substitutionEntry(update));
         }
         const substitution: TuiEffortSubstitution = {
             model: update.model,
@@ -928,6 +1015,11 @@ function appliesToSettings(
  * again, and it is said once, in the same place the substitution was.
  */
 function clearedSubstitution(state: TuiState): TuiState {
+    // The fallback lasted exactly one turn, which is what the committed pair
+    // being retried next turn means. Clearing it here is the terminal event.
+    state = state.modelFallback === undefined
+        ? state
+        : { ...state, modelFallback: undefined };
     const substitution = state.effortSubstitution;
     if (substitution === undefined) {
         return state;
@@ -968,6 +1060,7 @@ export function appendTuiNotice(
     const entry: TuiTranscriptEntry = {
         kind: "notice",
         text: message,
+        liveOnly: true,
         ...(tone === undefined ? {} : { tone }),
         ...(supersedes === undefined ? {} : { supersedes }),
     };
@@ -2138,6 +2231,7 @@ function preserveLiveReviewEntries(
             && transcriptEntriesEqual(withoutTransientEntries, canonical)
         ? current.filter((entry) =>
             entry.kind !== "thought" && entry.kind !== "thinking"
+            && (entry.kind === "diff" || entry.liveOnly !== true)
         )
         : canonical;
     return restoreReasoningEntries(
@@ -2178,9 +2272,10 @@ interface AnchoredReasoning {
 }
 
 /**
- * A thought summary has no backing message, so a history rebuild drops it, and
- * a turn emits history while it is still streaming. Anchoring the summary to
- * the count of durable rows before it survives the rebuild and holds its place.
+ * Thought summaries and client-only notices have no backing history message.
+ * Anchor both to the count of canonical rows before them: counting a local
+ * notice as durable shifts every later thought and eventually dumps it at the
+ * transcript tail when the rebuilt history never reaches that count.
  */
 function anchoredReasoningEntries(
     entries: readonly TuiTranscriptEntry[],
@@ -2188,7 +2283,10 @@ function anchoredReasoningEntries(
     const anchored: AnchoredReasoning[] = [];
     let durable = 0;
     for (const entry of entries) {
-        if (entry.kind === "thought") {
+        if (
+            entry.kind === "thought"
+            || (entry.kind !== "diff" && entry.liveOnly === true)
+        ) {
             anchored.push({ after: durable, entry });
         } else if (entry.kind !== "review" && entry.kind !== "thinking") {
             durable += 1;

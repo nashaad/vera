@@ -14,6 +14,14 @@ import {
 } from "./quickslots.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
+/** Legacy on-disk data retained so older preference files round-trip safely. */
+export interface FavoritePair {
+    readonly name?: string;
+    readonly provider?: string;
+    readonly modelId?: string;
+    readonly effort?: string;
+}
+
 // Every client preference shares one file and one writer. A second module doing
 // its own read-modify-write here would drop whatever the other had just saved,
 // so new preferences are added to this interface rather than to a file of their
@@ -30,9 +38,25 @@ interface TuiClientPreferences {
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
+    // Binding id to chords. Ids only: a block that could name actions would be
+    // a macro language, and a macro language is where blind cycling comes back.
+    readonly keybindings?: Readonly<Record<string, readonly string[]>>;
+    // Retained for backward-compatible reads/writes; the TUI no longer uses
+    // favorites as a live model-selection concept.
+    readonly favorite_pairs?: readonly DiskFavoritePair[];
+    // Version-numbered so a later format change can run its own pass without
+    // re-running this one.
+    readonly favorite_pairs_migrated?: number;
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
     >;
+}
+
+interface DiskFavoritePair {
+    readonly name?: string;
+    readonly provider?: string;
+    readonly model_id?: string;
+    readonly effort?: string;
 }
 
 interface DiskPersistedAgentPane {
@@ -198,6 +222,142 @@ export function saveTuiPersistedAgentPane(
     }, path);
 }
 
+export function loadTuiFavoritePairs(
+    path = tuiThemePreferencePath(),
+): readonly FavoritePair[] {
+    return (loadTuiClientPreferences(path).favorite_pairs ?? []).map(
+        (entry) => ({
+            ...(entry.name === undefined ? {} : { name: entry.name }),
+            ...(entry.provider === undefined
+                ? {}
+                : { provider: entry.provider }),
+            ...(entry.model_id === undefined
+                ? {}
+                : { modelId: entry.model_id }),
+            ...(entry.effort === undefined ? {} : { effort: entry.effort }),
+        }),
+    );
+}
+
+export function saveTuiFavoritePairs(
+    favorites: readonly FavoritePair[],
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        favorite_pairs: favorites.map(favoritePairForDisk),
+    }, path);
+}
+
+function favoritePairForDisk(favorite: FavoritePair): DiskFavoritePair {
+    return {
+        ...(favorite.name === undefined ? {} : { name: favorite.name }),
+        ...(favorite.provider === undefined
+            ? {}
+            : { provider: favorite.provider }),
+        ...(favorite.modelId === undefined
+            ? {}
+            : { model_id: favorite.modelId }),
+        ...(favorite.effort === undefined ? {} : { effort: favorite.effort }),
+    };
+}
+
+/**
+ * The current quickslot format, whichever of the two it is on disk.
+ *
+ * The extension block wins when present, which is the precedence the reader
+ * that wrote them already used.
+ */
+export function loadTuiQuickslotsForMigration(
+    path = tuiThemePreferencePath(),
+): readonly unknown[] {
+    const preferences = loadTuiClientPreferences(path);
+    const extensionSlots = preferences.extensions?.["vera.model-presets"]
+        ?.slots;
+    if (Array.isArray(extensionSlots)) {
+        return extensionSlots as readonly unknown[];
+    }
+    return (preferences.model_presets ?? []) as readonly unknown[];
+}
+
+/**
+ * Turn saved quickslots into favourite pairs, once.
+ *
+ * The old blocks are left where they are. They cost nothing to keep and they
+ * are the only way back if this reads a slot wrongly; a later release removes
+ * them. `resolve` is the pool lookup, which is what turns a name-form slot
+ * into the richer `(name, provider, model_id)` form while the name still
+ * means something.
+ */
+export function migrateTuiQuickslotsToFavoritePairs(
+    resolve: (name: string) =>
+        { readonly provider: string; readonly model: string } | undefined,
+    path = tuiThemePreferencePath(),
+): { readonly migrated: number; readonly skipped: number } {
+    const preferences = loadTuiClientPreferences(path);
+    if (preferences.favorite_pairs_migrated !== undefined) {
+        return { migrated: 0, skipped: 0 };
+    }
+    const slots = loadTuiQuickslotsForMigration(path);
+    if (slots.length === 0) {
+        // Nothing to carry over, so nothing is written: a profile that never
+        // held quickslots keeps a tui.json with only the keys its owner set.
+        return { migrated: 0, skipped: 0 };
+    }
+    const favorites: DiskFavoritePair[] = [];
+    let skipped = 0;
+    for (const slot of slots) {
+        const favorite = favoriteFromQuickslot(slot, resolve);
+        if (favorite === undefined) {
+            // Malformed is the only skip class. An id-form slot is valid data
+            // and is carried over as an id-form favourite.
+            if (slot !== null && slot !== undefined) skipped += 1;
+            continue;
+        }
+        favorites.push(favorite);
+    }
+    saveTuiClientPreferences({
+        ...preferences,
+        ...(favorites.length === 0 ? {} : { favorite_pairs: favorites }),
+        favorite_pairs_migrated: 1,
+    }, path);
+    return { migrated: favorites.length, skipped };
+}
+
+function favoriteFromQuickslot(
+    value: unknown,
+    resolve: (name: string) =>
+        { readonly provider: string; readonly model: string } | undefined,
+): DiskFavoritePair | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const effort = Reflect.get(value, "reasoningEffort")
+        ?? Reflect.get(value, "reasoning_effort");
+    if (typeof effort !== "string" || effort.length === 0) {
+        return undefined;
+    }
+    const name = Reflect.get(value, "name");
+    if (typeof name === "string" && name.length > 0) {
+        const resolved = resolve(name);
+        // A name that still resolves is enriched now, while it means
+        // something. One that does not stays name-only and renders dimmed
+        // until the pool has it again.
+        return resolved === undefined ? { name, effort } : {
+            name,
+            provider: resolved.provider,
+            model_id: resolved.model,
+            effort,
+        };
+    }
+    const provider = Reflect.get(value, "provider");
+    const model = Reflect.get(value, "model");
+    return typeof provider === "string" && typeof model === "string"
+            && provider.length > 0 && model.length > 0
+        ? { provider, model_id: model, effort }
+        : undefined;
+}
+
 export function loadTuiQuickslots(
     path = tuiThemePreferencePath(),
 ): Quickslots {
@@ -212,6 +372,19 @@ export function saveTuiQuickslots(
         ...loadTuiClientPreferences(path),
         model_presets: quickslotsForDisk(slots),
     }, path);
+}
+
+/**
+ * The user's key overrides, unvalidated.
+ *
+ * Validation belongs to the merge in `keybindings.ts`, which is the only place
+ * that knows which ids exist and which chords are already claimed. Reading the
+ * block here only asserts its shape: an object of string lists.
+ */
+export function loadTuiKeybindingOverlay(
+    path = tuiThemePreferencePath(),
+): Readonly<Record<string, readonly string[]>> {
+    return loadTuiClientPreferences(path).keybindings ?? {};
 }
 
 export function loadTuiExtensionPreference(
@@ -299,6 +472,16 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 400,
             );
             const quickslots = Reflect.get(value, "model_presets");
+            const favoritePairs = parseFavoritePairs(
+                Reflect.get(value, "favorite_pairs"),
+            );
+            const favoritesMigrated = Reflect.get(
+                value,
+                "favorite_pairs_migrated",
+            );
+            const keybindings = parseKeybindingOverlay(
+                Reflect.get(value, "keybindings"),
+            );
             const extensions = parseExtensionPreferences(
                 Reflect.get(value, "extensions"),
             );
@@ -331,6 +514,14 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                         ),
                     }
                     : {}),
+                ...(favoritePairs.length === 0
+                    ? {}
+                    : { favorite_pairs: favoritePairs }),
+                ...(typeof favoritesMigrated === "number"
+                        && Number.isInteger(favoritesMigrated)
+                    ? { favorite_pairs_migrated: favoritesMigrated }
+                    : {}),
+                ...(keybindings === undefined ? {} : { keybindings }),
                 ...(extensions === undefined ? {} : { extensions }),
                 ...(sharedSessionGroups.length === 0
                     ? {}
@@ -402,6 +593,63 @@ function parseSharedSessionGroups(
         used.add(second);
         return [[first, second] as const];
     });
+}
+
+/** A favourite is legal iff it names a pool entry or an exact model id. */
+function parseFavoritePairs(value: unknown): readonly DiskFavoritePair[] {
+    if (!Array.isArray(value)) return [];
+    return value.flatMap((candidate) => {
+        if (
+            typeof candidate !== "object" || candidate === null
+            || Array.isArray(candidate)
+        ) {
+            return [];
+        }
+        const name = Reflect.get(candidate, "name");
+        const provider = Reflect.get(candidate, "provider");
+        const modelId = Reflect.get(candidate, "model_id");
+        const effort = Reflect.get(candidate, "effort");
+        const named = typeof name === "string" && name.length > 0;
+        const identified = typeof provider === "string" && provider.length > 0
+            && typeof modelId === "string" && modelId.length > 0;
+        if (!named && !identified) return [];
+        return [{
+            ...(named ? { name: name as string } : {}),
+            ...(identified
+                ? { provider: provider as string, model_id: modelId as string }
+                : {}),
+            ...(typeof effort === "string" && effort.length > 0
+                ? { effort }
+                : {}),
+        }];
+    });
+}
+
+/**
+ * The keybindings block as written, minus anything that is not a list of
+ * strings. A malformed value is dropped here and named by the merge, which is
+ * what turns a typo into a banner line rather than a crash.
+ */
+function parseKeybindingOverlay(
+    value: unknown,
+): Readonly<Record<string, readonly string[]>> | undefined {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const overlay: Record<string, readonly string[]> = {};
+    for (const [id, chords] of Object.entries(value)) {
+        if (
+            Array.isArray(chords)
+            && chords.every((chord) => typeof chord === "string")
+        ) {
+            overlay[id] = chords as readonly string[];
+        } else {
+            // Kept, so the merge can say which id was wrong rather than
+            // silently behaving as though it had never been written.
+            overlay[id] = [String(chords)];
+        }
+    }
+    return Object.keys(overlay).length === 0 ? undefined : overlay;
 }
 
 function parseExtensionPreferences(

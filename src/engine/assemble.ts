@@ -24,6 +24,7 @@ export interface AssembleSystemPromptInput {
     readonly scratchState?: ScratchStateSnapshot;
     readonly disabledContributions?: readonly string[];
     readonly additionalContextualContributions?: readonly PromptContribution[];
+    readonly agentInstructions?: string;
 }
 
 export interface AssembleStableSystemPromptInput {
@@ -31,6 +32,7 @@ export interface AssembleStableSystemPromptInput {
     readonly workspace: string;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
+    readonly agentInstructions?: string;
 }
 
 export interface AssembleContextualSystemPromptInput {
