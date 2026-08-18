@@ -125,14 +125,27 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     expect(replayResult?.text).toBe(liveResult?.text);
 });
 
-test("a completion with no reasoning behind it gets a playful verb and no fold marker", () => {
+test("a completion with no reasoning behind it reports only its time", () => {
     const state = appendTuiThought(createTuiState(), 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Sautéed for 3.0s",
+        text: "Worked for 3.0s",
+        seconds: 3.04,
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Sautéed for 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Worked for 3.0s");
+});
+
+test("consecutive thought phases report as one stretch", () => {
+    let state = appendTuiThought(createTuiState(), 2.5);
+    state = appendTuiThought(state, 2.0);
+    state = appendTuiThought(state, 1.5);
+
+    expect(state.entries).toEqual([{
+        kind: "thought",
+        text: "Worked for 6.0s",
+        seconds: 6,
+    }]);
 });
 
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
@@ -161,12 +174,13 @@ test("the thought summary folds the reasoning it collected", () => {
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "▸ Reasoning: 12.4s",
+        text: "Reasoning: 12.4s",
+        seconds: 12.4,
         reasoning: "weighing the two orderings",
     }]);
     expect(state.pendingThinking).toBeUndefined();
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("▸ Reasoning: 12.4s  ctrl+o reasoning");
+        .toBe("Reasoning: 12.4s  ctrl+o reasoning");
 });
 
 test("toggling reasoning opens every fold and every later one", () => {
@@ -179,12 +193,13 @@ test("toggling reasoning opens every fold and every later one", () => {
 
     expect(state.entries[0]).toEqual({
         kind: "thought",
-        text: "▾ Reasoning: 12.4s",
+        text: "Reasoning: 12.4s",
+        seconds: 12.4,
         reasoning: "weighing the two orderings",
         expanded: true,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("▾ Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
+        .toBe("Reasoning: 12.4s  ctrl+o hide reasoning\n\nweighing the two orderings");
 
     // The flag holds, so a later summary arrives already open.
     state = applyAgentUpdate(state, {
@@ -193,13 +208,17 @@ test("toggling reasoning opens every fold and every later one", () => {
         seq: 2,
     });
     state = appendTuiThought(state, 1.5);
-    expect(state.entries[1]).toMatchObject({
-        text: "▾ Reasoning: 1.5s",
+    expect(state.entries[1]).toBeUndefined();
+    expect(state.entries[0]).toMatchObject({
+        text: "Reasoning: 13.9s",
+        seconds: 13.9,
+        reasoning: "weighing the two orderings\n\nsecond burst",
         expanded: true,
     });
 
     expect(toggleTuiThinking(state).entries[0]).toMatchObject({
-        text: "▸ Reasoning: 12.4s",
+        text: "Reasoning: 13.9s",
+        seconds: 13.9,
         expanded: false,
     });
 });
@@ -213,7 +232,7 @@ test("expanded reasoning does not show Markdown heading markers", () => {
     state = toggleTuiThinking(appendTuiThought(state, 3.3));
 
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe(
-        "▾ Reasoning: 3.3s  ctrl+o hide reasoning"
+        "Reasoning: 3.3s  ctrl+o hide reasoning"
         + "\n\nEstimating remaining work\n\nChecking shipped slices",
     );
 });
@@ -247,7 +266,8 @@ test("turn completion moves checkpointed thoughts before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "▸ Reasoning: 6.6s",
+                text: "Reasoning: 6.6s",
+                seconds: 6.6,
                 reasoning: "Estimating the remaining work",
             },
         ],
@@ -272,7 +292,8 @@ test("idle status also keeps a late reasoning row before the final answer", () =
             { kind: "assistant", text: "Five release slices remain." },
             {
                 kind: "thought",
-                text: "▸ Reasoning: 4.6s",
+                text: "Reasoning: 4.6s",
+                seconds: 4.6,
                 reasoning: "Summarizing active unfinished tasks",
             },
         ],
@@ -311,7 +332,8 @@ test("a thought summary survives a history rebuild in place", () => {
     expect(state.entries).toEqual([
         {
             kind: "thought",
-            text: "▸ Reasoning: 8.3s",
+            text: "Reasoning: 8.3s",
+            seconds: 8.3,
             reasoning: "weighing the two orderings",
         },
         { kind: "user", text: "which ordering?" },
@@ -333,7 +355,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         ...state,
         entries: [
             { kind: "user", text: "first" },
-            { kind: "thought", text: "Baked for 1.0s" },
+            { kind: "thought", text: "Worked for 1.0s" },
             { kind: "assistant", text: "first answer" },
         ],
     };
@@ -361,7 +383,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "first",
-        "Baked for 1.0s",
+        "Worked for 1.0s",
         "first answer",
         "Switched models.",
         "second",
@@ -1577,7 +1599,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Baked for 0.0s", seconds: 0 },
+        { kind: "thought", text: "Worked for 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
@@ -1591,7 +1613,8 @@ test("a tool header leaves a row after expanded reasoning", () => {
     const entries = [
         {
             kind: "thought",
-            text: "▾ Reasoning: 3.6s",
+            text: "Reasoning: 3.6s",
+            seconds: 3.6,
             reasoning: "Inspecting Obsidian file in-flight",
             expanded: true,
         },
@@ -1610,7 +1633,8 @@ test("a continued tool run also leaves a row after expanded reasoning", () => {
         { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
         {
             kind: "thought",
-            text: "▾ Reasoning: 3.6s",
+            text: "Reasoning: 3.6s",
+            seconds: 3.6,
             reasoning: "Checking the next file",
             expanded: true,
         },
