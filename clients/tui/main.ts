@@ -27,7 +27,6 @@ import {
 
 import {
     DIALOG_BACKGROUND_Z_INDEX,
-    APP_PADDING_BOTTOM,
     APP_PADDING_TOP,
     DIALOG_SCRIM_Z_INDEX,
     type DialogRowPointer,
@@ -1526,7 +1525,7 @@ export async function startTui(
         id: "status-band",
         position: "absolute",
         left: 0,
-        bottom: APP_PADDING_BOTTOM,
+        bottom: 0,
         width: "100%",
         height: "auto",
         flexDirection: "column",
@@ -1809,7 +1808,7 @@ export async function startTui(
         // a different shade from showing wherever one of them is hidden.
         backgroundColor: theme.background,
         paddingTop: APP_PADDING_TOP,
-        paddingBottom: APP_PADDING_BOTTOM,
+        paddingBottom: 0,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
@@ -2247,7 +2246,7 @@ export async function startTui(
         // height: either alone leaves an undimmed bar at one end.
         left: 0,
         top: -APP_PADDING_TOP,
-        bottom: -APP_PADDING_BOTTOM,
+        bottom: 0,
         width: renderer.width,
         // Enough to push the transcript behind the card, not enough to erase
         // it. A heavier wash reads fine on paper and fails on the dark themes,
