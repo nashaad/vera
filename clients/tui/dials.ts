@@ -427,7 +427,7 @@ export function renderDialStrip(
             selectedSlot?.efforts.length === 0
                 ? ["not available"]
                 : showEffortScale
-                    ? []
+                    ? [selectedEffort === undefined ? "[default]" : "default"]
                     : effortCells,
             selectedEffort === undefined
                 ? 0
@@ -475,7 +475,7 @@ export function renderEffortScale(
     selected: string | undefined,
     width: number,
 ): readonly string[] {
-    const choices = ["default", ...efforts];
+    const choices = [...efforts];
     if (choices.length < 2 || !Number.isFinite(width) || width < 56) {
         return [];
     }
@@ -486,8 +486,9 @@ export function renderEffortScale(
     const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
     const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
     const trackLength = Math.max(1, trackWidth - 1);
-    const selectedChoice = selected ?? "default";
-    const selectedIndex = choices.indexOf(selectedChoice);
+    const selectedIndex = selected === undefined
+        ? -1
+        : choices.indexOf(selected);
     const marker = selectedIndex < 0
         ? -1
         : Math.round(selectedIndex * (trackLength - 1) / (choices.length - 1));
