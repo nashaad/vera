@@ -192,6 +192,29 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "agent_worn") {
+        return typeof update.requestId === "string"
+                && typeof update.name === "string"
+                && update.name.length > 0
+                && (update.notice === undefined
+                    || typeof update.notice === "string")
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "agent_catalog") {
+        return typeof update.requestId === "string"
+                && typeof update.worn === "string"
+                && Array.isArray(update.agents)
+                && Array.isArray(update.notices)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "agent_rejected") {
+        return typeof update.requestId === "string"
+                && typeof update.reason === "string"
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "session_model_settings_history") {
         return typeof update.requestId === "string"
                 && update.requestId.length > 0
@@ -249,6 +272,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && update.requestId.length > 0
                 && isApprovalMode(update.mode)
                 && typeof update.pending === "boolean"
+                && (update.origin === undefined
+                    || update.origin === "agent-default"
+                    || update.origin === "user")
                 ? withPermissionInspection(value, update)
                 : undefined;
     }

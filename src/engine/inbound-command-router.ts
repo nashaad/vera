@@ -206,6 +206,7 @@ export interface InboundCommandRouterOptions {
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
     }[];
+    readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;
     readonly updateSessionPermissionMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
@@ -1232,12 +1233,14 @@ export class InboundCommandRouter {
             return;
         }
         const inspection = this.options.readPermissionInspection?.();
+        const origin = this.options.readApprovalModeOrigin?.();
         this.events.emit({
             type: "permissions_changed",
             requestId,
             mode,
             pending: this.hasPendingTurn(),
             ...(inspection === undefined ? {} : { inspection }),
+            ...(origin === undefined ? {} : { origin }),
         });
     }
 

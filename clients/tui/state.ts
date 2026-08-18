@@ -184,6 +184,15 @@ export interface TuiState {
     }[];
     /** Where the pair in force came from, when the host has said. */
     readonly modelSettingsOrigin?: "agent-default" | "user";
+    /** Where the posture in force came from, when the host has said. */
+    readonly approvalModeOrigin?: "agent-default" | "user";
+    /** The agent this session is wearing, as the host last reported it. */
+    readonly agent?: {
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+    };
 }
 
 export interface TuiAdmissionStep {
@@ -494,6 +503,35 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 : { modelSettingsOrigin: update.origin }),
         }, update.settings);
     }
+    if (update.type === "agent_worn") {
+        const next = {
+            ...state,
+            agent: {
+                name: update.name,
+                ...(update.tools === undefined ? {} : { tools: update.tools }),
+                ...(update.skills === undefined
+                    ? {}
+                    : { skills: update.skills }),
+                ...(update.posture === undefined
+                    ? {}
+                    : { posture: update.posture }),
+            },
+        };
+        // Wearing is loud by design: the transcript says it happened, at the
+        // moment it applied rather than when it was asked for.
+        return appendTuiNotice(
+            next,
+            update.notice ?? `Wearing ${update.name}.`,
+            "soft",
+        );
+    }
+    if (update.type === "agent_catalog") {
+        // The catalog answers a request the surface is already waiting on.
+        return state;
+    }
+    if (update.type === "agent_rejected") {
+        return appendTuiNotice(state, update.reason);
+    }
     if (update.type === "session_model_settings_history") {
         return { ...state, modelSettingsHistory: update.entries };
     }
@@ -516,6 +554,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.inspection === undefined
                 ? {}
                 : { permissionInspection: update.inspection }),
+            ...(update.origin === undefined
+                ? {}
+                : { approvalModeOrigin: update.origin }),
         };
     }
     if (update.type === "permissions_rejected") {

@@ -3147,6 +3147,7 @@ export class AgentRegistry {
                 sendConsultReply: (ownerId, reply) =>
                     agent.sendConsultReply(ownerId, reply),
                 readApprovalMode: () => entry.approvalMode,
+                readApprovalModeOrigin: () => entry.store.approvalModeOrigin(),
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
                 ...(this.options.permissionPreferences === undefined ? {} : {
