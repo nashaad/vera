@@ -1872,7 +1872,11 @@ export async function startTui(
         width: "100%",
         height: "auto",
     });
-    // Use the same full-width band and content indent as the status row.
+    // Use the same full-width band and content indent as the status row. The
+    // band spans the screen, so it carries the ground rather than a raised
+    // surface: a panel shade here reads as a slab wider than the composer it
+    // completes. The blank top row separates the strip from a transcript that
+    // has filled every available line.
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
         border: false,
@@ -1880,7 +1884,8 @@ export async function startTui(
         ...tuiComposerOverlayInset(appearance),
         bottom: 7,
         height: 1,
-        backgroundColor: theme.menu ?? theme.panel,
+        paddingTop: 1,
+        backgroundColor: theme.background,
         zIndex: 5,
         visible: false,
     });
@@ -9147,7 +9152,7 @@ export async function startTui(
         modeToastText.bg = theme.panel;
         modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
-        commandSuggestionsBox.backgroundColor = theme.menu ?? theme.panel;
+        commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.input ?? theme.background;
         composerBox.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
