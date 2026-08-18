@@ -1788,6 +1788,16 @@ export async function startTui(
         () => submitPrompt(),
         attachPastedImage,
     );
+    composer.onCommandDelete = () => {
+        if (
+            composer.plainText.length === 0
+            || anyOverlayOpen()
+        ) return false;
+        composer.clearComposer();
+        renderCommandSuggestions();
+        renderState();
+        return true;
+    };
     composer.onImageChipRemoved = (requestId) => {
         pendingImages = pendingImages.filter(
             (image) => image.requestId !== requestId,
@@ -9661,7 +9671,16 @@ export async function startTui(
             );
         dialCard.visible = stripLines !== undefined;
         const hudRows = stripLines?.slice(0, -1) ?? [];
-        const modelRowCount = Math.max(0, hudRows.length - 4);
+        const effortRowIndex = hudRows.findIndex((line) =>
+            line.includes("EFFORT")
+        );
+        const modelRowCount = effortRowIndex >= 0
+            ? effortRowIndex
+            : Math.max(0, hudRows.length - 4);
+        const effortScaleRows = effortRowIndex >= 0
+            && hudRows[effortRowIndex + 1]?.includes("Faster") === true
+            ? 2
+            : 0;
         dialCardTitle.height = Math.max(1, hudRows.length);
         dialCard.height = hudRows.length + 3;
         dialCardTitle.content = new StyledText(hudRows.flatMap((line, index) => {
@@ -9670,9 +9689,9 @@ export async function startTui(
             const activeRow = dialStrip?.lane === "model"
                 ? index < modelRowCount + 1
                 : dialStrip?.lane === "agent"
-                    ? index === modelRowCount + 1
+                    ? index === modelRowCount + 1 + effortScaleRows
                     : dialStrip?.lane === "access"
-                        ? index === modelRowCount + 2
+                        ? index === modelRowCount + 2 + effortScaleRows
                         : false;
             const selectedColor = (part: string): string =>
                 dialStrip?.lane !== "access"
@@ -9684,6 +9703,20 @@ export async function startTui(
                             : part.includes("auto")
                                 ? VERA_TUI_THEME.success
                                 : TUI_TEXT;
+            const isEffortScale = effortScaleRows > 0
+                && index > effortRowIndex
+                && index <= effortRowIndex + effortScaleRows;
+            if (isEffortScale) {
+                const scaleChunks = index === effortRowIndex + 1
+                    ? [fg(TUI_ACCENT)(main)]
+                    : main.split(/(▲|┬)/u).filter(Boolean).map((part) =>
+                        fg(part === "▲" ? TUI_NOTICE : TUI_ACCENT)(part)
+                    );
+                return [
+                    ...scaleChunks,
+                    ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+                ];
+            }
             let mainChunks;
             if (!activeRow) {
                 mainChunks = [fg(TUI_MUTED)(main)];

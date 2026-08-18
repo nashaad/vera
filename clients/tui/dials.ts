@@ -430,6 +430,11 @@ export function renderDialStrip(
                 ),
             width,
         ),
+        ...renderEffortScale(
+            selectedSlot?.efforts ?? [],
+            selectedEffort,
+            width,
+        ),
         renderDialLane(
             state.lane === "agent",
             "AGENT",
@@ -449,6 +454,50 @@ export function renderDialStrip(
                 : hints,
             width,
         ),
+    ];
+}
+
+/**
+ * A small visual explanation of the effort axis. It is deliberately omitted
+ * when the terminal is narrow: the ordinary effort row remains the compact
+ * fallback, rather than letting decoration crowd out the agent and access
+ * lanes.
+ */
+export function renderEffortScale(
+    efforts: readonly string[],
+    selected: string | undefined,
+    width: number,
+): readonly string[] {
+    if (efforts.length < 2 || !Number.isFinite(width) || width < 56) {
+        return [];
+    }
+    const indent = 14;
+    // Keep the scale a compact HUD element; it should explain the axis without
+    // stretching a short control panel across the whole terminal.
+    const trackWidth = Math.min(58, Math.max(20, width - indent - 2));
+    const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
+    const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
+    const trackLength = Math.max(1, trackWidth - 1);
+    const boundary = Math.min(
+        trackLength - 1,
+        Math.max(1, Math.round(trackLength * 0.68)),
+    );
+    const selectedIndex = selected === undefined
+        ? -1
+        : efforts.indexOf(selected);
+    const marker = selectedIndex < 0
+        ? -1
+        : Math.round(selectedIndex * (trackLength - 1) / (efforts.length - 1));
+    const track = Array.from({ length: trackLength }, (_, index) =>
+        index === marker
+            ? "▲"
+            : index === boundary
+                ? "┬"
+                : "─"
+    ).join("");
+    return [
+        fitDialText(labels, width),
+        fitDialText(`${" ".repeat(indent)}${track}`, width),
     ];
 }
 
