@@ -81,6 +81,42 @@ test("a row is its name and one status word", () => {
     expect(status.get("compaction")).toBe("uses session");
 });
 
+test("defaults separate session controls, work styles, and dedicated jobs", async () => {
+    const { handleTuiSettingsPickerKey } = await import(
+        "../../clients/tui/settings-picker.ts"
+    );
+    const options = tuiModelAssignmentOptions(
+        rows({}),
+        "session-model",
+        undefined,
+        204_800,
+    );
+    expect(options.map((option) => [option.label, option.group])).toEqual([
+        ["this session", "Session"],
+        ["context limit", "Session"],
+        ["snappy", "Work styles"],
+        ["eco", "Work styles"],
+        ["extra", "Work styles"],
+        ["reviewer", "Dedicated jobs"],
+        ["compaction", "Dedicated jobs"],
+    ]);
+
+    const contextIndex = options.findIndex((option) =>
+        option.label === "context limit"
+    );
+    const pane = {
+        kind: "model" as const,
+        allOptions: [],
+        options,
+        selectedIndex: contextIndex,
+        query: "",
+        tab: "defaults" as const,
+        assignmentOptions: options,
+    };
+    expect(handleTuiSettingsPickerKey(pane, { name: "return" }).selection)
+        .toEqual({ kind: "menu", target: "context_limit" });
+});
+
 test("a assignment bound to inline models needs no route", () => {
     const extra = rows({
         extra: {
@@ -228,7 +264,9 @@ test("the highlighted row explains itself beside the list", () => {
 
 test("no row can leave its work unrun", () => {
     const options = tuiModelAssignmentOptions(rows({}), "session-model");
-    for (const option of options.slice(1)) {
+    for (const option of options.filter((option) =>
+        option.detailFacts?.some(([label]) => label === "If unset")
+    )) {
         const unset = option.detailFacts?.find(([label]) => label === "If unset");
         expect([option.label, unset?.[1]]).toEqual([
             option.label,
