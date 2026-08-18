@@ -315,6 +315,7 @@ import {
 import {
     activeTuiKeymap,
     installTuiKeymap,
+    isTuiComposerClearKey,
     isTuiKeyScope,
     tuiBindingId,
     tuiChord,
@@ -3068,6 +3069,19 @@ export async function startTui(
             if (!sessionSwitchPending && !anyOverlayOpen()) {
                 openCommandPalette();
             }
+            return;
+        }
+        if (
+            isTuiComposerClearKey(key)
+            && composer.focused
+            && composer.plainText.length > 0
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            composer.clearComposer();
+            renderCommandSuggestions();
+            renderState();
             return;
         }
         if (parseRawInputEvent(key)?.type === "interrupt") {
