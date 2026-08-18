@@ -3,6 +3,7 @@ import { basename } from "node:path";
 
 import {
     TUI_KEYMAP,
+    isTuiComposerClearKey,
     tuiBindingId,
     tuiChordOwner,
     tuiKeyHint,
@@ -159,6 +160,13 @@ test("the unfocused keys reach the composer without shadowing its own tab", () =
     // typed "i" is text there rather than a binding.
     expect(tuiBindingId("composer", { name: "tab" })).toBe("complete_command");
     expect(tuiBindingId("composer", { name: "i" })).toBeUndefined();
+});
+
+test("Command or Super-Delete clears the focused composer draft", () => {
+    expect(isTuiComposerClearKey({ name: "delete", meta: true })).toBe(true);
+    expect(isTuiComposerClearKey({ name: "backspace", super: true })).toBe(true);
+    expect(isTuiComposerClearKey({ name: "delete" })).toBe(false);
+    expect(isTuiComposerClearKey({ name: "delete", option: true })).toBe(false);
 });
 
 test("the escape hatches survive the modifiers a terminal invents", () => {

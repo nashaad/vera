@@ -524,6 +524,12 @@ export function tuiChord(key: TuiChordKey): string | undefined {
         : coreChord(key);
 }
 
+/** Whether the platform's Command/Super-Delete chord should clear the draft. */
+export function isTuiComposerClearKey(key: TuiChordKey): boolean {
+    return (key.meta === true || key.super === true)
+        && (key.name === "delete" || key.name === "backspace");
+}
+
 /** The chord with the modifiers the TUI does not bind stripped rather than refused. */
 function coreChord(key: TuiChordKey): string {
     return [
