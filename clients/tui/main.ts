@@ -3142,6 +3142,24 @@ export async function startTui(
             renderState();
             return;
         }
+        if (
+            key.option === true
+            && (key.name === "delete" || key.name === "backspace")
+            && composer.focused
+            && composer.plainText.length > 0
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            if (key.name === "backspace") {
+                composer.deleteWordBackward();
+            } else {
+                composer.deleteWordForward();
+            }
+            renderCommandSuggestions();
+            renderState();
+            return;
+        }
         if (parseRawInputEvent(key)?.type === "interrupt") {
             // A trash in flight still consumes ctrl+c: it is destructive, it
             // is bounded by its own deadline, and the confirmation card is on
