@@ -18,6 +18,7 @@ export interface VeraExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraExtensionCommands;
     readonly tools: VeraExtensionTools;
+    readonly agents: VeraExtensionAgents;
     readonly hooks: VeraExtensionHooks;
     readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
@@ -46,6 +47,36 @@ export interface VeraExtensionCommands {
 
 export interface VeraExtensionTools {
     register(spec: VeraExtensionToolSpec): void;
+}
+
+/**
+ * Agents an extension ships.
+ *
+ * The lowest-precedence source: a file of the same name in the project or the
+ * user's profile shadows it, and the `[d]` writer refuses it, because there is
+ * no file of the extension's to write into.
+ */
+export interface VeraExtensionAgents {
+    register(spec: VeraExtensionAgentSpec): void;
+}
+
+export interface VeraExtensionAgentSpec {
+    readonly name: string;
+    readonly description?: string;
+    readonly instructions: string;
+    /** Omitted means every tool. Present is a restriction to exactly these. */
+    readonly tools?: readonly string[];
+    readonly skills?: readonly string[];
+    readonly posture?: string;
+    readonly forbiddenAccess?: readonly string[];
+    readonly defaultPair?: {
+        readonly name: string;
+        readonly effort?: string;
+    };
+    readonly nudges?: readonly {
+        readonly on: string;
+        readonly text: string;
+    }[];
 }
 
 export interface VeraExtensionHooks {
@@ -117,6 +148,7 @@ export type VeraExtensionCommandHandler = (
 export interface VeraClientExtensionApi {
     readonly config: JsonValue;
     readonly commands: VeraClientExtensionCommands;
+    readonly compose: VeraClientExtensionCompose;
     readonly preferences: VeraClientExtensionPreferences;
     readonly modelSettings: VeraClientExtensionModelSettings;
     readonly ui: VeraClientExtensionUi;
@@ -521,6 +553,30 @@ export interface VeraClientExtensionSidebar {
     close(): void;
 }
 
+/**
+ * A compose-time offer to wear an agent this extension ships.
+ *
+ * Core never guesses intent from what you are typing. A suggester does, and it
+ * exists only inside an extension you installed — installing it is the
+ * consent. Accepting goes through the ordinary, loud wear path.
+ */
+export interface VeraClientExtensionCompose {
+    registerSuggester(spec: VeraClientExtensionComposeSuggesterSpec): void;
+}
+
+export interface VeraClientExtensionComposeSuggesterSpec {
+    /** The agent to offer. Usually one this extension also registered. */
+    readonly agent: string;
+    /** One line, shown under the composer while `match` holds. */
+    readonly hint: string;
+    /**
+     * A pure predicate over the composer's text. No network, no model calls,
+     * no side effects: the client debounces it and calls it on every keystroke
+     * that survives the debounce, and never on empty input.
+     */
+    match(text: string): boolean;
+}
+
 export interface VeraClientExtensionKeybindings {
     register(spec: VeraClientExtensionKeybindingSpec): void;
 }
@@ -529,6 +585,21 @@ export interface VeraClientExtensionKeybindingSpec {
     readonly id: string;
     readonly description: string;
     readonly keys: readonly string[];
+    /**
+     * Where the chord applies. Absent means everywhere an extension chord can
+     * be reached, which is every surface with no overlay open.
+     */
+    readonly scope?: string;
+    /**
+     * Whether the user may move this chord in `tui.json`.
+     *
+     * Absent means no. Only a binding that opens a visible picker should say
+     * yes: a remappable key that changes state without showing anything is how
+     * blind cycling gets rebuilt from the outside.
+     */
+    readonly remappable?: boolean;
+    /** How the chord is written in a footer, when a surface shows it. */
+    readonly hint?: string;
     readonly run: VeraClientExtensionKeybindingHandler;
 }
 

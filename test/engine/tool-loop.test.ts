@@ -466,6 +466,7 @@ test("a subagent that ran on another model reports it as a substitution update",
         expect(seen).toEqual({
             type: "model_substitution",
             ...substitution,
+            source: "subagent",
             seq: expect.any(Number),
         });
     } finally {

@@ -28,6 +28,7 @@ import type {
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
@@ -160,6 +161,26 @@ export interface ModelSettingsChangedEvent {
     readonly pending: boolean;
     /** Present only when this edit also became the new-session default. */
     readonly updatedDefaults?: true;
+    /** Present when the edit changed this session alone. Never with the above. */
+    readonly updatedSession?: true;
+    /** Where the session's setting now says it came from. */
+    readonly origin?: SessionSettingOrigin;
+}
+
+/**
+ * The session's model settings over time, in reply to a read.
+ *
+ * The dial strip's recents come from here. Derived rather than remembered:
+ * there is no client-side list that could disagree with the session file.
+ */
+export interface SessionModelSettingsHistoryEvent {
+    readonly type: "session_model_settings_history";
+    readonly requestId: string;
+    readonly entries: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
 }
 
 export interface ModelSettingsRejectedEvent {
@@ -204,6 +225,63 @@ export interface PermissionsChangedEvent {
     readonly mode: ApprovalMode;
     readonly pending: boolean;
     readonly inspection?: PermissionInspection;
+    /** Where the session's posture came from, when the host has said. */
+    readonly origin?: SessionSettingOrigin;
+}
+
+/**
+ * A tool call the harness refused, and which rule refused it.
+ *
+ * The class is the point: an agent's nudge fires on the refusals the agent
+ * could plausibly explain, and stays quiet on the ones somebody else already
+ * explained. Without a class every denial would look the same from here.
+ */
+export interface ToolDeniedEvent {
+    readonly type: "tool_denied";
+    readonly toolCall: HookToolCall;
+    readonly denialClass: "agent-scope" | "permission-mode" | "reviewer";
+    readonly reason: string;
+}
+
+/** The agent now in force, in the shape the wire update carries. */
+export interface AgentWornEvent {
+    readonly type: "agent_worn";
+    readonly update: {
+        readonly requestId: string;
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly notice?: string;
+    };
+}
+
+export interface AgentCatalogEvent {
+    readonly type: "agent_catalog";
+    readonly update: {
+        readonly requestId: string;
+        readonly worn: string;
+        readonly agents: readonly {
+            readonly name: string;
+            readonly description?: string;
+            readonly scope: "project" | "user" | "extension";
+            readonly writable: boolean;
+            readonly tools?: readonly string[];
+            readonly skills?: readonly string[];
+            readonly posture?: string;
+            readonly defaultPair?: {
+                readonly name: string;
+                readonly effort?: string;
+            };
+        }[];
+        readonly notices: readonly string[];
+    };
+}
+
+export interface AgentRejectedEvent {
+    readonly type: "agent_rejected";
+    readonly requestId: string;
+    readonly reason: string;
 }
 
 export interface PermissionsRejectedEvent {
@@ -436,6 +514,11 @@ export type EngineEvent =
     | UiResponseEvent
     | UiRequestClosedEvent
     | ModelSettingsChangedEvent
+    | SessionModelSettingsHistoryEvent
+    | ToolDeniedEvent
+    | AgentWornEvent
+    | AgentCatalogEvent
+    | AgentRejectedEvent
     | ModelSettingsRejectedEvent
     | PoolAdmissionProgressEvent
     | PoolAdmissionResultEvent

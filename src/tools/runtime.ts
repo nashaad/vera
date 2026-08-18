@@ -18,6 +18,16 @@ export class ToolRuntime {
      * layer only carries them.
      */
     readonly env: Readonly<Record<string, string>> | undefined;
+    /**
+     * The skills the worn agent may reach, or `undefined` for all of them.
+     *
+     * Set on the runtime rather than passed per call because the gate is a
+     * property of the session, not of the invocation: `skill_script` has to
+     * refuse a skill the catalog never showed, however it was named.
+     */
+    allowedSkills: readonly string[] | undefined;
+    /** The tools the worn agent may call, or `undefined` for all of them. */
+    allowedTools: readonly string[] | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
     private mutationTail: Promise<void> = Promise.resolve();
@@ -34,6 +44,8 @@ export class ToolRuntime {
         this.preimageRecorder = preimageRecorder;
         this.stashDirectory = stashDirectory;
         this.env = env;
+        this.allowedSkills = undefined;
+        this.allowedTools = undefined;
     }
 
     recordFileSnapshot(path: string, content: string): void {

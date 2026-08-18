@@ -19,6 +19,7 @@ import type { InstructionRoot } from "../engine/memory.ts";
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
+    BUILT_IN_PERMISSION_MODE_NAMES,
     builtInPermissionMode,
     isApprovalMode,
     type ApprovalMode,
@@ -112,7 +113,23 @@ import type {
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionSettingOrigin,
 } from "../store/session-store.ts";
+import {
+    findCatalogAgent,
+    loadAgentCatalog,
+    type AgentCatalog,
+} from "../agents/catalog.ts";
+import {
+    DEFAULT_AGENT,
+    type AgentDefinition,
+} from "../agents/definition.ts";
+import {
+    agentSnapshotDrift,
+    resolveAgentSnapshot,
+    type AgentWearSnapshot,
+} from "../agents/wear.ts";
+import { writeAgentDefaultPair } from "../agents/writer.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
 import {
     copySessionMessageAttachments,
@@ -284,6 +301,8 @@ export interface AgentRegistryOptions {
         reviewer: ToolReviewerSettings | null,
     ) => void;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
+    /** Agents an extension registered, the lowest-precedence source. */
+    readonly registeredAgents?: readonly AgentDefinition[];
     /** Resolved once at startup, bound per agent to that agent's adapter. */
     readonly compaction?: ResolvedCompactionProfile;
     /** What a strategy slot the profile did not name falls back to. */
@@ -835,6 +854,30 @@ interface InheritedAgentSettings {
     readonly parentId?: string;
 }
 
+/**
+ * Whether two pairs are the same dial setting.
+ *
+ * Absent effort is its own value rather than a wildcard: a model with no
+ * effort dial has exactly one pair, and treating "no effort" as matching any
+ * effort would make the override marker wrong on every such model.
+ */
+function samePair(
+    left: ModelTurnSettings,
+    right: ModelTurnSettings,
+): boolean {
+    return left.model === right.model
+        && (left.provider ?? "") === (right.provider ?? "")
+        && left.reasoningEffort === right.reasoningEffort;
+}
+
+/**
+ * The request id a resume-time wear carries.
+ *
+ * Nobody asked for it, so there is no request to answer; a fixed id is what
+ * lets a client tell the unsolicited update from the reply to its own /agent.
+ */
+const RESUME_WEAR_REQUEST_ID = "resume";
+
 interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
@@ -861,6 +904,11 @@ interface RegisteredAgentEntry {
      */
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
+    /**
+     * The agent this session is wearing, resolved when it went on. Undefined
+     * is the virtual `default`: every tool, every skill, the host's posture.
+     */
+    agentWear?: AgentWearSnapshot;
     inbound?: InboundCommandRouter;
     /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
@@ -1511,37 +1559,20 @@ export class AgentRegistry {
         return true;
     }
 
-    async updateModelSettings(
-        id: string,
+    /**
+     * Validate a pair patch and answer with the settings it resolves to.
+     *
+     * Shared by the global write and the session-scoped one so a chord and a
+     * picker cannot disagree about which levels a model publishes, or coerce an
+     * unpublished level differently.
+     */
+    private resolveModelPatch(
+        entry: RegisteredAgentEntry,
         patch: ModelSettingsPatch,
-    ): Promise<ModelTurnSettings | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        if (patch.reviewer !== undefined) {
-            if (!this.applyReviewerPatch(patch.reviewer)) {
-                return undefined;
-            }
-            if (
-                patch.provider === undefined
-                && patch.model === undefined
-                && patch.reasoningEffort === undefined
-            ) {
-                // A reviewer-only patch changes no running model, so the reply
-                // is the current settings carrying the new reviewer.
-                return settingsForClient(
-                    entry.modelSettings,
-                    entry.modelSettings.provider ?? this.defaultProvider,
-                    this.catalog,
-                    this.modelsForClient(),
-                    this.options.readPool?.(entry.store.header.cwd),
-                    this.options.subagentModel,
-                    entry.requestedReasoningEffort,
-                    this.reviewerDefault(),
-                );
-            }
-        }
+    ): {
+        readonly settings: ModelTurnSettings;
+        readonly requestedReasoningEffort?: ModelReasoningEffort;
+    } | undefined {
         if (
             (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
             || (patch.provider !== undefined && patch.provider.trim().length === 0)
@@ -1622,13 +1653,60 @@ export class AgentRegistry {
                 ? {}
                 : { reasoningEffort }),
         };
-        await entry.store.appendModelSettings(settings);
+        return {
+            settings,
+            ...(requestedReasoningEffort === undefined
+                ? {}
+                : { requestedReasoningEffort }),
+        };
+    }
+
+    async updateModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<ModelTurnSettings | undefined> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        if (patch.reviewer !== undefined) {
+            if (!this.applyReviewerPatch(patch.reviewer)) {
+                return undefined;
+            }
+            if (
+                patch.provider === undefined
+                && patch.model === undefined
+                && patch.reasoningEffort === undefined
+            ) {
+                // A reviewer-only patch changes no running model, so the reply
+                // is the current settings carrying the new reviewer.
+                return settingsForClient(
+                    entry.modelSettings,
+                    entry.modelSettings.provider ?? this.defaultProvider,
+                    this.catalog,
+                    this.modelsForClient(),
+                    this.options.readPool?.(entry.store.header.cwd),
+                    this.options.subagentModel,
+                    entry.requestedReasoningEffort,
+                    this.reviewerDefault(),
+                );
+            }
+        }
+        const resolved = this.resolveModelPatch(entry, patch);
+        if (resolved === undefined) {
+            return undefined;
+        }
+        const settings = resolved.settings;
+        await entry.store.appendModelSettings(
+            settings,
+            this.originFor(entry, settings),
+        );
         this.options.updateModelDefaults?.(settings);
         this.defaultModel = settings.model;
         this.defaultProvider = settings.provider ?? this.defaultProvider;
         this.defaultReasoningEffort = settings.reasoningEffort;
         entry.modelSettings = settings;
-        entry.requestedReasoningEffort = requestedReasoningEffort;
+        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
         return settingsForClient(
             entry.modelSettings,
             entry.modelSettings.provider ?? this.defaultProvider,
@@ -1639,6 +1717,434 @@ export class AgentRegistry {
             entry.requestedReasoningEffort,
             this.reviewerDefault(),
         );
+    }
+
+    /**
+     * The pair a session falls back to when nobody has dialed it.
+     *
+     * Today that is the host default. Once an agent can carry a `default_pair`
+     * the worn agent's answer comes first, and everything that compares against
+     * "the default" goes through here so there is one answer to compare with.
+     */
+    private effectiveDefaultPair(
+        entry: RegisteredAgentEntry,
+    ): ModelTurnSettings {
+        const agentPair = this.wornAgentDefaultPair?.(entry);
+        return agentPair ?? {
+            provider: this.defaultProvider,
+            model: this.defaultModel,
+            ...(this.defaultReasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: this.defaultReasoningEffort }),
+        };
+    }
+
+    /**
+     * Derived at write time on every path, never carried forward.
+     *
+     * Reclassifying here is what makes dialing back to the default clear the
+     * override: a stale `user` origin sitting on a pair that equals the default
+     * would show a marker the user could not get rid of by any means except
+     * knowing about the record.
+     */
+    private originFor(
+        entry: RegisteredAgentEntry,
+        settings: ModelTurnSettings,
+    ): SessionSettingOrigin {
+        return samePair(settings, this.effectiveDefaultPair(entry))
+            ? "agent-default"
+            : "user";
+    }
+
+    /**
+     * Dial one session. The host's defaults, and every session that is not this
+     * one, are left exactly as they were.
+     */
+    async updateSessionModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<
+        { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
+    > {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        const resolved = this.resolveModelPatch(entry, patch);
+        if (resolved === undefined) {
+            return undefined;
+        }
+        const origin = this.originFor(entry, resolved.settings);
+        await entry.store.appendModelSettings(resolved.settings, origin);
+        entry.modelSettings = resolved.settings;
+        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
+        return {
+            settings: settingsForClient(
+                entry.modelSettings,
+                entry.modelSettings.provider ?? this.defaultProvider,
+                this.catalog,
+                this.modelsForClient(),
+                this.options.readPool?.(entry.store.header.cwd),
+                this.options.subagentModel,
+                entry.requestedReasoningEffort,
+                this.reviewerDefault(),
+            ),
+            origin,
+        };
+    }
+
+    sessionModelSettingsHistory(id: string): readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[] {
+        const entry = this.agents.get(id);
+        if (entry === undefined) return [];
+        return entry.store.modelSettingsHistory().map((record) => ({
+            settings: record.settings,
+            origin: record.origin ?? "user",
+            timestamp: record.timestamp,
+        }));
+    }
+
+    /** The posture for this session alone, leaving the host default alone. */
+    async updateSessionPermissionMode(
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<ApprovalMode | undefined> {
+        const entry = this.agents.get(id);
+        if (
+            entry === undefined
+            || entry.agent.closed
+            || entry.agent.failed
+            || !isApprovalMode(mode)
+            || (
+                builtInPermissionMode(mode) === undefined
+                && this.options.permissionModes?.[mode] === undefined
+            )
+        ) {
+            return undefined;
+        }
+        await this.leaveAgentThatForbidsAccess(entry, id, mode);
+        await entry.store.appendApprovalMode(
+            mode,
+            mode === this.wornAgentPosture(entry) ? "agent-default" : "user",
+        );
+        entry.approvalMode = mode;
+        return entry.approvalMode;
+    }
+
+    /**
+     * An explicit permission choice wins over an incompatible agent.
+     *
+     * The host owns this transition so `/permissions`, the HUD, and other
+     * clients cannot disagree. The agent update is deliberately loud and
+     * durable: the client receives a sticky transcript notice explaining why
+     * the session returned to default.
+     */
+    private async leaveAgentThatForbidsAccess(
+        entry: RegisteredAgentEntry,
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<void> {
+        const active = entry.agentWear;
+        if (active?.forbiddenAccess?.includes(mode) !== true) return;
+        const switched = await this.wearAgentFor(id, DEFAULT_AGENT.name);
+        if (switched === undefined) return;
+        entry.events.emit({
+            type: "agent_worn",
+            update: {
+                requestId: `permissions-${mode}`,
+                ...switched,
+                notice:
+                    `Switched to default because ${active.name} does not allow ${mode.replaceAll("_", " ")} access.`,
+            },
+        });
+    }
+
+    /**
+     * The worn agent's default pair, resolved against the pool as it stands.
+     *
+     * Undefined when the agent names none, or names one the pool no longer
+     * has: in both cases the effective default is the host's own, which is
+     * what row 7 and row 9 of the origin table say.
+     */
+    private wornAgentDefaultPair(
+        entry: RegisteredAgentEntry,
+    ): ModelTurnSettings | undefined {
+        const pair = entry.agentWear?.defaultPair;
+        if (pair === undefined) return undefined;
+        const pooled = this.options.readPool?.(entry.store.header.cwd) ?? [];
+        const pooledEntry = pooled.find((candidate) =>
+            candidate.poolName === pair.name
+        );
+        return pooledEntry === undefined ? undefined : {
+            provider: pooledEntry.provider,
+            model: pooledEntry.model,
+            ...(pair.effort === undefined ? {} : { reasoningEffort: pair.effort }),
+        } as ModelTurnSettings;
+    }
+
+    /**
+     * The worn agent's posture. Omitted on the agent means the host's current
+     * default, resolved now rather than frozen at wear: editing the default
+     * has to reach the sessions that never named one.
+     */
+    private wornAgentPosture(
+        entry: RegisteredAgentEntry,
+    ): ApprovalMode | undefined {
+        const named = entry.agentWear?.posture;
+        return named !== undefined && isApprovalMode(named)
+            ? named
+            : this.defaultApprovalMode;
+    }
+
+    /** Every agent this session could wear, with the one in force named. */
+    async listAgentsFor(id: string): Promise<{
+        readonly worn: string;
+        readonly agents: readonly {
+            readonly name: string;
+            readonly description?: string;
+            readonly scope: "project" | "user" | "extension";
+            readonly writable: boolean;
+            readonly tools?: readonly string[];
+            readonly skills?: readonly string[];
+            readonly posture?: string;
+            readonly forbiddenAccess?: readonly string[];
+            readonly defaultPair?: {
+                readonly name: string;
+                readonly effort?: string;
+            };
+        }[];
+        readonly notices: readonly string[];
+    }> {
+        const entry = this.agents.get(id);
+        if (entry === undefined) {
+            return { worn: DEFAULT_AGENT.name, agents: [], notices: [] };
+        }
+        const catalog = await this.agentCatalogFor(entry);
+        return {
+            worn: entry.agentWear?.name ?? DEFAULT_AGENT.name,
+            agents: catalog.agents.map((agent) => ({
+                name: agent.definition.name,
+                ...(agent.definition.description === undefined
+                    ? {}
+                    : { description: agent.definition.description }),
+                scope: agent.scope,
+                writable: agent.writable,
+                ...(agent.definition.tools === undefined
+                    ? {}
+                    : { tools: agent.definition.tools }),
+                ...(agent.definition.skills === undefined
+                    ? {}
+                    : { skills: agent.definition.skills }),
+                ...(agent.definition.posture === undefined
+                    ? {}
+                    : { posture: agent.definition.posture }),
+                ...(agent.definition.forbiddenAccess === undefined
+                    ? {}
+                    : { forbiddenAccess: agent.definition.forbiddenAccess }),
+                ...(agent.definition.defaultPair === undefined
+                    ? {}
+                    : { defaultPair: agent.definition.defaultPair }),
+            })),
+            notices: catalog.notices,
+        };
+    }
+
+    private async agentCatalogFor(
+        entry: RegisteredAgentEntry,
+    ): Promise<AgentCatalog> {
+        return loadAgentCatalog({
+            projectRoot: entry.store.header.cwd,
+            permissionModes: [
+                ...BUILT_IN_PERMISSION_MODE_NAMES,
+                ...Object.keys(this.options.permissionModes ?? {}),
+            ],
+            interactive: true,
+            ...(this.options.registeredAgents === undefined
+                ? {}
+                : { registered: this.options.registeredAgents }),
+        });
+    }
+
+    /**
+     * Put an agent on. Records the resolved definition, adopts its default
+     * pair when nobody has dialled this session, and answers with what is now
+     * in force.
+     */
+    async wearAgentFor(id: string, name: string): Promise<{
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
+        readonly notice?: string;
+        readonly permissionChanged?: boolean;
+    } | undefined> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return undefined;
+        }
+        const catalog = await this.agentCatalogFor(entry);
+        const found = findCatalogAgent(catalog, name);
+        if (found === undefined) return undefined;
+        const snapshot = resolveAgentSnapshot(found.definition);
+        await entry.store.appendAgentWear(snapshot.name, snapshot);
+        entry.agentWear = snapshot;
+        let permissionChanged = false;
+        if (snapshot.forbiddenAccess?.includes(entry.approvalMode) === true) {
+            const fallback = snapshot.posture !== undefined
+                    && !snapshot.forbiddenAccess!.includes(snapshot.posture)
+                ? snapshot.posture
+                : [
+                    ...BUILT_IN_PERMISSION_MODE_NAMES,
+                    ...Object.keys(this.options.permissionModes ?? {}),
+                ].find((mode) => !snapshot.forbiddenAccess!.includes(mode));
+            if (fallback !== undefined && isApprovalMode(fallback)) {
+                await entry.store.appendApprovalMode(fallback, "agent-default");
+                entry.approvalMode = fallback;
+                permissionChanged = true;
+            }
+        }
+        const notice = await this.adoptAgentDefaultPair(entry, found.definition);
+        return {
+            name: snapshot.name,
+            ...(snapshot.tools === undefined ? {} : { tools: snapshot.tools }),
+            ...(snapshot.skills === undefined
+                ? {}
+                : { skills: snapshot.skills }),
+            ...(snapshot.posture === undefined
+                ? {}
+                : { posture: snapshot.posture }),
+            ...(snapshot.forbiddenAccess === undefined
+                ? {}
+                : { forbiddenAccess: snapshot.forbiddenAccess }),
+            ...(permissionChanged ? { permissionChanged: true } : {}),
+            ...(notice === undefined ? {} : { notice }),
+        };
+    }
+
+    /**
+     * Rows 7 to 9 of the origin table, in one place.
+     *
+     * A session the user has dialled keeps its pair: the override survives an
+     * agent switch, which is the difference between a dial and a default.
+     */
+    private async adoptAgentDefaultPair(
+        entry: RegisteredAgentEntry,
+        definition: AgentDefinition,
+    ): Promise<string | undefined> {
+        const origin = entry.store.modelSettingsOrigin();
+        if (origin === "user") return undefined;
+        const unresolvable = definition.defaultPair !== undefined
+            && this.wornAgentDefaultPair(entry) === undefined;
+        const target = this.effectiveDefaultPair(entry);
+        if (!samePair(target, entry.modelSettings)) {
+            await entry.store.appendModelSettings(target, "agent-default");
+            entry.modelSettings = target;
+            entry.requestedReasoningEffort = undefined;
+        }
+        return unresolvable
+            ? `${definition.name} names the pair ${definition.defaultPair!.name}, which is not in your pool. The session kept the host default.`
+            : undefined;
+    }
+
+    /**
+     * Table 8.2: what a resumed session does about the agent it was wearing.
+     *
+     * Agents are by reference, so a definition that moved is worn as it is
+     * now. The notice is what stops that from being a silent change of what
+     * the session can reach.
+     */
+    private async reconcileResumedAgentWear(
+        entry: RegisteredAgentEntry,
+        events: EngineEventBus,
+    ): Promise<void> {
+        const recorded = entry.agentWear;
+        if (recorded === undefined) return;
+        try {
+            const catalog = await this.agentCatalogFor(entry);
+            const found = findCatalogAgent(catalog, recorded.name);
+            if (found === undefined) {
+                entry.agentWear = undefined;
+                events.emit({
+                    type: "agent_worn",
+                    update: {
+                        requestId: RESUME_WEAR_REQUEST_ID,
+                        name: DEFAULT_AGENT.name,
+                        notice:
+                            `The agent ${recorded.name} is gone, so this session switched to default.`,
+                    },
+                });
+                return;
+            }
+            const current = resolveAgentSnapshot(found.definition);
+            entry.agentWear = current;
+            const drift = agentSnapshotDrift(recorded, current);
+            if (drift.length > 0) {
+                events.emit({
+                    type: "agent_worn",
+                    update: {
+                        requestId: RESUME_WEAR_REQUEST_ID,
+                        name: current.name,
+                        ...(current.tools === undefined
+                            ? {}
+                            : { tools: current.tools }),
+                        ...(current.skills === undefined
+                            ? {}
+                            : { skills: current.skills }),
+                        ...(current.posture === undefined
+                            ? {}
+                            : { posture: current.posture }),
+                        notice: `${recorded.name} changed since it was selected: ${
+                            drift.join(", ")
+                        }.`,
+                    },
+                });
+            }
+        } catch {
+            // A catalog that will not load leaves the recorded snapshot in
+            // force, which is the scope the session already had.
+        }
+    }
+
+    /** The narrow writer: one key, one file, temp-and-rename. */
+    async updateAgentDefaultPairFor(
+        id: string,
+        name: string,
+        pair: { readonly name: string; readonly effort?: string } | null,
+    ): Promise<string | undefined> {
+        const entry = this.agents.get(id);
+        if (entry === undefined) return "No such session";
+        const catalog = await this.agentCatalogFor(entry);
+        const found = findCatalogAgent(catalog, name);
+        if (found === undefined) return `No agent named ${name}`;
+        if (!found.writable || found.path === undefined) {
+            return `${name} is registered by an extension, so its file cannot be written`;
+        }
+        try {
+            await writeAgentDefaultPair(found.path, pair);
+        } catch (error) {
+            return error instanceof Error ? error.message : String(error);
+        }
+        // The pair now IS the default, so the session record is reclassified
+        // in the same operation rather than left showing an override.
+        if (entry.agentWear?.name === name) {
+            entry.agentWear = {
+                ...entry.agentWear,
+                ...(pair === null ? {} : { defaultPair: pair }),
+            };
+            if (pair === null) {
+                const { defaultPair: _cleared, ...rest } = entry.agentWear;
+                entry.agentWear = rest;
+            }
+            await entry.store.appendModelSettings(
+                entry.modelSettings,
+                this.originFor(entry, entry.modelSettings),
+            );
+        }
+        return undefined;
     }
 
     /**
@@ -2088,6 +2594,7 @@ export class AgentRegistry {
         ) {
             return undefined;
         }
+        await this.leaveAgentThatForbidsAccess(entry, id, mode);
         await entry.store.appendApprovalMode(mode);
         this.options.updateApprovalDefault?.(mode);
         this.defaultApprovalMode = mode;
@@ -2384,6 +2891,13 @@ export class AgentRegistry {
                 this.catalog,
             ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
+            // Resume wears the recorded agent immediately, so the first turn
+            // after a restart runs under the same scope the last one did. The
+            // comparison against the current definition happens below, once
+            // the catalog can be read.
+            ...(store.agentWear() === undefined
+                ? {}
+                : { agentWear: store.agentWear()!.snapshot }),
             run: Promise.resolve(),
             completed: false,
             peerHop: 0,
@@ -2400,6 +2914,7 @@ export class AgentRegistry {
         };
         this.agents.set(agent.id, entry);
         this.notifyRosterChanged();
+        void this.reconcileResumedAgentWear(entry, events);
         if (storedFailure !== undefined) {
             agent.restoreFailure({
                 type: "history",
@@ -2418,6 +2933,22 @@ export class AgentRegistry {
         }
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
+            loadAgent: async (name) => {
+                const catalog = await loadAgentCatalog({
+                    projectRoot: store.header.cwd,
+                    permissionModes: [
+                        ...BUILT_IN_PERMISSION_MODE_NAMES,
+                        ...Object.keys(this.options.permissionModes ?? {}),
+                    ],
+                    // A spawn has no surface for a nudge, and the parser is
+                    // what says so.
+                    interactive: false,
+                    ...(this.options.registeredAgents === undefined
+                        ? {}
+                        : { registered: this.options.registeredAgents }),
+                });
+                return findCatalogAgent(catalog, name)?.definition;
+            },
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
@@ -2634,6 +3165,17 @@ export class AgentRegistry {
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
+                updateSessionModelSettings: (patch) =>
+                    this.updateSessionModelSettings(agent.id, patch),
+                readSessionModelSettingsHistory: () =>
+                    this.sessionModelSettingsHistory(agent.id),
+                updateSessionPermissionMode: (mode) =>
+                    this.updateSessionPermissionMode(agent.id, mode),
+                wearAgent: (name) => this.wearAgentFor(agent.id, name),
+                listAgents: () => this.listAgentsFor(agent.id),
+                updateAgentDefaultPair: (name, pair) =>
+                    this.updateAgentDefaultPairFor(agent.id, name, pair),
+                readAgentWear: () => entry.agentWear,
                 poolAdd: (entry, onStep, options) =>
                     this.poolAdd(agent.id, entry, onStep, options),
                 poolRemove: (entry) =>
@@ -2676,6 +3218,7 @@ export class AgentRegistry {
                 sendConsultReply: (ownerId, reply) =>
                     agent.sendConsultReply(ownerId, reply),
                 readApprovalMode: () => entry.approvalMode,
+                readApprovalModeOrigin: () => entry.store.approvalModeOrigin(),
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
                 ...(this.options.permissionPreferences === undefined ? {} : {

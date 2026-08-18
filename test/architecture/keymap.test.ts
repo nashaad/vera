@@ -3,6 +3,7 @@ import { basename } from "node:path";
 
 import {
     TUI_KEYMAP,
+    isTuiComposerClearKey,
     tuiBindingId,
     tuiChordOwner,
     tuiKeyHint,
@@ -52,13 +53,82 @@ test("no TUI surface matches a chord outside the keymap", async () => {
     expect(offenders).toEqual([]);
 });
 
+/**
+ * Every binding that changes state without showing the user a picker.
+ *
+ * Frozen on purpose. A new id may be picker-opening, or movement inside a
+ * picker, or structural input this list already names; adding a new silent
+ * toggle means editing this list, which is the review this test exists to
+ * force. Blind cycling is the thing being kept out.
+ */
+const GRANDFATHERED_SILENT_BINDINGS = new Set([
+    "interrupt",
+    "toggle_thinking",
+    "cycle_agent_layout",
+    "switch_agent_pane",
+    "toggle_tool_details",
+    "scroll_line_up",
+    "scroll_line_down",
+    "scroll_half_page_up",
+    "scroll_half_page_down",
+    "jump_to_bottom",
+    "cycle-reasoning",
+    "complete_command",
+    "focus_composer",
+    "half_page_down",
+    "half_page_up",
+    "toggle_pooled",
+    "undo_pool_change",
+    "verify_pool",
+    "verify_model",
+    "name_pooled",
+    "open_providers",
+    "declare_provider",
+    "edit_endpoint",
+    "forget_provider",
+    "reveal_all_models",
+    "switch_tab",
+    "rename_session",
+    "trash_session",
+    "write_notes",
+    "expand_call",
+    "clear_secret",
+    "next_form_field",
+    "previous_form_field",
+    "revoke_permission",
+    "collapse_all",
+    "expand_all",
+    "next_help_tab",
+]);
+
+test("no new binding changes state without showing a picker", () => {
+    const offenders = TUI_KEYMAP
+        .filter((binding) =>
+            binding.remappable !== true
+            && !GRANDFATHERED_SILENT_BINDINGS.has(binding.id)
+        )
+        .map((binding) => binding.id);
+    expect(offenders).toEqual([]);
+});
+
+test("every remappable binding is one a user could find again", () => {
+    // A remappable id has to be reachable from a surface that names it, which
+    // in practice means it opens something. Movement ids live inside a picker
+    // the user already opened, so they are named by that picker's hint line.
+    for (const binding of TUI_KEYMAP) {
+        if (binding.remappable === true) {
+            expect(binding.description.length).toBeGreaterThan(0);
+        }
+    }
+});
+
 test("no two reachable bindings claim the same chord", () => {
     expect(tuiKeymapConflicts()).toEqual([]);
 });
 
 test("a surface can explicitly override a global chord while it is open", () => {
     expect(tuiBindingId("global", { name: "tab", shift: true }))
-        .toBe("cycle-quickslot");
+        .toBe("dials.open");
     expect(tuiBindingId("model_picker", { name: "tab", shift: true }))
         .toBe("switch_tab");
 });
@@ -90,6 +160,13 @@ test("the unfocused keys reach the composer without shadowing its own tab", () =
     // typed "i" is text there rather than a binding.
     expect(tuiBindingId("composer", { name: "tab" })).toBe("complete_command");
     expect(tuiBindingId("composer", { name: "i" })).toBeUndefined();
+});
+
+test("Command or Super-Delete clears the focused composer draft", () => {
+    expect(isTuiComposerClearKey({ name: "delete", meta: true })).toBe(true);
+    expect(isTuiComposerClearKey({ name: "backspace", super: true })).toBe(true);
+    expect(isTuiComposerClearKey({ name: "delete" })).toBe(false);
+    expect(isTuiComposerClearKey({ name: "delete", option: true })).toBe(false);
 });
 
 test("the escape hatches survive the modifiers a terminal invents", () => {

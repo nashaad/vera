@@ -1,0 +1,8 @@
+{
+    "id": "example.plan",
+    "version": "0.1.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": ["agents.register", "client.compose.suggester"],
+    "contributes": {}
+}

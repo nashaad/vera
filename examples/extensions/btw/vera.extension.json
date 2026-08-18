@@ -6,6 +6,7 @@
   "capabilities": [
     "client.commands.register",
     "client.agents",
+    "client.ui.sidebar",
     "client.messages.intercept",
     "client.ui.mentions",
     "client.experimental_tui",

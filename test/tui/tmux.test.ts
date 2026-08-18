@@ -582,81 +582,6 @@ test.skipIf(!tmuxAvailable)(
     15_000,
 );
 
-test.skipIf(!tmuxAvailable)(
-    "the bundled quickslot uses only public client extension seams",
-    async () => {
-        const socket = `vera-user-quickslot-${process.pid}-${randomUUID()}`;
-        const session = "user-quickslot";
-        const home = mkdtempSync(join(tmpdir(), "vera-user-quickslot-"));
-        let pane = "";
-
-        try {
-            startTuiSession(
-                socket,
-                session,
-                home,
-                "test/support/tui-user-quickslot-child.ts",
-            );
-            await waitForVisiblePane(socket, session, "Start a conversation");
-            sendText(socket, session, "/quickslot");
-            sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "Quickslots");
-            expect(pane).toContain("Slot 1");
-            expect(pane).toContain("empty");
-
-            sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "kimi-k3 · low");
-            expect(pane).toContain("Slot 1");
-            sendKey(socket, session, "Escape");
-            await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (visible) => visible.includes("Message Vera")
-                    && !visible.includes("Quickslots"),
-                "Quickslots to close",
-            );
-
-            sendText(socket, session, "/model openrouter/other");
-            sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(
-                socket,
-                session,
-                "Changed the model to openrouter/other; new conversations will use it by default",
-            );
-            expect(pane).toContain("other · LOW");
-            sendText(socket, session, "/quickslot");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "kimi-k3 · low");
-            sendKey(socket, session, "Enter");
-            for (let attempt = 0; attempt < 100; attempt += 1) {
-                const saved = JSON.parse(readFileSync(
-                    join(home, "user-quickslot-settings.json"),
-                    "utf8",
-                ));
-                if (saved.model === "moonshotai/kimi-k3") break;
-                await Bun.sleep(20);
-            }
-            expect(JSON.parse(readFileSync(
-                join(home, "user-quickslot-settings.json"),
-                "utf8",
-            ))).toMatchObject({
-                provider: "openrouter",
-                model: "moonshotai/kimi-k3",
-                reasoningEffort: "low",
-            });
-        } catch (error) {
-            pane = captureVisiblePane(socket, session);
-            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
-        } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
-            rmSync(home, { recursive: true, force: true });
-        }
-    },
-    15_000,
-);
 
 test.skipIf(!tmuxAvailable)(
     "turn completion keeps focus in the open Help surface",
@@ -689,12 +614,12 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "ctrl+shift+m model",
+                "shift+tab HUD · ctrl+shift+m model",
             );
             expect(pane).toContain("ready · ctrl+p commands");
             const footerLines = pane.split("\n");
             const modelHintLine = footerLines.findIndex((line) =>
-                line.includes("ctrl+shift+m model")
+                line.includes("shift+tab HUD · ctrl+shift+m model")
             );
             const readyLine = footerLines.findIndex((line) =>
                 line.includes("ready · ctrl+p commands")
@@ -986,10 +911,22 @@ test.skipIf(!tmuxAvailable)(
                 "session renamed: Planning",
             );
             expect(pane).not.toContain("/rename Planning");
+            expect(pane.split("\n").some((line) =>
+                line.trim() === "SESSION  Planning"
+            ))
+                .toBe(true);
 
             sendText(socket, session, "/rename");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "session name cleared");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "session name cleared",
+            );
+            expect(pane.split("\n").some((line) =>
+                line.trim() === "SESSION  Planning"
+            ))
+                .toBe(false);
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(join(home, "rename-result.txt"), "utf8"))
@@ -1034,7 +971,7 @@ test.skipIf(!tmuxAvailable)(
             expect(existsSync(
                 join(home, "extension-command-result.txt"),
             )).toBeFalse();
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             sendText(socket, session, "/hell");
             pane = await waitForVisiblePane(
                 socket,
@@ -1058,7 +995,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("ready");
             expect(pane).toContain("/hello fail");
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             sendText(socket, session, "/hello");
             sendText(socket, session, " Nash");
             sendKey(socket, session, "Enter");
@@ -1978,7 +1915,7 @@ test.skipIf(!tmuxAvailable)(
             // ctrl+o opens over a row already drawn.
             expect(pane).toMatch(/▸ Reasoning: \d+\.\d+s/);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
@@ -2073,7 +2010,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^• Baked for 0\.0s\n {2}Ran/m);
+            expect(pane).toMatch(/^  Baked for 0\.0s\n {2}Ran/m);
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);
@@ -2950,6 +2887,24 @@ test.skipIf(!tmuxAvailable)(
             }
             pane = await waitForPane(socket, session, "Jump to bottom");
 
+            sendText(socket, session, "/themes");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => /\/themes\s+Change the TUI theme/.test(current),
+                "filtered theme command suggestion",
+            );
+            const suggestionLines = pane.split("\n");
+            const suggestionRow = suggestionLines.findIndex((line) =>
+                /\/themes\s+Change the TUI theme/.test(line)
+            );
+            const jumpRow = suggestionLines.findIndex((line) =>
+                line.includes("Jump to bottom")
+            );
+            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
+            expect(jumpRow).toBeLessThan(suggestionRow - 1);
+            sendKey(socket, session, "C-c");
+
             sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
                 socket,
@@ -2963,12 +2918,25 @@ test.skipIf(!tmuxAvailable)(
             sendMouseWheel(socket, session, "up", 20, 4, 10);
             pane = await waitForPane(socket, session, "Jump to bottom");
             sendMouseWheel(socket, session, "down", 20, 4, 40);
-            await waitForVisiblePaneWhere(
+            const reachedBottom = await waitForVisiblePaneWhere(
                 socket,
                 session,
                 (current) => !current.includes("Jump to bottom"),
                 "pill hidden at the bottom",
             );
+
+            // Reaching the bottom with the wheel must resume sticky follow,
+            // not merely hide the pill until the next streamed update.
+            const streamedBefore = (reachedBottom.match(/x/g) ?? []).length;
+            const afterWheel = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => (current.match(/x/g) ?? []).length
+                        > streamedBefore + 10
+                    && !current.includes("Jump to bottom"),
+                "stream remains followed after returning with the wheel",
+            );
+            expect(afterWheel).not.toContain("Jump to bottom");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -3128,102 +3096,6 @@ test.skipIf(!tmuxAvailable)(
     20_000,
 );
 
-test.skipIf(!tmuxAvailable)(
-    "quickslot changes the focused BTW and Pair agent without changing Vera",
-    async () => {
-        const socket = `vera-focused-quickslot-${process.pid}-${randomUUID()}`;
-        const session = "focused-quickslot";
-        const home = mkdtempSync(join(tmpdir(), "vera-focused-quickslot-"));
-        let pane = "";
-
-        try {
-            mkdirSync(profileDirectory(home), { recursive: true });
-            writeFileSync(join(profileDirectory(home), "tui.json"), JSON.stringify({
-                extensions: {
-                    "vera.model-presets": {
-                        slots: [
-                            {
-                                provider: "faux",
-                                model: "test",
-                                reasoningEffort: "low",
-                            },
-                            {
-                                provider: "faux",
-                                model: "test",
-                                reasoningEffort: "high",
-                            },
-                            null,
-                            null,
-                        ],
-                        "current-slot": 1,
-                    },
-                },
-            }));
-            startTuiSession(
-                socket,
-                session,
-                home,
-                "test/support/tui-btw-child.ts",
-                120,
-                35,
-            );
-            await waitForVisiblePane(socket, session, "Start a conversation");
-
-            sendText(socket, session, "/btw");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Message sidekick");
-            sendEscapeSequence(socket, session, "\x1b[Z");
-            pane = await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (visible) => visible.includes("Message sidekick")
-                    && visible.includes("test · LOW"),
-                "Quickslot to change the focused sidekick",
-            );
-            expect(pane).toContain("quickslot 1: test · low");
-
-            sendKey(socket, session, "C-g");
-            pane = await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (visible) => visible.includes("Message Vera")
-                    && visible.includes("test · HIGH"),
-                "Vera to retain its model settings",
-            );
-
-            sendText(socket, session, "/pair");
-            sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "Message peer");
-            sendEscapeSequence(socket, session, "\x1b[Z");
-            await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (visible) => visible.includes("Message peer")
-                    && visible.includes("test · LOW"),
-                "Quickslot to change the focused peer",
-            );
-
-            sendKey(socket, session, "C-g");
-            await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (visible) => visible.includes("Message Vera")
-                    && visible.includes("test · HIGH"),
-                "Vera to remain unchanged after changing the peer",
-            );
-        } catch (error) {
-            pane = captureVisiblePane(socket, session);
-            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
-        } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
-            rmSync(home, { recursive: true, force: true });
-        }
-    },
-    20_000,
-);
 
 test.skipIf(!tmuxAvailable)(
     "btw opens a hosted sidekick and routes only among the visible agents",
@@ -3270,7 +3142,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Rewind the active conversation",
             );
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
 
             // Ctrl+G switches focus without making terminal selection and
             // pointer-capture behaviour part of message routing.
@@ -3531,6 +3403,11 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 3");
 
+            sendText(socket, session, "/rename peer research");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "session renamed: peer research");
+            expect(pane).toContain("peer research · ask");
+
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "peer · readonly");
@@ -3542,6 +3419,11 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 1");
             expect(pane).not.toContain("inspect this");
+
+            sendText(socket, session, "/pair close");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Message Vera");
+            expect(pane).not.toContain("Message peer");
 
             sendKey(socket, session, "C-g");
             sendText(socket, session, "main only");
@@ -4741,3 +4623,50 @@ test.skipIf(!tmuxAvailable)(
 function shellQuote(value: string): string {
     return `'${value.replaceAll("'", `'\\''`)}'`;
 }
+
+test.skipIf(!tmuxAvailable)(
+    "a keybinding Vera cannot use is named at startup",
+    async () => {
+        const socket = `vera-keymap-notice-${process.pid}-${randomUUID()}`;
+        const session = "keymap-notice";
+        const home = mkdtempSync(join(tmpdir(), "vera-keymap-notice-"));
+        let pane = "";
+
+        try {
+            mkdirSync(profileDirectory(home), { recursive: true });
+            writeFileSync(
+                join(profileDirectory(home), "tui.json"),
+                JSON.stringify({
+                    keybindings: {
+                        "dials.open": ["ctrl+alt+q"],
+                        no_such_binding: ["ctrl+j"],
+                    },
+                }),
+            );
+
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+            );
+            // The first history rebuilds the transcript, so a notice settled
+            // before it is the one that used to be painted and then dropped.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "no_such_binding: unknown binding id",
+            );
+            expect(pane).toContain("dials.open");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+);

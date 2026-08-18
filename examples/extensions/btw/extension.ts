@@ -140,6 +140,14 @@ export function activateClient(vera: any): void {
                 imagePaths: readonly string[];
                 signal: AbortSignal;
             }) {
+                const text = argumentsText.trim();
+                if (name === "pair" && text.toLowerCase() === "close") {
+                    vera.ui.sidebar.close();
+                    activeMention = undefined;
+                    setAddressing(SIDEKICK);
+                    offerVisibleMentions();
+                    return;
+                }
                 let target = await openAgent(
                     name,
                     mention,
@@ -149,7 +157,6 @@ export function activateClient(vera: any): void {
                     workspace,
                     signal,
                 );
-                const text = argumentsText.trim();
                 if (text.length > 0 || imagePaths.length > 0) {
                     if (
                         inheritPrimary

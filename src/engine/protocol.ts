@@ -38,6 +38,7 @@ import type {
     ToolReviewUserAuthorization,
 } from "./reviewer.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type { SessionSettingOrigin } from "../store/session-store.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -214,6 +215,70 @@ export interface UpdateModelSettingsCommand {
 }
 
 /**
+ * Dial this session, and nothing else.
+ *
+ * A separate command rather than a scope flag on `update_model_settings`: the
+ * flag would parse on a host that has never heard of it and then quietly write
+ * the global defaults anyway, which is the exact failure the dial strip cannot
+ * afford. An old host refuses an unknown command outright, which is honest.
+ */
+export interface UpdateSessionModelSettingsCommand {
+    readonly type: "update_session_model_settings";
+    readonly requestId: string;
+    readonly patch: ModelSettingsPatch;
+}
+
+/**
+ * Wear an agent, in FIFO order with the prompts already queued.
+ *
+ * Not applied on arrival: a prompt enqueued before this one snapshotted the
+ * old agent's settings and would pick up the new agent's tools at turn start,
+ * which is a turn running as neither agent.
+ */
+export interface WearAgentCommand {
+    readonly type: "wear_agent";
+    readonly requestId: string;
+    readonly name: string;
+}
+
+export interface ListAgentsCommand {
+    readonly type: "list_agents";
+    readonly requestId: string;
+}
+
+/**
+ * The one writer into an agent file, and it writes one key.
+ *
+ * There is deliberately no general agent-writing command: an agent is a file
+ * you edit with your editor, and a wire command that could rewrite it would
+ * make the file the second copy of the truth.
+ */
+export interface UpdateAgentDefaultPairCommand {
+    readonly type: "update_agent_default_pair";
+    readonly requestId: string;
+    readonly name: string;
+    /** Null clears the key. */
+    readonly pair: { readonly name: string; readonly effort?: string } | null;
+}
+
+export interface GetSessionModelSettingsHistoryCommand {
+    readonly type: "get_session_model_settings_history";
+    readonly requestId: string;
+}
+
+/**
+ * Set the permission mode for this session without touching the host default.
+ *
+ * The pre-existing `update_permissions` keeps its behaviour, which is to write
+ * both; it is what the explicit "set as global default" action calls.
+ */
+export interface UpdateSessionPermissionModeCommand {
+    readonly type: "update_session_permission_mode";
+    readonly requestId: string;
+    readonly mode: ApprovalMode;
+}
+
+/**
  * Admitting a model is not choosing one, so this is its own command rather
  * than a field on `update_model_settings`: adding a model the user is only
  * looking at must not switch the turn to it.
@@ -350,6 +415,12 @@ export type ClientCommand =
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
+    | UpdateSessionModelSettingsCommand
+    | GetSessionModelSettingsHistoryCommand
+    | UpdateSessionPermissionModeCommand
+    | WearAgentCommand
+    | ListAgentsCommand
+    | UpdateAgentDefaultPairCommand
     | ConsultCommand
     | PoolAddCommand
     | PoolRemoveCommand
@@ -411,6 +482,15 @@ export interface ModelSubstitutionUpdate {
     readonly using?: string;
     readonly reason: string;
     readonly scope: "effort" | "model";
+    /**
+     * Whether the parent turn was substituted, or a spawn inside it was.
+     *
+     * `scope` already means something else — which dial moved — so this is a
+     * field of its own rather than a third value there. Only a `turn`
+     * substitution belongs in the status line: a subagent's fallback is the
+     * subagent's business and reaches the transcript alone.
+     */
+    readonly source: "turn" | "subagent";
     readonly seq: number;
 }
 
@@ -575,6 +655,73 @@ export interface ModelSettingsUpdate {
     readonly settings: ModelTurnSettings;
     readonly pending: boolean;
     readonly updatedDefaults?: true;
+    /** Present when the edit changed this session alone. Never with the above. */
+    readonly updatedSession?: true;
+    /** Where the session's setting now says it came from. */
+    readonly origin?: SessionSettingOrigin;
+    readonly seq: number;
+}
+
+/**
+ * The agent in force, after a wear applied or a resume resolved one.
+ *
+ * `notice` carries what the user has to be told: that the definition moved
+ * since it was worn, that the agent is gone, or that its default pair no
+ * longer resolves. Silence is the normal case.
+ */
+export interface AgentWornUpdate {
+    readonly type: "agent_worn";
+    readonly requestId: string;
+    readonly name: string;
+    readonly tools?: readonly string[];
+    readonly skills?: readonly string[];
+    readonly posture?: string;
+    readonly notice?: string;
+    readonly seq: number;
+}
+
+export interface AgentCatalogUpdate {
+    readonly type: "agent_catalog";
+    readonly requestId: string;
+    readonly worn: string;
+    readonly agents: readonly {
+        readonly name: string;
+        readonly description?: string;
+        readonly scope: "project" | "user" | "extension";
+        readonly writable: boolean;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly defaultPair?: {
+            readonly name: string;
+            readonly effort?: string;
+        };
+    }[];
+    readonly notices: readonly string[];
+    readonly seq: number;
+}
+
+export interface AgentRejectedUpdate {
+    readonly type: "agent_rejected";
+    readonly requestId: string;
+    readonly reason: string;
+    readonly seq: number;
+}
+
+/**
+ * Every model setting the session has held, oldest first.
+ *
+ * The dial strip derives its recents from this rather than keeping a list of
+ * its own, so what the strip offers cannot drift from what the session did.
+ */
+export interface SessionModelSettingsHistoryUpdate {
+    readonly type: "session_model_settings_history";
+    readonly requestId: string;
+    readonly entries: readonly {
+        readonly settings: ModelTurnSettings;
+        readonly origin: SessionSettingOrigin;
+        readonly timestamp: string;
+    }[];
     readonly seq: number;
 }
 
@@ -625,6 +772,7 @@ export interface PermissionsUpdate {
     readonly mode: ApprovalMode;
     readonly pending: boolean;
     readonly inspection?: PermissionInspection;
+    readonly origin?: SessionSettingOrigin;
     readonly seq: number;
 }
 
@@ -764,6 +912,10 @@ export type AgentUpdate =
     | UiRequestUpdate
     | UiRequestClosedUpdate
     | ModelSettingsUpdate
+    | SessionModelSettingsHistoryUpdate
+    | AgentWornUpdate
+    | AgentCatalogUpdate
+    | AgentRejectedUpdate
     | ModelSettingsRejectedUpdate
     | PoolAdmissionProgressUpdate
     | PoolAdmissionResultUpdate
@@ -917,17 +1069,75 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         };
     }
     if (
-        command.type === "update_model_settings"
+        (command.type === "update_model_settings"
+            || command.type === "update_session_model_settings")
         && isRequestId(command.requestId)
     ) {
         const patch = parseModelSettingsPatch(command.patch);
         if (patch !== undefined) {
             return {
-                type: "update_model_settings",
+                type: command.type,
                 requestId: command.requestId,
                 patch,
             };
         }
+    }
+    if (
+        command.type === "wear_agent"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.name)
+    ) {
+        return {
+            type: "wear_agent",
+            requestId: command.requestId,
+            name: command.name,
+        };
+    }
+    if (command.type === "list_agents" && isRequestId(command.requestId)) {
+        return { type: "list_agents", requestId: command.requestId };
+    }
+    if (
+        command.type === "update_agent_default_pair"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.name)
+        && (command.pair === null
+            || (typeof command.pair === "object"
+                && command.pair !== null
+                && isNonEmptyString(Reflect.get(command.pair, "name"))
+                && (Reflect.get(command.pair, "effort") === undefined
+                    || isNonEmptyString(Reflect.get(command.pair, "effort")))))
+    ) {
+        return {
+            type: "update_agent_default_pair",
+            requestId: command.requestId,
+            name: command.name,
+            pair: command.pair === null ? null : {
+                name: Reflect.get(command.pair, "name") as string,
+                ...(Reflect.get(command.pair, "effort") === undefined ? {} : {
+                    effort: Reflect.get(command.pair, "effort") as string,
+                }),
+            },
+        };
+    }
+    if (
+        command.type === "get_session_model_settings_history"
+        && isRequestId(command.requestId)
+    ) {
+        return {
+            type: "get_session_model_settings_history",
+            requestId: command.requestId,
+        };
+    }
+    if (
+        command.type === "update_session_permission_mode"
+        && isRequestId(command.requestId)
+        && isApprovalMode(command.mode)
+    ) {
+        return {
+            type: "update_session_permission_mode",
+            requestId: command.requestId,
+            mode: command.mode,
+        };
     }
     if (command.type === "consult" && isRequestId(command.requestId)) {
         const parsed = parseConsultCommand(command, command.requestId);
@@ -1330,6 +1540,44 @@ export function createProtocolEncoder(
                 ...(event.updatedDefaults === true
                     ? { updatedDefaults: true as const }
                     : {}),
+                ...(event.updatedSession === true
+                    ? { updatedSession: true as const }
+                    : {}),
+                ...(event.origin === undefined ? {} : { origin: event.origin }),
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "agent_worn") {
+            seq += 1;
+            sender.send({ type: "agent_worn", ...event.update, seq });
+            return;
+        }
+
+        if (event.type === "agent_catalog") {
+            seq += 1;
+            sender.send({ type: "agent_catalog", ...event.update, seq });
+            return;
+        }
+
+        if (event.type === "agent_rejected") {
+            seq += 1;
+            sender.send({
+                type: "agent_rejected",
+                requestId: event.requestId,
+                reason: event.reason,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "session_model_settings_history") {
+            seq += 1;
+            sender.send({
+                type: "session_model_settings_history",
+                requestId: event.requestId,
+                entries: event.entries,
                 seq,
             });
             return;
@@ -1387,6 +1635,7 @@ export function createProtocolEncoder(
                 ...(event.inspection === undefined
                     ? {}
                     : { inspection: event.inspection }),
+                ...(event.origin === undefined ? {} : { origin: event.origin }),
                 seq,
             });
             return;
@@ -1444,6 +1693,7 @@ export function createProtocolEncoder(
                 using: event.toModel,
                 reason: event.failure.message,
                 scope: "model",
+                source: "turn",
                 seq,
             });
         }
@@ -1457,6 +1707,7 @@ export function createProtocolEncoder(
                 ...(event.using === undefined ? {} : { using: event.using }),
                 reason: event.reason,
                 scope: "effort",
+                source: "turn",
                 seq,
             });
         }
@@ -1466,6 +1717,7 @@ export function createProtocolEncoder(
             sender.send({
                 type: "model_substitution",
                 ...event.substitution,
+                source: "subagent",
                 seq,
             });
         }

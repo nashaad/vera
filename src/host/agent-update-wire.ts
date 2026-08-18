@@ -68,6 +68,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || typeof update.using === "string")
                 && typeof update.reason === "string"
                 && (update.scope === "effort" || update.scope === "model")
+                && (update.source === "turn" || update.source === "subagent")
             ? value as AgentUpdate
             : undefined;
     }
@@ -182,7 +183,50 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.pending === "boolean"
                 && (update.updatedDefaults === undefined
                     || update.updatedDefaults === true)
+                && (update.updatedSession === undefined
+                    || update.updatedSession === true)
+                && (update.origin === undefined
+                    || update.origin === "agent-default"
+                    || update.origin === "user")
                 && isModelTurnSettings(update.settings)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "agent_worn") {
+        return typeof update.requestId === "string"
+                && typeof update.name === "string"
+                && update.name.length > 0
+                && (update.notice === undefined
+                    || typeof update.notice === "string")
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "agent_catalog") {
+        return typeof update.requestId === "string"
+                && typeof update.worn === "string"
+                && Array.isArray(update.agents)
+                && Array.isArray(update.notices)
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "agent_rejected") {
+        return typeof update.requestId === "string"
+                && typeof update.reason === "string"
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "session_model_settings_history") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && Array.isArray(update.entries)
+                && update.entries.every((entry: unknown) =>
+                    typeof entry === "object"
+                    && entry !== null
+                    && isModelTurnSettings(Reflect.get(entry, "settings"))
+                    && typeof Reflect.get(entry, "timestamp") === "string"
+                    && (Reflect.get(entry, "origin") === "agent-default"
+                        || Reflect.get(entry, "origin") === "user")
+                )
             ? value as AgentUpdate
             : undefined;
     }
@@ -228,6 +272,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && update.requestId.length > 0
                 && isApprovalMode(update.mode)
                 && typeof update.pending === "boolean"
+                && (update.origin === undefined
+                    || update.origin === "agent-default"
+                    || update.origin === "user")
                 ? withPermissionInspection(value, update)
                 : undefined;
     }

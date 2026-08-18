@@ -549,6 +549,42 @@ export function decideToolPermission(
     };
 }
 
+/**
+ * The stricter of two decisions for one action.
+ *
+ * A delegated turn is clamped per action rather than by intersecting modes:
+ * modes are ordered predicate programs, not levels, so "the intersection of
+ * two modes" names nothing. Comparing the outcomes they each produce for the
+ * same action does. The reviewer profile follows whichever side produced the
+ * stricter outcome; a tie is the child's, because the child is the one whose
+ * agent was named.
+ */
+export function stricterToolPermission(
+    child: ToolPermissionDecision,
+    parent: ToolPermissionDecision,
+): ToolPermissionDecision {
+    return BEHAVIOR_WEIGHT[parent.behavior] > BEHAVIOR_WEIGHT[child.behavior]
+        ? parent
+        : child;
+}
+
+const BEHAVIOR_WEIGHT: Readonly<
+    Record<ToolPermissionDecision["behavior"], number>
+> = {
+    allow: 0,
+    review: 1,
+    ask: 2,
+    deny: 3,
+};
+
+/** The modes every host has, whatever else it was configured with. */
+export const BUILT_IN_PERMISSION_MODE_NAMES: readonly string[] = [
+    "readonly",
+    "ask",
+    "auto",
+    "full_access",
+];
+
 export function builtInPermissionMode(
     name: string,
 ): PermissionMode | undefined {

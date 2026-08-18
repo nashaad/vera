@@ -205,6 +205,17 @@ export async function executeToolHandler(
     if (tool === undefined) {
         return errorOutput(`Unknown tool: ${toolCall.name}`);
     }
+    // Defence in depth, not a second policy gate: the worn agent's scope is
+    // enforced on the name before the hooks run, and a hook cannot rename a
+    // call. If that ever stops being true, this is what catches it.
+    if (
+        runtime.allowedTools !== undefined
+        && !runtime.allowedTools.includes(toolCall.name)
+    ) {
+        return errorOutput(
+            `The agent you are wearing does not offer the ${toolCall.name} tool.`,
+        );
+    }
 
     try {
         signal.throwIfAborted();

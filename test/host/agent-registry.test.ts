@@ -3794,3 +3794,43 @@ test("every configured provider id is selectable", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("an explicit forbidden permission switches the session back to default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-forbidden-access-"));
+    await mkdir(join(root, ".vera", "agents"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "agents", "plan.md"),
+        "---\nposture: readonly\nforbidden_access: [auto, full_access]\n---\nPlan only.",
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        expect(await registry.wearAgentFor(agent.id, "plan")).toMatchObject({
+            name: "plan",
+            permissionChanged: true,
+        });
+        expect(registry.approvalModeOf(agent.id)).toBe("readonly");
+
+        expect(await registry.updateSessionPermissionMode(agent.id, "auto"))
+            .toBe("auto");
+        expect(await attachment.receive()).toMatchObject({
+            type: "agent_worn",
+            name: "default",
+            notice: "Switched to default because plan does not allow auto access.",
+        });
+        expect((await registry.listAgentsFor(agent.id)).worn).toBe("default");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
