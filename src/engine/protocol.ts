@@ -1388,6 +1388,10 @@ export function createProtocolEncoder(
         readonly text: string;
         readonly tone: "primary" | "soft" | "error";
     }[] = () => [],
+    replayContextCapacity: (
+        provider: string,
+        model: string,
+    ) => number | undefined = () => undefined,
 ): ProtocolEncoder {
     let seq = 0;
     let measuredCapacity: number | undefined;
@@ -1818,6 +1822,7 @@ export function createProtocolEncoder(
                 messages,
                 measuredModel,
                 measuredCapacity,
+                replayContextCapacity,
             );
             const floor = pendingCheckpointFloor;
             pendingCheckpointFloor = undefined;
@@ -1864,6 +1869,10 @@ function latestMeasurement(
     messages: readonly ModelMessage[],
     measuredModel?: string,
     capacity?: number,
+    replayContextCapacity: (
+        provider: string,
+        model: string,
+    ) => number | undefined = () => undefined,
 ): ContextMeasurement | undefined {
     // The last assistant is not always the last one a provider counted: an
     // aborted turn and a synthetic terminal message both end the transcript
@@ -1876,7 +1885,12 @@ function latestMeasurement(
         }
         const measurement = reportedMeasurement(
             message,
-            message.source.model === measuredModel ? capacity : undefined,
+            message.source.model === measuredModel
+                ? capacity
+                : replayContextCapacity(
+                    message.source.provider,
+                    message.source.model,
+                ),
         );
         if (measurement !== undefined) {
             return {

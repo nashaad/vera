@@ -486,6 +486,14 @@ export async function runHeadlessLoop(
         endpoint,
         sessionAttachmentName(store),
         () => store.projectedHarnessMessages(),
+        (provider, replayModel) => {
+            const settings = options.readModelSettings?.();
+            const declared = settings?.provider === provider
+                    && settings.model === replayModel
+                ? settings.contextWindow
+                : contextWindowForModel(provider, replayModel);
+            return effectiveContextWindow(declared, settings?.contextLimit);
+        },
     );
     events.subscribe(protocol);
     // A caller that names no path gets no log. The host names one for every

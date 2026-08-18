@@ -258,6 +258,27 @@ test("protocol checkpoints keep the current update sequence", () => {
     ]);
 });
 
+test("protocol replay restores usage against the effective context cap", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder(
+        { send: (update): void => void updates.push(update) },
+        undefined,
+        undefined,
+        () => 204_800,
+    );
+
+    protocol.checkpoint(messages);
+
+    expect(updates.at(-1)).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 64_624,
+            capacity: 204_800,
+            estimated: true,
+        },
+    });
+});
+
 test("turn completion adds the reply to the provider's request count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
