@@ -1231,22 +1231,7 @@ export async function startTui(
             },
             closeSidebar(extensionId) {
                 requireSidebarOwner(extensionId);
-                const attached = hostedSidebar.release(extensionId);
-                if (attached !== undefined) {
-                    rejectPendingExtensionSettingsFor(
-                        attached.client,
-                        new Error("The sidebar agent closed"),
-                    );
-                }
-                forgetPersistedAgentPane();
-                sidebarSessionTitle = undefined;
-                void attached?.detach().catch(() => attached.close());
-                clearSidebarEntryNodes();
-                sidebar.setHeader(undefined);
-                sidebar.close();
-                setSidebarFocused(false);
-                composer.focus();
-                renderState();
+                closeSidebarPane(extensionId);
             },
             setMentions(names) {
                 extensionMentions = names;
@@ -1580,6 +1565,28 @@ export async function startTui(
             sidebarEntryNodes.pop()?.destroy();
             sidebarEntryNodeKinds.pop();
         }
+    }
+
+    /** Close the attached peer without ending its durable session. */
+    function closeSidebarPane(extensionId?: string): void {
+        const attached = hostedSidebar.release(extensionId);
+        if (attached !== undefined) {
+            rejectPendingExtensionSettingsFor(
+                attached.client,
+                new Error("The sidebar agent closed"),
+            );
+        }
+        pendingSidebarSessionRename = undefined;
+        forgetPersistedAgentPane();
+        sidebarSessionTitle = undefined;
+        void attached?.detach().catch(() => attached.close());
+        clearSidebarEntryNodes();
+        sidebar.clear();
+        sidebar.setHeader(undefined);
+        sidebar.close();
+        setSidebarFocused(false);
+        composer.focus();
+        renderState();
     }
 
     const statusText = new TextRenderable(renderer, {
@@ -4930,6 +4937,15 @@ export async function startTui(
             composer.clearComposer();
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
+            // A blank peer has nothing useful to reset. Treating a second
+            // clear as close makes it possible to get rid of an empty pair
+            // pane without requiring the user to remember `/pair close`.
+            const clearingBlankSidebar = clearingSidebar
+                && !sidebarEntryNodes.some((node) => node.visible);
+            if (clearingBlankSidebar) {
+                closeSidebarPane();
+                return;
+            }
             if (
                 clearingSidebar
                     ? dependencies.createAgent === undefined
