@@ -31,10 +31,7 @@ export function tuiGutterWidth(
     activityIndent: number,
 ): number {
     const alignedIndent = Math.max(2, activityIndent);
-    // Tool detail rows have their own four-column connector gutter. The
-    // header does not, so it still needs the full activity indent or a live
-    // `Running` header jumps to the transcript's left edge.
-    return entry.kind === "tool"
+    return entry.kind === "tool" || entry.kind === "tool_header"
         ? alignedIndent - 2
         : alignedIndent;
 }

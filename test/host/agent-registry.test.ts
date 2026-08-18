@@ -1739,7 +1739,9 @@ test("a resumed session with a stale credential fails on its first turn", async 
             outcome: "error",
             error: "provider credentials are no longer configured",
         });
-        expect(attemptedProviders).toEqual(["ollama", "ollama"]);
+        // One attempt, not two: clients are built on demand, so resuming
+        // touches no provider and the stored one is first reached by the turn.
+        expect(attemptedProviders).toEqual(["ollama"]);
     } finally {
         await resumedRegistry.close();
         await rm(root, { recursive: true, force: true });

@@ -21,16 +21,16 @@ import {
 } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 
-test("tool detail rows reserve their own gutter, headers keep the indent", () => {
+test("tool rows reserve their own gutter, other activities keep the indent", () => {
     expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 2)).toBe(2);
     expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 2))
-        .toBe(2);
+        .toBe(0);
     expect(tuiGutterWidth({ kind: "tool", text: "Read file" }, 2)).toBe(0);
     expect(tuiGutterWidth({ kind: "thought", text: "Reasoning" }, 1)).toBe(2);
     expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 1))
-        .toBe(2);
+        .toBe(0);
     expect(tuiGutterWidth({ kind: "tool_header", text: "+ Explored" }, 4))
-        .toBe(4);
+        .toBe(2);
 });
 
 test("live tool groups keep their activity column in the character frame", async () => {

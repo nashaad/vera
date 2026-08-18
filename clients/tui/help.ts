@@ -241,7 +241,9 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         top: 1,
         left: "4%",
         width: "92%",
-        height: "90%",
+        // Bounded from the bottom rather than by a percentage of the pane, so
+        // the status band below it stays readable at every terminal height.
+        bottom: 3,
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
