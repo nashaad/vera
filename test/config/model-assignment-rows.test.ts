@@ -71,7 +71,7 @@ test("a row is its name and one status word", () => {
         options.map((option) => [option.label, option.description]),
     );
     // Nothing in the list is longer than a word or two, so no row can clip.
-    expect(status.get("this session")).toBe("");
+    expect(status.get("model")).toBe("");
     expect(status.get("extra")).toBe("set");
     expect(status.get("snappy")).toBe("not shortlisted");
     expect(status.get("critic")).toBe("not shortlisted");
@@ -92,8 +92,8 @@ test("defaults separate session controls, work styles, and dedicated jobs", asyn
         204_800,
     );
     expect(options.map((option) => [option.label, option.group])).toEqual([
-        ["this session", "Session"],
-        ["context limit", "Session"],
+        ["model", "This session"],
+        ["context limit", "This session"],
         ["snappy", "Work styles"],
         ["eco", "Work styles"],
         ["extra", "Work styles"],
