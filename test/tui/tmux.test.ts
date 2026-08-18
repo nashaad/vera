@@ -2893,24 +2893,6 @@ test.skipIf(!tmuxAvailable)(
             }
             pane = await waitForPane(socket, session, "Jump to bottom");
 
-            sendText(socket, session, "/themes");
-            pane = await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (current) => /\/themes\s+Change the TUI theme/.test(current),
-                "filtered theme command suggestion",
-            );
-            const suggestionLines = pane.split("\n");
-            const suggestionRow = suggestionLines.findIndex((line) =>
-                /\/themes\s+Change the TUI theme/.test(line)
-            );
-            const jumpRow = suggestionLines.findIndex((line) =>
-                line.includes("Jump to bottom")
-            );
-            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
-            expect(jumpRow).toBeLessThan(suggestionRow - 1);
-            sendKey(socket, session, "C-c");
-
             sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
                 socket,
@@ -2943,6 +2925,63 @@ test.skipIf(!tmuxAvailable)(
                 "stream remains followed after returning with the wheel",
             );
             expect(afterWheel).not.toContain("Jump to bottom");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "the jump pill sits above the command suggestion strip",
+    async () => {
+        const socket = `vera-jump-strip-${process.pid}-${randomUUID()}`;
+        const session = "jump-strip";
+        const home = mkdtempSync(join(tmpdir(), "vera-jump-strip-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+                100,
+                18,
+            );
+            await waitForPane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "start streaming");
+            sendKey(socket, session, "Enter");
+            pane = await waitForPane(socket, session, "PARTIAL xxxxx");
+
+            for (let index = 0; index < 6; index += 1) {
+                sendEscapeSequence(socket, session, "\x1b[1;5A");
+            }
+            pane = await waitForPane(socket, session, "Jump to bottom");
+
+            sendText(socket, session, "/themes");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => /\/themes\s+Change the TUI theme/.test(current),
+                "filtered theme command suggestion",
+            );
+            const suggestionLines = pane.split("\n");
+            const suggestionRow = suggestionLines.findIndex((line) =>
+                /\/themes\s+Change the TUI theme/.test(line)
+            );
+            const jumpRow = suggestionLines.findIndex((line) =>
+                line.includes("Jump to bottom")
+            );
+            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
+            expect(jumpRow).toBeLessThan(suggestionRow - 1);
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

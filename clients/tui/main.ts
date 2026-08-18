@@ -3954,7 +3954,7 @@ export async function startTui(
             } else {
                 transcript.scrollBy(scrollLines);
             }
-            renderJumpToBottom();
+            renderJumpToBottom(scrollLines === undefined);
             return;
         }
 
@@ -9481,7 +9481,7 @@ export async function startTui(
      * over the transcript's last row so showing and hiding it never reflows
      * anything, which is the whole point.
      */
-    function renderJumpToBottom(): void {
+    function renderJumpToBottom(resumeFollow = true): void {
         const following = tuiTranscriptAtBottom(
             transcript.scrollTop,
             transcript.scrollHeight,
@@ -9493,7 +9493,9 @@ export async function startTui(
         // stale manual flag prevents sticky scroll from following the new
         // content. Crossing from the visible pill back to the bottom is an
         // explicit request to resume following, so reapply the bottom here.
-        if (following) {
+        // A keyboard scroll moves by an exact number of rows and passes false,
+        // because snapping back would undo the row it just moved.
+        if (following && resumeFollow) {
             transcript.scrollTo(transcript.scrollHeight);
         }
         const visible = !following && !anyOverlayOpen();
