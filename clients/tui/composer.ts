@@ -10,8 +10,8 @@ import {
 } from "@opentui/core";
 import {
     TUI_ACCENT,
-    TUI_BACKGROUND,
     TUI_ELEMENT,
+    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
@@ -319,8 +319,8 @@ export function createTuiComposer(
         width: "100%",
         height: TUI_COMPOSER_MIN_TEXT_ROWS,
         placeholder: COMPOSER_PLACEHOLDER,
-        backgroundColor: TUI_BACKGROUND,
-        focusedBackgroundColor: TUI_BACKGROUND,
+        backgroundColor: TUI_INPUT,
+        focusedBackgroundColor: TUI_INPUT,
         textColor: TUI_TEXT,
         focusedTextColor: TUI_TEXT,
         cursorColor: TUI_ACCENT,

@@ -83,6 +83,25 @@ test("named themes resolve their configured dark palettes", async () => {
     expect((await resolveTuiTheme(renderer, "system")).background).toBe("#111111");
 });
 
+test("retro themes carry their own structural chrome", async () => {
+    const renderer = { getPalette: async () => terminalColors() };
+    expect(await resolveTuiTheme(renderer, "norton-commander")).toMatchObject({
+        background: "#121B70",
+        panel: "#1E28A0",
+        input: "#0C1458",
+        menu: "#1E28A0",
+        chrome: "norton",
+        selectionText: "#000000",
+    });
+    expect(await resolveTuiTheme(renderer, "windows-31")).toMatchObject({
+        background: "#008080",
+        panel: "#FFFFFF",
+        input: "#FFFFFF",
+        chrome: "windows-31",
+        chromeTitle: "#000080",
+    });
+});
+
 test("midnight blue maps its editor and syntax palette to TUI roles", async () => {
     const renderer = { async getPalette() { return terminalColors(); } };
 
