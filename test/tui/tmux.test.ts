@@ -971,7 +971,7 @@ test.skipIf(!tmuxAvailable)(
             expect(existsSync(
                 join(home, "extension-command-result.txt"),
             )).toBeFalse();
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             sendText(socket, session, "/hell");
             pane = await waitForVisiblePane(
                 socket,
@@ -995,7 +995,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(pane).toContain("ready");
             expect(pane).toContain("/hello fail");
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             sendText(socket, session, "/hello");
             sendText(socket, session, " Nash");
             sendKey(socket, session, "Enter");
@@ -1915,7 +1915,7 @@ test.skipIf(!tmuxAvailable)(
             // ctrl+o opens over a row already drawn.
             expect(pane).toMatch(/▸ Reasoning: \d+\.\d+s/);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
@@ -2903,7 +2903,7 @@ test.skipIf(!tmuxAvailable)(
             );
             expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
             expect(jumpRow).toBeLessThan(suggestionRow - 1);
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
 
             sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
@@ -3142,7 +3142,7 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "Rewind the active conversation",
             );
-            sendKey(socket, session, "C-u");
+            sendKey(socket, session, "C-c");
 
             // Ctrl+G switches focus without making terminal selection and
             // pointer-capture behaviour part of message routing.

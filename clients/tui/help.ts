@@ -115,9 +115,9 @@ function chordLabel(chord: string): string {
  * Whether a terminal can be relied on to deliver the chord at all.
  *
  * Shift on a ctrl+letter chord is only reported under the kitty keyboard
- * protocol; elsewhere ctrl+shift+u is indistinguishable from ctrl+u and the
- * binding never matches. Saying so beside the row is the difference between a
- * key that looks broken and one the user knows to swap for its alias.
+ * protocol; elsewhere the unshifted Ctrl-D/U aliases remain available. Saying
+ * so beside the row is the difference between a key that looks broken and one
+ * the user knows to swap for its alias.
  */
 function needsKittyKeyboard(chord: string): boolean {
     const parts = chord.split("+");
