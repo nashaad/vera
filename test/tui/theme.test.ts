@@ -126,8 +126,8 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
     const theme = await resolveTuiTheme(renderer, "muted-blue");
 
     expect(theme).toEqual({
-        accent: "#02A2FF",
-        text: "#02A2FF",
+        accent: "#4C9BCF",
+        text: "#3284B8",
         muted: "#175B8B",
         notice: "#FEFC59",
         danger: "#FF6B6B",

@@ -82,7 +82,7 @@ export function createTuiDiagnosticsDialogView(
         top: "6%",
         left: "4%",
         width: "92%",
-        height: "80%",
+        height: "84%",
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
