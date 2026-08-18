@@ -9610,7 +9610,7 @@ export async function startTui(
         const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
-        // Beside a sidekick the row names the pane, because the point of the
+        // Beside a second pane the row names each one, because the point of the
         // row is telling the two columns apart. Alone it carries the session
         // title, which is the only thing left worth putting there.
         sidebar.setMainHeader(!paneHeadersVisible
