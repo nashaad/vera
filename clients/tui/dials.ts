@@ -397,6 +397,9 @@ export function renderDialStrip(
         effort === selectedEffort ? `[${effort}]` : effort
         ) ?? []),
     ];
+    const showEffortScale = Number.isFinite(width)
+        && width >= 56
+        && (selectedSlot?.efforts.length ?? 0) >= 2;
     const accessLine = renderDialLane(
         state.lane === "access",
         "ACCESS",
@@ -421,7 +424,11 @@ export function renderDialStrip(
         renderDialLane(
             false,
             "EFFORT",
-            selectedSlot?.efforts.length === 0 ? ["not available"] : effortCells,
+            selectedSlot?.efforts.length === 0
+                ? ["not available"]
+                : showEffortScale
+                    ? []
+                    : effortCells,
             selectedEffort === undefined
                 ? 0
                 : Math.max(
