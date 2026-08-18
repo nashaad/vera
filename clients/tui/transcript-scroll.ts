@@ -9,5 +9,14 @@ export function tuiTranscriptAtBottom(
     viewportHeight: number,
 ): boolean {
     const maxScrollTop = Math.max(0, scrollHeight - viewportHeight);
-    return scrollTop >= Math.max(0, maxScrollTop - 1);
+    if (maxScrollTop === 0) {
+        return true;
+    }
+    // Scrolled fully up is a deliberate position, never the live edge. Without
+    // this the tolerance swallows a one-row scroll range whole and sticky
+    // scroll drags the reader back down.
+    if (scrollTop <= 0) {
+        return false;
+    }
+    return scrollTop >= maxScrollTop - 1;
 }
