@@ -2878,6 +2878,22 @@ export class AgentRegistry {
         }
         const applySubagentEffect = createSubagentEffectApplier({
             adapter,
+            loadAgent: async (name) => {
+                const catalog = await loadAgentCatalog({
+                    projectRoot: store.header.cwd,
+                    permissionModes: [
+                        ...BUILT_IN_PERMISSION_MODE_NAMES,
+                        ...Object.keys(this.options.permissionModes ?? {}),
+                    ],
+                    // A spawn has no surface for a nudge, and the parser is
+                    // what says so.
+                    interactive: false,
+                    ...(this.options.registeredAgents === undefined
+                        ? {}
+                        : { registered: this.options.registeredAgents }),
+                });
+                return findCatalogAgent(catalog, name)?.definition;
+            },
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),

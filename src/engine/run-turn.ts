@@ -107,6 +107,7 @@ import type { InboundCommandRouterOptions } from "./inbound-command-router.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
+    stricterToolPermission,
     inspectPermissions,
     permissionGrantProposals,
     type ApprovalMode,
@@ -214,6 +215,12 @@ export interface RunTurnState {
      * agent: every tool, every skill, the host's own posture.
      */
     readonly readAgentWear?: () => AgentWearSnapshot | undefined;
+    /**
+     * The parent's effective mode, on a delegated turn. Every action is
+     * evaluated under both modes and the stricter outcome wins, so delegation
+     * can only narrow what is allowed.
+     */
+    readonly clampPermissionMode?: ApprovalMode;
     /**
      * Nudges already shown this user turn, so one does not repeat itself
      * inside a single stretch of work. Cleared when the user speaks again.
@@ -334,6 +341,7 @@ export interface RunHeadlessLoopOptions {
         name: string | null,
     ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
+    readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;
     readonly updateApprovalMode?: (
         mode: ApprovalMode,
     ) => Promise<ApprovalMode | undefined>;
@@ -553,6 +561,9 @@ export async function runHeadlessLoop(
         ...(options.updateAgentDefaultPair === undefined
             ? {}
             : { updateAgentDefaultPair: options.updateAgentDefaultPair }),
+        ...(options.readApprovalModeOrigin === undefined
+            ? {}
+            : { readApprovalModeOrigin: options.readApprovalModeOrigin }),
         ...(options.poolAdd === undefined
             ? {}
             : { poolAdd: options.poolAdd }),
@@ -1795,20 +1806,36 @@ async function executePreparedTool(
         state.toolRuntime.workspace,
         hookCall,
     );
-    const permission = decideToolPermission(
+    const permissionOptions = {
+        permissionModes: state.permissionModes,
+        permissionPreferences: state.readPermissionPreferences?.() ?? [],
+        extensionTools: state.extensionTools,
+        ...(state.scratchDir === undefined
+            ? {}
+            : { scratchDir: state.scratchDir }),
+    };
+    const ownPermission = decideToolPermission(
         approvalMode,
         permissionContext.toolCall,
         permissionContext.workspace,
         state.readPermissionGrants?.() ?? [],
-        {
-            permissionModes: state.permissionModes,
-            permissionPreferences: state.readPermissionPreferences?.() ?? [],
-            extensionTools: state.extensionTools,
-            ...(state.scratchDir === undefined
-                ? {}
-                : { scratchDir: state.scratchDir }),
-        },
+        permissionOptions,
     );
+    // A delegated turn is clamped by the parent's mode, per action. The
+    // parent's grants and preferences are deliberately absent: a grant the
+    // user gave one session is not a grant to everything it spawns.
+    const permission = state.clampPermissionMode === undefined
+        ? ownPermission
+        : stricterToolPermission(
+            ownPermission,
+            decideToolPermission(
+                state.clampPermissionMode,
+                permissionContext.toolCall,
+                permissionContext.workspace,
+                [],
+                { ...permissionOptions, permissionPreferences: [] },
+            ),
+        );
     const scratchNote = scratchAlternativeNote(permission, state.scratchDir);
     if (permission.behavior === "deny") {
         return {
@@ -1935,6 +1962,9 @@ async function executePreparedTool(
                 ...(modelSettings.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: modelSettings.reasoningEffort }),
+                ...(state.readAgentWear?.() === undefined
+                    ? {}
+                    : { agentWear: state.readAgentWear() }),
             },
         );
     // Emitted from here rather than from either spawn path, so both the

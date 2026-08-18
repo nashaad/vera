@@ -109,6 +109,28 @@ any command does.
 Agents are by reference. A definition you edited is the definition you get; the
 notice is what keeps that from being a silent change of what a session can do.
 
+## Subagents
+
+The `subagent` tool takes an optional `agent`. The child wears it, and:
+
+- **Model.** An explicit `model`/`reasoning_effort` wins; the agent's
+  `default_pair` is next; the existing subagent ladder is what runs when
+  nobody said anything. A spawn without `agent` is unchanged.
+- **Tools and skills** are the intersection of the agent's lists and what the
+  spawning session could already reach. Delegation narrows and never widens:
+  an agent that grants a tool the parent does not have does not hand it over.
+- **Posture** is clamped per action rather than by intersecting modes — modes
+  are ordered predicate programs, not levels, so "the intersection of two
+  modes" names nothing. Each action is evaluated under the child's mode and
+  the parent's, and the stricter outcome wins. The parent's grants and
+  preferences do not propagate: a grant you gave one session is not a grant to
+  everything it spawns.
+- **Nudges** on a spawned agent are a validation error. A subagent has no
+  surface to show one on, and failing loudly beats doing nothing quietly.
+
+`context` does not apply: children start fresh, and `"full"` is the only value
+v1 accepts.
+
 ## Extensions
 
 An extension can register an agent (`agents.register`) and, on the client side,
