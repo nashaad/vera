@@ -24,7 +24,10 @@ import {
     stripImageChips,
     type ImageChip,
 } from "./image-chips.ts";
-import { isTuiComposerClearKey } from "./keymap.ts";
+import {
+    isTuiComposerClearKey,
+    tuiComposerWordDeleteDirection,
+} from "./keymap.ts";
 
 const IMAGE_CHIP_STYLE = "image-chip";
 const IMAGE_CHIP_TYPE = "image-chip";
@@ -103,13 +106,13 @@ export class TuiComposer extends TextareaRenderable {
         if (isTuiComposerClearKey(key) && this.onCommandDelete?.() === true) {
             return true;
         }
-        if (key.option === true && key.name === "backspace") {
+        if (tuiComposerWordDeleteDirection(key) === "backward") {
             const handled = this.deleteWordBackward();
             this.syncImageChips();
             if (handled) this.publishTypedRows();
             return handled;
         }
-        if (key.option === true && key.name === "delete") {
+        if (tuiComposerWordDeleteDirection(key) === "forward") {
             const handled = this.deleteWordForward();
             this.syncImageChips();
             if (handled) this.publishTypedRows();

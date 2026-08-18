@@ -131,3 +131,19 @@ export function tuiComposerContentIndent(appearance: TuiAppearance): number {
         + 1
         + appearance.composerPaddingHorizontal;
 }
+
+/** Geometry shared by overlays that sit in the composer's horizontal band. */
+export function tuiComposerOverlayInset(appearance: TuiAppearance): {
+    readonly left: 0;
+    readonly right: 0;
+    readonly paddingLeft: number;
+    readonly paddingRight: number;
+} {
+    const indent = tuiComposerContentIndent(appearance);
+    return {
+        left: 0,
+        right: 0,
+        paddingLeft: indent,
+        paddingRight: indent,
+    };
+}

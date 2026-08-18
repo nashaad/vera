@@ -62,9 +62,6 @@ export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 
 /** The blank row the screen keeps above its first surface. */
 export const APP_PADDING_TOP = 1;
-/** The blank row the screen keeps under its last line. */
-export const APP_PADDING_BOTTOM = 1;
-
 /**
  * The blank row the screen keeps under its last line. A terminal fills the
  * leftover pixels below its final row with its own background and nothing can

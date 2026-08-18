@@ -533,6 +533,21 @@ export function isTuiComposerClearKey(key: TuiChordKey): boolean {
         && (key.name === "delete" || key.name === "backspace");
 }
 
+/** The word-delete direction used by the focused composer. */
+export function tuiComposerWordDeleteDirection(
+    key: TuiChordKey,
+): "backward" | "forward" | undefined {
+    if (key.option !== true) return undefined;
+    if (key.name === "backspace") return "backward";
+    if (key.name === "delete") return "forward";
+    return undefined;
+}
+
+/** Backtab is how tmux and some terminals report Shift+Tab. */
+export function isTuiDialTabKey(key: TuiChordKey): boolean {
+    return key.name === "tab" || key.name === "backtab";
+}
+
 /** The chord with the modifiers the TUI does not bind stripped rather than refused. */
 function coreChord(key: TuiChordKey): string {
     return [
