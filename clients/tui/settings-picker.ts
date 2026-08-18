@@ -41,10 +41,12 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
+    TUI_CHROME,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_SUCCESS,
+    TUI_SELECTION_TEXT,
     TUI_TEXT,
 } from "./state.ts";
 import {
@@ -56,6 +58,8 @@ import {
     wheelCursor,
 } from "./list-window.ts";
 import {
+    APP_PADDING_BOTTOM,
+    APP_PADDING_TOP,
     centeredDialogSurface,
     DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
@@ -70,6 +74,7 @@ import {
     dialogRowPointer,
     type DialogRowPointer,
     dialogSearchNode,
+    registerDialogCard,
     type DialogMeta,
     type DialogMetaPart,
 } from "./dialog-chrome.ts";
@@ -549,6 +554,9 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "github", label: "GitHub", description: "GitHub dark palette" },
     { value: "midnight-blue", label: "Midnight Blue", description: "navy, gold, and cool white" },
     { value: "midnight-blue-ii", label: "Midnight Blue II", description: "gold accent, blue code" },
+    { value: "norton-commander", label: "NC", description: "blue panels, cyan bars, yellow detail" },
+    { value: "nc-navy", label: "NC Navy", description: "deep navy panels, cyan bars" },
+    { value: "windows-31", label: "retro31", description: "white windows, navy title bars" },
 ];
 
 export function startTuiSettingsPicker(
@@ -2094,6 +2102,7 @@ export function createTuiSettingsPickerView(
         focusable: true,
         visible: false,
     });
+    registerDialogCard(box);
 
     const view: TuiSettingsPickerView = {
         box,
@@ -2104,7 +2113,9 @@ export function createTuiSettingsPickerView(
             nodes = [];
             box.title = undefined;
             if (state.kind === "theme") {
-                box.top = pickerTopOffset(renderer);
+                box.paddingTop = 2;
+                box.paddingBottom = 1;
+                box.top = themePickerTop(renderer, state.allOptions.length);
                 box.left = "20%";
                 box.width = "60%";
                 box.height = "auto";
@@ -2166,6 +2177,29 @@ function pickerMaxRows(
 // visual centre while leaving the full-width session list anchored at row 0.
 function pickerTopOffset(renderer: RenderContext): number {
     return renderer.height / 4;
+}
+
+// Header, search block, footer with its blank line, and the card's vertical
+// padding (or padding plus border on the retro chromes, which add up to the
+// same three lines). The theme list never windows, so the card's height is a
+// straight function of how many themes it offers.
+const THEME_CARD_CHROME_LINES = 9;
+
+/**
+ * Where the theme card starts: the shared picker offset, pulled up only as far
+ * as needed for the whole list to fit above the bottom padding row. One
+ * formula for every chrome, so the card does not jump when the theme under the
+ * cursor changes the chrome out from beneath it.
+ */
+function themePickerTop(renderer: RenderContext, themeRows: number): number {
+    const height = themeRows + THEME_CARD_CHROME_LINES;
+    return Math.max(
+        APP_PADDING_TOP,
+        Math.min(
+            pickerTopOffset(renderer),
+            renderer.height - APP_PADDING_BOTTOM - height,
+        ),
+    );
 }
 
 /**
@@ -3548,7 +3582,8 @@ function renderThemePickerRows(
         const matched = matches.has(option.value);
         const row = new TextRenderable(renderer, {
             content: themeRowContent(option, active, current, matched),
-            bg: active ? TUI_ELEMENT : TUI_PANEL,
+            bg: active && TUI_CHROME !== "plain" ? TUI_ACCENT
+                : active ? TUI_ELEMENT : TUI_PANEL,
             width: "100%",
             height: 1,
             paddingRight: 1,
@@ -3572,15 +3607,20 @@ function themeRowContent(
     current: boolean,
     matched: boolean,
 ): StyledText {
+    const selectedColor = active && TUI_CHROME !== "plain"
+        ? TUI_SELECTION_TEXT
+        : TUI_ACCENT;
     const labelColor = matched
-        ? (active || current ? TUI_ACCENT : TUI_TEXT)
+        ? (active || current ? selectedColor : TUI_TEXT)
         : TUI_MUTED;
     const chunks: TextChunk[] = [
-        active ? fg(TUI_ACCENT)("› ") : fg(TUI_PANEL)("  "),
-        fg(TUI_ACCENT)(current ? "● " : "  "),
+        active ? fg(selectedColor)("› ") : fg(TUI_PANEL)("  "),
+        fg(active ? selectedColor : TUI_ACCENT)(current ? "● " : "  "),
         fg(labelColor)(option.label.padEnd(THEME_LABEL_WIDTH)),
         ...themeSwatchChunks(option.value as TuiThemeName, matched),
-        fg(matched ? TUI_MUTED : TUI_PANEL)(`  ${option.description}`),
+        fg(active && TUI_CHROME !== "plain"
+            ? TUI_SELECTION_TEXT
+            : matched ? TUI_MUTED : TUI_PANEL)(`  ${option.description}`),
     ];
     return new StyledText(chunks);
 }

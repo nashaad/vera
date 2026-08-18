@@ -29,6 +29,8 @@ import {
     DIALOG_BACKGROUND_Z_INDEX,
     APP_PADDING_TOP,
     DIALOG_SCRIM_Z_INDEX,
+    refreshDialogChrome,
+    registerDialogCard,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 
@@ -1683,6 +1685,24 @@ export async function startTui(
         createTuiProviderForgetConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
     const questionView = createTuiQuestionView(renderer);
+    [
+        timelinePickerView,
+        settingsPickerView,
+        secretPromptView,
+        namePromptView,
+        providerFormView,
+        preferencesListView,
+        commandPaletteView,
+        helpView,
+        diagnosticsDialogView,
+        doctorDialogView,
+        permissionsConfirmView,
+        admissionDialogView,
+        sessionTrashConfirmView,
+        providerForgetConfirmView,
+        approvalView,
+        questionView,
+    ].forEach((view) => registerDialogCard(view.box));
 
     const commandSuggestionsText = new TextRenderable(renderer, {
         id: "command-suggestions-text",
@@ -1691,17 +1711,19 @@ export async function startTui(
         width: "100%",
         height: "auto",
     });
+    // Inset to the composer's own margins, so the strip reads as part of the
+    // input it completes rather than a full-bleed band over the desktop.
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
         border: false,
         position: "absolute",
-        left: 0,
-        right: 0,
+        left: appearance.composerMarginHorizontal,
+        right: appearance.composerMarginHorizontal,
         bottom: 7,
         height: 1,
-        paddingLeft: 1,
-        paddingRight: 1,
-        backgroundColor: theme.background,
+        paddingLeft: appearance.composerPaddingHorizontal,
+        paddingRight: appearance.composerPaddingHorizontal,
+        backgroundColor: theme.menu ?? theme.panel,
         zIndex: 5,
         visible: false,
     });
@@ -2456,6 +2478,10 @@ export async function startTui(
         composerBox.paddingRight = appearance.composerPaddingHorizontal;
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
+        commandSuggestionsBox.left = appearance.composerMarginHorizontal;
+        commandSuggestionsBox.right = appearance.composerMarginHorizontal;
+        commandSuggestionsBox.paddingLeft = appearance.composerPaddingHorizontal;
+        commandSuggestionsBox.paddingRight = appearance.composerPaddingHorizontal;
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
         transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
@@ -8340,6 +8366,7 @@ export async function startTui(
         }
         theme = resolvedTheme;
         applyTuiTheme(theme);
+        refreshDialogChrome();
         experimentalTuiHost.setTheme(theme);
         clearTranscriptNodes();
         markdownStyle.destroy();
@@ -8363,15 +8390,15 @@ export async function startTui(
         modeToastText.bg = theme.panel;
         modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
-        commandSuggestionsBox.backgroundColor = theme.background;
-        composerBox.backgroundColor = theme.background;
+        commandSuggestionsBox.backgroundColor = theme.menu ?? theme.panel;
+        composerBox.backgroundColor = theme.input ?? theme.background;
         composerBox.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
         composerStatusText.fg = theme.muted;
         composerRule.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
-        composer.backgroundColor = theme.background;
-        composer.focusedBackgroundColor = theme.background;
+        composer.backgroundColor = theme.input ?? theme.background;
+        composer.focusedBackgroundColor = theme.input ?? theme.background;
         composer.textColor = theme.text;
         composer.focusedTextColor = theme.text;
         composer.cursorColor = theme.accent;
@@ -8535,10 +8562,10 @@ export async function startTui(
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             visible,
             selected < 0 ? -1 : selected - window.start,
-            // Less the box's own horizontal padding, or the last word of a
+            // Less the box's own margin and padding, or the last word of a
             // just-too-long row wraps anyway.
-            renderer.width > 2
-                ? renderer.width - 2
+            renderer.width > composerHorizontalInset
+                ? renderer.width - composerHorizontalInset
                 : undefined,
             window.hidden,
             grouped,

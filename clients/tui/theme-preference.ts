@@ -484,7 +484,10 @@ export function isTuiThemeName(value: unknown): value is TuiThemeName {
         || value === "nightowl"
         || value === "github"
         || value === "midnight-blue"
-        || value === "midnight-blue-ii";
+        || value === "midnight-blue-ii"
+        || value === "norton-commander"
+        || value === "nc-navy"
+        || value === "windows-31";
 }
 
 export function isTuiActivityAnimation(
