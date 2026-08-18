@@ -1150,6 +1150,11 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
     const settled = dropTuiThinking(state);
+    // A phase that produced no reasoning and took no time is not a thing that
+    // happened. Reporting it costs a row and says nothing.
+    if (reasoning.length === 0 && seconds < 0.05) {
+        return settled;
+    }
     return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
         text: thoughtSummary(seconds, reasoning.length > 0),
@@ -2186,13 +2191,37 @@ function insertBeforeTrailingAssistant(
     const entries = [...state.entries];
     const last = entries.at(-1);
     const index = last?.kind === "assistant" ? entries.length - 1 : entries.length;
-    const previous = entries[index - 1];
-    if (entry.kind === "thought" && previous?.kind === "thought") {
-        entries[index - 1] = mergeThoughts(previous, entry);
-        return { ...state, entries };
+    if (entry.kind === "thought") {
+        const previous = lastThought(entries, index);
+        if (previous !== undefined) {
+            entries[previous.index] = mergeThoughts(previous.entry, entry);
+            return { ...state, entries };
+        }
     }
     entries.splice(index, 0, entry);
     return { ...state, entries };
+}
+
+/**
+ * Where a new summary joins the one before it, if anything.
+ *
+ * Tool calls do not separate two stretches of thinking: the summary belongs to
+ * the work it precedes, so a turn that thinks, calls, and thinks again reports
+ * one stretch above the calls. A line of the answer does separate them, which
+ * is what gives each thing the agent says its own summary.
+ */
+function lastThought(
+    entries: readonly TuiTranscriptEntry[],
+    before: number,
+): { readonly index: number; readonly entry: TuiTextTranscriptEntry } | undefined {
+    for (let index = before - 1; index >= 0; index -= 1) {
+        const found = entries[index];
+        if (found?.kind === "thought") return { index, entry: found };
+        if (found?.kind !== "tool" && found?.kind !== "tool_header") {
+            return undefined;
+        }
+    }
+    return undefined;
 }
 
 /**

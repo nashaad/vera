@@ -1899,10 +1899,9 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
             expect(pane).toContain("esc stop");
-            // This turn reasons without producing any summary text, so the
-            // line reports the time under a word that promises nothing behind
-            // it.
-            expect(pane).toMatch(/Worked for \d+\.\d+s/);
+            // This turn reasons without producing any summary text, and the
+            // phase is instant, so it earns no row at all.
+            expect(pane).not.toMatch(/Worked for \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
 
@@ -2021,7 +2020,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^  Worked for 0\.0s\n {2}Ran/m);
+            expect(pane).not.toContain("Worked for");
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);
