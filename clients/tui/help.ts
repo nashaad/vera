@@ -17,6 +17,8 @@ import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.t
 import type { TuiCommandCatalogEntry } from "./commands.ts";
 import {
     DIALOG_CARD_Z_INDEX,
+    APP_PADDING_BOTTOM,
+    APP_PADDING_TOP,
     dialogFooterNode,
     dialogOptionRows,
     dialogRowPointer,
@@ -240,7 +242,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         top: 1,
         left: "4%",
         width: "92%",
-        height: "90%",
+        height: "86%",
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
@@ -376,7 +378,10 @@ function windowedCommands(
         state.selectedIndex,
         // The card is a fixed share of the terminal rather than growing to fit,
         // so its budget comes off that share and not off the whole screen.
-        listWindowRows(renderer.height * 0.9, HELP_CHROME),
+        listWindowRows(
+            (renderer.height - APP_PADDING_TOP - APP_PADDING_BOTTOM) * 0.9,
+            HELP_CHROME,
+        ),
     );
 }
 

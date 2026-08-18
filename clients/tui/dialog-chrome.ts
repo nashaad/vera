@@ -56,6 +56,17 @@ export const DIALOG_CARD_Z_INDEX = 20;
 // rather than two.
 export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 
+/** The blank row the screen keeps above its first surface. */
+export const APP_PADDING_TOP = 1;
+
+/**
+ * The blank row the screen keeps under its last line. A terminal fills the
+ * leftover pixels below its final row with its own background and nothing can
+ * paint there, so the screen ends on ground rather than on words. Overlays are
+ * laid out inside the app, so the row is not theirs to grow into.
+ */
+export const APP_PADDING_BOTTOM = 1;
+
 /**
  * How far above the bottom a bottom-anchored overlay sits.
  *
