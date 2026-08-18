@@ -1395,7 +1395,9 @@ function renderTuiDiagnostic(
 function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
     const folded = /^([+-]) (.+)$/.exec(entry.text);
     if (folded === null) {
-        return [bold(fg(TUI_TEXT)(entry.text))];
+        // A header with no fold marker still reserves the marker slot, so a
+        // running group and the finished group it becomes share one column.
+        return [fg(TUI_MUTED)("  "), bold(fg(TUI_TEXT)(entry.text))];
     }
     const [, marker, action] = folded;
     // The call reads on the header row, so a folded group is one sentence:

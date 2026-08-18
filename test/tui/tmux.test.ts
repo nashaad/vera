@@ -2452,7 +2452,9 @@ function startTuiSession(
     home: string,
     childPath: string,
     width = 100,
-    height = 34,
+    // One row taller than the transcript needs, because the pane header the
+    // sidebar draws above it now takes a row of its own.
+    height = 35,
     env: Readonly<Record<string, string>> = {},
 ): void {
     const exported = Object.entries(env)
