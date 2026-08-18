@@ -475,7 +475,8 @@ export function renderEffortScale(
     selected: string | undefined,
     width: number,
 ): readonly string[] {
-    if (efforts.length < 2 || !Number.isFinite(width) || width < 56) {
+    const choices = ["default", ...efforts];
+    if (choices.length < 2 || !Number.isFinite(width) || width < 56) {
         return [];
     }
     const indent = 14;
@@ -485,28 +486,32 @@ export function renderEffortScale(
     const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
     const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
     const trackLength = Math.max(1, trackWidth - 1);
-    const selectedIndex = selected === undefined
-        ? -1
-        : efforts.indexOf(selected);
+    const selectedChoice = selected ?? "default";
+    const selectedIndex = choices.indexOf(selectedChoice);
     const marker = selectedIndex < 0
         ? -1
-        : Math.round(selectedIndex * (trackLength - 1) / (efforts.length - 1));
+        : Math.round(selectedIndex * (trackLength - 1) / (choices.length - 1));
     const track = Array.from({ length: trackLength }, (_, index) =>
         index === marker
             ? "▲"
             : "─"
     ).join("");
     const optionLine = Array.from({ length: trackLength }, () => " ");
-    efforts.forEach((effort, index) => {
-        const position = Math.round(index * (trackLength - 1) / (efforts.length - 1));
-        const label = selected === effort ? `[${effort}]` : effort;
+    let nextStart = 0;
+    choices.forEach((choice, index) => {
+        const position = Math.round(index * (trackLength - 1) / (choices.length - 1));
+        // The marker above is the selection cue; leaving the labels unbracketed
+        // keeps the short scale legible when default and low are adjacent.
+        const label = choice;
         const start = Math.max(
+            nextStart,
             0,
             Math.min(trackLength - label.length, position - Math.floor(label.length / 2)),
         );
         for (let offset = 0; offset < label.length; offset += 1) {
             optionLine[start + offset] = label[offset] ?? " ";
         }
+        nextStart = start + label.length + 1;
     });
     return [
         fitDialText(labels, width),
