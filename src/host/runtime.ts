@@ -152,6 +152,8 @@ export interface StartResidentHostOptions {
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
     ) => void;
+    /** Receives startup diagnostics. Defaults to the resident host log. */
+    readonly startupLog?: HostLog;
 }
 
 export interface ResidentHost {
@@ -166,6 +168,32 @@ export interface ResidentHost {
 export async function startResidentHost(
     options: StartResidentHostOptions,
 ): Promise<ResidentHost> {
+    const startupStarted = performance.now();
+    const startupLog = options.startupLog ?? hostLog;
+    const timed = async <T>(
+        phase: string,
+        run: () => T | Promise<T>,
+    ): Promise<T> => {
+        const started = performance.now();
+        try {
+            const result = await run();
+            startupLog({
+                type: "host_startup_phase",
+                phase,
+                outcome: "completed",
+                duration_ms: performance.now() - started,
+            });
+            return result;
+        } catch (error) {
+            startupLog({
+                type: "host_startup_phase",
+                phase,
+                outcome: "failed",
+                duration_ms: performance.now() - started,
+            });
+            throw error;
+        }
+    };
     // Before anything reads or writes the pool file: the old keys are only
     // findable while pool.json is still absent.
     const migration = migrateConfigPool();
@@ -209,21 +237,32 @@ export async function startResidentHost(
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
-    let models = options.createAdapter === undefined
-        ? await discoverAvailableModels(options.config, authStorage)
-        : configuredCatalog(options.config);
+    let models = await timed("model_discovery", () =>
+        options.createAdapter === undefined
+            ? discoverAvailableModels(options.config, authStorage)
+            : configuredCatalog(options.config)
+    );
     // Opened once per host, not per agent: the file is per-user. A malformed
     // or missing file reads as no preferences rather than failing startup, so
     // this cannot block the host from coming up.
-    const permissionPreferences = await PermissionPreferenceStore.open(
-        options.permissionPreferencesPath,
+    const permissionPreferences = await timed("permission_preferences", () =>
+        PermissionPreferenceStore.open(options.permissionPreferencesPath)
     );
-    const extensions = await startExtensionRegistry({
-        extensions: options.config.extensions ?? [],
-        ...(options.onExtensionFailure === undefined
-            ? {}
-            : { onFailure: options.onExtensionFailure }),
-    });
+    const extensions = await timed(
+        "extension_registry",
+        () => startExtensionRegistry({
+            extensions: options.config.extensions ?? [],
+            ...(options.onExtensionFailure === undefined
+                ? {}
+                : { onFailure: options.onExtensionFailure }),
+            onActivationTiming: (timing) => startupLog({
+                type: "host_startup_extension",
+                extension_id: timing.extensionId,
+                outcome: timing.outcome,
+                duration_ms: timing.durationMs,
+            }),
+        }),
+    );
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const createAdapter = options.createAdapter
         ?? ((
@@ -545,9 +584,10 @@ export async function startResidentHost(
                 void inboxDelivery?.pumpAll();
             },
         });
-        scheduler = scheduleStore === null || inboxDelivery === undefined
-            ? null
-            : await startSchedulerRuntime({
+        scheduler = await timed("scheduler", () =>
+            scheduleStore === null || inboxDelivery === undefined
+                ? null
+                : startSchedulerRuntime({
                 store: scheduleStore,
                 emit: (key, entry) =>
                     inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
@@ -557,9 +597,12 @@ export async function startResidentHost(
                         ? error.message
                         : String(error),
                 }),
-            });
-        server = await startHostServer({
-            capabilities: HOST_CAPABILITIES,
+                })
+        );
+        server = await timed(
+            "server_listen_and_lockfile",
+            () => startHostServer({
+                capabilities: HOST_CAPABILITIES,
             ...(options.socketPath === undefined
                 ? {}
                 : { socketPath: options.socketPath }),
@@ -632,7 +675,8 @@ export async function startResidentHost(
                 operation,
                 ...hostErrorFields(error),
             }),
-        });
+            }),
+        );
         sidecars = startSidecarRuntimeIfNeeded({
             sidecars: extensions.contributions().sidecars(),
             socketPath: server.socketPath,
@@ -667,6 +711,10 @@ export async function startResidentHost(
         throw error;
     }
 
+    startupLog({
+        type: "host_startup_complete",
+        duration_ms: performance.now() - startupStarted,
+    });
     return {
         registry,
         extensions,

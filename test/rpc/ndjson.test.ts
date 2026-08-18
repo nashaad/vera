@@ -93,6 +93,7 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
         type: "history",
         entries: [],
         seq: 0,
+        usage: { rows: [] },
     });
     sendFrame(child.stdin, { type: "prompt", content: "say hello" });
     expect(await frames.next()).toEqual({

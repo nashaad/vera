@@ -114,6 +114,8 @@ export interface AssistantMessage {
     readonly content: readonly AssistantContent[];
     readonly source: ModelSource;
     readonly usage: ModelUsage;
+    /** Wall time spent obtaining this response, including its recovery path. */
+    readonly durationMs?: number;
     readonly stopReason: ModelStopReason;
     readonly errorMessage?: string;
     /**

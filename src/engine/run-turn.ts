@@ -1268,6 +1268,7 @@ export async function runTurn(
                 state.events.emit({ type: "turn_finished", message: assistantMessage });
                 return assistantMessage;
             }
+            const modelRequestStarted = performance.now();
             assistantMessage = await requestModelWithRecovery(
                 adapter,
                 modelRequest,
@@ -1401,6 +1402,10 @@ export async function runTurn(
                         : { wait: state.waitForModelRetry }),
                 },
             );
+            assistantMessage = {
+                ...assistantMessage,
+                durationMs: performance.now() - modelRequestStarted,
+            };
             assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
             if (

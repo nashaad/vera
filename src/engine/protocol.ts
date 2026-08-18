@@ -6,9 +6,11 @@ import type {
     UserQuestionUiRequest,
 } from "./events.ts";
 import type {
+    AssistantMessage,
     ModelMessage,
     ModelReasoningEffort,
     ModelSubstitution,
+    ModelUsage,
     ToolPresentation,
 } from "../model/types.ts";
 import type {
@@ -439,6 +441,19 @@ export interface HistoryUpdate {
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
     readonly context?: ContextMeasurement;
+    readonly usage?: SessionModelUsage;
+}
+
+export interface SessionModelUsageRow extends ModelUsage {
+    readonly provider: string;
+    readonly model: string;
+    readonly calls: number;
+    readonly durationMs: number;
+    readonly callsWithoutCost: number;
+}
+
+export interface SessionModelUsage {
+    readonly rows: readonly SessionModelUsageRow[];
 }
 
 /**
@@ -581,6 +596,7 @@ export interface TurnFinishedUpdate {
     readonly error?: string;
     /** The turn ended with no text, no tool call, and no reasoning. */
     readonly empty?: true;
+    readonly usage?: SessionModelUsage;
     readonly seq: number;
 }
 
@@ -1396,6 +1412,7 @@ export function createProtocolEncoder(
     ) => number | undefined = () => undefined,
 ): ProtocolEncoder {
     let seq = 0;
+    let sessionUsage: SessionModelUsage = { rows: [] };
     let measuredCapacity: number | undefined;
     let measuredContext: ContextMeasurement | undefined;
     let measuredModel: string | undefined;
@@ -1766,6 +1783,7 @@ export function createProtocolEncoder(
         }
 
         if (event.type === "turn_finished") {
+            sessionUsage = addSessionModelUsage(sessionUsage, event.message);
             // The provider counted the request the engine had only estimated,
             // so the turn ends on the authoritative number rather than leaving
             // the estimate standing as the last word. The window is the one
@@ -1810,6 +1828,7 @@ export function createProtocolEncoder(
                 ...(isEmptyAssistantMessage(event.message)
                     ? { empty: true as const }
                     : {}),
+                usage: sessionUsage,
                 seq,
             });
         }
@@ -1845,6 +1864,7 @@ export function createProtocolEncoder(
                         estimated: true,
                     }
                     : restored;
+            sessionUsage = summarizeSessionModelUsage(messages);
             sender.send({
                 type: "history",
                 entries: projectTranscript(
@@ -1854,10 +1874,55 @@ export function createProtocolEncoder(
                     harnessMessages(),
                 ),
                 ...(context === undefined ? {} : { context }),
+                usage: sessionUsage,
                 seq,
             });
         },
     });
+}
+
+export function summarizeSessionModelUsage(
+    messages: readonly ModelMessage[],
+): SessionModelUsage {
+    return messages.reduce(
+        (usage, message) => message.role === "assistant"
+            ? addSessionModelUsage(usage, message)
+            : usage,
+        { rows: [] } as SessionModelUsage,
+    );
+}
+
+function addSessionModelUsage(
+    usage: SessionModelUsage,
+    message: AssistantMessage,
+): SessionModelUsage {
+    const key = `${message.source.provider}\0${message.source.model}`;
+    const rows = [...usage.rows];
+    const index = rows.findIndex((row) =>
+        `${row.provider}\0${row.model}` === key
+    );
+    const prior = rows[index];
+    const next: SessionModelUsageRow = {
+        provider: message.source.provider,
+        model: message.source.model,
+        calls: (prior?.calls ?? 0) + 1,
+        durationMs: (prior?.durationMs ?? 0) + (message.durationMs ?? 0),
+        inputTokens: (prior?.inputTokens ?? 0) + message.usage.inputTokens,
+        outputTokens: (prior?.outputTokens ?? 0) + message.usage.outputTokens,
+        cachedInputTokens: (prior?.cachedInputTokens ?? 0)
+            + message.usage.cachedInputTokens,
+        reasoningTokens: (prior?.reasoningTokens ?? 0)
+            + message.usage.reasoningTokens,
+        totalTokens: (prior?.totalTokens ?? 0) + message.usage.totalTokens,
+        ...(message.usage.cost === undefined && prior?.cost === undefined
+            ? {}
+            : { cost: (prior?.cost ?? 0) + (message.usage.cost ?? 0) }),
+        callsWithoutCost: (prior?.callsWithoutCost ?? 0)
+            + (message.usage.cost === undefined ? 1 : 0),
+    };
+    if (index < 0) rows.push(next);
+    else rows[index] = next;
+    return { rows };
 }
 
 /**
