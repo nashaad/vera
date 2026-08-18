@@ -144,6 +144,16 @@ function session(
                 || capability === HOST_CAPABILITY_HARNESS_MESSAGES;
         },
         async send(command): Promise<void> {
+            if (command.type === "update_session_name") {
+                await clientReady.promise;
+                channel.engine.send({
+                    type: "session_name",
+                    requestId: command.requestId,
+                    name: command.name,
+                    seq: manualSeq++,
+                });
+                return;
+            }
             if (command.type === "attach_image") {
                 await clientReady.promise;
                 channel.engine.send({
