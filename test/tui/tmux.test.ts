@@ -4570,3 +4570,50 @@ test.skipIf(!tmuxAvailable)(
 function shellQuote(value: string): string {
     return `'${value.replaceAll("'", `'\\''`)}'`;
 }
+
+test.skipIf(!tmuxAvailable)(
+    "a keybinding Vera cannot use is named at startup",
+    async () => {
+        const socket = `vera-keymap-notice-${process.pid}-${randomUUID()}`;
+        const session = "keymap-notice";
+        const home = mkdtempSync(join(tmpdir(), "vera-keymap-notice-"));
+        let pane = "";
+
+        try {
+            mkdirSync(profileDirectory(home), { recursive: true });
+            writeFileSync(
+                join(profileDirectory(home), "tui.json"),
+                JSON.stringify({
+                    keybindings: {
+                        "dials.open": ["ctrl+alt+q"],
+                        no_such_binding: ["ctrl+j"],
+                    },
+                }),
+            );
+
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+            );
+            // The first history rebuilds the transcript, so a notice settled
+            // before it is the one that used to be painted and then dropped.
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "no_such_binding: unknown binding id",
+            );
+            expect(pane).toContain("dials.open");
+        } catch (error) {
+            pane = captureVisiblePane(socket, session);
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+);

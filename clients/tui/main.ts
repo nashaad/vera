@@ -866,6 +866,8 @@ export async function startTui(
     }
     let shuttingDown = false;
     let clientSurfaceReady = false;
+    let transcriptSeeded = false;
+    const deferredKeymapNotices: string[] = [];
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -1408,7 +1410,13 @@ export async function startTui(
         for (const notice of resolution.notices) {
             if (announcedKeymapNotices.has(notice)) continue;
             announcedKeymapNotices.add(notice);
-            state = appendTuiNotice(state, notice);
+            // The first history rebuilds the transcript from the session, so a
+            // notice settled before it would be painted and then dropped.
+            if (transcriptSeeded) {
+                state = appendTuiNotice(state, notice);
+            } else {
+                deferredKeymapNotices.push(notice);
+            }
         }
     }
 
@@ -3790,11 +3798,14 @@ export async function startTui(
         // chord the user moved in tui.json reaches the extension that owns the
         // id rather than the place the extension originally asked for.
         const extensionKey = tuiChord(key);
-        const boundId = extensionKey === undefined
+        const bound = extensionKey === undefined
             ? undefined
             : activeTuiKeymap().find((binding) =>
                 binding.keys.includes(extensionKey)
-            )?.id;
+            );
+        // A row in the static table names the extension that owns it under a
+        // different id than the row's own, so both are candidates.
+        const boundId = bound?.extensionId ?? bound?.id;
         const extensionBinding = boundId === undefined
             ? undefined
             : clientExtensionRegistry?.keybindings().find((binding) =>
@@ -5745,6 +5756,10 @@ export async function startTui(
                         adoptFallbackSessionTitle(userTexts[0]);
                     }
                     clearTranscriptNodes();
+                    transcriptSeeded = true;
+                    for (const notice of deferredKeymapNotices.splice(0)) {
+                        state = appendTuiNotice(state, notice);
+                    }
                 }
                 if (
                     update.type === "turn_finished"

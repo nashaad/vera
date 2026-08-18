@@ -10,7 +10,9 @@ test("every registered command is in the catalog the help pane reads", () => {
     const registered = registry.registeredCommands().map(
         (command) => command.name,
     );
-    const catalog = new Set(BUILTIN_COMMANDS.map((command) => command.name));
+    const catalog = new Set<string>(
+        BUILTIN_COMMANDS.map((command) => command.name),
+    );
     // A command registered but absent from `BUILTIN_COMMANDS` works and is
     // undiscoverable, which is the worst of both: the help pane and the
     // palette both build from the catalog.
