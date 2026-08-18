@@ -474,7 +474,7 @@ export function renderEffortScale(
     const indent = 14;
     // Keep the scale a compact HUD element; it should explain the axis without
     // stretching a short control panel across the whole terminal.
-    const trackWidth = Math.min(58, Math.max(20, width - indent - 2));
+    const trackWidth = Math.min(36, Math.max(20, width - indent - 2));
     const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
     const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
     const trackLength = Math.max(1, trackWidth - 1);
