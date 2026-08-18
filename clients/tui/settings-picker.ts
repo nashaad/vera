@@ -1037,11 +1037,11 @@ export function tuiModelAssignmentOptions(
     return [
         {
             value: SESSION_MODEL_VALUE,
-            label: "this session",
-            group: "Session",
+            label: "model",
+            group: "This session",
             description: "",
             note: "The model this session runs on. Press \u23ce to change it.",
-            detailTitle: "this session",
+            detailTitle: "session model",
             detailFacts: [[
                 "Runs",
                 sessionRunsFact(sessionModel, sessionReasoningEffort),
@@ -1052,7 +1052,7 @@ export function tuiModelAssignmentOptions(
             value: CONTEXT_LIMIT_VALUE,
             label: "context limit",
             description: "",
-            group: "Session",
+            group: "This session",
             note: "The global ceiling Vera applies across models. Press ⏎ to change it.",
             detailTitle: "context limit",
             detailFacts: [[
