@@ -172,12 +172,15 @@ export function createTuiDiagnosticsDialogView(
 }
 
 const DIAGNOSTIC_SECTIONS = new Set([
-    "Build",
-    "Extensions",
-    "Runtime",
-    "Model",
-    "Session",
-    "Pre-image stash",
+    "## Build",
+    "## Startup",
+    "## Session usage",
+    "## Startup extensions",
+    "## Extensions",
+    "## Runtime",
+    "## Model",
+    "## Session",
+    "## Pre-image stash",
 ]);
 
 interface DiagnosticsStyleOptions {
@@ -190,16 +193,67 @@ export function styledDiagnostics(
     text: string,
     options: DiagnosticsStyleOptions = {},
 ): StyledText {
-    const lines = text.split("\n").slice(
+    const lines = terminalDiagnosticsLines(text.split("\n").slice(
         options.skipFirstLine === false ? 0 : 1,
-    );
+    ));
     const sections = options.sections ?? DIAGNOSTIC_SECTIONS;
     return new StyledText(lines.flatMap((line, index) => {
-        const content = sections.has(line)
-            ? bold(fg(TUI_TEXT)(line))
+        const heading = sections.has(line) || line.startsWith("### ");
+        const content = heading
+            ? bold(fg(TUI_TEXT)(line.replace(/^#{2,3} /, "")))
             : fg(TUI_MUTED)(line);
         return index === lines.length - 1
             ? [content]
             : [content, fg(TUI_MUTED)("\n")];
     }));
+}
+
+/** Keeps copied diagnostics as Markdown while presenting native terminal text. */
+export function terminalDiagnosticsLines(lines: readonly string[]): string[] {
+    const rendered: string[] = [];
+    for (let index = 0; index < lines.length;) {
+        const cells = markdownRow(lines[index]);
+        const separator = markdownRow(lines[index + 1]);
+        if (
+            cells !== undefined
+            && separator?.every((cell) => /^:?-{3,}:?$/.test(cell))
+        ) {
+            const rows: string[][] = [cells];
+            index += 2;
+            while (index < lines.length) {
+                const next = markdownRow(lines[index]);
+                if (next === undefined) break;
+                rows.push(next);
+                index += 1;
+            }
+            rendered.push(...terminalTable(rows));
+            continue;
+        }
+        const line = lines[index] ?? "";
+        rendered.push(line.startsWith("> ") ? `Note: ${line.slice(2)}` : line);
+        index += 1;
+    }
+    return rendered;
+}
+
+function markdownRow(line: string | undefined): string[] | undefined {
+    if (line === undefined || !line.startsWith("| ") || !line.endsWith(" |")) {
+        return undefined;
+    }
+    return line.slice(2, -2).split(" | ");
+}
+
+function terminalTable(rows: readonly (readonly string[])[]): string[] {
+    const columns = Math.max(...rows.map((row) => row.length));
+    const widths = Array.from({ length: columns }, (_, column) =>
+        Math.max(...rows.map((row) => row[column]?.length ?? 0))
+    );
+    const render = (row: readonly string[]) => row.map((cell, column) =>
+        cell.padEnd(widths[column] ?? cell.length)
+    ).join("  ").trimEnd();
+    return [
+        render(rows[0] ?? []),
+        widths.map((width) => "─".repeat(width)).join("  "),
+        ...rows.slice(1).map(render),
+    ];
 }

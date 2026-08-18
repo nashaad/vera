@@ -10,6 +10,7 @@ import type {
     ModelActivityUpdate,
     PoolAdmissionProgressUpdate,
     PoolAdmissionResultUpdate,
+    SessionModelUsage,
     TranscriptEntry,
 } from "../../src/engine/protocol.ts";
 import type { PoolAdmissionVerdict } from "../../src/engine/events.ts";
@@ -143,6 +144,7 @@ export interface TuiState {
     readonly permissionInspection?: PermissionInspection;
     readonly context?: ContextMeasurement;
     readonly modelActivity?: ModelActivityUpdate;
+    readonly sessionUsage?: SessionModelUsage;
     /**
      * Reasoning streamed so far this phase, held off the transcript until the
      * phase ends. Keeping it out of `entries` is what stops a history rebuild
@@ -399,6 +401,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             )),
             working: false,
             modelActivity: undefined,
+            ...(update.usage === undefined
+                ? {}
+                : { sessionUsage: update.usage }),
         });
         if (update.empty === true) {
             return appendEntry(finished, emptyTurnEntry());
@@ -487,6 +492,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.context === undefined
                 ? {}
                 : { context: update.context }),
+            ...(update.usage === undefined
+                ? {}
+                : { sessionUsage: update.usage }),
         });
     }
     if (update.type === "context") {

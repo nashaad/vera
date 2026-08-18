@@ -66,6 +66,11 @@ export interface StartExtensionRegistryOptions {
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
     readonly onFailure?: (failure: ExtensionRegistryFailure) => void;
+    readonly onActivationTiming?: (timing: {
+        readonly extensionId: string;
+        readonly durationMs: number;
+        readonly outcome: "loaded" | "failed";
+    }) => void;
 }
 
 import {
@@ -155,6 +160,8 @@ export async function startExtensionRegistry(
         let extension: LoadedRegistryExtension | undefined;
         let extensionId: string | undefined;
         let admitted = false;
+        const activationStarted = performance.now();
+        let activationOutcome: "loaded" | "failed" = "failed";
         try {
             const manifest = loadExtensionManifest(configured.path);
             const servesHost = manifest.manifest.capabilities.some(
@@ -194,6 +201,7 @@ export async function startExtensionRegistry(
                 }
             }
             loaded.push(extension);
+            activationOutcome = "loaded";
             owners.set(extension.id, extension);
             for (const command of extension.commands) {
                 commands.set(command.descriptor.name, {
@@ -225,6 +233,12 @@ export async function startExtensionRegistry(
                     ? {}
                     : { extensionId }),
                 message,
+            });
+        } finally {
+            options.onActivationTiming?.({
+                extensionId: extensionId ?? configured.path,
+                durationMs: performance.now() - activationStarted,
+                outcome: activationOutcome,
             });
         }
     }

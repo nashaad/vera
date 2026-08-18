@@ -2441,6 +2441,10 @@ function isModelMessage(value: unknown): value is ModelMessage {
         || typeof message.internal === "boolean")
         && isModelSource(message.source)
         && isModelUsage(message.usage)
+        && (message.durationMs === undefined
+            || (typeof message.durationMs === "number"
+                && Number.isFinite(message.durationMs)
+                && message.durationMs >= 0))
         && isModelStopReason(message.stopReason)
         && (message.errorMessage === undefined
             || typeof message.errorMessage === "string")

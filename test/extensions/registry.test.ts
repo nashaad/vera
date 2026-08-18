@@ -109,6 +109,38 @@ test("registry loads enabled extensions, invokes by workspace, and closes in rev
     expect(readFileSync(cleanupPath, "utf8")).toBe("second\nfirst\n");
 });
 
+test("registry reports one activation timing for each enabled host extension", async () => {
+    const loaded = createExtension("loaded.extension", `
+        export function activate() {}
+    `);
+    const failed = createExtension("failed.extension", `
+        export function activate() {
+            throw new Error("activation failed");
+        }
+    `);
+    const timings: Array<{
+        extensionId: string;
+        durationMs: number;
+        outcome: "loaded" | "failed";
+    }> = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [configured(loaded), configured(failed)],
+        onActivationTiming: (timing) => timings.push(timing),
+    });
+
+    expect(timings).toHaveLength(2);
+    expect(timings.map(({ extensionId, outcome }) => ({
+        extensionId,
+        outcome,
+    }))).toEqual([
+        { extensionId: "loaded.extension", outcome: "loaded" },
+        { extensionId: "failed.extension", outcome: "failed" },
+    ]);
+    expect(timings.every((timing) => timing.durationMs >= 0)).toBeTrue();
+    await registry.close();
+});
+
 test("registry exposes extension tools through the ordinary tool and permission paths", async () => {
     const workspace = createDirectory();
     const extension = createExtension("search.extension", `
