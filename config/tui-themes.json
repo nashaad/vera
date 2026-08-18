@@ -61,6 +61,30 @@
       "notice": "#F37D3B", "danger": "#FF5370", "success": "#C3E88D", "diffAdded": "#79A85B", "diffRemoved": "#B94A5E", "code": "#82AAFF",
       "background": "#14171C",
       "panel": "#283246", "element": "#222F47"
+    },
+    "norton-commander": {
+      "accent": "#00AAAA", "text": "#FFFFFF", "muted": "#55FFFF",
+      "notice": "#FFFF55", "danger": "#FF5555", "success": "#55FF55", "diffAdded": "#008844", "diffRemoved": "#AA3333", "code": "#FFFF55",
+      "background": "#121B70",
+      "panel": "#1E28A0", "element": "#00AAAA",
+      "input": "#0C1458", "menu": "#1E28A0",
+      "chrome": "norton", "selectionText": "#000000"
+    },
+    "nc-navy": {
+      "accent": "#00AAAA", "text": "#FFFFFF", "muted": "#55FFFF",
+      "notice": "#FFFF55", "danger": "#FF5555", "success": "#55FF55", "diffAdded": "#008844", "diffRemoved": "#AA3333", "code": "#FFFF55",
+      "background": "#191A5E",
+      "panel": "#26278C", "element": "#00AAAA",
+      "input": "#111240", "menu": "#26278C",
+      "chrome": "norton", "selectionText": "#000000"
+    },
+    "windows-31": {
+      "accent": "#000080", "text": "#000000", "muted": "#4A4A4A",
+      "notice": "#806000", "danger": "#800000", "success": "#006000", "diffAdded": "#D8E8D8", "diffRemoved": "#E8D0D0", "code": "#000080",
+      "background": "#008080",
+      "panel": "#FFFFFF", "element": "#C0C0C0",
+      "input": "#FFFFFF", "menu": "#FFFFFF",
+      "chrome": "windows-31", "chromeTitle": "#000080", "selectionText": "#FFFFFF"
     }
   }
 }

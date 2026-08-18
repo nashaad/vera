@@ -4,6 +4,8 @@ import { createTestRenderer } from "@opentui/core/testing";
 import type { StyledText } from "@opentui/core";
 
 import { tuiKeyHint } from "../../clients/tui/keymap.ts";
+import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 import {
     handleTuiSettingsPickerKey,
@@ -1067,6 +1069,9 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         "github",
         "midnight-blue",
         "midnight-blue-ii",
+        "norton-commander",
+        "nc-navy",
+        "windows-31",
     ]);
     expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
     let filtered = themes;
@@ -1083,6 +1088,36 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         .toBe("nightowl");
     expect(handleTuiSettingsPickerKey(filtered, { name: "backspace" }).previewTheme)
         .toBe("nightowl");
+});
+
+test("Norton Commander renders the theme picker as a DOS panel", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    applyTuiTheme(await resolveTuiTheme(setup.renderer, "norton-commander"));
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(startTuiSettingsPicker(
+        "theme",
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        "norton-commander",
+    ));
+    try {
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(view.box.border).toBe(true);
+        expect(frame).toContain("╔");
+        expect(frame).toContain("[Esc]");
+        expect(frame).toContain("● NC");
+        expect(view.box.screenY).toBeGreaterThan(0);
+        expect(view.box.screenY + view.box.height)
+            .toBeLessThanOrEqual(setup.renderer.height);
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
+        setup.renderer.destroy();
+    }
 });
 
 test("theme picker renders as a borderless palette card with swatches", async () => {
