@@ -255,11 +255,11 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_subagents_picker":
         case "go_to_parent":
         case "create_session":
+        case "update_session_name":
             return "focused_agent";
         case "open_rewind":
         case "open_fork":
         case "reconnect":
-        case "update_session_name":
         case "clone_session":
         case "compact_session":
             return "main_session";

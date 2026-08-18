@@ -3403,6 +3403,11 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 3");
 
+            sendText(socket, session, "/rename peer research");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "session renamed: peer research");
+            expect(pane).toContain("peer research · ask");
+
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "peer · readonly");
@@ -3414,6 +3419,11 @@ test.skipIf(!tmuxAvailable)(
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(socket, session, "PEER ANSWERED 1");
             expect(pane).not.toContain("inspect this");
+
+            sendText(socket, session, "/pair close");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePane(socket, session, "Message Vera");
+            expect(pane).not.toContain("Message peer");
 
             sendKey(socket, session, "C-g");
             sendText(socket, session, "main only");
