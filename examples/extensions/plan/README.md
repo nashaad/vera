@@ -10,7 +10,6 @@ switch to it. Add it to `config.json`:
       "path": "/path/to/vera/examples/extensions/plan",
       "enabled": true,
       "config": {
-        "allow_skill_scripts": true,
         "skills": ["search-sessions"]
       }
     }
@@ -19,10 +18,10 @@ switch to it. Add it to `config.json`:
 ```
 
 `skills` is an allow-list. Omit it to expose every skill installed in Vera;
-an empty list exposes none. `allow_skill_scripts` defaults to `false`. Turning
-it on adds only Vera's guarded `skill_script` tool—not shell access—and scripts
-still have to belong to an installed, allowed skill and be declared by its
-`SKILL.md`.
+an empty list exposes none. Plan enables Vera's guarded `skill_script` tool by
+default—not shell access—and scripts still have to belong to an installed,
+allowed skill and be declared by its `SKILL.md`. Set `allow_skill_scripts` to
+`false` if a read-only plan should not execute skill scripts.
 
 With it installed, typing something like "what's the plan here?" shows one line
 under the composer:

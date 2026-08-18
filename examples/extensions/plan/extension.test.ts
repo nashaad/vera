@@ -2,9 +2,9 @@ import { expect, test } from "bun:test";
 
 import { activate, planExtensionConfig } from "./extension.ts";
 
-test("plan skill scripts are explicit and skills remain configurable", () => {
+test("plan skill scripts are enabled by default and skills remain configurable", () => {
     expect(planExtensionConfig(undefined)).toEqual({
-        allowSkillScripts: false,
+        allowSkillScripts: true,
     });
     expect(planExtensionConfig({
         allow_skill_scripts: true,
@@ -13,11 +13,12 @@ test("plan skill scripts are explicit and skills remain configurable", () => {
         allowSkillScripts: true,
         skills: ["search-sessions"],
     });
+    expect(planExtensionConfig({ allow_skill_scripts: false }))
+        .toEqual({ allowSkillScripts: false });
 
     let registered: Record<string, unknown> | undefined;
     activate({
         config: {
-            allow_skill_scripts: true,
             skills: ["search-sessions"],
         },
         agents: {
