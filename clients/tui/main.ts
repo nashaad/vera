@@ -9709,7 +9709,7 @@ export async function startTui(
             if (isEffortScale) {
                 const scaleChunks = index === effortRowIndex + 1
                     ? [fg(TUI_ACCENT)(main)]
-                    : main.split(/(▲|┬)/u).filter(Boolean).map((part) =>
+                    : main.split(/(▲)/u).filter(Boolean).map((part) =>
                         fg(part === "▲" ? TUI_NOTICE : TUI_ACCENT)(part)
                     );
                 return [
