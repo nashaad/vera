@@ -24,6 +24,7 @@ import {
     stripImageChips,
     type ImageChip,
 } from "./image-chips.ts";
+import { isTuiComposerClearKey } from "./keymap.ts";
 
 const IMAGE_CHIP_STYLE = "image-chip";
 const IMAGE_CHIP_TYPE = "image-chip";
@@ -51,6 +52,8 @@ export class TuiComposer extends TextareaRenderable {
     onTypedRowsChange?: (rows: number) => void;
     /** A chip the user deleted, so its attachment can be dropped too. */
     onImageChipRemoved?: (requestId: string) => void;
+    /** Called before OpenTUI's word-delete binding handles Command-Delete. */
+    onCommandDelete?: () => boolean;
 
     /**
      * Show an attached image as an atomic `[Image N]` chip at the cursor.
@@ -97,6 +100,9 @@ export class TuiComposer extends TextareaRenderable {
     }
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
+        if (isTuiComposerClearKey(key) && this.onCommandDelete?.() === true) {
+            return true;
+        }
         if (
             key.name === "up"
             && !key.shift

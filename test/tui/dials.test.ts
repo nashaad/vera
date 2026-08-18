@@ -7,6 +7,7 @@ import {
     jumpDialStrip,
     moveDialStrip,
     openDialStrip,
+    renderEffortScale,
     renderDialStrip,
     type DialPoolEntry,
 } from "../../clients/tui/dials.ts";
@@ -94,6 +95,20 @@ test("the HUD windows long lanes instead of wrapping them", () => {
         90,
     );
     expect(wide.join("\n")).toContain("RECENTLY USED");
+});
+
+test("the effort scale explains the faster-to-smarter direction when it fits", () => {
+    const scale = renderEffortScale(
+        ["low", "medium", "high", "xhigh", "max"],
+        "high",
+        80,
+    );
+    expect(scale).toHaveLength(2);
+    expect(scale[0]).toContain("Faster");
+    expect(scale[0]).toContain("Smarter");
+    expect(scale[1]).toContain("▲");
+    expect(scale.join("\n").length).toBeLessThanOrEqual(80 * 2);
+    expect(renderEffortScale(["low", "high"], "low", 48)).toEqual([]);
 });
 
 test("the model lane names where each choice came from", () => {
