@@ -20,6 +20,10 @@ export const subagentTool: RegisteredTool = {
                     type: "string",
                     description: "Reasoning effort for the subagent, from the chosen model's levels. Defaults to this agent's effort.",
                 },
+                agent: {
+                    type: "string",
+                    description: "An agent for the subagent to wear. Its tools and skills are narrowed by what this session can already reach.",
+                },
             },
             required: ["description"],
             additionalProperties: false,
@@ -35,6 +39,9 @@ export const subagentTool: RegisteredTool = {
             effect: {
                 type: "spawn_subagent",
                 description,
+                ...(typeof input.agent === "string" && input.agent.length > 0
+                    ? { agent: input.agent }
+                    : {}),
                 ...spawnModelChoice("subagent", input),
             },
         };
