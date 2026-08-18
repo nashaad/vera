@@ -53,6 +53,15 @@ export interface UpdateReasoningTuiCommandAction {
 export interface UpdatePermissionsTuiCommandAction {
     readonly type: "update_permissions";
     readonly mode: string;
+    /**
+     * Whether the host default moves too.
+     *
+     * Absent is session-scoped, which is the default action now: choosing a
+     * posture for this conversation stopped deciding it for every future one.
+     * `/permissions <mode> default` is how you ask for the old behaviour, and
+     * it is explicit because it is the one that outlives the session.
+     */
+    readonly scope?: "global";
 }
 
 export interface OpenModelPickerTuiCommandAction {
@@ -65,6 +74,22 @@ export interface OpenReasoningPickerTuiCommandAction {
 
 export interface OpenPermissionsPickerTuiCommandAction {
     readonly type: "open_permissions_picker";
+}
+
+/**
+ * Open the agent surface, or wear one by name.
+ *
+ * Both go through the same wear path: the picker is a readout of what is live
+ * as much as it is a way to change it, and `/agent <name>` is the shortcut for
+ * people who already know which one they want.
+ */
+export interface OpenAgentPickerTuiCommandAction {
+    readonly type: "open_agent_picker";
+}
+
+export interface WearAgentTuiCommandAction {
+    readonly type: "wear_agent";
+    readonly name: string;
 }
 
 export interface OpenPreferencesListTuiCommandAction {
@@ -182,6 +207,8 @@ export type TuiCommandAction =
     | OpenModelPickerTuiCommandAction
     | OpenReasoningPickerTuiCommandAction
     | OpenPermissionsPickerTuiCommandAction
+    | OpenAgentPickerTuiCommandAction
+    | WearAgentTuiCommandAction
     | OpenPreferencesListTuiCommandAction
     | OpenSettingsMenuTuiCommandAction
     | OpenConfigureTuiCommandAction
@@ -220,6 +247,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_model_picker":
         case "open_reasoning_picker":
         case "open_permissions_picker":
+        case "open_agent_picker":
+        case "wear_agent":
         case "open_settings_menu":
         case "open_configure":
         case "open_resume_picker":
@@ -336,8 +365,14 @@ const EFFORT_COMMAND = {
 
 const PERMISSIONS_COMMAND = {
     name: "permissions",
-    description: "Change the session permission mode",
-    usage: "/permissions <ask|auto|full_access>",
+    description: "Change this session's permission mode",
+    usage: "/permissions <ask|auto|full_access> [default]",
+} as const satisfies TuiCommandCatalogEntry;
+
+const AGENT_COMMAND = {
+    name: "agent",
+    description: "Wear an agent: its instructions, tools, skills and posture",
+    usage: "/agent [name]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const SETTINGS_COMMAND = {
@@ -454,6 +489,7 @@ export const BUILTIN_COMMANDS = [
     MODEL_COMMAND,
     EFFORT_COMMAND,
     PERMISSIONS_COMMAND,
+    AGENT_COMMAND,
     SETTINGS_COMMAND,
     CONFIGURE_COMMAND,
     THEMES_COMMAND,
@@ -989,11 +1025,28 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...PERMISSIONS_COMMAND,
-        parse: (argumentsText) => isApprovalMode(argumentsText)
-            ? { type: "update_permissions", mode: argumentsText }
-            : argumentsText.length === 0
-                ? { type: "open_permissions_picker" }
-                : { type: "command_error", message: `Usage: ${PERMISSIONS_COMMAND.usage}` },
+        parse: (argumentsText) => {
+            const [mode, scope, ...rest] = argumentsText.split(/\s+/)
+                .filter((word) => word.length > 0);
+            if (mode === undefined) {
+                return { type: "open_permissions_picker" };
+            }
+            if (
+                !isApprovalMode(mode)
+                || rest.length > 0
+                || (scope !== undefined && scope !== "default")
+            ) {
+                return {
+                    type: "command_error",
+                    message: `Usage: ${PERMISSIONS_COMMAND.usage}`,
+                };
+            }
+            return {
+                type: "update_permissions",
+                mode,
+                ...(scope === "default" ? { scope: "global" as const } : {}),
+            };
+        },
         palette: {
             name: "permission_mode",
             label: "Change permission mode",
@@ -1001,6 +1054,26 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Settings",
             slashName: "permissions",
             action: { type: "open_permissions_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...AGENT_COMMAND,
+        parse: (argumentsText) =>
+            argumentsText.length === 0
+                ? { type: "open_agent_picker" }
+                : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(argumentsText)
+                ? { type: "wear_agent", name: argumentsText }
+                : {
+                    type: "command_error",
+                    message: `Usage: ${AGENT_COMMAND.usage}`,
+                },
+        palette: {
+            name: "agent",
+            label: "Wear an agent",
+            description: "instructions, tools, skills and posture, as one thing",
+            group: "Settings",
+            slashName: "agent",
+            action: { type: "open_agent_picker" },
         },
     });
     registry.registerCommand({

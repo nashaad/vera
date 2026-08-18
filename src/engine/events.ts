@@ -225,6 +225,8 @@ export interface PermissionsChangedEvent {
     readonly mode: ApprovalMode;
     readonly pending: boolean;
     readonly inspection?: PermissionInspection;
+    /** Where the session's posture came from, when the host has said. */
+    readonly origin?: SessionSettingOrigin;
 }
 
 /**

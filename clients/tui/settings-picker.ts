@@ -258,6 +258,10 @@ export interface TuiExtensionPickerRow {
 
 export type TuiExtensionPickerActionKey =
     | "enter"
+    // `d` is the /agent surface's "save the session's pair as this agent's
+    // default". It is a named action key like the others, not a binding: it
+    // exists only while a picker that declares it is open.
+    | "d"
     | "s"
     | "delete"
     | "backspace";
@@ -1476,6 +1480,7 @@ function extensionPickerActionKey(
     key: TuiSettingsPickerKey,
 ): TuiExtensionPickerActionKey | undefined {
     if (key.name === "return" || key.name === "enter") return "enter";
+    if (key.name === "d") return "d";
     if (key.name === "s") return "s";
     if (key.name === "delete") return "delete";
     if (key.name === "backspace") return "backspace";

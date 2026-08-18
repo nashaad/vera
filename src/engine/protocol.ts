@@ -772,6 +772,7 @@ export interface PermissionsUpdate {
     readonly mode: ApprovalMode;
     readonly pending: boolean;
     readonly inspection?: PermissionInspection;
+    readonly origin?: SessionSettingOrigin;
     readonly seq: number;
 }
 
@@ -1634,6 +1635,7 @@ export function createProtocolEncoder(
                 ...(event.inspection === undefined
                     ? {}
                     : { inspection: event.inspection }),
+                ...(event.origin === undefined ? {} : { origin: event.origin }),
                 seq,
             });
             return;

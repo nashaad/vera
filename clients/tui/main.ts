@@ -318,6 +318,15 @@ import {
     tuiKeyHint,
 } from "./keymap.ts";
 import { resolveTuiKeymap } from "./keybindings.ts";
+import type { AgentCatalogUpdate } from "../../src/engine/protocol.ts";
+
+/** The agent list a /agent surface renders, as the host last reported it. */
+type TuiAgentCatalog = {
+    readonly worn: string;
+    readonly agents: AgentCatalogUpdate["agents"];
+    readonly notices: readonly string[];
+};
+type TuiAgentCatalogRow = AgentCatalogUpdate["agents"][number];
 import {
     composeDialStrip,
     handleDialStripKey,
@@ -963,6 +972,15 @@ export async function startTui(
     const announcedKeymapNotices = new Set<string>();
     /** The dial strip, open only while it is on screen. */
     let dialStrip: DialStripState | undefined;
+    /** The last catalog the host sent, which /agent opens against. */
+    let agentCatalog: TuiAgentCatalog | undefined;
+    /** Suggesters escape put away, for the rest of this session. */
+    const dismissedComposeSuggesters = new Set<string>();
+
+    const pendingAgentCatalogs = new Map<
+        string,
+        (catalog: TuiAgentCatalog | undefined) => void
+    >();
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
@@ -2176,6 +2194,172 @@ export async function startTui(
         }
     }
 
+    /**
+     * The agent surface: what is live, and how to change it.
+     *
+     * A readout first. Wearing is the loud action it also offers, and `[d]`
+     * writes the session's pair into the highlighted agent's file — the only
+     * write into an agent a wire command can do.
+     */
+    async function openAgentPicker(): Promise<void> {
+        const target = focusedAgentClient();
+        let catalog = agentCatalog;
+        if (catalog === undefined) {
+            catalog = await requestAgentCatalog(target);
+        }
+        if (catalog === undefined) {
+            state = appendTuiNotice(
+                state,
+                "This host does not support agents.",
+            );
+            renderState();
+            return;
+        }
+        for (const notice of catalog.notices) {
+            state = appendTuiNotice(state, notice, "soft");
+        }
+        while (true) {
+            const current = agentCatalog ?? catalog;
+            const result = await requestExtensionPicker({
+                title: "Agents",
+                subtitle:
+                    "Wearing one re-reads the prefix, so the next turn is slower once.",
+                rows: current.agents.map((agent) => ({
+                    id: agent.name,
+                    label: agent.scope === "extension" && agent.name !== "default"
+                        ? `${agent.name} (ext)`
+                        : agent.name,
+                    description: describeAgentRow(agent),
+                    current: agent.name === current.worn,
+                })),
+                selectedId: current.worn,
+                actions: [
+                    { id: "wear", label: "wear", keys: ["enter"] },
+                    {
+                        id: "default",
+                        label: "save session pair as default",
+                        keys: ["d"],
+                    },
+                ],
+            }, new AbortController().signal);
+            if (result.outcome === "cancelled") return;
+            const agent = current.agents.find(
+                (candidate) => candidate.name === result.rowId,
+            );
+            if (agent === undefined) return;
+            if (result.actionId === "wear") {
+                wearAgent(agent.name);
+                return;
+            }
+            if (!agent.writable) {
+                state = appendTuiNotice(
+                    state,
+                    `${agent.name} is registered by an extension, so its file cannot be written.`,
+                );
+                renderState();
+                continue;
+            }
+            const pair = committedDialPair();
+            const named = pair === undefined ? undefined : dialPool().find(
+                (entry) =>
+                    entry.model === pair.model
+                    && (pair.provider === undefined
+                        || entry.provider === pair.provider),
+            )?.poolName;
+            if (named === undefined) {
+                // The agent file names a pool entry, so a model with no pool
+                // name has nothing to write. Saying so beats writing an id the
+                // format does not carry.
+                state = appendTuiNotice(
+                    state,
+                    "Name this model in /model before saving it as an agent default.",
+                );
+                renderState();
+                continue;
+            }
+            void target.send({
+                type: "update_agent_default_pair",
+                requestId: randomUUID(),
+                name: agent.name,
+                pair: {
+                    name: named,
+                    ...(pair?.effort === undefined ? {} : { effort: pair.effort }),
+                },
+            }).catch(() => undefined);
+            state = appendTuiNotice(
+                state,
+                `${agent.name}: default pair is now ${named}${
+                    pair?.effort === undefined ? "" : `·${pair.effort}`
+                }.`,
+                "soft",
+            );
+            renderState();
+        }
+    }
+
+    function describeAgentRow(agent: TuiAgentCatalogRow): string {
+        return [
+            agent.tools === undefined
+                ? "all tools"
+                : `${agent.tools.length} tool${
+                    agent.tools.length === 1 ? "" : "s"
+                }`,
+            agent.skills === undefined
+                ? "all skills"
+                : `${agent.skills.length} skill${
+                    agent.skills.length === 1 ? "" : "s"
+                }`,
+            `posture: ${agent.posture ?? "host default"}`,
+            ...(agent.defaultPair === undefined ? [] : [
+                `default ${agent.defaultPair.name}${
+                    agent.defaultPair.effort === undefined
+                        ? ""
+                        : `·${agent.defaultPair.effort}`
+                }`,
+            ]),
+        ].join(" · ");
+    }
+
+    /** Enqueued, never applied here: the host decides where in the queue it lands. */
+    function wearAgent(name: string): void {
+        void focusedAgentClient().send({
+            type: "wear_agent",
+            requestId: randomUUID(),
+            name,
+        }).catch((error) => {
+            state = appendTuiNotice(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            renderState();
+        });
+        if (focusedAgentState().working) {
+            state = appendTuiNotice(
+                state,
+                `${name}: queued; applies after the current work.`,
+                "soft",
+            );
+            renderState();
+        }
+    }
+
+    function requestAgentCatalog(
+        target: TuiAgentClient,
+    ): Promise<TuiAgentCatalog | undefined> {
+        const requestId = randomUUID();
+        return new Promise((resolve) => {
+            pendingAgentCatalogs.set(requestId, resolve);
+            void target.send({ type: "list_agents", requestId }).catch(() => {
+                pendingAgentCatalogs.delete(requestId);
+                resolve(undefined);
+            });
+            // A host that answers nothing must not leave /agent hanging.
+            setTimeout(() => {
+                if (pendingAgentCatalogs.delete(requestId)) resolve(undefined);
+            }, 5_000);
+        });
+    }
+
     function closeDials(): void {
         dialStrip = undefined;
         renderState();
@@ -3380,6 +3564,32 @@ export async function startTui(
             }
         }
 
+        // Ahead of clearing the composer, because putting away an offer you
+        // did not ask for should not also throw away what you were writing.
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && activeComposeSuggester() !== undefined
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            const suggester = (clientExtensionRegistry?.composeSuggesters() ?? [])
+                .find((candidate) =>
+                    candidate.agent === activeComposeSuggester()!.agent
+                );
+            if (suggester !== undefined) {
+                dismissedComposeSuggesters.add(
+                    `${suggester.source}:${suggester.agent}`,
+                );
+            }
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+
         // Ahead of clearing the composer, so dropping a quote does not also
         // throw away the message being written to send it with.
         if (
@@ -4349,7 +4559,11 @@ export async function startTui(
                 confirmingFullAccessAgent = focusedAgentClient();
                 focusActiveSurface();
             } else {
-                requestPermissionsChange(commandAction.mode);
+                requestPermissionsChange(
+                    commandAction.mode,
+                    focusedAgentClient(),
+                    commandAction.scope ?? "session",
+                );
             }
             renderState();
             return;
@@ -4362,6 +4576,16 @@ export async function startTui(
         if (commandAction?.type === "open_permissions_picker") {
             composer.clearComposer();
             openPermissionsPicker();
+            return;
+        }
+        if (commandAction?.type === "open_agent_picker") {
+            composer.clearComposer();
+            void openAgentPicker();
+            return;
+        }
+        if (commandAction?.type === "wear_agent") {
+            composer.clearComposer();
+            wearAgent(commandAction.name);
             return;
         }
         if (commandAction?.type === "open_theme_picker") {
@@ -5364,6 +5588,18 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (update.type === "agent_catalog") {
+                    agentCatalog = {
+                        worn: update.worn,
+                        agents: update.agents,
+                        notices: update.notices,
+                    };
+                    pendingAgentCatalogs.get(update.requestId)?.(agentCatalog);
+                    pendingAgentCatalogs.delete(update.requestId);
+                }
+                if (update.type === "agent_worn" && agentCatalog !== undefined) {
+                    agentCatalog = { ...agentCatalog, worn: update.name };
+                }
                 if (update.type === "model_settings") {
                     migrateQuickslotsOnce();
                 }
@@ -7608,6 +7844,10 @@ export async function startTui(
         if (action.type === "open_permissions_picker") {
             return openPermissionsPicker();
         }
+        if (action.type === "open_agent_picker") {
+            void openAgentPicker();
+            return;
+        }
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
@@ -8626,18 +8866,36 @@ export async function startTui(
         renderState();
     }
 
+    /**
+     * Change the posture for this session.
+     *
+     * Session-scoped by default. Writing the host default too used to be
+     * implicit and unavoidable; it is now its own action, so choosing a
+     * posture for one conversation stops deciding it for every future one. A
+     * host too old to know the session-scoped command gets the old behaviour,
+     * which is the only honest fallback.
+     */
     function requestPermissionsChange(
         mode: string,
         target: TuiAgentClient = focusedAgentClient(),
+        scope: "session" | "global" = "session",
     ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
+        const sessionScoped = scope === "session"
+            && target.supportsHostCapability?.(
+                    HOST_CAPABILITY_SESSION_SCOPED_STATE,
+                ) !== false;
         void target.send({
-            type: "update_permissions",
+            type: sessionScoped
+                ? "update_session_permission_mode"
+                : "update_permissions",
             requestId,
             mode,
         }).catch(reportConnectionError);
-        showStatusNotice(`permissions → ${mode}`);
+        showStatusNotice(
+            `permissions → ${mode}${sessionScoped ? "" : " (default too)"}`,
+        );
     }
 
     async function applySelectedTheme(
@@ -8858,8 +9116,45 @@ export async function startTui(
             ? window.rows + tuiSuggestionGaps(visible, grouped)
                 + (window.hidden > 0 ? 1 : 0)
             : 1;
+        const suggester = suggestions.length > 0
+            ? undefined
+            : activeComposeSuggester();
+        if (suggester !== undefined) {
+            // One line, under the composer, from an extension the user chose
+            // to install. Core never reads composer text; this does, and it
+            // only exists because installing the extension said it could.
+            commandSuggestionsText.content = new StyledText([
+                fg(TUI_MUTED)(
+                    `${suggester.hint} /agent ${suggester.agent} · esc dismiss`,
+                ),
+            ]);
+            commandSuggestionsBox.height = 1;
+            commandSuggestionsBox.visible = overlaysClearOfSuggestions();
+            return;
+        }
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
+    }
+
+    /**
+     * The one suggester that applies right now, if any.
+     *
+     * First registered wins, so a second extension cannot talk over the first,
+     * and a suggester dismissed with escape stays dismissed for the session.
+     */
+    function activeComposeSuggester():
+        | { readonly agent: string; readonly hint: string }
+        | undefined
+    {
+        const text = composer.plainText;
+        if (text.trim().length === 0 || text.startsWith("/")) return undefined;
+        return (clientExtensionRegistry?.composeSuggesters() ?? []).find(
+            (suggester) =>
+                !dismissedComposeSuggesters.has(
+                    `${suggester.source}:${suggester.agent}`,
+                )
+                && suggester.matches(text),
+        );
     }
 
     function overlaysClearOfSuggestions(): boolean {
@@ -9207,6 +9502,13 @@ export async function startTui(
                         // to the default clears it on every path.
                         pairOverridden:
                             statusState.modelSettingsOrigin === "user",
+                        ...(statusState.agent === undefined
+                            ? {}
+                            : { agent: statusState.agent.name }),
+                        postureOverridden:
+                            statusState.approvalModeOrigin === "user"
+                            && statusState.approvalMode
+                                !== statusState.agent?.posture,
                         ...(statusState.modelFallback === undefined
                             ? {}
                             : { fallbackTo: statusState.modelFallback.to }),
