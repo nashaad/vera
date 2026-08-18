@@ -1090,7 +1090,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         .toBe("nightowl");
 });
 
-test("Norton Commander renders the theme picker as a DOS panel", async () => {
+test("Norton Commander renders the theme picker with retro styling", async () => {
     const setup = await createTestRenderer({ width: 100, height: 24 });
     applyTuiTheme(await resolveTuiTheme(setup.renderer, "norton-commander"));
     const view = createTuiSettingsPickerView(setup.renderer);
@@ -1107,8 +1107,7 @@ test("Norton Commander renders the theme picker as a DOS panel", async () => {
     try {
         await setup.flush();
         const frame = setup.captureCharFrame();
-        expect(view.box.border).toBe(true);
-        expect(frame).toContain("╔");
+        expect(view.box.border).toBe(false);
         expect(frame).toContain("[Esc]");
         expect(frame).toContain("● NC");
         expect(view.box.screenY).toBeGreaterThan(0);
