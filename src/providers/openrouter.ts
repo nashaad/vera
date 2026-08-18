@@ -184,7 +184,7 @@ export class OpenRouterAdapter implements ModelAdapter {
                     : { reasoning: { effort: reasoning.providerEffort } }),
                 ...(request.tools === undefined || request.tools.length === 0
                     ? {}
-                    : { tools: encodeOpenRouterTools(request.tools) }),
+                    : { tools: encodeOpenRouterTools(request.tools, request.model) }),
                 ...(request.bodyExtensions === undefined
                     ? {}
                     : { bodyExtensions: request.bodyExtensions }),

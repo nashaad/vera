@@ -14,13 +14,96 @@ import {
 } from "../../src/providers/openrouter.ts";
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
-import { normalizeOpenRouterToolCallId } from "../../src/providers/openrouter-wire.ts";
+import {
+    encodeOpenRouterTools,
+    normalizeOpenRouterToolCallId,
+} from "../../src/providers/openrouter-wire.ts";
 import type {
     AssistantMessage,
     ModelStreamEvent,
 } from "../../src/model/types.ts";
 
 describe("OpenRouter adapter", () => {
+    test("normalizes Gemini tool schemas to Google's supported subset", () => {
+        const tools = encodeOpenRouterTools([{
+            name: "mcp_github_issue_write",
+            description: "Write an issue.",
+            inputSchema: {
+                type: "object",
+                properties: {
+                    issue_fields: {
+                        type: "array",
+                        items: {
+                            type: "object",
+                            properties: {
+                                delete: { type: "boolean", enum: [true] },
+                                field_name: { type: "string" },
+                                value: { type: ["string", "number", "boolean"] },
+                            },
+                            required: ["field_name", "missing"],
+                            additionalProperties: false,
+                        },
+                    },
+                    type: {
+                        anyOf: [
+                            { type: "string", minLength: 1 },
+                            { type: "null" },
+                        ],
+                    },
+                    owner: { type: "string", "x-mcp-header": "owner" },
+                },
+            },
+        }], "google/gemini-3.7-flash");
+
+        const tool = tools[0];
+        expect(tool !== undefined && "function" in tool
+            ? tool.function.parameters
+            : undefined).toEqual({
+            type: "object",
+            properties: {
+                issue_fields: {
+                    type: "array",
+                    items: {
+                        type: "object",
+                        properties: {
+                            delete: { type: "boolean" },
+                            field_name: { type: "string" },
+                            value: {
+                                anyOf: [
+                                    { type: "string" },
+                                    { type: "number" },
+                                    { type: "boolean" },
+                                ],
+                            },
+                        },
+                        required: ["field_name"],
+                    },
+                },
+                type: { type: "string", nullable: true },
+                owner: { type: "string" },
+            },
+        });
+    });
+
+    test("preserves non-Gemini tool schemas", () => {
+        const inputSchema = {
+            type: "object",
+            additionalProperties: false,
+            properties: { value: { type: ["string", "number"] } },
+        };
+
+        const tools = encodeOpenRouterTools([{
+            name: "echo",
+            description: "Echo a value.",
+            inputSchema,
+        }], "anthropic/claude-sonnet-4");
+
+        const tool = tools[0];
+        expect(tool !== undefined && "function" in tool
+            ? tool.function.parameters
+            : undefined).toBe(inputSchema);
+    });
+
     test("normalizes tool call characters without truncating IDs", () => {
         const id = `call:${"a".repeat(80)}`;
 
