@@ -1052,7 +1052,7 @@ export function tuiModelAssignmentOptions(
             value: CONTEXT_LIMIT_VALUE,
             label: "context limit",
             description: "",
-            group: "This session",
+            group: "Global",
             note: "The global ceiling Vera applies across models. Press ⏎ to change it.",
             detailTitle: "context limit",
             detailFacts: [[
