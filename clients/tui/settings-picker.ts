@@ -2903,7 +2903,6 @@ function renderListPickerRows(
             ]),
             width: "100%",
             height: 1,
-            marginTop: 1,
         });
         box.add(tipNode);
         nodes.push(tipNode);
@@ -2913,6 +2912,9 @@ function renderListPickerRows(
         renderer,
         pickerFooter(state, pickerCardWidth(renderer, state)),
     );
+    if (tip !== undefined && tip.length > 0) {
+        footer.marginTop = 0;
+    }
     box.add(footer);
     nodes.push(footer);
     box.height = "auto";
