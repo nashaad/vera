@@ -9608,7 +9608,19 @@ export async function startTui(
         const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
-        sidebar.setMainHeader(paneHeadersVisible && sessionTitle !== undefined
+        // Beside a sidekick the row names the pane, because the point of the
+        // row is telling the two columns apart. Alone it carries the session
+        // title, which is the only thing left worth putting there.
+        sidebar.setMainHeader(!paneHeadersVisible
+            ? undefined
+            : hostedSidebar.pane !== undefined
+            ? paneHeaderText(
+                "Vera",
+                state.approvalMode,
+                state.modelSettings,
+                layout === "split" ? mainWidth : renderer.width,
+            )
+            : sessionTitle !== undefined
             ? `  SESSION  ${sessionTitle}`
             : undefined);
         sidebar.setHeader(
