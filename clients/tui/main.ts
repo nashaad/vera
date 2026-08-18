@@ -10,6 +10,7 @@ import {
     StyledText,
     TextRenderable,
     createCliRenderer,
+    type CliRenderer,
     KeyEvent,
     RGBA,
     type Selection,
@@ -615,6 +616,8 @@ export interface TuiDependencies {
         onAuthorizationUrl: (url: string) => void,
     ) => Promise<void>;
     readonly flightRecorder?: TuiFlightRecorder;
+    /** Overrides the terminal renderer, so a test can boot in-process. */
+    readonly createRenderer?: () => Promise<CliRenderer>;
 }
 
 export interface TuiDraft {
@@ -845,10 +848,11 @@ export async function startTui(
     const configuredAppearance = dependencies.appearance
         ?? resolveTuiAppearance();
     setTuiWorkspaceRoot(client.workspace ?? process.cwd());
-    const renderer = await createCliRenderer({
-        exitOnCtrlC: false,
-        targetFps: 30,
-    });
+    const renderer = await (dependencies.createRenderer?.()
+        ?? createCliRenderer({
+            exitOnCtrlC: false,
+            targetFps: 30,
+        }));
     let appearance = fitTuiAppearance(configuredAppearance, renderer.width);
     let composerContentIndent = tuiComposerContentIndent(appearance);
     let composerHorizontalInset = composerContentIndent * 2;
