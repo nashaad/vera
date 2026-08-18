@@ -1756,8 +1756,10 @@ export function projectTranscript(
                 });
             }
         }
-        if (message.stopReason === "error") {
-            const detail = terminalDetail(message);
+        const outcome = terminalOutcome(message);
+        if (outcome !== undefined) {
+            const detail = terminalDetail(message)
+                ?? (outcome === "aborted" ? "Turn aborted" : undefined);
             push({
                 kind: "error",
                 ...(detail === undefined ? {} : { detail }),

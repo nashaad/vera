@@ -589,6 +589,23 @@ test("TUI shows model failures when a turn finishes", () => {
             "Model error: Kimi only supports reasoning max",
         ),
     });
+
+    const aborted = applyAgentUpdate(
+        beginTuiTurn(createTuiState(), "testing"),
+        {
+            type: "turn_finished",
+            outcome: "aborted",
+            seq: 2,
+        },
+    );
+    expect(aborted.entries.at(-1)).toEqual({
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "model_request_failed",
+            "Model error: Turn aborted",
+        ),
+    });
 });
 
 test("TUI draws attachment failures as errors", () => {
