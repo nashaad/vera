@@ -478,10 +478,6 @@ export function renderEffortScale(
     const labelGap = Math.max(1, trackWidth - "Faster".length - "Smarter".length);
     const labels = `${" ".repeat(indent)}Faster${" ".repeat(labelGap)}Smarter`;
     const trackLength = Math.max(1, trackWidth - 1);
-    const boundary = Math.min(
-        trackLength - 1,
-        Math.max(1, Math.round(trackLength * 0.68)),
-    );
     const selectedIndex = selected === undefined
         ? -1
         : efforts.indexOf(selected);
@@ -491,9 +487,7 @@ export function renderEffortScale(
     const track = Array.from({ length: trackLength }, (_, index) =>
         index === marker
             ? "▲"
-            : index === boundary
-                ? "┬"
-                : "─"
+            : "─"
     ).join("");
     const optionLine = Array.from({ length: trackLength }, () => " ");
     efforts.forEach((effort, index) => {
