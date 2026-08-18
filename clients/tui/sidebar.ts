@@ -252,9 +252,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         fg: SIDEBAR_FOCUS_GREEN,
     });
     sidebarColumn.add(sidebarFocusRail);
+    sidebarColumn.add(header);
     panel.add(content);
     sidebarColumn.add(panel);
-    sidebarColumn.add(header);
 
     const mainColumn = new BoxRenderable(renderer, {
         id: "main-column",
@@ -278,8 +278,8 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    mainColumn.add(mainHeader);
     mainColumn.add(mainFocusRail);
+    mainColumn.add(mainHeader);
     mainColumn.add(options.transcript);
     body.add(mainColumn);
     body.add(divider);
