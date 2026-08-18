@@ -212,7 +212,9 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-reload-failure-child.ts",
             );
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            // An extension that fails to load reports into the transcript, so
+            // the empty-state line is already gone by the time the TUI is up.
+            await waitForVisiblePane(socket, session, "Message Vera");
 
             sendText(socket, session, "/reload-extensions");
             sendKey(socket, session, "Enter");
@@ -256,7 +258,9 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-partial-reload-child.ts",
             );
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            // An extension that fails to load reports into the transcript, so
+            // the empty-state line is already gone by the time the TUI is up.
+            await waitForVisiblePane(socket, session, "Message Vera");
 
             sendText(socket, session, "/reload-extensions");
             sendKey(socket, session, "Enter");
@@ -1407,7 +1411,10 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "RESUMED HISTORY LOADED",
             );
-            expect(pane).not.toContain("Continue the theme picker");
+            // The resumed session's own title is what the header now carries,
+            // so the picker is gone when the other session's row is, not when
+            // that name leaves the screen.
+            expect(pane).not.toContain("The one already open");
             // The pane belongs to the process that started: the transcript was
             // replaced under a TUI that never went away.
             expect(pane).toContain("Message Vera");
@@ -1843,8 +1850,10 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 "-x",
                 "100",
+                // One row taller than the transcript needs, for the pane header
+                // row above it, the same way startTuiSession is sized.
                 "-y",
-                "30",
+                "31",
                 `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
                     shellQuote(process.execPath)
                 } run test/support/tui-child.ts`,
@@ -1915,7 +1924,7 @@ test.skipIf(!tmuxAvailable)(
             // ctrl+o opens over a row already drawn.
             expect(pane).toMatch(/▸ Reasoning: \d+\.\d+s/);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
-            sendKey(socket, session, "C-c");
+            sendKey(socket, session, "C-u");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
@@ -2121,9 +2130,14 @@ test.skipIf(!tmuxAvailable)(
             expect(lines[answer - 2]?.trim()).toBe("");
 
             const styled = captureVisiblePaneWithStyles(socket, session);
-            // tmux's default 256-color terminal maps the requested RGB values
-            // to their nearest palette entries in the captured pane.
-            expect(styled).toMatch(/\x1b\[38;5;238m╭/);
+            // Which encoding reaches the capture depends on the terminal tmux
+            // was built against: a truecolor one keeps the configured
+            // #334455, a 256-color one maps it to its nearest palette entry.
+            // The assertion is that the boundary took the configured color,
+            // not which of the two ways it was written down.
+            expect(styled).toMatch(
+                /\x1b\[(?:38;5;238|38;2;51;68;85)m╭/,
+            );
 
             runTmux(socket, [
                 "resize-window",
@@ -2452,7 +2466,9 @@ function startTuiSession(
     home: string,
     childPath: string,
     width = 100,
-    height = 34,
+    // One row taller than the transcript needs, because the pane header the
+    // sidebar draws above it now takes a row of its own.
+    height = 35,
     env: Readonly<Record<string, string>> = {},
 ): void {
     const exported = Object.entries(env)
@@ -2887,24 +2903,6 @@ test.skipIf(!tmuxAvailable)(
             }
             pane = await waitForPane(socket, session, "Jump to bottom");
 
-            sendText(socket, session, "/themes");
-            pane = await waitForVisiblePaneWhere(
-                socket,
-                session,
-                (current) => /\/themes\s+Change the TUI theme/.test(current),
-                "filtered theme command suggestion",
-            );
-            const suggestionLines = pane.split("\n");
-            const suggestionRow = suggestionLines.findIndex((line) =>
-                /\/themes\s+Change the TUI theme/.test(line)
-            );
-            const jumpRow = suggestionLines.findIndex((line) =>
-                line.includes("Jump to bottom")
-            );
-            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
-            expect(jumpRow).toBeLessThan(suggestionRow - 1);
-            sendKey(socket, session, "C-c");
-
             sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
                 socket,
@@ -2937,6 +2935,63 @@ test.skipIf(!tmuxAvailable)(
                 "stream remains followed after returning with the wheel",
             );
             expect(afterWheel).not.toContain("Jump to bottom");
+        } catch (error) {
+            throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
+        } finally {
+            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
+                stdout: "ignore",
+                stderr: "ignore",
+            });
+            rmSync(home, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+test.skipIf(!tmuxAvailable)(
+    "the jump pill sits above the command suggestion strip",
+    async () => {
+        const socket = `vera-jump-strip-${process.pid}-${randomUUID()}`;
+        const session = "jump-strip";
+        const home = mkdtempSync(join(tmpdir(), "vera-jump-strip-"));
+        let pane = "";
+
+        try {
+            startTuiSession(
+                socket,
+                session,
+                home,
+                "test/support/tui-child.ts",
+                100,
+                18,
+            );
+            await waitForPane(socket, session, "Start a conversation");
+
+            sendText(socket, session, "start streaming");
+            sendKey(socket, session, "Enter");
+            pane = await waitForPane(socket, session, "PARTIAL xxxxx");
+
+            for (let index = 0; index < 6; index += 1) {
+                sendEscapeSequence(socket, session, "\x1b[1;5A");
+            }
+            pane = await waitForPane(socket, session, "Jump to bottom");
+
+            sendText(socket, session, "/themes");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => /\/themes\s+Change the TUI theme/.test(current),
+                "filtered theme command suggestion",
+            );
+            const suggestionLines = pane.split("\n");
+            const suggestionRow = suggestionLines.findIndex((line) =>
+                /\/themes\s+Change the TUI theme/.test(line)
+            );
+            const jumpRow = suggestionLines.findIndex((line) =>
+                line.includes("Jump to bottom")
+            );
+            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
+            expect(jumpRow).toBeLessThan(suggestionRow - 1);
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
@@ -3410,7 +3465,11 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "peer · readonly");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "peer research · readonly",
+            );
 
             sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");

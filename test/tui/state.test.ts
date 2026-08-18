@@ -445,7 +445,7 @@ test("TUI tool headers are bold and change tense when work finishes", () => {
         "  └ bun test",
     ]);
     const liveHeader = state.entries[1]!;
-    expect(renderTuiEntry(liveHeader).chunks[0]?.attributes).not.toBe(0);
+    expect(renderTuiEntry(liveHeader).chunks[1]?.attributes).not.toBe(0);
 
     state = applyAgentUpdate(state, {
         type: "tool_finished",
@@ -1047,7 +1047,7 @@ test("TUI entries render with kind-specific prefixes", () => {
     expect(plainText(renderTuiEntry({ kind: "user", text: "hi\nthere" })))
         .toBe("hi\nthere");
     expect(plainText(renderTuiEntry({ kind: "tool_header", text: "Ran" })))
-        .toBe("Ran");
+        .toBe("  Ran");
     expect(
         plainText(renderTuiEntry({ kind: "tool", prefix: "  └ ", text: "pwd" })),
     )

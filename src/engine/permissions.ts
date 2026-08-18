@@ -147,6 +147,7 @@ export interface PermissionActionDecision {
 
 export interface AllowToolPermission {
     readonly behavior: "allow";
+    readonly reason?: string;
     readonly actions: readonly PermissionActionDecision[];
 }
 

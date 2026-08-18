@@ -258,12 +258,18 @@ test("the recorded refusal stops the next turn from sending the image", async ()
     });
     const result = await runTurn(recorded.adapter, MODEL, two.state);
 
-    // The engine refuses the turn rather than stripping the attachment: no
-    // second request is made, so no image reaches the provider.
+    // The engine refuses the provider request but retains the prompt so a
+    // model switch can retry it without making the user retype everything.
     expect(recorded.requests).toHaveLength(1);
     expect(result.errorMessage)
         .toContain("does not support image input");
-    expect(two.state.messages).toEqual([]);
+    expect(two.state.messages).toEqual([{
+        role: "user",
+        content: [
+            { type: "text", text: "and this one" },
+            { type: "image_attachment", attachmentId: "shot.png" },
+        ],
+    }]);
 });
 
 test("a model nothing knows about still gets its image sent", async () => {

@@ -252,6 +252,7 @@ export interface AgentWornEvent {
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
         readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
         readonly notice?: string;
     };
 }
@@ -269,6 +270,7 @@ export interface AgentCatalogEvent {
             readonly tools?: readonly string[];
             readonly skills?: readonly string[];
             readonly posture?: string;
+            readonly forbiddenAccess?: readonly string[];
             readonly defaultPair?: {
                 readonly name: string;
                 readonly effort?: string;

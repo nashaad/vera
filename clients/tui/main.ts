@@ -928,11 +928,21 @@ export async function startTui(
         return title.length === 0 ? undefined : title;
     }
 
-    function adoptFallbackSessionTitle(text: string): void {
+    function adoptFallbackSessionTitle(
+        text: string,
+        injectedPrefix?: number,
+    ): void {
         if (sessionTitle !== undefined) {
             return;
         }
-        const title = fallbackSessionTitle(text);
+        // What an extension prepended was sent but never shown, so it does not
+        // name the session either.
+        const visible = injectedPrefix !== undefined
+                && injectedPrefix > 0
+                && injectedPrefix < text.length
+            ? text.slice(injectedPrefix)
+            : text;
+        const title = fallbackSessionTitle(visible);
         if (title === undefined) {
             return;
         }
@@ -1873,7 +1883,11 @@ export async function startTui(
         width: "100%",
         height: "auto",
     });
-    // Use the same full-width band and content indent as the status row.
+    // Use the same full-width band and content indent as the status row. The
+    // band spans the screen, so it carries the ground rather than a raised
+    // surface: a panel shade here reads as a slab wider than the composer it
+    // completes. The blank top row separates the strip from a transcript that
+    // has filled every available line.
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
         border: false,
@@ -1881,7 +1895,8 @@ export async function startTui(
         ...tuiComposerOverlayInset(appearance),
         bottom: 7,
         height: 1,
-        backgroundColor: theme.menu ?? theme.panel,
+        paddingTop: 1,
+        backgroundColor: theme.background,
         zIndex: 5,
         visible: false,
     });
@@ -3940,7 +3955,7 @@ export async function startTui(
             } else {
                 transcript.scrollBy(scrollLines);
             }
-            renderJumpToBottom();
+            renderJumpToBottom(scrollLines === undefined);
             return;
         }
 
@@ -5311,7 +5326,7 @@ export async function startTui(
         state = state.working
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt, attachments, injectedPrefix);
-        adoptFallbackSessionTitle(prompt);
+        adoptFallbackSessionTitle(prompt, injectedPrefix);
         if (workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
@@ -5621,6 +5636,7 @@ export async function startTui(
                                 : `session renamed: ${update.name}`,
                         );
                         if (update.name === null) {
+                            sessionTitle = undefined;
                             refreshTerminalTitle();
                         } else {
                             sessionTitle = update.name;
@@ -9174,7 +9190,7 @@ export async function startTui(
         modeToastText.bg = theme.panel;
         modeToast.backgroundColor = theme.panel;
         commandSuggestionsText.fg = theme.text;
-        commandSuggestionsBox.backgroundColor = theme.menu ?? theme.panel;
+        commandSuggestionsBox.backgroundColor = theme.background;
         composerBox.backgroundColor = theme.input ?? theme.background;
         composerBox.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
@@ -9492,7 +9508,7 @@ export async function startTui(
      * over the transcript's last row so showing and hiding it never reflows
      * anything, which is the whole point.
      */
-    function renderJumpToBottom(): void {
+    function renderJumpToBottom(resumeFollow = true): void {
         const following = tuiTranscriptAtBottom(
             transcript.scrollTop,
             transcript.scrollHeight,
@@ -9504,7 +9520,9 @@ export async function startTui(
         // stale manual flag prevents sticky scroll from following the new
         // content. Crossing from the visible pill back to the bottom is an
         // explicit request to resume following, so reapply the bottom here.
-        if (following) {
+        // A keyboard scroll moves by an exact number of rows and passes false,
+        // because snapping back would undo the row it just moved.
+        if (following && resumeFollow) {
             transcript.scrollTo(transcript.scrollHeight);
         }
         const visible = !following && !anyOverlayOpen();
@@ -9619,7 +9637,19 @@ export async function startTui(
         const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
-        sidebar.setMainHeader(paneHeadersVisible && sessionTitle !== undefined
+        // Beside a second pane the row names each one, because the point of the
+        // row is telling the two columns apart. Alone it carries the session
+        // title, which is the only thing left worth putting there.
+        sidebar.setMainHeader(!paneHeadersVisible
+            ? undefined
+            : hostedSidebar.pane !== undefined
+            ? paneHeaderText(
+                "Vera",
+                state.approvalMode,
+                state.modelSettings,
+                layout === "split" ? mainWidth : renderer.width,
+            )
+            : sessionTitle !== undefined
             ? `  SESSION  ${sessionTitle}`
             : undefined);
         sidebar.setHeader(
