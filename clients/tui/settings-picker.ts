@@ -88,6 +88,7 @@ export type TuiSettingsPickerKind =
     | "reasoning"
     | "permissions"
     | "theme"
+    | "context_limit"
     | "session"
     | "settings"
     | "permission_settings"
@@ -106,6 +107,7 @@ export type TuiSettingsMenuTarget =
     | "reasoning"
     | "permissions"
     | "theme"
+    | "context_limit"
     | "permission_mode"
     | "granted_permissions"
     | "reviewer"
@@ -384,6 +386,7 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "provider"; readonly providerId: string }
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
+    | { readonly kind: "context_limit"; readonly limit: number | null }
     | {
         readonly kind: "session";
         readonly sessionPath: string;
@@ -789,6 +792,12 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "effort think",
     },
     {
+        value: "context_limit",
+        label: "Context limit",
+        description: "maximum conversation context across models",
+        searchText: "tokens window memory cap",
+    },
+    {
         value: "permissions",
         label: "Permissions",
         description: "what Vera may run, and what you have approved",
@@ -802,6 +811,31 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
     { value: "theme", label: "Theme", description: "TUI colors" },
 ];
+
+const CONTEXT_LIMIT_OPTIONS: readonly TuiSettingsPickerOption[] = [
+    { value: "auto", label: "Auto", description: "use each model's maximum" },
+    { value: "131072", label: "128k", description: "smaller, more frequent summaries" },
+    { value: "204800", label: "200k", description: "balanced context ceiling" },
+    { value: "262144", label: "256k", description: "extended context" },
+    { value: "524288", label: "512k", description: "large context" },
+];
+
+export function startTuiContextLimitPicker(
+    current: number | undefined,
+): TuiSettingsPickerState {
+    return {
+        kind: "context_limit",
+        allOptions: CONTEXT_LIMIT_OPTIONS,
+        options: CONTEXT_LIMIT_OPTIONS,
+        selectedIndex: Math.max(
+            0,
+            CONTEXT_LIMIT_OPTIONS.findIndex((option) =>
+                option.value === (current === undefined ? "auto" : String(current))
+            ),
+        ),
+        query: "",
+    };
+}
 
 const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
     {
@@ -4195,6 +4229,12 @@ function pickerSelection(
     }
     if (kind === "permissions") {
         return { kind, mode: value as ApprovalMode };
+    }
+    if (kind === "context_limit") {
+        return {
+            kind,
+            limit: value === "auto" ? null : Number(value),
+        };
     }
     if (kind === "session") {
         // The id rides along with the path because the caller has to recognise

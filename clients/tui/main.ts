@@ -275,6 +275,7 @@ import {
     startTuiReviewerMenu,
     startTuiReviewerPicker,
     startTuiSettingsMenu,
+    startTuiContextLimitPicker,
     startTuiSettingsPicker,
     switchedModelTab,
     syncTuiModelPicker,
@@ -8003,6 +8004,15 @@ export async function startTui(
         if (target === "model") return openModelPicker(parent);
         if (target === "reasoning") return openReasoningPicker(parent);
         if (target === "theme") return openThemePicker(parent);
+        if (target === "context_limit") {
+            settingsPicker = withTuiPickerParent(
+                startTuiContextLimitPicker(state.modelSettings?.contextLimit),
+                parent,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if (target === "permission_mode") return openPermissionsPicker(parent);
         if (target === "granted_permissions") return openPreferencesList(parent);
         if (target === "reviewer") return openReviewerMenu(parent);
@@ -8401,6 +8411,16 @@ export async function startTui(
                 themeName = selection.theme;
                 saveTuiThemePreference(themeName);
                 void applySelectedTheme(themeName, true);
+            } else if (selection.kind === "context_limit") {
+                const label = selection.limit === null
+                    ? "Auto"
+                    : formatContextLimit(selection.limit);
+                requestModelSettingsChange(
+                    { contextLimit: selection.limit },
+                    `context limit → ${label}`,
+                    `context limit to ${label}`,
+                    settingsPickerAgent,
+                );
             } else if (selection.kind === "menu") {
                 // A menu row opens the next surface over this one, which stays
                 // remembered as its parent so leaving comes back here.
@@ -8858,6 +8878,12 @@ export async function startTui(
             patch,
         }).catch(reportConnectionError);
         showStatusNotice(toast);
+    }
+
+    function formatContextLimit(tokens: number): string {
+        return tokens % 1_048_576 === 0
+            ? `${tokens / 1_048_576}m`
+            : `${Math.round(tokens / 1_024)}k`;
     }
 
     /**
@@ -10158,6 +10184,11 @@ function recentSessionSaveFailure(error: unknown): string {
 
 /** What a patch asks for, as `provider/model at effort`. */
 function describeModelPatch(patch: ModelSettingsPatch): string {
+    if (patch.contextLimit !== undefined) {
+        return patch.contextLimit === null
+            ? "Auto"
+            : `${Math.round(patch.contextLimit / 1_024)}k`;
+    }
     const model = patch.model === undefined
         ? undefined
         : patch.provider === undefined
@@ -10174,6 +10205,7 @@ function describeModelPatch(patch: ModelSettingsPatch): string {
 }
 
 function modelPatchSubject(patch: ModelSettingsPatch): string {
+    if (patch.contextLimit !== undefined) return "the context limit";
     return patch.model === undefined
         ? `the reasoning effort to ${describeModelPatch(patch)}`
         : `the model to ${describeModelPatch(patch)}`;
@@ -10192,6 +10224,12 @@ function defaultModelChangeNotice(
     patch: ModelSettingsPatch,
     settings: ModelTurnSettings,
 ): string {
+    if (patch.contextLimit !== undefined) {
+        const label = settings.contextLimit === undefined
+            ? "Auto"
+            : `${Math.round(settings.contextLimit / 1_024)}k`;
+        return `Changed the context limit to ${label}`;
+    }
     if (patch.model === undefined) {
         const effort = settings.reasoningEffort ?? "the model default";
         return `Changed the reasoning effort to ${effort}; new conversations will use it by default`;

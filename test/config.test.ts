@@ -37,6 +37,20 @@ test("Vera config loads the shared model choice", () => {
     });
 });
 
+test("Vera config persists and clears the global context limit", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        context_limit: 204_800,
+    }));
+
+    expect(loadVeraConfig({ path }).context_limit).toBe(204_800);
+    updateVeraConfigDefaults({ context_limit: null }, { path });
+    expect(JSON.parse(readFileSync(path, "utf8")))
+        .not.toHaveProperty("context_limit");
+});
+
 test("Vera config loads named provider instances", () => {
     const path = temporaryConfigPath();
     writeFileSync(path, JSON.stringify({

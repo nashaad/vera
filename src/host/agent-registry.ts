@@ -36,6 +36,7 @@ import type { EffortPool } from "../model/effort-pool.ts";
 import {
     availableModels,
     contextWindowForModel,
+    effectiveContextWindow,
     isModelReasoningEffort,
     publishedReasoningLevels,
     reasoningEffortForModel,
@@ -325,6 +326,9 @@ export interface AgentRegistryOptions {
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
+    /** Read on each snapshot so a TUI change takes effect without restart. */
+    readonly contextLimit?: () => number | undefined;
+    readonly updateContextLimit?: (limit: number | null) => void;
     /**
      * Writes the pool entry for one model, and probes it first when asked.
      * Separate from `readPool` because the two have different lifetimes:
@@ -1669,6 +1673,28 @@ export class AgentRegistry {
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
         }
+        if (patch.contextLimit !== undefined) {
+            if (this.options.updateContextLimit === undefined) return undefined;
+            this.options.updateContextLimit(patch.contextLimit);
+            if (
+                patch.provider === undefined
+                && patch.model === undefined
+                && patch.reasoningEffort === undefined
+                && patch.reviewer === undefined
+            ) {
+                return settingsForClient(
+                    entry.modelSettings,
+                    entry.modelSettings.provider ?? this.defaultProvider,
+                    this.catalog,
+                    this.modelsForClient(),
+                    this.options.readPool?.(entry.store.header.cwd),
+                    this.options.subagentModel,
+                    entry.requestedReasoningEffort,
+                    this.reviewerDefault(),
+                    this.options.contextLimit?.(),
+                );
+            }
+        }
         if (patch.reviewer !== undefined) {
             if (!this.applyReviewerPatch(patch.reviewer)) {
                 return undefined;
@@ -1689,6 +1715,7 @@ export class AgentRegistry {
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
+                    this.options.contextLimit?.(),
                 );
             }
         }
@@ -1716,6 +1743,7 @@ export class AgentRegistry {
             this.options.subagentModel,
             entry.requestedReasoningEffort,
             this.reviewerDefault(),
+            this.options.contextLimit?.(),
         );
     }
 
@@ -1788,6 +1816,7 @@ export class AgentRegistry {
                 this.options.subagentModel,
                 entry.requestedReasoningEffort,
                 this.reviewerDefault(),
+                this.options.contextLimit?.(),
             ),
             origin,
         };
@@ -2193,6 +2222,7 @@ export class AgentRegistry {
                 this.options.subagentModel,
                 agentEntry.requestedReasoningEffort,
                 this.reviewerDefault(),
+                this.options.contextLimit?.(),
             ),
         };
     }
@@ -2541,6 +2571,7 @@ export class AgentRegistry {
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
+            this.options.contextLimit?.(),
         );
     }
 
@@ -2574,6 +2605,7 @@ export class AgentRegistry {
             this.options.subagentModel,
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
+            this.options.contextLimit?.(),
         );
     }
 
@@ -3162,6 +3194,7 @@ export class AgentRegistry {
                     this.options.subagentModel,
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
+                    this.options.contextLimit?.(),
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -3789,8 +3822,17 @@ function settingsForClient(
     subagentModel?: SpawnModelDefault,
     requestedReasoningEffort?: ModelReasoningEffort,
     reviewerDefault?: ReviewerModelDefault,
+    contextLimit?: number,
 ): ModelTurnSettings {
-    const contextWindow = contextWindowForModel(provider, settings.model, models);
+    const modelContextWindow = contextWindowForModel(
+        provider,
+        settings.model,
+        models,
+    );
+    const contextWindow = effectiveContextWindow(
+        modelContextWindow,
+        contextLimit,
+    );
     const { efforts } = publishedReasoningLevels(
         provider,
         settings.model,
@@ -3830,6 +3872,10 @@ function settingsForClient(
             },
         ...(reviewerDefault === undefined ? {} : { reviewerDefault }),
         ...(contextWindow === undefined ? {} : { contextWindow }),
+        ...(modelContextWindow === undefined
+            ? {}
+            : { modelContextWindow }),
+        ...(contextLimit === undefined ? {} : { contextLimit }),
     };
 }
 

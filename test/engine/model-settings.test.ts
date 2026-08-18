@@ -6,9 +6,17 @@ import { join } from "node:path";
 import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     availableReasoningEfforts,
+    effectiveContextWindow,
     isModelTurnSettings,
     reasoningEffortForModel,
 } from "../../src/engine/model-settings.ts";
+
+test("a global context limit caps declared windows and bounds unknown ones", () => {
+    expect(effectiveContextWindow(1_048_576, 204_800)).toBe(204_800);
+    expect(effectiveContextWindow(131_072, 204_800)).toBe(131_072);
+    expect(effectiveContextWindow(1_048_576, undefined)).toBe(1_048_576);
+    expect(effectiveContextWindow(undefined, 204_800)).toBe(204_800);
+});
 
 const EVERY_EFFORT: readonly ModelReasoningEffort[] = [
     "low",

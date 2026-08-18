@@ -100,7 +100,11 @@ import {
     shouldCompact,
     type CompactionTrigger,
 } from "./compaction-scheduler.ts";
-import { availableModels, contextWindowForModel } from "./model-settings.ts";
+import {
+    availableModels,
+    contextWindowForModel,
+    effectiveContextWindow,
+} from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import type { InboundCommandRouterOptions } from "./inbound-command-router.ts";
@@ -1071,8 +1075,8 @@ export async function runTurn(
         // model's was measured at discovery when it is served locally. The
         // discovered list covers the models a fallback can land on, and the
         // shipped catalog covers the rest.
-        const capacityForModel = (model: string): number | undefined =>
-            (model === modelSettings.model
+        const capacityForModel = (model: string): number | undefined => {
+            const declared = (model === modelSettings.model
                 ? modelSettings.contextWindow
                 : undefined)
             ?? contextWindowForModel(
@@ -1081,6 +1085,8 @@ export async function runTurn(
                 modelSettings.availableModels,
                 catalogModels,
             );
+            return effectiveContextWindow(declared, modelSettings.contextLimit);
+        };
 
         while (true) {
             // Before the request, not after a refusal: a level the pool
