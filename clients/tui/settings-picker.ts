@@ -2689,14 +2689,16 @@ function renderListPickerRows(
             content: state.subtitle,
             fg: TUI_MUTED,
             width: "100%",
-            height: 2,
+            height: 3,
+            marginTop: 1,
             paddingLeft: 1,
         });
         box.add(subtitleNode);
         nodes.push(subtitleNode);
-        // The node is the line and the blank under it, so the card grows by
-        // both. Counting one leaves the footer standing on the bottom edge.
-        subtitleLines = 2;
+        // A blank line above and below separates this standing explanation
+        // from both the title and the rows. Count its margin as well as its
+        // two wrapped text lines and trailing blank when sizing the list.
+        subtitleLines = 4;
     }
     if (searchable) {
         const search = dialogSearchNode(
@@ -2903,6 +2905,7 @@ function renderListPickerRows(
             ]),
             width: "100%",
             height: 1,
+            marginTop: 1,
         });
         box.add(tipNode);
         nodes.push(tipNode);
@@ -2912,9 +2915,6 @@ function renderListPickerRows(
         renderer,
         pickerFooter(state, pickerCardWidth(renderer, state)),
     );
-    if (tip !== undefined && tip.length > 0) {
-        footer.marginTop = 0;
-    }
     box.add(footer);
     nodes.push(footer);
     box.height = "auto";

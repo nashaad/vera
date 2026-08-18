@@ -1029,25 +1029,28 @@ test("extension picker renders its title, stable rows, and semantic action foote
     expect(frame).not.toContain("Search");
 });
 
-test("an extension picker keeps its helper tight to rows and actions", async () => {
+test("an extension picker separates its subtitle from title and rows", async () => {
     const state = startTuiExtensionPicker(
         "Agents",
         [{ id: "default", label: "default" }, { id: "plan", label: "plan" }],
         "default",
         [{ id: "wear", key: "enter", label: "switch" }],
+        "Switching agents re-reads the prefix, so the next turn is slower once.",
     );
     const frame = await pickerFrame(
         state,
         100,
         30,
-        "Press ctrl+n to name a shortlisted model",
     );
     const lines = frame.split("\n");
-    const plan = lines.findIndex((line) => line.includes("plan"));
-    const tip = lines.findIndex((line) => line.includes("Tip Press ctrl+n"));
-    const footer = lines.findIndex((line) => line.includes("⏎ switch"));
-    expect(tip).toBe(plan + 1);
-    expect(footer).toBe(tip + 1);
+    const title = lines.findIndex((line) => line.includes("Agents"));
+    const firstSubtitle = lines.findIndex((line) =>
+        line.includes("Switching agents re-reads")
+    );
+    const firstRow = lines.findIndex((line) => line.includes("default"));
+    expect(firstSubtitle).toBe(title + 2);
+    expect(lines[title + 1]?.trim()).toBe("");
+    expect(lines[firstRow - 1]?.trim()).toBe("");
 });
 
 test("extension picker returns row IDs and action IDs for every semantic binding", () => {
