@@ -1917,12 +1917,16 @@ export async function startTui(
     }
 
     function positionCommandSuggestions(): void {
+        // One more than the rows under the strip: `bottom` is where the box's
+        // bottom edge sits, so without it the strip's last row lands on the
+        // composer's top border instead of the row above it.
         commandSuggestionsBox.bottom = composerBox.height
             + composerMarginRows
             + experimentalTuiHost.bottomInsetRows()
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
-            + (heldAddressText.visible ? 1 : 0);
+            + (heldAddressText.visible ? 1 : 0)
+            + 1;
     }
 
     const modeToastText = new TextRenderable(renderer, {
