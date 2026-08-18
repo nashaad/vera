@@ -13,10 +13,14 @@ import {
 import {
     TUI_ACCENT,
     TUI_BACKGROUND,
+    TUI_CHROME,
+    TUI_CHROME_TITLE,
     TUI_ELEMENT,
     TUI_MUTED,
+    TUI_NOTICE,
     TUI_PANEL,
     TUI_SUCCESS,
+    TUI_SELECTION_TEXT,
     TUI_TEXT,
 } from "./state.ts";
 
@@ -60,6 +64,23 @@ export const DIALOG_SHORT_TERMINAL_HEIGHT = 10;
 export const APP_PADDING_TOP = 1;
 
 /**
+ * The blank row the screen keeps under its last line. A terminal fills the
+ * leftover pixels below its final row with its own background and nothing can
+ * paint there, so the screen ends on ground rather than on words. Overlays are
+ * laid out inside the app, so the row is not theirs to grow into.
+ */
+export const APP_PADDING_BOTTOM = 1;
+
+const dialogCards = new Set<BoxRenderable>();
+interface DialogHeaderRecord {
+    readonly box: BoxRenderable;
+    readonly title: TextRenderable;
+    readonly hint: TextRenderable;
+    readonly plainHint: string;
+}
+const dialogHeaders = new Set<DialogHeaderRecord>();
+
+/**
  * How far above the bottom a bottom-anchored overlay sits.
  *
  * Bottom-anchored cards hold one row above the terminal edge when room allows,
@@ -82,6 +103,7 @@ export function centeredDialogSurface(
     id: string,
     card: BoxRenderable,
 ): BoxRenderable {
+    registerDialogCard(card);
     const surface = new BoxRenderable(renderer, {
         id,
         border: false,
@@ -99,26 +121,77 @@ export function centeredDialogSurface(
     return surface;
 }
 
+function applyDialogCardChrome(card: BoxRenderable): void {
+    // Retro chromes keep dialogs borderless to match positioning with the plain theme.
+    card.border = false;
+}
+
+export function registerDialogCard(card: BoxRenderable): void {
+    dialogCards.add(card);
+    applyDialogCardChrome(card);
+}
+
+function retroHeaderHint(hint: string): string {
+    const label = hint.replace(/\s*·\s*esc$/, "");
+    if (TUI_CHROME === "windows-31") {
+        const controls = "_ □ ✕";
+        return label === "esc" ? controls : `${label}   ${controls}`;
+    }
+    return label === "esc" ? "[Esc]" : `${label}  [Esc]`;
+}
+
+function applyDialogHeaderChrome(header: DialogHeaderRecord): void {
+    const windows = TUI_CHROME === "windows-31";
+    const norton = TUI_CHROME === "norton";
+    const ground = windows ? TUI_CHROME_TITLE : TUI_PANEL;
+    header.box.backgroundColor = ground;
+    header.title.fg = windows ? "#FFFFFF" : norton ? TUI_NOTICE : TUI_TEXT;
+    header.title.bg = ground;
+    header.hint.content = TUI_CHROME === "plain"
+        ? header.plainHint
+        : retroHeaderHint(header.plainHint);
+    header.hint.fg = windows ? "#FFFFFF" : norton ? TUI_MUTED : TUI_MUTED;
+    header.hint.bg = ground;
+}
+
+export function refreshDialogChrome(): void {
+    for (const card of dialogCards) {
+        if (!card.isDestroyed) applyDialogCardChrome(card);
+    }
+    for (const header of dialogHeaders) {
+        if (!header.box.isDestroyed) applyDialogHeaderChrome(header);
+    }
+}
+
 export function dialogHeaderNode(
     renderer: RenderContext,
     title: string,
     hint = "esc",
 ): BoxRenderable {
+    const windows = TUI_CHROME === "windows-31";
+    const norton = TUI_CHROME === "norton";
+    const ground = windows ? TUI_CHROME_TITLE : TUI_PANEL;
     const header = new BoxRenderable(renderer, {
         width: "100%",
         height: 1,
         flexDirection: "row",
         justifyContent: "space-between",
+        backgroundColor: ground,
     });
-    header.add(new TextRenderable(renderer, {
+    const titleNode = new TextRenderable(renderer, {
         content: title,
-        fg: TUI_TEXT,
+        fg: windows ? "#FFFFFF" : norton ? TUI_NOTICE : TUI_TEXT,
+        bg: ground,
         attributes: 1,
-    }));
-    header.add(new TextRenderable(renderer, {
-        content: hint,
-        fg: TUI_MUTED,
-    }));
+    });
+    const hintNode = new TextRenderable(renderer, {
+        content: TUI_CHROME === "plain" ? hint : retroHeaderHint(hint),
+        fg: windows ? "#FFFFFF" : TUI_MUTED,
+        bg: ground,
+    });
+    header.add(titleNode);
+    header.add(hintNode);
+    dialogHeaders.add({ box: header, title: titleNode, hint: hintNode, plainHint: hint });
     return header;
 }
 
@@ -154,9 +227,11 @@ export function dialogSearchNode(
     live = true,
 ): TextRenderable {
     const typed = query.length > 0;
+    const windows = TUI_CHROME === "windows-31";
     if (!live) {
         return new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_MUTED)(placeholder)]),
+            ...(windows ? { bg: TUI_ELEMENT } : {}),
             width: "100%",
             height: 2,
             marginTop: 1,
@@ -171,6 +246,7 @@ export function dialogSearchNode(
         content: new StyledText([
             typed ? fg(TUI_TEXT)(query) : fg(TUI_MUTED)(placeholder),
         ]),
+        ...(windows ? { bg: TUI_ELEMENT } : {}),
         width: "100%",
         height: 2,
         // A blank line above and below: the search line is the card's second
@@ -548,12 +624,12 @@ export function dialogOptionRow(
             ? TUI_ELEMENT
             : TUI_PANEL;
     const label = content.active
-        ? TUI_BACKGROUND
+        ? TUI_SELECTION_TEXT
         : content.current
             ? TUI_ACCENT
             : TUI_TEXT;
-    const accent = content.active ? TUI_BACKGROUND : TUI_ACCENT;
-    const detail = content.active ? TUI_BACKGROUND : TUI_MUTED;
+    const accent = content.active ? TUI_SELECTION_TEXT : TUI_ACCENT;
+    const detail = content.active ? TUI_SELECTION_TEXT : TUI_MUTED;
     if (content.card === true) {
         return cardRow(renderer, content, { background, label, accent, detail });
     }
@@ -600,7 +676,7 @@ export function dialogOptionRow(
         // The active row paints its whole width in the accent, so every tone
         // collapses to the background color there: a green on accent is the
         // one combination in this column that cannot be read.
-        const positive = content.active ? TUI_BACKGROUND : TUI_SUCCESS;
+        const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         row.add(new TextRenderable(renderer, {
             content: new StyledText(metaParts(content.meta).map((part) =>
                 fg(part.tone === "positive" ? positive : detail)(part.text)
@@ -648,7 +724,7 @@ function cardRow(
     if (content.meta !== undefined) {
         // The active row paints its whole width in the accent, so every tone
         // collapses to the background color there.
-        const positive = content.active ? TUI_BACKGROUND : TUI_SUCCESS;
+        const positive = content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS;
         card.add(cardLine(renderer, background, accent, "", [
             ...metaParts(content.meta).map((part) =>
                 fg(part.tone === "positive" ? positive : detail)(part.text)

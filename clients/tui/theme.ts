@@ -11,7 +11,10 @@ export type TuiThemeName =
     | "nightowl"
     | "github"
     | "midnight-blue"
-    | "midnight-blue-ii";
+    | "midnight-blue-ii"
+    | "norton-commander"
+    | "nc-navy"
+    | "windows-31";
 
 export interface TuiTheme {
     readonly accent: string;
@@ -26,6 +29,13 @@ export interface TuiTheme {
     readonly background: string;
     readonly panel: string;
     readonly element: string;
+    /** Editing surface when it should be distinct from the desktop. */
+    readonly input?: string;
+    /** Transient completion/menu surface when it should float above the desktop. */
+    readonly menu?: string;
+    readonly chrome?: "norton" | "windows-31";
+    readonly chromeTitle?: string;
+    readonly selectionText?: string;
 }
 
 export const VERA_TUI_THEME: TuiTheme = themeCatalog.themes.vera;
@@ -55,7 +65,7 @@ export async function resolveTuiTheme(
     if (name === "system") {
         return resolveSystemTuiTheme(renderer);
     }
-    return themeCatalog.themes[name];
+    return themeCatalog.themes[name] as TuiTheme;
 }
 
 export async function resolveSystemTuiTheme(
