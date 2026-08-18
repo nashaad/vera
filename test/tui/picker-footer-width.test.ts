@@ -102,8 +102,9 @@ test("a subtitle does not cost the card its bottom padding", async () => {
         setup.renderer.destroy();
         return height;
     }
-    // The subtitle is a line and the blank under it, so the card grows by two.
-    expect(await cardHeight(true)).toBe(await cardHeight(false) + 2);
+    // The subtitle block is its own margin, two wrapped lines, and the blank
+    // under it, so the card grows by four.
+    expect(await cardHeight(true)).toBe(await cardHeight(false) + 4);
 });
 
 /** The rows the card drew, measured from its own top edge. */
