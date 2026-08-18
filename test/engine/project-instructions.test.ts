@@ -103,3 +103,139 @@ test("instruction discovery does not crawl nested files", async () => {
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("project instructions import referenced files in encounter order", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-project-instructions-"));
+    try {
+        await mkdir(join(root, "rules"));
+        await writeFile(
+            join(root, "AGENTS.md"),
+            "public guidance\n\n@rules/testing\\ guide.md#focused-tests\n",
+        );
+        await writeFile(
+            join(root, "rules", "testing guide.md"),
+            "Run the focused tests.\n",
+        );
+        await writeFile(join(root, "AGENTS.local.md"), "private guidance\n");
+
+        const snapshot = await loadProjectInstructions(root);
+
+        expect(snapshot.files.map((file) => file.name)).toEqual([
+            "AGENTS.md",
+            "rules/testing guide.md",
+            "AGENTS.local.md",
+        ]);
+        expect(snapshot.files[1]?.content).toBe("Run the focused tests.\n");
+        expect(snapshot.warnings).toEqual([]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("project instruction imports recurse once per resolved file", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-project-instructions-"));
+    try {
+        await mkdir(join(root, "rules"));
+        await writeFile(
+            join(root, "AGENTS.md"),
+            "@rules/one.md\n@rules/two.md\n",
+        );
+        await writeFile(
+            join(root, "rules", "one.md"),
+            "@two.md\nfirst\n",
+        );
+        await writeFile(
+            join(root, "rules", "two.md"),
+            "@one.md\nsecond\n",
+        );
+
+        const snapshot = await loadProjectInstructions(root);
+
+        expect(snapshot.files.map((file) => file.name)).toEqual([
+            "AGENTS.md",
+            "rules/one.md",
+            "rules/two.md",
+        ]);
+        expect(snapshot.warnings).toEqual([]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("project instruction imports ignore code and comments", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-project-instructions-"));
+    try {
+        await writeFile(
+            join(root, "AGENTS.md"),
+            [
+                "`@inline.md`",
+                "```md",
+                "@fenced.md",
+                "```",
+                "<!-- @comment.md -->",
+                "@loaded.md",
+                "",
+            ].join("\n"),
+        );
+        await writeFile(join(root, "inline.md"), "inline\n");
+        await writeFile(join(root, "fenced.md"), "fenced\n");
+        await writeFile(join(root, "comment.md"), "comment\n");
+        await writeFile(join(root, "loaded.md"), "loaded\n");
+
+        const snapshot = await loadProjectInstructions(root);
+
+        expect(snapshot.files.map((file) => file.name)).toEqual([
+            "AGENTS.md",
+            "loaded.md",
+        ]);
+        expect(snapshot.warnings).toEqual([]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("project instruction imports do not escape the workspace", async () => {
+    const parent = await mkdtemp(join(tmpdir(), "vera-project-instructions-"));
+    const root = join(parent, "workspace");
+    try {
+        await mkdir(root);
+        await writeFile(join(parent, "outside.md"), "outside\n");
+        await writeFile(join(root, "AGENTS.md"), "@../outside.md\n");
+
+        const snapshot = await loadProjectInstructions(root);
+
+        expect(snapshot.files.map((file) => file.name)).toEqual(["AGENTS.md"]);
+        expect(snapshot.warnings).toEqual([
+            expect.stringContaining("outside the workspace"),
+        ]);
+    } finally {
+        await rm(parent, { recursive: true, force: true });
+    }
+});
+
+test("project instruction imports stop after four hops", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-project-instructions-"));
+    try {
+        await writeFile(join(root, "AGENTS.md"), "@one.md\n");
+        await writeFile(join(root, "one.md"), "@two.md\n");
+        await writeFile(join(root, "two.md"), "@three.md\n");
+        await writeFile(join(root, "three.md"), "@four.md\n");
+        await writeFile(join(root, "four.md"), "@five.md\n");
+        await writeFile(join(root, "five.md"), "too deep\n");
+
+        const snapshot = await loadProjectInstructions(root);
+
+        expect(snapshot.files.map((file) => file.name)).toEqual([
+            "AGENTS.md",
+            "one.md",
+            "two.md",
+            "three.md",
+            "four.md",
+        ]);
+        expect(snapshot.warnings).toEqual([
+            expect.stringContaining("skipped after 4 hops"),
+        ]);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
