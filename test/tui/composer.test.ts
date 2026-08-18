@@ -160,6 +160,21 @@ test("Command-Delete clears the whole composer before word-delete handling", asy
     }
 });
 
+test("Alt-Delete remains a one-word edit", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    setup.renderer.root.add(composer);
+    composer.setComposerText("keep this word");
+    composer.cursorOffset = composer.plainText.length;
+
+    try {
+        expect(composer.handleKeyPress({ name: "backspace", option: true } as never)).toBe(true);
+        expect(composer.plainText).toBe("keep this ");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("typed lines grow the composer but pasted lines do not", async () => {
     const setup = await createTestRenderer({
         width: 40,
