@@ -103,6 +103,18 @@ export class TuiComposer extends TextareaRenderable {
         if (isTuiComposerClearKey(key) && this.onCommandDelete?.() === true) {
             return true;
         }
+        if (key.option === true && key.name === "backspace") {
+            const handled = this.deleteWordBackward();
+            this.syncImageChips();
+            if (handled) this.publishTypedRows();
+            return handled;
+        }
+        if (key.option === true && key.name === "delete") {
+            const handled = this.deleteWordForward();
+            this.syncImageChips();
+            if (handled) this.publishTypedRows();
+            return handled;
+        }
         if (
             key.name === "up"
             && !key.shift
