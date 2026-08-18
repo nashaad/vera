@@ -19,21 +19,6 @@ export interface DialPair {
     readonly effort?: string;
 }
 
-/**
- * A favourite as written in `tui.json`.
- *
- * Legal iff it carries a `name` or a `(provider, model_id)`. Both is
- * preferred and is what starring writes: the name is the identity a rename
- * follows, and the id is what finds the entry again after a rename happened
- * while Vera was not running.
- */
-export interface FavoritePair {
-    readonly name?: string;
-    readonly provider?: string;
-    readonly modelId?: string;
-    readonly effort?: string;
-}
-
 /** What the strip needs to know about one model the user has admitted. */
 export interface DialPoolEntry {
     readonly provider: string;
@@ -42,12 +27,17 @@ export interface DialPoolEntry {
     readonly levels: readonly string[];
 }
 
-export type DialSlotSource = "current" | "favorite" | "recent";
+/** Internal separator: the TUI paints the provider suffix in a quieter tone. */
+export const DIAL_PROVIDER_SEPARATOR = "\u001f";
+/** Internal separator for the independently styled, right-aligned exit cue. */
+export const DIAL_EXIT_SEPARATOR = "\u001e";
+
+export type DialSlotSource = "current" | "recent" | "pool";
 
 export interface DialSlot {
-    /** The name to show. A stale favourite still has one, which is the point. */
+    /** The pool name when present, otherwise a shortened model id. */
     readonly label: string;
-    /** Absent when nothing in the pool answers to this favourite any more. */
+    /** The model/provider pair this row selects. */
     readonly pair?: DialPair;
     readonly source: DialSlotSource;
     /** The levels this model publishes, empty when it has no effort dial. */
@@ -58,69 +48,14 @@ export interface DialSlot {
 
 export interface DialStripComposition {
     readonly slots: readonly DialSlot[];
+    /** The three most recently used pairs, newest first, for the HUD shortcut. */
+    readonly recent: readonly DialSlot[];
     /** Slots beyond the cap, shown as a trailing ellipsis rather than dropped. */
     readonly overflow: number;
-    /** Favourites whose name moved and can be rewritten in place. */
-    readonly healed: readonly { readonly from: FavoritePair; readonly name: string }[];
 }
 
 /** How many slots fit on one line before the rest become an ellipsis. */
 export const DIAL_STRIP_CAP = 6;
-
-/**
- * The favourite as the pool answers it now, plus the name it should be
- * re-saved under when the name moved.
- *
- * Resolution order is name, then id, then stale. A pool reference resolves by
- * exact current-name equality and a rename replaces the stored name, so a
- * favourite that only had a name would go stale on every rename. Falling
- * through to the id and rewriting the name is what keeps that from happening
- * silently.
- */
-export function resolveFavoritePair(
-    favorite: FavoritePair,
-    pool: readonly DialPoolEntry[],
-): {
-    readonly pair?: DialPair;
-    readonly entry?: DialPoolEntry;
-    readonly healedName?: string;
-} {
-    const byName = favorite.name === undefined
-        ? undefined
-        : pool.find((entry) => entry.poolName === favorite.name);
-    if (byName !== undefined) {
-        return { pair: pairOf(byName, favorite.effort), entry: byName };
-    }
-    const byId = favorite.provider === undefined || favorite.modelId === undefined
-        ? undefined
-        : pool.find((entry) =>
-            entry.provider === favorite.provider
-            && entry.model === favorite.modelId
-        );
-    if (byId !== undefined) {
-        return {
-            pair: pairOf(byId, favorite.effort),
-            entry: byId,
-            ...(byId.poolName === undefined || byId.poolName === favorite.name
-                ? {}
-                : { healedName: byId.poolName }),
-        };
-    }
-    // An id-form favourite for a model that is not in the pool is still a
-    // model: the pool is a shortlist, not a permission list.
-    if (favorite.provider !== undefined && favorite.modelId !== undefined) {
-        return {
-            pair: {
-                provider: favorite.provider,
-                model: favorite.modelId,
-                ...(favorite.effort === undefined
-                    ? {}
-                    : { effort: favorite.effort }),
-            },
-        };
-    }
-    return {};
-}
 
 function pairOf(entry: DialPoolEntry, effort: string | undefined): DialPair {
     return {
@@ -140,51 +75,19 @@ function pairOf(entry: DialPoolEntry, effort: string | undefined): DialPair {
  */
 export function composeDialStrip(options: {
     readonly current: DialPair | undefined;
-    readonly favorites: readonly FavoritePair[];
     /** The session's model settings over time, oldest first. */
     readonly recents: readonly DialPair[];
     readonly pool: readonly DialPoolEntry[];
     readonly cap?: number;
+    readonly includePool?: boolean;
 }): DialStripComposition {
     const cap = options.cap ?? DIAL_STRIP_CAP;
     const slots: DialSlot[] = [];
-    const healed: { from: FavoritePair; name: string }[] = [];
     const seen = new Set<string>();
 
     if (options.current !== undefined) {
         slots.push(slotFor(options.current, "current", options.pool));
         seen.add(pairKey(options.current));
-    }
-    for (const favorite of options.favorites) {
-        const resolved = resolveFavoritePair(favorite, options.pool);
-        if (resolved.healedName !== undefined) {
-            healed.push({ from: favorite, name: resolved.healedName });
-        }
-        if (resolved.pair === undefined) {
-            // Never deleted, never silently skipped: dimmed and unselectable,
-            // so the user can see which favourite to fix.
-            slots.push({
-                label: favorite.name ?? favorite.modelId ?? "unknown",
-                source: "favorite",
-                efforts: [],
-                unavailable: "not in your pool",
-            });
-            continue;
-        }
-        const key = pairKey(resolved.pair);
-        if (seen.has(key)) continue;
-        seen.add(key);
-        slots.push({
-            ...slotFor(resolved.pair, "favorite", options.pool),
-            ...(resolved.healedName ?? favorite.name ?? resolved.entry?.poolName
-                ? {
-                    label: resolved.healedName
-                        ?? resolved.entry?.poolName
-                        ?? favorite.name
-                        ?? shortModel(resolved.pair.model),
-                }
-                : {}),
-        });
     }
     for (const pair of [...options.recents].reverse()) {
         const key = pairKey(pair);
@@ -192,11 +95,29 @@ export function composeDialStrip(options: {
         seen.add(key);
         slots.push(slotFor(pair, "recent", options.pool));
     }
+    if (options.includePool === true) {
+        for (const entry of options.pool) {
+            const pair = pairOf(entry, undefined);
+            if (slots.some((slot) => slot.pair?.model === pair.model
+                && slot.pair.provider === pair.provider)) continue;
+            seen.add(pairKey(pair));
+            slots.push(slotFor(pair, "pool", options.pool));
+        }
+    }
     const visible = slots.slice(0, cap);
+    const recent: DialSlot[] = [];
+    const recentSeen = new Set<string>();
+    for (const pair of [...options.recents].reverse()) {
+        const key = pairKey(pair);
+        if (recentSeen.has(key)) continue;
+        recentSeen.add(key);
+        recent.push(slotFor(pair, "recent", options.pool));
+        if (recent.length === 3) break;
+    }
     return {
         slots: visible,
+        recent,
         overflow: slots.length - visible.length,
-        healed,
     };
 }
 
@@ -235,31 +156,132 @@ export interface DialStripState {
      *
      * Held for the highlighted row alone: moving sideways discards it, because
      * an edit that followed you along the strip would be a second, invisible
-     * dial. A favourite is never rewritten by this.
+     * dial. Moving away discards the pending edit.
      */
-    readonly editedEffort?: string;
+    /** `null` means the explicit provider-default choice; absent means unedited. */
+    readonly editedEffort?: string | null;
     /** The pair the strip opened with, which is what escape puts back. */
     readonly opened?: DialPair;
+    readonly lane: "model" | "agent" | "access";
+    readonly agents: readonly string[];
+    readonly agentIndex: number;
+    readonly openedAgent?: string;
+    readonly agentPostures: Readonly<Record<string, string>>;
+    readonly agentForbiddenAccess: Readonly<Record<string, readonly string[]>>;
+    readonly permissionModes: readonly string[];
+    readonly permissionIndex: number;
+    readonly openedPermission?: string;
+    readonly permissionEdited?: boolean;
+    readonly recent: readonly DialSlot[];
 }
 
 export function openDialStrip(
     composition: DialStripComposition,
     current: DialPair | undefined,
+    options: {
+        readonly agents?: readonly string[];
+        readonly currentAgent?: string;
+        readonly agentPostures?: Readonly<Record<string, string>>;
+        readonly agentForbiddenAccess?: Readonly<
+            Record<string, readonly string[]>
+        >;
+        readonly permissionModes?: readonly string[];
+        readonly currentPermission?: string;
+    } = {},
 ): DialStripState {
+    const agents = options.agents ?? [];
+    const permissionModes = options.permissionModes ?? [];
     return {
         slots: composition.slots,
         overflow: composition.overflow,
         index: 0,
+        lane: "model",
+        agents,
+        agentIndex: Math.max(0, agents.indexOf(options.currentAgent ?? "")),
+        agentPostures: options.agentPostures ?? {},
+        agentForbiddenAccess: options.agentForbiddenAccess ?? {},
+        permissionModes,
+        recent: composition.recent,
+        permissionIndex: permissionModes.indexOf(options.currentPermission ?? ""),
         ...(current === undefined ? {} : { opened: current }),
+        ...(options.currentAgent === undefined
+            ? {}
+            : { openedAgent: options.currentAgent }),
+        ...(options.currentPermission === undefined
+            ? {}
+            : { openedPermission: options.currentPermission }),
     };
 }
 
-/** Move the highlight. No wrap: the ends of the strip are ends. */
+const DIAL_LANES = ["model", "agent", "access"] as const;
+
+export function moveDialLane(
+    state: DialStripState,
+    delta: number,
+): DialStripState {
+    const at = DIAL_LANES.indexOf(state.lane);
+    const next = (at + delta + DIAL_LANES.length) % DIAL_LANES.length;
+    return { ...state, lane: DIAL_LANES[next]! };
+}
+
+function moveChoice(
+    state: DialStripState,
+    delta: number,
+): DialStripState {
+    if (state.lane === "model") return adjustDialEffort(state, delta);
+    if (state.lane === "agent") {
+        const agentIndex = cycleIndex(
+            state.agentIndex,
+            delta,
+            state.agents.length,
+        );
+        const agent = state.agents[agentIndex];
+        const forbidden = agent === undefined
+            ? []
+            : state.agentForbiddenAccess[agent] ?? [];
+        const current = state.permissionModes[state.permissionIndex];
+        if (current === undefined || !forbidden.includes(current)) {
+            return { ...state, agentIndex };
+        }
+        const posture = agent === undefined
+            ? undefined
+            : state.agentPostures[agent];
+        const permissionIndex = posture === undefined
+            || forbidden.includes(posture)
+            ? state.permissionModes.findIndex((mode) => !forbidden.includes(mode))
+            : state.permissionModes.indexOf(posture);
+        return {
+            ...state,
+            agentIndex,
+            permissionIndex: Math.max(0, permissionIndex),
+            permissionEdited: true,
+        };
+    }
+    const agent = state.agents[state.agentIndex];
+    const forbidden = agent === undefined
+        ? []
+        : state.agentForbiddenAccess[agent] ?? [];
+    const allowed = state.permissionModes
+        .map((mode, index) => ({ mode, index }))
+        .filter(({ mode }) => !forbidden.includes(mode));
+    if (allowed.length === 0) return state;
+    const at = Math.max(
+        0,
+        allowed.findIndex(({ index }) => index === state.permissionIndex),
+    );
+    return {
+        ...state,
+        permissionIndex: allowed[cycleIndex(at, delta, allowed.length)]!.index,
+        permissionEdited: true,
+    };
+}
+
+/** Move the model highlight as a cycle. */
 export function moveDialStrip(
     state: DialStripState,
     delta: number,
 ): DialStripState {
-    const next = clamp(state.index + delta, 0, state.slots.length - 1);
+    const next = cycleIndex(state.index, delta, state.slots.length);
     if (next === state.index) return state;
     const { editedEffort: _discarded, ...rest } = state;
     return { ...rest, index: next };
@@ -288,16 +310,13 @@ export function adjustDialEffort(
     if (slot?.pair === undefined || slot.efforts.length === 0) {
         return state;
     }
-    const currentEffort = state.editedEffort ?? slot.pair.effort;
-    const at = currentEffort === undefined
-        ? -1
-        : slot.efforts.indexOf(currentEffort);
-    const next = clamp(
-        at < 0 ? (delta > 0 ? 0 : slot.efforts.length - 1) : at + delta,
-        0,
-        slot.efforts.length - 1,
-    );
-    return { ...state, editedEffort: slot.efforts[next]! };
+    const currentEffort = state.editedEffort === undefined
+        ? slot.pair.effort
+        : state.editedEffort ?? undefined;
+    const choices: readonly (string | undefined)[] = [undefined, ...slot.efforts];
+    const at = Math.max(0, choices.indexOf(currentEffort));
+    const next = choices[cycleIndex(at, delta, choices.length)];
+    return { ...state, editedEffort: next ?? null };
 }
 
 /** The pair Enter would commit, or nothing when the row cannot be taken. */
@@ -306,7 +325,9 @@ export function dialStripSelection(
 ): DialPair | undefined {
     const slot = state.slots[state.index];
     if (slot?.pair === undefined) return undefined;
-    const effort = state.editedEffort ?? slot.pair.effort;
+    const effort = state.editedEffort === undefined
+        ? slot.pair.effort
+        : state.editedEffort ?? undefined;
     return {
         ...(slot.pair.provider === undefined
             ? {}
@@ -326,20 +347,32 @@ export function dialStripSelection(
 export function renderDialStrip(
     state: DialStripState,
     hints: string,
+    width = Number.POSITIVE_INFINITY,
+    maxModelRows = 9,
 ): readonly string[] {
     const cells = state.slots.map((slot, index) => {
-        const effort = index === state.index
-            ? state.editedEffort ?? slot.pair?.effort
-            : slot.pair?.effort;
-        const label = effort === undefined
-            ? slot.label
-            : `${slot.label}·${effort}`;
-        const numbered = `${index + 1} ${label}`;
-        return index === state.index ? `[${numbered}]` : ` ${numbered} `;
+        const label = slot.label;
+        const source = slot.source === "current"
+            ? "●"
+            : slot.source === "recent"
+                    ? "↺"
+                    : "·";
+        const numbered = `${source} ${index + 1} ${label}`;
+        const choice = index === state.index ? `[${numbered}]` : ` ${numbered} `;
+        const provider = slot.pair?.provider;
+        return provider === undefined
+            ? choice
+            : `${choice}${DIAL_PROVIDER_SEPARATOR} · ${provider}`;
     });
-    const strip = `  dials  ${cells.join(" ")}${
-        state.overflow > 0 ? "  …" : ""
-    }`;
+    const modelLines = renderExpandedModelLane(
+        cells,
+        width,
+        state.index,
+        maxModelRows,
+        state.overflow > 0,
+        state.recent.map((slot) => slot.label),
+        state.lane === "model",
+    );
     const slot = state.slots[state.index];
     const note = slot === undefined
         ? "nothing to dial"
@@ -348,26 +381,250 @@ export function renderDialStrip(
             : slot.efforts.length === 0
                 ? "no effort dial"
                 : hints;
-    return [strip, `          ${note}`];
+    const agentCells = state.agents.map((agent, index) =>
+        index === state.agentIndex ? `[${agent}]` : agent
+    );
+    const permissionCells = state.permissionModes.map((mode, index) =>
+        index === state.permissionIndex ? `[${mode.replaceAll("_", " ")}]` : mode.replaceAll("_", " ")
+    );
+    const selectedSlot = state.slots[state.index];
+    const selectedEffort = state.editedEffort === undefined
+        ? selectedSlot?.pair?.effort
+        : state.editedEffort ?? undefined;
+    const effortCells = [
+        selectedEffort === undefined ? "[default]" : "default",
+        ...(selectedSlot?.efforts.map((effort) =>
+        effort === selectedEffort ? `[${effort}]` : effort
+        ) ?? []),
+    ];
+    const accessLine = renderDialLane(
+        state.lane === "access",
+        "ACCESS",
+        permissionCells,
+        state.permissionIndex,
+        width,
+    );
+    const selectedAgent = state.agents[state.agentIndex];
+    const forbidden = selectedAgent === undefined
+        ? []
+        : state.agentForbiddenAccess[selectedAgent] ?? [];
+    const unavailable = state.permissionModes.find((mode) =>
+        forbidden.includes(mode)
+    );
+    const accessNote = unavailable === undefined || selectedAgent === undefined
+        ? undefined
+        : `${unavailable.replaceAll("_", " ")} unavailable — ${selectedAgent} is ${
+            state.agentPostures[selectedAgent] ?? "restricted"
+        }`;
+    return [
+        ...modelLines,
+        renderDialLane(
+            false,
+            "EFFORT",
+            selectedSlot?.efforts.length === 0 ? ["not available"] : effortCells,
+            selectedEffort === undefined
+                ? 0
+                : Math.max(
+                    0,
+                    (selectedSlot?.efforts.indexOf(selectedEffort) ?? -1) + 1,
+                ),
+            width,
+        ),
+        renderDialLane(
+            state.lane === "agent",
+            "AGENT",
+            agentCells.length === 0 ? ["unavailable"] : agentCells,
+            state.agentIndex,
+            width,
+        ),
+        accessNote === undefined
+            ? accessLine
+            : appendDialNote(accessLine, accessNote, width),
+        "",
+        renderDialFooter(
+            state.lane === "model"
+                ? Number.isFinite(width) && width < 42
+                    ? "↑/↓ · ←/→"
+                    : `${note === "nothing to dial" || note === "no effort dial" ? `${note} · ` : ""}↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · · pool`
+                : hints,
+            width,
+        ),
+    ];
+}
+
+function appendDialNote(line: string, note: string, width: number): string {
+    if (!Number.isFinite(width)) return `${line}  ${note}`;
+    const gap = 2;
+    if (line.length + gap + note.length <= width) {
+        return `${line}${" ".repeat(width - line.length - note.length)}${note}`;
+    }
+    return fitDialText(line, width);
+}
+
+function renderDialFooter(hints: string, width: number): string {
+    const exit = "esc close";
+    if (!Number.isFinite(width)) {
+        return `${hints}  ${DIAL_EXIT_SEPARATOR}${exit}`;
+    }
+    const gap = 2;
+    const hintWidth = Math.max(0, width - exit.length - gap);
+    const left = fitDialText(hints, hintWidth);
+    return `${left}${" ".repeat(Math.max(gap, width - left.length - exit.length))}${DIAL_EXIT_SEPARATOR}${exit}`;
+}
+
+function renderExpandedModelLane(
+    cells: readonly string[],
+    width: number,
+    selected: number,
+    maxRows: number,
+    hiddenAfter: boolean,
+    recent: readonly string[],
+    active: boolean,
+): readonly string[] {
+    const count = Math.max(1, Math.min(maxRows, cells.length));
+    const start = clamp(
+        selected - Math.floor(count / 2),
+        0,
+        Math.max(0, cells.length - count),
+    );
+    const end = Math.min(cells.length, start + count);
+    const layoutWidth = Number.isFinite(width) ? width : 120;
+    const showRecent = Number.isFinite(width) && width >= 72 && recent.length > 0;
+    const recentWidth = showRecent ? Math.min(26, Math.floor(width * 0.34)) : 0;
+    const leftWidth = showRecent ? layoutWidth - recentWidth - 2 : layoutWidth;
+    const showProviders = leftWidth >= 60;
+    const providerWidth = Math.max(
+        0,
+        ...cells.map((cell) =>
+            cell.split(DIAL_PROVIDER_SEPARATOR)[1]?.length ?? 0
+        ),
+    );
+    const widestChoice = Math.max(
+        0,
+        ...cells.map((cell) =>
+            (cell.split(DIAL_PROVIDER_SEPARATOR)[0] ?? "")
+                .trim()
+                .replace(/^\[|\]$/g, "")
+                .length
+        ),
+    );
+    const row = (left: string, right = "") => showRecent
+        ? `${fitDialText(left, leftWidth).padEnd(leftWidth)}  ${fitDialText(right, recentWidth)}`
+        : fitDialText(left, width);
+    const modelRow = (cell: string, rowIndex: number, right = "") => {
+        const [choice = "", provider] = cell.split(DIAL_PROVIDER_SEPARATOR);
+        const compact = leftWidth < 42;
+        const indent = rowIndex === 0
+            ? compact
+                ? `${active ? "›" : " "} `
+                : `${active ? "›" : " "} MODEL`.padEnd(14)
+            : " ".repeat(compact ? 2 : 14);
+        const providerText = showProviders ? provider ?? "" : "";
+        const providerColumn = providerText.length === 0
+            ? leftWidth
+            : Math.max(
+                1,
+                Math.min(
+                    leftWidth - providerWidth - 1,
+                    indent.length + widestChoice + 4,
+                ),
+            );
+        const left = `${indent}${fitDialText(choice, Math.max(1, providerColumn - indent.length))}`
+            .padEnd(providerColumn);
+        const joined = providerText.length === 0
+            ? left
+            : `${left}${DIAL_PROVIDER_SEPARATOR}${providerText}`;
+        return showRecent
+            ? `${joined.padEnd(leftWidth)}  ${fitDialText(right, recentWidth)}`
+            : joined;
+    };
+    return [
+        ...(start > 0
+            ? [row(
+                leftWidth < 42
+                    ? `${active ? "›" : " "} …`
+                    : `${active ? "›" : " "} MODEL       …`,
+                "RECENTLY USED",
+            )]
+            : []),
+        ...cells.slice(start, end).map((cell, index) =>
+            modelRow(
+                cell,
+                index,
+                index === 0 ? "RECENTLY USED" : recent[index - 1] ?? "",
+            )
+        ),
+        ...(end < cells.length || hiddenAfter
+            ? [leftWidth < 42 ? "  …" : "              …"]
+            : []),
+    ];
+}
+
+function renderDialLane(
+    active: boolean,
+    label: string,
+    cells: readonly string[],
+    selected: number,
+    width: number,
+    hiddenAfter = false,
+): string {
+    // Keep the controls on a shared label gutter, then let choices remain
+    // compact; fixed-width choices become excessively airy on wide terminals.
+    const prefix = Number.isFinite(width) && width < 42
+        ? `${active ? "›" : " "} `
+        : `${active ? "›" : " "} ${label.padEnd(12)}`;
+    let start = 0;
+    let end = cells.length;
+    const line = () => {
+        const before = start > 0 ? "… " : "";
+        const after = end < cells.length || hiddenAfter ? " …" : "";
+        return `${prefix}${before}${cells.slice(start, end).join(" ")}${after}`;
+    };
+    while (end - start > 1 && line().length > width) {
+        const leftDistance = selected - start;
+        const rightDistance = end - 1 - selected;
+        if (rightDistance >= leftDistance && end - 1 > selected) {
+            end -= 1;
+        } else if (start < selected) {
+            start += 1;
+        } else {
+            end -= 1;
+        }
+    }
+    return fitDialText(line(), width);
+}
+
+function fitDialText(text: string, width: number): string {
+    if (!Number.isFinite(width) || text.length <= width) return text;
+    if (width <= 1) return text.slice(0, Math.max(0, width));
+    return `${text.slice(0, width - 1)}…`;
 }
 
 function clamp(value: number, low: number, high: number): number {
     return Math.max(low, Math.min(high, value));
 }
 
+function cycleIndex(index: number, delta: number, length: number): number {
+    if (length <= 0) return 0;
+    if (index < 0) return delta < 0 ? length - 1 : 0;
+    return (index + delta % length + length) % length;
+}
+
 /**
  * What a keypress means to the open strip.
  *
- * `type` is the primary exit and the reason the strip has no letter
- * navigation: whatever you type goes to the composer, with the pair you had
- * left alone. A vim user who rebinds letters onto movement knowingly gives up
- * type-to-commit for those letters.
+ * The HUD is modal: Enter applies and Escape cancels. Printable keys never
+ * leak into the composer while it is open; h/j/k/l mirror the arrow keys.
  */
 export type DialStripAction =
     | { readonly kind: "state"; readonly state: DialStripState }
-    | { readonly kind: "commit"; readonly pair: DialPair }
+    | {
+        readonly kind: "commit";
+        readonly pair: DialPair;
+        readonly agent?: string;
+        readonly permission?: string;
+    }
     | { readonly kind: "cancel" }
-    | { readonly kind: "type"; readonly text: string }
     | { readonly kind: "ignore" };
 
 export interface DialStripKey {
@@ -388,17 +645,53 @@ export function handleDialStripKey(
     }
     if (key.name === "return" || key.name === "enter") {
         const pair = dialStripSelection(state);
-        return pair === undefined ? { kind: "ignore" } : { kind: "commit", pair };
+        return pair === undefined ? { kind: "ignore" } : {
+            kind: "commit",
+            pair,
+            ...(state.agents[state.agentIndex] === undefined
+                ? {}
+                : { agent: state.agents[state.agentIndex] }),
+            ...(state.permissionEdited !== true
+                || state.permissionModes[state.permissionIndex] === undefined
+                ? {}
+                : { permission: state.permissionModes[state.permissionIndex] }),
+        };
     }
+    if (key.name === "tab") {
+        return {
+            kind: "state",
+            state: moveDialLane(state, key.shift === true ? -1 : 1),
+        };
+    }
+    const vimBinding = key.name === "h"
+        ? "dials.pair.prev"
+        : key.name === "l"
+            ? "dials.pair.next"
+            : key.name === "k"
+                ? "dials.effort.up"
+                : key.name === "j"
+                    ? "dials.effort.down"
+                    : undefined;
+    bindingId ??= vimBinding;
     switch (bindingId) {
         case "dials.pair.prev":
-            return { kind: "state", state: moveDialStrip(state, -1) };
+            return { kind: "state", state: moveChoice(state, -1) };
         case "dials.pair.next":
-            return { kind: "state", state: moveDialStrip(state, 1) };
+            return { kind: "state", state: moveChoice(state, 1) };
         case "dials.effort.up":
-            return { kind: "state", state: adjustDialEffort(state, 1) };
+            return {
+                kind: "state",
+                state: state.lane === "model"
+                    ? moveDialStrip(state, -1)
+                    : state,
+            };
         case "dials.effort.down":
-            return { kind: "state", state: adjustDialEffort(state, -1) };
+            return {
+                kind: "state",
+                state: state.lane === "model"
+                    ? moveDialStrip(state, 1)
+                    : state,
+            };
     }
     if (key.ctrl === true) {
         return { kind: "ignore" };
@@ -406,8 +699,5 @@ export function handleDialStripKey(
     if (/^[1-9]$/.test(key.name)) {
         return { kind: "state", state: jumpDialStrip(state, Number(key.name)) };
     }
-    const text = key.sequence ?? key.name;
-    return [...text].length === 1 && text >= " "
-        ? { kind: "type", text }
-        : { kind: "ignore" };
+    return { kind: "ignore" };
 }

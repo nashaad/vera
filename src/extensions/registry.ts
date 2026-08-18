@@ -1105,6 +1105,9 @@ function parseExtensionAgent(spec: VeraExtensionAgentSpec): AgentDefinition {
         ...(spec.tools === undefined ? {} : { tools: spec.tools }),
         ...(spec.skills === undefined ? {} : { skills: spec.skills }),
         ...(spec.posture === undefined ? {} : { posture: spec.posture }),
+        ...(spec.forbiddenAccess === undefined
+            ? {}
+            : { forbidden_access: spec.forbiddenAccess }),
         ...(spec.defaultPair === undefined
             ? {}
             : { default_pair: spec.defaultPair }),

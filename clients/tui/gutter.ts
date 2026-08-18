@@ -31,7 +31,10 @@ export function tuiGutterWidth(
     activityIndent: number,
 ): number {
     const alignedIndent = Math.max(2, activityIndent);
-    return entry.kind === "tool" || entry.kind === "tool_header"
+    // Tool detail rows have their own four-column connector gutter. The
+    // header does not, so it still needs the full activity indent or a live
+    // `Running` header jumps to the transcript's left edge.
+    return entry.kind === "tool"
         ? alignedIndent - 2
         : alignedIndent;
 }
@@ -48,11 +51,7 @@ function entryMarker(
     readonly color: string;
     readonly attributes?: number;
 } {
-    if (
-        entry.kind === "assistant"
-        || entry.kind === "thought"
-        || entry.kind === "thinking"
-    ) {
+    if (entry.kind === "assistant") {
         return {
             glyph: "•",
             color: TUI_MUTED,

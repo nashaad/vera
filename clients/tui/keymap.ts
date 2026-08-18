@@ -247,7 +247,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["shift+tab"],
         scope: "global",
         description: "Open the dial strip: model and reasoning effort",
-        hint: "⇧⇥ dials",
+        hint: "shift+tab HUD",
         remappable: true,
     },
     // Movement inside the strip. Remappable, because a strip is a picker and

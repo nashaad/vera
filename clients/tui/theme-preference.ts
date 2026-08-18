@@ -13,7 +13,14 @@ import {
     type Quickslots,
 } from "./quickslots.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
-import type { FavoritePair } from "./dials.ts";
+
+/** Legacy on-disk data retained so older preference files round-trip safely. */
+export interface FavoritePair {
+    readonly name?: string;
+    readonly provider?: string;
+    readonly modelId?: string;
+    readonly effort?: string;
+}
 
 // Every client preference shares one file and one writer. A second module doing
 // its own read-modify-write here would drop whatever the other had just saved,
@@ -34,8 +41,8 @@ interface TuiClientPreferences {
     // Binding id to chords. Ids only: a block that could name actions would be
     // a macro language, and a macro language is where blind cycling comes back.
     readonly keybindings?: Readonly<Record<string, readonly string[]>>;
-    // Pairs, not models: the shortlist in /model stars a model without an
-    // effort, and these two lists answer different questions.
+    // Retained for backward-compatible reads/writes; the TUI no longer uses
+    // favorites as a live model-selection concept.
     readonly favorite_pairs?: readonly DiskFavoritePair[];
     // Version-numbered so a later format change can run its own pass without
     // re-running this one.

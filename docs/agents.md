@@ -35,6 +35,7 @@ description: read-only code reviewer
 tools: [read, grep, ls, bash]
 skills: [code-review]
 posture: readonly
+forbidden_access: [auto, full_access]
 default_pair: { name: sol, effort: medium }
 nudges:
   - on: write
@@ -50,6 +51,7 @@ file:line references, most severe first.
 | `tools` | **omitted means every tool, present and future.** A list is a restriction to exactly those names |
 | `skills` | same rule, kept separate |
 | `posture` | a permission mode by name. Omitted means the host's current default, resolved fresh each turn |
+| `forbidden_access` | permission modes this agent cannot coexist with. Choosing the agent falls back to an allowed posture; explicitly choosing a forbidden permission switches to `default` and explains why |
 | `default_pair` | a pool name and optionally an effort. Adopted only if you have not dialled the session yourself |
 | `nudges` | what to say when a tool is refused. Interactive sessions only |
 

@@ -614,12 +614,12 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "ctrl+shift+m model",
+                "shift+tab HUD · ctrl+shift+m model",
             );
             expect(pane).toContain("ready · ctrl+p commands");
             const footerLines = pane.split("\n");
             const modelHintLine = footerLines.findIndex((line) =>
-                line.includes("ctrl+shift+m model")
+                line.includes("shift+tab HUD · ctrl+shift+m model")
             );
             const readyLine = footerLines.findIndex((line) =>
                 line.includes("ready · ctrl+p commands")
@@ -911,10 +911,22 @@ test.skipIf(!tmuxAvailable)(
                 "session renamed: Planning",
             );
             expect(pane).not.toContain("/rename Planning");
+            expect(pane.split("\n").some((line) =>
+                line.trim() === "SESSION  Planning"
+            ))
+                .toBe(true);
 
             sendText(socket, session, "/rename");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "session name cleared");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "session name cleared",
+            );
+            expect(pane.split("\n").some((line) =>
+                line.trim() === "SESSION  Planning"
+            ))
+                .toBe(false);
             sendKey(socket, session, "C-c");
             await waitForSessionExit(socket, session);
             expect(readFileSync(join(home, "rename-result.txt"), "utf8"))
@@ -1998,7 +2010,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^• Baked for 0\.0s\n {2}Ran/m);
+            expect(pane).toMatch(/^  Baked for 0\.0s\n {2}Ran/m);
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);
@@ -2875,6 +2887,24 @@ test.skipIf(!tmuxAvailable)(
             }
             pane = await waitForPane(socket, session, "Jump to bottom");
 
+            sendText(socket, session, "/themes");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => /\/themes\s+Change the TUI theme/.test(current),
+                "filtered theme command suggestion",
+            );
+            const suggestionLines = pane.split("\n");
+            const suggestionRow = suggestionLines.findIndex((line) =>
+                /\/themes\s+Change the TUI theme/.test(line)
+            );
+            const jumpRow = suggestionLines.findIndex((line) =>
+                line.includes("Jump to bottom")
+            );
+            expect(suggestionLines[suggestionRow - 1]?.trim()).toBe("");
+            expect(jumpRow).toBeLessThan(suggestionRow - 1);
+            sendKey(socket, session, "C-u");
+
             sendEscapeSequence(socket, session, "\x1b[1;5F");
             await waitForVisiblePaneWhere(
                 socket,
@@ -2888,12 +2918,25 @@ test.skipIf(!tmuxAvailable)(
             sendMouseWheel(socket, session, "up", 20, 4, 10);
             pane = await waitForPane(socket, session, "Jump to bottom");
             sendMouseWheel(socket, session, "down", 20, 4, 40);
-            await waitForVisiblePaneWhere(
+            const reachedBottom = await waitForVisiblePaneWhere(
                 socket,
                 session,
                 (current) => !current.includes("Jump to bottom"),
                 "pill hidden at the bottom",
             );
+
+            // Reaching the bottom with the wheel must resume sticky follow,
+            // not merely hide the pill until the next streamed update.
+            const streamedBefore = (reachedBottom.match(/x/g) ?? []).length;
+            const afterWheel = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (current) => (current.match(/x/g) ?? []).length
+                        > streamedBefore + 10
+                    && !current.includes("Jump to bottom"),
+                "stream remains followed after returning with the wheel",
+            );
+            expect(afterWheel).not.toContain("Jump to bottom");
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {

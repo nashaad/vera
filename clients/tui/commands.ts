@@ -371,7 +371,7 @@ const PERMISSIONS_COMMAND = {
 
 const AGENT_COMMAND = {
     name: "agent",
-    description: "Wear an agent: its instructions, tools, skills and posture",
+    description: "Switch agents: instructions, tools, skills and posture",
     usage: "/agent [name]",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -848,12 +848,16 @@ export function renderTuiCommandSuggestions(
         ...commands.map((command) => command.name.length),
     );
     const gutter = grouped ? SLASH_GROUP_WIDTH : 0;
+    const markerWidth = grouped || selectedIndex >= 0 ? 2 : 0;
     // Each row stays one row: a description that would wrap is cut with an
     // ellipsis instead, because a wrapped row breaks the one-line-per-command
     // height the box is sized by.
     const descriptionWidth = maxWidth === undefined
         ? Number.POSITIVE_INFINITY
-        : Math.max(1, maxWidth - (2 + gutter + 1 + commandWidth + 2));
+        : Math.max(
+            1,
+            maxWidth - (markerWidth + gutter + 1 + commandWidth + 2),
+        );
     commands.forEach((command, index) => {
         const active = index === selectedIndex;
         const previous = commands[index - 1];
@@ -865,7 +869,9 @@ export function renderTuiCommandSuggestions(
         }
         // Quiet selection: a chevron marker plus an accent command name, the
         // lightest device that marks the row without a loud full-width bar.
-        chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+        if (markerWidth > 0) {
+            chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+        }
         // Printed once, on the group's first row. The gap below it and the
         // word reappearing at the left margin are the whole separator: no
         // heading row, which is the scarce axis, and no rule.
@@ -1069,7 +1075,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 },
         palette: {
             name: "agent",
-            label: "Wear an agent",
+            label: "Switch agents",
             description: "instructions, tools, skills and posture, as one thing",
             group: "Settings",
             slashName: "agent",

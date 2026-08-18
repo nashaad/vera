@@ -190,7 +190,7 @@ test("the unfiltered slash list names each group once, in a left column", () => 
     const flat = tuiCommandSuggestionsText(
         renderTuiCommandSuggestions(commands, -1, undefined, 0, false),
     );
-    expect(flat).toContain("  /rewind");
+    expect(flat.startsWith("/rewind")).toBe(true);
     expect(flat).not.toContain("built in");
     expect(tuiSuggestionGaps(commands, false)).toBe(0);
 });

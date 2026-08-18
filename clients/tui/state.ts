@@ -76,6 +76,8 @@ export interface TuiTextTranscriptEntry {
      * one that stuck is worth a line.
      */
     readonly supersedes?: string;
+    /** Client-only row preserved across canonical history rebuilds. */
+    readonly liveOnly?: boolean;
     /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
     /** Whether a `thought` summary is showing its reasoning. */
@@ -192,6 +194,7 @@ export interface TuiState {
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
         readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
     };
 }
 
@@ -515,13 +518,16 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                 ...(update.posture === undefined
                     ? {}
                     : { posture: update.posture }),
+                ...(update.forbiddenAccess === undefined
+                    ? {}
+                    : { forbiddenAccess: update.forbiddenAccess }),
             },
         };
-        // Wearing is loud by design: the transcript says it happened, at the
+        // Switching is loud by design: the transcript says it happened, at the
         // moment it applied rather than when it was asked for.
         return appendTuiNotice(
             next,
-            update.notice ?? `Wearing ${update.name}.`,
+            update.notice ?? `Switched to ${update.name}.`,
             "soft",
         );
     }
@@ -1044,6 +1050,7 @@ export function appendTuiNotice(
     const entry: TuiTranscriptEntry = {
         kind: "notice",
         text: message,
+        liveOnly: true,
         ...(tone === undefined ? {} : { tone }),
         ...(supersedes === undefined ? {} : { supersedes }),
     };
@@ -2214,6 +2221,7 @@ function preserveLiveReviewEntries(
             && transcriptEntriesEqual(withoutTransientEntries, canonical)
         ? current.filter((entry) =>
             entry.kind !== "thought" && entry.kind !== "thinking"
+            && (entry.kind === "diff" || entry.liveOnly !== true)
         )
         : canonical;
     return restoreReasoningEntries(
@@ -2254,9 +2262,10 @@ interface AnchoredReasoning {
 }
 
 /**
- * A thought summary has no backing message, so a history rebuild drops it, and
- * a turn emits history while it is still streaming. Anchoring the summary to
- * the count of durable rows before it survives the rebuild and holds its place.
+ * Thought summaries and client-only notices have no backing history message.
+ * Anchor both to the count of canonical rows before them: counting a local
+ * notice as durable shifts every later thought and eventually dumps it at the
+ * transcript tail when the rebuilt history never reaches that count.
  */
 function anchoredReasoningEntries(
     entries: readonly TuiTranscriptEntry[],
@@ -2264,7 +2273,10 @@ function anchoredReasoningEntries(
     const anchored: AnchoredReasoning[] = [];
     let durable = 0;
     for (const entry of entries) {
-        if (entry.kind === "thought") {
+        if (
+            entry.kind === "thought"
+            || (entry.kind !== "diff" && entry.liveOnly === true)
+        ) {
             anchored.push({ after: durable, entry });
         } else if (entry.kind !== "review" && entry.kind !== "thinking") {
             durable += 1;
