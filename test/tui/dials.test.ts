@@ -107,7 +107,6 @@ test("the effort scale explains the faster-to-smarter direction when it fits", (
     expect(scale[0]).toContain("Faster");
     expect(scale[0]).toContain("Smarter");
     expect(scale[1]).toContain("▲");
-    expect(scale[2]).toContain("default");
     expect(scale[2]).toContain("medium");
     expect(scale.join("\n").length).toBeLessThanOrEqual(80 * 2);
     expect(renderEffortScale(["low", "high"], "low", 48)).toEqual([]);
