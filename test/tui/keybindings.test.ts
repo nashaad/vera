@@ -56,6 +56,13 @@ test("ctrl+d and ctrl+u move the conversation by half a page", () => {
         .toBe("scroll_half_page_up");
 });
 
+test("shift-tab opens dials for both terminal encodings", () => {
+    expect(tuiBindingId("global", { name: "tab", shift: true }))
+        .toBe("dials.open");
+    expect(tuiBindingId("global", { name: "backtab" }))
+        .toBe("dials.open");
+});
+
 test("alt, meta and option are refused rather than accepted and never fired", () => {
     for (const modifier of ["alt", "meta", "option"]) {
         const parsed = parseTuiChord(`${modifier}+x`);

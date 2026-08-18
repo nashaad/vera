@@ -243,7 +243,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "dials.open",
-        keys: ["shift+tab"],
+        // Ghostty and tmux commonly emit the dedicated backtab name instead
+        // of a tab event carrying shift.
+        keys: ["shift+tab", "backtab"],
         scope: "global",
         description: "Open the dial strip: model and reasoning effort",
         hint: "shift+tab HUD",
