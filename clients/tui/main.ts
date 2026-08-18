@@ -1446,8 +1446,10 @@ export async function startTui(
         return SyntaxStyle.fromStyles({
         default: { fg: activeTheme.text },
         "markup.heading": { fg: activeTheme.accent, bold: true },
-        "markup.strong": { bold: true },
-        "markup.italic": { italic: true },
+        // Assistant prose uses a quieter base foreground, but emphasis is a
+        // deliberate signal and must not inherit that muted color.
+        "markup.strong": { fg: activeTheme.text, bold: true },
+        "markup.italic": { fg: activeTheme.text, italic: true },
         "markup.raw": { fg: activeTheme.code },
         "markup.raw.block": { fg: activeTheme.code },
         "markup.list": { fg: activeTheme.accent },
