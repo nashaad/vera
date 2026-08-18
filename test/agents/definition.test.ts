@@ -93,6 +93,22 @@ test("context accepts only full in v1", () => {
         .toBe("full");
 });
 
+test("agents can forbid named permission modes", () => {
+    const agent = parseAgentDefinition(
+        "plan",
+        "---\nposture: readonly\nforbidden_access: [auto, full_access]\n---\nplan",
+        { permissionModes: ["readonly", "ask", "auto", "full_access"] },
+    );
+    expect(agent.forbiddenAccess).toEqual(["auto", "full_access"]);
+    expect(resolveAgentSnapshot(agent).forbiddenAccess)
+        .toEqual(["auto", "full_access"]);
+    expect(() => parseAgentDefinition(
+        "plan",
+        "---\nforbidden_access: [mystery]\n---\nplan",
+        { permissionModes: ["readonly", "ask", "auto"] },
+    )).toThrow("no permission mode named mystery");
+});
+
 async function agentRoot(): Promise<string> {
     return mkdtemp(join(tmpdir(), "vera-agents-"));
 }

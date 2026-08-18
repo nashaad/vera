@@ -319,6 +319,57 @@ test("a thought summary survives a history rebuild in place", () => {
     ]);
 });
 
+test("client notices do not push later reasoning summaries to the tail", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "first" },
+            { kind: "assistant", text: "first answer" },
+        ],
+        seq: 1,
+    });
+    state = {
+        ...state,
+        entries: [
+            { kind: "user", text: "first" },
+            { kind: "thought", text: "Baked for 1.0s" },
+            { kind: "assistant", text: "first answer" },
+        ],
+    };
+    state = appendTuiNotice(state, "Switched models.", "soft");
+    state = {
+        ...state,
+        entries: [
+            ...state.entries,
+            { kind: "user", text: "second" },
+            { kind: "thought", text: "Worked for 2.0s" },
+            { kind: "assistant", text: "second answer" },
+        ],
+    };
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "first" },
+            { kind: "assistant", text: "first answer" },
+            { kind: "user", text: "second" },
+            { kind: "assistant", text: "second answer" },
+        ],
+        seq: 2,
+    });
+
+    expect(state.entries.map((entry) => entry.text)).toEqual([
+        "first",
+        "Baked for 1.0s",
+        "first answer",
+        "Switched models.",
+        "second",
+        "Worked for 2.0s",
+        "second answer",
+    ]);
+});
+
 test("reasoning collected mid-turn survives a history rebuild", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_thinking",
@@ -1462,6 +1513,7 @@ test("notices of one weight sit flush, and a receipt replaces its own", () => {
         text: "theme changed: midnight-blue",
         tone: "soft",
         supersedes: "theme",
+        liveOnly: true,
     }]);
 
     // A receipt only overwrites the one directly above it: anything in between
@@ -2171,6 +2223,7 @@ test("TUI shows a compaction budget warning when the run starts", () => {
     expect(warned.entries.at(-1)).toEqual({
         kind: "notice",
         text: "Compaction targets 90000 tokens, above trigger_tokens (5000).",
+        liveOnly: true,
     });
     expect(quiet.entries).toEqual([]);
 });

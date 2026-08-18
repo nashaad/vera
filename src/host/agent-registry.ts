@@ -1825,12 +1825,41 @@ export class AgentRegistry {
         ) {
             return undefined;
         }
+        await this.leaveAgentThatForbidsAccess(entry, id, mode);
         await entry.store.appendApprovalMode(
             mode,
             mode === this.wornAgentPosture(entry) ? "agent-default" : "user",
         );
         entry.approvalMode = mode;
         return entry.approvalMode;
+    }
+
+    /**
+     * An explicit permission choice wins over an incompatible agent.
+     *
+     * The host owns this transition so `/permissions`, the HUD, and other
+     * clients cannot disagree. The agent update is deliberately loud and
+     * durable: the client receives a sticky transcript notice explaining why
+     * the session returned to default.
+     */
+    private async leaveAgentThatForbidsAccess(
+        entry: RegisteredAgentEntry,
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<void> {
+        const active = entry.agentWear;
+        if (active?.forbiddenAccess?.includes(mode) !== true) return;
+        const switched = await this.wearAgentFor(id, DEFAULT_AGENT.name);
+        if (switched === undefined) return;
+        entry.events.emit({
+            type: "agent_worn",
+            update: {
+                requestId: `permissions-${mode}`,
+                ...switched,
+                notice:
+                    `Switched to default because ${active.name} does not allow ${mode.replaceAll("_", " ")} access.`,
+            },
+        });
     }
 
     /**
@@ -1881,6 +1910,7 @@ export class AgentRegistry {
             readonly tools?: readonly string[];
             readonly skills?: readonly string[];
             readonly posture?: string;
+            readonly forbiddenAccess?: readonly string[];
             readonly defaultPair?: {
                 readonly name: string;
                 readonly effort?: string;
@@ -1911,6 +1941,9 @@ export class AgentRegistry {
                 ...(agent.definition.posture === undefined
                     ? {}
                     : { posture: agent.definition.posture }),
+                ...(agent.definition.forbiddenAccess === undefined
+                    ? {}
+                    : { forbiddenAccess: agent.definition.forbiddenAccess }),
                 ...(agent.definition.defaultPair === undefined
                     ? {}
                     : { defaultPair: agent.definition.defaultPair }),
@@ -1945,7 +1978,9 @@ export class AgentRegistry {
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
         readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
         readonly notice?: string;
+        readonly permissionChanged?: boolean;
     } | undefined> {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
@@ -1957,6 +1992,21 @@ export class AgentRegistry {
         const snapshot = resolveAgentSnapshot(found.definition);
         await entry.store.appendAgentWear(snapshot.name, snapshot);
         entry.agentWear = snapshot;
+        let permissionChanged = false;
+        if (snapshot.forbiddenAccess?.includes(entry.approvalMode) === true) {
+            const fallback = snapshot.posture !== undefined
+                    && !snapshot.forbiddenAccess!.includes(snapshot.posture)
+                ? snapshot.posture
+                : [
+                    ...BUILT_IN_PERMISSION_MODE_NAMES,
+                    ...Object.keys(this.options.permissionModes ?? {}),
+                ].find((mode) => !snapshot.forbiddenAccess!.includes(mode));
+            if (fallback !== undefined && isApprovalMode(fallback)) {
+                await entry.store.appendApprovalMode(fallback, "agent-default");
+                entry.approvalMode = fallback;
+                permissionChanged = true;
+            }
+        }
         const notice = await this.adoptAgentDefaultPair(entry, found.definition);
         return {
             name: snapshot.name,
@@ -1967,6 +2017,10 @@ export class AgentRegistry {
             ...(snapshot.posture === undefined
                 ? {}
                 : { posture: snapshot.posture }),
+            ...(snapshot.forbiddenAccess === undefined
+                ? {}
+                : { forbiddenAccess: snapshot.forbiddenAccess }),
+            ...(permissionChanged ? { permissionChanged: true } : {}),
             ...(notice === undefined ? {} : { notice }),
         };
     }
@@ -2020,7 +2074,7 @@ export class AgentRegistry {
                         requestId: RESUME_WEAR_REQUEST_ID,
                         name: DEFAULT_AGENT.name,
                         notice:
-                            `The agent ${recorded.name} is gone, so this session is wearing default.`,
+                            `The agent ${recorded.name} is gone, so this session switched to default.`,
                     },
                 });
                 return;
@@ -2043,7 +2097,7 @@ export class AgentRegistry {
                         ...(current.posture === undefined
                             ? {}
                             : { posture: current.posture }),
-                        notice: `${recorded.name} changed since you put it on: ${
+                        notice: `${recorded.name} changed since it was selected: ${
                             drift.join(", ")
                         }.`,
                     },
@@ -2540,6 +2594,7 @@ export class AgentRegistry {
         ) {
             return undefined;
         }
+        await this.leaveAgentThatForbidsAccess(entry, id, mode);
         await entry.store.appendApprovalMode(mode);
         this.options.updateApprovalDefault?.(mode);
         this.defaultApprovalMode = mode;

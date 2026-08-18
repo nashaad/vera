@@ -18,13 +18,28 @@ When the plan is ready, say so and stop. The user decides whether to run it.`;
 const ASKS_FOR_A_PLAN =
     /\b(plan|approach|strategy|how (would|should) (we|i)|before (we|you) start)\b/i;
 
+interface PlanExtensionConfig {
+    readonly allowSkillScripts: boolean;
+    /** Undefined keeps the agent convention: every installed skill. */
+    readonly skills?: readonly string[];
+}
+
 export function activate(vera: any): void {
+    const config = planExtensionConfig(vera.config);
     vera.agents.register({
         name: "plan",
         description: "reads and plans, never writes",
         instructions: PLAN_INSTRUCTIONS,
-        tools: ["read", "grep", "ls", "glob"],
+        tools: [
+            "read",
+            "grep",
+            "ls",
+            "glob",
+            ...(config.allowSkillScripts ? ["skill_script"] : []),
+        ],
+        ...(config.skills === undefined ? {} : { skills: config.skills }),
         posture: "readonly",
+        forbiddenAccess: ["auto", "full_access"],
         nudges: [{
             on: "*",
             text:
@@ -32,6 +47,23 @@ export function activate(vera: any): void {
                 + " /agent default to carry it out.",
         }],
     });
+}
+
+export function planExtensionConfig(value: unknown): PlanExtensionConfig {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return { allowSkillScripts: false };
+    }
+    const raw = value as Record<string, unknown>;
+    const skills = Array.isArray(raw.skills)
+            && raw.skills.every((skill) =>
+                typeof skill === "string" && skill.trim().length > 0
+            )
+        ? raw.skills.map((skill) => (skill as string).trim())
+        : undefined;
+    return {
+        allowSkillScripts: raw.allow_skill_scripts === true,
+        ...(skills === undefined ? {} : { skills }),
+    };
 }
 
 export function activateClient(vera: any): void {

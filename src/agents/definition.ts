@@ -39,6 +39,8 @@ export interface AgentDefinition {
      * purpose.
      */
     readonly posture?: string;
+    /** Permission modes this agent cannot coexist with. */
+    readonly forbiddenAccess?: readonly string[];
     /** Reserved. Only `"full"` is accepted today. */
     readonly context?: "full";
     readonly defaultPair?: {
@@ -69,6 +71,7 @@ const KNOWN_KEYS = new Set([
     "tools",
     "skills",
     "posture",
+    "forbidden_access",
     "context",
     "default_pair",
     "nudges",
@@ -127,12 +130,25 @@ export function parseAgentDefinition(
     const tools = optionalNameList(name, "tools", frontmatter.tools);
     const skills = optionalNameList(name, "skills", frontmatter.skills);
     const posture = optionalText(name, "posture", frontmatter.posture, 64);
+    const forbiddenAccess = optionalNameList(
+        name,
+        "forbidden_access",
+        frontmatter.forbidden_access,
+    );
     if (
         posture !== undefined
         && options.permissionModes !== undefined
         && !options.permissionModes.includes(posture)
     ) {
         throw new Error(`Agent ${name}: no permission mode named ${posture}`);
+    }
+    if (options.permissionModes !== undefined) {
+        const unknown = forbiddenAccess?.find((mode) =>
+            !options.permissionModes!.includes(mode)
+        );
+        if (unknown !== undefined) {
+            throw new Error(`Agent ${name}: no permission mode named ${unknown}`);
+        }
     }
     const defaultPair = parseDefaultPair(name, frontmatter.default_pair);
     const nudges = parseNudges(name, frontmatter.nudges);
@@ -148,6 +164,7 @@ export function parseAgentDefinition(
         ...(tools === undefined ? {} : { tools }),
         ...(skills === undefined ? {} : { skills }),
         ...(posture === undefined ? {} : { posture }),
+        ...(forbiddenAccess === undefined ? {} : { forbiddenAccess }),
         ...(context === undefined ? {} : { context: "full" as const }),
         ...(defaultPair === undefined ? {} : { defaultPair }),
         ...(nudges === undefined ? {} : { nudges }),

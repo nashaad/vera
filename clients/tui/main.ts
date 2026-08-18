@@ -25,7 +25,10 @@ import {
 } from "./flight-recorder.ts";
 
 import {
+    APP_PADDING_BOTTOM,
+    APP_PADDING_TOP,
     DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_SCRIM_Z_INDEX,
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
@@ -332,6 +335,8 @@ import {
     handleDialStripKey,
     openDialStrip,
     renderDialStrip,
+    DIAL_EXIT_SEPARATOR,
+    DIAL_PROVIDER_SEPARATOR,
     type DialPair,
     type DialPoolEntry,
     type DialStripState,
@@ -432,11 +437,8 @@ import {
     loadTuiActivityAnimationWidthPreference,
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
-    loadTuiFavoritePairs,
     loadTuiKeybindingOverlay,
     loadTuiRecentSessionId,
-    migrateTuiQuickslotsToFavoritePairs,
-    saveTuiFavoritePairs,
     loadTuiThemePreference,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
@@ -465,6 +467,7 @@ registerTuiParsers();
 // the composer's list, so the idle status line is where you find out it exists.
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
+const HUD_HINT = tuiKeyHint("dials.open");
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
@@ -939,6 +942,7 @@ export async function startTui(
             }
             sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
             applyTerminalTitle();
+            if (clientSurfaceReady) renderState();
         }).catch(() => {
             // The title keeps its last value when the host cannot be reached.
         });
@@ -1073,6 +1077,7 @@ export async function startTui(
     let phaseSince: number | undefined;
     let activity = "thinking";
     let themeApplicationVersion = 0;
+    let pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
     /**
      * Bumped by every switch, so the update pump reading the session being left
      * can tell that it is stale and stop instead of writing that session's
@@ -1580,6 +1585,40 @@ export async function startTui(
         flexShrink: 0,
         alignSelf: "flex-end",
     });
+    const dialCardTitle = new TextRenderable(renderer, {
+        id: "dial-card-title",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: 3,
+        flexShrink: 0,
+    });
+    const dialCardHint = new TextRenderable(renderer, {
+        id: "dial-card-hint",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        flexShrink: 0,
+    });
+    const dialCard = new BoxRenderable(renderer, {
+        id: "dial-card",
+        border: true,
+        borderStyle: "rounded",
+        borderColor: TUI_ELEMENT,
+        height: 6,
+        marginLeft: appearance.composerMarginHorizontal,
+        marginRight: appearance.composerMarginHorizontal,
+        marginBottom: 1,
+        paddingLeft: appearance.composerPaddingHorizontal,
+        paddingRight: appearance.composerPaddingHorizontal,
+        flexDirection: "column",
+        zIndex: DIALOG_CARD_Z_INDEX,
+        focusable: true,
+        visible: false,
+    });
+    dialCard.add(dialCardTitle);
+    dialCard.add(dialCardHint);
     const backgroundStatusText = new TextRenderable(renderer, {
         id: "background-status",
         content: "",
@@ -1614,7 +1653,7 @@ export async function startTui(
         id: "status-band",
         position: "absolute",
         left: 0,
-        bottom: 0,
+        bottom: APP_PADDING_BOTTOM,
         width: "100%",
         height: "auto",
         flexDirection: "column",
@@ -1788,8 +1827,12 @@ export async function startTui(
         right: 0,
         bottom: 7,
         height: 1,
-        paddingLeft: 1,
-        paddingRight: 1,
+        // Suggestions and extension hints occupy the same text column as the
+        // composer. The blank top row separates this floating surface from a
+        // transcript that has filled every available line.
+        paddingTop: 1,
+        paddingLeft: composerContentIndent,
+        paddingRight: composerContentIndent,
         backgroundColor: theme.background,
         zIndex: 5,
         visible: false,
@@ -1896,8 +1939,8 @@ export async function startTui(
         // rather than under the surfaces that need it is what keeps a strip of
         // a different shade from showing wherever one of them is hidden.
         backgroundColor: theme.background,
-        paddingTop: 1,
-        paddingBottom: 0,
+        paddingTop: APP_PADDING_TOP,
+        paddingBottom: APP_PADDING_BOTTOM,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
@@ -2074,17 +2117,16 @@ export async function startTui(
             renderState();
             return;
         }
+        const catalog = agentCatalog;
         void target.send({
             type: "get_session_model_settings_history",
             requestId: randomUUID(),
         }).catch(() => {
             // A history the host would not answer leaves the strip with the
-            // current pair and the favourites, which is still a strip.
+            // current pair and admitted pool, which is still useful.
         });
-        const favorites = loadTuiFavoritePairs();
         const composition = composeDialStrip({
             current: committedDialPair(),
-            favorites,
             recents: (focusedAgentState().modelSettingsHistory ?? []).map(
                 (entry) => ({
                     ...(entry.settings.provider === undefined
@@ -2097,115 +2139,64 @@ export async function startTui(
                 }),
             ),
             pool: dialPool(),
+            includePool: true,
+            cap: Number.POSITIVE_INFINITY,
         });
-        // A favourite whose pool name moved is rewritten now, while the id
-        // still finds it. Left alone it would go stale the moment the id
-        // stopped matching too.
-        if (composition.healed.length > 0) {
-            saveTuiFavoritePairs(favorites.map((favorite) => {
-                const healed = composition.healed.find(
-                    (candidate) => candidate.from === favorite,
-                );
-                return healed === undefined
-                    ? favorite
-                    : { ...favorite, name: healed.name };
-            }));
-        }
-        dialStrip = openDialStrip(composition, committedDialPair());
-        composer.blur();
+        dialStrip = openDialStrip(composition, committedDialPair(), {
+            agents: catalog?.agents.map((agent) => agent.name),
+            currentAgent: catalog?.worn ?? focusedAgentState().agent?.name,
+            agentPostures: Object.fromEntries(
+                catalog?.agents.flatMap((agent) =>
+                    agent.posture === undefined
+                        ? []
+                        : [[agent.name, agent.posture] as const]
+                ) ?? [],
+            ),
+            agentForbiddenAccess: Object.fromEntries(
+                catalog?.agents.flatMap((agent) =>
+                    agent.forbiddenAccess === undefined
+                        ? []
+                        : [[agent.name, agent.forbiddenAccess] as const]
+                ) ?? [],
+            ),
+            permissionModes: ["readonly", "ask", "auto"],
+            currentPermission: focusedAgentState().approvalMode,
+        });
         renderState();
-    }
-
-    /**
-     * Turn saved quickslots into favourite pairs, once, on the first snapshot.
-     *
-     * Run here rather than at startup because a name-form slot has to be
-     * resolved against the pool while the name still means something, and the
-     * pool arrives with the first model settings the host sends.
-     */
-    let quickslotsMigrated = false;
-    function migrateQuickslotsOnce(): void {
-        if (quickslotsMigrated) return;
-        quickslotsMigrated = true;
-        try {
-            const pool = dialPool();
-            const outcome = migrateTuiQuickslotsToFavoritePairs((name) => {
-                const entry = pool.find(
-                    (candidate) => candidate.poolName === name,
-                );
-                return entry === undefined
-                    ? undefined
-                    : { provider: entry.provider, model: entry.model };
+        focusActiveSurface();
+        if (catalog === undefined) {
+            void requestAgentCatalog(target).then((loaded) => {
+                if (dialStrip === undefined || loaded === undefined) return;
+                const agents = loaded.agents.map((agent) => agent.name);
+                dialStrip = {
+                    ...dialStrip,
+                    agents,
+                    agentIndex: Math.max(0, agents.indexOf(loaded.worn)),
+                    openedAgent: loaded.worn,
+                    agentPostures: Object.fromEntries(
+                        loaded.agents.flatMap((agent) =>
+                            agent.posture === undefined
+                                ? []
+                                : [[agent.name, agent.posture] as const]
+                        ),
+                    ),
+                    agentForbiddenAccess: Object.fromEntries(
+                        loaded.agents.flatMap((agent) =>
+                            agent.forbiddenAccess === undefined
+                                ? []
+                                : [[agent.name, agent.forbiddenAccess] as const]
+                        ),
+                    ),
+                };
+                renderState();
             });
-            if (outcome.migrated > 0 || outcome.skipped > 0) {
-                state = appendTuiNotice(
-                    state,
-                    `Quickslots are now dial favourites: ${outcome.migrated} kept${
-                        outcome.skipped === 0
-                            ? ""
-                            : `, ${outcome.skipped} unreadable and skipped`
-                    }. Shift+Tab opens the strip.`,
-                    "soft",
-                );
-            }
-        } catch {
-            // A preferences file that will not migrate is not a reason the
-            // session cannot run. The old blocks are still on disk.
-        }
-    }
-
-    /**
-     * Starring a model keeps a dial for it too.
-     *
-     * Stored by id rather than by pool name: the strip reads the label off the
-     * pool at paint time, so an id-form favourite follows a rename without
-     * having to be rewritten, and starring happens before the pool has decided
-     * what the entry is called.
-     *
-     * The effort is the session's own when the starred row is the model in
-     * force, and the model's published default otherwise. There is no per-row
-     * effort control in the picker to read, and inventing a level a model does
-     * not publish would make a favourite that cannot be applied.
-     */
-    function starFavoritePair(toggle: {
-        readonly action: "add" | "remove";
-        readonly provider: string;
-        readonly model: string;
-    }): void {
-        try {
-            const favorites = loadTuiFavoritePairs().filter((favorite) =>
-                favorite.provider !== toggle.provider
-                || favorite.modelId !== toggle.model
-            );
-            if (toggle.action === "remove") {
-                saveTuiFavoritePairs(favorites);
-                return;
-            }
-            const settings = focusedAgentState().modelSettings;
-            const onIt = settings?.model === toggle.model
-                && (settings.provider ?? toggle.provider) === toggle.provider;
-            const published = settings?.availableModels?.find((candidate) =>
-                candidate.provider === toggle.provider
-                && candidate.model === toggle.model
-            );
-            const effort = onIt
-                ? settings?.reasoningEffort
-                : published?.defaultLevel;
-            saveTuiFavoritePairs([...favorites, {
-                provider: toggle.provider,
-                modelId: toggle.model,
-                ...(effort === undefined ? {} : { effort }),
-            }]);
-        } catch {
-            // A favourite that could not be written is not a reason the pool
-            // edit fails: the pool is the thing the key is about.
         }
     }
 
     /**
      * The agent surface: what is live, and how to change it.
      *
-     * A readout first. Wearing is the loud action it also offers, and `[d]`
+     * A readout first. Switching is the loud action it also offers, and `[d]`
      * writes the session's pair into the highlighted agent's file — the only
      * write into an agent a wire command can do.
      */
@@ -2231,7 +2222,7 @@ export async function startTui(
             const result = await requestExtensionPicker({
                 title: "Agents",
                 subtitle:
-                    "Wearing one re-reads the prefix, so the next turn is slower once.",
+                    "Switching agents re-reads the prefix, so the next turn is slower once.",
                 rows: current.agents.map((agent) => ({
                     id: agent.name,
                     label: agent.scope === "extension" && agent.name !== "default"
@@ -2242,7 +2233,7 @@ export async function startTui(
                 })),
                 selectedId: current.worn,
                 actions: [
-                    { id: "wear", label: "wear", keys: ["enter"] },
+                    { id: "wear", label: "switch", keys: ["enter"] },
                     {
                         id: "default",
                         label: "save session pair as default",
@@ -2371,29 +2362,41 @@ export async function startTui(
     function closeDials(): void {
         dialStrip = undefined;
         renderState();
+        focusActiveSurface();
     }
 
     /** The pair as the next request will carry it. Nothing reaches the API now. */
-    function commitDials(pair: DialPair): void {
+    function commitDials(
+        pair: DialPair,
+        agent: string | undefined,
+        permission: string | undefined,
+    ): void {
         const target = focusedAgentClient();
+        const opened = dialStrip;
         closeDials();
-        void target.send({
-            type: "update_session_model_settings",
-            requestId: randomUUID(),
-            patch: {
-                ...(pair.provider === undefined
-                    ? {}
-                    : { provider: pair.provider }),
-                model: pair.model,
-                reasoningEffort: pair.effort ?? null,
-            },
-        }).catch((error) => {
-            state = appendTuiNotice(
-                state,
-                error instanceof Error ? error.message : String(error),
-            );
-            renderState();
-        });
+        if (opened?.opened === undefined
+            || pair.model !== opened.opened.model
+            || pair.provider !== opened.opened.provider
+            || pair.effort !== opened.opened.effort) {
+            void target.send({
+                type: "update_session_model_settings",
+                requestId: randomUUID(),
+                patch: {
+                    ...(pair.provider === undefined
+                        ? {}
+                        : { provider: pair.provider }),
+                    model: pair.model,
+                    reasoningEffort: pair.effort ?? null,
+                },
+            }).catch(reportConnectionError);
+        }
+        if (agent !== undefined && agent !== opened?.openedAgent) {
+            wearAgent(agent);
+        }
+        if (permission !== undefined
+            && permission !== opened?.openedPermission) {
+            requestPermissionsChange(permission, target);
+        }
     }
 
     function setSidebarFocused(focused: boolean): void {
@@ -2504,7 +2507,11 @@ export async function startTui(
                 id,
                 entry,
                 markdownStyle,
-                TUI_TEXT,
+                // Assistant prose stays readable but yields to the session
+                // chrome and user-authored prompts in the visual hierarchy.
+                entry.kind === "assistant" || entry.kind === "notification"
+                    ? TUI_MUTED
+                    : TUI_TEXT,
                 inner,
             );
         const node = entry.kind === "tool"
@@ -2698,6 +2705,9 @@ export async function startTui(
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
+        left: 0,
+        top: -APP_PADDING_TOP,
+        bottom: -APP_PADDING_BOTTOM,
         width: "100%",
         height: "100%",
         // Enough to push the transcript behind the card, not enough to erase
@@ -2834,6 +2844,7 @@ export async function startTui(
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
+    app.add(dialCard);
     app.add(composerBox);
     app.add(statusBand);
     renderer.root.add(app);
@@ -2905,6 +2916,12 @@ export async function startTui(
         composerBox.marginRight = appearance.composerMarginHorizontal;
         composerBox.paddingLeft = appearance.composerPaddingHorizontal;
         composerBox.paddingRight = appearance.composerPaddingHorizontal;
+        dialCard.marginLeft = appearance.composerMarginHorizontal;
+        dialCard.marginRight = appearance.composerMarginHorizontal;
+        dialCard.paddingLeft = appearance.composerPaddingHorizontal;
+        dialCard.paddingRight = appearance.composerPaddingHorizontal;
+        commandSuggestionsBox.paddingLeft = composerContentIndent;
+        commandSuggestionsBox.paddingRight = composerContentIndent;
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
@@ -3098,7 +3115,12 @@ export async function startTui(
             key.stopPropagation();
             const action = handleDialStripKey(
                 dialStrip,
-                key as { name: string; ctrl?: boolean; sequence?: string },
+                key as {
+                    name: string;
+                    ctrl?: boolean;
+                    shift?: boolean;
+                    sequence?: string;
+                },
                 tuiBindingId("dials", key),
             );
             if (action.kind === "state") {
@@ -3107,15 +3129,7 @@ export async function startTui(
             } else if (action.kind === "cancel") {
                 closeDials();
             } else if (action.kind === "commit") {
-                commitDials(action.pair);
-            } else if (action.kind === "type") {
-                closeDials();
-                composer.focus();
-                composer.setComposerText(
-                    `${composer.plainText}${action.text}`,
-                );
-                renderCommandSuggestions();
-                renderState();
+                commitDials(action.pair, action.agent, action.permission);
             }
             return;
         }
@@ -3572,6 +3586,26 @@ export async function startTui(
             }
         }
 
+        const composeSuggester = activeComposeSuggester();
+        if (
+            (key.name === "return" || key.name === "enter")
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && composeSuggester !== undefined
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            dismissedComposeSuggesters.add(
+                `${composeSuggester.source}:${composeSuggester.agent}`,
+            );
+            wearAgent(composeSuggester.agent);
+            renderCommandSuggestions();
+            renderState();
+            composer.focus();
+            return;
+        }
+
         // Ahead of clearing the composer, because putting away an offer you
         // did not ask for should not also throw away what you were writing.
         if (
@@ -3583,10 +3617,7 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            const suggester = (clientExtensionRegistry?.composeSuggesters() ?? [])
-                .find((candidate) =>
-                    candidate.agent === activeComposeSuggester()!.agent
-                );
+            const suggester = activeComposeSuggester();
             if (suggester !== undefined) {
                 dismissedComposeSuggesters.add(
                     `${suggester.source}:${suggester.agent}`,
@@ -5612,7 +5643,6 @@ export async function startTui(
                     agentCatalog = { ...agentCatalog, worn: update.name };
                 }
                 if (update.type === "model_settings") {
-                    migrateQuickslotsOnce();
                 }
                 if (
                     update.type === "pool_admission_result"
@@ -6134,6 +6164,9 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
     function activeOverlayFocus(): (() => void) | undefined {
+        if (dialStrip !== undefined) {
+            return () => dialCard.focus();
+        }
         if (experimentalTuiHost.hasModal()) {
             return () => experimentalTuiHost.focus();
         }
@@ -6618,7 +6651,8 @@ export async function startTui(
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
             && providerForgetCandidate !== undefined;
-        const overlayVisible = approvalView.box.visible
+        const overlayVisible = dialStrip !== undefined
+            || approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
@@ -6784,7 +6818,8 @@ export async function startTui(
      * when, so they ask the same question here.
      */
     function anyOverlayOpen(): boolean {
-        return experimentalTuiHost.hasModal()
+        return dialStrip !== undefined
+            || experimentalTuiHost.hasModal()
             || focusedUiRequest() !== undefined
             || timelinePicker !== undefined
             || secretPrompt !== undefined
@@ -7927,7 +7962,7 @@ export async function startTui(
             "previewTheme" in transition
             && transition.previewTheme !== undefined
         ) {
-            void applySelectedTheme(transition.previewTheme, false);
+            scheduleThemePreview(transition.previewTheme);
         }
         if (
             "trashCandidate" in transition
@@ -8043,7 +8078,6 @@ export async function startTui(
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
-            starFavoritePair(toggle);
             poolChangeUndo = undefined;
             if (settingsPicker?.kind === "model") {
                 settingsPicker = {
@@ -8917,6 +8951,10 @@ export async function startTui(
         selectedTheme: typeof themeName,
         announce: boolean,
     ): Promise<void> {
+        if (announce && pendingThemePreview !== undefined) {
+            clearTimeout(pendingThemePreview);
+            pendingThemePreview = undefined;
+        }
         const version = ++themeApplicationVersion;
         const resolvedTheme = await resolveTuiTheme(renderer, selectedTheme);
         if (version !== themeApplicationVersion || shuttingDown) {
@@ -8990,6 +9028,21 @@ export async function startTui(
             );
         }
         renderState();
+    }
+
+    /**
+     * Theme rows preview live, but rebuilding a long Markdown transcript for
+     * every key repeat makes the picker itself lag behind the cursor. Coalesce
+     * a run of arrows and paint the row the cursor actually settles on.
+     */
+    function scheduleThemePreview(selectedTheme: typeof themeName): void {
+        if (pendingThemePreview !== undefined) {
+            clearTimeout(pendingThemePreview);
+        }
+        pendingThemePreview = setTimeout(() => {
+            pendingThemePreview = undefined;
+            void applySelectedTheme(selectedTheme, false);
+        }, 50);
     }
 
     /**
@@ -9077,7 +9130,7 @@ export async function startTui(
                 ),
                 commandSuggestionIndex - window.start,
             );
-            commandSuggestionsBox.height = Math.max(1, window.rows);
+            commandSuggestionsBox.height = Math.max(1, window.rows) + 1;
             commandSuggestionsBox.visible = argumentSuggestions.length > 0
                 && overlaysClearOfSuggestions();
             return;
@@ -9121,15 +9174,15 @@ export async function startTui(
             selected < 0 ? -1 : selected - window.start,
             // Less the box's own horizontal padding, or the last word of a
             // just-too-long row wraps anyway.
-            renderer.width > 2
-                ? renderer.width - 2
+            renderer.width > composerHorizontalInset
+                ? renderer.width - composerHorizontalInset
                 : undefined,
             window.hidden,
             grouped,
         );
         commandSuggestionsBox.height = suggestions.length > 0
             ? window.rows + tuiSuggestionGaps(visible, grouped)
-                + (window.hidden > 0 ? 1 : 0)
+                + (window.hidden > 0 ? 1 : 0) + 1
             : 1;
         const suggester = suggestions.length > 0
             ? undefined
@@ -9140,10 +9193,10 @@ export async function startTui(
             // only exists because installing the extension said it could.
             commandSuggestionsText.content = new StyledText([
                 fg(TUI_MUTED)(
-                    `${suggester.hint} /agent ${suggester.agent} · esc dismiss`,
+                    `${suggester.hint} · enter switch to ${suggester.agent} · esc dismiss`,
                 ),
             ]);
-            commandSuggestionsBox.height = 1;
+            commandSuggestionsBox.height = 2;
             commandSuggestionsBox.visible = overlaysClearOfSuggestions();
             return;
         }
@@ -9158,13 +9211,15 @@ export async function startTui(
      * and a suggester dismissed with escape stays dismissed for the session.
      */
     function activeComposeSuggester():
-        | { readonly agent: string; readonly hint: string }
+        | { readonly source: string; readonly agent: string; readonly hint: string }
         | undefined
     {
         const text = composer.plainText;
         if (text.trim().length === 0 || text.startsWith("/")) return undefined;
         return (clientExtensionRegistry?.composeSuggesters() ?? []).find(
             (suggester) =>
+                focusedAgentState().agent?.name !== suggester.agent
+                &&
                 !dismissedComposeSuggesters.has(
                     `${suggester.source}:${suggester.agent}`,
                 )
@@ -9251,12 +9306,26 @@ export async function startTui(
     function renderJumpToBottom(): void {
         const following = transcript.scrollTop
             >= transcript.scrollHeight - transcript.viewport.height;
+        // OpenTUI's wheel handler marks every wheel event as manual after it
+        // updates scrollTop, including the event that reaches the bottom. If
+        // streaming grows the transcript before the next layout pass, that
+        // stale manual flag prevents sticky scroll from following the new
+        // content. Crossing from the visible pill back to the bottom is an
+        // explicit request to resume following, so reapply the bottom here.
+        if (following && jumpToBottom.visible) {
+            transcript.scrollTo(transcript.scrollHeight);
+        }
         const visible = !following && !anyOverlayOpen();
         jumpToBottom.visible = visible;
         if (!visible) {
             return;
         }
-        jumpToBottom.top = transcript.y + transcript.height - 1;
+        jumpToBottom.top = commandSuggestionsBox.visible
+            ? Math.min(
+                transcript.y + transcript.height - 1,
+                commandSuggestionsBox.y - 1,
+            )
+            : transcript.y + transcript.height - 1;
         jumpToBottom.left = Math.max(
             0,
             transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
@@ -9355,19 +9424,16 @@ export async function startTui(
             ?? elapsedWorkingTime();
         const layout = sidebar.layout();
         const sideState = hostedSidebar.pane?.state.state;
-        const paneHeadersVisible = hostedSidebar.pane !== undefined
-            && !anyOverlayOpen();
+        const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
-        sidebar.setMainHeader(paneHeadersVisible
-            ? paneHeaderText(
-                "Vera",
-                state.approvalMode,
-                state.modelSettings,
-                layout === "split" ? mainWidth : renderer.width,
-            )
+        sidebar.setMainHeader(paneHeadersVisible && sessionTitle !== undefined
+            ? `  SESSION  ${sessionTitle}`
             : undefined);
-        sidebar.setHeader(paneHeadersVisible && sideState !== undefined
+        sidebar.setHeader(
+            paneHeadersVisible
+                && hostedSidebar.pane !== undefined
+                && sideState !== undefined
             ? paneHeaderText(
                 hostedSidebar.mention ?? hostedSidebar.pane!.agentId,
                 sideState.approvalMode,
@@ -9470,20 +9536,92 @@ export async function startTui(
             : renderDialStrip(
                 dialStrip,
                 [
+                    "tab/shift+tab lane",
                     `${tuiKeyChord("dials.pair.prev")}/${
                         tuiKeyChord("dials.pair.next")
-                    } pair`,
-                    `${tuiKeyChord("dials.effort.up")}/${
-                        tuiKeyChord("dials.effort.down")
-                    } effort`,
-                    "1-9 jump",
-                    "⏎ set",
-                    "esc cancel",
+                    } change`,
+                    "⏎ apply",
+                    "/permissions for more",
                 ].join(" · "),
+                Math.max(1, renderer.width - composerHorizontalInset),
+                Math.max(3, Math.min(9, renderer.height - 23)),
             );
-        activityHintText.content = stripLines?.[1]?.trim() ?? activityHint;
+        dialCard.visible = stripLines !== undefined;
+        const hudRows = stripLines?.slice(0, -1) ?? [];
+        const modelRowCount = Math.max(0, hudRows.length - 4);
+        dialCardTitle.height = Math.max(1, hudRows.length);
+        dialCard.height = hudRows.length + 3;
+        dialCardTitle.content = new StyledText(hudRows.flatMap((line, index) => {
+            const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
+            const main = providerParts[0] ?? "";
+            const activeRow = dialStrip?.lane === "model"
+                ? index < modelRowCount + 1
+                : dialStrip?.lane === "agent"
+                    ? index === modelRowCount + 1
+                    : dialStrip?.lane === "access"
+                        ? index === modelRowCount + 2
+                        : false;
+            const selectedColor = (part: string): string =>
+                dialStrip?.lane !== "access"
+                    ? TUI_TEXT
+                    : part.includes("readonly")
+                        ? "#c586c0"
+                        : part.includes("ask")
+                            ? TUI_ACCENT
+                            : part.includes("auto")
+                                ? VERA_TUI_THEME.success
+                                : TUI_TEXT;
+            let mainChunks;
+            if (!activeRow) {
+                mainChunks = [fg(TUI_MUTED)(main)];
+            } else if (index < modelRowCount) {
+                if (main.includes("[")) {
+                    mainChunks = [fg(TUI_TEXT)(main)];
+                } else if (index === 0) {
+                    const prefixLength = main.startsWith("› MODEL") ? 14 : 2;
+                    mainChunks = [
+                        fg(TUI_TEXT)(main.slice(0, prefixLength)),
+                        fg(TUI_MUTED)(main.slice(prefixLength)),
+                    ];
+                } else {
+                    mainChunks = [fg(TUI_MUTED)(main)];
+                }
+            } else {
+                const prefix = main.match(/^[› ] (?:EFFORT|AGENT|ACCESS)\s*/)?.[0]
+                    ?? main.slice(0, 2);
+                const choices = main.slice(prefix.length)
+                    .split(/(\[[^\]]+\])/)
+                    .filter(Boolean);
+                mainChunks = [
+                    fg(TUI_TEXT)(prefix),
+                    ...choices.map((part) => fg(
+                        part.startsWith("[")
+                            ? selectedColor(part)
+                            : TUI_MUTED,
+                    )(part)),
+                ];
+            }
+            return [
+                ...mainChunks,
+                ...(providerParts.length < 2
+                    ? []
+                    : [fg(TUI_MUTED)(providerParts.slice(1).join(""))]),
+                ...(index === hudRows.length - 1
+                    ? []
+                    : [fg(TUI_TEXT)("\n")]),
+            ];
+        }));
+        const dialHintParts = (stripLines?.at(-1) ?? "")
+            .split(DIAL_EXIT_SEPARATOR);
+        dialCardHint.content = stripLines === undefined
+            ? ""
+            : new StyledText([
+                fg(TUI_MUTED)(dialHintParts[0] ?? ""),
+                fg(TUI_NOTICE)(dialHintParts[1] ?? ""),
+            ]);
+        activityHintText.content = activityHint;
         activityHintText.visible = statusText.visible
-            && (stripLines !== undefined || activityHint.length > 0);
+            && activityHint.length > 0;
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
@@ -9619,10 +9757,12 @@ export async function startTui(
         setComposerMargin(
             cardRows + 1,
         );
-        statusText.content = stripLines !== undefined
-            ? stripLines[0]!
-            : quietActivity
-            ? MODEL_PICKER_HINT
+        statusText.content = quietActivity
+            ? new StyledText([
+                fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
+                fg(TUI_ACCENT)("HUD"),
+                fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
+            ])
             : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined
