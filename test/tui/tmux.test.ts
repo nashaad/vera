@@ -3412,7 +3412,11 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
-            pane = await waitForVisiblePane(socket, session, "peer · readonly");
+            pane = await waitForVisiblePane(
+                socket,
+                session,
+                "peer research · readonly",
+            );
 
             sendText(socket, session, "/clear");
             sendKey(socket, session, "Enter");
