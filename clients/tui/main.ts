@@ -927,11 +927,21 @@ export async function startTui(
         return title.length === 0 ? undefined : title;
     }
 
-    function adoptFallbackSessionTitle(text: string): void {
+    function adoptFallbackSessionTitle(
+        text: string,
+        injectedPrefix?: number,
+    ): void {
         if (sessionTitle !== undefined) {
             return;
         }
-        const title = fallbackSessionTitle(text);
+        // What an extension prepended was sent but never shown, so it does not
+        // name the session either.
+        const visible = injectedPrefix !== undefined
+                && injectedPrefix > 0
+                && injectedPrefix < text.length
+            ? text.slice(injectedPrefix)
+            : text;
+        const title = fallbackSessionTitle(visible);
         if (title === undefined) {
             return;
         }
@@ -5315,7 +5325,7 @@ export async function startTui(
         state = state.working
             ? queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt, attachments, injectedPrefix);
-        adoptFallbackSessionTitle(prompt);
+        adoptFallbackSessionTitle(prompt, injectedPrefix);
         if (workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
@@ -5625,6 +5635,7 @@ export async function startTui(
                                 : `session renamed: ${update.name}`,
                         );
                         if (update.name === null) {
+                            sessionTitle = undefined;
                             refreshTerminalTitle();
                         } else {
                             sessionTitle = update.name;
