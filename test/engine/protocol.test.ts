@@ -218,6 +218,14 @@ test("terminal model errors survive transcript checkpoints", () => {
         usage: emptyUsage(),
         stopReason: "error",
     }])).toEqual([{ kind: "error" }]);
+
+    expect(projectTranscript([{
+        role: "assistant",
+        content: [],
+        source: { provider: "faux", api: "test", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "aborted",
+    }])).toEqual([{ kind: "error", detail: "Turn aborted" }]);
 });
 
 test("protocol checkpoints keep the current update sequence", () => {
