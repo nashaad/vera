@@ -1002,19 +1002,33 @@ export async function runTurn(
                 ],
             };
         const imageCache = new Map<string, ImageContent>();
-        try {
-            if (
-                !acceptsImageInput(
-                    adapter,
-                    modelSettings.provider,
-                    activeModel,
-                )
-                && userMessage?.content.some(
-                    (block) => block.type === "image_attachment"
-                )
-            ) {
-                throw new Error("the selected model provider does not support image input");
+        const hasImageAttachments = userMessage?.content.some(
+            (block) => block.type === "image_attachment",
+        ) === true;
+        if (
+            hasImageAttachments
+            && !acceptsImageInput(
+                adapter,
+                modelSettings.provider,
+                activeModel,
+            )
+        ) {
+            // Keep the user's prompt in the session even when this model
+            // cannot run it. The attachment is already durable, and a model
+            // switch can then retry the same turn instead of losing it during
+            // the capability preflight.
+            if (userMessage !== undefined) {
+                await commitMessage(state, userMessage);
+                state.events.emit({ type: "turn_started", message: userMessage });
             }
+            assistantMessage = attachmentErrorMessage(
+                activeModel,
+                "the selected model provider does not support image input",
+            );
+            state.events.emit({ type: "turn_finished", message: assistantMessage });
+            return assistantMessage;
+        }
+        try {
             await hydrateImageAttachments(
                 userMessage === undefined
                     ? state.messages
