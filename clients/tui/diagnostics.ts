@@ -1,5 +1,9 @@
 import type { StashSummary } from "../../src/store/preimage-stash.ts";
 import type { TuiState } from "./state.ts";
+import type {
+    HostStartupTimingRow,
+    HostStartupTimingSnapshot,
+} from "./host-startup-diagnostics.ts";
 
 export interface TuiDiagnosticsSnapshot {
     readonly state: TuiState;
@@ -23,6 +27,7 @@ export interface TuiDiagnosticsSnapshot {
         readonly enabled: boolean;
     }[];
     readonly clientExtensionReload?: TuiClientExtensionReloadSnapshot;
+    readonly startup?: HostStartupTimingSnapshot;
 }
 
 export interface TuiClientExtensionReloadSnapshot {
@@ -36,18 +41,32 @@ export function renderTuiDiagnostics(
 ): string {
     const { state } = snapshot;
     const lines = [
-        "Diagnostics",
-        "Build",
-        `  client       ${snapshot.build?.clientVersion ?? "unknown"}`,
-        `  entrypoint   ${snapshot.build?.clientEntrypoint ?? "unknown"}`,
-        `  host         ${hostLabel(snapshot)}`,
-        `  host entry   ${snapshot.build?.hostEntrypoint ?? "unknown"}`,
+        "# Diagnostics",
+        "## Build",
+        ...markdownTable(
+            ["Component", "Value"],
+            [
+                ["Client", snapshot.build?.clientVersion ?? "unknown"],
+                ["Client entrypoint", snapshot.build?.clientEntrypoint ?? "unknown"],
+                ["Host", hostLabel(snapshot)],
+                ["Host entrypoint", snapshot.build?.hostEntrypoint ?? "unknown"],
+            ],
+        ),
         "",
-        "Extensions",
+        "## Startup",
+        ...startupSummaryLines(snapshot.startup),
+        "",
+        "## Session usage",
+        ...sessionUsageLines(state.sessionUsage),
+        "",
+        "## Startup extensions",
+        ...startupExtensionLines(snapshot.startup),
+        "",
+        "## Extensions",
         ...extensionLines(snapshot),
         ...clientExtensionReloadLines(snapshot),
         "",
-        "Runtime",
+        "## Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
         `  elapsed      ${state.working ? snapshot.elapsed : "—"}`,
         `  cancellable  ${state.working ? "yes" : "no"}`,
@@ -56,7 +75,7 @@ export function renderTuiDiagnostics(
 
     const model = state.modelActivity;
     lines.push("");
-    lines.push("Model");
+    lines.push("## Model");
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
         const retrying = Date.parse(model.retryAt) > now;
@@ -117,14 +136,172 @@ export function renderTuiDiagnostics(
     }
 
     lines.push("");
-    lines.push("Session");
+    lines.push("## Session");
     lines.push(`  session      ${snapshot.sessionPath ?? "unavailable"}`);
     lines.push(`  workspace    ${snapshot.workspace}`);
     lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
     lines.push("");
-    lines.push("Pre-image stash");
+    lines.push("## Pre-image stash");
     lines.push(...stashLines(snapshot));
     return lines.join("\n");
+}
+
+function sessionUsageLines(
+    usage: TuiState["sessionUsage"],
+): string[] {
+    if (usage === undefined || usage.rows.length === 0) {
+        return ["No recorded model calls."];
+    }
+    const totals = usage.rows.reduce((total, row) => ({
+        calls: total.calls + row.calls,
+        durationMs: total.durationMs + row.durationMs,
+        inputTokens: total.inputTokens + row.inputTokens,
+        outputTokens: total.outputTokens + row.outputTokens,
+        cachedInputTokens: total.cachedInputTokens + row.cachedInputTokens,
+        reasoningTokens: total.reasoningTokens + row.reasoningTokens,
+        totalTokens: total.totalTokens + row.totalTokens,
+        cost: total.cost + (row.cost ?? 0),
+        callsWithoutCost: total.callsWithoutCost + row.callsWithoutCost,
+    }), {
+        calls: 0,
+        durationMs: 0,
+        inputTokens: 0,
+        outputTokens: 0,
+        cachedInputTokens: 0,
+        reasoningTokens: 0,
+        totalTokens: 0,
+        cost: 0,
+        callsWithoutCost: 0,
+    });
+    const lines = [
+        ...markdownTable(
+            ["Metric", "Value"],
+            [
+                ["Calls", String(totals.calls)],
+                ["Runtime", formatDuration(totals.durationMs)],
+                ["Tokens", formatTokens(totals.totalTokens)],
+                ["Input", formatTokens(totals.inputTokens)],
+                ["Output", formatTokens(totals.outputTokens)],
+                ["Cached", formatTokens(totals.cachedInputTokens)],
+                ["Reasoning", formatTokens(totals.reasoningTokens)],
+                ["Cost", formatCost(
+                    totals.cost,
+                    totals.calls,
+                    totals.callsWithoutCost,
+                )],
+            ],
+        ),
+        "",
+        ...usage.rows.flatMap((row, index) => [
+            `### ${row.provider}/${row.model}`,
+            ...markdownTable(
+                ["Metric", "Value"],
+                [
+                    ["Calls", String(row.calls)],
+                    ["Runtime", formatDuration(row.durationMs)],
+                    ["Tokens", formatTokens(row.totalTokens)],
+                    ["Input", formatTokens(row.inputTokens)],
+                    ["Output", formatTokens(row.outputTokens)],
+                    ["Cached", formatTokens(row.cachedInputTokens)],
+                    ["Reasoning", formatTokens(row.reasoningTokens)],
+                    ["Cost", formatCost(
+                        row.cost ?? 0,
+                        row.calls,
+                        row.callsWithoutCost,
+                    )],
+                ],
+            ),
+            ...(index === usage.rows.length - 1 ? [] : [""]),
+        ]),
+    ];
+    if (totals.callsWithoutCost > 0) {
+        lines.push(
+            "",
+            "> Cost unavailable where the provider did not report it. Vera does not estimate prices.",
+        );
+    }
+    return lines;
+}
+
+function markdownTable(
+    headings: readonly string[],
+    rows: readonly (readonly string[])[],
+): string[] {
+    const row = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
+    return [
+        row(headings),
+        row(headings.map(() => "---")),
+        ...rows.map(row),
+    ];
+}
+
+function formatTokens(tokens: number): string {
+    return Intl.NumberFormat("en-US").format(tokens);
+}
+
+function formatCost(
+    cost: number,
+    calls: number,
+    callsWithoutCost: number,
+): string {
+    if (callsWithoutCost === calls) {
+        return `cost unavailable · ${callsWithoutCost} unpriced`;
+    }
+    const amount = `$${cost.toFixed(cost < 0.01 ? 4 : 2)}`;
+    return callsWithoutCost === 0
+        ? amount
+        : `${amount} reported · ${callsWithoutCost} unpriced`;
+}
+
+function startupSummaryLines(
+    startup: HostStartupTimingSnapshot | undefined,
+): string[] {
+    if (startup === undefined) return ["Unavailable."];
+    const rows = startup.rows.filter((row) =>
+        !row.label.startsWith("extension · ")
+    );
+    return timingTable([
+        { label: "total", durationMs: startup.totalMs, outcome: "completed" },
+        ...rows,
+    ]);
+}
+
+function startupExtensionLines(
+    startup: HostStartupTimingSnapshot | undefined,
+): string[] {
+    if (startup === undefined) return ["Unavailable."];
+    const rows = startup.rows.filter((row) =>
+        row.label.startsWith("extension · ")
+    );
+    return rows.length === 0 ? ["None."] : timingTable(rows);
+}
+
+function timingTable(rows: readonly HostStartupTimingRow[]): string[] {
+    const slowest = rows.filter((row) => row.label !== "total")
+        .reduce<HostStartupTimingRow | undefined>(
+        (current, row) =>
+            current === undefined || row.durationMs > current.durationMs
+                ? row
+                : current,
+        undefined,
+    );
+    return markdownTable(
+        ["Phase", "Time", "Status"],
+        rows.map((row) => [
+            row.label,
+            formatDuration(row.durationMs),
+            [
+                row.outcome === "failed" ? "failed" : "ok",
+                row === slowest ? "slowest" : "",
+            ].filter(Boolean).join(", "),
+        ]),
+    );
+}
+
+function formatDuration(durationMs: number): string {
+    return durationMs < 1_000
+        ? `${Math.round(durationMs)}ms`
+        : `${(durationMs / 1_000).toFixed(2)}s`;
 }
 
 function clientExtensionReloadLines(

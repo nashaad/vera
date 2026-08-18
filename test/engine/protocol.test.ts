@@ -5,6 +5,7 @@ import {
     formatModelSubstitution,
     parseClientCommand,
     projectTranscript,
+    summarizeSessionModelUsage,
     type AgentUpdate,
 } from "../../src/engine/protocol.ts";
 import {
@@ -58,6 +59,48 @@ const messages: ModelMessage[] = [
         stopReason: "stop",
     },
 ];
+
+test("session usage groups persisted calls by provider and model", () => {
+    const assistant = messages.filter((message) =>
+        message.role === "assistant"
+    );
+    const measured = assistant.map((message, index) => ({
+        ...message,
+        durationMs: (index + 1) * 100,
+        usage: {
+            ...message.usage,
+            cost: index === 0 ? 0.01 : undefined,
+        },
+    }));
+
+    expect(summarizeSessionModelUsage(measured)).toEqual({
+        rows: [{
+            provider: "faux",
+            model: "test",
+            calls: 2,
+            durationMs: 300,
+            inputTokens: 64_500,
+            outputTokens: 120,
+            cachedInputTokens: 0,
+            reasoningTokens: 0,
+            totalTokens: 0,
+            cost: 0.01,
+            callsWithoutCost: 1,
+        }],
+    });
+});
+
+function withoutSessionUsage(
+    updates: readonly AgentUpdate[],
+): readonly AgentUpdate[] {
+    return updates.map((update) => {
+        if (update.type !== "history" && update.type !== "turn_finished") {
+            return update;
+        }
+        const { usage: _usage, ...rest } = update;
+        return rest as AgentUpdate;
+    });
+}
 
 test("stored model messages project to a client transcript", () => {
     expect(projectTranscript(messages)).toEqual([
@@ -246,7 +289,7 @@ test("protocol checkpoints keep the current update sequence", () => {
     });
     protocol.checkpoint(messages);
 
-    expect(updates).toEqual([
+    expect(withoutSessionUsage(updates)).toEqual([
         { type: "history", entries: [], seq: 0 },
         { type: "user_prompt", content: "inspect it", seq: 1 },
         {
@@ -296,7 +339,7 @@ test("turn completion adds the reply to the provider's request count", () => {
         message,
     });
 
-    expect(updates).toEqual([
+    expect(withoutSessionUsage(updates)).toEqual([
         {
             type: "context",
             measurement: { tokens: 64_624, estimated: true },
@@ -327,7 +370,7 @@ test("turn completion cannot lower the current context estimate", () => {
     protocol.checkpoint(messages);
     protocol.checkpoint(messages);
 
-    expect(updates).toEqual([
+    expect(withoutSessionUsage(updates)).toEqual([
         {
             type: "context",
             measurement: {
@@ -414,7 +457,7 @@ test("task notifications share the ordered agent update sequence", () => {
     protocol({ type: "delivery_turn_started" });
     protocol.checkpoint([]);
 
-    expect(updates).toEqual([
+    expect(withoutSessionUsage(updates)).toEqual([
         {
             type: "task_notification",
             deliveryId: "completion:child-1",

@@ -39,6 +39,51 @@ import {
 } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import type { HostLogEntry } from "../../src/host/host-log.ts";
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resident host reports startup phase timings through readiness",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-startup-timing-"));
+        const entries: HostLogEntry[] = [];
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+            permissionPreferencesPath: join(root, "preferences.json"),
+            startupLog: (entry) => entries.push(entry),
+        });
+        try {
+            expect(entries.filter((entry) =>
+                entry.type === "host_startup_phase"
+            ).map((entry) => entry.phase)).toEqual([
+                "model_discovery",
+                "permission_preferences",
+                "extension_registry",
+                "scheduler",
+                "server_listen_and_lockfile",
+            ]);
+            expect(entries.at(-1)).toMatchObject({
+                type: "host_startup_complete",
+            });
+            expect(entries.every((entry) =>
+                typeof entry.duration_ms !== "number"
+                || entry.duration_ms >= 0
+            )).toBeTrue();
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "a removed workspace reaches the startup client as the reason",
@@ -777,6 +822,7 @@ process.stdout.write(JSON.stringify({
                     kind: "user",
                     text: "stored prompt",
                 }],
+                usage: { rows: [] },
                 seq: 0,
             });
             attached.detach();
