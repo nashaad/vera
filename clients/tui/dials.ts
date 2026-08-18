@@ -495,9 +495,22 @@ export function renderEffortScale(
                 ? "┬"
                 : "─"
     ).join("");
+    const optionLine = Array.from({ length: trackLength }, () => " ");
+    efforts.forEach((effort, index) => {
+        const position = Math.round(index * (trackLength - 1) / (efforts.length - 1));
+        const label = selected === effort ? `[${effort}]` : effort;
+        const start = Math.max(
+            0,
+            Math.min(trackLength - label.length, position - Math.floor(label.length / 2)),
+        );
+        for (let offset = 0; offset < label.length; offset += 1) {
+            optionLine[start + offset] = label[offset] ?? " ";
+        }
+    });
     return [
         fitDialText(labels, width),
         fitDialText(`${" ".repeat(indent)}${track}`, width),
+        fitDialText(`${" ".repeat(indent)}${optionLine.join("")}`, width),
     ];
 }
 
