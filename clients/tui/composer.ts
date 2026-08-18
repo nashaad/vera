@@ -398,6 +398,9 @@ export function createTuiComposerPanel(
         border: true,
         borderStyle: "rounded",
         borderColor: boundaryColor,
+        // The same ground the theme change paints, so the frame looks the
+        // same at startup as after the first theme apply.
+        backgroundColor: TUI_INPUT,
         height: TUI_COMPOSER_PANEL_ROWS,
         paddingLeft: appearance.paddingHorizontal ?? 1,
         paddingRight: appearance.paddingHorizontal ?? 1,
