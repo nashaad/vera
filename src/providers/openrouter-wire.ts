@@ -16,6 +16,7 @@ import type {
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
+import { normalizeGoogleToolSchema } from "./google-tool-schema.ts";
 
 export interface OpenRouterChatRequest {
     readonly model: string;
@@ -98,13 +99,17 @@ export function encodeOpenRouterMessages(
 
 export function encodeOpenRouterTools(
     tools: readonly ModelTool[],
+    model?: string,
 ): ChatFunctionTool[] {
+    const normalize = model?.toLowerCase().startsWith("google/gemini-") === true
+        ? normalizeGoogleToolSchema
+        : (schema: Readonly<Record<string, unknown>>) => schema;
     return tools.map((tool) => ({
         type: "function",
         function: {
             name: tool.name,
             description: tool.description,
-            parameters: tool.inputSchema,
+            parameters: normalize(tool.inputSchema),
         },
     }));
 }
