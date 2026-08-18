@@ -1899,9 +1899,10 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
             expect(pane).toContain("esc stop");
-            // No fold marker: this turn reasons without producing any summary
-            // text, so there is nothing behind the line to open.
-            expect(pane).toMatch(/(?<![▸▾] )(?:Baked|Brewed|Churned|Cogitated|Cooked|Crunched|Sautéed|Worked) for \d+\.\d+s/);
+            // This turn reasons without producing any summary text, so the
+            // line reports the time under a word that promises nothing behind
+            // it.
+            expect(pane).toMatch(/Worked for \d+\.\d+s/);
             sendText(socket, session, "redirect now");
             sendKey(socket, session, "Enter");
 
@@ -1921,14 +1922,15 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("100%");
 
             // The second turn reasons, so its summary carries a fold that
-            // ctrl+o opens over a row already drawn.
-            expect(pane).toMatch(/▸ Reasoning: \d+\.\d+s/);
+            // ctrl+o opens over a row already drawn. It starts in the same
+            // column as a summary with nothing behind it.
+            expect(pane).toMatch(/^  Reasoning: \d+\.\d+s/m);
             expect(pane).not.toContain("WEIGHING THE ORDERINGS");
             sendKey(socket, session, "C-u");
             pane = await waitForPane(socket, session, "PARTIAL xxxxx");
             sendKey(socket, session, "C-o");
             pane = await waitForPane(socket, session, "WEIGHING THE ORDERINGS");
-            expect(pane).toMatch(/▾ Reasoning: \d+\.\d+s/);
+            expect(pane).toMatch(/Reasoning: \d+\.\d+s/);
             expect(pane).toContain("ctrl+o hide reasoning");
             expect(pane).toContain("PARTIAL xxxxx");
         } catch (error) {
@@ -2019,7 +2021,7 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toMatch(/· ask +│$/m);
             expect(pane).toContain("Ran  printf");
             expect(pane).not.toContain("TOOL_DETAIL_09");
-            expect(pane).toMatch(/^  Baked for 0\.0s\n {2}Ran/m);
+            expect(pane).toMatch(/^  Worked for 0\.0s\n {2}Ran/m);
             expect(pane).toMatch(/^ {2}─{20}/m);
             expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
             expect(pane).toMatch(/^ {3}Tip /m);

@@ -80,6 +80,8 @@ export interface TuiTextTranscriptEntry {
     readonly liveOnly?: boolean;
     /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
+    /** How long a `thought` summary reports, in seconds. */
+    readonly seconds?: number;
     /** Whether a `thought` summary is showing its reasoning. */
     readonly expanded?: boolean;
     /** Whether this completed tool row is hidden behind its group header. */
@@ -1148,43 +1150,22 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
     const settled = dropTuiThinking(state);
-    if (reasoning.length === 0) {
-        return insertBeforeTrailingAssistant(settled, {
-            kind: "thought",
-            text: `${completionVerb(seconds)} for ${seconds.toFixed(1)}s`,
-        });
-    }
     return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
-        text: thoughtSummary(seconds, expanded),
-        reasoning,
+        text: thoughtSummary(seconds, reasoning.length > 0),
+        seconds,
+        ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded ? { expanded: true } : {}),
     });
 }
 
 /**
- * The fold marker doubles as the state: `+` closed, `-` open. A summary with no
- * reasoning behind it carries no marker, because there is nothing to open and a
- * marker that does nothing when pressed reads as a broken key.
+ * A phase that reported no reasoning still reports its time, under a word that
+ * does not promise text behind it.
  */
-function thoughtSummary(seconds: number, expanded: boolean): string {
-    return `${expanded ? "▾" : "▸"} Reasoning: ${seconds.toFixed(1)}s`;
-}
-
-const COMPLETION_VERBS = [
-    "Baked",
-    "Brewed",
-    "Churned",
-    "Cogitated",
-    "Cooked",
-    "Crunched",
-    "Sautéed",
-    "Worked",
-] as const;
-
-function completionVerb(seconds: number): string {
-    const elapsedTenths = Math.max(0, Math.round(seconds * 10));
-    return COMPLETION_VERBS[elapsedTenths % COMPLETION_VERBS.length]!;
+function thoughtSummary(seconds: number, hasReasoning: boolean): string {
+    const label = hasReasoning ? "Reasoning:" : "Worked for";
+    return `${label} ${seconds.toFixed(1)}s`;
 }
 
 /**
@@ -1218,11 +1199,7 @@ export function toggleTuiThinking(state: TuiState): TuiState {
             if (entry.kind !== "thought" || entry.reasoning === undefined) {
                 return entry;
             }
-            return {
-                ...entry,
-                text: thoughtSummary(thoughtSeconds(entry.text), expanded),
-                expanded,
-            };
+            return { ...entry, expanded };
         }),
     };
 }
@@ -1238,10 +1215,6 @@ export function toggleTuiToolDetails(state: TuiState): TuiState {
         toolDetailsExpanded: expanded,
         entries: applyToolDetailPreference(state.entries, expanded),
     };
-}
-
-function thoughtSeconds(text: string): number {
-    return Number.parseFloat(text.replace(/^[▸▾] Reasoning: /, "")) || 0;
 }
 
 export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
@@ -1344,8 +1317,8 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         if (entry.reasoning === undefined) {
             return new StyledText([summary]);
         }
-        // The hint rides the rendered row, not the stored text, so the stored
-        // summary stays the fold marker other code parses.
+        // The hint rides the rendered row, not the stored text, so a rebuilt
+        // row carries the summary alone.
         const hint = fg(TUI_MUTED)(
             entry.expanded === true
                 ? `  ${tuiKeyChord("toggle_thinking")} hide reasoning`
@@ -2213,8 +2186,36 @@ function insertBeforeTrailingAssistant(
     const entries = [...state.entries];
     const last = entries.at(-1);
     const index = last?.kind === "assistant" ? entries.length - 1 : entries.length;
+    const previous = entries[index - 1];
+    if (entry.kind === "thought" && previous?.kind === "thought") {
+        entries[index - 1] = mergeThoughts(previous, entry);
+        return { ...state, entries };
+    }
     entries.splice(index, 0, entry);
     return { ...state, entries };
+}
+
+/**
+ * One phase of thinking is not one row. A turn that thinks, thinks again, and
+ * thinks once more between two tool calls reports the whole stretch, because
+ * the split between phases is the provider's and says nothing to the reader.
+ */
+function mergeThoughts(
+    first: TuiTextTranscriptEntry,
+    second: TuiTextTranscriptEntry,
+): TuiTextTranscriptEntry {
+    const seconds = (first.seconds ?? 0) + (second.seconds ?? 0);
+    const reasoning = [first.reasoning, second.reasoning]
+        .filter((part) => part !== undefined && part.length > 0)
+        .join("\n\n");
+    const expanded = first.expanded === true || second.expanded === true;
+    return {
+        ...first,
+        text: thoughtSummary(seconds, reasoning.length > 0),
+        seconds,
+        ...(reasoning.length === 0 ? {} : { reasoning }),
+        ...(expanded && reasoning.length > 0 ? { expanded: true } : {}),
+    };
 }
 
 function appendEntry(state: TuiState, entry: TuiTranscriptEntry): TuiState {
