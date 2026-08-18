@@ -5,11 +5,18 @@ import {
     fitTuiAppearance,
     resolveTuiAppearance,
     tuiComposerContentIndent,
+    tuiComposerOverlayInset,
 } from "../../clients/tui/appearance.ts";
 
 test("TUI appearance defaults preserve the current client layout", () => {
     expect(resolveTuiAppearance()).toEqual(DEFAULT_TUI_APPEARANCE);
     expect(tuiComposerContentIndent(DEFAULT_TUI_APPEARANCE)).toBe(4);
+    expect(tuiComposerOverlayInset(DEFAULT_TUI_APPEARANCE)).toEqual({
+        left: 0,
+        right: 0,
+        paddingLeft: 4,
+        paddingRight: 4,
+    });
 });
 
 test("TUI appearance resolves JSON overrides and derives tip alignment", () => {

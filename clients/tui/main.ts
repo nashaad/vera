@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
+import { tuiComposerOverlayInset } from "./appearance.ts";
 import { registerTuiParsers } from "./parsers.ts";
 import {
     createTuiFlightRecorder,
@@ -320,6 +321,7 @@ import {
     installTuiKeymap,
     isTuiComposerClearKey,
     isTuiKeyScope,
+    tuiComposerWordDeleteDirection,
     tuiBindingId,
     tuiChord,
     tuiKeyChord,
@@ -1870,18 +1872,14 @@ export async function startTui(
         width: "100%",
         height: "auto",
     });
-    // Inset to the composer's own margins, so the strip reads as part of the
-    // input it completes rather than a full-bleed band over the desktop.
+    // Use the same full-width band and content indent as the status row.
     const commandSuggestionsBox = new BoxRenderable(renderer, {
         id: "command-suggestions",
         border: false,
         position: "absolute",
-        left: appearance.composerMarginHorizontal,
-        right: appearance.composerMarginHorizontal,
+        ...tuiComposerOverlayInset(appearance),
         bottom: 7,
         height: 1,
-        paddingLeft: appearance.composerPaddingHorizontal,
-        paddingRight: appearance.composerPaddingHorizontal,
         backgroundColor: theme.menu ?? theme.panel,
         zIndex: 5,
         visible: false,
@@ -1989,7 +1987,7 @@ export async function startTui(
         // a different shade from showing wherever one of them is hidden.
         backgroundColor: theme.background,
         paddingTop: APP_PADDING_TOP,
-        paddingBottom: 0,
+        paddingBottom: APP_PADDING_BOTTOM,
         onMouseDrag: () => bodyFocus.noteDrag(),
         onMouseDragEnd: () => bodyFocus.noteDrag(),
         onMouseUp: () => {
@@ -2792,8 +2790,9 @@ export async function startTui(
         // height: either alone leaves an undimmed bar at one end.
         left: 0,
         top: -APP_PADDING_TOP,
-        bottom: 0,
-        width: renderer.width,
+        bottom: -APP_PADDING_BOTTOM,
+        width: "100%",
+        height: "100%",
         // Enough to push the transcript behind the card, not enough to erase
         // it. A heavier wash reads fine on paper and fails on the dark themes,
         // where the ground is already near black and the text lands on top of
@@ -3005,14 +3004,13 @@ export async function startTui(
         dialCard.marginRight = appearance.composerMarginHorizontal;
         dialCard.paddingLeft = appearance.composerPaddingHorizontal;
         dialCard.paddingRight = appearance.composerPaddingHorizontal;
-        commandSuggestionsBox.paddingLeft = composerContentIndent;
-        commandSuggestionsBox.paddingRight = composerContentIndent;
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
-        commandSuggestionsBox.left = appearance.composerMarginHorizontal;
-        commandSuggestionsBox.right = appearance.composerMarginHorizontal;
-        commandSuggestionsBox.paddingLeft = appearance.composerPaddingHorizontal;
-        commandSuggestionsBox.paddingRight = appearance.composerPaddingHorizontal;
+        const suggestionInset = tuiComposerOverlayInset(appearance);
+        commandSuggestionsBox.left = suggestionInset.left;
+        commandSuggestionsBox.right = suggestionInset.right;
+        commandSuggestionsBox.paddingLeft = suggestionInset.paddingLeft;
+        commandSuggestionsBox.paddingRight = suggestionInset.paddingRight;
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
         transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
@@ -3169,16 +3167,16 @@ export async function startTui(
             renderState();
             return;
         }
+        const wordDeleteDirection = tuiComposerWordDeleteDirection(key);
         if (
-            key.option === true
-            && (key.name === "delete" || key.name === "backspace")
+            wordDeleteDirection !== undefined
             && composer.focused
             && composer.plainText.length > 0
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
             key.stopPropagation();
-            if (key.name === "backspace") {
+            if (wordDeleteDirection === "backward") {
                 composer.deleteWordBackward();
             } else {
                 composer.deleteWordForward();
@@ -4993,8 +4991,8 @@ export async function startTui(
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
             // A blank peer has nothing useful to reset. Treating a second
-            // clear as close makes it possible to get rid of an empty pair
-            // pane without requiring the user to remember `/pair close`.
+            // clear as close makes it possible to get rid of an empty pane
+            // without requiring a separate close command.
             const clearingBlankSidebar = clearingSidebar
                 && !sidebarEntryNodes.some((node) => node.visible);
             if (clearingBlankSidebar) {

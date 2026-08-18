@@ -278,9 +278,9 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
-    mainColumn.add(mainHeader);
     mainColumn.add(mainFocusRail);
     mainColumn.add(options.transcript);
+    mainColumn.add(mainHeader);
     body.add(mainColumn);
     body.add(divider);
     body.add(sidebarColumn);

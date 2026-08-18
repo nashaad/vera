@@ -138,7 +138,7 @@ function keyRows(): readonly {
             label: binding.keys.map(chordLabel).join(" / "),
             description: binding.description,
             meta: binding.keys.every(needsKittyKeyboard)
-                ? `${title} · some terminals`
+                ? `${title} · kitty`
                 : title,
         }))
     );

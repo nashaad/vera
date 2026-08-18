@@ -11,6 +11,8 @@
  * testable without a terminal.
  */
 
+import { isTuiDialTabKey } from "./keymap.ts";
+
 /** A model with the effort it runs at, when the model has an effort dial. */
 export interface DialPair {
     readonly provider?: string;
@@ -726,7 +728,7 @@ export function handleDialStripKey(
                 : { permission: state.permissionModes[state.permissionIndex] }),
         };
     }
-    if (key.name === "tab") {
+    if (isTuiDialTabKey(key)) {
         return {
             kind: "state",
             state: moveDialLane(state, key.shift === true ? -1 : 1),
