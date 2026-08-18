@@ -212,7 +212,9 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-reload-failure-child.ts",
             );
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            // An extension that fails to load reports into the transcript, so
+            // the empty-state line is already gone by the time the TUI is up.
+            await waitForVisiblePane(socket, session, "Message Vera");
 
             sendText(socket, session, "/reload-extensions");
             sendKey(socket, session, "Enter");
@@ -256,7 +258,9 @@ test.skipIf(!tmuxAvailable)(
                 home,
                 "test/support/tui-partial-reload-child.ts",
             );
-            await waitForVisiblePane(socket, session, "Start a conversation");
+            // An extension that fails to load reports into the transcript, so
+            // the empty-state line is already gone by the time the TUI is up.
+            await waitForVisiblePane(socket, session, "Message Vera");
 
             sendText(socket, session, "/reload-extensions");
             sendKey(socket, session, "Enter");

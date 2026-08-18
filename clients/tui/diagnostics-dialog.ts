@@ -82,7 +82,10 @@ export function createTuiDiagnosticsDialogView(
         top: "6%",
         left: "4%",
         width: "92%",
-        height: "84%",
+        // Stop above the composer rather than at a fraction of the screen. The
+        // composer's own rows say what the session is answering as, and an
+        // overlay drawn across them reads as two surfaces fighting.
+        bottom: 8,
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
         paddingRight: 2,
