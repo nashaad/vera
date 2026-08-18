@@ -9679,7 +9679,7 @@ export async function startTui(
             : Math.max(0, hudRows.length - 4);
         const effortScaleRows = effortRowIndex >= 0
             && hudRows[effortRowIndex + 1]?.includes("Faster") === true
-            ? 2
+            ? 3
             : 0;
         dialCardTitle.height = Math.max(1, hudRows.length);
         dialCard.height = hudRows.length + 3;
