@@ -16,7 +16,10 @@ const client = createSettingsAnsweringClient({
             });
             return;
         }
-        if (command.type === "update_permissions") {
+        if (
+            command.type === "update_permissions"
+            || command.type === "update_session_permission_mode"
+        ) {
             push({
                 type: "permissions_rejected",
                 requestId: command.requestId,

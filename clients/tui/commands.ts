@@ -366,7 +366,7 @@ const EFFORT_COMMAND = {
 const PERMISSIONS_COMMAND = {
     name: "permissions",
     description: "Change this session's permission mode",
-    usage: "/permissions <ask|auto|full_access> [default]",
+    usage: "/permissions <mode> [default]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const AGENT_COMMAND = {

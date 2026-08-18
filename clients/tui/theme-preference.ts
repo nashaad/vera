@@ -291,9 +291,15 @@ export function migrateTuiQuickslotsToFavoritePairs(
     if (preferences.favorite_pairs_migrated !== undefined) {
         return { migrated: 0, skipped: 0 };
     }
+    const slots = loadTuiQuickslotsForMigration(path);
+    if (slots.length === 0) {
+        // Nothing to carry over, so nothing is written: a profile that never
+        // held quickslots keeps a tui.json with only the keys its owner set.
+        return { migrated: 0, skipped: 0 };
+    }
     const favorites: DiskFavoritePair[] = [];
     let skipped = 0;
-    for (const slot of loadTuiQuickslotsForMigration(path)) {
+    for (const slot of slots) {
         const favorite = favoriteFromQuickslot(slot, resolve);
         if (favorite === undefined) {
             // Malformed is the only skip class. An id-form slot is valid data

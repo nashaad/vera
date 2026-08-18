@@ -1920,6 +1920,7 @@ test("paths strip the session workspace root, resolved form included", async () 
 
 const EFFORT_SUBSTITUTION = {
     type: "model_substitution",
+    source: "turn" as const,
     model: "deepseek-v4-flash",
     requested: "low",
     using: "high",
@@ -2053,6 +2054,7 @@ test("a turn that runs at the requested level says so once", () => {
 test("a substitution gets its own transcript row, live and on replay", () => {
     const live = applyAgentUpdate(createTuiState(), {
         type: "model_substitution",
+        source: "turn" as const,
         model: "openai/gpt-5",
         requested: "high",
         using: "medium",

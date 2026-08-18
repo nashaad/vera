@@ -155,7 +155,13 @@ function coalesce(
 ): TuiBinding[] {
     const rows = [...base];
     for (const row of extensions) {
-        const existing = rows.find((binding) => binding.id === row.id);
+        // A static row names the extension that owns it, and that extension
+        // registers under its own id. Both name one binding, so the row it
+        // names is the row it merges into rather than a second claim on the
+        // same chord.
+        const existing = rows.find((binding) =>
+            binding.id === row.id || binding.extensionId === row.id
+        );
         if (existing !== undefined) {
             // The static row is the documented one, so it keeps the metadata
             // and the extension keeps the handler it registered elsewhere.
