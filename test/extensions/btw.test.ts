@@ -40,6 +40,14 @@ async function start(visible: readonly {
             },
         },
         notice: { post() {} },
+        sidebar: {
+            open() {},
+            append() {},
+            clear() {},
+            close(extensionId) {
+                calls.push({ operation: "close", extensionId });
+            },
+        },
         mentions: {
             set(_extensionId, names) {
                 mentions = [...names];
@@ -154,6 +162,21 @@ test("pair creates a durable tool-capable peer", async () => {
     }]);
     expect(harness.registry.experimentalHostedAgentAddressing("vera.btw"))
         .toEqual({ primary: "vera", secondary: "peer", broadcast: "all" });
+    await harness.registry.close();
+});
+
+test("pair close detaches the peer pane without creating another session", async () => {
+    const harness = await start();
+    await harness.registry.invokeCommand("pair", "", "/workspace");
+    harness.calls.length = 0;
+
+    await harness.registry.invokeCommand("pair", "close", "/workspace");
+
+    expect(harness.calls).toEqual([{
+        operation: "close",
+        extensionId: "vera.btw",
+    }]);
+    expect(harness.mentions()).toEqual([]);
     await harness.registry.close();
 });
 

@@ -853,6 +853,7 @@ export async function startTui(
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
     let sessionTitle: string | undefined;
+    let sidebarSessionTitle: string | undefined;
     applyTerminalTitle();
     refreshTerminalTitle();
     let themeName = loadTuiThemePreference();
@@ -1114,6 +1115,10 @@ export async function startTui(
         /** Restored to the composer if the rename never lands, when it came from one. */
         readonly commandText?: string;
     } | undefined;
+    let pendingSidebarSessionRename: {
+        readonly requestId: string;
+        readonly commandText?: string;
+    } | undefined;
     /**
      * Consults in flight, keyed by request. Several may run at once: an
      * extension with more than one seat asks them all in parallel.
@@ -1234,10 +1239,13 @@ export async function startTui(
                     );
                 }
                 forgetPersistedAgentPane();
+                sidebarSessionTitle = undefined;
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
                 sidebar.setHeader(undefined);
                 sidebar.close();
+                setSidebarFocused(false);
+                composer.focus();
                 renderState();
             },
             setMentions(names) {
@@ -1355,6 +1363,7 @@ export async function startTui(
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
                 sidebar.clear();
+                sidebarSessionTitle = undefined;
                 sidebar.setHeader(undefined);
                 sidebar.close();
             }
@@ -2041,6 +2050,8 @@ export async function startTui(
             signal,
             activate(_attached, previousModeLabel) {
                 rememberOpenPaneGroup();
+                sidebarSessionTitle = undefined;
+                pendingSidebarSessionRename = undefined;
                 clearSidebarEntryNodes();
                 sidebar.clear();
                 sidebar.setHeader(undefined);
@@ -2638,6 +2649,36 @@ export async function startTui(
         if (pane !== hostedSidebar.pane) return;
         if (update.type === "ui_request") {
             setSidebarFocused(true);
+        }
+        if (
+            (update.type === "session_name"
+                || update.type === "session_name_rejected")
+            && update.requestId === pendingSidebarSessionRename?.requestId
+        ) {
+            const pending = pendingSidebarSessionRename;
+            pendingSidebarSessionRename = undefined;
+            if (update.type === "session_name") {
+                sidebarSessionTitle = update.name ?? undefined;
+                pane.state.state = appendTuiNotice(
+                    pane.state.state,
+                    update.name === null
+                        ? "session name cleared"
+                        : `session renamed: ${update.name}`,
+                );
+            } else {
+                if (
+                    pending.commandText !== undefined
+                    && composer.expandedText().length === 0
+                ) {
+                    composer.setComposerText(pending.commandText);
+                }
+                pane.state.state = appendTuiError(
+                    pane.state.state,
+                    update.reason === "invalid"
+                        ? "Session name must be 1 to 200 UTF-8 bytes"
+                        : "Could not rename this conversation",
+                );
+            }
         }
         if (update.type === "turn_finished") {
             pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
@@ -4056,6 +4097,7 @@ export async function startTui(
             blocked: promptSubmitting
                 || sessionSwitchPending
                 || pendingSessionRename
+                || pendingSidebarSessionRename
                 || extensionCommandPending
                 || sidebarPromptSubmitting
                 || messageInterceptPending,
@@ -4064,6 +4106,7 @@ export async function startTui(
             promptSubmitting
             || sessionSwitchPending
             || pendingSessionRename
+            || pendingSidebarSessionRename
             || extensionCommandPending
             || sidebarPromptSubmitting
             || messageInterceptPending
@@ -5046,9 +5089,33 @@ export async function startTui(
         }
         if (commandAction?.type === "update_session_name") {
             const requestId = randomUUID();
-            pendingSessionRename = { requestId, commandText: prompt };
             composer.clearComposer();
-            void client.send({
+            const target = focusedAgentClient();
+            if (target !== client) {
+                pendingSidebarSessionRename = { requestId, commandText: prompt };
+                void target.send({
+                    type: "update_session_name",
+                    requestId,
+                    name: commandAction.name,
+                }).catch((error) => {
+                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                        return;
+                    }
+                    pendingSidebarSessionRename = undefined;
+                    if (composer.expandedText().length === 0) {
+                        composer.setComposerText(prompt);
+                    }
+                    reportConnectionError(error);
+                });
+                showStatusNotice(
+                    commandAction.name === null
+                        ? "clearing peer session name…"
+                        : "renaming peer session…",
+                );
+                return;
+            }
+            pendingSessionRename = { requestId, commandText: prompt };
+            void target.send({
                 type: "update_session_name",
                 requestId,
                 name: commandAction.name,
@@ -6427,11 +6494,19 @@ export async function startTui(
         submitAfterImageAttachment = false;
         const interruptedRename = pendingSessionRename;
         pendingSessionRename = undefined;
+        const interruptedSidebarRename = pendingSidebarSessionRename;
+        pendingSidebarSessionRename = undefined;
         if (
             interruptedRename?.commandText !== undefined
             && composer.expandedText().length === 0
         ) {
             composer.setComposerText(interruptedRename.commandText);
+        }
+        if (
+            interruptedSidebarRename?.commandText !== undefined
+            && composer.expandedText().length === 0
+        ) {
+            composer.setComposerText(interruptedSidebarRename.commandText);
         }
         pendingUiRequest = undefined;
         queuedUiRequests.length = 0;
@@ -9455,7 +9530,9 @@ export async function startTui(
                 && hostedSidebar.pane !== undefined
                 && sideState !== undefined
             ? paneHeaderText(
-                hostedSidebar.mention ?? hostedSidebar.pane!.agentId,
+                sidebarSessionTitle
+                    ?? hostedSidebar.mention
+                    ?? hostedSidebar.pane!.agentId,
                 sideState.approvalMode,
                 sideState.modelSettings,
                 layout === "split" ? sideWidth : renderer.width,
