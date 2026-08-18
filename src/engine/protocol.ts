@@ -676,6 +676,7 @@ export interface AgentWornUpdate {
     readonly tools?: readonly string[];
     readonly skills?: readonly string[];
     readonly posture?: string;
+    readonly forbiddenAccess?: readonly string[];
     readonly notice?: string;
     readonly seq: number;
 }
@@ -692,6 +693,7 @@ export interface AgentCatalogUpdate {
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
         readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
         readonly defaultPair?: {
             readonly name: string;
             readonly effort?: string;
