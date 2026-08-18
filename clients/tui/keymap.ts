@@ -196,19 +196,18 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "conversation",
         description: "Scroll the transcript down one line",
     },
-    // A terminal only reports the shift on a ctrl+letter chord under the kitty
-    // keyboard protocol. Elsewhere ctrl+shift+u arrives as plain ctrl+u, which
-    // is the composer's clear-line, so these chords go unmatched rather than
-    // taking it. The arrow bindings above are the form that works everywhere.
+    // Ctrl-D/U are the familiar half-page transcript movement keys. The
+    // shifted letter aliases remain for terminals using the kitty keyboard
+    // protocol, while the arrow bindings work everywhere.
     {
         id: "scroll_half_page_up",
-        keys: ["ctrl+shift+up", "ctrl+shift+u"],
+        keys: ["ctrl+shift+up", "ctrl+shift+u", "ctrl+u"],
         scope: "conversation",
         description: "Scroll the transcript half a page up",
     },
     {
         id: "scroll_half_page_down",
-        keys: ["ctrl+shift+down", "ctrl+shift+d"],
+        keys: ["ctrl+shift+down", "ctrl+shift+d", "ctrl+d"],
         scope: "conversation",
         description: "Scroll the transcript half a page down",
     },

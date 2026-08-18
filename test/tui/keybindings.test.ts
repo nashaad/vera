@@ -5,7 +5,11 @@ import {
     parseTuiChord,
     resolveTuiKeymap,
 } from "../../clients/tui/keybindings.ts";
-import { TUI_KEYMAP, type TuiBinding } from "../../clients/tui/keymap.ts";
+import {
+    TUI_KEYMAP,
+    tuiBindingId,
+    type TuiBinding,
+} from "../../clients/tui/keymap.ts";
 
 function chordsOf(
     bindings: readonly TuiBinding[],
@@ -43,6 +47,13 @@ test("a chord is canonicalized, whatever order it was written in", () => {
     expect(parseTuiChord(" CTRL+D ")).toEqual({ chord: "ctrl+d" });
     expect(parseTuiChord("escape")).toEqual({ chord: "esc" });
     expect(parseTuiChord("ctrl++")).toEqual({ chord: "ctrl++" });
+});
+
+test("ctrl+d and ctrl+u move the conversation by half a page", () => {
+    expect(tuiBindingId("conversation", { name: "d", ctrl: true }))
+        .toBe("scroll_half_page_down");
+    expect(tuiBindingId("conversation", { name: "u", ctrl: true }))
+        .toBe("scroll_half_page_up");
 });
 
 test("alt, meta and option are refused rather than accepted and never fired", () => {
