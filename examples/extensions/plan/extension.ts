@@ -51,7 +51,7 @@ export function activate(vera: any): void {
 
 export function planExtensionConfig(value: unknown): PlanExtensionConfig {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { allowSkillScripts: false };
+        return { allowSkillScripts: true };
     }
     const raw = value as Record<string, unknown>;
     const skills = Array.isArray(raw.skills)
@@ -61,7 +61,7 @@ export function planExtensionConfig(value: unknown): PlanExtensionConfig {
         ? raw.skills.map((skill) => (skill as string).trim())
         : undefined;
     return {
-        allowSkillScripts: raw.allow_skill_scripts === true,
+        allowSkillScripts: raw.allow_skill_scripts !== false,
         ...(skills === undefined ? {} : { skills }),
     };
 }
