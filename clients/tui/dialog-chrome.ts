@@ -232,12 +232,10 @@ export function dialogSearchNode(
     live = true,
 ): TextRenderable {
     const typed = query.length > 0;
-    const norton = TUI_CHROME === "norton";
     const windows = TUI_CHROME === "windows-31";
-    const prefix = norton ? "> " : "";
     if (!live) {
         return new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_MUTED)(`${prefix}${placeholder}`)]),
+            content: new StyledText([fg(TUI_MUTED)(placeholder)]),
             ...(windows ? { bg: TUI_ELEMENT } : {}),
             width: "100%",
             height: 2,
@@ -251,7 +249,6 @@ export function dialogSearchNode(
     });
     const node = new DialogSearchRenderable(renderer, {
         content: new StyledText([
-            fg(norton ? TUI_MUTED : TUI_TEXT)(prefix),
             typed ? fg(TUI_TEXT)(query) : fg(TUI_MUTED)(placeholder),
         ]),
         ...(windows ? { bg: TUI_ELEMENT } : {}),
@@ -264,7 +261,7 @@ export function dialogSearchNode(
     // On an empty field the caret sits on the first letter of the placeholder,
     // which is what makes the line read as a live input without a magnifier or
     // a bar to explain it.
-    node.caretColumn = prefix.length + query.length;
+    node.caretColumn = query.length;
     return node;
 }
 
