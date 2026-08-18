@@ -42,6 +42,35 @@ test("TUI diagnostics explains a retrying model request", () => {
     expect(text).toContain("queued       1");
 });
 
+test("TUI diagnostics never presents missing prices as zero cost", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            sessionUsage: {
+                rows: [{
+                    provider: "deepseek",
+                    model: "deepseek-v4-flash",
+                    calls: 1,
+                    durationMs: 2_690,
+                    inputTokens: 22_474,
+                    outputTokens: 18,
+                    cachedInputTokens: 0,
+                    reasoningTokens: 0,
+                    totalTokens: 22_492,
+                    callsWithoutCost: 1,
+                }],
+            },
+        },
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text).toContain("cost unavailable · 1 unpriced");
+    expect(text).not.toContain("$0.0000");
+});
+
 test("TUI diagnostics remains useful before model activity arrives", () => {
     const text = renderTuiDiagnostics({
         state: createTuiState(),
@@ -54,6 +83,66 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
     expect(text).toContain("turn         idle");
     expect(text).toContain("context      unavailable");
     expect(text).toContain("session      unavailable");
+});
+
+test("TUI diagnostics shows marked startup timings near the top", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        startup: {
+            totalMs: 1_676,
+            rows: [{
+                label: "model_discovery",
+                durationMs: 308,
+                outcome: "completed",
+            }, {
+                label: "extension · vera.mcp",
+                durationMs: 1_322,
+                outcome: "loaded",
+            }],
+        },
+    });
+
+    expect(text.indexOf("Startup")).toBeLessThan(text.indexOf("Runtime"));
+    expect(text).toContain("| total | 1.68s | ok |");
+    expect(text).toContain("| model_discovery | 308ms | ok, slowest |");
+    expect(text).toContain("| extension · vera.mcp | 1.32s | ok, slowest |");
+});
+
+test("TUI diagnostics puts itemized session usage above runtime", () => {
+    const text = renderTuiDiagnostics({
+        state: {
+            ...createTuiState(),
+            sessionUsage: {
+                rows: [{
+                    provider: "openrouter",
+                    model: "deepseek/deepseek-v4",
+                    calls: 2,
+                    durationMs: 2_500,
+                    inputTokens: 12_000,
+                    outputTokens: 1_500,
+                    cachedInputTokens: 8_000,
+                    reasoningTokens: 400,
+                    totalTokens: 13_500,
+                    cost: 0.018,
+                    callsWithoutCost: 1,
+                }],
+            },
+        },
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+    });
+
+    expect(text.indexOf("Session usage")).toBeLessThan(text.indexOf("Runtime"));
+    expect(text).toContain("| Runtime | 2.50s |");
+    expect(text).toContain("### openrouter/deepseek/deepseek-v4");
+    expect(text).toContain("| Input | 12,000 |");
+    expect(text).toContain("| Cost | $0.02 reported · 1 unpriced |");
 });
 
 test("TUI diagnostics identifies the build, host, and extension paths", () => {
@@ -79,10 +168,10 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
         }],
     });
 
-    expect(text).toContain("client       source abc1234+dirty");
-    expect(text).toContain("entrypoint   /worktree/clients/tui/main.ts");
-    expect(text).toContain("host         PID 42 · started 2026-08-09T20:00:00.000Z");
-    expect(text).toContain("host entry   /other/clients/host/main.ts");
+    expect(text).toContain("| Client | source abc1234+dirty |");
+    expect(text).toContain("| Client entrypoint | /worktree/clients/tui/main.ts |");
+    expect(text).toContain("| Host | PID 42 · started 2026-08-09T20:00:00.000Z |");
+    expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");
     expect(text).toContain("enabled       /worktree/examples/extensions/sample");
     expect(text).toContain("disabled      /old/disabled-extension");
     expect(text).not.toContain("────");

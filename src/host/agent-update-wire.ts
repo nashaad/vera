@@ -50,6 +50,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && update.entries.every(isTranscriptEntry)
             && (update.context === undefined
                 || isContextMeasurement(update.context))
+            && (update.usage === undefined || isSessionModelUsage(update.usage))
             ? value as AgentUpdate
             : undefined;
     }
@@ -134,6 +135,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 || (typeof update.error === "string"
                     && update.error.trim().length > 0))
             && (update.empty === undefined || update.empty === true)
+            && (update.usage === undefined || isSessionModelUsage(update.usage))
             ? value as AgentUpdate
             : undefined;
     }
@@ -326,6 +328,30 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             : undefined;
     }
     return undefined;
+}
+
+function isSessionModelUsage(value: unknown): boolean {
+    const usage = asRecord(value);
+    if (!Array.isArray(usage?.rows)) return false;
+    return usage.rows.every((value) => {
+        const row = asRecord(value);
+        return typeof row?.provider === "string"
+            && typeof row.model === "string"
+            && nonNegative(row.calls)
+            && nonNegative(row.durationMs)
+            && nonNegative(row.inputTokens)
+            && nonNegative(row.outputTokens)
+            && nonNegative(row.cachedInputTokens)
+            && nonNegative(row.reasoningTokens)
+            && nonNegative(row.totalTokens)
+            && nonNegative(row.callsWithoutCost)
+            && (row.cost === undefined
+                || (typeof row.cost === "number" && Number.isFinite(row.cost)));
+    });
+}
+
+function nonNegative(value: unknown): boolean {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function parseModelActivity(

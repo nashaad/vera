@@ -26,6 +26,7 @@ import {
     createTuiFlightRecorder,
     type TuiFlightRecorder,
 } from "./flight-recorder.ts";
+import { readLatestHostStartupTiming } from "./host-startup-diagnostics.ts";
 
 import {
     APP_PADDING_BOTTOM,
@@ -4162,6 +4163,7 @@ export async function startTui(
             build: dependencies.build,
             extensions: configuredClientExtensions,
             clientExtensionReload,
+            startup: readLatestHostStartupTiming(),
         };
     }
 
@@ -4361,16 +4363,7 @@ export async function startTui(
                 && dependencies.listAgents !== undefined;
             diagnosticsDialog = {
                 text: renderTuiDiagnostics({
-                    state,
-                    activity,
-                    elapsed: elapsedWorkingTime(),
-                    workspace: client.workspace ?? process.cwd(),
-                    runningBackgroundAgents,
-                    stash: summarizeStash(),
-                    stashRoot: defaultStashRoot(),
-                    build: dependencies.build,
-                    extensions: configuredClientExtensions,
-                    clientExtensionReload,
+                    ...diagnosticsSnapshot(),
                 }),
                 copyReady: !resolvingSessionPath,
             };
@@ -4396,17 +4389,8 @@ export async function startTui(
                     diagnosticsSessionPath = sessionPath;
                     diagnosticsDialog = {
                         text: renderTuiDiagnostics({
-                            state,
-                            activity,
-                            elapsed: elapsedWorkingTime(),
+                            ...diagnosticsSnapshot(),
                             sessionPath,
-                            workspace: client.workspace ?? process.cwd(),
-                            runningBackgroundAgents,
-                            stash: summarizeStash(),
-                            stashRoot: defaultStashRoot(),
-                            build: dependencies.build,
-                            extensions: configuredClientExtensions,
-                            clientExtensionReload,
                         }),
                         copyReady: true,
                     };
