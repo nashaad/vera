@@ -60,9 +60,11 @@ async function pickerFrame(
     state: TuiAnySettingsPickerState,
     width = 100,
     height = 40,
+    tip?: string,
 ): Promise<string> {
     const setup = await createTestRenderer({ width, height });
     const view = createTuiSettingsPickerView(setup.renderer);
+    view.tip = tip;
     setup.renderer.root.add(view.box);
     view.box.visible = true;
     view.update(state);
@@ -1025,6 +1027,27 @@ test("extension picker renders its title, stable rows, and semantic action foote
     expect(frame).toContain("del clear");
     expect(frame).toContain("⌫ clear");
     expect(frame).not.toContain("Search");
+});
+
+test("an extension picker keeps its helper tight to rows and actions", async () => {
+    const state = startTuiExtensionPicker(
+        "Agents",
+        [{ id: "default", label: "default" }, { id: "plan", label: "plan" }],
+        "default",
+        [{ id: "wear", key: "enter", label: "switch" }],
+    );
+    const frame = await pickerFrame(
+        state,
+        100,
+        30,
+        "Press ctrl+n to name a shortlisted model",
+    );
+    const lines = frame.split("\n");
+    const plan = lines.findIndex((line) => line.includes("plan"));
+    const tip = lines.findIndex((line) => line.includes("Tip Press ctrl+n"));
+    const footer = lines.findIndex((line) => line.includes("⏎ switch"));
+    expect(tip).toBe(plan + 1);
+    expect(footer).toBe(tip + 1);
 });
 
 test("extension picker returns row IDs and action IDs for every semantic binding", () => {
