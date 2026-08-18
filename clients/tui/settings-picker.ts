@@ -2411,7 +2411,8 @@ function stackedDetailLines(
     }
     const lines: (readonly TextChunk[])[] = [[]];
     for (const [label, value] of option.detailFacts) {
-        lines.push(factChunks([label, value], width));
+        lines.push([fg(TUI_MUTED)(label)]);
+        lines.push([fg(TUI_TEXT)(clippedTo(value, width))]);
     }
     lines.push([]);
     for (const text of wrappedTo(option.note ?? "", width)) {
@@ -2450,7 +2451,8 @@ function modelDetailNode(
         line([fg(TUI_TEXT)(clippedTo(option.detailTitle ?? "", width))]);
         line();
         for (const [label, value] of option.detailFacts) {
-            line(factChunks([label, value], width));
+            line([fg(TUI_MUTED)(label)]);
+            line([fg(TUI_TEXT)(clippedTo(value, width))]);
         }
         line();
         for (const text of wrappedTo(option.note ?? "", width)) {
@@ -2487,21 +2489,6 @@ function modelDetailNode(
         line();
     }
     return pane;
-}
-
-/** One fact as a label column and its value. */
-function factChunks(
-    fact: ModelDetailFact,
-    width: number,
-): readonly TextChunk[] {
-    const [label, value, tone] = fact;
-    const room = width - MODEL_DETAIL_LABEL_WIDTH;
-    return [
-        fg(TUI_MUTED)(label.padEnd(MODEL_DETAIL_LABEL_WIDTH)),
-        fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
-            clippedTo(value, room),
-        ),
-    ];
 }
 
 /** Word wrap for the one paragraph this pane draws. */
@@ -2595,8 +2582,8 @@ function modelDetailHeight(
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
     if (described && option.detailFacts !== undefined) {
-        // The name, a blank, the facts, a blank, and the sentence under them.
-        return 3 + option.detailFacts.length
+        // The name, a blank, two lines per fact, a blank, and the note.
+        return 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
     }
     // The name, the source, a blank, two lines per fact, and a blank under them.
@@ -2605,9 +2592,6 @@ function modelDetailHeight(
         : 0;
     return facts;
 }
-
-/** How wide the block's own label column is, so its values line up. */
-const MODEL_DETAIL_LABEL_WIDTH = 12;
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
 
