@@ -11,6 +11,7 @@ import {
     handleTuiSettingsPickerKey,
     handleTuiSettingsPickerScroll,
     startTuiSettingsMenu,
+    startTuiContextLimitPicker,
     startTuiSettingsPicker,
     switchedModelTab,
     startTuiProviderPicker,
@@ -899,6 +900,7 @@ test("the settings menu routes into permissions and its two entries", () => {
     expect(settings.options.map((option) => option.value)).toEqual([
         "model",
         "reasoning",
+        "context_limit",
         "permissions",
         "reviewer",
         "theme",
@@ -922,6 +924,17 @@ test("the settings menu routes into permissions and its two entries", () => {
     ).state ?? permissionSettings;
     expect(handleTuiSettingsPickerKey(granted, { name: "enter" }).selection)
         .toEqual({ kind: "menu", target: "granted_permissions" });
+});
+
+test("the context limit picker offers auto and fixed global ceilings", () => {
+    const picker = startTuiContextLimitPicker(204_800);
+    expect(picker.options[picker.selectedIndex]?.label).toBe("200k");
+    expect(handleTuiSettingsPickerKey(picker, { name: "enter" }).selection)
+        .toEqual({ kind: "context_limit", limit: 204_800 });
+
+    const automatic = startTuiContextLimitPicker(undefined);
+    expect(handleTuiSettingsPickerKey(automatic, { name: "enter" }).selection)
+        .toEqual({ kind: "context_limit", limit: null });
 });
 
 test("escape steps back to the pane a pane was opened from", () => {

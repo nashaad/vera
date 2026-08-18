@@ -80,6 +80,14 @@ export function renderTuiDiagnostics(
     if (state.modelSettings !== undefined) {
         const effort = state.modelSettings.reasoningEffort ?? "default";
         lines.push(`  reasoning    ${effort}`);
+        lines.push(
+            `  context cap  ${state.modelSettings.contextLimit ?? "auto"}`,
+        );
+        if (state.modelSettings.modelContextWindow !== undefined) {
+            lines.push(
+                `  model window ${state.modelSettings.modelContextWindow}`,
+            );
+        }
         const child = state.modelSettings.subagentDefault;
         if (child === undefined) {
             lines.push("  subagents    unknown (restart the resident host)");

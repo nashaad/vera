@@ -189,6 +189,8 @@ export interface VeraConfig {
     readonly provider_endpoints?: Readonly<Record<string, string>>;
     readonly model: string;
     readonly reasoning_effort?: ModelReasoningEffort;
+    /** Global ceiling applied to every model's declared context window. */
+    readonly context_limit?: number;
     readonly approval_mode: ApprovalMode;
     readonly fallback?: VeraModelFallbackConfig;
     readonly reviewer?: VeraReviewerConfig;
@@ -279,6 +281,8 @@ export interface VeraConfigDefaultsPatch {
     readonly model?: string;
     /** `null` clears the stored default, for a model that has no effort. */
     readonly reasoning_effort?: ModelReasoningEffort | null;
+    /** `null` returns context sizing to the model's declared maximum. */
+    readonly context_limit?: number | null;
     readonly approval_mode?: ApprovalMode;
     /**
      * Reviewer slots, written whole. `null` clears the reviewer entirely,
@@ -460,6 +464,13 @@ export function updateVeraConfigDefaults(
                 reasoning_effort: patch.reasoning_effort === null
                     ? undefined
                     : patch.reasoning_effort,
+            }),
+        ...(patch.context_limit === undefined
+            ? {}
+            : {
+                context_limit: patch.context_limit === null
+                    ? undefined
+                    : patch.context_limit,
             }),
         ...(patch.approval_mode === undefined
             ? {}
@@ -788,6 +799,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
     const maxAgeMonths = parseMaxAgeMonths(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
+    const contextLimit = config.context_limit;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
         : parseApprovalMode(config.approval_mode);
@@ -826,6 +838,10 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || config.model.trim().length === 0
         || (config.reasoning_effort !== undefined
             && !isReasoningEffort(config.reasoning_effort))
+        || (contextLimit !== undefined
+            && (typeof contextLimit !== "number"
+                || !Number.isSafeInteger(contextLimit)
+                || contextLimit <= 0))
         || !hasSelectedMode
         || (config.fallback !== undefined && fallback === undefined)
     ) {
@@ -844,6 +860,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(config.reasoning_effort === undefined
             ? {}
             : { reasoning_effort: config.reasoning_effort }),
+        ...(contextLimit === undefined
+            ? {}
+            : { context_limit: contextLimit as number }),
         ...(fallback === undefined ? {} : { fallback }),
         ...(reviewer === undefined ? {} : { reviewer }),
         ...(subagent === undefined ? {} : { subagent }),

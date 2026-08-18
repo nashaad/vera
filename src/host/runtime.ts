@@ -354,6 +354,10 @@ export async function startResidentHost(
                 reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
+        contextLimit: () => currentConfig().context_limit,
+        updateContextLimit: (limit) => {
+            updateVeraConfigDefaults({ context_limit: limit });
+        },
         updateApprovalDefault: (mode) => {
             updateVeraConfigDefaults({ approval_mode: mode });
         },

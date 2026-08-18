@@ -1316,9 +1316,11 @@ function parseModelSettingsPatch(
     const hasModel = Object.hasOwn(source, "model");
     const hasProvider = Object.hasOwn(source, "provider");
     const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
+    const hasContextLimit = Object.hasOwn(source, "contextLimit");
     const hasReviewer = Object.hasOwn(source, "reviewer");
     if (
-        (!hasProvider && !hasModel && !hasReasoningEffort && !hasReviewer)
+        (!hasProvider && !hasModel && !hasReasoningEffort && !hasContextLimit
+            && !hasReviewer)
         || (hasProvider
             && (typeof source.provider !== "string"
                 || source.provider.trim().length === 0))
@@ -1328,6 +1330,10 @@ function parseModelSettingsPatch(
         || (hasReasoningEffort
             && source.reasoningEffort !== null
             && !isModelReasoningEffort(source.reasoningEffort))
+        || (hasContextLimit
+            && source.contextLimit !== null
+            && (!Number.isSafeInteger(source.contextLimit)
+                || (source.contextLimit as number) <= 0))
         || (hasReviewer
             && source.reviewer !== null
             && !isReviewerSettingsPatch(source.reviewer))
@@ -1339,10 +1345,14 @@ function parseModelSettingsPatch(
     const reasoningEffort = hasReasoningEffort
         ? source.reasoningEffort as ModelReasoningEffort | null
         : undefined;
+    const contextLimit = hasContextLimit
+        ? source.contextLimit as number | null
+        : undefined;
     return {
         ...(provider === undefined ? {} : { provider }),
         ...(model === undefined ? {} : { model }),
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
+        ...(contextLimit === undefined ? {} : { contextLimit }),
         ...(!hasReviewer ? {} : {
             reviewer: source.reviewer as ReviewerSettingsPatch | null,
         }),

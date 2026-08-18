@@ -40,6 +40,10 @@ export interface ModelTurnSettings {
      */
     readonly pooled?: readonly PooledModel[];
     readonly contextWindow?: number;
+    /** Model's uncapped declared capacity, when a global limit is in force. */
+    readonly modelContextWindow?: number;
+    /** User-configured global ceiling; absent means automatic. */
+    readonly contextLimit?: number;
     /**
      * The settings a spawn without an explicit model will use. This is
      * runtime inspection data, not part of the session's persisted model
@@ -79,6 +83,8 @@ export interface ModelSettingsPatch {
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort | null;
+    /** `null` restores automatic model-sized context. */
+    readonly contextLimit?: number | null;
     /**
      * Both reviewer slots, written whole rather than one at a time: a partial
      * patch would have to say what "leave the other slot alone" means when
@@ -148,6 +154,12 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
                 && (settings.contextWindow as number) > 0))
+        && (settings.modelContextWindow === undefined
+            || (Number.isSafeInteger(settings.modelContextWindow)
+                && (settings.modelContextWindow as number) > 0))
+        && (settings.contextLimit === undefined
+            || (Number.isSafeInteger(settings.contextLimit)
+                && (settings.contextLimit as number) > 0))
         && (settings.subagentDefault === undefined
             || isSubagentModelDefault(settings.subagentDefault));
 }
@@ -342,6 +354,15 @@ export function contextWindowForModel(
         }
     }
     return undefined;
+}
+
+/** The capacity Vera budgets against after applying the user's global cap. */
+export function effectiveContextWindow(
+    declared: number | undefined,
+    limit: number | undefined,
+): number | undefined {
+    if (declared === undefined) return limit;
+    return limit === undefined ? declared : Math.min(declared, limit);
 }
 
 /**

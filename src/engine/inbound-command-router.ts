@@ -878,6 +878,7 @@ export class InboundCommandRouter {
             ...(patch.provider !== undefined
                     || patch.model !== undefined
                     || patch.reasoningEffort !== undefined
+                    || patch.contextLimit !== undefined
                 ? { updatedDefaults: true as const }
                 : {}),
         });
@@ -1507,6 +1508,12 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
         ...(settings.contextWindow === undefined
             ? {}
             : { contextWindow: settings.contextWindow }),
+        ...(settings.modelContextWindow === undefined
+            ? {}
+            : { modelContextWindow: settings.modelContextWindow }),
+        ...(settings.contextLimit === undefined
+            ? {}
+            : { contextLimit: settings.contextLimit }),
         ...(settings.subagentDefault === undefined
             ? {}
             : { subagentDefault: { ...settings.subagentDefault } }),
