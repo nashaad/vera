@@ -2113,12 +2113,8 @@ export function createTuiSettingsPickerView(
             nodes = [];
             box.title = undefined;
             if (state.kind === "theme") {
-                const retro = TUI_CHROME !== "plain";
-                // The retro card spends the plain card's spare padding on its
-                // border instead, so both chromes come out the same height and
-                // the card sits at the same top either way.
-                box.paddingTop = retro ? 1 : 2;
-                box.paddingBottom = retro ? 0 : 1;
+                box.paddingTop = 2;
+                box.paddingBottom = 1;
                 box.top = themePickerTop(renderer, state.allOptions.length);
                 box.left = "20%";
                 box.width = "60%";
