@@ -122,13 +122,8 @@ export function centeredDialogSurface(
 }
 
 function applyDialogCardChrome(card: BoxRenderable): void {
-    if (TUI_CHROME === "plain") {
-        card.border = false;
-        return;
-    }
-    card.border = true;
-    card.borderStyle = TUI_CHROME === "norton" ? "double" : "single";
-    card.borderColor = TUI_CHROME === "norton" ? TUI_MUTED : TUI_TEXT;
+    // Retro chromes keep dialogs borderless to match positioning with the plain theme.
+    card.border = false;
 }
 
 export function registerDialogCard(card: BoxRenderable): void {
