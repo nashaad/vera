@@ -136,6 +136,26 @@ test("a completion with no reasoning behind it reports only its time", () => {
     expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Worked for 3.0s");
 });
 
+test("tool calls between two stretches of thinking do not split the row", () => {
+    let state = appendTuiThought(createTuiState(), 2.4);
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "search",
+        id: "a",
+        args: { pattern: "fold" },
+        seq: 1,
+    });
+    state = appendTuiThought(state, 2.9);
+
+    const thoughts = state.entries.filter((entry) => entry.kind === "thought");
+    expect(thoughts).toHaveLength(1);
+    expect(thoughts[0]?.text).toBe("Worked for 5.3s");
+});
+
+test("an empty phase that took no time reports nothing", () => {
+    expect(appendTuiThought(createTuiState(), 0).entries).toEqual([]);
+});
+
 test("consecutive thought phases report as one stretch", () => {
     let state = appendTuiThought(createTuiState(), 2.5);
     state = appendTuiThought(state, 2.0);
