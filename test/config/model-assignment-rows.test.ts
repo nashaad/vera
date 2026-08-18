@@ -93,7 +93,7 @@ test("defaults separate session controls, work styles, and dedicated jobs", asyn
     );
     expect(options.map((option) => [option.label, option.group])).toEqual([
         ["model", "This session"],
-        ["context limit", "This session"],
+        ["context limit", "Global"],
         ["snappy", "Work styles"],
         ["eco", "Work styles"],
         ["extra", "Work styles"],
