@@ -525,6 +525,63 @@ test("an unreadable image rejects the prompt before persistence or provider use"
     ]);
 });
 
+test("an unsupported image prompt remains durable for a model switch", async () => {
+    let providerCalls = 0;
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        readImageContent: async () => {
+            throw new Error("image bytes should not be read during capability preflight");
+        },
+    };
+    const adapter: ModelAdapter = {
+        supportsImageInput: false,
+        stream() {
+            providerCalls += 1;
+            throw new Error("provider must not be called");
+        },
+    };
+
+    channel.client.send({
+        type: "prompt",
+        content: "inspect this image",
+        attachmentIds: ["image-1.png"],
+    });
+    const result = await runTurn(adapter, "deepseek-v4-flash", state);
+
+    expect(result).toMatchObject({
+        stopReason: "error",
+        errorMessage: "Image attachment unavailable: the selected model provider does not support image input",
+    });
+    expect(state.messages).toEqual([{
+        role: "user",
+        content: [
+            { type: "text", text: "inspect this image" },
+            { type: "image_attachment", attachmentId: "image-1.png" },
+        ],
+    }]);
+    expect(providerCalls).toBe(0);
+    expect(await channel.client.receive()).toMatchObject({
+        type: "user_prompt",
+        content: "inspect this image",
+        attachments: [{ id: "image-1.png" }],
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "turn_finished",
+        outcome: "error",
+        error: "Image attachment unavailable: the selected model provider does not support image input",
+        seq: 2,
+    });
+});
+
 test("model settings are snapshotted once when each turn starts", async () => {
     const responses: AssistantMessage[] = [
         {
