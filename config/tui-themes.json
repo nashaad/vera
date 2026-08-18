@@ -75,7 +75,7 @@
       "notice": "#FFFF55", "danger": "#FF5555", "success": "#55FF55", "diffAdded": "#008844", "diffRemoved": "#AA3333", "code": "#FFFF55",
       "background": "#191A5E",
       "panel": "#26278C", "element": "#00AAAA",
-      "input": "#111240", "menu": "#26278C",
+      "input": "#191A5E", "menu": "#26278C",
       "chrome": "norton", "selectionText": "#000000"
     },
     "windows-31": {
