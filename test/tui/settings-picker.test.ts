@@ -997,6 +997,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
         "deep",
         [
             { id: "apply", key: "enter", label: "apply" },
+            { id: "default", key: "d", label: "default" },
             { id: "save", key: "s", label: "save" },
             { id: "clear-delete", key: "delete", label: "clear" },
             { id: "clear-backspace", key: "backspace", label: "clear" },
@@ -1019,6 +1020,7 @@ test("extension picker renders its title, stable rows, and semantic action foote
     expect(frame).toContain("Fast");
     expect(frame).toContain("Deep");
     expect(frame).toContain("⏎ apply");
+    expect(frame).toContain("d default");
     expect(frame).toContain("s save");
     expect(frame).toContain("del clear");
     expect(frame).toContain("⌫ clear");
@@ -1035,6 +1037,7 @@ test("extension picker returns row IDs and action IDs for every semantic binding
         "first",
         [
             { id: "apply", key: "enter", label: "apply" },
+            { id: "default", key: "d", label: "default" },
             { id: "save", key: "s", label: "save" },
             { id: "delete", key: "delete", label: "delete" },
             { id: "backspace", key: "backspace", label: "backspace" },
@@ -1049,6 +1052,8 @@ test("extension picker returns row IDs and action IDs for every semantic binding
     const selected = moved.state ?? state;
     expect(handleTuiSettingsPickerKey(selected, { name: "enter" }).selection)
         .toEqual({ kind: "extension", rowId: "second", actionId: "apply" });
+    expect(handleTuiSettingsPickerKey(selected, { name: "d" }).selection)
+        .toEqual({ kind: "extension", rowId: "second", actionId: "default" });
     expect(handleTuiSettingsPickerKey(selected, { name: "s" }).selection)
         .toEqual({ kind: "extension", rowId: "second", actionId: "save" });
     expect(handleTuiSettingsPickerKey(selected, { name: "delete" }).selection)

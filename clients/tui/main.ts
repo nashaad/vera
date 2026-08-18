@@ -6192,7 +6192,7 @@ export async function startTui(
                 new Error("Another client surface is already open"),
             );
         }
-        const supported = new Set(["enter", "s", "delete", "backspace"]);
+        const supported = new Set(["enter", "d", "s", "delete", "backspace"]);
         const actions: TuiExtensionPickerAction[] = request.actions.flatMap(
             (action) => action.keys.map((key) => {
                 if (!supported.has(key)) {
@@ -7097,6 +7097,7 @@ export async function startTui(
                 currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
                 targetState.modelSettings?.reasoningEffort,
+                targetState.modelSettings?.contextLimit,
             ),
         };
         // Auth changes happen outside the host's original model snapshot.

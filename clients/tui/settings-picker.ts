@@ -1006,6 +1006,7 @@ const MODEL_ASSIGNMENT_VALUE_PREFIX = "\u0000assignment:";
 
 /** The session's own model, which is a row here but is not an assignment. */
 const SESSION_MODEL_VALUE = "\u0000session-model";
+const CONTEXT_LIMIT_VALUE = "\u0000context-limit";
 
 export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
     return `${MODEL_ASSIGNMENT_VALUE_PREFIX}${assignment}`;
@@ -1031,11 +1032,13 @@ export function tuiModelAssignmentOptions(
     rows: readonly ModelAssignmentRow[],
     sessionModel?: string,
     sessionReasoningEffort?: ModelReasoningEffort,
+    contextLimit?: number,
 ): readonly TuiSettingsPickerOption[] {
     return [
         {
             value: SESSION_MODEL_VALUE,
             label: "this session",
+            group: "Session",
             description: "",
             note: "The model this session runs on. Press \u23ce to change it.",
             detailTitle: "this session",
@@ -1045,16 +1048,40 @@ export function tuiModelAssignmentOptions(
             ] as const],
             searchText: "session current model main",
         },
+        {
+            value: CONTEXT_LIMIT_VALUE,
+            label: "context limit",
+            description: "",
+            group: "Session",
+            note: "The global ceiling Vera applies across models. Press ⏎ to change it.",
+            detailTitle: "context limit",
+            detailFacts: [[
+                "Limit",
+                contextLimit === undefined
+                    ? "Auto (model maximum)"
+                    : formatContextLimitOption(contextLimit),
+            ] as const],
+            searchText: "context limit tokens window memory cap",
+        },
         ...rows.map((row) => ({
             value: tuiModelAssignmentValue(row.assignment),
             label: row.label,
             description: assignmentStatusWord(row),
+            group: isJobAssignmentId(row.assignment)
+                ? "Dedicated jobs"
+                : "Work styles",
             note: assignmentNote(row),
             detailTitle: row.label,
             detailFacts: assignmentFacts(row),
             searchText: `${row.assignment} ${row.label} ${row.intent}`,
         })),
     ];
+}
+
+function formatContextLimitOption(tokens: number): string {
+    return tokens % 1_048_576 === 0
+        ? `${tokens / 1_048_576}m`
+        : `${Math.round(tokens / 1_024)}k`;
 }
 
 /** The session's model named the same way an assignment's model is. */
@@ -3296,7 +3323,8 @@ function listDisplayRows(
     // The model pane carries its headings as rows of its own, so that the
     // cursor can reach one and fold the section under it. Everything else has
     // its headings derived here.
-    const grouped = state.kind === "provider";
+    const grouped = state.kind === "provider"
+        || (state.kind === "model" && state.tab === "defaults");
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
         if (
@@ -4191,6 +4219,9 @@ function pickerSelection(
         const assignment = modelAssignmentOfValue(option.value);
         if (assignment !== undefined) {
             return { kind: "model_assignment_open", assignment };
+        }
+        if (option.value === CONTEXT_LIMIT_VALUE) {
+            return { kind: "menu", target: "context_limit" };
         }
         if (option.provider === undefined || option.model === undefined) {
             throw new Error("model picker option is missing provider identity");
