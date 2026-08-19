@@ -1,5 +1,6 @@
 import {
     startTui,
+    type TuiDependencies,
     type TuiAgentClient,
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
@@ -11,56 +12,62 @@ import {
 import { FauxAdapter } from "./faux-adapter.ts";
 import type { VeraDoctorReport } from "../../clients/process-doctor.ts";
 
-const responses: AssistantMessage[] = [
-    response(`PARTIAL ${"x".repeat(200)} FIRST-END`),
-    thinkingResponse("WEIGHING THE ORDERINGS", "STEER WORKED"),
-];
-const channel = createInProcessChannel();
-void runHeadlessLoop(
-    channel.engine,
-    new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
-    "test",
-    "high",
-    {
-        approvalMode: "auto",
-        readModelSettings: () => ({
-            model: "test",
-            reasoningEffort: "high",
-            contextWindow: 100,
-        }),
-        updateModelSettings: async () => undefined,
-        readApprovalMode: () => "auto",
-        updateApprovalMode: async () => undefined,
-    },
-);
-const client: TuiAgentClient = {
-    async send(command): Promise<void> {
-        channel.client.send(command);
-    },
-    receive(signal) {
-        return channel.client.receive(signal);
-    },
-    async detach(): Promise<void> {},
-    close(): void {},
-};
+export interface TuiChildOptions {
+    /** The first doctor pass answers late with another PID, like a stale run. */
+    readonly staleDoctor?: boolean;
+}
 
-let doctorChecks = 0;
+export function createTuiChildDependencies(
+    options: TuiChildOptions = {},
+): TuiDependencies {
+    const responses: AssistantMessage[] = [
+        response(`PARTIAL ${"x".repeat(200)} FIRST-END`),
+        thinkingResponse("WEIGHING THE ORDERINGS", "STEER WORKED"),
+    ];
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter(responses, { chunkSize: 1, delayMs: 40 }),
+        "test",
+        "high",
+        {
+            approvalMode: "auto",
+            readModelSettings: () => ({
+                model: "test",
+                reasoningEffort: "high",
+                contextWindow: 100,
+            }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+        },
+    );
+    const client: TuiAgentClient = {
+        async send(command): Promise<void> {
+            channel.client.send(command);
+        },
+        receive(signal) {
+            return channel.client.receive(signal);
+        },
+        async detach(): Promise<void> {},
+        close(): void {},
+    };
 
-await startTui({
-    client,
-    copyText: async () => undefined,
-    doctor: async () => {
-        doctorChecks += 1;
-        if (
-            process.env.VERA_TEST_STALE_DOCTOR === "1"
-            && doctorChecks === 1
-        ) {
-            await Bun.sleep(300);
-            return doctorReport(1111);
-        }
-        return doctorReport(4242);
-    },
-});
+    let doctorChecks = 0;
+
+    return {
+        client,
+        copyText: async () => undefined,
+        doctor: async () => {
+            doctorChecks += 1;
+            if (options.staleDoctor === true && doctorChecks === 1) {
+                await Bun.sleep(300);
+                return doctorReport(1111);
+            }
+            return doctorReport(4242);
+        },
+    };
+}
 
 function doctorReport(pid: number): VeraDoctorReport {
     return {
@@ -101,4 +108,10 @@ function response(text: string): AssistantMessage {
         usage: { ...emptyUsage(), inputTokens: 25 },
         stopReason: "stop",
     };
+}
+
+if (import.meta.main) {
+    await startTui(createTuiChildDependencies({
+        staleDoctor: process.env.VERA_TEST_STALE_DOCTOR === "1",
+    }));
 }
