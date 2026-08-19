@@ -70,7 +70,9 @@ export interface TuiTestSessionOptions {
     ) => TuiDependencies | Promise<TuiDependencies>;
 }
 
-const WAIT_TIMEOUT_MS = 5_000;
+// Twice the tmux suite's 5s: a loaded machine slows the in-process TUI and
+// the poll together, and the enclosing tests budget 15s anyway.
+const WAIT_TIMEOUT_MS = 10_000;
 const POLL_INTERVAL_MS = 20;
 
 /**
