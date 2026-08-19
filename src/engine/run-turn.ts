@@ -266,6 +266,8 @@ export interface SessionCompactionOptions {
     readonly trigger?: CompactionTrigger;
     /** Token target for a session whose window is unknown. */
     readonly targetTokens?: number;
+    /** Complete user turns preferred verbatim after compaction. */
+    readonly retainedUserTurns?: number;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -786,6 +788,9 @@ export async function runHeadlessLoop(
                 ...(compaction.targetTokens === undefined
                     ? {}
                     : { targetTokens: compaction.targetTokens }),
+                ...(compaction.retainedUserTurns === undefined
+                    ? {}
+                    : { retainedUserTurns: compaction.retainedUserTurns }),
             }, measurement, signal);
             events.emit({
                 type: "compaction_finished",

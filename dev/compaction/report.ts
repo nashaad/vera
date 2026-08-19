@@ -30,12 +30,14 @@ export interface BudgetOverrides {
     readonly triggerFraction?: number;
     readonly triggerTokens?: number;
     readonly targetTokens?: number;
+    readonly retainedUserTurns?: number;
 }
 
 export function hasBudgetOverride(budget: BudgetOverrides): boolean {
     return budget.triggerFraction !== undefined
         || budget.triggerTokens !== undefined
-        || budget.targetTokens !== undefined;
+        || budget.targetTokens !== undefined
+        || budget.retainedUserTurns !== undefined;
 }
 
 export interface DriveArgs {
@@ -60,6 +62,7 @@ export function parseArgs(argv: readonly string[]): DriveArgs {
     let triggerFraction: number | undefined;
     let triggerTokens: number | undefined;
     let targetTokens: number | undefined;
+    let retainedUserTurns: number | undefined;
     for (let index = 0; index < argv.length; index += 1) {
         const flag = argv[index];
         const value = argv[index + 1];
@@ -93,6 +96,9 @@ export function parseArgs(argv: readonly string[]): DriveArgs {
         } else if (flag === "--target-tokens" && value !== undefined) {
             targetTokens = parsePositiveInteger(flag, value);
             index += 1;
+        } else if (flag === "--retained-user-turns" && value !== undefined) {
+            retainedUserTurns = parseCount(flag, value);
+            index += 1;
         } else {
             throw new Error(`unrecognized argument: ${flag}`);
         }
@@ -112,6 +118,7 @@ export function parseArgs(argv: readonly string[]): DriveArgs {
             ...(triggerFraction === undefined ? {} : { triggerFraction }),
             ...(triggerTokens === undefined ? {} : { triggerTokens }),
             ...(targetTokens === undefined ? {} : { targetTokens }),
+            ...(retainedUserTurns === undefined ? {} : { retainedUserTurns }),
         },
         approvalMode,
         ...(effort === undefined ? {} : { effort }),
@@ -124,6 +131,7 @@ export function usage(): string {
         + " --provider <provider> --model <id> --prompts <file|->"
         + " [--capacity <tokens|unknown>] [--trigger-tokens <n>]"
         + " [--trigger-fraction <0..1>] [--target-tokens <n>]"
+        + " [--retained-user-turns <n>]"
         + " [--approval <mode>] [--effort <level>] [--session-path <path>]";
 }
 
@@ -142,6 +150,14 @@ function parsePositiveInteger(flag: string, value: string): number {
     const parsed = Number(value);
     if (!Number.isInteger(parsed) || parsed <= 0) {
         throw new Error(`${flag} takes a positive integer`);
+    }
+    return parsed;
+}
+
+function parseCount(flag: string, value: string): number {
+    const parsed = Number(value);
+    if (!Number.isInteger(parsed) || parsed < 0) {
+        throw new Error(`${flag} takes a non-negative integer`);
     }
     return parsed;
 }
@@ -221,7 +237,7 @@ export function effectiveThresholds(
             : { target_tokens: budget.targetTokens }),
         unknown_capacity_target_fraction: UNKNOWN_CAPACITY_TARGET_FRACTION,
         min_summary_tokens: MIN_SUMMARY_TOKENS,
-        retained_user_turns: RETAINED_USER_TURNS,
+        retained_user_turns: budget.retainedUserTurns ?? RETAINED_USER_TURNS,
     };
 }
 
