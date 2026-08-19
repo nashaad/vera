@@ -45,12 +45,11 @@ test("resume picker switches conversation without restarting the TUI", async () 
         session.sendKey("Down");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
-        // The picker is gone when its rows are; the origin's name stays on
-        // screen because the arrival notice names where /back returns to.
+        // The picker is gone when its rows are. Picking a session is where the
+        // person meant to go rather than a hop taken to answer something, so
+        // nothing offers them a trip back from it.
         expect(pane).not.toContain("1h ago");
-        expect(pane).toContain(
-            'Type /back to return to "The one already open"',
-        );
+        expect(pane).not.toContain("/back");
         // The pane belongs to the process that started: the transcript was
         // replaced under a TUI that never went away.
         expect(pane).toContain("Message Vera");
