@@ -301,3 +301,32 @@ test("the chip's click span covers the count and the hint, and only them", () =>
     // With the hint dropped, the span shrinks to the count alone.
     expect(needsYouChipColumns(rows(1, 20), 1)).toBe("1 need you".length);
 });
+
+test("the attention hint is the caller's, so it can name the jump chord", () => {
+    const rows = (hint: string) =>
+        renderTuiStatusDetailsRows(
+            { model: "test", reasoningEffort: "high", contextWindow: 100 },
+            "auto",
+            undefined,
+            "/work/one",
+            0,
+            undefined,
+            true,
+            undefined,
+            {},
+            1,
+            undefined,
+            hint,
+        )[0] ?? [];
+    const text = (row: readonly { text: string }[]): string =>
+        row.map((chunk) => chunk.text).join("");
+
+    const chord = rows("ctrl+shift+j");
+    expect(text(chord)).toContain("1 need you · ctrl+shift+j");
+    // The click span follows whatever hint is shown.
+    expect(needsYouChipColumns(chord, 1))
+        .toBe("1 need you · ctrl+shift+j".length);
+    // An empty hint leaves the count alone rather than a dangling separator.
+    expect(text(rows(""))).toContain("1 need you · test");
+    expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);
+});

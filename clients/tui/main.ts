@@ -10588,6 +10588,7 @@ export async function startTui(
                     },
                     workIndex?.needs_you ?? 0,
                     Math.max(1, renderer.width - composerHorizontalInset),
+                    tuiKeyChord("jump.open"),
                 )
                 : [[{
                     tone: "muted",
