@@ -39,6 +39,7 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
 
 const REASON_COLUMN = 10;
 const TITLE_COLUMN = 20;
+const TITLE_COLUMN_MAX = 40;
 const POINTER_COLUMN = 2;
 const MIN_SUMMARY = 8;
 
@@ -276,10 +277,23 @@ function rowText(
     const reason = narrow
         ? ""
         : pad(REASON_LABELS[row.reason ?? ""] ?? "", REASON_COLUMN);
-    const title = pad(row.title, narrow ? TITLE_COLUMN : TITLE_COLUMN + 4);
+    // The title is the session's identity, so it gets width before the
+    // summary does: a third of the row, up to a cap, never under the old
+    // fixed column.
+    const titleColumn = narrow
+        ? TITLE_COLUMN
+        : Math.min(TITLE_COLUMN_MAX, Math.max(
+            TITLE_COLUMN + 4,
+            Math.floor(width / 3),
+        ));
+    const title = pad(row.title, titleColumn);
     const used = POINTER_COLUMN + title.length + reason.length
         + trailing.length + 2;
-    const summary = clip(row.summary, Math.max(MIN_SUMMARY, width - used));
+    // A summary that only repeats the section heading says nothing the
+    // screen is not already saying.
+    const summaryText =
+        row.summary === SECTION_TITLES[row.section] ? "" : row.summary;
+    const summary = clip(summaryText, Math.max(MIN_SUMMARY, width - used));
     const left = `${pointer}${title}${reason}${summary}`;
     const gap = Math.max(1, width - left.length - trailing.length);
     return trailing === ""
