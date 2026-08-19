@@ -189,6 +189,18 @@ import {
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
 import {
+    defaultModelFailureLedgerPath,
+    modelFailureNudge,
+    readModelFailures,
+    summariseModelFailures,
+} from "../../src/store/model-failures.ts";
+import {
+    defaultFailureReportDirectory,
+    failureReportConsultInput,
+    failureReportMarkdown,
+    writeFailureReport,
+} from "../../src/store/failure-report.ts";
+import {
     diagnoseProviders,
     renderProviderDoctor,
 } from "../provider-doctor.ts";
@@ -527,6 +539,20 @@ const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
+
+/**
+ * Failure signatures already named on screen. Per run rather than per session:
+ * one mention is the point, and switching sessions is not new information.
+ */
+const raisedModelFailureSignatures = new Set<string>();
+
+const FAILURE_REPORT_SUMMARY_TOKENS = 600;
+
+const FAILURE_REPORT_PROMPT =
+    "You are reading a list of model failures recorded by a coding tool."
+    + " Write a short plain summary for someone filing a bug report: what is"
+    + " failing, how often, and what it looks like. State only what the list"
+    + " shows.";
 
 function shortConnectionFailure(message: string): string {
     const line = message.split("\n")[0]?.trim() ?? "";
@@ -3159,8 +3185,8 @@ export async function startTui(
         searchOverlay = { ...searchOverlay, selected };
         renderState();
     };
-    app.add(workTabView.box);
-    app.add(searchOverlayView.box);
+    app.add(workTabView.surface);
+    app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
@@ -4468,11 +4494,109 @@ export async function startTui(
             runningBackgroundAgents,
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
+            modelFailures: summariseModelFailures(readModelFailures()),
+            modelFailureLedgerPath: defaultModelFailureLedgerPath(),
             build: dependencies.build,
             extensions: configuredClientExtensions,
             clientExtensionReload,
             startup: readLatestHostStartupTiming(),
         };
+    }
+
+    /**
+     * A model failing the same way again is worth one line saying so, because
+     * the per-turn error alone reads as Vera breaking rather than as a pattern
+     * with somewhere to look.
+     */
+    function noticeRepeatedModelFailure(current: TuiState): TuiState {
+        const nudge = modelFailureNudge(
+            readModelFailures(),
+            raisedModelFailureSignatures,
+        );        if (nudge === undefined) return current;
+        raisedModelFailureSignatures.add(nudge.signature);
+        return appendTuiNotice(current, nudge.text, "soft");
+    }
+
+    /**
+     * Writes what the ledger holds to a file someone can read and send on.
+     * A model summarises it when a working one is running, but the file is
+     * written either way: the summary is a convenience, the record is the
+     * point, and the model most likely to be asked is the one that failed.
+     */
+    async function writeFailureReportFile(): Promise<void> {
+        const records = readModelFailures();
+        if (records.length === 0) {
+            state = appendTuiNotice(
+                state,
+                "No model failures have been recorded.",
+                "soft",
+            );
+            renderState();
+            return;
+        }
+        const settings = state.modelSettings;
+        const failing = settings !== undefined
+            && records.some((record) =>
+                record.model === settings.model
+                && (settings.provider === undefined
+                    || record.provider === settings.provider)
+            );
+        let summary: string | undefined;
+        let note: string | undefined;
+        if (settings === undefined) {
+            note = "No model is running, so the report has no summary.";
+        } else if (failing) {
+            note = `Summary skipped: ${settings.model} is the model that is`
+                + ` failing. Switch with /model, then run /failure-report`
+                + ` again.`;
+        } else {
+            try {
+                const result = await requestExtensionConsult({
+                    model: settings.model,
+                    ...(settings.provider === undefined
+                        ? {}
+                        : { provider: settings.provider }),
+                    systemPrompt: FAILURE_REPORT_PROMPT,
+                    messages: [{
+                        role: "user",
+                        content: failureReportConsultInput(records),
+                    }],
+                    maxTokens: FAILURE_REPORT_SUMMARY_TOKENS,
+                }, new AbortController().signal);
+                summary = result.text;
+            } catch (error) {
+                note = `No summary: ${
+                    error instanceof Error ? error.message : String(error)
+                }`;
+            }
+        }
+        const at = new Date();
+        try {
+            const path = writeFailureReport(
+                defaultFailureReportDirectory(),
+                failureReportMarkdown({
+                    records,
+                    at,
+                    ...(summary === undefined ? {} : { summary }),
+                }),
+                at,
+            );
+            state = appendTuiNotice(
+                state,
+                note === undefined
+                    ? `Failure report written to ${path}`
+                    : `Failure report written to ${path}. ${note}`,
+                "soft",
+            );
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                `Could not write the failure report: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+        }
+        renderState();
     }
 
     function submitPrompt(
@@ -4791,6 +4915,13 @@ export async function startTui(
                 renderState();
                 focusActiveSurface();
             });
+            return;
+        }
+        if (commandAction?.type === "write_failure_report") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void writeFailureReportFile();
             return;
         }
         if (commandAction?.type === "show_pool") {
@@ -6118,6 +6249,12 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "turn_finished"
+                    && update.outcome === "error"
+                ) {
+                    state = noticeRepeatedModelFailure(state);
+                }
                 if (update.type === "agent_catalog") {
                     agentCatalog = {
                         worn: update.worn,
@@ -7118,14 +7255,14 @@ export async function startTui(
             && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
-        workTabView.box.visible = uiRequest === undefined
+        workTabView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
-        searchOverlayView.box.visible = uiRequest === undefined
+        searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -7189,8 +7326,8 @@ export async function startTui(
             || settingsPickerView.box.visible
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
-            || workTabView.box.visible
-            || searchOverlayView.box.visible
+            || workTabView.surface.visible
+            || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
@@ -8694,8 +8831,8 @@ export async function startTui(
         // The scan already running finishes and finds no overlay to fill; the
         // one waiting behind it never starts.
         queuedSearch = undefined;
-        workTabView.box.visible = false;
-        searchOverlayView.box.visible = false;
+        workTabView.surface.visible = false;
+        searchOverlayView.surface.visible = false;
         composer.focus();
         renderState();
         focusActiveSurface();
