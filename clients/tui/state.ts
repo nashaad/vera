@@ -1373,14 +1373,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     if (entry.kind === "thinking") {
-        // The window is marked at its ends rather than down its side: what the
-        // reader needs is where the region starts and stops, and an ellipsis
-        // says the same thing a scrollbar would, that there is more either way.
-        return new StyledText([fg(TUI_MUTED)(
-            `${LIVE_THINKING_ELLIPSIS}\n${
-                liveThinkingTail(entry.text)
-            }\n${LIVE_THINKING_ELLIPSIS}`,
-        )]);
+        return new StyledText([fg(TUI_MUTED)(liveThinkingTail(entry.text))]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
@@ -1393,8 +1386,15 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
  */
 export const LIVE_THINKING_ROWS = 8;
 
-/** Both ends of the window reasoning arrives into. */
-const LIVE_THINKING_ELLIPSIS = "···";
+/**
+ * Both ends of the window reasoning arrives into.
+ *
+ * The window is marked at its ends rather than down its side: what the reader
+ * needs is where the region starts and stops, and an ellipsis says the same
+ * thing a scrollbar would, that there is more either way. The renderer centres
+ * these, so they are drawn as rows of their own and not as part of the text.
+ */
+export const LIVE_THINKING_ELLIPSIS = "···";
 
 /**
  * The last few lines of reasoning, as the tail of a fixed-height window.
