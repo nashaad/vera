@@ -237,32 +237,50 @@ test("ask_user carries a choice description through", async () => {
     });
 });
 
-test("ask_user rejects an empty choice description", async () => {
+test("ask_user treats a blank description or preview as omitted", async () => {
     const result = await askUser({
         question: "Which layout?",
         choices: [
-            { id: "wide", label: "Wide", description: "   " },
-            { id: "narrow", label: "Narrow" },
+            { id: "wide", label: "Wide", description: "   ", preview: "" },
+            { id: "narrow", label: "Narrow", description: "", preview: "\n" },
         ],
     });
 
     expect(result).toEqual({
+        kind: "interaction",
+        interaction: {
+            type: "ask_user",
+            question: "Which layout?",
+            choices: [
+                { id: "wide", label: "Wide" },
+                { id: "narrow", label: "Narrow" },
+            ],
+        },
+    });
+});
+
+test("ask_user rejects a non-string description or preview", async () => {
+    const badDescription = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", description: 3 },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+    const badPreview = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", preview: null },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(badDescription).toEqual({
         kind: "output",
         output: "ask_user requires a non-empty choice 1 description",
         isError: true,
     });
-});
-
-test("ask_user rejects an empty choice preview", async () => {
-    const result = await askUser({
-        question: "Which layout?",
-        choices: [
-            { id: "wide", label: "Wide", preview: "   " },
-            { id: "narrow", label: "Narrow" },
-        ],
-    });
-
-    expect(result).toEqual({
+    expect(badPreview).toEqual({
         kind: "output",
         output: "ask_user requires a non-empty choice 1 preview",
         isError: true,

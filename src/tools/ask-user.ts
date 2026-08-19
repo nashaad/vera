@@ -105,20 +105,27 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
     return {
         id: nonEmptyString(choice.id, `choice ${index + 1} ID`),
         label: nonEmptyString(choice.label, `choice ${index + 1} label`),
-        ...(choice.description === undefined ? {} : {
+        // An empty string counts as omitted: the schema calls these fields
+        // optional, and models routinely fill optional strings with "".
+        ...(isOmitted(choice.description) ? {} : {
             description: nonEmptyString(
                 choice.description,
                 `choice ${index + 1} description`,
             ),
         }),
         // A preview is kept verbatim: its indentation is part of what it shows.
-        ...(choice.preview === undefined ? {} : {
+        ...(isOmitted(choice.preview) ? {} : {
             preview: verbatimString(
                 choice.preview,
                 `choice ${index + 1} preview`,
             ),
         }),
     };
+}
+
+function isOmitted(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "string" && value.trim().length === 0);
 }
 
 function verbatimString(value: unknown, name: string): string {
