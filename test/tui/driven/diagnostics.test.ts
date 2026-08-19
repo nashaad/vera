@@ -17,7 +17,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
     const session = await startTuiTestSession({
         home,
         width: 100,
-        height: 36,
+        height: 52,
         dependencies: () => createTuiChildDependencies(),
     });
     let pane = "";
@@ -62,7 +62,7 @@ test("doctor opens the read-only process report inside the TUI", async () => {
     const session = await startTuiTestSession({
         home,
         width: 100,
-        height: 36,
+        height: 52,
         dependencies: () => createTuiChildDependencies({ staleDoctor: true }),
     });
     let pane = "";
@@ -105,6 +105,8 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reload-failure-"));
     const session = await startTuiTestSession({
         home,
+        width: 100,
+        height: 52,
         dependencies: () => createTuiReloadFailureDependencies(home),
     });
     let pane = "";
@@ -134,6 +136,8 @@ test("partial reload names the extensions that stayed active", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-partial-reload-"));
     const session = await startTuiTestSession({
         home,
+        width: 100,
+        height: 52,
         dependencies: () => createTuiPartialReloadDependencies(home),
     });
     let pane = "";

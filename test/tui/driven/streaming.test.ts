@@ -59,9 +59,10 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
         expect(pane).toMatch(/[░▒▓█]{7} responding · \d+s/);
         expect(pane).toContain("esc stop");
-        // No fold marker: this turn reasons without producing any summary
-        // text, so there is nothing behind the line to open.
-        expect(pane).toMatch(/(?<![▸▾] )(?:Baked|Brewed|Churned|Cogitated|Cooked|Crunched|Sautéed|Worked) for \d+\.\d+s/);
+        // This turn reasons without producing any summary text: an instant
+        // phase earns no row, and a measurable one earns a row with nothing
+        // behind it, so either way no fold marker appears.
+        expect(pane).not.toMatch(/[▸▾] (?:Baked|Brewed|Churned|Cogitated|Cooked|Crunched|Sautéed|Worked) for \d+\.\d+s/);
         session.sendText("redirect now");
         session.sendKey("Enter");
 
@@ -81,14 +82,15 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
         expect(pane).toContain("100%");
 
         // The second turn reasons, so its summary carries a fold that
-        // ctrl+o opens over a row already drawn.
-        expect(pane).toMatch(/▸ Reasoning: \d+\.\d+s/);
+        // ctrl+o opens over a row already drawn. It starts in the same
+        // column as a summary with nothing behind it.
+        expect(pane).toMatch(/^  Reasoning: \d+\.\d+s/m);
         expect(pane).not.toContain("WEIGHING THE ORDERINGS");
         session.sendKey("C-u");
         pane = await session.waitForVisiblePane("PARTIAL xxxxx");
         session.sendKey("C-o");
         pane = await session.waitForVisiblePane("WEIGHING THE ORDERINGS");
-        expect(pane).toMatch(/▾ Reasoning: \d+\.\d+s/);
+        expect(pane).toMatch(/Reasoning: \d+\.\d+s/);
         expect(pane).toContain("ctrl+o hide reasoning");
         expect(pane).toContain("PARTIAL xxxxx");
     } finally {
