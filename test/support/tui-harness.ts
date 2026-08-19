@@ -101,9 +101,19 @@ function sweepHomeAtExit(home: string): void {
     });
 }
 
+// VERA_HOME is process-global, so two live sessions would read and write
+// each other's homes. The suite runs sessions one at a time; hold that line.
+let activeSession = false;
+
 export async function startTuiTestSession(
     options: TuiTestSessionOptions,
 ): Promise<TuiTestSession> {
+    if (activeSession) {
+        throw new Error(
+            "A TUI test session is already open; close it before starting another",
+        );
+    }
+    activeSession = true;
     const veraHome = join(options.home, ".vera");
     mkdirSync(veraHome, { recursive: true });
     sweepHomeAtExit(options.home);
@@ -239,11 +249,17 @@ export async function startTuiTestSession(
                 }
             } finally {
                 restoreVeraHome();
+                activeSession = false;
                 // Yoga's WASM heap is fixed-size and shared by every renderer
                 // in the process; nodes freed by finalizers stay allocated
                 // until a collection actually runs. Collecting between
                 // sessions keeps a long test run inside the heap.
                 Bun.gc(true);
+            }
+            if (!exited) {
+                // A loop still running past this point would write into the
+                // restored home; fail loudly instead of letting it.
+                throw new Error("TUI did not exit within the close deadline");
             }
         },
     };
