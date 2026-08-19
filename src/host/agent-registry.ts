@@ -16,6 +16,7 @@ import { basename, dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
+import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import {
@@ -132,6 +133,8 @@ import {
 } from "../agents/wear.ts";
 import { writeAgentDefaultPair } from "../agents/writer.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
+import { sessionChangedFiles } from "../store/preimage-stash.ts";
+import type { EmittedScheduleRun } from "../scheduler/types.ts";
 import {
     copySessionMessageAttachments,
     createSessionBranch,
@@ -2793,6 +2796,89 @@ export class AgentRegistry {
                 };
             })
             .sort((left, right) => left.id.localeCompare(right.id));
+    }
+
+    /**
+     * The live facts the work index is built from, one entry per listed agent.
+     *
+     * A separate reading rather than more fields on the listing: these are the
+     * facts of a running process (what it is blocked on, what tool is in
+     * flight) and they are meaningless for the sessions that are merely on
+     * disk, which is most of what a listing returns.
+     */
+    workFacts(): readonly WorkAgentFacts[] {
+        const unreadResults = new Set<string>();
+        for (const entry of this.agents.values()) {
+            for (const delivery of entry.store.pendingDeliveries()) {
+                if (delivery.kind !== "attention") {
+                    unreadResults.add(delivery.sourceAgentId);
+                }
+            }
+        }
+        return this.list().flatMap((summary) => {
+            const entry = this.agents.get(summary.id);
+            if (entry === undefined) return [];
+            const failure = entry.store.agentFailure()?.detail;
+            const activeTool = entry.agent.activeTool;
+            // Only for a session that has stopped: a session still working is
+            // still changing things, and counting its files mid-flight would
+            // put a number on screen that is wrong the moment it is drawn.
+            const changed = summary.status === "working"
+                    || summary.status === "waiting"
+                ? 0
+                : sessionChangedFiles(summary.id).length;
+            return [{
+                id: summary.id,
+                session_path: summary.session_path,
+                title: summary.title ?? summary.name ?? summary.id,
+                workspace: summary.workspace,
+                kind: summary.kind,
+                status: summary.status,
+                live: summary.live,
+                updated_at: summary.updated_at
+                    ?? entry.store.header.timestamp,
+                ...(summary.parent_id === undefined
+                    ? {}
+                    : { parent_id: summary.parent_id }),
+                ...(entry.agent.pendingRequests[0] === undefined
+                    ? {}
+                    : { pending_request: entry.agent.pendingRequests[0] }),
+                ...(activeTool === undefined ? {} : { active_tool: activeTool }),
+                ...(unreadResults.has(summary.id) ? { unread_result: true } : {}),
+                ...(changed === 0 ? {} : { changed_files: changed }),
+                ...(failure === undefined ? {} : { failure }),
+            }];
+        });
+    }
+
+    /**
+     * Turn emitted schedule runs into work rows, dropping the ones with no
+     * session behind them.
+     *
+     * A schedule addresses a consumer label, and a session's label is its
+     * agent id, so a run that named a session this host holds resolves here.
+     * One that named anything else is left out: a row whose enter key opens
+     * nothing is worse than no row.
+     */
+    scheduleWorkFacts(
+        runs: readonly EmittedScheduleRun[],
+        agents: readonly WorkAgentFacts[],
+    ): readonly WorkScheduleFacts[] {
+        // Resolved against the facts the caller already read rather than a
+        // second listing: a listing stats every session on disk, and two of
+        // them per index build could also disagree with each other.
+        const listed = new Map(agents.map((agent) => [agent.id, agent]));
+        return runs.flatMap((run) => {
+            const agent = listed.get(run.address);
+            return agent === undefined ? [] : [{
+                schedule_id: run.scheduleId,
+                session_id: agent.id,
+                session_path: agent.session_path,
+                title: agent.title,
+                workspace: agent.workspace,
+                completed_at: run.emittedAt,
+            }];
+        });
     }
 
     idleForShutdown(): boolean {

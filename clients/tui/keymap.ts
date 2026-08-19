@@ -39,7 +39,8 @@ export type TuiKeyScope =
     | "approval"
     | "question"
     | "help"
-    | "dials";
+    | "dials"
+    | "search";
 
 /** Every scope name, for validating one that arrived from an extension. */
 export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
@@ -56,6 +57,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "approval",
     "question",
     "help",
+    "search",
 ];
 
 export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
@@ -81,6 +83,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "question",
     "help",
     "dials",
+    "search",
 ];
 
 /** The panes that inherit every `picker` binding on top of their own. */
@@ -478,6 +481,20 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "help",
         description: "Move to the next help tab",
         hint: "tab next",
+    },
+    {
+        id: "cycle_search_filter",
+        keys: ["tab"],
+        scope: "search",
+        description: "Cycle search between messages, tools and files",
+        hint: "tab filter",
+    },
+    {
+        id: "toggle_search_scope",
+        keys: ["ctrl+w"],
+        scope: "search",
+        description: "Search this workspace or everywhere",
+        hint: "ctrl+w scope",
     },
 ];
 

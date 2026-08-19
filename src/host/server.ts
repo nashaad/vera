@@ -34,6 +34,15 @@ import {
     NO_BACKGROUND_AGENTS,
     type BackgroundAgentsSnapshot,
 } from "./background-agents.ts";
+import {
+    EMPTY_WORK_INDEX,
+    sameWorkIndex,
+    type WorkIndexSnapshot,
+} from "./work-index.ts";
+import type {
+    SessionSearchQuery,
+    SessionSearchResults,
+} from "../store/session-search.ts";
 import { acquireHostStartupClaim } from "./startup-claim.ts";
 import {
     ExtensionCommandUnavailableError,
@@ -54,6 +63,7 @@ import {
     HOST_CAPABILITY_AGENT_BRANCH_INITIAL_MESSAGES,
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
+    HOST_CAPABILITY_WORK_INDEX,
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "./capabilities.ts";
@@ -78,6 +88,23 @@ export interface StartHostServerOptions {
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
     readonly listBackgroundAgents?: () => readonly RegisteredAgentSummary[];
+    /**
+     * The machine-wide work inbox as it stands now.
+     *
+     * Read on attach and again whenever the roster changes, never stored: the
+     * index is a projection of live host state, so the only correct copy is
+     * the one taken at the moment a client is told.
+     */
+    readonly readWorkIndex?: () => WorkIndexSnapshot;
+    /**
+     * Scan the transcripts on disk. Absent when the host has no session
+     * directory, which answers `unavailable` rather than an empty result: a
+     * client must not tell someone their past holds nothing when it was never
+     * looked at.
+     */
+    readonly searchSessions?: (
+        query: SessionSearchQuery,
+    ) => Promise<SessionSearchResults>;
     readonly runScheduleOperation?: (
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
@@ -315,6 +342,8 @@ export async function startHostServer(
             notifyShutdownAccepted,
             options.onRosterChanged ?? (() => () => undefined),
             options.onAgentStartFailure ?? (() => undefined),
+            options.readWorkIndex ?? (() => EMPTY_WORK_INDEX),
+            options.searchSessions,
         );
     });
     try {
@@ -422,6 +451,10 @@ function receiveConnection(
         operation: "create" | "resume",
         error: unknown,
     ) => void,
+    readWorkIndex: () => WorkIndexSnapshot,
+    searchSessions:
+        | ((query: SessionSearchQuery) => Promise<SessionSearchResults>)
+        | undefined,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
     let deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
@@ -433,6 +466,7 @@ function receiveConnection(
     let attachmentClosed: (() => void) | undefined;
     let attachedWorkspace: string | undefined;
     let stopWatchingRoster: (() => void) | undefined;
+    let sentWorkIndex: WorkIndexSnapshot | undefined;
     let sentBackgroundAgents = NO_BACKGROUND_AGENTS;
     const extensionRequests = new Set<AbortController>();
     const extensionRequestIds = new Set<string>();
@@ -757,6 +791,20 @@ function receiveConnection(
         }
         if (isShutdownFenced()) {
             socket.destroy();
+            return;
+        }
+        if (request?.type === "search_sessions") {
+            clearTimeout(deadline);
+            finished = true;
+            const operationClosed = operationOpened();
+            const scan = searchSessions === undefined
+                ? Promise.resolve(undefined)
+                : searchSessions(request.query).catch(() => undefined);
+            void scan.then((results) => send(results === undefined
+                ? { type: "session_search_unavailable" }
+                : { type: "session_search_results", results }))
+                .then(() => socket.end(), () => socket.destroy())
+                .finally(operationClosed);
             return;
         }
         if (request?.type === "schedule_operation") {
@@ -1101,20 +1149,33 @@ function receiveConnection(
         attachmentClosed = attachmentOpened();
         const attachedId = agent.id;
         sentBackgroundAgents = readBackgroundAgents(attachedId);
-        stopWatchingRoster = onRosterChanged(
-            () => sendBackgroundAgents(attachedId),
+        const negotiated = negotiateHostCapabilities(
+            request.requested_capabilities ?? [],
+            capabilities,
         );
+        // A client that never asked for the work index is never sent one, so
+        // an older client sees the attachment it has always seen rather than a
+        // message it would have to reject.
+        const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
+        stopWatchingRoster = onRosterChanged(() => {
+            sendBackgroundAgents(attachedId);
+            if (wantsWorkIndex) sendWorkIndex();
+        });
         void send({
             type: "attached",
             agent_id: attachedId,
             workspace: agent.workspace,
             background_agents: sentBackgroundAgents,
-            capabilities: negotiateHostCapabilities(
-                request.requested_capabilities ?? [],
-                capabilities,
-            ),
+            capabilities: negotiated,
         }).then(
-            () => forwardAgentUpdates(attached),
+            () => {
+                // Directly behind the attach reply, so a client has an inbox
+                // to draw from its first frame rather than from its first
+                // change. Ordered by the same write queue, so it can never
+                // overtake the reply that announced the capability.
+                if (wantsWorkIndex) sendWorkIndex();
+                return forwardAgentUpdates(attached);
+            },
             () => socket.destroy(),
         );
     }
@@ -1179,6 +1240,32 @@ function receiveConnection(
             children: next.children,
             has_parent: next.has_parent,
         }, () => !finished && attachment !== undefined)
+            .catch(() => socket.destroy());
+    }
+
+    /**
+     * Send the work index, unless the client already has it.
+     *
+     * The roster reports that something changed, not what, and most changes it
+     * reports leave every row identical, so the comparison is what keeps a
+     * client from repainting its inbox on every keystroke elsewhere.
+     */
+    function sendWorkIndex(): void {
+        if (finished || attachment === undefined) {
+            return;
+        }
+        let next: WorkIndexSnapshot;
+        try {
+            next = readWorkIndex();
+        } catch {
+            return;
+        }
+        if (sentWorkIndex !== undefined && sameWorkIndex(next, sentWorkIndex)) {
+            return;
+        }
+        sentWorkIndex = next;
+        void send({ type: "work_index", index: next },
+            () => !finished && attachment !== undefined)
             .catch(() => socket.destroy());
     }
 

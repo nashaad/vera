@@ -16,6 +16,10 @@ import {
     type BackgroundAgentsSnapshot,
 } from "./background-agents.ts";
 import {
+    parseWorkIndex,
+    type WorkIndexSnapshot,
+} from "./work-index.ts";
+import {
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     parseHostCapabilities,
 } from "./capabilities.ts";
@@ -47,6 +51,14 @@ export interface AttachedAgentClient {
     onBackgroundAgents(
         listener: (agents: BackgroundAgentsSnapshot) => void,
     ): () => void;
+    /**
+     * The machine-wide work inbox as the host last reported it, undefined
+     * until the first report and on any attachment that did not negotiate
+     * `work.index.v1`. Undefined means unavailable, never empty: a client that
+     * cannot see the inbox must not draw one saying there is no work.
+     */
+    readonly workIndex: WorkIndexSnapshot | undefined;
+    onWorkIndex(listener: (index: WorkIndexSnapshot) => void): () => void;
     send(command: ClientCommand): Promise<void>;
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands(): Promise<readonly ExtensionCommandDescriptor[]>;
@@ -184,6 +196,8 @@ function createAttachedClient(
     const backgroundAgentListeners = new Set<
         (agents: BackgroundAgentsSnapshot) => void
     >();
+    let workIndex: WorkIndexSnapshot | undefined;
+    const workIndexListeners = new Set<(index: WorkIndexSnapshot) => void>();
     let isClosed = false;
     let isDetaching = false;
     let detachPromise: Promise<void> | undefined;
@@ -228,6 +242,15 @@ function createAttachedClient(
             backgroundAgentListeners.add(listener);
             return (): void => {
                 backgroundAgentListeners.delete(listener);
+            };
+        },
+        get workIndex(): WorkIndexSnapshot | undefined {
+            return workIndex;
+        },
+        onWorkIndex(listener): () => void {
+            workIndexListeners.add(listener);
+            return (): void => {
+                workIndexListeners.delete(listener);
             };
         },
         send(command): Promise<void> {
@@ -327,6 +350,9 @@ function createAttachedClient(
                     );
                 }
                 if (receiveExtensionResponse(value)) {
+                    continue;
+                }
+                if (receiveWorkIndex(value)) {
                     continue;
                 }
                 if (receiveBackgroundAgents(value)) {
@@ -466,6 +492,25 @@ function createAttachedClient(
         }
         extensionRequests.delete(response.request_id);
         pending.resolve(result);
+        return true;
+    }
+
+    function receiveWorkIndex(value: unknown): boolean {
+        if (asRecord(value)?.type !== "work_index") {
+            return false;
+        }
+        const snapshot = parseWorkIndex(asRecord(value)?.index);
+        if (snapshot === undefined) {
+            throw new Error("Host sent an invalid work index");
+        }
+        workIndex = snapshot;
+        for (const listener of [...workIndexListeners]) {
+            try {
+                listener(snapshot);
+            } catch {
+                // A listener that throws must not close the attachment.
+            }
+        }
         return true;
     }
 
