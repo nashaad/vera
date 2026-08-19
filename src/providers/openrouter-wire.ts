@@ -65,13 +65,17 @@ export function encodeOpenRouterMessages(
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("");
-        const reasoning = message.content
-            .filter((block) => block.type === "thinking")
-            .map((block) => block.text)
-            .join("");
-        // Signed and encrypted reasoning is only replayable to the model that
-        // produced it; another model rejects the whole request.
+        // Reasoning is only replayable to the model that produced it: signed
+        // and encrypted payloads are rejected by any other endpoint, and the
+        // plaintext left behind would reach Anthropic as an unsigned thinking
+        // block, which is rejected in turn.
         const replayable = model === undefined || message.source.model === model;
+        const reasoning = replayable
+            ? message.content
+                .filter((block) => block.type === "thinking")
+                .map((block) => block.text)
+                .join("")
+            : "";
         const reasoningDetails = replayable
             ? message.content
                 .flatMap((block) => block.type === "thinking" && block.signature !== undefined
@@ -88,6 +92,12 @@ export function encodeOpenRouterMessages(
                     arguments: JSON.stringify(block.input),
                 },
             }));
+        if (
+            text.length === 0 && reasoning.length === 0
+            && reasoningDetails.length === 0 && toolCalls.length === 0
+        ) {
+            continue;
+        }
         encoded.push({
             role: "assistant",
             content: text,
