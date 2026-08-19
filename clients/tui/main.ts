@@ -469,6 +469,7 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
+    TUI_SUCCESS,
     TUI_TEXT,
     applyTuiTheme,
     appendTuiExtensionBlock,
@@ -578,6 +579,7 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const SHIMMER_FRAME_INTERVAL_MS = 40;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
+const ACTIVE_GRID_TRAIL = "#B8B6D9";
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
 /** Rows the composer, the status band and a little transcript need. */
@@ -10764,7 +10766,7 @@ export async function startTui(
                 accent: TUI_ACCENT,
                 notice: TUI_NOTICE,
                 background: TUI_BACKGROUND,
-                success: VERA_TUI_THEME.success,
+                success: TUI_SUCCESS,
             }).flatMap((spans, index) => [
                 ...spans.map((span) => fg(span.color)(span.text)),
                 ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
@@ -10868,7 +10870,7 @@ export async function startTui(
                 agentHeader,
                 {
                     active: TUI_ACCENT,
-                    trail: VERA_TUI_THEME.success,
+                    trail: ACTIVE_GRID_TRAIL,
                     inactive: TUI_ELEMENT,
                     text: TUI_MUTED,
                 },
@@ -10942,7 +10944,7 @@ export async function startTui(
                     // success indicator inherited from the selected theme.
                     trail: activityAnimation === "shimmer"
                         ? TUI_ELEMENT
-                        : VERA_TUI_THEME.success,
+                        : ACTIVE_GRID_TRAIL,
                     inactive: TUI_MUTED,
                     text: state.approvalMode === "full_access"
                         ? "#ff3b30"
