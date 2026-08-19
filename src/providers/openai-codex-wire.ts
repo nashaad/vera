@@ -100,6 +100,7 @@ export type SendOpenAICodexResponse = (
 
 export function encodeOpenAICodexInput(
     messages: readonly ModelInputMessage[],
+    model?: string,
 ): OpenAICodexInputItem[] {
     const input: OpenAICodexInputItem[] = [];
 
@@ -144,7 +145,11 @@ export function encodeOpenAICodexInput(
                 continue;
             }
             if (block.type === "thinking" && block.signature !== undefined) {
-                input.push(decodeReasoningItem(block.signature));
+                // Encrypted reasoning only replays to the model that produced
+                // it; another model rejects the whole request.
+                if (model === undefined || message.source.model === model) {
+                    input.push(decodeReasoningItem(block.signature));
+                }
                 continue;
             }
             if (block.text) {

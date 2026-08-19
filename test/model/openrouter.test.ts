@@ -638,6 +638,50 @@ describe("OpenRouter adapter", () => {
         expect((await stream.result()).stopReason).toBe("stop");
     });
 
+    test("drops reasoning details produced by a different model", async () => {
+        const signature = JSON.stringify([
+            {
+                type: "reasoning.encrypted",
+                data: "opaque",
+            },
+        ]);
+        const adapter = new OpenRouterAdapter(async (request) => {
+            expect(request.messages[0]).not.toHaveProperty("reasoningDetails");
+            expect(request.messages[0]).toMatchObject({
+                role: "assistant",
+                reasoning: "check",
+            });
+            return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
+        });
+        const stream = adapter.stream({
+            model: "other/model",
+            messages: [
+                {
+                    role: "assistant",
+                    content: [{ type: "thinking", text: "check", signature }],
+                    source: {
+                        provider: "openrouter",
+                        api: "openrouter-chat",
+                        model: "test/model",
+                    },
+                    usage: {
+                        inputTokens: 0,
+                        outputTokens: 0,
+                        cachedInputTokens: 0,
+                        reasoningTokens: 0,
+                        totalTokens: 0,
+                    },
+                    stopReason: "stop",
+                },
+            ],
+        });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+        expect((await stream.result()).stopReason).toBe("stop");
+    });
+
     test("coalesces streamed fragments before replaying signed reasoning", async () => {
         let requestNumber = 0;
         let firstMessage: AssistantMessage | undefined;

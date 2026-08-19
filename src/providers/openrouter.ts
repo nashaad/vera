@@ -178,7 +178,11 @@ export class OpenRouterAdapter implements ModelAdapter {
                 ...(request.maxTokens === undefined
                     ? {}
                     : { maxTokens: request.maxTokens }),
-                messages: encodeOpenRouterMessages(request.systemPrompt, messages),
+                messages: encodeOpenRouterMessages(
+                    request.systemPrompt,
+                    messages,
+                    request.model,
+                ),
                 ...(reasoning?.providerEffort === undefined
                     ? {}
                     : { reasoning: { effort: reasoning.providerEffort } }),
