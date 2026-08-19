@@ -95,10 +95,89 @@ skipIfNoNetwork(
                     socketPath,
                     maxLineBytes: 16,
                 });
-                await expect(connection.receive()).rejects.toThrow(
-                    /maximum size/,
-                );
-                expect(connection.closed).toBe(true);
+                try {
+                    await expect(connection.receive()).rejects.toThrow(
+                        /maximum size/,
+                    );
+                    expect(connection.closed).toBe(false);
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "keeps the frames after an oversized one readable",
+    async () => {
+        await withServer(
+            (socket) =>
+                socket.write(`{"n":1}\n${"a".repeat(64)}\n{"n":2}\n`),
+            async (socketPath) => {
+                const connection = await connectHost({
+                    socketPath,
+                    maxLineBytes: 16,
+                });
+                try {
+                    expect(await connection.receive()).toEqual({ n: 1 });
+                    await expect(connection.receive()).rejects.toThrow(
+                        /maximum size/,
+                    );
+                    expect(await connection.receive()).toEqual({ n: 2 });
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "discards an oversized frame arriving across several chunks",
+    async () => {
+        await withServer(
+            (socket) => {
+                socket.write("a".repeat(64));
+                socket.write("a".repeat(64));
+                socket.write(`\n{"n":7}\n`);
+            },
+            async (socketPath) => {
+                const connection = await connectHost({
+                    socketPath,
+                    maxLineBytes: 16,
+                });
+                try {
+                    await expect(connection.receive()).rejects.toThrow(
+                        /maximum size/,
+                    );
+                    expect(await connection.receive()).toEqual({ n: 7 });
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "refuses to send a frame over the limit without closing",
+    async () => {
+        await withServer(
+            (socket) => socket.write(`{"n":1}\n`),
+            async (socketPath) => {
+                const connection = await connectHost({
+                    socketPath,
+                    maxLineBytes: 16,
+                });
+                try {
+                    await expect(connection.send({ big: "a".repeat(64) }))
+                        .rejects.toThrow(/maximum size/);
+                    expect(connection.closed).toBe(false);
+                    expect(await connection.receive()).toEqual({ n: 1 });
+                } finally {
+                    connection.close();
+                }
             },
         );
     },
@@ -429,6 +508,31 @@ skipIfNoNetwork(
                     await new Promise((resolve) => setTimeout(resolve, 50));
                     expect(await connection.receive()).toEqual({ n: 1 });
                     expect(await connection.receive()).toEqual({ n: 2 });
+                } finally {
+                    connection.close();
+                }
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "round-trips a frame the size of a full 1M-token transcript",
+    async () => {
+        const transcript = "x".repeat(12 * 1_024 * 1_024);
+        await withServer(
+            (socket) => {
+                let received = "";
+                socket.on("data", (chunk: Buffer) => {
+                    received += chunk.toString("utf8");
+                    if (received.endsWith("\n")) socket.write(received);
+                });
+            },
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                try {
+                    await connection.send({ transcript });
+                    expect(await connection.receive()).toEqual({ transcript });
                 } finally {
                     connection.close();
                 }

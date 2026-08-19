@@ -459,38 +459,6 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
-    "host times out incomplete requests",
-    async () => {
-        const directory = temporaryHostDirectory();
-        const socketPath = join(directory, "host.sock");
-        const server = await startHostServer({
-            socketPath,
-            lockPath: join(directory, "host.json"),
-        });
-        const socket = createConnection(socketPath);
-        let drip: ReturnType<typeof setInterval> | undefined;
-        try {
-            await new Promise<void>((resolve, reject) => {
-                socket.once("connect", () => {
-                    socket.write("{\"type\":");
-                    drip = setInterval(() => socket.write(" "), 100);
-                });
-                socket.once("close", () => {
-                    clearInterval(drip);
-                    resolve();
-                });
-                socket.once("error", reject);
-            });
-        } finally {
-            clearInterval(drip);
-            socket.destroy();
-            await server.close();
-        }
-    },
-    2_000,
-);
-
-(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host lists resident agents without attaching",
     async () => {
         const directory = temporaryHostDirectory();
@@ -1297,3 +1265,101 @@ function summary(
         ...(fields.title === undefined ? {} : { title: fields.title }),
     };
 }
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host refuses an oversized frame and keeps serving the connection",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            limits: { maxRequestBytes: 1_024 },
+        });
+        // The client's own guard sits at the default ceiling, so the server's
+        // handling of an oversized frame is only reachable past it.
+        const connection = await connectHost({ socketPath });
+        try {
+            await connection.send({
+                type: "host_identity",
+                pad: "a".repeat(4_096),
+            });
+            expect(await connection.receive()).toMatchObject({
+                type: "protocol_error",
+                reason: "frame_too_large",
+            });
+            expect(connection.closed).toBe(false);
+        } finally {
+            connection.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host accepts a frame that takes longer than the idle timeout to arrive",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            limits: { requestIdleMs: 100, requestCeilingMs: 10_000 },
+        });
+        const socket = createConnection(socketPath);
+        try {
+            const frame = JSON.stringify({ type: "host_identity" });
+            const received = new Promise<string>((resolve, reject) => {
+                let text = "";
+                socket.on("data", (chunk: Buffer) => {
+                    text += chunk.toString("utf8");
+                    if (text.includes("\n")) resolve(text);
+                });
+                socket.once("error", reject);
+            });
+            await new Promise<void>((resolve) =>
+                socket.once("connect", resolve)
+            );
+            // One byte every 50ms: the whole frame takes far longer than the
+            // 100ms idle timer, and none of the gaps between bytes does.
+            for (const character of `${frame}\n`.split("")) {
+                socket.write(character);
+                await new Promise((resolve) => setTimeout(resolve, 50));
+            }
+            expect(await received).toContain("host_identity");
+        } finally {
+            socket.destroy();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "host drops a client that dribbles bytes under the idle timeout",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            limits: { requestIdleMs: 200, requestCeilingMs: 400 },
+        });
+        const socket = createConnection(socketPath);
+        let drip: ReturnType<typeof setInterval> | undefined;
+        try {
+            await new Promise<void>((resolve, reject) => {
+                socket.once("connect", () => {
+                    socket.write("{\"type\":");
+                    drip = setInterval(() => socket.write(" "), 50);
+                });
+                socket.once("close", resolve);
+                socket.once("error", reject);
+            });
+        } finally {
+            clearInterval(drip);
+            socket.destroy();
+            await server.close();
+        }
+    },
+    3_000,
+);

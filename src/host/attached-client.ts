@@ -619,8 +619,9 @@ function isDetached(value: unknown): boolean {
 
 function isProtocolError(value: unknown): boolean {
     const response = asRecord(value);
-    return response?.type === "protocol_error"
-        && response.reason === "unsupported_or_invalid_command";
+    // Matching on the type alone keeps a reason added later readable by a
+    // client built before it existed.
+    return response?.type === "protocol_error";
 }
 
 function isExtensionResponseType(

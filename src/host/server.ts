@@ -67,10 +67,18 @@ import {
     negotiateHostCapabilities,
     parseHostCapabilities,
 } from "./capabilities.ts";
+import { MAX_FRAME_BYTES } from "./connection.ts";
 
-const MAX_REQUEST_BYTES = 64 * 1_024;
+// Both directions share one ceiling: a client that may send a frame this
+// large must not meet a server that silently drops it at a smaller one.
+const MAX_REQUEST_BYTES = MAX_FRAME_BYTES;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
+// Idle time, not elapsed time: a frame carrying a large transcript or an
+// attachment streams for longer than this and must not be mistaken for a
+// stalled client. The ceiling below still bounds a client that dribbles bytes
+// slowly enough to stay under the idle timer forever.
 const REQUEST_TIMEOUT_MS = 1_000;
+const REQUEST_CEILING_MS = 60_000;
 
 export interface StartHostServerOptions {
     readonly socketPath?: string;
@@ -81,6 +89,15 @@ export interface StartHostServerOptions {
     readonly entrypoint?: string;
     readonly startupClaimPath?: string;
     readonly capabilities?: readonly string[];
+    /**
+     * Frame ceiling and request timers. Present so tests can drive the
+     * refusal paths without moving tens of megabytes or waiting a minute.
+     */
+    readonly limits?: {
+        readonly maxRequestBytes?: number;
+        readonly requestIdleMs?: number;
+        readonly requestCeilingMs?: number;
+    };
     readonly findAgent?: (
         agentId: string,
     ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>;
@@ -167,6 +184,22 @@ export interface HostServer {
     readonly lock: HostLockRecord;
     readonly socketPath: string;
     close(): Promise<void>;
+}
+
+interface HostLimits {
+    readonly maxRequestBytes: number;
+    readonly requestIdleMs: number;
+    readonly requestCeilingMs: number;
+}
+
+function resolveHostLimits(
+    limits: StartHostServerOptions["limits"],
+): HostLimits {
+    return {
+        maxRequestBytes: limits?.maxRequestBytes ?? MAX_REQUEST_BYTES,
+        requestIdleMs: limits?.requestIdleMs ?? REQUEST_TIMEOUT_MS,
+        requestCeilingMs: limits?.requestCeilingMs ?? REQUEST_CEILING_MS,
+    };
 }
 
 export async function startHostServer(
@@ -344,6 +377,7 @@ export async function startHostServer(
             options.onAgentStartFailure ?? (() => undefined),
             options.readWorkIndex ?? (() => EMPTY_WORK_INDEX),
             options.searchSessions,
+            resolveHostLimits(options.limits),
         );
     });
     try {
@@ -455,11 +489,32 @@ function receiveConnection(
     searchSessions:
         | ((query: SessionSearchQuery) => Promise<SessionSearchResults>)
         | undefined,
+    limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
-    let deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
+    // Armed while a request is still arriving. The idle timer restarts on
+    // every chunk so a large frame streams freely; the ceiling is what a
+    // client dribbling bytes under the idle timer eventually hits.
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
+    let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
+    function armDeadline(): void {
+        clearTimeout(idleTimer);
+        idleTimer = setTimeout(() => socket.destroy(), limits.requestIdleMs);
+        ceilingTimer ??= setTimeout(
+            () => socket.destroy(),
+            limits.requestCeilingMs,
+        );
+    }
+    function clearDeadline(): void {
+        clearTimeout(idleTimer);
+        idleTimer = undefined;
+        clearTimeout(ceilingTimer);
+        ceilingTimer = undefined;
+    }
+    armDeadline();
     let attachment: AgentAttachment | undefined;
     let buffered = Buffer.alloc(0);
+    let discardingOversized = false;
     let finished = false;
     let initialRequestPending = false;
     let writes: Promise<void> = Promise.resolve();
@@ -486,7 +541,7 @@ function receiveConnection(
     };
 
     socket.once("close", () => {
-        clearTimeout(deadline);
+        clearDeadline();
         stopWatchingRoster?.();
         stopWatchingRoster = undefined;
         attachment?.detach();
@@ -509,21 +564,38 @@ function receiveConnection(
             return;
         }
         buffered = Buffer.concat([buffered, chunk]);
+        if (idleTimer !== undefined) armDeadline();
         receiveLines();
     });
 
     function receiveLines(): void {
         while (!finished && !initialRequestPending) {
             const newlineAt = buffered.indexOf(0x0a);
+            // An overlong frame is dropped as its bytes arrive and answered
+            // once its newline does. Destroying the socket instead would take
+            // the whole session down over one unreadable message, and give the
+            // client nothing to report but a vanished connection.
+            if (discardingOversized) {
+                if (newlineAt === -1) {
+                    buffered = buffered.subarray(buffered.length);
+                    return;
+                }
+                buffered = buffered.subarray(newlineAt + 1);
+                discardingOversized = false;
+                refuseOversizedFrame();
+                continue;
+            }
             if (newlineAt === -1) {
-                if (buffered.length > MAX_REQUEST_BYTES) {
-                    socket.destroy();
+                if (buffered.length > limits.maxRequestBytes) {
+                    discardingOversized = true;
+                    buffered = buffered.subarray(buffered.length);
                 }
                 return;
             }
-            if (newlineAt > MAX_REQUEST_BYTES) {
-                socket.destroy();
-                return;
+            if (newlineAt > limits.maxRequestBytes) {
+                buffered = buffered.subarray(newlineAt + 1);
+                refuseOversizedFrame();
+                continue;
             }
             const line = decode(buffered.subarray(0, newlineAt));
             buffered = buffered.subarray(newlineAt + 1);
@@ -533,6 +605,11 @@ function receiveConnection(
             }
             receiveLine(line);
         }
+    }
+
+    function refuseOversizedFrame(): void {
+        void send({ type: "protocol_error", reason: "frame_too_large" })
+            .catch(() => socket.destroy());
     }
 
     function receiveLine(line: string): void {
@@ -733,7 +810,7 @@ function receiveConnection(
     async function receiveInitialRequest(line: string): Promise<void> {
         const request = parseHostRequest(line);
         if (request?.type === "host_identity") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void send({
                 type: "host_identity",
@@ -746,7 +823,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "shutdown_if_idle") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             const response = requestShutdown({
                 pid: request.pid,
@@ -764,7 +841,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "shutdown_for_replacement") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             const response = requestReplacement({
                 pid: request.pid,
@@ -782,7 +859,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "list_agents") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void Promise.resolve().then(listAgents).then(
                 (agents) => send({ type: "agent_list", agents }),
@@ -794,7 +871,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "search_sessions") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             const operationClosed = operationOpened();
             const scan = searchSessions === undefined
@@ -808,7 +885,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "schedule_operation") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             const operationClosed = operationOpened();
             void runScheduleOperation(request.operation).then(
@@ -822,7 +899,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "create_agent") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             startAgent("create", () => createAgent({
                 workspace: request.workspace,
@@ -839,13 +916,13 @@ function receiveConnection(
             return;
         }
         if (request?.type === "resume_agent") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             startAgent("resume", () => resumeAgent(request.session_path));
             return;
         }
         if (request?.type === "branch_agent") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             const hasOptions = request.approval_mode !== undefined
                 || request.lifetime === "ephemeral"
@@ -948,7 +1025,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "sync_agent_context") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void syncAgentContext(request.agent_id).then(
                 (result) => send({
@@ -974,7 +1051,7 @@ function receiveConnection(
                 socket.destroy();
                 return;
             }
-            clearTimeout(deadline);
+            clearDeadline();
             pendingBranchId = undefined;
             finished = true;
             void send({
@@ -984,7 +1061,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "trash_session") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void trashSession(
                 request.target_agent_id,
@@ -1008,7 +1085,7 @@ function receiveConnection(
             return;
         }
         if (request?.type === "rename_session") {
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void renameSession(
                 request.target_agent_id,
@@ -1036,7 +1113,7 @@ function receiveConnection(
         if (request?.type === "run_once") {
             // No request deadline: this connection is held for a whole turn,
             // and the timeout exists to drop a client that never speaks.
-            clearTimeout(deadline);
+            clearDeadline();
             finished = true;
             void runOnce({
                 workspace: request.workspace,
@@ -1078,7 +1155,7 @@ function receiveConnection(
             socket.destroy();
             return;
         }
-        clearTimeout(deadline);
+        clearDeadline();
 
         let agent: ResidentAgent | undefined;
         try {
@@ -1192,7 +1269,7 @@ function receiveConnection(
             ...(result.prompt === undefined ? {} : { prompt: result.prompt }),
         }).then(() => {
             finished = false;
-            deadline = setTimeout(() => socket.destroy(), REQUEST_TIMEOUT_MS);
+            armDeadline();
             receiveLines();
         });
     }

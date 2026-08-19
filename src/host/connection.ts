@@ -1,6 +1,11 @@
 import { createConnection, type Socket } from "node:net";
 
-const DEFAULT_MAX_LINE_BYTES = 1_024 * 1_024;
+// Frames carry whole transcripts, extension catalogues, and attachment
+// payloads. A full 1M-token thread encodes to roughly 10MB once JSON escaping
+// and the envelope are counted, so the ceiling only bounds memory rather than
+// shaping traffic.
+export const MAX_FRAME_BYTES = 64 * 1_024 * 1_024;
+const DEFAULT_MAX_LINE_BYTES = MAX_FRAME_BYTES;
 const DEFAULT_MAX_PENDING_VALUES = 1_024;
 const DEFAULT_CONNECTION_TIMEOUT_MS = 5_000;
 const NEWLINE_BYTE = 0x0a;
@@ -79,6 +84,15 @@ export function connectHost(
     });
 }
 
+/**
+ * An oversized inbound frame is unreadable but not fatal: it is queued in
+ * arrival order so the one `receive()` that would have taken it rejects,
+ * leaving the connection and every later frame intact.
+ */
+class OversizedFrame {
+    constructor(readonly byteLength: number) {}
+}
+
 function createConnection_(
     socket: Socket,
     maxLineBytes: number,
@@ -87,6 +101,7 @@ function createConnection_(
     const decoder = new TextDecoder("utf-8", { fatal: true });
 
     let buffered = Buffer.alloc(0);
+    let discardingBytes = 0;
     let closed = false;
     let remoteEnded = false;
     let failure: Error | undefined;
@@ -156,18 +171,32 @@ function createConnection_(
                 return;
             }
             const newlineAt = buffered.indexOf(NEWLINE_BYTE);
+            // Once a frame is known to be oversized its bytes are dropped as
+            // they arrive rather than accumulated, so a peer that sends one
+            // cannot exhaust memory here while the rest of the stream survives.
+            if (discardingBytes > 0) {
+                if (newlineAt === -1) {
+                    discardingBytes += buffered.length;
+                    buffered = buffered.subarray(buffered.length);
+                    return;
+                }
+                deliver(new OversizedFrame(discardingBytes + newlineAt));
+                discardingBytes = 0;
+                buffered = buffered.subarray(newlineAt + 1);
+                continue;
+            }
             if (newlineAt === -1) {
                 if (buffered.length > maxLineBytes) {
-                    fail(new Error(
-                        "host connection line exceeds maximum size",
-                    ));
+                    discardingBytes = buffered.length;
+                    buffered = buffered.subarray(buffered.length);
                 }
                 return;
             }
             const lineBytes = buffered.subarray(0, newlineAt);
             if (lineBytes.length > maxLineBytes) {
-                fail(new Error("host connection line exceeds maximum size"));
-                return;
+                buffered = buffered.subarray(newlineAt + 1);
+                deliver(new OversizedFrame(lineBytes.length));
+                continue;
             }
             buffered = buffered.subarray(newlineAt + 1);
             let value: unknown;
@@ -177,16 +206,31 @@ function createConnection_(
                 fail(new Error("host connection received malformed JSON"));
                 return;
             }
-            const receiver = pendingReceivers.shift();
-            if (receiver === undefined) {
-                pendingValues.push(value);
-                if (pendingValues.length >= maxPendingValues) {
-                    socket.pause();
-                }
-            } else {
-                receiver.resolve(value);
-            }
+            deliver(value);
         }
+    }
+
+    function deliver(value: unknown): void {
+        const receiver = pendingReceivers.shift();
+        if (receiver === undefined) {
+            pendingValues.push(value);
+            if (pendingValues.length >= maxPendingValues) {
+                socket.pause();
+            }
+            return;
+        }
+        if (value instanceof OversizedFrame) {
+            receiver.reject(oversizedFrameError(value));
+            return;
+        }
+        receiver.resolve(value);
+    }
+
+    function oversizedFrameError(frame: OversizedFrame): Error {
+        return new Error(
+            `host connection line exceeds maximum size (${frame.byteLength}`
+                + ` bytes, limit ${maxLineBytes})`,
+        );
     }
 
     socket.on("data", (chunk: Buffer) => {
@@ -222,6 +266,16 @@ function createConnection_(
                     new Error("host connection cannot send this value"),
                 );
             }
+            // Refusing here fails the one call that overflowed. Writing it
+            // instead would make the peer discard a frame it cannot read while
+            // this side believed the send succeeded.
+            const encodedBytes = Buffer.byteLength(encoded);
+            if (encodedBytes > maxLineBytes) {
+                return Promise.reject(new Error(
+                    `host connection line exceeds maximum size`
+                        + ` (${encodedBytes} bytes, limit ${maxLineBytes})`,
+                ));
+            }
             const pending = sendTail.then(() => writeLine(encoded));
             sendTail = pending.catch(() => undefined);
             return pending;
@@ -229,8 +283,9 @@ function createConnection_(
         receive(): Promise<unknown> {
             if (remoteEnded) {
                 const value = pendingValues.shift();
-                return value === undefined
-                    ? Promise.reject(failure)
+                if (value === undefined) return Promise.reject(failure);
+                return value instanceof OversizedFrame
+                    ? Promise.reject(oversizedFrameError(value))
                     : Promise.resolve(value);
             }
             if (closed) {
@@ -248,7 +303,9 @@ function createConnection_(
                 ) {
                     socket.resume();
                 }
-                return Promise.resolve(value);
+                return value instanceof OversizedFrame
+                    ? Promise.reject(oversizedFrameError(value))
+                    : Promise.resolve(value);
             }
             return new Promise((resolve, reject) => {
                 pendingReceivers.push({ resolve, reject });

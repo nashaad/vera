@@ -399,7 +399,7 @@ export type ShutdownForReplacementResponse =
 
 export interface ProtocolErrorResponse {
     readonly type: "protocol_error";
-    readonly reason: "unsupported_or_invalid_command";
+    readonly reason: "unsupported_or_invalid_command" | "frame_too_large";
 }
 
 export type HostRequest =

@@ -5132,7 +5132,14 @@ export async function startTui(
             && commandAction?.type !== "create_session"
             && commandAction?.type !== "reconnect"
         ) {
-            renderStatus();
+            // Refusing without saying so reads as a frozen composer: the text
+            // stays put and nothing else changes on screen.
+            state = appendTuiError(
+                state,
+                "Disconnected from the host. Run /reconnect to restore this"
+                    + " session, or ctrl+c to quit.",
+            );
+            renderState();
             return;
         }
         if (commandAction?.type === "update_model") {
@@ -10668,7 +10675,7 @@ export async function startTui(
                 connectionFailure === undefined
                     ? ""
                     : `: ${shortConnectionFailure(connectionFailure)}`
-            } · /reconnect host · ctrl+c quit`;
+            } · /reconnect · ctrl+c quit`;
         } else if (focusedAbort) {
             lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
         } else if (

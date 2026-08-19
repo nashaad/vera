@@ -31,7 +31,7 @@ test("resident stream failure becomes a recoverable disconnected TUI", async () 
             "disconnected: Host sent a non-contiguous agent",
         );
         expect(pane).not.toContain("Connection error");
-        expect(pane).toContain("· /reconnect host · ctrl+c quit");
+        expect(pane).toContain("· /reconnect · ctrl+c quit");
         expect(pane).not.toContain("working…");
         expect(pane).not.toContain("stopping");
 
@@ -39,7 +39,7 @@ test("resident stream failure becomes a recoverable disconnected TUI", async () 
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("Host reconnected.");
         expect(pane).toContain("ready · ctrl+p commands");
-        expect(pane).not.toContain("/reconnect host");
+        expect(pane).not.toContain("/reconnect ·");
 
         session.sendText("/themes");
         session.sendKey("Enter");
