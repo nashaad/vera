@@ -46,6 +46,10 @@ import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 test("a missing workspace is a useful creation failure", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-missing-cwd-"));
@@ -2134,7 +2138,7 @@ test("an async subagent returns immediately and delivers its final summary", asy
         expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
             "async_subagent",
         );
-        expect(childStore.messages()).toEqual([
+        expect(childStore.messages().map(withoutCallDuration)).toEqual([
             {
                 role: "user",
                 content: [{

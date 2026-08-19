@@ -30,6 +30,10 @@ import { SessionStore } from "../../src/store/session-store.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 test("two real subagent effects overlap and create separate sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-siblings-"));
@@ -761,7 +765,7 @@ test("parent receives the real child final text as its tool result", async () =>
             // Drain the parent updates while both loops run.
         }
 
-        expect(await turn).toEqual(parentFinal);
+        expect(withoutCallDuration(await turn)).toEqual(parentFinal);
         const toolResult = state.messages.find(
             (message) => message.role === "tool_result",
         );
@@ -771,7 +775,7 @@ test("parent receives the real child final text as its tool result", async () =>
         expect(childSessionPath).toBeString();
         const childMessages = (await SessionStore.open(childSessionPath!))
             .messages();
-        expect(childMessages).toEqual([
+        expect(childMessages.map(withoutCallDuration)).toEqual([
             {
                 role: "user",
                 content: [{ type: "text", text: "Trace the request path" }],
@@ -909,7 +913,10 @@ test("subagent uses fresh context, ordinary tools, and a durable session", async
         expect(request?.tools?.map((tool) => tool.name)).not.toContain(
             "subagent",
         );
-        expect((await SessionStore.open(sessionPath)).messages()).toEqual([
+        expect(
+            (await SessionStore.open(sessionPath)).messages()
+                .map(withoutCallDuration),
+        ).toEqual([
             {
                 role: "user",
                 content: [{ type: "text", text: "Trace the request path" }],

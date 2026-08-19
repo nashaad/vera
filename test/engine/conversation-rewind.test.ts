@@ -17,6 +17,10 @@ import {
 } from "../../src/engine/protocol.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -70,7 +74,7 @@ test("conversation rewind publishes active history without changing files", asyn
     await rewindConversationBefore(state, protocol, secondBoundary.id);
 
     expect(state.messages).toEqual([firstUser, firstAssistant]);
-    expect(updates).toEqual([{
+    expect(updates.map(withoutSessionUsage)).toEqual([{
         type: "history",
         entries: projectTranscript(
             store.messages(),

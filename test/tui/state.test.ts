@@ -141,7 +141,6 @@ test("tool calls between two stretches of thinking do not split the row", () => 
     state = applyAgentUpdate(state, {
         type: "tool_started",
         tool: "search",
-        id: "a",
         args: { pattern: "fold" },
         seq: 1,
     });

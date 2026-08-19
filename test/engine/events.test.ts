@@ -27,6 +27,10 @@ import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 interface LoggedEventLine {
     readonly timestamp: string;
@@ -105,11 +109,11 @@ test("a turn fans out to updates and a per-session event log", async () => {
             text: "hello",
             seq: 3,
         });
-        expect(await channel.client.receive()).toEqual({
+        expect(withoutSessionUsage(await channel.client.receive())).toEqual({
             type: "turn_finished",
             seq: 4,
         });
-        expect(await turn).toEqual(response);
+        expect(withoutCallDuration(await turn)).toEqual(response);
 
         const eventNames = observed.map(eventName);
         expect(eventNames).toEqual([
