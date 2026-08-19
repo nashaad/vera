@@ -14,7 +14,6 @@ import {
     TUI_ACCENT,
     TUI_BACKGROUND,
     TUI_CHROME,
-    TUI_CHROME_TITLE,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
@@ -134,25 +133,19 @@ export function registerDialogCard(card: BoxRenderable): void {
 
 function retroHeaderHint(hint: string): string {
     const label = hint.replace(/\s*·\s*esc$/, "");
-    if (TUI_CHROME === "windows-31") {
-        const controls = "_ □ ✕";
-        return label === "esc" ? controls : `${label}   ${controls}`;
-    }
     return label === "esc" ? "[Esc]" : `${label}  [Esc]`;
 }
 
 function applyDialogHeaderChrome(header: DialogHeaderRecord): void {
-    const windows = TUI_CHROME === "windows-31";
     const norton = TUI_CHROME === "norton";
-    const ground = windows ? TUI_CHROME_TITLE : TUI_PANEL;
-    header.box.backgroundColor = ground;
-    header.title.fg = windows ? "#FFFFFF" : norton ? TUI_NOTICE : TUI_TEXT;
-    header.title.bg = ground;
+    header.box.backgroundColor = TUI_PANEL;
+    header.title.fg = norton ? TUI_NOTICE : TUI_TEXT;
+    header.title.bg = TUI_PANEL;
     header.hint.content = TUI_CHROME === "plain"
         ? header.plainHint
         : retroHeaderHint(header.plainHint);
-    header.hint.fg = windows ? "#FFFFFF" : norton ? TUI_MUTED : TUI_MUTED;
-    header.hint.bg = ground;
+    header.hint.fg = TUI_MUTED;
+    header.hint.bg = TUI_PANEL;
 }
 
 export function refreshDialogChrome(): void {
@@ -169,26 +162,24 @@ export function dialogHeaderNode(
     title: string,
     hint = "esc",
 ): BoxRenderable {
-    const windows = TUI_CHROME === "windows-31";
     const norton = TUI_CHROME === "norton";
-    const ground = windows ? TUI_CHROME_TITLE : TUI_PANEL;
     const header = new BoxRenderable(renderer, {
         width: "100%",
         height: 1,
         flexDirection: "row",
         justifyContent: "space-between",
-        backgroundColor: ground,
+        backgroundColor: TUI_PANEL,
     });
     const titleNode = new TextRenderable(renderer, {
         content: title,
-        fg: windows ? "#FFFFFF" : norton ? TUI_NOTICE : TUI_TEXT,
-        bg: ground,
+        fg: norton ? TUI_NOTICE : TUI_TEXT,
+        bg: TUI_PANEL,
         attributes: 1,
     });
     const hintNode = new TextRenderable(renderer, {
         content: TUI_CHROME === "plain" ? hint : retroHeaderHint(hint),
-        fg: windows ? "#FFFFFF" : TUI_MUTED,
-        bg: ground,
+        fg: TUI_MUTED,
+        bg: TUI_PANEL,
     });
     header.add(titleNode);
     header.add(hintNode);
@@ -235,11 +226,9 @@ export function dialogSearchNode(
     live = true,
 ): TextRenderable {
     const typed = query.length > 0;
-    const windows = TUI_CHROME === "windows-31";
     if (!live) {
         return new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_MUTED)(placeholder)]),
-            ...(windows ? { bg: TUI_ELEMENT } : {}),
             width: "100%",
             height: 2,
             marginTop: 1,
@@ -254,7 +243,6 @@ export function dialogSearchNode(
         content: new StyledText([
             typed ? fg(TUI_TEXT)(query) : fg(TUI_MUTED)(placeholder),
         ]),
-        ...(windows ? { bg: TUI_ELEMENT } : {}),
         width: "100%",
         height: 2,
         // A blank line above and below: the search line is the card's second

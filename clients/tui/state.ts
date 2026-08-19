@@ -245,11 +245,10 @@ export let TUI_DIFF_REMOVED = VERA_TUI_THEME.diffRemoved;
 export let TUI_BACKGROUND = VERA_TUI_THEME.background;
 export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
-export let TUI_INPUT = VERA_TUI_THEME.input ?? VERA_TUI_THEME.background;
-export let TUI_MENU = VERA_TUI_THEME.menu ?? VERA_TUI_THEME.panel;
-export let TUI_CHROME: "plain" | "norton" | "windows-31" = "plain";
-export let TUI_CHROME_TITLE = VERA_TUI_THEME.accent;
-export let TUI_SELECTION_TEXT = VERA_TUI_THEME.background;
+export let TUI_INPUT = VERA_TUI_THEME.input;
+export let TUI_MENU = VERA_TUI_THEME.menu;
+export let TUI_CHROME: "plain" | "norton" = "plain";
+export let TUI_SELECTION_TEXT = VERA_TUI_THEME.selectionText;
 
 export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ACCENT = theme.accent;
@@ -263,11 +262,10 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_BACKGROUND = theme.background;
     TUI_PANEL = theme.panel;
     TUI_ELEMENT = theme.element;
-    TUI_INPUT = theme.input ?? theme.background;
-    TUI_MENU = theme.menu ?? theme.panel;
-    TUI_CHROME = theme.chrome ?? "plain";
-    TUI_CHROME_TITLE = theme.chromeTitle ?? theme.accent;
-    TUI_SELECTION_TEXT = theme.selectionText ?? theme.background;
+    TUI_INPUT = theme.input;
+    TUI_MENU = theme.menu;
+    TUI_CHROME = theme.chrome;
+    TUI_SELECTION_TEXT = theme.selectionText;
 }
 
 export function attachmentLabel(attachment: AttachmentRef): string {
