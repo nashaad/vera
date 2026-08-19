@@ -84,7 +84,7 @@
       "background": "#008080",
       "panel": "#FFFFFF", "element": "#C0C0C0",
       "input": "#FFFFFF", "menu": "#FFFFFF",
-      "chrome": "windows-31", "chromeTitle": "#000080", "selectionText": "#FFFFFF"
+      "chrome": "norton", "selectionText": "#FFFFFF"
     }
   }
 }

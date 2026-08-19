@@ -247,8 +247,7 @@ export let TUI_PANEL = VERA_TUI_THEME.panel;
 export let TUI_ELEMENT = VERA_TUI_THEME.element;
 export let TUI_INPUT = VERA_TUI_THEME.input ?? VERA_TUI_THEME.background;
 export let TUI_MENU = VERA_TUI_THEME.menu ?? VERA_TUI_THEME.panel;
-export let TUI_CHROME: "plain" | "norton" | "windows-31" = "plain";
-export let TUI_CHROME_TITLE = VERA_TUI_THEME.accent;
+export let TUI_CHROME: "plain" | "norton" = "plain";
 export let TUI_SELECTION_TEXT = VERA_TUI_THEME.background;
 
 export function applyTuiTheme(theme: TuiTheme): void {
@@ -266,7 +265,6 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_INPUT = theme.input ?? theme.background;
     TUI_MENU = theme.menu ?? theme.panel;
     TUI_CHROME = theme.chrome ?? "plain";
-    TUI_CHROME_TITLE = theme.chromeTitle ?? theme.accent;
     TUI_SELECTION_TEXT = theme.selectionText ?? theme.background;
 }
 
