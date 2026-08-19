@@ -199,22 +199,22 @@
       "selectionText": "#000000"
     },
     "windows-31": {
-      "accent": "#000080",
-      "text": "#000000",
-      "muted": "#4A4A4A",
-      "notice": "#806000",
-      "danger": "#800000",
-      "success": "#006000",
-      "diffAdded": "#D8E8D8",
-      "diffRemoved": "#E8D0D0",
-      "code": "#000080",
+      "accent": "#5A7AE0",
+      "text": "#FFFFFF",
+      "muted": "#C0C0C0",
+      "notice": "#E0C060",
+      "danger": "#FF8080",
+      "success": "#60C060",
+      "diffAdded": "#204020",
+      "diffRemoved": "#402020",
+      "code": "#C0C0FF",
       "background": "#008080",
-      "panel": "#FFFFFF",
-      "element": "#C0C0C0",
-      "input": "#FFFFFF",
-      "menu": "#FFFFFF",
+      "panel": "#000080",
+      "element": "#202060",
+      "input": "#000080",
+      "menu": "#000080",
       "chrome": "norton",
-      "selectionText": "#FFFFFF"
+      "selectionText": "#000080"
     }
   }
 }
