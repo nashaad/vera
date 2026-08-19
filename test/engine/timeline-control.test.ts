@@ -11,6 +11,10 @@ import {
 import { TimelineController } from "../../src/engine/timeline-control.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -118,7 +122,7 @@ test("timeline list, preview, and apply keep replies requester-owned", async () 
         fixture.firstUser,
         fixture.firstAssistant,
     ]);
-    expect(broadcasts).toEqual([{
+    expect(broadcasts.map(withoutSessionUsage)).toEqual([{
         type: "history",
         entries: [
             { id: "message-1#0", kind: "user", text: "first request" },
