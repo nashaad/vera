@@ -2439,14 +2439,16 @@ test("a long stretch of live reasoning is bounded to its window", () => {
     // The window shows the newest lines, so the tail is what is on screen and
     // the row cannot outgrow the work above it however long the model thinks.
     expect(rendered.split("\n")).toEqual([
-        "│ line 33",
-        "│ line 34",
-        "│ line 35",
-        "│ line 36",
-        "│ line 37",
-        "│ line 38",
-        "│ line 39",
-        "│ line 40",
+        "···",
+        "line 33",
+        "line 34",
+        "line 35",
+        "line 36",
+        "line 37",
+        "line 38",
+        "line 39",
+        "line 40",
+        "···",
     ]);
 
     // What scrolled out of the window is still all there behind the summary.
@@ -2459,7 +2461,7 @@ test("a long stretch of live reasoning is bounded to its window", () => {
     }]);
 });
 
-test("blank runs do not spend the live reasoning window", () => {
+test("blank lines do not spend the live reasoning window", () => {
     const state = applyAgentUpdate(createTuiState(), {
         type: "assistant_thinking",
         text: "opening\n\n\n\nmiddle\n\n\n\nclosing\n\n",
@@ -2469,10 +2471,10 @@ test("blank runs do not spend the live reasoning window", () => {
     // A model that separates every sentence would otherwise fill the window
     // with nothing, and the trailing newlines of a delta are not a line yet.
     expect(plainText(renderTuiEntry(state.entries[0]!)).split("\n")).toEqual([
-        "│ opening",
-        "│",
-        "│ middle",
-        "│",
-        "│ closing",
+        "···",
+        "opening",
+        "middle",
+        "closing",
+        "···",
     ]);
 });
