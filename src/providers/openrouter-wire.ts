@@ -15,6 +15,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import { normalizeGoogleToolSchema } from "./google-tool-schema.ts";
 
@@ -172,15 +173,30 @@ export function parseOpenRouterToolInput(
 
     try {
         parsed = JSON.parse(value);
-    } catch {
-        throw new Error(`OpenRouter returned invalid JSON for tool call at index ${index}`);
+    } catch (cause) {
+        // Malformed arguments are transient model output, not a request the
+        // user can fix, so the failure is retryable.
+        throw malformedToolCall(
+            `OpenRouter returned invalid JSON for tool call at index ${index}`,
+            cause,
+        );
     }
 
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(`OpenRouter returned non-object input for tool call at index ${index}`);
+        throw malformedToolCall(
+            `OpenRouter returned non-object input for tool call at index ${index}`,
+            undefined,
+        );
     }
 
     return parsed as Record<string, unknown>;
+}
+
+function malformedToolCall(message: string, cause: unknown): ProviderFailureError {
+    return new ProviderFailureError(
+        { kind: "unknown", resolution: "retry", message },
+        cause,
+    );
 }
 
 function encodeUserContent(

@@ -536,6 +536,40 @@ describe("OpenRouter adapter", () => {
         });
     });
 
+    test("invalid tool call JSON classifies as a retryable failure", async () => {
+        const adapter = new OpenRouterAdapter(async () => {
+            return chunks([chatChunk({
+                delta: {
+                    toolCalls: [{
+                        index: 0,
+                        id: "call-1",
+                        function: { name: "read", arguments: "{ not json" },
+                    }],
+                },
+                finishReason: "tool_calls" as ChatFinishReasonEnum,
+            })]);
+        });
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        const error = events.find((event) => event.type === "error");
+        expect(error?.type).toBe("error");
+        if (error?.type !== "error") {
+            throw new Error("expected an error event");
+        }
+        expect(error.error).toBeInstanceOf(ProviderFailureError);
+        const failure = (error.error as ProviderFailureError).failure;
+        expect(failure.resolution).toBe("retry");
+        expect(failure.message).toContain("invalid JSON for tool call");
+    });
+
     test("an unknown finish reason falls back to the content instead of failing", async () => {
         const adapter = new OpenRouterAdapter(async () => {
             return chunks([
