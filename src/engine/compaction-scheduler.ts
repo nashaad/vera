@@ -233,9 +233,10 @@ function targetAboveTriggerWarning(
 /**
  * Compacts the session in place, at a boundary the engine picks.
  *
- * Called between turns, never inside one: the span it compacts has to be
- * finished and durable, and a strategy running against a half-written turn
- * would summarize a tool call whose result does not exist yet.
+ * Called only at durable boundaries: before a turn or after every tool call
+ * and result in a model round has finished. A strategy must never run against
+ * a half-written round, where it could summarize a call whose result does not
+ * exist yet.
  *
  * Nothing is announced before the append. Every failure leaves the previous
  * projection exactly as it was, because the alternative to a compacted session
