@@ -335,3 +335,23 @@ test("ctrl+c quits while a session switch is still pending", async () => {
         await session.close();
     }
 }, 15_000);
+
+test("back typed in the composer runs the command instead of prompting", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-back-"));
+    const scenario = createTuiNewSessionScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/back");
+        session.sendKey("Enter");
+        // With no hop recorded the command answers in place; the text
+        // reaching the model instead would leave this notice unsaid.
+        await session.waitForVisiblePane("Nothing to go back to");
+    } finally {
+        await session.close();
+    }
+}, 15_000);

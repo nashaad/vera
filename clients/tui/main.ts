@@ -944,6 +944,10 @@ export async function startTui(
     let clientSurfaceReady = false;
     let transcriptSeeded = false;
     const deferredKeymapNotices: string[] = [];
+    // The arrival notice lands twice on purpose: once before the history
+    // rebuild, which floats it above the transcript, and once after, so it is
+    // also the last line the reader reaches.
+    let pendingBackNotice: string | undefined;
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -1087,9 +1091,11 @@ export async function startTui(
      */
     let workIndex: WorkIndexSnapshot | undefined;
     let jumpMenu: JumpMenuState | undefined;
-    // Where the user was before jumping anywhere: the single back target,
-    // deliberately not a stack, so back always means "where I started".
-    let jumpOrigin: JumpOrigin | undefined;
+    // Where the user was before switching anywhere: the single back target,
+    // deliberately not a stack, so /back always means "where I started".
+    // Only the id is held; the path and title are resolved when used, from
+    // the same listing every other session surface reads.
+    let backOriginId: string | undefined;
     /**
      * Assumed focused until the terminal says otherwise. A terminal that does
      * not answer focus reporting would otherwise be treated as never watched,
@@ -2103,14 +2109,14 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
-    // The attention chip at the head of the status row is a click target for
-    // the jump menu, which lists what the chip counts. Width zero means no
-    // chip is on screen.
+    // The attention chip at the head of the status row is a click target,
+    // and it does what its label says: the hint reads /work, so the click
+    // opens the work tab. Width zero means no chip is on screen.
     let needsYouChipWidth = 0;
     composerStatusText.onMouseDown = (event) => {
         if (needsYouChipWidth === 0) return;
         if (event.x - composerStatusText.x >= needsYouChipWidth) return;
-        openJumpMenuOverlay();
+        openWorkTab();
     };
     let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
@@ -5216,6 +5222,12 @@ export async function startTui(
             });
             return;
         }
+        if (commandAction?.type === "go_back") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            runBack();
+            return;
+        }
         if (commandAction?.type === "go_to_parent") {
             composer.clearComposer();
             renderCommandSuggestions();
@@ -6256,6 +6268,10 @@ export async function startTui(
                     transcriptSeeded = true;
                     for (const notice of deferredKeymapNotices.splice(0)) {
                         state = appendTuiNotice(state, notice);
+                    }
+                    if (pendingBackNotice !== undefined) {
+                        state = appendTuiNotice(state, pendingBackNotice);
+                        pendingBackNotice = undefined;
                     }
                 }
                 if (
@@ -8481,6 +8497,7 @@ export async function startTui(
             return;
         }
         if (action.type === "open_work_tab") return openWorkTab();
+        if (action.type === "go_back") return runBack();
         if (action.type === "open_search") return openSearchOverlay();
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
@@ -8491,9 +8508,46 @@ export async function startTui(
         focusActiveSurface();
     }
 
-    // The session the menu was opened from, refreshed on every open: the
-    // origin recorded when a jump actually happens.
-    let jumpCurrent: JumpOrigin | undefined;
+    function runBack(): void {
+        if (backOriginId === undefined) {
+            state = appendTuiNotice(
+                state,
+                "Nothing to go back to. /work lists what needs you.",
+            );
+            renderState();
+            return;
+        }
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(state, "Switching sessions is unavailable");
+            renderState();
+            return;
+        }
+        const target = backOriginId;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown) return;
+            const origin = agents.find((agent) => agent.id === target);
+            if (origin === undefined) {
+                backOriginId = undefined;
+                state = appendTuiNotice(
+                    state,
+                    "The conversation you came from is gone."
+                        + " /resume lists what is still here.",
+                );
+                renderState();
+                return;
+            }
+            beginSessionResume(origin.session_path, origin.id, true);
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not go back: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
 
     function jumpMenuContentWidth(): number {
         return Math.max(10, jumpMenuBox.width - 4);
@@ -8540,21 +8594,11 @@ export async function startTui(
     function runJumpTo(row: JumpRow): void {
         jumpMenu = undefined;
         jumpMenuBox.visible = false;
-        if (row.kind === "back") {
-            jumpOrigin = undefined;
-            beginSessionResume(row.sessionPath, row.sessionId);
-            return;
-        }
-        // Only the first hop is remembered: back always returns to where the
-        // jumping started, not to the previous stop.
-        if (
-            jumpOrigin === undefined
-            && jumpCurrent !== undefined
-            && jumpCurrent.sessionId !== row.sessionId
-        ) {
-            jumpOrigin = jumpCurrent;
-        }
-        beginSessionResume(row.sessionPath, row.sessionId);
+        beginSessionResume(
+            row.sessionPath,
+            row.sessionId,
+            row.kind === "back",
+        );
     }
 
     function openJumpMenuOverlay(): void {
@@ -8570,13 +8614,15 @@ export async function startTui(
         void dependencies.listAgents().then((agents) => {
             if (shuttingDown || anyOverlayOpen()) return;
             const currentId = client.agentId;
-            const current = agents.find((agent) => agent.id === currentId);
-            jumpCurrent = currentId === undefined || current === undefined
+            const originAgent = agents.find((agent) =>
+                agent.id === backOriginId
+            );
+            const back: JumpOrigin | undefined = originAgent === undefined
                 ? undefined
                 : {
-                    sessionId: currentId,
-                    sessionPath: current.session_path,
-                    title: current.title ?? current.name
+                    sessionId: originAgent.id,
+                    sessionPath: originAgent.session_path,
+                    title: originAgent.title ?? originAgent.name
                         ?? "previous conversation",
                 };
             const needsYou = (workIndex?.rows ?? []).filter((row) =>
@@ -8584,7 +8630,7 @@ export async function startTui(
             );
             jumpMenu = openJumpMenuState(buildJumpRows({
                 currentId,
-                back: jumpOrigin,
+                back,
                 needsYou,
                 agents,
             }));
@@ -9375,6 +9421,7 @@ export async function startTui(
     function beginSessionResume(
         sessionPath: string,
         sessionId?: string,
+        viaBack = false,
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
@@ -9409,6 +9456,20 @@ export async function startTui(
         if (sessionSwitchPending) {
             return;
         }
+        // Only the first hop is remembered: /back always returns to where
+        // the switching started, not to the previous stop. Going back clears
+        // the edge instead of arming it, or back would turn into a toggle.
+        const previousId = client.agentId;
+        let armedNow = false;
+        if (
+            !viaBack
+            && !openingInSidebar
+            && backOriginId === undefined
+            && previousId !== undefined
+        ) {
+            backOriginId = previousId;
+            armedNow = true;
+        }
         const draft = currentDraft();
         sessionSwitchPending = true;
         sessionSwitchActivity = "switching conversation…";
@@ -9434,8 +9495,22 @@ export async function startTui(
                 return;
             }
             switchToClient(next, draft);
+            if (viaBack) {
+                backOriginId = undefined;
+            } else if (backOriginId !== undefined) {
+                // The way back, said where the person landed: the switch is
+                // easy to make by accident from the work tab, and nothing
+                // else on screen names the return trip.
+                const notice =
+                    "Type /back to return to the conversation you came from";
+                state = appendTuiNotice(state, notice);
+                pendingBackNotice = notice;
+                renderState();
+            }
         }).catch((error) => {
             if (shuttingDown) return;
+            // A switch that never happened is not a hop worth remembering.
+            if (armedNow) backOriginId = undefined;
             sessionSwitchPending = false;
             state = appendTuiError(
                 state,
@@ -10588,7 +10663,6 @@ export async function startTui(
                     },
                     workIndex?.needs_you ?? 0,
                     Math.max(1, renderer.width - composerHorizontalInset),
-                    tuiKeyChord("jump.open"),
                 )
                 : [[{
                     tone: "muted",
