@@ -143,6 +143,10 @@ export interface GoToParentTuiCommandAction {
     readonly type: "go_to_parent";
 }
 
+export interface GoBackTuiCommandAction {
+    readonly type: "go_back";
+}
+
 export interface ReconnectTuiCommandAction {
     readonly type: "reconnect";
 }
@@ -228,6 +232,7 @@ export type TuiCommandAction =
     | OpenSearchTuiCommandAction
     | OpenSubagentsPickerTuiCommandAction
     | GoToParentTuiCommandAction
+    | GoBackTuiCommandAction
     | ReconnectTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
@@ -264,6 +269,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_resume_picker":
         case "open_subagents_picker":
         case "go_to_parent":
+        case "go_back":
         case "create_session":
         case "update_session_name":
             return "focused_agent";
@@ -338,6 +344,7 @@ export interface TuiCommandDefinition {
         | OpenSearchTuiCommandAction
         | OpenSubagentsPickerTuiCommandAction
         | GoToParentTuiCommandAction
+        | GoBackTuiCommandAction
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
@@ -437,6 +444,12 @@ const SUBAGENTS_COMMAND = {
     usage: "/subagents",
 } as const satisfies TuiCommandCatalogEntry;
 
+const BACK_COMMAND = {
+    name: "back",
+    description: "Return to the conversation you came from",
+    usage: "/back",
+} as const satisfies TuiCommandCatalogEntry;
+
 const PARENT_COMMAND = {
     name: "parent",
     description: "Switch to the parent conversation",
@@ -524,6 +537,7 @@ export const BUILTIN_COMMANDS = [
     SEARCH_COMMAND,
     SUBAGENTS_COMMAND,
     PARENT_COMMAND,
+    BACK_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
@@ -1204,6 +1218,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "parent",
             action: { type: "go_to_parent" },
+        },
+    });
+    registry.registerCommand({
+        ...BACK_COMMAND,
+        action: { type: "go_back" },
+        palette: {
+            name: "back",
+            label: "Go back",
+            description: "return to the conversation you came from",
+            group: "Session",
+            slashName: "back",
+            action: { type: "go_back" },
         },
     });
     registry.registerCommand({
