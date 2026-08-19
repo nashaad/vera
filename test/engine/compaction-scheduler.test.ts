@@ -22,9 +22,12 @@ import {
 } from "../../src/engine/compaction.ts";
 import { CompletionUnavailableError } from
     "../../src/engine/completion-service.ts";
-import type { ContextMeasurement } from
-    "../../src/engine/context-measurement.ts";
+import {
+    measureMessages,
+    type ContextMeasurement,
+} from "../../src/engine/context-measurement.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
+import { assertToolCallsPaired } from "../../src/model/tool-pairing.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
 const temporaryDirectories: string[] = [];
@@ -281,6 +284,297 @@ test("the strategy cannot reach past its answer to change the transcript", async
     );
     expect(store.messages()).toEqual(transcript);
 });
+
+test("a turn too big for the budget falls back to keeping one turn", async () => {
+    const store = await session(6);
+    await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // Room for a summary and one of these turns, but not two.
+        pressure(store, 6_000),
+        new AbortController().signal,
+    );
+
+    const users = store.modelContext()
+        .filter((message) => message.role === "user");
+    // The summary plus the single newest turn, where the preferred cut would
+    // have kept two and found no room for a summary at all.
+    expect(users.length).toBe(2);
+    expect(text(users[1])).toBe("turn 6");
+});
+
+test("a newest turn bigger than the budget is cut into, not declined", async () => {
+    const store = await session(3);
+    await appendToolTurn(store, 4);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // Below what the whole newest turn needs, so no user-message cut fits.
+        pressure(store, 6_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    const context = store.modelContext();
+    expect(context[0]).toEqual(summary());
+    // The seam fell inside the newest turn, so the user message that opened it
+    // went into the summary and only the tail survives verbatim.
+    expect(context.map(text)).not.toContain("turn 4");
+    expect(context[1]?.role).toBe("assistant");
+});
+
+test("a second cut inside one turn finds another seam, not keep-nothing", async () => {
+    const store = await session(3);
+    await appendToolTurn(store, 4);
+    const first = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // Tight enough to land the boundary inside turn 4.
+        pressure(store, 6_000),
+        new AbortController().signal,
+    );
+    expect(first.outcome).toBe("compacted");
+    expect(keptSuffix(store)[0]?.role).toBe("assistant");
+
+    // The turn keeps going: more rounds land after that boundary.
+    await appendToolRounds(store, 4);
+    const second = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        pressure(store, 8_000),
+        new AbortController().signal,
+    );
+
+    expect(second.outcome).toBe("compacted");
+    // The boundary already sat past the turn's user message, so anchoring the
+    // seam search on that message would have left keep-nothing as the only
+    // rung and thrown the new rounds away.
+    const kept = keptSuffix(store);
+    expect(kept.length).toBeGreaterThan(0);
+    expect(kept[0]?.role).toBe("assistant");
+    assertToolCallsPaired(store.modelContext(), "The compacted context");
+});
+
+test("the ladder gives up less verbatim as the window tightens", async () => {
+    let previousKept = Number.POSITIVE_INFINITY;
+    let sawSeam = false;
+    for (const capacity of [10_000, 8_000, 6_000, 4_500, 3_000, 2_000]) {
+        // A fresh session each time: compacting appends a record, and reusing
+        // one store would measure the previous run's result, not the fixture.
+        const probe = await session(3);
+        await appendToolTurn(probe, 4);
+        const result = await compactSession(
+            options(probe, () => ({ projection: [summary()] })),
+            pressure(probe, capacity),
+            new AbortController().signal,
+        );
+        expect(result.outcome).toBe("compacted");
+        const kept = keptSuffix(probe);
+        // Each tighter window keeps no more than the one before it.
+        expect(kept.length).toBeLessThanOrEqual(previousKept);
+        previousKept = kept.length;
+        // A suffix opening on a tool result is a call whose pair went into the
+        // summary, which every provider rejects.
+        expect(kept[0]?.role).not.toBe("tool_result");
+        assertToolCallsPaired(probe.modelContext(), "The compacted context");
+        if (kept.length > 0 && kept[0]?.role === "assistant") {
+            sawSeam = true;
+        }
+    }
+    // The point of the ladder: at least one window landed inside a turn.
+    expect(sawSeam).toBe(true);
+    // The tightest window kept nothing verbatim at all.
+    expect(previousKept).toBe(0);
+});
+
+test("a session that fits nothing verbatim still compacts", async () => {
+    const store = await session(3);
+    await appendToolTurn(store, 4);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // Only the summary itself fits.
+        pressure(store, 2_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(store.modelContext()).toEqual([summary()]);
+});
+
+test("overhead that fills the target is reported, not silently declined", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // The measured request is far above what the messages account for, so
+        // the fixed overhead alone eats the target.
+        { tokens: 100_000, capacity: 10_000, estimated: true },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("no_boundary");
+    expect(result).toHaveProperty("reason");
+    if (result.outcome === "no_boundary") {
+        expect(result.reason).toContain("verbatim");
+    }
+});
+
+test("the ladder never crosses a barrier to find room", async () => {
+    const store = await session(4);
+    const barrier: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "reference-only boundary" }],
+        internal: true,
+        compactionBarrier: true,
+    };
+    await store.appendMessage(barrier);
+    await appendToolTurn(store, 5);
+
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        // Tight enough that every rung past the barrier would be tried.
+        pressure(store, 2_000),
+        new AbortController().signal,
+    );
+
+    // Either it found room at the barrier or it declined, but the barrier and
+    // everything after it is still there verbatim.
+    expect(store.modelContext()).toContainEqual(barrier);
+    if (result.outcome === "compacted") {
+        expect(store.modelContext().map(text)).toContain("turn 5");
+    }
+});
+
+test("retained turns are configurable, and one turn is a legal setting", async () => {
+    const store = await session(6);
+    await compactSession(
+        options(store, () => ({ projection: [summary()] }), {
+            retainedUserTurns: 1,
+        }),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
+    const users = store.modelContext()
+        .filter((message) => message.role === "user");
+    expect(users.length).toBe(2);
+    expect(text(users[1])).toBe("turn 6");
+});
+
+test("a compacted intra-turn seam reads back from the store it was written to",
+    async () => {
+        const store = await session(3);
+        await appendToolTurn(store, 4);
+        const result = await compactSession(
+            options(store, () => ({ projection: [summary("anchored")] })),
+            pressure(store, 6_000),
+            new AbortController().signal,
+        );
+        expect(result.outcome).toBe("compacted");
+
+        const reopened = await SessionStore.open(store.path);
+        expect(reopened.modelContext()).toEqual(store.modelContext());
+        expect(reopened.modelContext()[0]).toEqual(summary("anchored"));
+        // The transcript is untouched whatever the boundary did to the context.
+        expect(reopened.messages()).toEqual(store.messages());
+        assertToolCallsPaired(reopened.modelContext(), "The reopened context");
+    });
+
+/** A turn shaped like a real agentic one: one prompt, then a tool loop. */
+/** More finished rounds of an already-open turn, with no user message. */
+async function appendToolRounds(
+    store: SessionStore,
+    turn: number,
+): Promise<void> {
+    for (let round = 4; round <= 6; round += 1) {
+        const id = `call-${turn}-${round}`;
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "text", text: `step ${round} ${"detail ".repeat(300)}` },
+                {
+                    type: "tool_call",
+                    id,
+                    name: "read",
+                    input: { path: `src/file-${round}.ts` },
+                },
+            ],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        });
+        await store.appendMessage({
+            role: "tool_result",
+            toolCallId: id,
+            toolName: "read",
+            content: [{ type: "text", text: `output ${"x ".repeat(300)}` }],
+            isError: false,
+        });
+    }
+}
+
+async function appendToolTurn(
+    store: SessionStore,
+    turn: number,
+): Promise<void> {
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: `turn ${turn}` }],
+    });
+    for (let round = 1; round <= 3; round += 1) {
+        const id = `call-${turn}-${round}`;
+        await store.appendMessage({
+            role: "assistant",
+            content: [
+                { type: "text", text: `step ${round} ${"detail ".repeat(300)}` },
+                {
+                    type: "tool_call",
+                    id,
+                    name: "read",
+                    input: { path: `src/file-${round}.ts` },
+                },
+            ],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        });
+        await store.appendMessage({
+            role: "tool_result",
+            toolCallId: id,
+            toolName: "read",
+            content: [{ type: "text", text: `output ${"x ".repeat(300)}` }],
+            isError: false,
+        });
+    }
+    await store.appendMessage({
+        role: "assistant",
+        content: [
+            { type: "text", text: `answer ${turn} ${"detail ".repeat(280)}` },
+        ],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    });
+}
+
+/**
+ * What the request measures at when the window is `capacity`. Derived from the
+ * store rather than written down, so the fixtures can change size without the
+ * ladder tests turning into arithmetic about them.
+ */
+const FIXED_OVERHEAD = 200;
+
+function pressure(
+    store: SessionStore,
+    capacity: number,
+): ContextMeasurement {
+    return {
+        tokens: measureMessages(store.modelContext()) + FIXED_OVERHEAD,
+        capacity,
+        estimated: true,
+    };
+}
+
+/** The messages kept verbatim after the boundary the run chose. */
+function keptSuffix(store: SessionStore): readonly ModelMessage[] {
+    const context = store.modelContext();
+    return context[0] === undefined ? context : context.slice(1);
+}
 
 function options(
     store: SessionStore,

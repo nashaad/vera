@@ -62,7 +62,7 @@ function effectiveTriggerTokens(
 /** A summary smaller than this cannot carry a session, so do not ask for one. */
 export const MIN_SUMMARY_TOKENS = 400;
 
-/** Complete user turns kept verbatim after the boundary. */
+/** Complete user turns kept verbatim after the boundary, when they fit. */
 export const RETAINED_USER_TURNS = 2;
 
 export type CompactionOutcome =
@@ -98,6 +98,8 @@ export interface CompactionSchedulerOptions {
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
+    /** Complete user turns preferred verbatim. `RETAINED_USER_TURNS` if unset. */
+    readonly retainedUserTurns?: number;
 }
 
 /**
@@ -260,14 +262,6 @@ export async function compactSession(
         ? -1
         : active.findIndex((entry) => entry.id === previous.boundaryMessageId);
 
-    const plan = planBoundary(active, previousBoundary);
-    if (plan === undefined) {
-        return {
-            outcome: "no_boundary",
-            reason: "There is not enough finished history to compact yet.",
-        };
-    }
-
     // What the request costs beyond its messages: the system prompt, the tool
     // definitions, the project instructions. Compaction cannot shrink any of
     // it, so it comes off the budget before the strategy is given a number.
@@ -279,16 +273,39 @@ export async function compactSession(
         0,
         measurement.tokens - measureMessages(modelContext),
     );
-    const suffix = active.slice(plan.boundaryIndex + 1)
-        .map((entry) => entry.message);
-    const targetTokens = budget - overhead - measureMessages(suffix);
-    if (targetTokens < MIN_SUMMARY_TOKENS) {
+
+    let plan: BoundaryPlan | undefined;
+    let targetTokens = 0;
+    let sawCandidate = false;
+    for (
+        const candidate of candidateBoundaries(
+            active,
+            previousBoundary,
+            options.retainedUserTurns ?? RETAINED_USER_TURNS,
+        )
+    ) {
+        sawCandidate = true;
+        const kept = active.slice(candidate.boundaryIndex + 1)
+            .map((entry) => entry.message);
+        const room = budget - overhead - measureMessages(kept);
+        if (room >= MIN_SUMMARY_TOKENS) {
+            plan = candidate;
+            targetTokens = room;
+            break;
+        }
+    }
+    if (plan === undefined) {
         return {
             outcome: "no_boundary",
-            reason: "The kept turns and the system prompt already fill the "
-                + "window, so a summary would have nowhere to go.",
+            reason: sawCandidate
+                ? "No boundary leaves room for a usable summary: what must "
+                    + "be kept verbatim plus the fixed request overhead "
+                    + "already fills the compaction target."
+                : "There is not enough finished history to compact yet.",
         };
     }
+    const suffix = active.slice(plan.boundaryIndex + 1)
+        .map((entry) => entry.message);
 
     const span: readonly ModelMessage[] = [
         ...previousProjection,
@@ -380,36 +397,94 @@ interface BoundaryPlan {
 }
 
 /**
- * The latest boundary that keeps `RETAINED_USER_TURNS` complete turns verbatim
- * and leaves something in front of it worth compacting.
+ * Boundary candidates in order of preference, each keeping less verbatim than
+ * the one before it. The caller takes the first whose kept tail leaves room
+ * for a usable summary, so a session whose newest turn alone outgrows the
+ * budget degrades to a tighter cut instead of silently declining forever.
  *
- * A boundary is only ever placed directly before a user message. Anywhere else
- * splits a turn: the suffix would open on an assistant message answering a
- * question the model can no longer see, or on a tool result whose call went
- * into the summary.
+ * The rungs:
+ *
+ * 1. Directly before a user message, keeping the preferred number of complete
+ *    turns, then fewer, down to one.
+ * 2. Directly before an assistant message inside the newest turn, splitting
+ *    the turn at a finished model round. Never before a tool result: its call
+ *    would be in the summary and the pair would be broken.
+ * 3. After the last message, keeping nothing verbatim.
+ *
+ * A `compactionBarrier` message caps the ladder: everything from the barrier
+ * on is kept verbatim, so the barrier is the only cut offered and rungs past
+ * it never come up.
  */
-function planBoundary(
+function* candidateBoundaries(
     active: readonly SessionMessageEntry[],
     previousBoundary: number,
-): BoundaryPlan | undefined {
+    retainedUserTurns: number,
+): Generator<BoundaryPlan> {
     const barrierIndex = active.findIndex((entry, index) =>
         index > previousBoundary
         && entry.message.role === "user"
         && entry.message.compactionBarrier === true
     );
+    if (barrierIndex !== -1) {
+        const plan = planAt(active, previousBoundary, barrierIndex);
+        if (plan !== undefined) {
+            yield plan;
+        }
+        return;
+    }
     const userStarts = active.flatMap((entry, index) =>
-        entry.message.role === "user"
-            && index > previousBoundary
-            && (barrierIndex === -1 || index < barrierIndex)
+        entry.message.role === "user" && index > previousBoundary
             ? [index]
             : []
     );
-    const suffixStart = barrierIndex === -1
-        ? userStarts[userStarts.length - RETAINED_USER_TURNS]
-        : barrierIndex;
-    if (suffixStart === undefined || suffixStart === 0) {
-        return undefined;
+    for (
+        let keep = Math.min(retainedUserTurns, userStarts.length);
+        keep >= 1;
+        keep -= 1
+    ) {
+        const suffixStart = userStarts[userStarts.length - keep];
+        const plan = suffixStart === undefined
+            ? undefined
+            : planAt(active, previousBoundary, suffixStart);
+        if (plan !== undefined) {
+            yield plan;
+        }
     }
+    // From the previous boundary when it already sits inside the newest turn,
+    // which is where a second compaction during one long turn starts. Anchoring
+    // on the user message instead would offer no seam at all there, and the
+    // turn would go straight to keeping nothing.
+    const seamStart = Math.max(
+        previousBoundary,
+        userStarts[userStarts.length - 1] ?? previousBoundary,
+    );
+    if (retainedUserTurns > 0) {
+        for (let index = seamStart + 1; index < active.length; index += 1) {
+            if (active[index]?.message.role !== "assistant") {
+                continue;
+            }
+            const plan = planAt(active, previousBoundary, index);
+            if (plan !== undefined) {
+                yield plan;
+            }
+        }
+    }
+    const last = active[active.length - 1];
+    if (last !== undefined && active.length - 1 > previousBoundary) {
+        yield {
+            boundaryIndex: active.length - 1,
+            boundaryId: last.id,
+            firstRetainedId: null,
+        };
+    }
+}
+
+/** The boundary directly before `suffixStart`, when it covers anything new. */
+function planAt(
+    active: readonly SessionMessageEntry[],
+    previousBoundary: number,
+    suffixStart: number,
+): BoundaryPlan | undefined {
     const boundaryIndex = suffixStart - 1;
     if (boundaryIndex <= previousBoundary) {
         // Nothing has been added since the last compaction that a new one

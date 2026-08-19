@@ -114,6 +114,9 @@ export function bindCompaction(
         ...(profile.target_tokens === undefined
             ? {}
             : { targetTokens: profile.target_tokens }),
+        ...(profile.retained_user_turns === undefined
+            ? {}
+            : { retainedUserTurns: profile.retained_user_turns }),
     };
 }
 
