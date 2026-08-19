@@ -336,6 +336,34 @@ test("ctrl+c quits while a session switch is still pending", async () => {
     }
 }, 15_000);
 
+test("arriving across a hop names the conversation left behind", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-back-name-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Continue the theme picker");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pane).toContain(
+            'Type /back to return to "The one already open"',
+        );
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("back typed in the composer runs the command instead of prompting", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-back-"));
     const scenario = createTuiNewSessionScenario({ home });
