@@ -1250,6 +1250,14 @@ export async function runTurn(
             // Anything decided before the request was built is carried in.
             const substitutions: ModelSubstitution[] = pendingSubstitutions
                 .splice(0, pendingSubstitutions.length);
+            // Asking whether the model reads images can reach the provider, so
+            // it is only asked when the request carries one.
+            const carriesImage = request.messages.some((message) =>
+                message.role === "user"
+                && message.content.some(
+                    (block) => block.type === "image_attachment",
+                )
+            );
             let modelRequest;
             try {
                 modelRequest = {
@@ -1257,6 +1265,12 @@ export async function runTurn(
                     messages: await hydrateImageAttachments(
                         request.messages,
                         requireImageReader(state),
+                        imageCache,
+                        carriesImage && !acceptsImageInput(
+                            adapter,
+                            modelSettings.provider,
+                            activeModel,
+                        ),
                     ),
                 };
             } catch (error) {
