@@ -40,6 +40,7 @@ import {
     type ModelRequest,
 } from "../../src/model/types.ts";
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import { OMITTED_IMAGE_TEXT } from "../../src/attachments/service.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 
@@ -295,6 +296,47 @@ test("a model nothing knows about still gets its image sent", async () => {
         mediaType: "image/png",
         data: Uint8Array.from([137, 80, 78, 71]),
     }]);
+});
+
+const SEEDED_FALSE = JSON.stringify({
+    models: {
+        [POOL_ID]: {
+            added: true,
+            learned: {
+                images: { ok: false, seen: "2026-01-01", error: "no images" },
+            },
+        },
+    },
+});
+
+test("an image already in the history becomes a placeholder", async () => {
+    const context = harness(SEEDED_FALSE);
+    const recorded = poolBackedAdapter(context, (_attempt, request) =>
+        new FauxAdapter([reply("read as text")]).stream(request));
+    const channel = createInProcessChannel();
+    const { state } = turnState(context, channel, WITH_EFFORT);
+    state.messages.push({
+        role: "user",
+        content: [
+            { type: "text", text: "what is in this" },
+            { type: "image_attachment", attachmentId: "shot.png" },
+        ],
+    });
+
+    channel.client.send({ type: "prompt", content: "describe it again" });
+    await runTurn(recorded.adapter, MODEL, state);
+
+    // The turn runs: a switch to a model without vision leaves the session
+    // usable rather than failing every turn that follows it.
+    expect(recorded.requests).toHaveLength(1);
+    expect(imageParts(recorded.requests[0])).toHaveLength(0);
+    expect(recorded.requests[0]?.messages[0]).toEqual({
+        role: "user",
+        content: [
+            { type: "text", text: "what is in this" },
+            { type: "text", text: OMITTED_IMAGE_TEXT },
+        ],
+    });
 });
 
 const SEEDED_TRUE = JSON.stringify({
