@@ -21,6 +21,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
+import {
+    buildJumpRows,
+    handleJumpMenuKey,
+    jumpMenuLines,
+    openJumpMenu as openJumpMenuState,
+    type JumpMenuState,
+    type JumpOrigin,
+    type JumpRow,
+} from "./jump.ts";
 import { registerTuiParsers } from "./parsers.ts";
 import {
     createTuiFlightRecorder,
@@ -1077,6 +1086,10 @@ export async function startTui(
      * not start existing when someone happens to look.
      */
     let workIndex: WorkIndexSnapshot | undefined;
+    let jumpMenu: JumpMenuState | undefined;
+    // Where the user was before jumping anywhere: the single back target,
+    // deliberately not a stack, so back always means "where I started".
+    let jumpOrigin: JumpOrigin | undefined;
     /**
      * Assumed focused until the terminal says otherwise. A terminal that does
      * not answer focus reporting would otherwise be treated as never watched,
@@ -1990,6 +2003,42 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    const jumpMenuText = new TextRenderable(renderer, {
+        id: "jump-menu-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+    });
+    // A quick detour, not a workspace: the menu hangs off the composer at the
+    // status row that announces its targets, rather than taking the screen
+    // the way the work tab does.
+    const jumpMenuBox = new BoxRenderable(renderer, {
+        id: "jump-menu",
+        border: true,
+        borderStyle: "rounded",
+        borderColor: theme.element,
+        title: " Jump ",
+        position: "absolute",
+        left: tuiComposerOverlayInset(appearance).paddingLeft,
+        width: 40,
+        height: 3,
+        paddingLeft: 1,
+        paddingRight: 1,
+        backgroundColor: theme.panel,
+        zIndex: 5,
+        visible: false,
+        onMouseDown: (event) => {
+            if (jumpMenu === undefined) return;
+            const lines = jumpMenuLines(jumpMenu, jumpMenuContentWidth());
+            const line = lines[event.y - jumpMenuBox.y - 1];
+            if (line?.rowIndex === undefined) return;
+            const row = jumpMenu.rows[line.rowIndex];
+            if (row !== undefined) runJumpTo(row);
+        },
+    });
+    jumpMenuBox.add(jumpMenuText);
+
     /**
      * How many rows the status band takes under the composer. The suggestion
      * strip floats outside the layout flow and has to clear that band, so the
@@ -2014,6 +2063,7 @@ export async function startTui(
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0)
             + 1;
+        jumpMenuBox.bottom = commandSuggestionsBox.bottom;
     }
 
     const modeToastText = new TextRenderable(renderer, {
@@ -2054,12 +2104,13 @@ export async function startTui(
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
     // The attention chip at the head of the status row is a click target for
-    // the same surface `/work` opens. Width zero means no chip is on screen.
+    // the jump menu, which lists what the chip counts. Width zero means no
+    // chip is on screen.
     let needsYouChipWidth = 0;
     composerStatusText.onMouseDown = (event) => {
         if (needsYouChipWidth === 0) return;
         if (event.x - composerStatusText.x >= needsYouChipWidth) return;
-        openWorkTab();
+        openJumpMenuOverlay();
     };
     let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
@@ -2920,6 +2971,7 @@ export async function startTui(
     app.add(experimentalTuiHost.overlay);
     upper.add(queuedPromptText);
     app.add(commandSuggestionsBox);
+    app.add(jumpMenuBox);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -3423,6 +3475,23 @@ export async function startTui(
             } else if (action === "abort") {
                 abortFocusedAgent();
                 renderStatus();
+            }
+            return;
+        }
+
+        // The menu owns the keyboard while it is open: arrows move, enter
+        // jumps, escape closes, and everything else is swallowed.
+        if (jumpMenu !== undefined) {
+            key.preventDefault();
+            key.stopPropagation();
+            const action = handleJumpMenuKey(jumpMenu, key.name);
+            if (action.kind === "cancel") {
+                closeJumpMenu();
+            } else if (action.kind === "jump") {
+                runJumpTo(action.row);
+            } else {
+                jumpMenu = action.state;
+                renderJumpMenu();
             }
             return;
         }
@@ -4116,6 +4185,16 @@ export async function startTui(
             key.preventDefault();
             key.stopPropagation();
             openModelPicker();
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "jump.open"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openJumpMenuOverlay();
             return;
         }
 
@@ -7071,6 +7150,7 @@ export async function startTui(
             && sessionTrashCandidate === undefined
             && providerForgetCandidate !== undefined;
         const overlayVisible = dialStrip !== undefined
+            || jumpMenuBox.visible
             || approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
@@ -7325,7 +7405,8 @@ export async function startTui(
             || confirmingFullAccess
             || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined
-            || providerForgetCandidate !== undefined;
+            || providerForgetCandidate !== undefined
+            || jumpMenu !== undefined;
     }
 
     function clearTranscriptNodes(): void {
@@ -8408,6 +8489,125 @@ export async function startTui(
         if (action.type === "open_settings_menu") return openSettingsMenu();
         renderState();
         focusActiveSurface();
+    }
+
+    // The session the menu was opened from, refreshed on every open: the
+    // origin recorded when a jump actually happens.
+    let jumpCurrent: JumpOrigin | undefined;
+
+    function jumpMenuContentWidth(): number {
+        return Math.max(10, jumpMenuBox.width - 4);
+    }
+
+    function closeJumpMenu(): void {
+        jumpMenu = undefined;
+        jumpMenuBox.visible = false;
+        composer.focus();
+        renderer.requestRender();
+    }
+
+    function renderJumpMenu(): void {
+        if (jumpMenu === undefined) {
+            jumpMenuBox.visible = false;
+            renderer.requestRender();
+            return;
+        }
+        const widest = jumpMenu.rows.reduce(
+            (columns, row) =>
+                Math.max(
+                    columns,
+                    row.label.length + (row.detail?.length ?? 0) + 8,
+                ),
+            24,
+        );
+        const boxWidth = Math.min(widest, Math.max(24, renderer.width - 8));
+        jumpMenuBox.width = boxWidth;
+        const lines = jumpMenuLines(jumpMenu, Math.max(10, boxWidth - 4));
+        jumpMenuBox.height = lines.length + 2;
+        jumpMenuText.content = new StyledText(lines.flatMap((line, index) => [
+            line.role === "header"
+                ? fg(TUI_MUTED)(line.text)
+                : fg(line.selected === true ? TUI_ACCENT : TUI_TEXT)(
+                    line.text,
+                ),
+            ...(index === lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+        ]));
+        positionCommandSuggestions();
+        jumpMenuBox.visible = true;
+        renderer.requestRender();
+    }
+
+    function runJumpTo(row: JumpRow): void {
+        jumpMenu = undefined;
+        jumpMenuBox.visible = false;
+        if (row.kind === "back") {
+            jumpOrigin = undefined;
+            beginSessionResume(row.sessionPath, row.sessionId);
+            return;
+        }
+        // Only the first hop is remembered: back always returns to where the
+        // jumping started, not to the previous stop.
+        if (
+            jumpOrigin === undefined
+            && jumpCurrent !== undefined
+            && jumpCurrent.sessionId !== row.sessionId
+        ) {
+            jumpOrigin = jumpCurrent;
+        }
+        beginSessionResume(row.sessionPath, row.sessionId);
+    }
+
+    function openJumpMenuOverlay(): void {
+        if (jumpMenu !== undefined || anyOverlayOpen()) return;
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiNotice(
+                state,
+                "Jumping between conversations is unavailable on this host",
+            );
+            renderState();
+            return;
+        }
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || anyOverlayOpen()) return;
+            const currentId = client.agentId;
+            const current = agents.find((agent) => agent.id === currentId);
+            jumpCurrent = currentId === undefined || current === undefined
+                ? undefined
+                : {
+                    sessionId: currentId,
+                    sessionPath: current.session_path,
+                    title: current.title ?? current.name
+                        ?? "previous conversation",
+                };
+            const needsYou = (workIndex?.rows ?? []).filter((row) =>
+                row.section === "needs_you"
+            );
+            jumpMenu = openJumpMenuState(buildJumpRows({
+                currentId,
+                back: jumpOrigin,
+                needsYou,
+                agents,
+            }));
+            if (jumpMenu === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Nowhere to jump: nothing needs you and this conversation"
+                        + " has no parent or children",
+                );
+                renderState();
+                return;
+            }
+            renderJumpMenu();
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not build the jump menu: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
     }
 
     function openWorkTab(): void {
