@@ -25,10 +25,18 @@ import {
     tuiEntryMarginTop,
     tuiToolRowText,
 } from "../../clients/tui/state.ts";
-import type { TuiTranscriptEntry } from "../../clients/tui/state.ts";
+import type { TuiState, TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
+
+/** One phase of reasoning, as the provider delivers it: text, then a summary. */
+function thinkFor(state: TuiState, text: string, seconds: number): TuiState {
+    return appendTuiThought(
+        applyAgentUpdate(state, { type: "assistant_thinking", text, seq: 1 }),
+        seconds,
+    );
+}
 
 /** A transcript row as one line, gutter included. */
 function entryLine(entry: TuiTranscriptEntry): string {
@@ -125,30 +133,37 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     expect(replayResult?.text).toBe(liveResult?.text);
 });
 
-test("a completion with no reasoning behind it reports only its time", () => {
-    const state = appendTuiThought(createTuiState(), 3.04);
+test("a completion reports the time the reasoning behind it took", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Worked for 3.0s",
+        text: "Reasoning: 3.0s",
         seconds: 3.04,
+        reasoning: "weighing the two orderings",
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Worked for 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("Reasoning: 3.0s  ctrl+o reasoning");
 });
 
 test("tool calls between two stretches of thinking do not split the row", () => {
-    let state = appendTuiThought(createTuiState(), 2.4);
+    let state = thinkFor(createTuiState(), "reading the boundary", 2.4);
     state = applyAgentUpdate(state, {
         type: "tool_started",
         tool: "search",
         args: { pattern: "fold" },
         seq: 1,
     });
-    state = appendTuiThought(state, 2.9);
+    state = thinkFor(state, "checking the suffix", 2.9);
 
     const thoughts = state.entries.filter((entry) => entry.kind === "thought");
     expect(thoughts).toHaveLength(1);
-    expect(thoughts[0]?.text).toBe("Worked for 5.3s");
+    expect(thoughts[0]?.text).toBe("Reasoning: 5.3s");
 });
 
 test("an empty phase that took no time reports nothing", () => {
@@ -156,14 +171,15 @@ test("an empty phase that took no time reports nothing", () => {
 });
 
 test("consecutive thought phases report as one stretch", () => {
-    let state = appendTuiThought(createTuiState(), 2.5);
-    state = appendTuiThought(state, 2.0);
-    state = appendTuiThought(state, 1.5);
+    let state = thinkFor(createTuiState(), "first", 2.5);
+    state = thinkFor(state, "second", 2.0);
+    state = thinkFor(state, "third", 1.5);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Worked for 6.0s",
+        text: "Reasoning: 6.0s",
         seconds: 6,
+        reasoning: "first\n\nsecond\n\nthird",
     }]);
 });
 
@@ -374,7 +390,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         ...state,
         entries: [
             { kind: "user", text: "first" },
-            { kind: "thought", text: "Worked for 1.0s" },
+            { kind: "thought", text: "Reasoning: 1.0s" },
             { kind: "assistant", text: "first answer" },
         ],
     };
@@ -384,7 +400,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         entries: [
             ...state.entries,
             { kind: "user", text: "second" },
-            { kind: "thought", text: "Worked for 2.0s" },
+            { kind: "thought", text: "Reasoning: 2.0s" },
             { kind: "assistant", text: "second answer" },
         ],
     };
@@ -402,11 +418,11 @@ test("client notices do not push later reasoning summaries to the tail", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "first",
-        "Worked for 1.0s",
+        "Reasoning: 1.0s",
         "first answer",
         "Switched models.",
         "second",
-        "Worked for 2.0s",
+        "Reasoning: 2.0s",
         "second answer",
     ]);
 });
@@ -1632,7 +1648,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Worked for 0.0s", seconds: 0 },
+        { kind: "thought", text: "Reasoning: 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
@@ -2334,8 +2350,18 @@ test("a rebuild puts restored summaries back in front of the answer", () => {
         ...state,
         entries: [
             ...state.entries,
-            { kind: "thought", text: "Worked for 8.0s", seconds: 8 },
-            { kind: "thought", text: "Worked for 4.2s", seconds: 4.2 },
+            {
+                kind: "thought",
+                text: "Reasoning: 8.0s",
+                seconds: 8,
+                reasoning: "checking the diff",
+            },
+            {
+                kind: "thought",
+                text: "Reasoning: 4.2s",
+                seconds: 4.2,
+                reasoning: "drafting the message",
+            },
         ],
     };
 
@@ -2354,28 +2380,20 @@ test("a rebuild puts restored summaries back in front of the answer", () => {
         "assistant",
     ]);
     expect(state.entries[1]).toMatchObject({
-        text: "Worked for 12.2s",
+        text: "Reasoning: 12.2s",
         seconds: 12.2,
     });
 });
 
-test("phases that reported nothing settle as one row, not one row each", () => {
-    const state = applyAgentUpdate({
-        ...createTuiState(),
-        working: true,
-        entries: [
-            { kind: "user", text: "may I commit?" },
-            { kind: "assistant", text: "the fix is ready" },
-            { kind: "thought", text: "Worked for 8.0s", seconds: 8 },
-            { kind: "thought", text: "Worked for 4.2s", seconds: 4.2 },
-        ],
-    }, { type: "turn_finished", seq: 1 });
+test("a phase that reported no reasoning earns no row", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_delta",
+        text: "the fix is ready",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 8);
 
-    expect(state.entries.map((entry) => entry.text)).toEqual([
-        "may I commit?",
-        "Worked for 12.2s",
-        "the fix is ready",
-    ]);
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["assistant"]);
 });
 
 test("folded phases keep every stretch of reasoning behind one row", () => {
