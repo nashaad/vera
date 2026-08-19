@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import {
     mkdirSync,
     mkdtempSync,
+    symlinkSync,
     writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -114,4 +115,24 @@ test("copyable example skills are valid opt-in packages", async () => {
         "browser-research",
         "consult",
     ]);
+});
+
+test("catalog discovery follows a symlinked skill directory", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skills-"));
+    const canonical = join(root, "canonical");
+    writeSkill(canonical, "review", "user review");
+    const userDirectory = join(root, "user");
+    mkdirSync(userDirectory, { recursive: true });
+    symlinkSync(join(canonical, "review"), join(userDirectory, "review"));
+
+    const catalog = await loadSkillCatalog({
+        projectRoot: join(root, "project"),
+        userDirectory,
+        systemDirectory: join(root, "system"),
+    });
+
+    expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
+        "review",
+    ]);
+    expect(catalog.warnings).toEqual([]);
 });

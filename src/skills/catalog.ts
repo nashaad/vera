@@ -1,7 +1,9 @@
 import {
     readdir,
     realpath,
+    stat,
 } from "node:fs/promises";
+import type { Dirent } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -123,7 +125,10 @@ async function loadRoot(
     for (const entry of entries.sort((left, right) =>
         left.name.localeCompare(right.name)
     )) {
-        if (!entry.isDirectory() || entry.name.startsWith(".")) {
+        if (entry.name.startsWith(".")) {
+            continue;
+        }
+        if (!entry.isDirectory() && !(await isDirectorySymlink(root, entry))) {
             continue;
         }
         const directory = join(root, entry.name);
@@ -139,6 +144,20 @@ async function loadRoot(
         }
     }
     return skills;
+}
+
+async function isDirectorySymlink(
+    root: string,
+    entry: Dirent,
+): Promise<boolean> {
+    if (!entry.isSymbolicLink()) {
+        return false;
+    }
+    try {
+        return (await stat(join(root, entry.name))).isDirectory();
+    } catch {
+        return false;
+    }
 }
 
 function isMissing(error: unknown): boolean {
