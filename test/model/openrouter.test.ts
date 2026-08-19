@@ -646,10 +646,9 @@ describe("OpenRouter adapter", () => {
             },
         ]);
         const adapter = new OpenRouterAdapter(async (request) => {
-            expect(request.messages[0]).not.toHaveProperty("reasoningDetails");
-            expect(request.messages[0]).toMatchObject({
+            expect(request.messages[0]).toEqual({
                 role: "assistant",
-                reasoning: "check",
+                content: "answer",
             });
             return chunks([chatChunk({ delta: {}, finishReason: "stop" })]);
         });
@@ -658,7 +657,10 @@ describe("OpenRouter adapter", () => {
             messages: [
                 {
                     role: "assistant",
-                    content: [{ type: "thinking", text: "check", signature }],
+                    content: [
+                        { type: "thinking", text: "check", signature },
+                        { type: "text", text: "answer" },
+                    ],
                     source: {
                         provider: "openrouter",
                         api: "openrouter-chat",
