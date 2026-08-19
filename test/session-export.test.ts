@@ -124,6 +124,7 @@ test("session export preserves a durable terminal model error", async () => {
         expect(json.transcript.at(-1)).toEqual({
             id: expect.any(String),
             kind: "error",
+            outcome: "error",
             detail: "rate limited after retries",
         });
         expect(await exportSession(path, "markdown")).toContain(

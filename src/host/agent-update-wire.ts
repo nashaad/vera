@@ -737,9 +737,13 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
         return typeof entry.text === "string";
     }
     if (entry?.kind === "error") {
-        return entry.detail === undefined
-            || (typeof entry.detail === "string"
-                && entry.detail.trim().length > 0);
+        const outcome = entry.outcome;
+        return (outcome === undefined
+                || outcome === "error"
+                || outcome === "aborted")
+            && (entry.detail === undefined
+                || (typeof entry.detail === "string"
+                    && entry.detail.trim().length > 0));
     }
     if (entry?.kind === "empty") {
         return true;

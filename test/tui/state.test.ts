@@ -694,8 +694,8 @@ test("TUI shows model failures when a turn finishes", () => {
         kind: "notice",
         text: "",
         diagnostic: resolveTuiDiagnostic(
-            "model_request_failed",
-            "Model error: Turn aborted",
+            "turn_interrupted",
+            "Interrupted",
         ),
     });
 });
@@ -768,6 +768,20 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     // Disconnection is status-line state, so the transcript gains no row.
     expect(state.entries).toHaveLength(connected.entries.length);
+});
+
+test("TUI restores an interrupted turn from history as a notice", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error", outcome: "aborted" }],
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic("turn_interrupted", "Interrupted"),
+    }]);
 });
 
 test("TUI keeps model failures restored from canonical history", () => {

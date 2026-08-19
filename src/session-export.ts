@@ -73,7 +73,11 @@ export function renderSessionMarkdown(exported: SessionExport): string {
                 entry.output.length === 0 ? "(no output)" : entry.output,
             ));
         } else if (entry.kind === "error") {
-            lines.push(quoteMarkdown(entry.detail ?? "Model request failed"));
+            lines.push(quoteMarkdown(
+                entry.outcome === "aborted"
+                    ? "Interrupted"
+                    : entry.detail ?? "Model request failed",
+            ));
         } else if (entry.kind === "empty") {
             lines.push(quoteMarkdown("No response"));
         } else if (entry.kind === "presentation") {
@@ -140,7 +144,7 @@ function transcriptHeading(entry: TranscriptEntry): string {
         return "## Vera";
     }
     if (entry.kind === "error") {
-        return "## Model error";
+        return entry.outcome === "aborted" ? "## Interrupted" : "## Model error";
     }
     if (entry.kind === "model_substitution") {
         return "## Model substitution";
