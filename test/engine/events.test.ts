@@ -15,6 +15,7 @@ import {
     EngineEventBus,
     createJsonlEventLogger,
     defaultEventLogPath,
+    modelRequestSnapshotPath,
     type EngineEvent,
 } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
@@ -39,6 +40,9 @@ interface LoggedEventLine {
     readonly type: EngineEvent["type"];
     readonly event?: { readonly type: string };
     readonly systemPrompt?: string;
+    readonly systemPromptBytes?: number;
+    readonly messageCount?: number;
+    readonly toolNames?: readonly string[];
     readonly promptContributions?: readonly PromptContributionMetadata[];
 }
 
@@ -139,8 +143,16 @@ test("a turn fans out to updates and a per-session event log", async () => {
             && line.level === "debug"
         )).toBe(true);
         const requestLine = lines.find((line) => line.type === "model_request");
-        expect(requestLine?.systemPrompt).toContain("## Identity\n");
-        expect(requestLine?.systemPrompt).toContain(
+        expect(requestLine?.systemPrompt).toBeUndefined();
+        expect(requestLine?.messageCount).toBe(1);
+        const snapshot = JSON.parse(
+            await readFile(modelRequestSnapshotPath(logPath), "utf8"),
+        ) as LoggedEventLine;
+        expect(requestLine?.systemPromptBytes).toBe(
+            Buffer.byteLength(snapshot.systemPrompt ?? ""),
+        );
+        expect(snapshot.systemPrompt).toContain("## Identity\n");
+        expect(snapshot.systemPrompt).toContain(
             `## Workspace\nWorking directory: ${workspace}`,
         );
         expect(requestLine?.promptContributions).toEqual([
@@ -167,6 +179,8 @@ test("a turn fans out to updates and a per-session event log", async () => {
         ]);
         expect((await stat(logDirectory)).mode & 0o777).toBe(0o700);
         expect((await stat(logPath)).mode & 0o777).toBe(0o600);
+        expect((await stat(modelRequestSnapshotPath(logPath))).mode & 0o777)
+            .toBe(0o600);
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
@@ -312,3 +326,56 @@ function loggedEventName(event: LoggedEventLine): string {
         ? `${event.type}:${event.event?.type}`
         : event.type;
 }
+
+test("repeated model requests keep the log flat and the latest in the slot", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        events.subscribe(createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+        }));
+        const emitRequest = (turn: number): void => {
+            events.emit({
+                type: "model_request",
+                model: "test",
+                maxTokens: 1_024,
+                systemPrompt: "s".repeat(4_096),
+                messages: Array.from({ length: turn }, () => ({
+                    role: "user" as const,
+                    content: [{
+                        type: "text" as const,
+                        text: "m".repeat(4_096),
+                    }],
+                })),
+                tools: [],
+                promptContributions: [],
+                toolResultBytes: 0,
+            });
+        };
+        for (let turn = 1; turn <= 20; turn += 1) {
+            emitRequest(turn);
+        }
+
+        const lines = (await readFile(logPath, "utf8")).trim().split("\n");
+        expect(lines).toHaveLength(20);
+        const first = JSON.parse(lines[0] ?? "") as LoggedEventLine;
+        const last = JSON.parse(lines[19] ?? "") as LoggedEventLine;
+        expect(first.messageCount).toBe(1);
+        expect(last.messageCount).toBe(20);
+        expect(last.systemPromptBytes).toBe(4_096);
+        // A twentieth request carries twenty messages, so an appended log
+        // would be twenty times the first line here rather than level with it.
+        expect((lines[19] ?? "").length).toBeLessThan(
+            (lines[0] ?? "").length * 2,
+        );
+
+        const snapshot = JSON.parse(
+            await readFile(modelRequestSnapshotPath(logPath), "utf8"),
+        ) as { readonly messages: readonly unknown[] };
+        expect(snapshot.messages).toHaveLength(20);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});

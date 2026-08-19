@@ -3,6 +3,7 @@ import { readFile, stat } from "node:fs/promises";
 import {
     defaultEventLogPath,
     legacyEventLogPath,
+    modelRequestSnapshotPath,
 } from "./engine/events.ts";
 import type { PromptContributionMetadata } from "./engine/prompt-contributions.ts";
 import type { ModelMessage, ModelTool } from "./model/types.ts";
@@ -48,8 +49,7 @@ export async function inspectLatestModelRequest(
             session.header.cwd,
             eventLogRoot,
         );
-    const source = await readFile(path, "utf8");
-    const request = latestModelRequest(source, session.header.id, path);
+    const request = await readModelRequest(path, session.header.id);
     const inspected: InspectedModelRequest = {
         format_version: 1,
         session_id: session.header.id,
@@ -69,6 +69,40 @@ export async function inspectLatestModelRequest(
         },
     };
     return `${JSON.stringify(inspected, null, 2)}\n`;
+}
+
+/**
+ * The latest request comes from the snapshot beside the log. Logs written
+ * before the snapshot existed still carry whole requests inline, so a missing
+ * snapshot falls back to scanning them.
+ */
+async function readModelRequest(
+    path: string,
+    sessionId: string,
+): Promise<LoggedModelRequest> {
+    const snapshotPath = modelRequestSnapshotPath(path);
+    const snapshot = await readFile(snapshotPath, "utf8").catch(
+        (error: NodeJS.ErrnoException) => {
+            if (error.code === "ENOENT") return undefined;
+            throw error;
+        },
+    );
+    if (snapshot !== undefined) {
+        let value: unknown;
+        try {
+            value = JSON.parse(snapshot);
+        } catch {
+            throw new Error(`${snapshotPath} contains malformed JSON`);
+        }
+        if (!isLoggedModelRequest(value)) {
+            throw new Error(`${snapshotPath} contains an invalid model request`);
+        }
+        if (value.sessionId === sessionId) {
+            return value;
+        }
+    }
+    const source = await readFile(path, "utf8");
+    return latestModelRequest(source, sessionId, path);
 }
 
 function latestModelRequest(
