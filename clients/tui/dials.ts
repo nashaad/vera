@@ -593,7 +593,7 @@ export function renderEffortScale(
     }
     // Wide enough that the lane name and the default chip both sit to the left
     // of the track, with the axis labels above still aligned to its start.
-    const indent = defaultCell === undefined ? 14 : 28;
+    const indent = defaultCell === undefined ? DIAL_CHOICE_COLUMN : 30;
     // Keep the scale a compact HUD element; it should explain the axis without
     // stretching a short control panel across the whole terminal.
     const trackWidth = Math.min(36, Math.max(20, width - indent - 2));
@@ -633,7 +633,7 @@ export function renderEffortScale(
     // it: choosing default is not a point on the Faster/Smarter axis.
     // Padded to the same width every other rung uses, so the chip starts in
     // the column the access and agent choices start in.
-    const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(14);
+    const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(DIAL_CHOICE_COLUMN);
     const chipStart = defaultCell === undefined
         ? indent
         : laneLabel.length + defaultCell.length;
@@ -797,6 +797,15 @@ function renderExpandedModelLane(
     ];
 }
 
+/**
+ * The column every rung's first choice starts in. The model rung spends the
+ * four columns before it on its source marker and opening bracket, so the
+ * other rungs pad their labels out to the same place.
+ */
+const DIAL_CHOICE_COLUMN = 16;
+/** The same column once the labels are dropped on a narrow terminal. */
+const DIAL_CHOICE_COLUMN_COMPACT = 6;
+
 function renderDialLane(
     active: boolean,
     label: string,
@@ -808,8 +817,10 @@ function renderDialLane(
     // Keep the controls on a shared label gutter, then let choices remain
     // compact; fixed-width choices become excessively airy on wide terminals.
     const prefix = Number.isFinite(width) && width < 42
-        ? `${active ? "›" : " "} `
-        : `${active ? "›" : " "} ${label.padEnd(12)}`;
+        ? `${active ? "›" : " "} `.padEnd(DIAL_CHOICE_COLUMN_COMPACT)
+        : `${active ? "›" : " "} ${
+            label.padEnd(DIAL_CHOICE_COLUMN - 2)
+        }`;
     let start = 0;
     let end = cells.length;
     const line = () => {
