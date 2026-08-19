@@ -1373,7 +1373,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     if (entry.kind === "thinking") {
-        return new StyledText([fg(TUI_MUTED)(liveThinkingTail(entry.text))]);
+        // A rule down the left edge says where the window is, so reasoning
+        // scrolling inside it reads as one region with an edge rather than as
+        // the transcript itself moving.
+        const rule = liveThinkingTail(entry.text)
+            .split("\n")
+            .map((line) => `${LIVE_THINKING_RULE} ${line}`.trimEnd())
+            .join("\n");
+        return new StyledText([fg(TUI_MUTED)(rule)]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
@@ -1385,6 +1392,9 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
  * thinks at length cannot push the work above it off the screen.
  */
 export const LIVE_THINKING_ROWS = 8;
+
+/** The left edge of the window reasoning arrives into. */
+const LIVE_THINKING_RULE = "│";
 
 /**
  * The last few lines of reasoning, as the tail of a fixed-height window.
