@@ -51,6 +51,8 @@ import {
     createJsonlEventLogger,
 } from "./events.ts";
 import type { PoolAdmissionVerdict } from "./events.ts";
+import { createModelFailureRecorder } from "./model-failure-recorder.ts";
+import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { ReviewLog } from "./review-log.ts";
 import {
     boundToolResult,
@@ -282,6 +284,12 @@ export interface RunHeadlessLoopOptions {
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
     readonly eventLogPath?: string;
+    /**
+     * Owner-supplied, like the event log path: a caller that names no ledger
+     * records nothing, so the engine cannot reach the home directory by
+     * omission.
+     */
+    readonly modelFailureLedger?: ModelFailureLedger;
     readonly eventBus?: EngineEventBus;
     readonly approvalMode?: ApprovalMode;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
@@ -495,6 +503,14 @@ export async function runHeadlessLoop(
             return effectiveContextWindow(declared, settings?.contextLimit);
         },
     );
+    // Before the wire encoder: the ledger writes synchronously, so a client
+    // reading it when the failure reaches the screen already sees this turn.
+    if (options.modelFailureLedger !== undefined) {
+        events.subscribe(createModelFailureRecorder({
+            ledger: options.modelFailureLedger,
+            sessionId,
+        }));
+    }
     events.subscribe(protocol);
     // A caller that names no path gets no log. The host names one for every
     // agent it starts, so only direct engine callers opt out, and they cannot

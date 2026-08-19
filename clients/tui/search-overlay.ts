@@ -356,8 +356,8 @@ export function searchOverlayLines(
     for (const result of results) {
         lines.push({ kind: "blank", text: "" });
         const age = relativeTime(result.updated_at, now, "");
-        // The session names the group; the pointer sits on hits, because a
-        // hit is what enter opens.
+        // The session names the group; the highlight bar sits on hits,
+        // because a hit is what enter opens.
         const title = `  ${result.title}`;
         const gap = Math.max(1, layout.width - title.length - age.length);
         lines.push({
@@ -371,9 +371,7 @@ export function searchOverlayLines(
             lines.push({
                 kind: "hit",
                 text: clip(
-                    `  ${selected ? ">" : " "} ${HIT_PREFIXES[hit.kind]} ${
-                        hit.snippet
-                    }`,
+                    `    ${HIT_PREFIXES[hit.kind]} ${hit.snippet}`,
                     layout.width,
                 ),
                 session_id: result.session_id,
@@ -428,8 +426,9 @@ export function searchOverlayViewState(
         lines: lines.map((line) => ({
             text: line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
+            ...(line.selected === true ? { selected: true } : {}),
             tone: line.kind === "result"
-                ? (line.selected === true ? "accent" as const : "text" as const)
+                ? "text" as const
                 : line.kind === "query"
                     ? "text" as const
                     : "muted" as const,
