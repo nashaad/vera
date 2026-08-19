@@ -29,7 +29,12 @@ import type {
     CatalogModel,
     ReasoningLevel,
 } from "../model/catalog-shape.ts";
-import { writeProviderCatalogSnapshot } from "../model/catalog-cache.ts";
+import {
+    DEFAULT_CATALOG_MAX_AGE_MS,
+    readFreshProviderCatalogSnapshot,
+    readProviderCatalogSnapshot,
+    writeProviderCatalogSnapshot,
+} from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
 import { createReviewLogger } from "../engine/review-log.ts";
@@ -848,9 +853,84 @@ function refusedPoolWrite(
     }
 }
 
+/**
+ * How long a discovered model list answers for before its provider is asked
+ * again. Starting Vera is not a reason to call a provider: the lists change
+ * over weeks, and Vera used to pay a request on every launch, before the host
+ * was even discoverable. `vera models refresh` passes `0` to ask now.
+ */
+export function catalogMaxAgeMs(config: VeraConfig): number {
+    const days = config.model_catalog_max_age_days;
+    return days === undefined
+        ? DEFAULT_CATALOG_MAX_AGE_MS
+        : days * 24 * 60 * 60 * 1000;
+}
+
+export interface CatalogRefreshOutcome {
+    readonly provider: string;
+    /** Absent when the provider was never asked. */
+    readonly models?: number;
+    /** Why it was not asked, when it was not. */
+    readonly skipped?: string;
+}
+
+export interface CatalogRefreshOptions {
+    readonly authStorage?: AuthStorage;
+    readonly cacheDir?: string;
+}
+
+/**
+ * Asks every network-backed provider now and rewrites its snapshot, which is
+ * what `vera models refresh` is for: the TTL means an ordinary start does not
+ * do this, so there has to be a way to say "a model came out today".
+ *
+ * A provider with no credential is reported as skipped rather than as empty,
+ * since the two look the same in the picker and only one of them is something
+ * the user can act on. Ollama is not here: it is local, so its list costs
+ * nothing to read and was never part of what the TTL exists to stop.
+ */
+export async function refreshProviderCatalogs(
+    config: VeraConfig,
+    options: CatalogRefreshOptions = {},
+): Promise<readonly CatalogRefreshOutcome[]> {
+    const cacheOptions = options.cacheDir === undefined
+        ? {}
+        : { cacheDir: options.cacheDir };
+    const authStorage = options.authStorage ?? createAuthStorage();
+    const [openrouter, cerebras] = await Promise.all([
+        hasOpenRouterCredential(config)
+            ? discoveredOpenRouterModels(config, {
+                ...cacheOptions,
+                maxAgeMs: 0,
+            })
+            : undefined,
+        hasCerebrasCredential(config, authStorage)
+            ? discoveredCerebrasModels(config, {
+                ...cacheOptions,
+                authStorage,
+                maxAgeMs: 0,
+            })
+            : undefined,
+    ]);
+    return [
+        refreshOutcome("openrouter", openrouter),
+        refreshOutcome("cerebras", cerebras),
+    ];
+}
+
+function refreshOutcome(
+    provider: string,
+    models: readonly SuggestedModel[] | undefined,
+): CatalogRefreshOutcome {
+    return models === undefined
+        ? { provider, skipped: "no credential" }
+        : { provider, models: models.length };
+}
+
 async function discoverAvailableModels(
     config: VeraConfig,
     authStorage: AuthStorage,
+    maxAgeMs = catalogMaxAgeMs(config),
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
     // Asked together rather than one after another: each provider caps its own
@@ -863,8 +943,8 @@ async function discoverAvailableModels(
                 ? {}
                 : { host: config.provider_endpoints.ollama }),
         }),
-        discoveredOpenRouterModels(config),
-        discoveredCerebrasModels(config, { authStorage }),
+        discoveredOpenRouterModels(config, { maxAgeMs }),
+        discoveredCerebrasModels(config, { authStorage, maxAgeMs }),
     ]);
     catalog.push(...ollama);
     if (openrouter.length > 0) {
@@ -901,18 +981,37 @@ export interface CerebrasDiscoveryOptions {
         input: string | URL | Request,
         init?: RequestInit,
     ) => Promise<Response>;
+    readonly cacheDir?: string;
+    /** See `catalogMaxAgeMs`. `0` always asks the provider. */
+    readonly maxAgeMs?: number;
+}
+
+function hasCerebrasCredential(
+    config: VeraConfig,
+    authStorage?: Pick<AuthStorage, "getCredential">,
+): boolean {
+    return config.provider === "cerebras"
+        || hasProviderCredential("cerebras", authStorage)
+        || Boolean(process.env.CEREBRAS_API_KEY);
 }
 
 export async function discoveredCerebrasModels(
     config: VeraConfig,
     options: CerebrasDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
-    if (
-        config.provider !== "cerebras"
-        && !hasProviderCredential("cerebras", options.authStorage)
-        && !process.env.CEREBRAS_API_KEY
-    ) {
+    if (!hasCerebrasCredential(config, options.authStorage)) {
         return [];
+    }
+    const cacheOptions = options.cacheDir === undefined
+        ? {}
+        : { cacheDir: options.cacheDir };
+    const remembered = readFreshProviderCatalogSnapshot(
+        "cerebras",
+        options.maxAgeMs ?? 0,
+        cacheOptions,
+    );
+    if (remembered !== undefined) {
+        return remembered.models.map(cerebrasSuggestion);
     }
     try {
         const fetchImplementation = options.fetch ?? globalThis.fetch;
@@ -926,12 +1025,69 @@ export async function discoveredCerebrasModels(
                 : providerEndpointUrl(moved, "/models"),
             { signal: AbortSignal.timeout(2_000) },
         );
-        if (!response.ok) return [];
-        return cerebrasModels(await response.json());
+        if (!response.ok) return staleCerebrasModels(cacheOptions);
+        const models = cerebrasModels(await response.json());
+        if (models.length === 0) return staleCerebrasModels(cacheOptions);
+        rememberCerebrasModels(models, cacheOptions);
+        return models;
     } catch {
         // Discovery enriches the picker; it must never block host startup.
-        return [];
+        return staleCerebrasModels(cacheOptions);
     }
+}
+
+/**
+ * The last list Cerebras gave, however old. A snapshot too old to skip the
+ * fetch is still the better answer when the fetch itself failed, which is the
+ * same trade the OpenRouter catalog makes.
+ */
+function staleCerebrasModels(
+    cacheOptions: { readonly cacheDir?: string },
+): readonly SuggestedModel[] {
+    return readProviderCatalogSnapshot("cerebras", cacheOptions)
+        .models
+        .map(cerebrasSuggestion);
+}
+
+function rememberCerebrasModels(
+    models: readonly SuggestedModel[],
+    cacheOptions: { readonly cacheDir?: string },
+): void {
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "cerebras",
+            fetched_at: new Date().toISOString(),
+            // Cerebras publishes no reasoning levels, so the entries carry
+            // none: the snapshot says what the listing said and nothing more.
+            models: models.map((model) => ({
+                id: model.model,
+                label: model.label,
+                ...(model.description === ""
+                    ? {}
+                    : { description: model.description }),
+                ...(model.contextWindow === undefined
+                    ? {}
+                    : { context_window: model.contextWindow }),
+                levels: [],
+            })),
+        }, cacheOptions);
+    } catch {
+        // A snapshot Vera cannot write is not a reason to hide models it just
+        // fetched. The next start tries again.
+    }
+}
+
+function cerebrasSuggestion(model: CatalogModel): SuggestedModel {
+    return {
+        provider: "cerebras",
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined
+            ? {}
+            : { contextWindow: model.context_window }),
+    };
 }
 
 export function cerebrasModels(value: unknown): readonly SuggestedModel[] {
