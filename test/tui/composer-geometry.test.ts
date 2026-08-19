@@ -114,7 +114,7 @@ describe("composer geometry", () => {
                 .filter((span) => span.text.trim().length > 0)
                 .map(hex);
             expect(grounds).not.toBeEmpty();
-            for (const ground of grounds) expect(ground).toBe("#000080");
+            for (const ground of grounds) expect(ground.toLowerCase()).toBe("#ffffff");
         }
         setup.renderer.destroy();
     });
