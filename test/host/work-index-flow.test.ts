@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, realpath, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -28,7 +28,9 @@ const socketTest = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
     : test;
 
 socketTest("a real pending approval reaches a real client's work index", async () => {
-    const root = await mkdtemp(join(tmpdir(), "vera-work-flow-"));
+    const root = await realpath(
+        await mkdtemp(join(tmpdir(), "vera-work-flow-")),
+    );
     const socketPath = join(root, "host.sock");
     const host = await startResidentHost({
         config,
