@@ -33,6 +33,7 @@ import {
 
 /** Marks the rows where the turn ran on something other than what was asked. */
 const SUBSTITUTION_MARKER = "\u21c4";
+const INTERRUPTED_TURN_TEXT = "Interrupted";
 import { VERA_TUI_THEME } from "./theme.ts";
 
 export type TuiTranscriptEntryKind =
@@ -412,10 +413,15 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         if (update.empty === true) {
             return appendEntry(finished, emptyTurnEntry());
         }
+        if (update.outcome === "aborted") {
+            return appendTuiDiagnostic(
+                finished,
+                "turn_interrupted",
+                INTERRUPTED_TURN_TEXT,
+            );
+        }
         const error = update.error
-            ?? (update.outcome === "error" ? "Model request failed"
-                : update.outcome === "aborted" ? "Turn aborted"
-                : undefined);
+            ?? (update.outcome === "error" ? "Model request failed" : undefined);
         if (error === undefined) return finished;
         const attachment = error.startsWith("Image attachment unavailable:");
         return appendTuiDiagnostic(
@@ -2075,10 +2081,15 @@ function toSingleTuiTranscriptEntry(
         return {
             kind: "notice",
             text: "",
-            diagnostic: resolveTuiDiagnostic(
-                "model_request_failed",
-                `Model error: ${entry.detail ?? "Model request failed"}`,
-            ),
+            diagnostic: entry.outcome === "aborted"
+                ? resolveTuiDiagnostic(
+                    "turn_interrupted",
+                    INTERRUPTED_TURN_TEXT,
+                )
+                : resolveTuiDiagnostic(
+                    "model_request_failed",
+                    `Model error: ${entry.detail ?? "Model request failed"}`,
+                ),
         };
     }
     if (entry.kind === "presentation") {
