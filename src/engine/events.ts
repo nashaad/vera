@@ -5,6 +5,8 @@ import {
     fchmodSync,
     mkdirSync,
     openSync,
+    renameSync,
+    writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
@@ -609,6 +611,21 @@ export function legacyEventLogPath(
     return join(root, `${sessionId}.jsonl`);
 }
 
+/**
+ * Where the most recent model request for a log is kept in full.
+ *
+ * A request carries the whole conversation, so appending each one to the log
+ * writes the transcript again per turn and grows the file with the square of
+ * the session length. One session reached 147MB that way. Only the latest
+ * request is ever read back, so it is held in a slot the next request
+ * overwrites and the log keeps a summary line in its place.
+ */
+export function modelRequestSnapshotPath(logPath: string): string {
+    return logPath.endsWith(".jsonl")
+        ? `${logPath.slice(0, -".jsonl".length)}.model-request.json`
+        : `${logPath}.model-request.json`;
+}
+
 export function createJsonlEventLogger(
     options: JsonlEventLoggerOptions,
 ): EngineEventSubscriber {
@@ -621,21 +638,68 @@ export function createJsonlEventLogger(
             logPrepared = true;
         }
 
+        const timestamp = now().toISOString();
+        if (event.type === "model_request") {
+            writeModelRequestSnapshot(options.path, {
+                timestamp,
+                sessionId: options.sessionId,
+                ...event,
+            });
+        }
+
         appendFileSync(
             options.path,
             `${JSON.stringify({
-                timestamp: now().toISOString(),
+                timestamp,
                 level: event.type === "model_stream_error"
                     ? "error"
                     : event.type === "prompt_prefix_drift"
                         ? "warn"
                         : "debug",
                 sessionId: options.sessionId,
-                ...event,
+                ...(event.type === "model_request"
+                    ? summarizeModelRequest(event)
+                    : event),
             })}\n`,
             { encoding: "utf8", mode: 0o600 },
         );
     };
+}
+
+/**
+ * The log's stand-in for a request. It keeps the fields that describe the
+ * request and replaces the three that carry its bulk with their sizes, so the
+ * timeline still says what was sent and how big it was. Tool names stay whole:
+ * which tools a request exposed is a fact readers ask for, and the schemas are
+ * what made the list large.
+ */
+function summarizeModelRequest(
+    event: ModelRequestEvent,
+): Record<string, unknown> {
+    const {
+        systemPrompt,
+        messages,
+        tools,
+        ...rest
+    } = event;
+    return {
+        ...rest,
+        systemPromptBytes: Buffer.byteLength(systemPrompt),
+        messageCount: messages.length,
+        toolNames: tools.map((tool) => tool.name),
+    };
+}
+
+function writeModelRequestSnapshot(logPath: string, request: object): void {
+    const path = modelRequestSnapshotPath(logPath);
+    // Written beside the slot and renamed over it, so a reader never sees a
+    // request half replaced by the next one.
+    const pending = `${path}.pending`;
+    writeFileSync(pending, `${JSON.stringify(request)}\n`, {
+        encoding: "utf8",
+        mode: 0o600,
+    });
+    renameSync(pending, path);
 }
 
 function prepareEventLog(path: string): void {
