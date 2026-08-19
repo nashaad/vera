@@ -2130,18 +2130,14 @@ test("an async subagent returns immediately and delivers its final summary", asy
         )).trim().split("\n").map(
             (line) => JSON.parse(line) as {
                 type: string;
-                tools?: readonly { name: string }[];
+                toolNames?: readonly string[];
             },
         );
         const childRequest = childEvents.find(
             (event) => event.type === "model_request",
         );
-        expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
-            "subagent",
-        );
-        expect(childRequest?.tools?.map((tool) => tool.name)).not.toContain(
-            "async_subagent",
-        );
+        expect(childRequest?.toolNames).not.toContain("subagent");
+        expect(childRequest?.toolNames).not.toContain("async_subagent");
         expect(childStore.messages().map(withoutCallDuration)).toEqual([
             {
                 role: "user",
