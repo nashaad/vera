@@ -1188,27 +1188,24 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
     const settled = dropTuiThinking(state);
-    // A phase that produced no reasoning and took no time is not a thing that
-    // happened. Reporting it costs a row and says nothing.
-    if (reasoning.length === 0 && seconds < 0.05) {
+    // A phase that reported no reasoning has nothing behind its row: the
+    // elapsed time was already on the status line while it ran, and the row
+    // that survives it cannot be opened.
+    if (reasoning.length === 0) {
         return settled;
     }
     return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
-        text: thoughtSummary(seconds, reasoning.length > 0),
+        text: thoughtSummary(seconds),
         seconds,
         ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded ? { expanded: true } : {}),
     });
 }
 
-/**
- * A phase that reported no reasoning still reports its time, under a word that
- * does not promise text behind it.
- */
-function thoughtSummary(seconds: number, hasReasoning: boolean): string {
-    const label = hasReasoning ? "Reasoning:" : "Worked for";
-    return `${label} ${seconds.toFixed(1)}s`;
+/** Every summary has reasoning behind it, so every summary is named for it. */
+function thoughtSummary(seconds: number): string {
+    return `Reasoning: ${seconds.toFixed(1)}s`;
 }
 
 /**
@@ -2303,7 +2300,7 @@ function mergeThoughts(
     const expanded = first.expanded === true || second.expanded === true;
     return {
         ...first,
-        text: thoughtSummary(seconds, reasoning.length > 0),
+        text: thoughtSummary(seconds),
         seconds,
         ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded && reasoning.length > 0 ? { expanded: true } : {}),

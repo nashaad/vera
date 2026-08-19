@@ -26,7 +26,7 @@ test("long tool output folds and Ctrl-E reveals it", async () => {
         expect(pane).toContain("Ran  printf");
         expect(pane).not.toContain("TOOL_DETAIL_09");
         // An instant reasoning phase earns no verb row at all.
-        expect(pane).not.toContain("Worked for");
+        expect(pane).not.toContain("Reasoning:");
         expect(pane).toMatch(/^ {2}─{20}/m);
         expect(pane).toMatch(/^• TOOL DETAILS COMPLETED$/m);
         expect(pane).toMatch(/^ {3}Tip /m);

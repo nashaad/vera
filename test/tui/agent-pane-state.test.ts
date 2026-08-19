@@ -9,17 +9,19 @@ test("two panes reduce agent updates into independent transcripts", () => {
 
     main.apply({ type: "user_prompt", content: "main question", seq: 1 }, 1_000);
     sidebar.apply({ type: "user_prompt", content: "side question", seq: 1 }, 2_000);
-    main.apply({ type: "assistant_delta", text: "main answer", seq: 2 }, 3_000);
-    sidebar.apply({ type: "assistant_delta", text: "side answer", seq: 2 }, 4_000);
+    main.apply({ type: "assistant_thinking", text: "main thinking", seq: 2 }, 1_000);
+    sidebar.apply({ type: "assistant_thinking", text: "side thinking", seq: 2 }, 2_000);
+    main.apply({ type: "assistant_delta", text: "main answer", seq: 3 }, 3_000);
+    sidebar.apply({ type: "assistant_delta", text: "side answer", seq: 3 }, 4_000);
 
     expect(main.state.entries.map((entry) => entry.text)).toEqual([
         "main question",
-        "Worked for 2.0s",
+        "Reasoning: 2.0s",
         "main answer",
     ]);
     expect(sidebar.state.entries.map((entry) => entry.text)).toEqual([
         "side question",
-        "Worked for 2.0s",
+        "Reasoning: 2.0s",
         "side answer",
     ]);
 });
