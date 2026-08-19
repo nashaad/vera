@@ -37,6 +37,7 @@ export type SendOpenRouterChat = (
 export function encodeOpenRouterMessages(
     systemPrompt: string | undefined,
     messages: readonly ModelInputMessage[],
+    model?: string,
 ): ChatMessages[] {
     const encoded: ChatMessages[] = [];
     if (systemPrompt) {
@@ -68,10 +69,15 @@ export function encodeOpenRouterMessages(
             .filter((block) => block.type === "thinking")
             .map((block) => block.text)
             .join("");
-        const reasoningDetails = message.content
-            .flatMap((block) => block.type === "thinking" && block.signature !== undefined
-                ? decodeReasoningDetails(block.signature)
-                : []);
+        // Signed and encrypted reasoning is only replayable to the model that
+        // produced it; another model rejects the whole request.
+        const replayable = model === undefined || message.source.model === model;
+        const reasoningDetails = replayable
+            ? message.content
+                .flatMap((block) => block.type === "thinking" && block.signature !== undefined
+                    ? decodeReasoningDetails(block.signature)
+                    : [])
+            : [];
         const toolCalls = message.content
             .filter((block) => block.type === "tool_call")
             .map((block) => ({
