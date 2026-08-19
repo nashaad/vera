@@ -1,4 +1,5 @@
 import {
+    readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "./catalog-cache.ts";
@@ -14,11 +15,11 @@ const PROVIDER = "openrouter";
 const MODELS_ENDPOINT = "https://openrouter.ai/api/v1/models";
 
 /**
- * The host builds its model list before it starts serving, so this timeout is
- * also a cap on how long a host start can wait on the network. The response is
- * around half a megabyte and normally arrives in well under a second; the cap
- * is set for the case where the network is not there at all, where the cost is
- * one wait of this length before falling back to the last snapshot.
+ * A cap on how long a fetch can hold up whatever asked for it, which on a
+ * stale start is the host coming up. The response is around half a megabyte
+ * and normally arrives in well under a second; the cap is set for the case
+ * where the network is not there at all, where the cost is one wait of this
+ * length before falling back to the last snapshot.
  */
 const DEFAULT_TIMEOUT_MS = 2500;
 
@@ -29,6 +30,13 @@ export interface OpenRouterCatalogRefreshOptions {
     readonly cacheDir?: string;
     readonly timeoutMs?: number;
     readonly fetch?: typeof globalThis.fetch;
+    /**
+     * How old the snapshot may be and still answer on its own. `0` always
+     * fetches, which is what a manual refresh passes. Absent means the same,
+     * so a caller that has not thought about staleness keeps the old
+     * behaviour rather than silently holding a list back.
+     */
+    readonly maxAgeMs?: number;
 }
 
 /**
@@ -41,6 +49,10 @@ export interface OpenRouterCatalogRefreshOptions {
  * model list changes slowly, and a list from yesterday is a far better answer
  * to "which models can I run" than an empty picker. `undefined` means there is
  * no answer at all, neither fresh nor remembered.
+ *
+ * `maxAgeMs` is what keeps this off the network on an ordinary start: a
+ * snapshot younger than it is returned as-is and no request is made. Passing
+ * `0` is the manual refresh, which always asks.
  */
 export async function refreshOpenRouterCatalog(
     options: OpenRouterCatalogRefreshOptions = {},
@@ -48,6 +60,14 @@ export async function refreshOpenRouterCatalog(
     const cacheOptions = options.cacheDir === undefined
         ? {}
         : { cacheDir: options.cacheDir };
+    const fresh = readFreshProviderCatalogSnapshot(
+        PROVIDER,
+        options.maxAgeMs ?? 0,
+        cacheOptions,
+    );
+    if (fresh !== undefined) {
+        return fresh;
+    }
     let raw: unknown;
     try {
         const response = await (options.fetch ?? globalThis.fetch)(
@@ -62,10 +82,10 @@ export async function refreshOpenRouterCatalog(
         return cachedCatalog(cacheOptions);
     }
 
-    const fresh = normalizeOpenRouterModels(raw);
+    const fetched = normalizeOpenRouterModels(raw);
     // Release dates accumulate rather than being refetched, so the snapshot
     // Vera already holds is consulted even on a successful fetch.
-    const catalog = mergeCatalogReleaseDates(fresh, cachedCatalog(cacheOptions));
+    const catalog = mergeCatalogReleaseDates(fetched, cachedCatalog(cacheOptions));
     if (catalog.models.length === 0) {
         // A reachable endpoint that answered with nothing usable is the same
         // situation as an unreachable one, and the remembered list is still

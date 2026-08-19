@@ -16,6 +16,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera doctor", description: "Check resident hosts, Vera process health, and providers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
+    { usage: "vera models refresh", description: "Fetch each provider's model list now, instead of waiting out the cache" },
     { usage: "vera shortlist list", description: "List the models you keep" },
     { usage: "vera shortlist add <provider/model> [--verify]", description: "Pin a model to your shortlist" },
     { usage: "vera shortlist remove <name|id>", description: "Remove a model from your shortlist" },

@@ -52,6 +52,10 @@ import {
 } from "../../src/model/pool-admission.ts";
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
 import { createAuthStorage } from "../../src/providers/auth-storage.ts";
+import {
+    refreshProviderCatalogs,
+    type CatalogRefreshOutcome,
+} from "../../src/host/runtime.ts";
 
 interface PoolAddOptions {
     readonly verify?: boolean;
@@ -94,6 +98,19 @@ async function defaultProviderDoctor(
     });
 }
 
+/**
+ * The manual half of the catalog TTL: an ordinary start answers from the
+ * snapshot, so this is how a user asks the providers right now.
+ */
+async function refreshDiscoveredCatalogs(): Promise<
+    readonly CatalogRefreshOutcome[]
+> {
+    return refreshProviderCatalogs(
+        loadOptionalVeraConfig() ?? startingVeraConfig(),
+        { authStorage: createAuthStorage() },
+    );
+}
+
 interface CliOutput {
     write(text: string): unknown;
 }
@@ -131,6 +148,7 @@ export interface CliDependencies {
     readonly providerDoctor?: (
         options: ProviderDoctorOptions,
     ) => Promise<ProviderDoctorReport>;
+    readonly refreshCatalogs?: () => Promise<readonly CatalogRefreshOutcome[]>;
     readonly listPool?: (workspace: string) => Promise<string>;
     readonly addPoolModel?: (
         workspace: string,
@@ -326,6 +344,24 @@ export async function runCli(
         );
         if (code !== 0) errorOutput.write(renderCliUsage());
         return code;
+    }
+
+    if (args.length === 2 && args[0] === "models" && args[1] === "refresh") {
+        const outcomes = await (
+            dependencies.refreshCatalogs ?? refreshDiscoveredCatalogs
+        )();
+        for (const outcome of outcomes) {
+            output.write(
+                outcome.skipped === undefined
+                    ? `${outcome.provider}: ${outcome.models} models\n`
+                    : `${outcome.provider}: skipped (${outcome.skipped})\n`,
+            );
+        }
+        // A refresh that reached nothing is not a success, and the exit code
+        // is what a script reads.
+        return outcomes.some((outcome) => outcome.skipped === undefined)
+            ? 0
+            : 1;
     }
 
     if (args.length === 2 && args[0] === "shortlist" && args[1] === "list") {
