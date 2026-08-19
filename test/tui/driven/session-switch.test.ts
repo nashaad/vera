@@ -336,7 +336,7 @@ test("ctrl+c quits while a session switch is still pending", async () => {
     }
 }, 15_000);
 
-test("arriving across a hop names the conversation left behind", async () => {
+test("resuming a session from the list offers no way back", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-back-name-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -354,9 +354,9 @@ test("arriving across a hop names the conversation left behind", async () => {
         session.sendKey("Down");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
-        expect(pane).toContain(
-            'Type /back to return to "The one already open"',
-        );
+        // /resume is navigation, not a hop: the person chose the destination,
+        // so there is no trip back to name.
+        expect(pane).not.toContain("/back");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
