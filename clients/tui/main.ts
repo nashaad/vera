@@ -1096,6 +1096,9 @@ export async function startTui(
     // Only the id is held; the path and title are resolved when used, from
     // the same listing every other session surface reads.
     let backOriginId: string | undefined;
+    // The origin's name at hop time, for the arrival notice. The notice
+    // fires once right after the switch, so a later rename is fine to miss.
+    let backOriginTitle: string | undefined;
     /**
      * Assumed focused until the terminal says otherwise. A terminal that does
      * not answer focus reporting would otherwise be treated as never watched,
@@ -9478,6 +9481,7 @@ export async function startTui(
             && previousId !== undefined
         ) {
             backOriginId = previousId;
+            backOriginTitle = sessionTitle;
             armedNow = true;
         }
         const draft = currentDraft();
@@ -9513,7 +9517,28 @@ export async function startTui(
                 // else on screen names the return trip.
                 const notice =
                     "Type /back to return to the conversation you came from";
-                state = appendTuiNotice(state, notice);
+                // The top copy names the origin so the hop reads as a place
+                // left, not just a rule; the copy after the transcript stays
+                // generic since the name is already on screen by then.
+                let originTitle = backOriginTitle;
+                if (
+                    originTitle === undefined
+                    && dependencies.listAgents !== undefined
+                ) {
+                    originTitle = await dependencies.listAgents().then(
+                        (agents) =>
+                            agents.find((agent) =>
+                                agent.id === backOriginId
+                            )?.title,
+                    ).catch(() => undefined);
+                }
+                state = appendTuiNotice(
+                    state,
+                    originTitle === undefined
+                        ? notice
+                        : `Type /back to return to "${originTitle}"`,
+                    "soft",
+                );
                 pendingBackNotice = notice;
                 renderState();
             }
