@@ -23,6 +23,10 @@ import {
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 test("the next real prompt drains a delivery preserved across restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-delivery-"));
@@ -81,7 +85,7 @@ test("the next real prompt drains a delivery preserved across restart", async ()
         while ((await channel.client.receive()).type !== "turn_finished") {
             // Drain protocol updates until the prompted turn completes.
         }
-        expect(await turn).toEqual(response);
+        expect(withoutCallDuration(await turn)).toEqual(response);
 
         expect(requests[0]?.messages).toEqual([
             {

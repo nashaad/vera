@@ -12,6 +12,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 import { projectTranscript } from "../../src/engine/protocol.ts";
 import type { EffortPool } from "../../src/model/effort-pool.ts";
 import {
@@ -114,11 +118,11 @@ test("one prompt streams assistant text and finishes the turn", async () => {
         text: "o",
         seq: 5,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 6,
     });
-    expect(await turn).toEqual(response);
+    expect(withoutCallDuration(await turn)).toEqual(response);
     expect(capturedRequest?.reasoningEffort).toBe("high");
     expect(capturedRequest?.systemPrompt).toContain("## Identity\n");
     expect(capturedRequest?.systemPrompt).toContain("## Tools\n");
@@ -132,7 +136,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     expect(capturedRequest?.systemPrompt).toMatch(
         /## Date\nCurrent date: \d{4}-\d{2}-\d{2}/,
     );
-    expect(state.messages).toEqual([
+    expect(state.messages.map(withoutCallDuration)).toEqual([
         {
             role: "user",
             content: [{ type: "text", text: "say hi" }],
@@ -396,11 +400,11 @@ test("an empty provider failure stays visible but does not poison the next reque
     await second;
     expect(secondUpdates.at(-1)).toMatchObject({ type: "turn_finished" });
     expect(secondUpdates.at(-1)).not.toHaveProperty("error");
-    expect(requests[1]?.messages).toEqual([
+    expect(requests[1]?.messages.map(withoutCallDuration)).toEqual([
         { role: "user", content: [{ type: "text", text: "first" }] },
         { role: "user", content: [{ type: "text", text: "try again" }] },
     ]);
-    expect(state.messages.at(-1)).toEqual(recovered);
+    expect(withoutCallDuration(state.messages.at(-1))).toEqual(recovered);
 });
 
 test("image references are durable while model requests receive verified bytes", async () => {
@@ -504,9 +508,9 @@ test("an unreadable image rejects the prompt before persistence or provider use"
 
     expect(result.stopReason).toBe("error");
     expect(result.errorMessage).toContain("stored bytes failed verification");
-    expect(state.messages).toEqual([]);
+    expect(state.messages.map(withoutCallDuration)).toEqual([]);
     expect(providerCalls).toBe(0);
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         outcome: "error",
         error: "Image attachment unavailable: stored bytes failed verification",
@@ -516,7 +520,7 @@ test("an unreadable image rejects the prompt before persistence or provider use"
     channel.client.send({ type: "prompt", content: "continue without it" });
     await runTurn(adapter, "test", state);
     expect(providerCalls).toBe(1);
-    expect(state.messages).toEqual([
+    expect(state.messages.map(withoutCallDuration)).toEqual([
         {
             role: "user",
             content: [{ type: "text", text: "continue without it" }],
@@ -560,7 +564,7 @@ test("an unsupported image prompt remains durable for a model switch", async () 
         stopReason: "error",
         errorMessage: "Image attachment unavailable: the selected model provider does not support image input",
     });
-    expect(state.messages).toEqual([{
+    expect(state.messages.map(withoutCallDuration)).toEqual([{
         role: "user",
         content: [
             { type: "text", text: "inspect this image" },
@@ -826,11 +830,11 @@ test("turn finished waits for the assistant message append", async () => {
     ]);
 
     releaseAppend();
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 4,
     });
-    expect(await turn).toEqual(response);
+    expect(withoutCallDuration(await turn)).toEqual(response);
     expect(order).toEqual([
         "append_started:user",
         "append_finished:user",
@@ -893,16 +897,16 @@ test("a length stop preserves streamed text and continues with a larger cap", as
         text: "second half",
         seq: 5,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 6,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(requests.map((request) => request.maxTokens)).toEqual([
         DEFAULT_MODEL_MAX_TOKENS,
         ESCALATED_MODEL_MAX_TOKENS,
     ]);
-    expect(requests[1]?.messages).toEqual([
+    expect(requests[1]?.messages.map(withoutCallDuration)).toEqual([
         {
             role: "user",
             content: [{ type: "text", text: "write a long answer" }],
@@ -914,7 +918,7 @@ test("a length stop preserves streamed text and continues with a larger cap", as
             internal: true,
         },
     ]);
-    expect(state.messages).toEqual([
+    expect(state.messages.map(withoutCallDuration)).toEqual([
         {
             role: "user",
             content: [{ type: "text", text: "write a long answer" }],
@@ -1027,11 +1031,11 @@ test("a transient model failure reports its retry to attached clients", async ()
         text: "recovered",
         seq: 4,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 5,
     });
-    expect(await turn).toEqual(response);
+    expect(withoutCallDuration(await turn)).toEqual(response);
     expect(attempts).toBe(2);
     expect(delays).toEqual([500]);
 
@@ -1180,11 +1184,11 @@ test("model fallback stays selected through the tool loop", async () => {
         text: "finished on backup",
         seq: 9,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 10,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(models).toEqual(["primary", "backup", "backup"]);
     expect(readFileSync(join(workspace, "fallback.txt"), "utf8"))
         .toBe("used backup");
@@ -1198,11 +1202,11 @@ test("model fallback stays selected through the tool loop", async () => {
         text: "primary again",
         seq: 13,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 14,
     });
-    expect(await nextTurn).toEqual(nextTurnResponse);
+    expect(withoutCallDuration(await nextTurn)).toEqual(nextTurnResponse);
     expect(models).toEqual(["primary", "backup", "backup", "primary"]);
 
     const logged = readFileSync(logPath, "utf8")
@@ -1302,7 +1306,7 @@ test("a fallback keeps the reasoning dial off for the rest of the turn", async (
     channel.client.send({ type: "prompt", content: "use fallback" });
     const turn = runTurn(adapter, "gpt-5.6-sol", state);
     await expectUserPrompt(channel, "use fallback", 1);
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
 
     // The second post-fallback request is the one that used to regress: the
     // tool loop rebuilt it from the turn's original effort, restoring a value
@@ -1380,11 +1384,11 @@ test("a bash tool call runs and continues the model turn", async () => {
         text: "done",
         seq: 6,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 7,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     const toolResult = state.messages[2];
     expect(toolResult).toMatchObject({
         role: "tool_result",
@@ -1495,11 +1499,11 @@ test("ask_user waits for a semantic choice and returns its stable ID", async () 
         text: "Preview selected",
         seq: 8,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 9,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(state.messages[2]).toMatchObject({
         role: "tool_result",
         toolCallId: "call_question",
@@ -1574,7 +1578,7 @@ test("a failed tool-result append still closes the tool lifecycle", async () => 
     });
     await expect(turn).rejects.toThrow("disk full");
     expect(postHookRan).toBe(true);
-    expect(state.messages).toEqual([
+    expect(state.messages.map(withoutCallDuration)).toEqual([
         {
             role: "user",
             content: [{ type: "text", text: "read package.json" }],
@@ -1949,11 +1953,11 @@ test("a pre-tool hook can deny execution with a tool result", async () => {
         text: "denied",
         seq: 4,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 5,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(state.messages[2]).toEqual({
         role: "tool_result",
         toolCallId: "call_1",
@@ -2031,7 +2035,7 @@ test("a pre-tool mutation becomes the validated and durable tool call", async ()
         text: "done",
         seq: 6,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 7,
     });
@@ -2137,7 +2141,7 @@ test("a pre-tool replacement returns data without executing the tool", async () 
         type: "assistant_delta",
         text: "synthetic result received",
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 7,
     });
@@ -2216,13 +2220,13 @@ test("hook failures fail closed without breaking durable tool history", async ()
         text: "continued",
         seq: 4,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 5,
     });
     await turn;
 
-    expect(state.messages[1]).toEqual(toolCallResponse);
+    expect(withoutCallDuration(state.messages[1])).toEqual(toolCallResponse);
     expect(state.messages[2]).toEqual({
         role: "tool_result",
         toolCallId: "call_1",
@@ -2449,11 +2453,11 @@ test("ask mode turns a client denial into a tool result", async () => {
         text: "not run",
         seq: 6,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 7,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(state.messages[2]).toEqual({
         role: "tool_result",
         toolCallId: "call_1",
@@ -2534,11 +2538,11 @@ test("full access permits an ordinary recursive deletion after hook mutation", a
         text: "blocked",
         seq: 6,
     });
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         seq: 7,
     });
-    expect(await turn).toEqual(finalResponse);
+    expect(withoutCallDuration(await turn)).toEqual(finalResponse);
     expect(existsSync(protectedDirectory)).toBe(false);
     expect(state.messages[2]).toMatchObject({
         role: "tool_result",
@@ -2602,7 +2606,7 @@ test("aborting a turn stops its foreground bash tool", async () => {
         seq: 4,
     });
     await expectContextMeasured(channel, 5);
-    expect(await channel.client.receive()).toEqual({
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
         type: "turn_finished",
         outcome: "aborted",
         error: "Turn aborted",
