@@ -292,7 +292,7 @@ export function openDialStrip(
         index: 0,
         // The top rung, so tab walks down the HUD from where the eye starts
         // rather than entering the stack partway and wrapping.
-        lane: "access",
+        lane: "effort",
         agents,
         agentIndex: Math.max(0, agents.indexOf(options.currentAgent ?? "")),
         agentPostures: options.agentPostures ?? {},
@@ -312,7 +312,7 @@ export function openDialStrip(
 
 // Ordered the way the rungs are stacked on screen, so tab walks down the HUD
 // rather than jumping around it.
-const DIAL_LANES = ["access", "effort", "model", "agent"] as const;
+const DIAL_LANES = ["effort", "access", "model", "agent"] as const;
 
 export function moveDialLane(
     state: DialStripState,
@@ -524,9 +524,6 @@ export function renderDialStrip(
             state.agentPostures[selectedAgent] ?? "restricted"
         }`;
     return [
-        accessNote === undefined
-            ? accessLine
-            : appendDialNote(accessLine, accessNote, width),
         ...(showEffortScale ? [] : [renderDialLane(
             state.lane === "effort",
             "EFFORT",
@@ -549,6 +546,9 @@ export function renderDialStrip(
             selectedSlot?.defaultEffort,
             state.lane === "effort",
         ),
+        accessNote === undefined
+            ? accessLine
+            : appendDialNote(accessLine, accessNote, width),
         ...modelLines,
         renderDialLane(
             state.lane === "agent",
