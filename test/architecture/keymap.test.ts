@@ -99,6 +99,8 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "collapse_all",
     "expand_all",
     "next_help_tab",
+    "cycle_search_filter",
+    "toggle_search_scope",
 ]);
 
 test("no new binding changes state without showing a picker", () => {
