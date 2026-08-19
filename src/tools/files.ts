@@ -6,11 +6,12 @@ import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 
 /**
- * How much of a file one call may read when it names no range. A file larger
- * than this is read from its start and says how to continue, rather than being
- * buffered whole: the buffer is spent before any later limit could apply.
+ * How many lines one read call may return. A file longer than this is read
+ * from the requested line and told how to continue, rather than returned
+ * whole: the page stays small enough to be re-sent on every later round of
+ * the session without drowning the transcript.
  */
-export const READ_MAX_BYTES = 1024 * 1024;
+export const READ_MAX_LINES = 1000;
 
 /** How much of the head is inspected before deciding a file is not text. */
 const BINARY_PROBE_BYTES = 8 * 1024;
@@ -20,22 +21,24 @@ export const readTool: RegisteredTool = {
     definition: {
         name: "read",
         description: "Read a UTF-8 text file at any path available to Vera. "
-            + "Relative paths resolve from the workspace. `offset` and `limit` "
-            + "are byte counts, not lines, and a call that names neither reads "
-            + `from the start of the file up to ${READ_MAX_BYTES} bytes.`,
+            + "Relative paths resolve from the workspace. Output is "
+            + "line-numbered as `N<TAB>line`, starting from the requested "
+            + "offset. `offset` and `limit` are 1-indexed line numbers; a read "
+            + `returns at most ${READ_MAX_LINES} lines and names the offset `
+            + "to continue with when more remain.",
         inputSchema: {
             type: "object",
             properties: {
                 path: { type: "string" },
                 offset: {
                     type: "integer",
-                    minimum: 0,
-                    description: "Byte offset to start reading from.",
+                    minimum: 1,
+                    description: "Line number to start reading from (1-indexed).",
                 },
                 limit: {
                     type: "integer",
                     minimum: 1,
-                    description: "How many bytes to read.",
+                    description: "How many lines to read (capped at 1000).",
                 },
             },
             required: ["path"],
@@ -44,44 +47,63 @@ export const readTool: RegisteredTool = {
     },
     async execute(input, context) {
         const path = requiredString(input, "path", "read");
-        const offset = optionalInteger(input, "offset", 0) ?? 0;
-        const limit = optionalInteger(input, "limit", 1);
+        const offset = optionalInteger(input, "offset", 1) ?? 1;
+        const requestedLimit = optionalInteger(input, "limit", 1);
+        const limit = Math.min(requestedLimit ?? READ_MAX_LINES, READ_MAX_LINES);
         const safePath = await resolveReadPath(context.workspace, path);
         const file = Bun.file(safePath);
-        // Stat first: the size decides whether this is a whole-file read, a
-        // range, or a refusal, and asking costs nothing next to reading.
+        // Stat first: the size decides whether this is a refusal, and asking
+        // costs nothing next to reading. The text is read whole so that line
+        // boundaries and the total are exact; a page is then cut from it.
         const size = file.size;
-
-        if (offset >= size && size > 0) {
-            return {
-                kind: "output",
-                output: `Offset ${offset} is past the end of ${path} `
-                    + `(${size} bytes).`,
-                isError: true,
-            };
-        }
 
         const binary = await binaryRefusal(file, path, size);
         if (binary !== undefined) {
             return { kind: "output", output: binary, isError: true };
         }
 
-        const wanted = limit ?? READ_MAX_BYTES;
-        const end = Math.min(size, offset + wanted);
-        const content = await file.slice(offset, end).text();
-        const whole = offset === 0 && end === size;
-        if (whole) {
-            // Only a whole file is a snapshot: `edit` compares its own read of
-            // the file against this, and a range would never match.
-            context.recordFileSnapshot(safePath, content);
-            return { kind: "output", output: content, isError: false };
+        const text = size === 0 ? "" : await file.text();
+        const lines = text.split("\n");
+        const totalLines = text === ""
+            ? 0
+            : lines.length - (text.endsWith("\n") ? 1 : 0);
+
+        if (totalLines === 0) {
+            // An empty file has no pages; its empty content is the whole file.
+            context.recordFileSnapshot(safePath, text);
+            return { kind: "output", output: "", isError: false };
         }
+        if (offset > totalLines) {
+            return {
+                kind: "output",
+                output: `Offset ${offset} is past the end of ${path} `
+                    + `(${totalLines} line${totalLines === 1 ? "" : "s"}).`,
+                isError: true,
+            };
+        }
+
+        const start = offset - 1;
+        const end = Math.min(start + limit, totalLines);
+        const page = lines.slice(start, end);
+        const reachesEnd = end === totalLines;
+        if (reachesEnd) {
+            // Only a read to the end of the file is a snapshot: `edit`
+            // compares its own read of the file against this, and a page that
+            // stops short would never match.
+            context.recordFileSnapshot(safePath, text);
+        }
+
+        const numbered = page
+            .map((line, index) => `${start + index + 1}\t${line}`)
+            .join("\n");
+        const footer = reachesEnd
+            ? `[vera] Showing lines ${start + 1}-${end} of ${totalLines}.`
+            : `[vera] Showing lines ${start + 1}-${end} of ${totalLines}. `
+                + `Use offset=${end + 1} to continue. Editing this file needs `
+                + "a whole-file read first.";
         return {
             kind: "output",
-            output: `${content}\n[vera] Showed bytes ${offset}-${end} of `
-                + `${path} (${size} bytes total). Read further with `
-                + `offset=${end}. Editing this file needs a whole-file read `
-                + "first.",
+            output: `${numbered}\n${footer}`,
             isError: false,
         };
     },
@@ -111,9 +133,8 @@ async function binaryRefusal(
     if (decodable) {
         return undefined;
     }
-    return `${path} is not UTF-8 text (${size} bytes). Read a byte range of `
-        + "it with offset and limit if you need the bytes, or inspect it "
-        + "through bash (for example `file` or `xxd`).";
+    return `${path} is not UTF-8 text (${size} bytes). Inspect it through `
+        + "bash (for example `file` or `xxd`).";
 }
 
 /**

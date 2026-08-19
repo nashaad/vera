@@ -138,7 +138,9 @@ test("multiple tool calls execute sequentially in content order", async () => {
         ]);
         expect(toolResults[0]?.content[0]?.text).toBe(realWorkspace);
         expect(toolResults[1]?.isError).toBe(false);
-        expect(toolResults[2]?.content[0]?.text).toBe("hello");
+        expect(toolResults[2]?.content[0]?.text).toBe(
+            "1\thello\n[vera] Showing lines 1-1 of 1.",
+        );
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
