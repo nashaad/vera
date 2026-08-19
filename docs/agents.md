@@ -2,7 +2,7 @@
 
 An agent is a thing you wear: instructions, the tools and skills it may reach,
 and how it asks before acting. It is not a model. Models and reasoning effort
-are dials, and they live in the [strip](./dials.md).
+are dials, set from the dial strip.
 
 ```
 /agent              open the picker, and see what is live
