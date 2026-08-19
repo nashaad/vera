@@ -30,15 +30,14 @@ export interface TuiTheme {
     readonly panel: string;
     readonly element: string;
     /** Editing surface when it should be distinct from the desktop. */
-    readonly input?: string;
+    readonly input: string;
     /** Transient completion/menu surface when it should float above the desktop. */
-    readonly menu?: string;
-    readonly chrome?: "norton" | "windows-31";
-    readonly chromeTitle?: string;
-    readonly selectionText?: string;
+    readonly menu: string;
+    readonly chrome: "plain" | "norton";
+    readonly selectionText: string;
 }
 
-export const VERA_TUI_THEME: TuiTheme = themeCatalog.themes.vera;
+export const VERA_TUI_THEME = themeCatalog.themes.vera as TuiTheme;
 
 // The four palette roles shown as a per-row swatch in the theme picker, so the
 // list is made of the themes it offers rather than a generic select dialog.
@@ -100,6 +99,10 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
         background,
         panel: mixHex(background, text, 0.08),
         element: mixHex(background, text, 0.13),
+        input: background,
+        menu: mixHex(background, text, 0.08),
+        chrome: "plain",
+        selectionText: background,
     };
 }
 

@@ -97,8 +97,7 @@ test("retro themes carry their own structural chrome", async () => {
         background: "#008080",
         panel: "#FFFFFF",
         input: "#FFFFFF",
-        chrome: "windows-31",
-        chromeTitle: "#000080",
+        chrome: "norton",
     });
 });
 
@@ -118,6 +117,10 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
         background: "#14171C",
         panel: "#252933",
         element: "#2C4069",
+        input: "#14171C",
+        menu: "#252933",
+        chrome: "plain",
+        selectionText: "#14171C",
     });
 });
 
@@ -137,6 +140,10 @@ test("Midnight Blue II remixes the source palette around its gold accent", async
         background: "#14171C",
         panel: "#283246",
         element: "#222F47",
+        input: "#14171C",
+        menu: "#283246",
+        chrome: "plain",
+        selectionText: "#14171C",
     });
 });
 
@@ -157,6 +164,10 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
         background: "#0F1117",
         panel: "#171B23",
         element: "#2C2D31",
+        input: "#0F1117",
+        menu: "#171B23",
+        chrome: "plain",
+        selectionText: "#0F1117",
     });
 });
 
