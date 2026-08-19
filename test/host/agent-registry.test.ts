@@ -307,8 +307,12 @@ test("resident agents resolve relative file paths from their fixed workspaces", 
         await runPrompt(first.attach(), "read your marker");
         await runPrompt(second.attach(), "read your marker");
 
-        expect(await toolResultText(firstSession)).toBe("first workspace");
-        expect(await toolResultText(secondSession)).toBe("second workspace");
+        expect(await toolResultText(firstSession)).toBe(
+            "1\tfirst workspace\n[vera] Showing lines 1-1 of 1.",
+        );
+        expect(await toolResultText(secondSession)).toBe(
+            "1\tsecond workspace\n[vera] Showing lines 1-1 of 1.",
+        );
         expect(registry.list()).toMatchObject([
             {
                 id: "first",
