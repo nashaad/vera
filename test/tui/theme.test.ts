@@ -53,7 +53,7 @@ test("TUI uses Vera colors by default", async () => {
     });
 
     expect(theme).toBe(VERA_TUI_THEME);
-    expect(theme.success).toBe("#B8B6D9");
+    expect(theme.success).toBe("#9ECE6A");
     expect(theme.code).toBe("#B8B6D9");
 });
 

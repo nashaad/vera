@@ -17,7 +17,7 @@ import {
     mapDialRows,
     paintDialHud,
 } from "../../clients/tui/dial-paint.ts";
-import { mixHex } from "../../clients/tui/theme.ts";
+import { mixHex, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 const THEME: DialPaintTheme = {
     text: "#ffffff",
@@ -168,6 +168,19 @@ test("each access mode gets its own colour", () => {
     expect(modeColor("readonly")).toBe("#c586c0");
     expect(modeColor("ask")).toBe(THEME.accent);
     expect(modeColor("auto")).toBe(THEME.success);
+
+    const veraPaint = (state: DialStripState) =>
+        paintDialHud(rowsOf(state), state.lane, {
+            text: VERA_TUI_THEME.text,
+            muted: VERA_TUI_THEME.muted,
+            accent: VERA_TUI_THEME.accent,
+            notice: VERA_TUI_THEME.notice,
+            background: VERA_TUI_THEME.background,
+            success: VERA_TUI_THEME.success,
+        });
+    let veraState = opened("auto");
+    while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
+    expect(colorOf(veraPaint(veraState), "[auto]")).toBe("#9ECE6A");
 });
 
 test("the effort track lights only while the effort rung is focused", () => {
