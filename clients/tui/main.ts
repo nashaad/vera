@@ -9402,7 +9402,15 @@ export async function startTui(
                 }
                 bindModelAssignmentFromPicker(selection);
             } else {
-                beginSessionResume(selection.sessionPath, selection.sessionId);
+                // Picking a session from the list is where the person meant
+                // to go, not a hop taken to answer something: there is no trip
+                // to offer them back from.
+                beginSessionResume(
+                    selection.sessionPath,
+                    selection.sessionId,
+                    false,
+                    false,
+                );
                 return;
             }
             // Where the stack goes next is `tuiPickerAfterSelection`'s rule.
@@ -9587,6 +9595,7 @@ export async function startTui(
         sessionPath: string,
         sessionId?: string,
         viaBack = false,
+        armsBack = true,
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
@@ -9628,6 +9637,7 @@ export async function startTui(
         let armedNow = false;
         if (
             !viaBack
+            && armsBack
             && !openingInSidebar
             && backOriginId === undefined
             && previousId !== undefined
