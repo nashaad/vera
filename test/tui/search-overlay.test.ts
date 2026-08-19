@@ -247,7 +247,7 @@ test("every hit is reachable, not only the first in each session", () => {
     });
 });
 
-test("the pointer sits on the hit, not on the session above it", () => {
+test("the selection sits on the hit, not on the session above it", () => {
     const state = applySearchResults(
         typing("fallback"),
         { query: "fallback", workspace: "/work/one" },
@@ -258,7 +258,7 @@ test("the pointer sits on the hit, not on the session above it", () => {
     const selected = lines.filter((line) => line.selected === true);
     expect(selected).toHaveLength(1);
     expect(selected[0]?.kind).toBe("hit");
-    expect(selected[0]?.text).toContain("> you:");
+    expect(selected[0]?.text).toContain("you:");
 });
 
 test("enter with nothing selected does nothing rather than opening at random", () => {
