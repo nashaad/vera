@@ -150,7 +150,6 @@ function session(
                     type: "session_name",
                     requestId: command.requestId,
                     name: command.name,
-                    seq: manualSeq++,
                 });
                 return;
             }

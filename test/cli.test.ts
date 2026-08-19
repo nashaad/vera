@@ -28,6 +28,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera inspect <session-path>");
     expect(output).toContain("vera configure");
     expect(output).toContain("vera doctor");
+    expect(output).toContain("vera models refresh");
     expect(output).toContain("vera shortlist list");
     expect(output).toContain("vera shortlist add <provider/model>");
     expect(output).toContain("vera shortlist remove <name|id>");
@@ -836,4 +837,33 @@ test("vera -p flags compose in any order and unknown flags are refused", async (
     expect(await runCli(["-p"], dependencies)).toBe(1);
     expect(errors).toContain("vera --help");
     expect(requests).toHaveLength(3);
+});
+
+test("vera models refresh reports each provider and skips the uncredentialed", async () => {
+    let output = "";
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        refreshCatalogs: async () => [
+            { provider: "openrouter", models: 3 },
+            { provider: "cerebras", skipped: "no credential" },
+        ],
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe(
+        "openrouter: 3 models\ncerebras: skipped (no credential)\n",
+    );
+});
+
+test("vera models refresh fails when no provider could be asked", async () => {
+    let output = "";
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        refreshCatalogs: async () => [
+            { provider: "openrouter", skipped: "no credential" },
+        ],
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toBe("openrouter: skipped (no credential)\n");
 });

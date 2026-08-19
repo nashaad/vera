@@ -81,7 +81,7 @@ test("rename commands name and clear without reaching the model", async () => {
         pane = await session.waitForVisiblePane("session renamed: Planning");
         expect(pane).not.toContain("/rename Planning");
         expect(pane.split("\n").some((line) =>
-            line.trim() === "SESSION  Planning"
+            line.trim() === "Session: Planning"
         ))
             .toBe(true);
 
@@ -89,7 +89,7 @@ test("rename commands name and clear without reaching the model", async () => {
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("session name cleared");
         expect(pane.split("\n").some((line) =>
-            line.trim() === "SESSION  Planning"
+            line.trim() === "Session: Planning"
         ))
             .toBe(false);
         session.sendKey("C-c");
@@ -336,7 +336,7 @@ test("ctrl+c quits while a session switch is still pending", async () => {
     }
 }, 15_000);
 
-test("arriving across a hop names the conversation left behind", async () => {
+test("resuming a session from the list offers no way back", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-back-name-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -354,9 +354,9 @@ test("arriving across a hop names the conversation left behind", async () => {
         session.sendKey("Down");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
-        expect(pane).toContain(
-            'Type /back to return to "The one already open"',
-        );
+        // /resume is navigation, not a hop: the person chose the destination,
+        // so there is no trip back to name.
+        expect(pane).not.toContain("/back");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
