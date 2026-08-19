@@ -33,6 +33,7 @@ import {
 
 /** Marks the rows where the turn ran on something other than what was asked. */
 const SUBSTITUTION_MARKER = "\u21c4";
+const INTERRUPTED_TURN_TEXT = "Interrupted";
 import { VERA_TUI_THEME } from "./theme.ts";
 
 export type TuiTranscriptEntryKind =
@@ -412,10 +413,15 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         if (update.empty === true) {
             return appendEntry(finished, emptyTurnEntry());
         }
+        if (update.outcome === "aborted") {
+            return appendTuiDiagnostic(
+                finished,
+                "turn_interrupted",
+                INTERRUPTED_TURN_TEXT,
+            );
+        }
         const error = update.error
-            ?? (update.outcome === "error" ? "Model request failed"
-                : update.outcome === "aborted" ? "Turn aborted"
-                : undefined);
+            ?? (update.outcome === "error" ? "Model request failed" : undefined);
         if (error === undefined) return finished;
         const attachment = error.startsWith("Image attachment unavailable:");
         return appendTuiDiagnostic(
@@ -489,10 +495,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         // that lands mid-phase puts it back at the end where it belongs.
         return withLiveThinking({
             ...state,
-            entries: preserveLiveReviewEntries(
+            // A rebuild can restore a summary the canonical rows no longer
+            // have a place for, which lands it behind the answer it belongs
+            // in front of. Settling here is what the end of a turn does.
+            entries: settleTrailingThoughts(preserveLiveReviewEntries(
                 state.entries,
                 canonicalEntries,
-            ),
+            )),
             ...(update.context === undefined
                 ? {}
                 : { context: update.context }),
@@ -666,7 +675,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     return assertNever(update);
 }
 
-/** A completed answer is the last row of its turn, even after a checkpoint. */
+/**
+ * A completed answer is the last row of its turn, even after a checkpoint.
+ *
+ * The stretch that lands behind it is also one stretch, not one row per phase:
+ * a rebuild restores each phase as it was recorded, and the append path's
+ * merge never sees them.
+ */
 function settleTrailingThoughts(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -680,9 +695,20 @@ function settleTrailingThoughts(
     }
 
     const next = [...entries];
-    const thoughts = next.splice(thoughtStart);
-    next.splice(thoughtStart - 1, 0, ...thoughts);
+    const thoughts = next.splice(thoughtStart) as TuiTextTranscriptEntry[];
+    next.splice(thoughtStart - 1, 0, ...foldThoughts(thoughts));
     return next;
+}
+
+/** One stretch of thinking is one row, however many phases reported it. */
+function foldThoughts(
+    thoughts: readonly TuiTextTranscriptEntry[],
+): readonly TuiTextTranscriptEntry[] {
+    const first = thoughts[0];
+    if (first === undefined) {
+        return thoughts;
+    }
+    return [thoughts.slice(1).reduce(mergeThoughts, first)];
 }
 
 /**
@@ -1162,27 +1188,24 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
     const settled = dropTuiThinking(state);
-    // A phase that produced no reasoning and took no time is not a thing that
-    // happened. Reporting it costs a row and says nothing.
-    if (reasoning.length === 0 && seconds < 0.05) {
+    // A phase that reported no reasoning has nothing behind its row: the
+    // elapsed time was already on the status line while it ran, and the row
+    // that survives it cannot be opened.
+    if (reasoning.length === 0) {
         return settled;
     }
     return insertBeforeTrailingAssistant(settled, {
         kind: "thought",
-        text: thoughtSummary(seconds, reasoning.length > 0),
+        text: thoughtSummary(seconds),
         seconds,
         ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded ? { expanded: true } : {}),
     });
 }
 
-/**
- * A phase that reported no reasoning still reports its time, under a word that
- * does not promise text behind it.
- */
-function thoughtSummary(seconds: number, hasReasoning: boolean): string {
-    const label = hasReasoning ? "Reasoning:" : "Worked for";
-    return `${label} ${seconds.toFixed(1)}s`;
+/** Every summary has reasoning behind it, so every summary is named for it. */
+function thoughtSummary(seconds: number): string {
+    return `Reasoning: ${seconds.toFixed(1)}s`;
 }
 
 /**
@@ -1349,7 +1372,50 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ])
             : new StyledText([summary, hint]);
     }
+    if (entry.kind === "thinking") {
+        // The window is marked at its ends rather than down its side: what the
+        // reader needs is where the region starts and stops, and an ellipsis
+        // says the same thing a scrollbar would, that there is more either way.
+        return new StyledText([fg(TUI_MUTED)(
+            `${LIVE_THINKING_ELLIPSIS}\n${
+                liveThinkingTail(entry.text)
+            }\n${LIVE_THINKING_ELLIPSIS}`,
+        )]);
+    }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+/**
+ * How many rows the reasoning still arriving is allowed to occupy.
+ *
+ * Enough to see what the agent is chewing on, few enough that a model which
+ * thinks at length cannot push the work above it off the screen.
+ */
+export const LIVE_THINKING_ROWS = 8;
+
+/** Both ends of the window reasoning arrives into. */
+const LIVE_THINKING_ELLIPSIS = "···";
+
+/**
+ * The last few lines of reasoning, as the tail of a fixed-height window.
+ *
+ * The row is bounded from the first delta rather than folded once the phase
+ * ends, so nothing is ever drawn at full height and taken back. What scrolls
+ * out of the window is not lost: the summary this row collapses into holds the
+ * whole phase, which is where reasoning is meant to be read.
+ *
+ * The window is measured in source lines and the row is drawn unwrapped, so a
+ * paragraph counts once however wide it is. Blank lines are dropped rather than
+ * kept: a model that separates every sentence would spend half the window on
+ * nothing, and the gaps read as a rendering fault rather than as the model's
+ * own paragraphing.
+ */
+function liveThinkingTail(text: string): string {
+    const lines = plainReasoningSummary(text)
+        .split("\n")
+        .map((line) => line.trimEnd())
+        .filter((line) => line.length > 0);
+    return lines.slice(-LIVE_THINKING_ROWS).join("\n");
 }
 
 /** Provider summaries use Markdown headings; this row is a plain-text surface. */
@@ -2075,10 +2141,15 @@ function toSingleTuiTranscriptEntry(
         return {
             kind: "notice",
             text: "",
-            diagnostic: resolveTuiDiagnostic(
-                "model_request_failed",
-                `Model error: ${entry.detail ?? "Model request failed"}`,
-            ),
+            diagnostic: entry.outcome === "aborted"
+                ? resolveTuiDiagnostic(
+                    "turn_interrupted",
+                    INTERRUPTED_TURN_TEXT,
+                )
+                : resolveTuiDiagnostic(
+                    "model_request_failed",
+                    `Model error: ${entry.detail ?? "Model request failed"}`,
+                ),
         };
     }
     if (entry.kind === "presentation") {
@@ -2272,7 +2343,7 @@ function mergeThoughts(
     const expanded = first.expanded === true || second.expanded === true;
     return {
         ...first,
-        text: thoughtSummary(seconds, reasoning.length > 0),
+        text: thoughtSummary(seconds),
         seconds,
         ...(reasoning.length === 0 ? {} : { reasoning }),
         ...(expanded && reasoning.length > 0 ? { expanded: true } : {}),

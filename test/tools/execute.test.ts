@@ -135,7 +135,9 @@ test("file tools read and write inside the workspace", async () => {
             toolName: "read",
             isError: false,
         });
-        expect(readResult.content[0]?.text).toBe("hello from Vera");
+        expect(readResult.content[0]?.text).toBe(
+            "1\thello from Vera\n[vera] Showing lines 1-1 of 1.",
+        );
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }
@@ -248,10 +250,11 @@ test("a failing pre-image recorder does not fail the write", async () => {
 test("file tool guidance describes its permission-gated path reach", () => {
     const definitions = toolDefinitionsForCapabilities([]);
     expect(definitions.find((tool) => tool.name === "read")?.description).toBe(
-        "Read a UTF-8 text file at any path available to Vera. Relative paths "
-            + "resolve from the workspace. `offset` and `limit` are byte "
-            + "counts, not lines, and a call that names neither reads from the "
-            + "start of the file up to 1048576 bytes.",
+        "Read a UTF-8 text file at any path available to Vera. Relative "
+            + "paths resolve from the workspace. Output is line-numbered as "
+            + "`N<TAB>line`, starting from the requested offset. `offset` and "
+            + "`limit` are 1-indexed line numbers; a read returns at most 1000 "
+            + "lines and names the offset to continue with when more remain.",
     );
     expect(definitions.find((tool) => tool.name === "write")?.description).toBe(
         "Create a new UTF-8 text file, or completely replace an existing one. Replacement is total: any existing content not included in this call is destroyed. To modify an existing file (append, insert, or change part of it), use edit instead. Relative paths resolve from the workspace.",
@@ -297,10 +300,14 @@ test("file tools execute resolved paths outside the workspace", async () => {
         ), runtime);
 
         expect(parentRead.isError).toBe(false);
-        expect(parentRead.content[0]?.text).toBe("secret");
+        expect(parentRead.content[0]?.text).toBe(
+            "1\tsecret\n[vera] Showing lines 1-1 of 1.",
+        );
         expect(parentWrite.isError).toBe(false);
         expect(symlinkRead.isError).toBe(false);
-        expect(symlinkRead.content[0]?.text).toBe("secret");
+        expect(symlinkRead.content[0]?.text).toBe(
+            "1\tsecret\n[vera] Showing lines 1-1 of 1.",
+        );
         expect(symlinkWrite.isError).toBe(false);
         expect(parentEdit.isError).toBe(false);
         expect(await readFile(join(root, "outside.txt"), "utf8")).toBe("edited");

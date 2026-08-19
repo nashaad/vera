@@ -143,6 +143,10 @@ export interface GoToParentTuiCommandAction {
     readonly type: "go_to_parent";
 }
 
+export interface GoBackTuiCommandAction {
+    readonly type: "go_back";
+}
+
 export interface ReconnectTuiCommandAction {
     readonly type: "reconnect";
 }
@@ -170,6 +174,10 @@ export interface ShowDiagnosticsTuiCommandAction {
 
 export interface ShowDoctorTuiCommandAction {
     readonly type: "show_doctor";
+}
+
+export interface WriteFailureReportTuiCommandAction {
+    readonly type: "write_failure_report";
 }
 
 export interface ReloadClientExtensionsTuiCommandAction {
@@ -228,6 +236,7 @@ export type TuiCommandAction =
     | OpenSearchTuiCommandAction
     | OpenSubagentsPickerTuiCommandAction
     | GoToParentTuiCommandAction
+    | GoBackTuiCommandAction
     | ReconnectTuiCommandAction
     | CreateSessionTuiCommandAction
     | UpdateSessionNameTuiCommandAction
@@ -235,6 +244,7 @@ export type TuiCommandAction =
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
     | ShowDoctorTuiCommandAction
+    | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
     | ShowDefaultsTuiCommandAction
@@ -264,6 +274,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_resume_picker":
         case "open_subagents_picker":
         case "go_to_parent":
+        case "go_back":
         case "create_session":
         case "update_session_name":
             return "focused_agent";
@@ -281,6 +292,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_theme_picker":
         case "show_diagnostics":
         case "show_doctor":
+        case "write_failure_report":
         case "reload_client_extensions":
         case "show_pool":
         case "show_defaults":
@@ -338,12 +350,14 @@ export interface TuiCommandDefinition {
         | OpenSearchTuiCommandAction
         | OpenSubagentsPickerTuiCommandAction
         | GoToParentTuiCommandAction
+        | GoBackTuiCommandAction
         | ReconnectTuiCommandAction
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
         | ShowDoctorTuiCommandAction
+        | WriteFailureReportTuiCommandAction
         | ShowDefaultsTuiCommandAction
         | OpenProvidersTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
@@ -437,6 +451,12 @@ const SUBAGENTS_COMMAND = {
     usage: "/subagents",
 } as const satisfies TuiCommandCatalogEntry;
 
+const BACK_COMMAND = {
+    name: "back",
+    description: "Return to the conversation you came from",
+    usage: "/back",
+} as const satisfies TuiCommandCatalogEntry;
+
 const PARENT_COMMAND = {
     name: "parent",
     description: "Switch to the parent conversation",
@@ -503,6 +523,12 @@ const DOCTOR_COMMAND = {
     usage: "/doctor",
 } as const satisfies TuiCommandCatalogEntry;
 
+const FAILURE_REPORT_COMMAND = {
+    name: "failure-report",
+    description: "Write a shareable report of recorded model failures",
+    usage: "/failure-report",
+} as const satisfies TuiCommandCatalogEntry;
+
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
     description: "Reload client extensions without restarting Vera",
@@ -524,6 +550,7 @@ export const BUILTIN_COMMANDS = [
     SEARCH_COMMAND,
     SUBAGENTS_COMMAND,
     PARENT_COMMAND,
+    BACK_COMMAND,
     RECONNECT_COMMAND,
     CLEAR_COMMAND,
     RENAME_COMMAND,
@@ -531,6 +558,7 @@ export const BUILTIN_COMMANDS = [
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
     DOCTOR_COMMAND,
+    FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
     DEFAULTS_COMMAND,
@@ -1207,6 +1235,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
     });
     registry.registerCommand({
+        ...BACK_COMMAND,
+        action: { type: "go_back" },
+        palette: {
+            name: "back",
+            label: "Go back",
+            description: "return to the conversation you came from",
+            group: "Session",
+            slashName: "back",
+            action: { type: "go_back" },
+        },
+    });
+    registry.registerCommand({
         ...RECONNECT_COMMAND,
         action: { type: "reconnect" },
         palette: {
@@ -1293,6 +1333,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "doctor",
             action: { type: "show_doctor" },
+        },
+    });
+    registry.registerCommand({
+        ...FAILURE_REPORT_COMMAND,
+        action: { type: "write_failure_report" },
+        palette: {
+            name: "failure_report",
+            label: "Write a model failure report",
+            description: "summarise recorded model failures into a file",
+            group: "Session",
+            slashName: "failure-report",
+            action: { type: "write_failure_report" },
         },
     });
     registry.registerCommand({

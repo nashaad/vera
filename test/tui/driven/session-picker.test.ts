@@ -45,10 +45,12 @@ test("resume picker switches conversation without restarting the TUI", async () 
         session.sendKey("Down");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
-        // The resumed session's own title is what the header now carries,
-        // so the picker is gone when the other session's row is, not when
-        // that name leaves the screen.
-        expect(pane).not.toContain("The one already open");
+        // The picker is gone when its rows are; the origin's name stays on
+        // screen because the arrival notice names where /back returns to.
+        expect(pane).not.toContain("1h ago");
+        expect(pane).toContain(
+            'Type /back to return to "The one already open"',
+        );
         // The pane belongs to the process that started: the transcript was
         // replaced under a TUI that never went away.
         expect(pane).toContain("Message Vera");

@@ -39,7 +39,7 @@ const REASON_LABELS: Readonly<Record<string, string>> = {
 
 const REASON_COLUMN = 10;
 const TITLE_COLUMN = 20;
-const POINTER_COLUMN = 2;
+const TITLE_COLUMN_MAX = 40;
 const MIN_SUMMARY = 8;
 
 export type WorkTabLineKind = "section" | "row" | "blank" | "empty";
@@ -127,11 +127,24 @@ export function handleWorkTabKey(
     return { state, handled: false };
 }
 
-/** The tab title, counts included, as one line of assertable text. */
+/**
+ * The tab title, counts included, as one line of assertable text.
+ *
+ * Every section that has rows is counted, not only the two the host keeps
+ * running totals for: the header is the only place the tab says how much work
+ * there is in total, and a person scrolled into "Working" still wants to know
+ * something is waiting to be reviewed.
+ */
 export function tuiWorkTabHeader(index: WorkIndexSnapshot): string {
+    const section = (name: WorkSection): number =>
+        index.rows.filter((row) => row.section === name).length;
+    const review = section("ready_to_review");
+    const done = section("done_recently");
     const parts = [
         ...(index.needs_you === 0 ? [] : [`${index.needs_you} need you`]),
         ...(index.working === 0 ? [] : [`${index.working} working`]),
+        ...(review === 0 ? [] : [`${review} to review`]),
+        ...(done === 0 ? [] : [`${done} done`]),
     ];
     return parts.length === 0 ? "Work" : `Work · ${parts.join(" · ")}`;
 }
@@ -158,18 +171,28 @@ export function tuiWorkTabLines(
     }
     const now = layout.now ?? new Date();
     const narrow = layout.width < WORK_TAB_NARROW_WIDTH;
+    // A directory named on every row when every row is in the same directory
+    // is a column of one repeated word. It earns its place only once rows
+    // disagree, which is exactly when a title alone stops telling them apart.
+    const workspaces =
+        new Set(index.rows.map((row) => row.workspace)).size > 1;
     const lines: WorkTabLine[] = [];
     for (const section of SECTION_ORDER) {
         const rows = index.rows.filter((row) => row.section === section);
         if (rows.length === 0) continue;
         if (lines.length > 0 && !narrow) lines.push({ kind: "blank", text: "" });
-        lines.push({ kind: "section", text: SECTION_TITLES[section] });
+        // The count belongs to the heading rather than to the rows: a section
+        // windowed off the bottom of the card still says how much is down
+        // there.
+        lines.push({
+            kind: "section",
+            text: `${SECTION_TITLES[section]} · ${rows.length}`,
+        });
         if (!narrow) lines.push({ kind: "blank", text: "" });
         for (const row of rows) {
             lines.push({
                 kind: "row",
-                text: rowText(row, layout.width, narrow, now,
-                    row.id === layout.selectedId),
+                text: rowText(row, layout.width, narrow, now, workspaces),
                 row_id: row.id,
                 selected: row.id === layout.selectedId,
             });
@@ -259,13 +282,15 @@ function rowText(
     width: number,
     narrow: boolean,
     now: Date,
-    selected: boolean,
+    workspaces: boolean,
 ): string {
-    const pointer = selected ? "> " : "  ";
     const age = relativeTime(row.updated_at, now, "");
     const trailing = narrow
         ? age
         : [
+            ...(workspaces && row.workspace !== ""
+                ? [workspaceName(row.workspace)]
+                : []),
             ...(row.subagent_count === undefined
                 ? []
                 : [`${row.subagent_count} ${
@@ -276,15 +301,33 @@ function rowText(
     const reason = narrow
         ? ""
         : pad(REASON_LABELS[row.reason ?? ""] ?? "", REASON_COLUMN);
-    const title = pad(row.title, narrow ? TITLE_COLUMN : TITLE_COLUMN + 4);
-    const used = POINTER_COLUMN + title.length + reason.length
-        + trailing.length + 2;
-    const summary = clip(row.summary, Math.max(MIN_SUMMARY, width - used));
-    const left = `${pointer}${title}${reason}${summary}`;
+    // The title is the session's identity, so it gets width before the
+    // summary does: a third of the row, up to a cap, never under the old
+    // fixed column.
+    const titleColumn = narrow
+        ? TITLE_COLUMN
+        : Math.min(TITLE_COLUMN_MAX, Math.max(
+            TITLE_COLUMN + 4,
+            Math.floor(width / 3),
+        ));
+    const title = pad(row.title, titleColumn);
+    const used = title.length + reason.length + trailing.length + 2;
+    // A summary that only repeats the section heading says nothing the
+    // screen is not already saying.
+    const summaryText =
+        row.summary === SECTION_TITLES[row.section] ? "" : row.summary;
+    const summary = clip(summaryText, Math.max(MIN_SUMMARY, width - used));
+    const left = `${title}${reason}${summary}`;
     const gap = Math.max(1, width - left.length - trailing.length);
     return trailing === ""
         ? left.trimEnd()
         : `${left}${" ".repeat(gap)}${trailing}`;
+}
+
+/** The last segment of the workspace path, which is what tells rows apart. */
+function workspaceName(workspace: string): string {
+    const segments = workspace.split("/").filter((part) => part.length > 0);
+    return segments.at(-1) ?? workspace;
 }
 
 function pad(value: string, columns: number): string {
@@ -319,13 +362,12 @@ export function workTabViewState(
         lines: lines.map((line) => ({
             text: line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
+            ...(line.selected === true ? { selected: true } : {}),
             tone: line.kind === "section"
                 ? "accent" as const
-                : line.kind === "empty"
-                    ? "muted" as const
-                    : line.selected === true
-                        ? "text" as const
-                        : "muted" as const,
+                : line.kind === "row"
+                    ? "text" as const
+                    : "muted" as const,
         })),
         footer: tuiWorkTabFooter(width),
     };

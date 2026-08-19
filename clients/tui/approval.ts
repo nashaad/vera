@@ -15,10 +15,11 @@ import type {
 import { isToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
     TUI_BACKGROUND,
+    TUI_DIFF_ADDED,
+    TUI_DIFF_REMOVED,
     TUI_MUTED,
     TUI_NOTICE,
     TUI_PANEL,
-    TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 import {
@@ -547,8 +548,11 @@ export function applyTuiApprovalUpdate(
 }
 
 function toneColor(tone: TuiApprovalTone): string {
-    if (tone === "add") return TUI_SUCCESS;
-    if (tone === "del") return TUI_NOTICE;
+    // A diff is a diff regardless of theme: removals and additions use the
+    // diff role colors, never the notice/success palette. Every theme defines
+    // diffRemoved red-family and diffAdded green-family; only the shade varies.
+    if (tone === "add") return TUI_DIFF_ADDED;
+    if (tone === "del") return TUI_DIFF_REMOVED;
     if (tone === "muted" || tone === "path") return TUI_MUTED;
     return TUI_TEXT;
 }

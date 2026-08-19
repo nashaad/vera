@@ -1,4 +1,5 @@
 import type { StashSummary } from "../../src/store/preimage-stash.ts";
+import type { ModelFailureSummary } from "../../src/store/model-failures.ts";
 import type { TuiState } from "./state.ts";
 import type {
     HostStartupTimingRow,
@@ -14,6 +15,8 @@ export interface TuiDiagnosticsSnapshot {
     readonly runningBackgroundAgents: number;
     readonly stash?: StashSummary;
     readonly stashRoot?: string;
+    readonly modelFailures?: ModelFailureSummary;
+    readonly modelFailureLedgerPath?: string;
     readonly now?: number;
     readonly build?: {
         readonly clientVersion: string;
@@ -141,9 +144,44 @@ export function renderTuiDiagnostics(
     lines.push(`  workspace    ${snapshot.workspace}`);
     lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
     lines.push("");
+    lines.push("## Model failures");
+    lines.push(...modelFailureLines(snapshot));
+    lines.push("");
     lines.push("## Pre-image stash");
     lines.push(...stashLines(snapshot));
     return lines.join("\n");
+}
+
+/** Most repeated first: the top row is the one worth acting on. */
+function modelFailureLines(snapshot: TuiDiagnosticsSnapshot): string[] {
+    const summary = snapshot.modelFailures;
+    if (summary === undefined) return ["  unavailable"];
+    if (summary.signatures.length === 0) {
+        return ["  No recorded model failures."];
+    }
+    const now = snapshot.now ?? Date.now();
+    const lines = markdownTable(
+        ["Model", "Failure", "Count", "Sessions", "Last"],
+        summary.signatures.slice(0, MAX_FAILURE_SIGNATURES).map((entry) => [
+            `${entry.provider}/${entry.model}`,
+            entry.kind.replaceAll("_", " "),
+            String(entry.count),
+            String(entry.sessions),
+            age(entry.lastSeenAt, now),
+        ]),
+    );
+    const hidden = summary.signatures.length - MAX_FAILURE_SIGNATURES;
+    if (hidden > 0) {
+        lines.push(`> ${hidden} more not listed.`);
+    }
+    if (snapshot.modelFailureLedgerPath !== undefined) {
+        lines.push(`  ledger       ${snapshot.modelFailureLedgerPath}`);
+    }
+    const worst = summary.signatures[0];
+    if (worst !== undefined) {
+        lines.push(`  last error   ${worst.lastDetail}`);
+    }
+    return lines;
 }
 
 function sessionUsageLines(
@@ -394,6 +432,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
 }
 
 const MAX_STASH_ENTRIES = 15;
+const MAX_FAILURE_SIGNATURES = 10;
 
 function age(capturedAt: string, now: number): string {
     const ms = Math.max(0, now - Date.parse(capturedAt));

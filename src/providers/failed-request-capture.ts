@@ -112,13 +112,31 @@ function serializeCapture(file: CaptureFile, maxBytes: number): string {
     if (byteLength(full) <= maxBytes) {
         return full;
     }
-    const withoutResponse = encode(redactSecrets({
+    // The request is the transcript, which the session store already holds;
+    // the response is the provider behavior nothing else recorded. So the
+    // request goes first, and the response gives ground only from its head:
+    // the chunk that explains a failure is almost always the last one.
+    const withoutRequest = encode(redactSecrets({
         ...file,
-        response: [],
-        omitted: "response exceeded the capture byte cap",
+        request: null,
+        omitted: "request exceeded the capture byte cap",
     }));
-    if (byteLength(withoutResponse) <= maxBytes) {
-        return withoutResponse;
+    if (byteLength(withoutRequest) <= maxBytes) {
+        return withoutRequest;
+    }
+    let tail = file.response;
+    while (tail.length > 0) {
+        tail = tail.slice(Math.ceil(tail.length / 2));
+        const trimmed = encode(redactSecrets({
+            ...file,
+            request: null,
+            response: tail,
+            responseTruncated: true,
+            omitted: "request and the response head exceeded the capture byte cap",
+        }));
+        if (byteLength(trimmed) <= maxBytes) {
+            return trimmed;
+        }
     }
     return encode(redactSecrets({
         ...file,

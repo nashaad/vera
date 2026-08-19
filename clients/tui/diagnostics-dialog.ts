@@ -180,6 +180,7 @@ const DIAGNOSTIC_SECTIONS = new Set([
     "## Runtime",
     "## Model",
     "## Session",
+    "## Model failures",
     "## Pre-image stash",
 ]);
 

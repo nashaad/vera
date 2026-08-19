@@ -160,6 +160,7 @@ export function renderTuiStatusDetailsLine(
     dials: TuiStatusDials = {},
     needsYou = 0,
     width: number | undefined = undefined,
+    needsYouHint = "/work",
 ): string {
     return renderTuiStatusDetailsRows(
         settings,
@@ -173,6 +174,7 @@ export function renderTuiStatusDetailsLine(
         dials,
         needsYou,
         width,
+        needsYouHint,
     )
         .map((row) => row.map((chunk) => chunk.text).join(""))
         .join("\n");
@@ -195,6 +197,7 @@ export function renderTuiStatusDetailsRows(
     dials: TuiStatusDials = {},
     needsYou = 0,
     width: number | undefined = undefined,
+    needsYouHint = "/work",
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -229,14 +232,14 @@ export function renderTuiStatusDetailsRows(
         : renderPermissions(approvalMode);
     // The guaranteed way to find out that something is waiting. Terminal
     // notifications are best effort and the Work tab has to be opened; this is
-    // always on screen, so it leads the row, and names the command that
+    // always on screen, so it leads the row, and names the action that
     // answers it. On a row too narrow for both, the count stays and the
-    // command goes: the count is the alarm, the command is the directions.
+    // hint goes: the count is the alarm, the hint is the directions.
     const attention = (hint: boolean): TuiStatusChunk[] =>
         needsYou === 0 ? [] : [
             { text: `${needsYou} need you`, tone: "danger" as const },
-            ...(hint
-                ? [separator, { text: "/work", tone: "danger" as const }]
+            ...(hint && needsYouHint !== ""
+                ? [separator, { text: needsYouHint, tone: "danger" as const }]
                 : []),
             separator,
         ];
@@ -309,7 +312,9 @@ export function needsYouChipColumns(
 ): number {
     if (needsYou === 0 || row[0]?.tone !== "danger") return 0;
     let columns = row[0].text.length;
-    if (row[2]?.text === "/work") {
+    // The hint chunk shares the count's tone; anything else after the count
+    // means the hint was dropped for width.
+    if (row[2]?.tone === "danger") {
         columns += (row[1]?.text.length ?? 0) + row[2].text.length;
     }
     return columns;

@@ -140,10 +140,20 @@ export async function readSessionImageContent(
     };
 }
 
+/** Stands in for an image the active model has no way to read. */
+export const OMITTED_IMAGE_TEXT =
+    "[image omitted: the active model does not read images]";
+
+/**
+ * With `omitImages`, stored attachments become a text placeholder instead of
+ * image content, so a session that collected images stays usable after a
+ * switch to a model that cannot take them.
+ */
 export async function hydrateImageAttachments(
     messages: readonly ModelMessage[],
     readImage: (attachmentId: string) => Promise<ImageContent>,
     cache: Map<string, ImageContent> = new Map(),
+    omitImages = false,
 ): Promise<ModelInputMessage[]> {
     const hydrated: ModelInputMessage[] = [];
     for (const message of messages) {
@@ -155,6 +165,10 @@ export async function hydrateImageAttachments(
         for (const block of message.content) {
             if (block.type === "text") {
                 content.push(block);
+                continue;
+            }
+            if (omitImages) {
+                content.push({ type: "text" as const, text: OMITTED_IMAGE_TEXT });
                 continue;
             }
             let image = cache.get(block.attachmentId);

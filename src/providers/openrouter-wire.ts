@@ -15,6 +15,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
 import { normalizeGoogleToolSchema } from "./google-tool-schema.ts";
 
@@ -37,6 +38,7 @@ export type SendOpenRouterChat = (
 export function encodeOpenRouterMessages(
     systemPrompt: string | undefined,
     messages: readonly ModelInputMessage[],
+    model?: string,
 ): ChatMessages[] {
     const encoded: ChatMessages[] = [];
     if (systemPrompt) {
@@ -64,14 +66,23 @@ export function encodeOpenRouterMessages(
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("");
-        const reasoning = message.content
-            .filter((block) => block.type === "thinking")
-            .map((block) => block.text)
-            .join("");
-        const reasoningDetails = message.content
-            .flatMap((block) => block.type === "thinking" && block.signature !== undefined
-                ? decodeReasoningDetails(block.signature)
-                : []);
+        // Reasoning is only replayable to the model that produced it: signed
+        // and encrypted payloads are rejected by any other endpoint, and the
+        // plaintext left behind would reach Anthropic as an unsigned thinking
+        // block, which is rejected in turn.
+        const replayable = model === undefined || message.source.model === model;
+        const reasoning = replayable
+            ? message.content
+                .filter((block) => block.type === "thinking")
+                .map((block) => block.text)
+                .join("")
+            : "";
+        const reasoningDetails = replayable
+            ? message.content
+                .flatMap((block) => block.type === "thinking" && block.signature !== undefined
+                    ? decodeReasoningDetails(block.signature)
+                    : [])
+            : [];
         const toolCalls = message.content
             .filter((block) => block.type === "tool_call")
             .map((block) => ({
@@ -82,6 +93,12 @@ export function encodeOpenRouterMessages(
                     arguments: JSON.stringify(block.input),
                 },
             }));
+        if (
+            text.length === 0 && reasoning.length === 0
+            && reasoningDetails.length === 0 && toolCalls.length === 0
+        ) {
+            continue;
+        }
         encoded.push({
             role: "assistant",
             content: text,
@@ -172,15 +189,30 @@ export function parseOpenRouterToolInput(
 
     try {
         parsed = JSON.parse(value);
-    } catch {
-        throw new Error(`OpenRouter returned invalid JSON for tool call at index ${index}`);
+    } catch (cause) {
+        // Malformed arguments are transient model output, not a request the
+        // user can fix, so the failure is retryable.
+        throw malformedToolCall(
+            `OpenRouter returned invalid JSON for tool call at index ${index}`,
+            cause,
+        );
     }
 
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw new Error(`OpenRouter returned non-object input for tool call at index ${index}`);
+        throw malformedToolCall(
+            `OpenRouter returned non-object input for tool call at index ${index}`,
+            undefined,
+        );
     }
 
     return parsed as Record<string, unknown>;
+}
+
+function malformedToolCall(message: string, cause: unknown): ProviderFailureError {
+    return new ProviderFailureError(
+        { kind: "unknown", resolution: "retry", message },
+        cause,
+    );
 }
 
 function encodeUserContent(

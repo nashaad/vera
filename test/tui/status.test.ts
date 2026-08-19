@@ -272,10 +272,10 @@ test("the attention chip names /work, and drops the hint before the count", () =
         row.map((chunk) => chunk.text).join("");
 
     // Room to spare: the count and the command both show.
-    const wide = rows(undefined)[0];
+    const wide = rows(undefined)[0] ?? [];
     expect(rowText(wide)).toContain("1 need you · /work");
     // Too narrow for the whole row: the command goes, the count stays.
-    const tight = rows(20)[0];
+    const tight = rows(20)[0] ?? [];
     expect(rowText(tight)).toContain("1 need you");
     expect(rowText(tight)).not.toContain("/work");
 });
@@ -294,10 +294,39 @@ test("the chip's click span covers the count and the hint, and only them", () =>
             {},
             needsYou,
             width,
-        )[0];
+        )[0] ?? [];
 
     expect(needsYouChipColumns(rows(0), 0)).toBe(0);
     expect(needsYouChipColumns(rows(1), 1)).toBe("1 need you · /work".length);
     // With the hint dropped, the span shrinks to the count alone.
     expect(needsYouChipColumns(rows(1, 20), 1)).toBe("1 need you".length);
+});
+
+test("the attention hint is the caller's, so it can name the jump chord", () => {
+    const rows = (hint: string) =>
+        renderTuiStatusDetailsRows(
+            { model: "test", reasoningEffort: "high", contextWindow: 100 },
+            "auto",
+            undefined,
+            "/work/one",
+            0,
+            undefined,
+            true,
+            undefined,
+            {},
+            1,
+            undefined,
+            hint,
+        )[0] ?? [];
+    const text = (row: readonly { text: string }[]): string =>
+        row.map((chunk) => chunk.text).join("");
+
+    const chord = rows("ctrl+shift+j");
+    expect(text(chord)).toContain("1 need you · ctrl+shift+j");
+    // The click span follows whatever hint is shown.
+    expect(needsYouChipColumns(chord, 1))
+        .toBe("1 need you · ctrl+shift+j".length);
+    // An empty hint leaves the count alone rather than a dangling separator.
+    expect(text(rows(""))).toContain("1 need you · test");
+    expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);
 });

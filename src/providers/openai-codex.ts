@@ -92,7 +92,7 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 // request.maxTokens is dropped rather than sent: this backend
                 // answers a request carrying an output cap with a 400.
                 instructions: request.systemPrompt ?? "",
-                input: encodeOpenAICodexInput(messages),
+                input: encodeOpenAICodexInput(messages, request.model),
                 tools: encodeOpenAICodexTools(request.tools ?? []),
                 tool_choice: "auto",
                 parallel_tool_calls: false,

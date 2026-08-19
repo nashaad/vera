@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { fg } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -10,6 +11,11 @@ import {
     createTuiApprovalView,
     renderTuiApproval,
 } from "../../clients/tui/approval.ts";
+import {
+    TUI_DIFF_ADDED,
+    TUI_DIFF_REMOVED,
+    TUI_MUTED,
+} from "../../clients/tui/state.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import type { JsonObject } from "../../src/sdk/hooks.ts";
 
@@ -50,6 +56,104 @@ test("an edit is shown as its hunks, not as its JSON", () => {
         "+ const a = 2;",
     ].join("\n"));
     expect(body).not.toContain("old_string");
+});
+
+test("an edit keeps unchanged lines as dimmed context around its hunks", () => {
+    const body = tuiApprovalBody(approval("edit", {
+        path: `${process.cwd()}/clients/tui/question.ts`,
+        edits: [{
+            old_string: "one\ntwo\nthree\nfour\nfive\nsix",
+            new_string: "one\ntwo\nTHREE\nfour\nfive\nSIX",
+        }],
+    }));
+
+    // Context lines carry one leading space and no marker; only the lines
+    // actually removed and added carry theirs.
+    expect(body.lines.map((line) => line.text)).toEqual([
+        "clients/tui/question.ts",
+        " one",
+        " two",
+        "- three",
+        "+ THREE",
+        " four",
+        " five",
+        "- six",
+        "+ SIX",
+    ]);
+    const context = body.lines.filter((line) =>
+        line.text.startsWith(" ") && line.text.trim() !== ""
+    );
+    expect(context.every((line) => line.tone === "muted")).toBe(true);
+    expect(body.lines.find((line) => line.text === "- three")?.tone)
+        .toBe("del");
+    expect(body.lines.find((line) => line.text === "+ THREE")?.tone)
+        .toBe("add");
+});
+
+test("a long unchanged run collapses behind a gap", () => {
+    const block = [
+        "a", "b", "c", "d", "e", "f", "g", "h", "i", "j",
+        "k", "l", "m", "n",
+    ];
+    const changed = block.map((line) =>
+        line === "c" ? "X" : line === "m" ? "Y" : line
+    );
+    const body = tuiApprovalBody(approval("edit", {
+        path: `${process.cwd()}/clients/tui/question.ts`,
+        edits: [{
+            old_string: block.join("\n"),
+            new_string: changed.join("\n"),
+        }],
+    }));
+
+    // Each change keeps three lines of context; the three unchanged lines
+    // between the clusters collapse behind one gap instead of being re-emitted.
+    expect(body.lines.map((line) => line.text)).toEqual([
+        "clients/tui/question.ts",
+        " a",
+        " b",
+        "- c",
+        "+ X",
+        " d",
+        " e",
+        " f",
+        " …",
+        " j",
+        " k",
+        " l",
+        "- m",
+        "+ Y",
+        " n",
+    ]);
+});
+
+test("a diff is a diff regardless of theme: red removals, green additions", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 20 });
+    const view = createTuiApprovalView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    view.update(approval("edit", {
+        path: `${process.cwd()}/clients/tui/question.ts`,
+        edits: [{
+            old_string: "one\ntwo\nthree",
+            new_string: "one\nTWO\nthree",
+        }],
+    }));
+
+    try {
+        await setup.flush();
+        const chunks = view.detailsText.content.chunks;
+        const removed = chunks.find((chunk) => chunk.text.startsWith("- "));
+        const added = chunks.find((chunk) => chunk.text.startsWith("+ "));
+        const context = chunks.find((chunk) => chunk.text.startsWith(" "));
+        // Removals and additions use the diff role colors, never the
+        // notice/success palette; context is dimmed.
+        expect(removed?.fg).toEqual(fg(TUI_DIFF_REMOVED)("").fg);
+        expect(added?.fg).toEqual(fg(TUI_DIFF_ADDED)("").fg);
+        expect(context?.fg).toEqual(fg(TUI_MUTED)("").fg);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("a write is shown as its path and size", () => {
