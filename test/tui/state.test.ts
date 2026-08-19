@@ -2319,3 +2319,89 @@ test("dropping an admission takes its checklist entry with it", () => {
     expect(dropped.entries.length).toBe(0);
     expect(dropped.admission).toBeUndefined();
 });
+
+test("a rebuild puts restored summaries back in front of the answer", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "may I commit?" },
+            { kind: "assistant", text: "the fix is ready" },
+        ],
+        seq: 1,
+    });
+    state = {
+        ...state,
+        entries: [
+            ...state.entries,
+            { kind: "thought", text: "Worked for 8.0s", seconds: 8 },
+            { kind: "thought", text: "Worked for 4.2s", seconds: 4.2 },
+        ],
+    };
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "may I commit?" },
+            { kind: "assistant", text: "the fix is ready" },
+        ],
+        seq: 2,
+    });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
+    expect(state.entries[1]).toMatchObject({
+        text: "Worked for 12.2s",
+        seconds: 12.2,
+    });
+});
+
+test("phases that reported nothing settle as one row, not one row each", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "may I commit?" },
+            { kind: "assistant", text: "the fix is ready" },
+            { kind: "thought", text: "Worked for 8.0s", seconds: 8 },
+            { kind: "thought", text: "Worked for 4.2s", seconds: 4.2 },
+        ],
+    }, { type: "turn_finished", seq: 1 });
+
+    expect(state.entries.map((entry) => entry.text)).toEqual([
+        "may I commit?",
+        "Worked for 12.2s",
+        "the fix is ready",
+    ]);
+});
+
+test("folded phases keep every stretch of reasoning behind one row", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "which ordering?" },
+            { kind: "assistant", text: "move the flush above the check" },
+            {
+                kind: "thought",
+                text: "Reasoning: 2.0s",
+                seconds: 2,
+                reasoning: "weighing the two orderings",
+            },
+            {
+                kind: "thought",
+                text: "Reasoning: 1.0s",
+                seconds: 1,
+                reasoning: "checking the flush",
+            },
+        ],
+    }, { type: "status", state: "idle", seq: 1 });
+
+    expect(state.entries[1]).toMatchObject({
+        text: "Reasoning: 3.0s",
+        reasoning: "weighing the two orderings\n\nchecking the flush",
+    });
+});

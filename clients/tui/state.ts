@@ -495,10 +495,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         // that lands mid-phase puts it back at the end where it belongs.
         return withLiveThinking({
             ...state,
-            entries: preserveLiveReviewEntries(
+            // A rebuild can restore a summary the canonical rows no longer
+            // have a place for, which lands it behind the answer it belongs
+            // in front of. Settling here is what the end of a turn does.
+            entries: settleTrailingThoughts(preserveLiveReviewEntries(
                 state.entries,
                 canonicalEntries,
-            ),
+            )),
             ...(update.context === undefined
                 ? {}
                 : { context: update.context }),
@@ -672,7 +675,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     return assertNever(update);
 }
 
-/** A completed answer is the last row of its turn, even after a checkpoint. */
+/**
+ * A completed answer is the last row of its turn, even after a checkpoint.
+ *
+ * The stretch that lands behind it is also one stretch, not one row per phase:
+ * a rebuild restores each phase as it was recorded, and the append path's
+ * merge never sees them.
+ */
 function settleTrailingThoughts(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -686,9 +695,20 @@ function settleTrailingThoughts(
     }
 
     const next = [...entries];
-    const thoughts = next.splice(thoughtStart);
-    next.splice(thoughtStart - 1, 0, ...thoughts);
+    const thoughts = next.splice(thoughtStart) as TuiTextTranscriptEntry[];
+    next.splice(thoughtStart - 1, 0, ...foldThoughts(thoughts));
     return next;
+}
+
+/** One stretch of thinking is one row, however many phases reported it. */
+function foldThoughts(
+    thoughts: readonly TuiTextTranscriptEntry[],
+): readonly TuiTextTranscriptEntry[] {
+    const first = thoughts[0];
+    if (first === undefined) {
+        return thoughts;
+    }
+    return [thoughts.slice(1).reduce(mergeThoughts, first)];
 }
 
 /**
