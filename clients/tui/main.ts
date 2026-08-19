@@ -11082,7 +11082,10 @@ export async function startTui(
         agents: BackgroundAgentsSnapshot | undefined,
     ): void {
         runningBackgroundAgents = agents?.running ?? 0;
-        runningBackgroundAgentNames = agents?.children ?? [];
+        // A reconnect/resubscribe can land the same child twice in one
+        // snapshot; each name gets its own spinner row, so a duplicate here
+        // shows up as a stacked/overlapping animation on screen.
+        runningBackgroundAgentNames = [...new Set(agents?.children ?? [])];
         currentAgentHasParent = agents?.has_parent ?? false;
     }
 
