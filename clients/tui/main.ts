@@ -189,6 +189,12 @@ import {
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
 import {
+    defaultModelFailureLedgerPath,
+    modelFailureNudge,
+    readModelFailures,
+    summariseModelFailures,
+} from "../../src/store/model-failures.ts";
+import {
     diagnoseProviders,
     renderProviderDoctor,
 } from "../provider-doctor.ts";
@@ -527,6 +533,12 @@ const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
+
+/**
+ * Failure signatures already named on screen. Per run rather than per session:
+ * one mention is the point, and switching sessions is not new information.
+ */
+const raisedModelFailureSignatures = new Set<string>();
 
 function shortConnectionFailure(message: string): string {
     const line = message.split("\n")[0]?.trim() ?? "";
@@ -4453,11 +4465,27 @@ export async function startTui(
             runningBackgroundAgents,
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
+            modelFailures: summariseModelFailures(readModelFailures()),
+            modelFailureLedgerPath: defaultModelFailureLedgerPath(),
             build: dependencies.build,
             extensions: configuredClientExtensions,
             clientExtensionReload,
             startup: readLatestHostStartupTiming(),
         };
+    }
+
+    /**
+     * A model failing the same way again is worth one line saying so, because
+     * the per-turn error alone reads as Vera breaking rather than as a pattern
+     * with somewhere to look.
+     */
+    function noticeRepeatedModelFailure(current: TuiState): TuiState {
+        const nudge = modelFailureNudge(
+            readModelFailures(),
+            raisedModelFailureSignatures,
+        );        if (nudge === undefined) return current;
+        raisedModelFailureSignatures.add(nudge.signature);
+        return appendTuiNotice(current, nudge.text, "soft");
     }
 
     function submitPrompt(
@@ -6097,6 +6125,12 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "turn_finished"
+                    && update.outcome === "error"
+                ) {
+                    state = noticeRepeatedModelFailure(state);
+                }
                 if (update.type === "agent_catalog") {
                     agentCatalog = {
                         worn: update.worn,
