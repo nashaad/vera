@@ -94,12 +94,18 @@ export function assertProfileLayout(home?: string): void {
     }
     const found = legacyLayoutEntries(home);
     if (found.length === 0) return;
+    const machineDirectory = veraMachineDirectory(home);
+    const profileDirectory = join(root, "profiles", DEFAULT_PROFILE_NAME);
+    const moves = found.map((entry) => {
+        const destination = entry === "auth.json" ? machineDirectory : profileDirectory;
+        return `  mv ${join(root, entry)} ${destination}/`;
+    });
     throw new VeraProfileError(
         `${root} uses the old flat layout and Vera no longer reads it.\n`
-        + `Move these into the new layout, then start Vera again:\n`
-        + `  auth.json                  -> ${veraMachineDirectory(home)}/auth.json\n`
-        + `  everything else            -> ${join(root, "profiles", DEFAULT_PROFILE_NAME)}/\n`
-        + `Found: ${found.join(", ")}`,
+        + `Found old entries: ${found.join(", ")}\n`
+        + `Run these commands, then start Vera again:\n`
+        + `  mkdir -p ${machineDirectory} ${profileDirectory}\n`
+        + moves.join("\n"),
     );
 }
 
