@@ -11,9 +11,9 @@ import {
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
-test("TUI composer takes the background it is drawn on", async () => {
+test("TUI composer takes the theme's editing surface", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
-    const theme = { ...VERA_TUI_THEME, background: "#123456" };
+    const theme = { ...VERA_TUI_THEME, input: "#123456" };
     applyTuiTheme(theme);
     const composer = createTuiComposer(setup.renderer, () => {});
 
