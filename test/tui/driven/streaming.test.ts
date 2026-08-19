@@ -103,7 +103,7 @@ test("scrolling away from the stream offers a way back to the bottom", async () 
     const session = await startTuiTestSession({
         home,
         width: 100,
-        height: 18,
+        height: 17,
         dependencies: () => createTuiChildDependencies(),
     });
     let pane = "";
@@ -157,7 +157,7 @@ test("the jump pill sits above the command suggestion strip", async () => {
     const session = await startTuiTestSession({
         home,
         width: 100,
-        height: 18,
+        height: 17,
         dependencies: () => createTuiChildDependencies(),
     });
     let pane = "";
