@@ -10775,8 +10775,11 @@ export async function startTui(
                     : dialStrip?.lane === "access"
                         ? index === accessRowIndex
                         : false;
+            // The access modes keep their colours whether or not the lane is
+            // focused: the posture the session is running under is worth
+            // reading at a glance, not only while it is being changed.
             const selectedColor = (part: string): string =>
-                dialStrip?.lane !== "access"
+                index !== accessRowIndex
                     ? TUI_TEXT
                     : part.includes("readonly")
                         ? "#c586c0"
@@ -10802,7 +10805,7 @@ export async function startTui(
                     ? spans.map((span, at) =>
                         fg(
                             at % 2 === 0
-                                ? activeRow ? TUI_TEXT : TUI_MUTED
+                                ? TUI_TEXT
                                 : span === "\u25b2"
                                     ? TUI_NOTICE
                                     : span.startsWith("(") || !activeRow
@@ -10830,24 +10833,31 @@ export async function startTui(
                     ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
                 ];
             }
+            // A lane keeps its name lit even when the focus is elsewhere. The
+            // labels are the map of the control; muting them leaves a block of
+            // grey with nothing to read it by.
+            const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)
+                ?.[0];
+            // The bracketed row is the one the dial is sitting on, and it reads
+            // as chosen whether or not the model lane holds the focus, the same
+            // way the picked agent and access cells do.
+            const pickedRow = isModelRow && main.includes("[");
             let mainChunks;
-            if (!activeRow) {
-                mainChunks = [fg(TUI_MUTED)(main)];
-            } else if (isModelRow) {
-                if (main.includes("[")) {
-                    mainChunks = [fg(TUI_TEXT)(main)];
-                } else if (index === modelHeaderIndex) {
-                    const prefixLength = main.startsWith("› MODEL") ? 14 : 2;
+            if (isModelRow) {
+                if (index === modelHeaderIndex) {
+                    const prefixLength = laneLabel?.length ?? 2;
+                    const rest = main.slice(prefixLength);
                     mainChunks = [
                         fg(TUI_TEXT)(main.slice(0, prefixLength)),
-                        fg(TUI_MUTED)(main.slice(prefixLength)),
+                        fg(pickedRow ? TUI_TEXT : TUI_MUTED)(rest),
                     ];
+                } else if (pickedRow) {
+                    mainChunks = [fg(TUI_TEXT)(main)];
                 } else {
                     mainChunks = [fg(TUI_MUTED)(main)];
                 }
             } else {
-                const prefix = main.match(/^[› ] (?:EFFORT|AGENT|ACCESS)\s*/)?.[0]
-                    ?? main.slice(0, 2);
+                const prefix = laneLabel ?? main.slice(0, 2);
                 const choices = main.slice(prefix.length)
                     .split(/(\[[^\]]+\])/)
                     .filter(Boolean);
@@ -10865,7 +10875,7 @@ export async function startTui(
                 // The provider is muted; anything after it is the closing
                 // bracket, which belongs to the choice, not to the provider.
                 ...providerParts.slice(1).map((part, at) =>
-                    fg(at === 0 ? TUI_MUTED : activeRow ? TUI_TEXT : TUI_MUTED)(
+                    fg(at === 0 ? TUI_MUTED : pickedRow ? TUI_TEXT : TUI_MUTED)(
                         part,
                     )
                 ),
