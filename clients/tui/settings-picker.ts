@@ -563,7 +563,7 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
     { value: "midnight-blue-ii", label: "Midnight Blue II", description: "gold accent, blue code" },
     { value: "norton-commander", label: "NC", description: "blue panels, cyan bars, yellow detail" },
     { value: "nc-navy", label: "NC Navy", description: "deep navy panels, cyan bars" },
-    { value: "windows-31", label: "retro31", description: "white windows, navy title bars" },
+    { value: "windows-31", label: "retro31", description: "navy windows on teal" },
 ];
 
 export function startTuiSettingsPicker(

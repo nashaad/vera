@@ -95,8 +95,8 @@ test("retro themes carry their own structural chrome", async () => {
     });
     expect(await resolveTuiTheme(renderer, "windows-31")).toMatchObject({
         background: "#008080",
-        panel: "#FFFFFF",
-        input: "#FFFFFF",
+        panel: "#000080",
+        input: "#000080",
         chrome: "norton",
     });
 });
