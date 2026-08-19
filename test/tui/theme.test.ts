@@ -94,10 +94,20 @@ test("retro themes carry their own structural chrome", async () => {
         selectionText: "#000000",
     });
     expect(await resolveTuiTheme(renderer, "windows-31")).toMatchObject({
-        background: "#008080",
-        panel: "#000080",
-        input: "#000080",
-        chrome: "norton",
+        background: "#FFFFFF",
+        panel: "#C0C0C0",
+        input: "#FFFFFF",
+        chrome: "plain",
+        selectionText: "#FFFFFF",
+        hud: {
+            background: "#000080",
+            border: "#00AAAA",
+            text: "#FFFFFF",
+            muted: "#80C8C8",
+            accent: "#00FFFF",
+            notice: "#FFFF55",
+            success: "#55FF55",
+        },
     });
 });
 
@@ -168,6 +178,20 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
         menu: "#171B23",
         chrome: "plain",
         selectionText: "#0F1117",
+    });
+});
+
+test("theme can define dedicated HUD overrides", async () => {
+    const renderer = { async getPalette() { return terminalColors(); } };
+    const theme = await resolveTuiTheme(renderer, "windows-31");
+    expect(theme.hud).toEqual({
+        background: "#000080",
+        border: "#00AAAA",
+        text: "#FFFFFF",
+        muted: "#80C8C8",
+        accent: "#00FFFF",
+        notice: "#FFFF55",
+        success: "#55FF55",
     });
 });
 

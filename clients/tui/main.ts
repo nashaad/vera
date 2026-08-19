@@ -467,8 +467,10 @@ import {
     TUI_ACCENT,
     TUI_BACKGROUND,
     TUI_ELEMENT,
+    TUI_HUD,
     TUI_MUTED,
     TUI_NOTICE,
+    TUI_PANEL,
     TUI_SUCCESS,
     TUI_TEXT,
     applyTuiTheme,
@@ -1784,7 +1786,8 @@ export async function startTui(
         id: "dial-card",
         border: true,
         borderStyle: "rounded",
-        borderColor: TUI_ELEMENT,
+        borderColor: TUI_HUD?.border ?? TUI_ELEMENT,
+        backgroundColor: TUI_HUD?.background ?? TUI_PANEL,
         height: 6,
         marginLeft: appearance.composerMarginHorizontal,
         marginRight: appearance.composerMarginHorizontal,
@@ -10756,20 +10759,28 @@ export async function startTui(
                 Math.max(3, Math.min(9, renderer.height - 23)),
             );
         dialCard.visible = stripLines !== undefined;
+        dialCard.borderColor = TUI_HUD?.border ?? TUI_ELEMENT;
+        dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
         const hudRows = stripLines?.slice(0, -1) ?? [];
         dialCardTitle.height = Math.max(1, hudRows.length);
         dialCard.height = hudRows.length + 3;
+        const hudBg = TUI_HUD?.background ?? TUI_PANEL;
+        const hudText = TUI_HUD?.text ?? TUI_TEXT;
+        const hudMuted = TUI_HUD?.muted ?? TUI_MUTED;
+        const hudAccent = TUI_HUD?.accent ?? TUI_ACCENT;
+        const hudNotice = TUI_HUD?.notice ?? TUI_NOTICE;
+        const hudSuccess = TUI_HUD?.success ?? VERA_TUI_THEME.success;
         dialCardTitle.content = new StyledText(
             paintDialHud(hudRows, dialStrip?.lane, {
-                text: TUI_TEXT,
-                muted: TUI_MUTED,
-                accent: TUI_ACCENT,
-                notice: TUI_NOTICE,
-                background: TUI_BACKGROUND,
-                success: TUI_SUCCESS,
+                text: hudText,
+                muted: hudMuted,
+                accent: hudAccent,
+                notice: hudNotice,
+                background: hudBg,
+                success: TUI_HUD?.success ?? TUI_SUCCESS,
             }).flatMap((spans, index) => [
                 ...spans.map((span) => fg(span.color)(span.text)),
-                ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+                ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
             ]),
         );
         const dialHintParts = (stripLines?.at(-1) ?? "")
@@ -10777,8 +10788,8 @@ export async function startTui(
         dialCardHint.content = stripLines === undefined
             ? ""
             : new StyledText([
-                fg(TUI_MUTED)(dialHintParts[0] ?? ""),
-                fg(TUI_NOTICE)(dialHintParts[1] ?? ""),
+                fg(hudMuted)(dialHintParts[0] ?? ""),
+                fg(hudNotice)(dialHintParts[1] ?? ""),
             ]);
         activityHintText.content = activityHint;
         activityHintText.visible = statusText.visible
