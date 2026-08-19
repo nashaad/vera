@@ -1784,16 +1784,20 @@ export async function startTui(
     });
     const dialCard = new BoxRenderable(renderer, {
         id: "dial-card",
-        border: true,
-        borderStyle: "rounded",
-        borderColor: TUI_HUD?.border ?? TUI_ELEMENT,
+        // No border, and so no border styling option either: OpenTUI's
+        // BoxRenderable reads any of them as "this box wants a border" and
+        // overrides `border: false`. The HUD's own ground is what separates
+        // it from the screen, the way the other overlays are drawn.
+        border: false,
         backgroundColor: TUI_HUD?.background ?? TUI_PANEL,
         height: 6,
         marginLeft: appearance.composerMarginHorizontal,
         marginRight: appearance.composerMarginHorizontal,
         marginBottom: 1,
-        paddingLeft: appearance.composerPaddingHorizontal,
-        paddingRight: appearance.composerPaddingHorizontal,
+        paddingTop: 1,
+        paddingBottom: 1,
+        paddingLeft: appearance.composerPaddingHorizontal + 1,
+        paddingRight: appearance.composerPaddingHorizontal + 1,
         flexDirection: "column",
         zIndex: DIALOG_CARD_Z_INDEX,
         focusable: true,
@@ -2066,6 +2070,7 @@ export async function startTui(
         border: true,
         borderStyle: "rounded",
         borderColor: theme.element,
+        focusedBorderColor: theme.element,
         title: " Jump ",
         position: "absolute",
         left: tuiComposerOverlayInset(appearance).paddingLeft,
@@ -3355,8 +3360,8 @@ export async function startTui(
         composerBox.paddingRight = appearance.composerPaddingHorizontal;
         dialCard.marginLeft = appearance.composerMarginHorizontal;
         dialCard.marginRight = appearance.composerMarginHorizontal;
-        dialCard.paddingLeft = appearance.composerPaddingHorizontal;
-        dialCard.paddingRight = appearance.composerPaddingHorizontal;
+        dialCard.paddingLeft = appearance.composerPaddingHorizontal + 1;
+        dialCard.paddingRight = appearance.composerPaddingHorizontal + 1;
         statusBand.paddingLeft = composerContentIndent;
         statusBand.paddingRight = composerContentIndent;
         const suggestionInset = tuiComposerOverlayInset(appearance);
@@ -10800,7 +10805,6 @@ export async function startTui(
                 Math.max(3, Math.min(9, renderer.height - 23)),
             );
         dialCard.visible = stripLines !== undefined;
-        dialCard.borderColor = TUI_HUD?.border ?? TUI_ELEMENT;
         dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
         const hudRows = stripLines?.slice(0, -1) ?? [];
         dialCardTitle.height = Math.max(1, hudRows.length);
