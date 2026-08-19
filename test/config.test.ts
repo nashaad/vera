@@ -8,6 +8,8 @@ import {
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
+import { catalogMaxAgeMs } from "../src/host/runtime.ts";
+import { DEFAULT_CATALOG_MAX_AGE_MS } from "../src/model/catalog-cache.ts";
 
 import {
     configuredModelFallback,
@@ -1334,4 +1336,39 @@ test("a config that exists but cannot be parsed is still refused", () => {
     // user's own file away.
     expect(() => loadOrCreateVeraConfig({ path })).toThrow(VeraConfigError);
     expect(readFileSync(path, "utf8")).toBe("{ not json");
+});
+
+test("Vera config carries a catalog max age, defaulted to a week when absent", () => {
+    const bare = temporaryConfigPath();
+    writeFileSync(bare, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+    const config = loadVeraConfig({ path: bare });
+    expect(config.model_catalog_max_age_days).toBeUndefined();
+    expect(catalogMaxAgeMs(config)).toBe(DEFAULT_CATALOG_MAX_AGE_MS);
+
+    const set = temporaryConfigPath();
+    writeFileSync(set, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        model_catalog_max_age_days: 0,
+    }));
+    const always = loadVeraConfig({ path: set });
+    expect(always.model_catalog_max_age_days).toBe(0);
+    // Zero is the opt-out: ask the provider on every start, as Vera used to.
+    expect(catalogMaxAgeMs(always)).toBe(0);
+});
+
+test("Vera config rejects a catalog max age that is not a count", () => {
+    for (const days of ["7", -1, Number.NaN, null]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            model_catalog_max_age_days: days,
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
 });

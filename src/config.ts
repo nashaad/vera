@@ -242,6 +242,16 @@ export interface VeraConfig {
      * wanted. It stays opt-in until there is evidence it can be trusted on.
      */
     readonly model_picker_collapse_versions?: boolean;
+    /**
+     * How many days a discovered model list answers for before the provider is
+     * asked again. Absent means the built-in week. `0` asks on every start,
+     * which is what Vera used to do unconditionally.
+     *
+     * Starting Vera is not a reason to call a provider: the lists change over
+     * weeks, and the call was paid on every launch. `vera models refresh`
+     * fetches now whatever this says.
+     */
+    readonly model_catalog_max_age_days?: number;
 }
 
 /**
@@ -797,8 +807,11 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
     const modelFeedUrl = parseModelFeedUrl(config.model_feed_url);
-    const maxAgeMonths = parseMaxAgeMonths(config.model_picker_max_age_months);
+    const maxAgeMonths = parseNonNegativeCount(config.model_picker_max_age_months);
     const collapseVersions = config.model_picker_collapse_versions;
+    const catalogMaxAgeDays = parseNonNegativeCount(
+        config.model_catalog_max_age_days,
+    );
     const contextLimit = config.context_limit;
     const approvalMode = config.approval_mode === undefined
         ? "auto"
@@ -827,6 +840,8 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             && maxAgeMonths === undefined)
         || (collapseVersions !== undefined
             && typeof collapseVersions !== "boolean")
+        || (config.model_catalog_max_age_days !== undefined
+            && catalogMaxAgeDays === undefined)
         || (config.compaction !== undefined && compaction === undefined)
         || modelSlots === undefined
         ||
@@ -903,6 +918,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         ...(typeof collapseVersions === "boolean"
             ? { model_picker_collapse_versions: collapseVersions }
             : {}),
+        ...(catalogMaxAgeDays === undefined
+            ? {}
+            : { model_catalog_max_age_days: catalogMaxAgeDays }),
     };
 }
 
@@ -1192,7 +1210,7 @@ function parseModelFeedUrl(value: unknown): string | undefined {
         : undefined;
 }
 
-function parseMaxAgeMonths(value: unknown): number | undefined {
+function parseNonNegativeCount(value: unknown): number | undefined {
     return typeof value === "number" && Number.isFinite(value) && value >= 0
         ? value
         : undefined;
