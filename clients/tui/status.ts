@@ -158,6 +158,7 @@ export function renderTuiStatusDetailsLine(
     includePermissions = true,
     branch: string | undefined = undefined,
     dials: TuiStatusDials = {},
+    needsYou = 0,
 ): string {
     return renderTuiStatusDetailsRows(
         settings,
@@ -169,6 +170,7 @@ export function renderTuiStatusDetailsLine(
         includePermissions,
         branch,
         dials,
+        needsYou,
     )
         .map((row) => row.map((chunk) => chunk.text).join(""))
         .join("\n");
@@ -189,6 +191,7 @@ export function renderTuiStatusDetailsRows(
     includePermissions = true,
     branch: string | undefined = undefined,
     dials: TuiStatusDials = {},
+    needsYou = 0,
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -221,6 +224,15 @@ export function renderTuiStatusDetailsRows(
     const permissions = approvalMode === undefined
         ? "permissions loading"
         : renderPermissions(approvalMode);
+    // The guaranteed way to find out that something is waiting. Terminal
+    // notifications are best effort and the Work tab has to be opened; this is
+    // always on screen, so it leads the row and is worded as the count alone.
+    const attention = needsYou === 0
+        ? []
+        : [
+            { text: `${needsYou} need you`, tone: "danger" as const },
+            separator,
+        ];
     const background = runningBackgroundAgents === 0
         ? []
         : [
@@ -235,6 +247,7 @@ export function renderTuiStatusDetailsRows(
     // wherever it is changed, and repeating it here spends columns the context
     // share needs.
     const first: TuiStatusChunk[] = [
+        ...attention,
         ...background,
         ...(dials.agent === undefined ? [] : [
             {

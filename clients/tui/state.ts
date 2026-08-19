@@ -53,6 +53,12 @@ export type TuiTranscriptEntryKind =
 export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
+    /**
+     * The store entry this row came from, on the rows that came from one.
+     * The same reference resume and rewind take, which is what lets a client
+     * open a conversation at a particular message rather than at its end.
+     */
+    readonly entryId?: string;
     /** What the user attached, named for the chips under a user entry. */
     readonly attachments?: readonly string[];
     /** Which group a tool row belongs to, and what its header reads. */
@@ -2037,9 +2043,29 @@ function toTuiTranscriptEntries(
             ? withToolEntry(converted, entry.tool, entry.args, false)
             : entry.kind === "tool_result"
             ? withHistoricalToolResult(converted, entry.tool, entry.output)
-            : [...converted, toSingleTuiTranscriptEntry(entry)];
+            : [...converted, withStoreEntryId(
+                toSingleTuiTranscriptEntry(entry),
+                entry,
+            )];
     }
     return converted;
+}
+
+/**
+ * Keep the store's id on the row it became, when the entry had one.
+ *
+ * Carried so a client can find a row again by the same reference resume and
+ * rewind take. Only messages have one: a tool row, a notice and a diff are
+ * things the transcript draws, not entries the store holds.
+ */
+function withStoreEntryId(
+    converted: TuiTranscriptEntry,
+    entry: TranscriptEntry,
+): TuiTranscriptEntry {
+    const id = "id" in entry ? entry.id : undefined;
+    return id === undefined || converted.kind === "diff"
+        ? converted
+        : { ...converted, entryId: id };
 }
 
 function toSingleTuiTranscriptEntry(

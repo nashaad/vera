@@ -252,7 +252,42 @@ import {
     type TuiAdmissionDialogState,
 } from "./admission-dialog.ts";
 import { renderTuiHeldAddress } from "./addressing.ts";
+import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
+import { createTuiLinesView } from "./lines-view.ts";
+import { wheelCursor } from "./list-window.ts";
+import {
+    applyWorkIndex,
+    handleWorkTabKey,
+    startWorkTab,
+    workTabAction,
+    workTabViewState,
+    type WorkTabState,
+} from "./work-tab.ts";
+import {
+    applySearchFailure,
+    applySearchResults,
+    handleSearchOverlayKey,
+    openSelected,
+    searchOverlayViewState,
+    searchSelectionOf,
+    searchSelections,
+    startSearchOverlay,
+    type SearchOverlayState,
+} from "./search-overlay.ts";
+import {
+    attentionNotice,
+    attentionNoticeSequence,
+    newAttentionRows,
+    parseTerminalFocusEvent,
+    FOCUS_REPORTING_OFF,
+    FOCUS_REPORTING_ON,
+} from "./attention-notice.ts";
+import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
+import type {
+    SessionSearchQuery,
+    SessionSearchResults,
+} from "../../src/store/session-search.ts";
 import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
 import {
     renderTuiQuote,
@@ -583,6 +618,14 @@ export interface TuiDependencies {
         boundaryId: string,
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
+    /**
+     * Scan the host's transcripts. Absent when this client reaches no host
+     * that can search, which the overlay states rather than showing as an
+     * empty past.
+     */
+    readonly searchSessions?: (
+        query: SessionSearchQuery,
+    ) => Promise<SessionSearchResults>;
     readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
@@ -779,6 +822,12 @@ export async function startConfiguredTui(
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
             resumeSession: agentClients.resume,
+            // Read through the host rather than the session directory: the
+            // host owns which profile's transcripts are the live ones, and a
+            // client that resolved the path itself could search a different
+            // profile from the one it is attached to.
+            searchSessions: (query) =>
+                searchSessionsThroughHost(host.socket_path, query),
             reconnectSession: async (currentAgentId) => {
                 host = await findOrStartResidentHost({
                     ...(options.confirmBusyUpgrade === undefined
@@ -1019,6 +1068,36 @@ export async function startTui(
     /** The picker pane the preferences list was opened over, restored on close. */
     let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
+    let workTab: WorkTabState | undefined;
+    let searchOverlay: SearchOverlayState | undefined;
+    /**
+     * The last index the host sent, held whether or not the tab is open: the
+     * counts and the notifications are facts about the machine, and they do
+     * not start existing when someone happens to look.
+     */
+    let workIndex: WorkIndexSnapshot | undefined;
+    /**
+     * Assumed focused until the terminal says otherwise. A terminal that does
+     * not answer focus reporting would otherwise be treated as never watched,
+     * and every approval would ring the bell under the person's nose.
+     */
+    let terminalFocused = true;
+    let stopWatchingWorkIndex: (() => void) | undefined;
+    let searchInFlight = false;
+    /**
+     * The transcript row a search asked to land on, and the session it lives
+     * in, until it is on screen.
+     *
+     * The session is half the target, not decoration: closing the overlay
+     * paints the conversation that was already open, and a target that only
+     * named a row would be spent on that paint before the session it belongs
+     * to had loaded.
+     */
+    let pendingSearchTarget: {
+        readonly sessionId: string;
+        readonly entryId: string;
+    } | undefined;
+    let queuedSearch: SessionSearchQuery | undefined;
     let help: TuiHelpState | undefined;
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let diagnosticsSessionPath: string | undefined;
@@ -1841,6 +1920,8 @@ export async function startTui(
     const providerFormView = createTuiProviderFormView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
+    const workTabView = createTuiLinesView(renderer, "work-tab");
+    const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer);
     const doctorDialogView = createTuiDiagnosticsDialogView(renderer, {
@@ -2939,6 +3020,71 @@ export async function startTui(
     };
     app.add(preferencesListView.surface);
     app.add(commandPaletteView.surface);
+    // Hover moves the cursor and a click acts on it, the same as every other
+    // overlay: a row the arrows can reach is a row the mouse can reach.
+    workTabView.pointer = {
+        hover: (rowId) => {
+            if (workTab === undefined || workTab.selectedId === rowId) return;
+            workTab = { ...workTab, selectedId: rowId };
+            renderState();
+        },
+        activate: (rowId) => {
+            if (workTab === undefined) return;
+            const open = { ...workTab, selectedId: rowId };
+            workTab = open;
+            const action = workTabAction(open.index, rowId);
+            if (action !== undefined) runWorkTabAction(open, action);
+        },
+    };
+    searchOverlayView.pointer = {
+        hover: (rowId) => {
+            const selected = searchSelectionOf(rowId);
+            if (searchOverlay === undefined || selected === undefined) return;
+            searchOverlay = { ...searchOverlay, selected };
+            renderState();
+        },
+        activate: (rowId) => {
+            const selected = searchSelectionOf(rowId);
+            if (searchOverlay === undefined || selected === undefined) return;
+            searchOverlay = { ...searchOverlay, selected };
+            const action = openSelected(searchOverlay);
+            if (action !== undefined) runSearchOverlayAction(action);
+        },
+    };
+    // The card windows itself around the cursor, so a wheel that moved the
+    // window on its own would leave enter pointing at a row off screen.
+    workTabView.box.onMouseScroll = (event) => {
+        if (workTab === undefined || event.scroll === undefined) return;
+        const rows = workTab.index.rows;
+        const at = rows.findIndex((row) => row.id === workTab?.selectedId);
+        const next = wheelCursor(Math.max(0, at), rows.length, event.scroll);
+        const selectedId = next === undefined ? undefined : rows[next]?.id;
+        if (selectedId === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        workTab = { ...workTab, selectedId };
+        renderState();
+    };
+    searchOverlayView.box.onMouseScroll = (event) => {
+        if (searchOverlay === undefined || event.scroll === undefined) return;
+        const selections = searchSelections(searchOverlay);
+        const at = selections.findIndex((candidate) =>
+            candidate.sessionId === searchOverlay?.selected?.sessionId
+            && candidate.hitIndex === searchOverlay.selected.hitIndex);
+        const next = wheelCursor(
+            Math.max(0, at),
+            selections.length,
+            event.scroll,
+        );
+        const selected = next === undefined ? undefined : selections[next];
+        if (selected === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        searchOverlay = { ...searchOverlay, selected };
+        renderState();
+    };
+    app.add(workTabView.box);
+    app.add(searchOverlayView.box);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
@@ -2964,6 +3110,18 @@ export async function startTui(
     });
     renderStatus();
 
+    // Beside the renderer's own reader rather than instead of it. Node hands
+    // every `data` listener the same chunk, so this observes without
+    // consuming, which is the only way to see these: the key parser drops the
+    // focus sequences before any keypress handler runs.
+    const watchTerminalFocus = (chunk: Buffer | string): void => {
+        const focus = parseTerminalFocusEvent(
+            typeof chunk === "string" ? chunk : chunk.toString("utf8"),
+        );
+        if (focus !== undefined) terminalFocused = focus === "focus_in";
+    };
+    process.stdin.on("data", watchTerminalFocus);
+
     renderer.on(CliRenderEvents.DESTROY, () => {
         flightRecorder?.record({ type: "renderer_destroyed" });
         shuttingDown = true;
@@ -2971,6 +3129,10 @@ export async function startTui(
         clearInterval(statusTimer);
         stopWatchingBackgroundAgents?.();
         stopWatchingBackgroundAgents = undefined;
+        stopWatchingWorkIndex?.();
+        stopWatchingWorkIndex = undefined;
+        process.stdin.off("data", watchTerminalFocus);
+        writeTerminal(FOCUS_REPORTING_OFF);
         const picker = pendingExtensionPicker;
         pendingExtensionPicker = undefined;
         picker?.removeAbortListener();
@@ -3011,10 +3173,16 @@ export async function startTui(
 
     const statusTimer = setInterval(() => {
         renderStatus();
+        refreshTimedSurfaces();
     }, activityAnimation === "shimmer"
         ? activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
         : STATUS_REFRESH_INTERVAL_MS);
     watchBackgroundAgents(dependencies.client);
+    watchWorkIndex(dependencies.client);
+    // Asked for once, at startup: a terminal that answers reports every change
+    // from here on, and one that does not leaves `terminalFocused` true, which
+    // is the quiet default.
+    writeTerminal(FOCUS_REPORTING_ON);
 
     renderer.on(CliRenderEvents.RESIZE, () => {
         overlayScrim.width = renderer.width;
@@ -3543,6 +3711,43 @@ export async function startTui(
                     }
                 }
                 renderState();
+                return;
+            }
+        }
+
+        if (workTab !== undefined) {
+            const open = workTab;
+            const transition = handleWorkTabKey(open, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                workTab = transition.state;
+                if (transition.action !== undefined) {
+                    // Resolved against the state the key was pressed in. A
+                    // transition that acts carries no state, so reading the
+                    // row after the assignment would read the closed tab and
+                    // find nothing to open.
+                    runWorkTabAction(open, transition.action);
+                } else {
+                    renderState();
+                    focusActiveSurface();
+                }
+                return;
+            }
+        }
+
+        if (searchOverlay !== undefined) {
+            const transition = handleSearchOverlayKey(searchOverlay, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                searchOverlay = transition.state;
+                if (transition.action !== undefined) {
+                    runSearchOverlayAction(transition.action);
+                } else {
+                    renderState();
+                    focusActiveSurface();
+                }
                 return;
             }
         }
@@ -4784,6 +4989,18 @@ export async function startTui(
             renderCommandSuggestions();
             renderState();
             composer.focus();
+            return;
+        }
+        if (commandAction?.type === "open_work_tab") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            openWorkTab();
+            return;
+        }
+        if (commandAction?.type === "open_search") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            openSearchOverlay();
             return;
         }
         if (commandAction?.type === "open_resume_picker") {
@@ -6351,6 +6568,12 @@ export async function startTui(
         if (commandPalette !== undefined) {
             return () => commandPaletteView.box.focus();
         }
+        if (workTab !== undefined) {
+            return () => workTabView.box.focus();
+        }
+        if (searchOverlay !== undefined) {
+            return () => searchOverlayView.box.focus();
+        }
         if (help !== undefined) {
             return () => helpView.box.focus();
         }
@@ -6775,6 +6998,21 @@ export async function startTui(
             && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
+        workTabView.box.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && workTab !== undefined;
+        searchOverlayView.box.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && workTab === undefined
+            && searchOverlay !== undefined;
         helpView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -6782,6 +7020,8 @@ export async function startTui(
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
+            && workTab === undefined
+            && searchOverlay === undefined
             && help !== undefined;
         doctorDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
@@ -6828,6 +7068,8 @@ export async function startTui(
             || settingsPickerView.box.visible
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
+            || workTabView.box.visible
+            || searchOverlayView.box.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
@@ -6892,6 +7134,17 @@ export async function startTui(
         }
         if (commandPalette !== undefined) {
             commandPaletteView.update(commandPalette);
+        }
+        if (workTab !== undefined) {
+            workTabView.update(
+                workTabViewState(workTab, workTabView.contentWidth()),
+            );
+        }
+        if (searchOverlay !== undefined) {
+            searchOverlayView.update(searchOverlayViewState(
+                searchOverlay,
+                searchOverlayView.contentWidth(),
+            ));
         }
         if (help !== undefined) {
             helpView.update(help);
@@ -6979,7 +7232,64 @@ export async function startTui(
             transcript.add(node);
         });
 
+        showSearchTarget();
         renderStatus();
+    }
+
+    /**
+     * Put the row a search matched on screen, once the session it lives in has
+     * finished drawing.
+     *
+     * The whole point of searching is to land on the message that matched, so
+     * a transcript that opened at its end has not answered the query yet. The
+     * target is held until the row exists, because the session it belongs to
+     * is still loading when the search hands it over, and cleared either way
+     * once it does: a match that scrolled is done, and one whose row never
+     * arrived is not worth chasing through the next conversation.
+     */
+    function showSearchTarget(): void {
+        const target = pendingSearchTarget;
+        if (target === undefined || client.agentId !== target.sessionId) {
+            return;
+        }
+        const index = state.entries.findIndex((entry) =>
+            entry.kind !== "diff" && entry.entryId === target.entryId
+        );
+        // Nothing on screen yet means the session is still loading, so the
+        // target waits. A drawn transcript without the row means the row is
+        // gone, and chasing it through later paints of the same session would
+        // scroll the reader away from wherever they had moved to.
+        if (index === -1) {
+            if (state.entries.length > 0) pendingSearchTarget = undefined;
+            return;
+        }
+        pendingSearchTarget = undefined;
+        transcript.scrollChildIntoView(`entry-${index}`);
+    }
+
+    /**
+     * Redraw the surfaces whose rows state how long ago something happened.
+     *
+     * Both read the clock rather than a value the host sent, so a tab left
+     * open would go on saying "2m ago" about something from this morning. The
+     * host only sends a new index when the work changes, which for a session
+     * waiting on an answer is never.
+     *
+     * Only these two, and only while open: a full repaint on every tick would
+     * rebuild the transcript to move one word.
+     */
+    function refreshTimedSurfaces(): void {
+        if (workTab !== undefined) {
+            workTabView.update(
+                workTabViewState(workTab, workTabView.contentWidth()),
+            );
+        }
+        if (searchOverlay !== undefined) {
+            searchOverlayView.update(searchOverlayViewState(
+                searchOverlay,
+                searchOverlayView.contentWidth(),
+            ));
+        }
     }
 
     /**
@@ -6998,6 +7308,8 @@ export async function startTui(
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || commandPalette !== undefined
+            || workTab !== undefined
+            || searchOverlay !== undefined
             || help !== undefined
             || doctorDialog !== undefined
             || diagnosticsDialog !== undefined
@@ -8078,11 +8390,170 @@ export async function startTui(
             void openAgentPicker();
             return;
         }
+        if (action.type === "open_work_tab") return openWorkTab();
+        if (action.type === "open_search") return openSearchOverlay();
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
         }
         if (action.type === "open_settings_menu") return openSettingsMenu();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openWorkTab(): void {
+        if (workIndex === undefined) {
+            state = appendTuiError(
+                state,
+                "This host does not report work; reconnect to see the inbox",
+            );
+            renderState();
+            composer.focus();
+            return;
+        }
+        workTab = startWorkTab(workIndex);
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function closeWorkSurfaces(): void {
+        workTab = undefined;
+        searchOverlay = undefined;
+        // The scan already running finishes and finds no overlay to fill; the
+        // one waiting behind it never starts.
+        queuedSearch = undefined;
+        workTabView.box.visible = false;
+        searchOverlayView.box.visible = false;
+        composer.focus();
+        renderState();
+        focusActiveSurface();
+    }
+
+    /**
+     * Every row opens its session, and answering happens there.
+     *
+     * A needs-you row is no exception: switching to the session puts its own
+     * approval or question card on screen, which is the surface that owns the
+     * decision. Answering from the inbox would be a second way to decide, and
+     * the one that never showed the request.
+     */
+    function runWorkTabAction(
+        open: WorkTabState,
+        action:
+            | { readonly kind: "close" }
+            | {
+                readonly kind:
+                    | "answer_request"
+                    | "open_session"
+                    | "open_result";
+                readonly session_id: string;
+            },
+    ): void {
+        if (action.kind === "close") {
+            closeWorkSurfaces();
+            return;
+        }
+        const row = open.index.rows.find(
+            (candidate) => candidate.session_id === action.session_id,
+        );
+        closeWorkSurfaces();
+        if (row !== undefined) {
+            beginSessionResume(row.session_path, row.session_id);
+        }
+    }
+
+    function runSearchOverlayAction(
+        action:
+            | { readonly kind: "close" }
+            | {
+                readonly kind: "search";
+                readonly query: SessionSearchQuery;
+            }
+            | {
+                readonly kind: "open";
+                readonly session_id: string;
+                readonly session_path: string;
+                readonly entry_id: string | null;
+            },
+    ): void {
+        if (action.kind === "close") {
+            closeWorkSurfaces();
+            return;
+        }
+        if (action.kind === "open") {
+            closeWorkSurfaces();
+            // Set before the switch, so the first paint of the session that
+            // arrives is the one that scrolls.
+            pendingSearchTarget = action.entry_id === null
+                ? undefined
+                : { sessionId: action.session_id, entryId: action.entry_id };
+            beginSessionResume(action.session_path, action.session_id);
+            return;
+        }
+        renderState();
+        focusActiveSurface();
+        if (dependencies.searchSessions === undefined) {
+            searchOverlay = searchOverlay === undefined
+                ? undefined
+                : applySearchFailure(
+                    searchOverlay,
+                    action.query,
+                    "Searching past work is unavailable on this host",
+                );
+            renderState();
+            return;
+        }
+        beginSearch(action.query);
+    }
+
+    /**
+     * Run one scan at a time, remembering only the newest query asked for.
+     *
+     * Every keystroke asks, and each ask reads every transcript on the machine.
+     * Firing them all would put one scan per character on the host and finish
+     * them out of order; queueing all of them would scan for prefixes nobody is
+     * still looking at. Only the last query typed is worth answering.
+     */
+    function beginSearch(query: SessionSearchQuery): void {
+        if (searchInFlight) {
+            queuedSearch = query;
+            return;
+        }
+        searchInFlight = true;
+        const finish = (): void => {
+            searchInFlight = false;
+            const next = queuedSearch;
+            queuedSearch = undefined;
+            if (next !== undefined && !shuttingDown
+                && searchOverlay !== undefined) {
+                beginSearch(next);
+            }
+        };
+        void dependencies.searchSessions!(query).then((results) => {
+            if (!shuttingDown && searchOverlay !== undefined) {
+                searchOverlay = applySearchResults(
+                    searchOverlay,
+                    query,
+                    results,
+                );
+                renderState();
+            }
+        }, (error) => {
+            if (!shuttingDown && searchOverlay !== undefined) {
+                searchOverlay = applySearchFailure(
+                    searchOverlay,
+                    query,
+                    error instanceof Error ? error.message : String(error),
+                );
+                renderState();
+            }
+        }).finally(finish);
+    }
+
+    function openSearchOverlay(): void {
+        searchOverlay = startSearchOverlay(client.workspace ?? process.cwd());
+        composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -8663,6 +9134,7 @@ export async function startTui(
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined;
         watchBackgroundAgents(next);
+        watchWorkIndex(next);
         sessionTitle = undefined;
         applyTerminalTitle();
         refreshTerminalTitle();
@@ -9905,6 +10377,7 @@ export async function startTui(
                             ? {}
                             : { fallbackTo: statusState.modelFallback.to }),
                     },
+                    workIndex?.needs_you ?? 0,
                 )
                 : [[{
                     tone: "muted",
@@ -10045,6 +10518,64 @@ export async function startTui(
             applyBackgroundAgents(agents);
             renderStatus();
         });
+    }
+
+    /**
+     * Follow the machine-wide work inbox, from the attach onwards.
+     *
+     * Watched whether or not the tab is open: the counts belong on the status
+     * line and an approval landing in another session is worth a notification
+     * whether or not this client happens to be looking at the inbox.
+     */
+    function watchWorkIndex(next: TuiAgentClient): void {
+        stopWatchingWorkIndex?.();
+        stopWatchingWorkIndex = undefined;
+        applyWorkIndexSnapshot(next.workIndex, false);
+        stopWatchingWorkIndex = next.onWorkIndex?.((index) => {
+            if (client !== next || shuttingDown) return;
+            applyWorkIndexSnapshot(index, true);
+        });
+    }
+
+    /**
+     * `announce` is false for the snapshot that arrives with an attach: it
+     * describes work that was already there before this client existed, and
+     * ringing for all of it on every reconnect would make the bell noise.
+     */
+    function applyWorkIndexSnapshot(
+        index: WorkIndexSnapshot | undefined,
+        announce: boolean,
+    ): void {
+        if (index === undefined) return;
+        const previous = workIndex;
+        workIndex = index;
+        if (workTab !== undefined) {
+            workTab = applyWorkIndex(workTab, index);
+        }
+        if (announce) {
+            const notice = attentionNotice(
+                newAttentionRows(previous, index),
+                terminalFocused,
+            );
+            if (notice !== undefined) {
+                writeTerminal(attentionNoticeSequence(notice));
+            }
+        }
+        renderState();
+    }
+
+    /**
+     * Escape sequences go straight to the terminal rather than through the
+     * renderer, which owns the screen it draws and knows nothing about the
+     * window around it. A write that fails is dropped: a notification is best
+     * effort, and the inbox is the guaranteed way to find out either way.
+     */
+    function writeTerminal(sequence: string): void {
+        try {
+            process.stdout.write(sequence);
+        } catch {
+            // A closed or non-tty stdout is not a reason to fail a turn.
+        }
     }
 
     function applyBackgroundAgents(
