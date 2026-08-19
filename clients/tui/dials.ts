@@ -257,7 +257,7 @@ export interface DialStripState {
     readonly editedEffort?: string | null;
     /** The pair the strip opened with, which is what escape puts back. */
     readonly opened?: DialPair;
-    readonly lane: "model" | "effort" | "agent" | "access";
+    readonly lane: DialLane;
     readonly agents: readonly string[];
     readonly agentIndex: number;
     readonly openedAgent?: string;
@@ -312,6 +312,9 @@ export function openDialStrip(
 
 // Ordered the way the rungs are stacked on screen, so tab walks down the HUD
 // rather than jumping around it.
+/** The rungs of the HUD, one of which holds the focus. */
+export type DialLane = "model" | "effort" | "agent" | "access";
+
 const DIAL_LANES = ["effort", "access", "model", "agent"] as const;
 
 export function moveDialLane(

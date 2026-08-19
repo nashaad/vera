@@ -406,12 +406,11 @@ import {
     openDialStrip,
     renderDialStrip,
     DIAL_EXIT_SEPARATOR,
-    DIAL_DEFAULT_SEPARATOR,
-    DIAL_PROVIDER_SEPARATOR,
     type DialPair,
     type DialPoolEntry,
     type DialStripState,
 } from "./dials.ts";
+import { paintDialHud } from "./dial-paint.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -498,7 +497,6 @@ import {
     type TuiTranscriptEntry,
 } from "./state.ts";
 import {
-    mixHex,
     resolveTuiTheme,
     tuiHandleActiveColor,
     tuiHandleColor,
@@ -10757,166 +10755,21 @@ export async function startTui(
             );
         dialCard.visible = stripLines !== undefined;
         const hudRows = stripLines?.slice(0, -1) ?? [];
-        const effortRowIndex = hudRows.findIndex((line) =>
-            line.includes("EFFORT")
-        );
-        // The scale puts its axis labels on the row above EFFORT and the option
-        // labels below it, so the lane sits in the middle of its own block.
-        const effortScaleRows = effortRowIndex >= 1
-            && hudRows[effortRowIndex - 1]?.includes("Faster") === true
-            ? 2
-            : 0;
-        // Lanes are found by their labels rather than counted from a fixed
-        // offset: the model list is variable height and the effort scale adds
-        // rows only when it is wide enough to draw.
-        // The focus marker is dropped before the label is read: a focused row
-        // opens with it, and a lane that cannot find its own row stops being
-        // painted as the active one exactly when it is.
-        const laneRowIndex = (label: string): number =>
-            hudRows.findIndex((line) =>
-                line.replace(/^[\u203a ]\s*/, "").startsWith(label)
-            );
-        const modelHeaderIndex = laneRowIndex("MODEL");
-        const agentRowIndex = laneRowIndex("AGENT");
-        const accessRowIndex = laneRowIndex("ACCESS");
-        const modelRowEnd = agentRowIndex >= 0 ? agentRowIndex : hudRows.length;
         dialCardTitle.height = Math.max(1, hudRows.length);
         dialCard.height = hudRows.length + 3;
-        dialCardTitle.content = new StyledText(hudRows.flatMap((line, index) => {
-            const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
-            const main = providerParts[0] ?? "";
-            const isModelRow = modelHeaderIndex >= 0
-                && index >= modelHeaderIndex
-                && index < modelRowEnd;
-            const activeRow = dialStrip?.lane === "model"
-                ? isModelRow
-                : dialStrip?.lane === "effort"
-                ? effortRowIndex >= 0
-                    && index >= effortRowIndex - (effortScaleRows > 0 ? 1 : 0)
-                    && index <= effortRowIndex + (effortScaleRows > 0 ? 1 : 0)
-                : dialStrip?.lane === "agent"
-                    ? index === agentRowIndex
-                    : dialStrip?.lane === "access"
-                        ? index === accessRowIndex
-                        : false;
-            // Three weights, not two. The rung under the cursor is brightest,
-            // a chosen value on a rung the cursor is elsewhere sits between,
-            // and everything unchosen is muted. With only two, every rung's
-            // current value shouts as loudly as the one being changed.
-            const settled = (hex: string): string =>
-                activeRow ? hex : mixHex(TUI_BACKGROUND, hex, 0.45);
-            // The access modes keep their hue whether or not the lane is
-            // focused: the posture the session is running under is worth
-            // reading at a glance, not only while it is being changed.
-            const selectedColor = (part: string): string =>
-                index !== accessRowIndex
-                    ? settled(TUI_TEXT)
-                    : settled(
-                        part.includes("readonly")
-                            ? "#c586c0"
-                            : part.includes("ask")
-                                ? TUI_ACCENT
-                                : part.includes("auto")
-                                    ? VERA_TUI_THEME.success
-                                    : TUI_TEXT,
-                    );
-            const isEffortScale = effortScaleRows > 0
-                && index >= effortRowIndex - 1
-                && index <= effortRowIndex + 1;
-            if (isEffortScale) {
-                // The gutter chip is delimited rather than matched by text: it
-                // is the one span on these rows that is not part of the axis,
-                // and it carries the selection brackets when it is chosen.
-                const spans = main.split(DIAL_DEFAULT_SEPARATOR);
-                const axis = spans.length > 1 ? spans.pop() ?? "" : main;
-                // Odd spans are the gutter marks, even spans the plain text
-                // between them. The gutter carries the same colour as the
-                // labels under the track, except the resolved-default note,
-                // which is a footnote, and the marker, which is a selection.
-                const gutterChunks = spans.length > 1
-                    ? spans.map((span, at) =>
-                        fg(
-                            at % 2 === 0
-                                ? activeRow ? TUI_TEXT : TUI_MUTED
-                                : span === "\u25b2"
-                                    ? settled(TUI_NOTICE)
-                                    : span.startsWith("(") || !activeRow
-                                        ? TUI_MUTED
-                                        : TUI_ACCENT,
-                        )(span)
-                    )
-                    : [];
-                const scaleChunks = [
-                    ...gutterChunks,
-                    ...(index === effortRowIndex - 1
-                        ? [fg(activeRow ? TUI_ACCENT : TUI_MUTED)(axis)]
-                        : axis.split(/(▲|·+)/u).filter(Boolean).map((part) =>
-                            fg(
-                                part === "▲"
-                                    ? settled(TUI_NOTICE)
-                                    : part.startsWith("·") || !activeRow
-                                        ? TUI_MUTED
-                                        : TUI_ACCENT,
-                            )(part)
-                        )),
-                ];
-                return [
-                    ...scaleChunks,
-                    ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
-                ];
-            }
-            // Only the lane holding the focus is lit, name included, so the
-            // eye lands on one rung instead of reading four equally bright ones.
-            const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)
-                ?.[0];
-            // The bracketed row is the one the dial is sitting on, and it reads
-            // as chosen whether or not the model lane holds the focus, the same
-            // way the picked agent and access cells do.
-            const pickedRow = isModelRow && main.includes("[");
-            let mainChunks;
-            if (isModelRow) {
-                if (index === modelHeaderIndex) {
-                    const prefixLength = laneLabel?.length ?? 2;
-                    const rest = main.slice(prefixLength);
-                    mainChunks = [
-                        fg(activeRow ? TUI_TEXT : TUI_MUTED)(
-                            main.slice(0, prefixLength),
-                        ),
-                        fg(pickedRow ? settled(TUI_TEXT) : TUI_MUTED)(rest),
-                    ];
-                } else if (pickedRow) {
-                    mainChunks = [fg(settled(TUI_TEXT))(main)];
-                } else {
-                    mainChunks = [fg(TUI_MUTED)(main)];
-                }
-            } else {
-                const prefix = laneLabel ?? main.slice(0, 2);
-                const choices = main.slice(prefix.length)
-                    .split(/(\[[^\]]+\])/)
-                    .filter(Boolean);
-                mainChunks = [
-                    fg(activeRow ? TUI_TEXT : TUI_MUTED)(prefix),
-                    ...choices.map((part) => fg(
-                        part.startsWith("[")
-                            ? selectedColor(part)
-                            : TUI_MUTED,
-                    )(part)),
-                ];
-            }
-            return [
-                ...mainChunks,
-                // The provider is muted; anything after it is the closing
-                // bracket, which belongs to the choice, not to the provider.
-                ...providerParts.slice(1).map((part, at) =>
-                    fg(at === 0 ? TUI_MUTED : pickedRow ? TUI_TEXT : TUI_MUTED)(
-                        part,
-                    )
-                ),
-                ...(index === hudRows.length - 1
-                    ? []
-                    : [fg(TUI_TEXT)("\n")]),
-            ];
-        }));
+        dialCardTitle.content = new StyledText(
+            paintDialHud(hudRows, dialStrip?.lane, {
+                text: TUI_TEXT,
+                muted: TUI_MUTED,
+                accent: TUI_ACCENT,
+                notice: TUI_NOTICE,
+                background: TUI_BACKGROUND,
+                success: VERA_TUI_THEME.success,
+            }).flatMap((spans, index) => [
+                ...spans.map((span) => fg(span.color)(span.text)),
+                ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+            ]),
+        );
         const dialHintParts = (stripLines?.at(-1) ?? "")
             .split(DIAL_EXIT_SEPARATOR);
         dialCardHint.content = stripLines === undefined
