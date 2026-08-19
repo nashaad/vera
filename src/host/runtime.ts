@@ -19,6 +19,10 @@ import {
 import type { ModelAdapter } from "../model/types.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import { defaultEventLogPath } from "../engine/events.ts";
+import {
+    ModelFailureLedger,
+    defaultModelFailureLedgerPath,
+} from "../store/model-failures.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
 import type {
@@ -143,6 +147,8 @@ export interface StartResidentHostOptions {
     /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
+    /** Overrides the profile's model-failure ledger, so tests never write it. */
+    readonly modelFailureLedgerPath?: string;
     /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
     readonly inboxPath?: string;
     /** Overrides `~/.vera/schedules.db`. Unused while the inbox flag is off. */
@@ -563,6 +569,11 @@ export async function startResidentHost(
         }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
+        // Always on, unlike the event log: this is the record that tells
+        // someone their model keeps failing, and it is a few hundred lines.
+        modelFailureLedger: new ModelFailureLedger(
+            options.modelFailureLedgerPath ?? defaultModelFailureLedgerPath(),
+        ),
         ...(eventLogEnabled(currentConfig())
             ? {
                 eventLogPathForId: (agentId: string, cwd: string) =>

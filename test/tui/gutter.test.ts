@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import {
     parseColor,
+    SyntaxStyle,
     TextAttributes,
     TextRenderable,
 } from "@opentui/core";
@@ -10,6 +11,7 @@ import {
     createTuiGutterEntry,
     tuiGutterWidth,
 } from "../../clients/tui/gutter.ts";
+import { createTuiMarkdownEntry } from "../../clients/tui/markdown-entry.ts";
 import {
     createTuiToolHeader,
     createTuiToolRow,
@@ -233,12 +235,12 @@ test("thought rows leave the fold control as their only marker", async () => {
     const setup = await createTestRenderer({ width: 30, height: 6 });
     const content = new TextRenderable(setup.renderer, {
         id: "content",
-        content: "Worked for 1.8s",
+        content: "Reasoning: 1.8s",
     });
     const node = createTuiGutterEntry(
         setup.renderer,
         "thought",
-        { kind: "thought", text: "Worked for 1.8s" },
+        { kind: "thought", text: "Reasoning: 1.8s" },
         content,
         0,
     );
@@ -287,6 +289,45 @@ test("a runtime failure uses the indented activity gutter", async () => {
             /^ {2}× stopped  Resident agent stopped unexpectedly/m,
         );
     } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a wide markdown table keeps its right border inside the terminal", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const syntaxStyle = SyntaxStyle.fromStyles({});
+    const entry = {
+        kind: "assistant" as const,
+        text: [
+            "| Strategy | Cost | RAM | Reliability | Chat |",
+            "| --- | --- | --- | --- | --- |",
+            "| C. Free-Tier Cloud Gateway (Groq / OpenRouter free) | $0 | ~20MB | 90%+ (Llama 3.1 8B) | Good (rate limits) |",
+        ].join("\n"),
+    };
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "wide-table",
+        entry,
+        createTuiMarkdownEntry(
+            setup.renderer,
+            "wide-table-content",
+            entry,
+            syntaxStyle,
+            "#ffffff",
+            0,
+        )!,
+        0,
+    );
+    setup.renderer.root.add(node);
+    try {
+        await setup.flush();
+        await Bun.sleep(50);
+        await setup.flush();
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("┐");
+        expect(frame).toContain("┘");
+    } finally {
+        syntaxStyle.destroy();
         setup.renderer.destroy();
     }
 });

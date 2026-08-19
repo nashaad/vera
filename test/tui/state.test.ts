@@ -25,10 +25,18 @@ import {
     tuiEntryMarginTop,
     tuiToolRowText,
 } from "../../clients/tui/state.ts";
-import type { TuiTranscriptEntry } from "../../clients/tui/state.ts";
+import type { TuiState, TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
+
+/** One phase of reasoning, as the provider delivers it: text, then a summary. */
+function thinkFor(state: TuiState, text: string, seconds: number): TuiState {
+    return appendTuiThought(
+        applyAgentUpdate(state, { type: "assistant_thinking", text, seq: 1 }),
+        seconds,
+    );
+}
 
 /** A transcript row as one line, gutter included. */
 function entryLine(entry: TuiTranscriptEntry): string {
@@ -125,30 +133,37 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     expect(replayResult?.text).toBe(liveResult?.text);
 });
 
-test("a completion with no reasoning behind it reports only its time", () => {
-    const state = appendTuiThought(createTuiState(), 3.04);
+test("a completion reports the time the reasoning behind it took", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "weighing the two orderings",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 3.04);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Worked for 3.0s",
+        text: "Reasoning: 3.0s",
         seconds: 3.04,
+        reasoning: "weighing the two orderings",
     }]);
-    expect(plainText(renderTuiEntry(state.entries[0]!))).toBe("Worked for 3.0s");
+    expect(plainText(renderTuiEntry(state.entries[0]!)))
+        .toBe("Reasoning: 3.0s  ctrl+o reasoning");
 });
 
 test("tool calls between two stretches of thinking do not split the row", () => {
-    let state = appendTuiThought(createTuiState(), 2.4);
+    let state = thinkFor(createTuiState(), "reading the boundary", 2.4);
     state = applyAgentUpdate(state, {
         type: "tool_started",
         tool: "search",
         args: { pattern: "fold" },
         seq: 1,
     });
-    state = appendTuiThought(state, 2.9);
+    state = thinkFor(state, "checking the suffix", 2.9);
 
     const thoughts = state.entries.filter((entry) => entry.kind === "thought");
     expect(thoughts).toHaveLength(1);
-    expect(thoughts[0]?.text).toBe("Worked for 5.3s");
+    expect(thoughts[0]?.text).toBe("Reasoning: 5.3s");
 });
 
 test("an empty phase that took no time reports nothing", () => {
@@ -156,14 +171,15 @@ test("an empty phase that took no time reports nothing", () => {
 });
 
 test("consecutive thought phases report as one stretch", () => {
-    let state = appendTuiThought(createTuiState(), 2.5);
-    state = appendTuiThought(state, 2.0);
-    state = appendTuiThought(state, 1.5);
+    let state = thinkFor(createTuiState(), "first", 2.5);
+    state = thinkFor(state, "second", 2.0);
+    state = thinkFor(state, "third", 1.5);
 
     expect(state.entries).toEqual([{
         kind: "thought",
-        text: "Worked for 6.0s",
+        text: "Reasoning: 6.0s",
         seconds: 6,
+        reasoning: "first\n\nsecond\n\nthird",
     }]);
 });
 
@@ -374,7 +390,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         ...state,
         entries: [
             { kind: "user", text: "first" },
-            { kind: "thought", text: "Worked for 1.0s" },
+            { kind: "thought", text: "Reasoning: 1.0s" },
             { kind: "assistant", text: "first answer" },
         ],
     };
@@ -384,7 +400,7 @@ test("client notices do not push later reasoning summaries to the tail", () => {
         entries: [
             ...state.entries,
             { kind: "user", text: "second" },
-            { kind: "thought", text: "Worked for 2.0s" },
+            { kind: "thought", text: "Reasoning: 2.0s" },
             { kind: "assistant", text: "second answer" },
         ],
     };
@@ -402,11 +418,11 @@ test("client notices do not push later reasoning summaries to the tail", () => {
 
     expect(state.entries.map((entry) => entry.text)).toEqual([
         "first",
-        "Worked for 1.0s",
+        "Reasoning: 1.0s",
         "first answer",
         "Switched models.",
         "second",
-        "Worked for 2.0s",
+        "Reasoning: 2.0s",
         "second answer",
     ]);
 });
@@ -694,8 +710,8 @@ test("TUI shows model failures when a turn finishes", () => {
         kind: "notice",
         text: "",
         diagnostic: resolveTuiDiagnostic(
-            "model_request_failed",
-            "Model error: Turn aborted",
+            "turn_interrupted",
+            "Interrupted",
         ),
     });
 });
@@ -768,6 +784,20 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     // Disconnection is status-line state, so the transcript gains no row.
     expect(state.entries).toHaveLength(connected.entries.length);
+});
+
+test("TUI restores an interrupted turn from history as a notice", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "error", outcome: "aborted" }],
+        seq: 1,
+    });
+
+    expect(state.entries).toEqual([{
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic("turn_interrupted", "Interrupted"),
+    }]);
 });
 
 test("TUI keeps model failures restored from canonical history", () => {
@@ -1618,7 +1648,7 @@ test("diagnostics stay compact while a fatal keeps a blank row above", () => {
 test("a tool header follows its thought without a spacer row", () => {
     const entries = [
         { kind: "user", text: "inspect" },
-        { kind: "thought", text: "Worked for 0.0s", seconds: 0 },
+        { kind: "thought", text: "Reasoning: 0.0s", seconds: 0 },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
         { kind: "assistant", text: "Done." },
@@ -2304,4 +2334,147 @@ test("dropping an admission takes its checklist entry with it", () => {
     const dropped = dropTuiAdmission(state, "pool-3");
     expect(dropped.entries.length).toBe(0);
     expect(dropped.admission).toBeUndefined();
+});
+
+test("a rebuild puts restored summaries back in front of the answer", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "may I commit?" },
+            { kind: "assistant", text: "the fix is ready" },
+        ],
+        seq: 1,
+    });
+    state = {
+        ...state,
+        entries: [
+            ...state.entries,
+            {
+                kind: "thought",
+                text: "Reasoning: 8.0s",
+                seconds: 8,
+                reasoning: "checking the diff",
+            },
+            {
+                kind: "thought",
+                text: "Reasoning: 4.2s",
+                seconds: 4.2,
+                reasoning: "drafting the message",
+            },
+        ],
+    };
+
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "may I commit?" },
+            { kind: "assistant", text: "the fix is ready" },
+        ],
+        seq: 2,
+    });
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual([
+        "user",
+        "thought",
+        "assistant",
+    ]);
+    expect(state.entries[1]).toMatchObject({
+        text: "Reasoning: 12.2s",
+        seconds: 12.2,
+    });
+});
+
+test("a phase that reported no reasoning earns no row", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_delta",
+        text: "the fix is ready",
+        seq: 1,
+    });
+    state = appendTuiThought(state, 8);
+
+    expect(state.entries.map((entry) => entry.kind)).toEqual(["assistant"]);
+});
+
+test("folded phases keep every stretch of reasoning behind one row", () => {
+    const state = applyAgentUpdate({
+        ...createTuiState(),
+        working: true,
+        entries: [
+            { kind: "user", text: "which ordering?" },
+            { kind: "assistant", text: "move the flush above the check" },
+            {
+                kind: "thought",
+                text: "Reasoning: 2.0s",
+                seconds: 2,
+                reasoning: "weighing the two orderings",
+            },
+            {
+                kind: "thought",
+                text: "Reasoning: 1.0s",
+                seconds: 1,
+                reasoning: "checking the flush",
+            },
+        ],
+    }, { type: "status", state: "idle", seq: 1 });
+
+    expect(state.entries[1]).toMatchObject({
+        text: "Reasoning: 3.0s",
+        reasoning: "weighing the two orderings\n\nchecking the flush",
+    });
+});
+
+test("a long stretch of live reasoning is bounded to its window", () => {
+    const lines = Array.from({ length: 40 }, (_, index) => `line ${index + 1}`);
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: lines.join("\n"),
+        seq: 1,
+    });
+
+    const entry = state.entries[0];
+    expect(entry?.kind).toBe("thinking");
+    const rendered = plainText(renderTuiEntry(entry!));
+
+    // The window shows the newest lines, so the tail is what is on screen and
+    // the row cannot outgrow the work above it however long the model thinks.
+    expect(rendered.split("\n")).toEqual([
+        "···",
+        "line 33",
+        "line 34",
+        "line 35",
+        "line 36",
+        "line 37",
+        "line 38",
+        "line 39",
+        "line 40",
+        "···",
+    ]);
+
+    // What scrolled out of the window is still all there behind the summary.
+    state = appendTuiThought(state, 4);
+    expect(state.entries).toEqual([{
+        kind: "thought",
+        text: "Reasoning: 4.0s",
+        seconds: 4,
+        reasoning: lines.join("\n"),
+    }]);
+});
+
+test("blank lines do not spend the live reasoning window", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "assistant_thinking",
+        text: "opening\n\n\n\nmiddle\n\n\n\nclosing\n\n",
+        seq: 1,
+    });
+
+    // A model that separates every sentence would otherwise fill the window
+    // with nothing, and the trailing newlines of a delta are not a line yet.
+    expect(plainText(renderTuiEntry(state.entries[0]!)).split("\n")).toEqual([
+        "···",
+        "opening",
+        "middle",
+        "closing",
+        "···",
+    ]);
 });

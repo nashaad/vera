@@ -21,6 +21,15 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
+import {
+    buildJumpRows,
+    handleJumpMenuKey,
+    jumpMenuLines,
+    openJumpMenu as openJumpMenuState,
+    type JumpMenuState,
+    type JumpOrigin,
+    type JumpRow,
+} from "./jump.ts";
 import { registerTuiParsers } from "./parsers.ts";
 import {
     createTuiFlightRecorder,
@@ -180,6 +189,18 @@ import {
     defaultStashRoot,
     summarizeStash,
 } from "../../src/store/preimage-stash.ts";
+import {
+    defaultModelFailureLedgerPath,
+    modelFailureNudge,
+    readModelFailures,
+    summariseModelFailures,
+} from "../../src/store/model-failures.ts";
+import {
+    defaultFailureReportDirectory,
+    failureReportConsultInput,
+    failureReportMarkdown,
+    writeFailureReport,
+} from "../../src/store/failure-report.ts";
 import {
     diagnoseProviders,
     renderProviderDoctor,
@@ -522,6 +543,20 @@ const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
+
+/**
+ * Failure signatures already named on screen. Per run rather than per session:
+ * one mention is the point, and switching sessions is not new information.
+ */
+const raisedModelFailureSignatures = new Set<string>();
+
+const FAILURE_REPORT_SUMMARY_TOKENS = 600;
+
+const FAILURE_REPORT_PROMPT =
+    "You are reading a list of model failures recorded by a coding tool."
+    + " Write a short plain summary for someone filing a bug report: what is"
+    + " failing, how often, and what it looks like. State only what the list"
+    + " shows.";
 
 function shortConnectionFailure(message: string): string {
     const line = message.split("\n")[0]?.trim() ?? "";
@@ -939,6 +974,10 @@ export async function startTui(
     let clientSurfaceReady = false;
     let transcriptSeeded = false;
     const deferredKeymapNotices: string[] = [];
+    // The arrival notice lands twice on purpose: once before the history
+    // rebuild, which floats it above the transcript, and once after, so it is
+    // also the last line the reader reaches.
+    let pendingBackNotice: string | undefined;
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -1081,6 +1120,15 @@ export async function startTui(
      * not start existing when someone happens to look.
      */
     let workIndex: WorkIndexSnapshot | undefined;
+    let jumpMenu: JumpMenuState | undefined;
+    // Where the user was before switching anywhere: the single back target,
+    // deliberately not a stack, so /back always means "where I started".
+    // Only the id is held; the path and title are resolved when used, from
+    // the same listing every other session surface reads.
+    let backOriginId: string | undefined;
+    // The origin's name at hop time, for the arrival notice. The notice
+    // fires once right after the switch, so a later rename is fine to miss.
+    let backOriginTitle: string | undefined;
     /**
      * Assumed focused until the terminal says otherwise. A terminal that does
      * not answer focus reporting would otherwise be treated as never watched,
@@ -1994,6 +2042,42 @@ export async function startTui(
     commandSuggestionsBox.add(commandSuggestionsText);
     composer.onContentChange = renderCommandSuggestions;
 
+    const jumpMenuText = new TextRenderable(renderer, {
+        id: "jump-menu-text",
+        content: "",
+        fg: TUI_TEXT,
+        width: "100%",
+        height: "auto",
+    });
+    // A quick detour, not a workspace: the menu hangs off the composer at the
+    // status row that announces its targets, rather than taking the screen
+    // the way the work tab does.
+    const jumpMenuBox = new BoxRenderable(renderer, {
+        id: "jump-menu",
+        border: true,
+        borderStyle: "rounded",
+        borderColor: theme.element,
+        title: " Jump ",
+        position: "absolute",
+        left: tuiComposerOverlayInset(appearance).paddingLeft,
+        width: 40,
+        height: 3,
+        paddingLeft: 1,
+        paddingRight: 1,
+        backgroundColor: theme.panel,
+        zIndex: 5,
+        visible: false,
+        onMouseDown: (event) => {
+            if (jumpMenu === undefined) return;
+            const lines = jumpMenuLines(jumpMenu, jumpMenuContentWidth());
+            const line = lines[event.y - jumpMenuBox.y - 1];
+            if (line?.rowIndex === undefined) return;
+            const row = jumpMenu.rows[line.rowIndex];
+            if (row !== undefined) runJumpTo(row);
+        },
+    });
+    jumpMenuBox.add(jumpMenuText);
+
     /**
      * How many rows the status band takes under the composer. The suggestion
      * strip floats outside the layout flow and has to clear that band, so the
@@ -2018,6 +2102,7 @@ export async function startTui(
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0)
             + 1;
+        jumpMenuBox.bottom = commandSuggestionsBox.bottom;
     }
 
     const modeToastText = new TextRenderable(renderer, {
@@ -2057,8 +2142,9 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
-    // The attention chip at the head of the status row is a click target for
-    // the same surface `/work` opens. Width zero means no chip is on screen.
+    // The attention chip at the head of the status row is a click target,
+    // and it does what its label says: the hint reads /work, so the click
+    // opens the work tab. Width zero means no chip is on screen.
     let needsYouChipWidth = 0;
     composerStatusText.onMouseDown = (event) => {
         if (needsYouChipWidth === 0) return;
@@ -2724,7 +2810,13 @@ export async function startTui(
                 id,
                 content: renderTuiEntry(entry),
                 width: "100%",
-                wrapMode: "word",
+                // Reasoning still arriving is clipped at the right edge rather
+                // than wrapped, so its window is as many rows as it is lines.
+                // Every other row wraps, because every other row is meant to
+                // be read where it sits.
+                ...(entry.kind === "thinking"
+                    ? { wrapMode: "none" as const, overflow: "hidden" as const }
+                    : { wrapMode: "word" as const }),
                 selectable: true,
                 marginTop: inner,
             });
@@ -2947,6 +3039,7 @@ export async function startTui(
     app.add(experimentalTuiHost.overlay);
     upper.add(queuedPromptText);
     app.add(commandSuggestionsBox);
+    app.add(jumpMenuBox);
     app.add(approvalView.box);
     app.add(questionView.box);
     app.add(timelinePickerView.box);
@@ -3119,8 +3212,8 @@ export async function startTui(
         searchOverlay = { ...searchOverlay, selected };
         renderState();
     };
-    app.add(workTabView.box);
-    app.add(searchOverlayView.box);
+    app.add(workTabView.surface);
+    app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
@@ -3450,6 +3543,23 @@ export async function startTui(
             } else if (action === "abort") {
                 abortFocusedAgent();
                 renderStatus();
+            }
+            return;
+        }
+
+        // The menu owns the keyboard while it is open: arrows move, enter
+        // jumps, escape closes, and everything else is swallowed.
+        if (jumpMenu !== undefined) {
+            key.preventDefault();
+            key.stopPropagation();
+            const action = handleJumpMenuKey(jumpMenu, key.name);
+            if (action.kind === "cancel") {
+                closeJumpMenu();
+            } else if (action.kind === "jump") {
+                runJumpTo(action.row);
+            } else {
+                jumpMenu = action.state;
+                renderJumpMenu();
             }
             return;
         }
@@ -4147,6 +4257,16 @@ export async function startTui(
         }
 
         if (
+            tuiBindingId("global", key) === "jump.open"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openJumpMenuOverlay();
+            return;
+        }
+
+        if (
             tuiBindingId("conversation", key) === "toggle_tool_details"
             && !anyOverlayOpen()
         ) {
@@ -4401,11 +4521,109 @@ export async function startTui(
             runningBackgroundAgents,
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
+            modelFailures: summariseModelFailures(readModelFailures()),
+            modelFailureLedgerPath: defaultModelFailureLedgerPath(),
             build: dependencies.build,
             extensions: configuredClientExtensions,
             clientExtensionReload,
             startup: readLatestHostStartupTiming(),
         };
+    }
+
+    /**
+     * A model failing the same way again is worth one line saying so, because
+     * the per-turn error alone reads as Vera breaking rather than as a pattern
+     * with somewhere to look.
+     */
+    function noticeRepeatedModelFailure(current: TuiState): TuiState {
+        const nudge = modelFailureNudge(
+            readModelFailures(),
+            raisedModelFailureSignatures,
+        );        if (nudge === undefined) return current;
+        raisedModelFailureSignatures.add(nudge.signature);
+        return appendTuiNotice(current, nudge.text, "soft");
+    }
+
+    /**
+     * Writes what the ledger holds to a file someone can read and send on.
+     * A model summarises it when a working one is running, but the file is
+     * written either way: the summary is a convenience, the record is the
+     * point, and the model most likely to be asked is the one that failed.
+     */
+    async function writeFailureReportFile(): Promise<void> {
+        const records = readModelFailures();
+        if (records.length === 0) {
+            state = appendTuiNotice(
+                state,
+                "No model failures have been recorded.",
+                "soft",
+            );
+            renderState();
+            return;
+        }
+        const settings = state.modelSettings;
+        const failing = settings !== undefined
+            && records.some((record) =>
+                record.model === settings.model
+                && (settings.provider === undefined
+                    || record.provider === settings.provider)
+            );
+        let summary: string | undefined;
+        let note: string | undefined;
+        if (settings === undefined) {
+            note = "No model is running, so the report has no summary.";
+        } else if (failing) {
+            note = `Summary skipped: ${settings.model} is the model that is`
+                + ` failing. Switch with /model, then run /failure-report`
+                + ` again.`;
+        } else {
+            try {
+                const result = await requestExtensionConsult({
+                    model: settings.model,
+                    ...(settings.provider === undefined
+                        ? {}
+                        : { provider: settings.provider }),
+                    systemPrompt: FAILURE_REPORT_PROMPT,
+                    messages: [{
+                        role: "user",
+                        content: failureReportConsultInput(records),
+                    }],
+                    maxTokens: FAILURE_REPORT_SUMMARY_TOKENS,
+                }, new AbortController().signal);
+                summary = result.text;
+            } catch (error) {
+                note = `No summary: ${
+                    error instanceof Error ? error.message : String(error)
+                }`;
+            }
+        }
+        const at = new Date();
+        try {
+            const path = writeFailureReport(
+                defaultFailureReportDirectory(),
+                failureReportMarkdown({
+                    records,
+                    at,
+                    ...(summary === undefined ? {} : { summary }),
+                }),
+                at,
+            );
+            state = appendTuiNotice(
+                state,
+                note === undefined
+                    ? `Failure report written to ${path}`
+                    : `Failure report written to ${path}. ${note}`,
+                "soft",
+            );
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                `Could not write the failure report: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+        }
+        renderState();
     }
 
     function submitPrompt(
@@ -4724,6 +4942,13 @@ export async function startTui(
                 renderState();
                 focusActiveSurface();
             });
+            return;
+        }
+        if (commandAction?.type === "write_failure_report") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void writeFailureReportFile();
             return;
         }
         if (commandAction?.type === "show_pool") {
@@ -5162,6 +5387,12 @@ export async function startTui(
                     renderState();
                 }
             });
+            return;
+        }
+        if (commandAction?.type === "go_back") {
+            composer.clearComposer();
+            renderCommandSuggestions();
+            runBack();
             return;
         }
         if (commandAction?.type === "go_to_parent") {
@@ -6045,6 +6276,12 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "turn_finished"
+                    && update.outcome === "error"
+                ) {
+                    state = noticeRepeatedModelFailure(state);
+                }
                 if (update.type === "agent_catalog") {
                     agentCatalog = {
                         worn: update.worn,
@@ -6204,6 +6441,17 @@ export async function startTui(
                     transcriptSeeded = true;
                     for (const notice of deferredKeymapNotices.splice(0)) {
                         state = appendTuiNotice(state, notice);
+                    }
+                    // An attach delivers empty rebuilds before the real one;
+                    // placing the end copy on one of those stacks it against
+                    // the arrival copy at the top instead of after the
+                    // transcript.
+                    if (
+                        pendingBackNotice !== undefined
+                        && update.entries.length > 0
+                    ) {
+                        state = appendTuiNotice(state, pendingBackNotice);
+                        pendingBackNotice = undefined;
                     }
                 }
                 if (
@@ -7034,14 +7282,14 @@ export async function startTui(
             && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
-        workTabView.box.visible = uiRequest === undefined
+        workTabView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
-        searchOverlayView.box.visible = uiRequest === undefined
+        searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -7098,14 +7346,15 @@ export async function startTui(
             && sessionTrashCandidate === undefined
             && providerForgetCandidate !== undefined;
         const overlayVisible = dialStrip !== undefined
+            || jumpMenuBox.visible
             || approvalView.box.visible
             || questionView.box.visible
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
-            || workTabView.box.visible
-            || searchOverlayView.box.visible
+            || workTabView.surface.visible
+            || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
@@ -7352,7 +7601,8 @@ export async function startTui(
             || confirmingFullAccess
             || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined
-            || providerForgetCandidate !== undefined;
+            || providerForgetCandidate !== undefined
+            || jumpMenu !== undefined;
     }
 
     function clearTranscriptNodes(): void {
@@ -8425,6 +8675,7 @@ export async function startTui(
             return;
         }
         if (action.type === "open_work_tab") return openWorkTab();
+        if (action.type === "go_back") return runBack();
         if (action.type === "open_search") return openSearchOverlay();
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
@@ -8433,6 +8684,154 @@ export async function startTui(
         if (action.type === "open_settings_menu") return openSettingsMenu();
         renderState();
         focusActiveSurface();
+    }
+
+    function runBack(): void {
+        if (backOriginId === undefined) {
+            state = appendTuiNotice(
+                state,
+                "Nothing to go back to. /work lists what needs you.",
+            );
+            renderState();
+            return;
+        }
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(state, "Switching sessions is unavailable");
+            renderState();
+            return;
+        }
+        const target = backOriginId;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown) return;
+            const origin = agents.find((agent) => agent.id === target);
+            if (origin === undefined) {
+                backOriginId = undefined;
+                state = appendTuiNotice(
+                    state,
+                    "The conversation you came from is gone."
+                        + " /resume lists what is still here.",
+                );
+                renderState();
+                return;
+            }
+            beginSessionResume(origin.session_path, origin.id, true);
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not go back: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    function jumpMenuContentWidth(): number {
+        return Math.max(10, jumpMenuBox.width - 4);
+    }
+
+    function closeJumpMenu(): void {
+        jumpMenu = undefined;
+        jumpMenuBox.visible = false;
+        composer.focus();
+        renderer.requestRender();
+    }
+
+    function renderJumpMenu(): void {
+        if (jumpMenu === undefined) {
+            jumpMenuBox.visible = false;
+            renderer.requestRender();
+            return;
+        }
+        const widest = jumpMenu.rows.reduce(
+            (columns, row) =>
+                Math.max(
+                    columns,
+                    row.label.length + (row.detail?.length ?? 0) + 8,
+                ),
+            24,
+        );
+        const boxWidth = Math.min(widest, Math.max(24, renderer.width - 8));
+        jumpMenuBox.width = boxWidth;
+        const lines = jumpMenuLines(jumpMenu, Math.max(10, boxWidth - 4));
+        jumpMenuBox.height = lines.length + 2;
+        jumpMenuText.content = new StyledText(lines.flatMap((line, index) => [
+            line.role === "header"
+                ? fg(TUI_MUTED)(line.text)
+                : fg(line.selected === true ? TUI_ACCENT : TUI_TEXT)(
+                    line.text,
+                ),
+            ...(index === lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
+        ]));
+        positionCommandSuggestions();
+        jumpMenuBox.visible = true;
+        renderer.requestRender();
+    }
+
+    function runJumpTo(row: JumpRow): void {
+        jumpMenu = undefined;
+        jumpMenuBox.visible = false;
+        beginSessionResume(
+            row.sessionPath,
+            row.sessionId,
+            row.kind === "back",
+        );
+    }
+
+    function openJumpMenuOverlay(): void {
+        if (jumpMenu !== undefined || anyOverlayOpen()) return;
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiNotice(
+                state,
+                "Jumping between conversations is unavailable on this host",
+            );
+            renderState();
+            return;
+        }
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || anyOverlayOpen()) return;
+            const currentId = client.agentId;
+            const originAgent = agents.find((agent) =>
+                agent.id === backOriginId
+            );
+            const back: JumpOrigin | undefined = originAgent === undefined
+                ? undefined
+                : {
+                    sessionId: originAgent.id,
+                    sessionPath: originAgent.session_path,
+                    title: originAgent.title ?? originAgent.name
+                        ?? "previous conversation",
+                };
+            const needsYou = (workIndex?.rows ?? []).filter((row) =>
+                row.section === "needs_you"
+            );
+            jumpMenu = openJumpMenuState(buildJumpRows({
+                currentId,
+                back,
+                needsYou,
+                agents,
+            }));
+            if (jumpMenu === undefined) {
+                state = appendTuiNotice(
+                    state,
+                    "Nowhere to jump: nothing needs you and this conversation"
+                        + " has no parent or children",
+                );
+                renderState();
+                return;
+            }
+            renderJumpMenu();
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not build the jump menu: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
     }
 
     function openWorkTab(): void {
@@ -8457,8 +8856,8 @@ export async function startTui(
         // The scan already running finishes and finds no overlay to fill; the
         // one waiting behind it never starts.
         queuedSearch = undefined;
-        workTabView.box.visible = false;
-        searchOverlayView.box.visible = false;
+        workTabView.surface.visible = false;
+        searchOverlayView.surface.visible = false;
         composer.focus();
         renderState();
         focusActiveSurface();
@@ -9143,6 +9542,9 @@ export async function startTui(
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
+        // A hop the notice never landed in is over; it must not surface in
+        // whichever conversation rebuilds next.
+        pendingBackNotice = undefined;
         if (next.agentId !== undefined) {
             try {
                 dependencies.onSessionEntered?.(next.agentId);
@@ -9213,6 +9615,7 @@ export async function startTui(
     function beginSessionResume(
         sessionPath: string,
         sessionId?: string,
+        viaBack = false,
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
@@ -9247,6 +9650,21 @@ export async function startTui(
         if (sessionSwitchPending) {
             return;
         }
+        // Only the first hop is remembered: /back always returns to where
+        // the switching started, not to the previous stop. Going back clears
+        // the edge instead of arming it, or back would turn into a toggle.
+        const previousId = client.agentId;
+        let armedNow = false;
+        if (
+            !viaBack
+            && !openingInSidebar
+            && backOriginId === undefined
+            && previousId !== undefined
+        ) {
+            backOriginId = previousId;
+            backOriginTitle = sessionTitle;
+            armedNow = true;
+        }
         const draft = currentDraft();
         sessionSwitchPending = true;
         sessionSwitchActivity = "switching conversation…";
@@ -9272,8 +9690,43 @@ export async function startTui(
                 return;
             }
             switchToClient(next, draft);
+            if (viaBack) {
+                backOriginId = undefined;
+            } else if (backOriginId !== undefined) {
+                // The way back, said where the person landed: the switch is
+                // easy to make by accident from the work tab, and nothing
+                // else on screen names the return trip.
+                const notice =
+                    "Type /back to return to the conversation you came from";
+                // The top copy names the origin so the hop reads as a place
+                // left, not just a rule; the copy after the transcript stays
+                // generic since the name is already on screen by then.
+                let originTitle = backOriginTitle;
+                if (
+                    originTitle === undefined
+                    && dependencies.listAgents !== undefined
+                ) {
+                    originTitle = await dependencies.listAgents().then(
+                        (agents) =>
+                            agents.find((agent) =>
+                                agent.id === backOriginId
+                            )?.title,
+                    ).catch(() => undefined);
+                }
+                state = appendTuiNotice(
+                    state,
+                    originTitle === undefined
+                        ? notice
+                        : `Type /back to return to "${originTitle}"`,
+                    "soft",
+                );
+                pendingBackNotice = notice;
+                renderState();
+            }
         }).catch((error) => {
             if (shuttingDown) return;
+            // A switch that never happened is not a hop worth remembering.
+            if (armedNow) backOriginId = undefined;
             sessionSwitchPending = false;
             state = appendTuiError(
                 state,

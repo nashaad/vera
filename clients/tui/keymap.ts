@@ -237,6 +237,17 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         remappable: true,
     },
     {
+        id: "jump.open",
+        // Only the kitty-protocol encoding of ctrl+shift+j is bound. Plain
+        // ctrl+j is byte-identical to Enter's line feed, so binding it would
+        // take the submit key.
+        keys: ["ctrl+shift+j"],
+        scope: "global",
+        description: "Open the jump menu: back, needs you, parent and children",
+        hint: "ctrl+shift+j jump",
+        remappable: true,
+    },
+    {
         id: "cycle-reasoning",
         keys: ["ctrl+t"],
         scope: "global",

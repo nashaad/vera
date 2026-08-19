@@ -251,7 +251,7 @@ test("terminal model errors survive transcript checkpoints", () => {
         errorMessage: "rate limited after retries",
     }])).toEqual([
         { kind: "assistant", text: "Partial answer." },
-        { kind: "error", detail: "rate limited after retries" },
+        { kind: "error", outcome: "error", detail: "rate limited after retries" },
     ]);
 
     expect(projectTranscript([{
@@ -260,7 +260,7 @@ test("terminal model errors survive transcript checkpoints", () => {
         source: { provider: "faux", api: "test", model: "test" },
         usage: emptyUsage(),
         stopReason: "error",
-    }])).toEqual([{ kind: "error" }]);
+    }])).toEqual([{ kind: "error", outcome: "error" }]);
 
     expect(projectTranscript([{
         role: "assistant",
@@ -268,7 +268,7 @@ test("terminal model errors survive transcript checkpoints", () => {
         source: { provider: "faux", api: "test", model: "test" },
         usage: emptyUsage(),
         stopReason: "aborted",
-    }])).toEqual([{ kind: "error", detail: "Turn aborted" }]);
+    }])).toEqual([{ kind: "error", outcome: "aborted" }]);
 });
 
 test("protocol checkpoints keep the current update sequence", () => {

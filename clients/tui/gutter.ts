@@ -1,5 +1,6 @@
 import {
     BoxRenderable,
+    MarkdownRenderable,
     TextAttributes,
     TextRenderable,
     type CliRenderer,
@@ -87,6 +88,14 @@ export function createTuiGutterEntry(
         width,
         flexShrink: 0,
     }));
+    // The content must size to the space left of the marker column; at 100%
+    // of the row it overhangs the right edge by the marker width and clips.
+    content.width = "auto";
+    content.flexGrow = 1;
+    content.flexShrink = 1;
+    // A markdown table lays out one column wider than the box it is given, so
+    // the block keeps a column in reserve for its right border.
+    if (content instanceof MarkdownRenderable) content.marginRight = 1;
     row.add(content);
     contentNodes.set(row, content);
     if (!ruled) return row;

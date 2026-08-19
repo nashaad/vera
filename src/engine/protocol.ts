@@ -102,6 +102,7 @@ export interface PresentationTranscriptEntry {
 export interface ErrorTranscriptEntry {
     readonly id?: string;
     readonly kind: "error";
+    readonly outcome?: "error" | "aborted";
     readonly detail?: string;
 }
 
@@ -2133,10 +2134,12 @@ export function projectTranscript(
         }
         const outcome = terminalOutcome(message);
         if (outcome !== undefined) {
-            const detail = terminalDetail(message)
-                ?? (outcome === "aborted" ? "Turn aborted" : undefined);
+            const detail = outcome === "aborted"
+                ? undefined
+                : terminalDetail(message);
             push({
                 kind: "error",
+                outcome,
                 ...(detail === undefined ? {} : { detail }),
             });
         }

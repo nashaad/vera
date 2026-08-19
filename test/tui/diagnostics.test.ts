@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import { renderTuiDiagnostics } from "../../clients/tui/diagnostics.ts";
 import { createTuiState } from "../../clients/tui/state.ts";
+import { summariseModelFailures } from "../../src/store/model-failures.ts";
 
 test("TUI diagnostics explains a retrying model request", () => {
     const retryAt = "2026-07-29T17:00:02.000Z";
@@ -372,4 +373,64 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
     expect(text).toContain("stash        empty");
     expect(text).toContain("filesystem   /home/user/.vera/stash");
     expect(text).not.toContain("cp <key> <path>");
+});
+
+test("TUI diagnostics ranks repeated model failures worst first", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "ready",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        now: Date.parse("2026-08-19T15:00:00.000Z"),
+        modelFailureLedgerPath: "/home/user/.vera/failures/ledger.jsonl",
+        modelFailures: summariseModelFailures([
+            {
+                at: "2026-08-19T14:00:00.000Z",
+                provider: "openai",
+                model: "gpt-5.6-sol",
+                kind: "provider_failure",
+                detail: "rate limited",
+                sessionId: "session-b",
+            },
+            {
+                at: "2026-08-19T14:30:00.000Z",
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                kind: "no_visible_response",
+                detail: "Model returned no visible response.",
+                sessionId: "session-a",
+            },
+            {
+                at: "2026-08-19T14:45:00.000Z",
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                kind: "no_visible_response",
+                detail: "Model returned no visible response.",
+                sessionId: "session-c",
+            },
+        ]),
+    });
+
+    const kimi = text.indexOf("openrouter/moonshotai/kimi-k3");
+    expect(kimi).toBeGreaterThan(-1);
+    // Twice beats once, so the row worth acting on reads first.
+    expect(kimi).toBeLessThan(text.indexOf("openai/gpt-5.6-sol"));
+    expect(text).toContain("no visible response");
+    expect(text).toContain(
+        "ledger       /home/user/.vera/failures/ledger.jsonl",
+    );
+});
+
+test("TUI diagnostics says so when no model has failed", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "ready",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        modelFailures: summariseModelFailures([]),
+    });
+
+    expect(text).toContain("No recorded model failures.");
 });

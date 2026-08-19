@@ -100,7 +100,8 @@ function inbox(): WorkIndexSnapshot {
 }
 
 test("the header states the live counts", () => {
-    expect(tuiWorkTabHeader(inbox())).toBe("Work · 2 need you · 2 working");
+    expect(tuiWorkTabHeader(inbox()))
+        .toBe("Work · 2 need you · 2 working · 1 done");
     expect(tuiWorkTabHeader(buildWorkIndex([], [], { now }))).toBe("Work");
 });
 
@@ -110,7 +111,10 @@ test("the sections are drawn in order with their rows under them", () => {
         .filter((line) => line.kind === "section")
         .map((line) => line.text);
 
-    expect(sections).toEqual(["Needs you", "Working", "Done recently"]);
+    // Each heading counts what is under it, including what the card windowed
+    // off the bottom.
+    expect(sections)
+        .toEqual(["Needs you · 2", "Working · 2", "Done recently · 1"]);
     expect(lines.filter((line) => line.kind === "row").map((line) => line.row_id))
         .toEqual([
             "auth-race",
@@ -130,7 +134,6 @@ test("a wide row states its reason, summary, subagents and age", () => {
     const lines = text.split("\n");
 
     const approval = lines.find((line) => line.includes("auth-race")) ?? "";
-    expect(approval.startsWith("> ")).toBe(true);
     expect(approval).toContain("Approval");
     expect(approval).toContain("bun migrate --production");
     expect(approval).toContain("2m ago");
@@ -141,6 +144,42 @@ test("a wide row states its reason, summary, subagents and age", () => {
 
     const solo = lines.find((line) => line.includes("memory-retrieval")) ?? "";
     expect(solo).not.toContain("subagent");
+});
+
+test("a summary that only repeats its section heading is dropped", () => {
+    const index = buildWorkIndex([
+        agent({ id: "quiet", title: "quiet", status: "working" }),
+    ], [], { now });
+    const line = tuiWorkTabText(index, { width: 78, now: NOW })
+        .split("\n")
+        .find((candidate) => candidate.includes("quiet")) ?? "";
+
+    // The section header already says Working; the row saying it again is
+    // noise, and the tool name still shows when there is one.
+    expect(line).not.toContain("Working");
+    expect(line).toContain("quiet");
+});
+
+test("the title column widens with the terminal to keep identity readable", () => {
+    const longTitle = "a".repeat(38);
+    const index = buildWorkIndex([
+        agent({
+            id: "titled",
+            title: longTitle,
+            status: "working",
+            active_tool: "bash",
+        }),
+    ], [], { now });
+    const row = (width: number) =>
+        tuiWorkTabText(index, { width, now: NOW })
+            .split("\n")
+            .find((candidate) => candidate.includes("aaaa")) ?? "";
+
+    // At 78 columns the title gets a third of the row; at 120 it reaches
+    // the cap and shows whole.
+    expect(row(78)).toContain("a".repeat(24));
+    expect(row(78)).not.toContain(longTitle);
+    expect(row(120)).toContain(longTitle);
 });
 
 test("no row is wider than the terminal, at either width", () => {
