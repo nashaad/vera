@@ -186,6 +186,53 @@ describe("refreshOpenRouterCatalog", () => {
         })).toBeUndefined();
     });
 
+    test("a snapshot inside the max age is answered without a request", async () => {
+        const directory = cacheDir();
+        await refreshOpenRouterCatalog({
+            cacheDir: directory,
+            fetch: respondWith({ data: [model()] }),
+        });
+
+        let asked = false;
+        const catalog = await refreshOpenRouterCatalog({
+            cacheDir: directory,
+            maxAgeMs: 3_600_000,
+            fetch: (() => {
+                asked = true;
+                return Promise.reject(new Error("must not ask"));
+            }) as unknown as typeof globalThis.fetch,
+        });
+
+        // Starting Vera is not a reason to call a provider.
+        expect(asked).toBe(false);
+        expect(catalog?.models.map((entry) => entry.id))
+            .toEqual(["vendor/model"]);
+    });
+
+    test("a snapshot past the max age is refetched", async () => {
+        const directory = cacheDir();
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(
+            join(directory, "openrouter.json"),
+            JSON.stringify({
+                schema_version: 2,
+                provider: "openrouter",
+                fetched_at: new Date(Date.now() - 30 * 86_400_000)
+                    .toISOString(),
+                models: [{ id: "remembered", label: "Remembered", levels: [] }],
+            }),
+        );
+
+        const catalog = await refreshOpenRouterCatalog({
+            cacheDir: directory,
+            maxAgeMs: 86_400_000,
+            fetch: respondWith({ data: [model()] }),
+        });
+
+        expect(catalog?.models.map((entry) => entry.id))
+            .toEqual(["vendor/model"]);
+    });
+
     test("a reachable endpoint with nothing usable keeps the snapshot", async () => {
         const directory = cacheDir();
         mkdirSync(directory, { recursive: true });
