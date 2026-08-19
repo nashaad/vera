@@ -2757,7 +2757,13 @@ export async function startTui(
                 id,
                 content: renderTuiEntry(entry),
                 width: "100%",
-                wrapMode: "word",
+                // Reasoning still arriving is clipped at the right edge rather
+                // than wrapped, so its window is as many rows as it is lines.
+                // Every other row wraps, because every other row is meant to
+                // be read where it sits.
+                ...(entry.kind === "thinking"
+                    ? { wrapMode: "none" as const, overflow: "hidden" as const }
+                    : { wrapMode: "word" as const }),
                 selectable: true,
                 marginTop: inner,
             });
