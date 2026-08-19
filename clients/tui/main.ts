@@ -5765,6 +5765,9 @@ export async function startTui(
             const submittedRequestIds = new Set(
                 pendingImages.map((image) => image.requestId),
             );
+            // A prompt sent mid-turn is queued by the host, so the transcript
+            // shows it queued rather than opening a turn of its own.
+            const queueing = state.working;
             promptSubmitting = true;
             renderStatus();
             flightRecorder?.record({ type: "submit_dispatched" });
@@ -5783,15 +5786,21 @@ export async function startTui(
                 pendingImages = pendingImages.filter(
                     (image) => !submittedRequestIds.has(image.requestId),
                 );
-                if (!userEntryShows(state.entries.at(-1), prompt, attachments)) {
-                    state = beginTuiTurn(state, prompt, attachments);
-                } else if (!state.working) {
-                    state = { ...state, working: true };
+                if (queueing) {
+                    state = queueTuiPrompt(state, prompt);
+                } else {
+                    if (
+                        !userEntryShows(state.entries.at(-1), prompt, attachments)
+                    ) {
+                        state = beginTuiTurn(state, prompt, attachments);
+                    } else if (!state.working) {
+                        state = { ...state, working: true };
+                    }
+                    adoptFallbackSessionTitle(prompt);
+                    workingSince ??= Date.now();
+                    phaseSince = workingSince;
+                    activity = "thinking";
                 }
-                adoptFallbackSessionTitle(prompt);
-                workingSince ??= Date.now();
-                phaseSince = workingSince;
-                activity = "thinking";
                 renderState();
             }).catch((error) => {
                 flightRecorder?.record({
@@ -6006,15 +6015,12 @@ export async function startTui(
         });
     }
 
+    /**
+     * The host stores an attachment out of band, so a paste does not wait for
+     * the turn to end. The image sits on the composer as a chip and rides
+     * whichever prompt the user sends next.
+     */
     function attachPastedImage(path: string): void {
-        if (state.working || state.queuedPrompts.length > 0) {
-            state = appendTuiNotice(
-                state,
-                "Images can be attached when the current turn is idle.",
-            );
-            renderState();
-            return;
-        }
         const requestId = randomUUID();
         pendingImages.push({ requestId, path });
         composer.attachImageChip(requestId);
