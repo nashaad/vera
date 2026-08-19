@@ -271,3 +271,40 @@ function suggestedAsCatalogModel(model: SuggestedModel): CatalogModel {
         levels: [],
     };
 }
+
+/**
+ * Which level list applies to one model, given only the two projections a
+ * client holds.
+ *
+ * A ready pool entry wins outright, including when its level list is empty:
+ * admission narrowed it to what this key actually verified, and an empty
+ * result there means the model has no reasoning control. Only when no ready
+ * entry exists does the catalog answer, which is the case for a model the
+ * pool never admitted, reached through the `/model <name>` escape hatch.
+ *
+ * This is the same precedence `publishedReasoningLevels` applies host-side,
+ * over the wire projections instead of the files. Both exist because they read
+ * different inputs; they must not read them in a different order.
+ */
+export function levelsForModel(
+    provider: string | undefined,
+    model: string,
+    pooled: readonly PooledModel[] = [],
+    available: readonly AvailableModel[] = [],
+): {
+    readonly levels: readonly ReasoningLevel[];
+    readonly defaultLevel?: ReasoningLevelId;
+} {
+    const matches = (candidate: { provider: string; model: string }) =>
+        candidate.model === model
+        && (provider === undefined || candidate.provider === provider);
+    const entry = pooled.find((candidate) =>
+        matches(candidate) && candidate.available
+    ) ?? available.find(matches);
+    return {
+        levels: entry?.levels ?? [],
+        ...(entry?.defaultLevel === undefined
+            ? {}
+            : { defaultLevel: entry.defaultLevel }),
+    };
+}

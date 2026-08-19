@@ -27,6 +27,11 @@ export interface DialPoolEntry {
     readonly model: string;
     readonly poolName?: string;
     readonly levels: readonly string[];
+    /**
+     * False on an entry that cannot run right now. Such an entry states no
+     * levels, so it must not stand in for the catalog's.
+     */
+    readonly available?: boolean;
 }
 
 /** Internal separator: the TUI paints the provider suffix in a quieter tone. */
@@ -80,22 +85,28 @@ export function composeDialStrip(options: {
     /** The session's model settings over time, oldest first. */
     readonly recents: readonly DialPair[];
     readonly pool: readonly DialPoolEntry[];
+    /**
+     * Level facts for models the pool has no ready entry for. Facts only: a
+     * catalog entry never becomes a row on the strip.
+     */
+    readonly catalog?: readonly DialPoolEntry[];
     readonly cap?: number;
     readonly includePool?: boolean;
 }): DialStripComposition {
     const cap = options.cap ?? DIAL_STRIP_CAP;
+    const catalog = options.catalog ?? [];
     const slots: DialSlot[] = [];
     const seen = new Set<string>();
 
     if (options.current !== undefined) {
-        slots.push(slotFor(options.current, "current", options.pool));
+        slots.push(slotFor(options.current, "current", options.pool, catalog));
         seen.add(pairKey(options.current));
     }
     for (const pair of [...options.recents].reverse()) {
         const key = pairKey(pair);
         if (seen.has(key)) continue;
         seen.add(key);
-        slots.push(slotFor(pair, "recent", options.pool));
+        slots.push(slotFor(pair, "recent", options.pool, catalog));
     }
     if (options.includePool === true) {
         for (const entry of options.pool) {
@@ -103,7 +114,7 @@ export function composeDialStrip(options: {
             if (slots.some((slot) => slot.pair?.model === pair.model
                 && slot.pair.provider === pair.provider)) continue;
             seen.add(pairKey(pair));
-            slots.push(slotFor(pair, "pool", options.pool));
+            slots.push(slotFor(pair, "pool", options.pool, catalog));
         }
     }
     const visible = slots.slice(0, cap);
@@ -113,7 +124,7 @@ export function composeDialStrip(options: {
         const key = pairKey(pair);
         if (recentSeen.has(key)) continue;
         recentSeen.add(key);
-        recent.push(slotFor(pair, "recent", options.pool));
+        recent.push(slotFor(pair, "recent", options.pool, catalog));
         if (recent.length === 3) break;
     }
     return {
@@ -128,20 +139,34 @@ export function pairKey(pair: DialPair): string {
     return `${pair.provider ?? ""}/${pair.model}/${pair.effort ?? ""}`;
 }
 
+function findEntry(
+    pair: DialPair,
+    entries: readonly DialPoolEntry[],
+): DialPoolEntry | undefined {
+    return entries.find((candidate) =>
+        candidate.model === pair.model
+        && (pair.provider === undefined || candidate.provider === pair.provider)
+    );
+}
+
 function slotFor(
     pair: DialPair,
     source: DialSlotSource,
     pool: readonly DialPoolEntry[],
+    catalog: readonly DialPoolEntry[] = [],
 ): DialSlot {
-    const entry = pool.find((candidate) =>
-        candidate.model === pair.model
-        && (pair.provider === undefined || candidate.provider === pair.provider)
-    );
+    const entry = findEntry(pair, pool);
+    // A ready entry answers on its own, empty list included: that is the pool
+    // saying this model has no reasoning control. Only when no ready entry
+    // exists does the catalog answer, which is the case for a model reached
+    // by name that the pool never admitted.
+    const ready = entry !== undefined && entry.available !== false;
+    const levels = ready ? entry.levels : findEntry(pair, catalog)?.levels ?? [];
     return {
         label: entry?.poolName ?? shortModel(pair.model),
         pair,
         source,
-        efforts: entry?.levels ?? [],
+        efforts: levels,
     };
 }
 

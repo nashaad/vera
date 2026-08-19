@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     availableModelsWithLevels,
+    levelsForModel,
     pooledModels,
 } from "../../src/model/catalog-view.ts";
 import type { LearnedFacts } from "../../src/model/pool-file.ts";
@@ -401,4 +402,56 @@ test("a pool row reports image support from whichever source knows", () => {
 
     expect(support("with-levels")).toBe(true);
     expect(support("no-levels")).toBe(false);
+});
+
+const HIGH_LOW = [{ id: "high", label: "High" }, { id: "low", label: "Low" }];
+
+const CATALOG_ROW = {
+    provider: "openrouter",
+    model: "moonshotai/kimi-k3",
+    label: "Kimi K3",
+    description: "",
+    levels: HIGH_LOW,
+};
+
+test("a model the pool never admitted takes its levels from the catalog", () => {
+    expect(
+        levelsForModel("openrouter", "moonshotai/kimi-k3", [], [CATALOG_ROW])
+            .levels,
+    ).toEqual(HIGH_LOW);
+});
+
+test("a ready pool entry answers, empty level list included", () => {
+    const pooled = [{
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        label: "Kimi K3",
+        available: true,
+        verified: true,
+        levels: [],
+    }];
+    expect(
+        levelsForModel("openrouter", "moonshotai/kimi-k3", pooled, [CATALOG_ROW])
+            .levels,
+    ).toEqual([]);
+});
+
+test("an unavailable pool entry steps aside for the catalog", () => {
+    const pooled = [{
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        label: "Kimi K3",
+        available: false,
+        verified: false,
+        levels: [],
+    }];
+    expect(
+        levelsForModel("openrouter", "moonshotai/kimi-k3", pooled, [CATALOG_ROW])
+            .levels,
+    ).toEqual(HIGH_LOW);
+});
+
+test("nothing anywhere is an empty list, not a guess", () => {
+    expect(levelsForModel("openrouter", "nobody/knows-me", [], []).levels)
+        .toEqual([]);
 });

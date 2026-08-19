@@ -346,3 +346,46 @@ test("an agent's forbidden access stays visible but cannot be selected", () => {
         && right.state.permissionModes[right.state.permissionIndex])
         .toBe("readonly");
 });
+
+test("a ready pool entry with no levels keeps the dial off, catalog or not", () => {
+    const bare = { provider: "ollama", model: "qwen3:32b" };
+    const composition = composeDialStrip({
+        current: bare,
+        recents: [],
+        pool: [{
+            provider: "ollama",
+            model: "qwen3:32b",
+            levels: [],
+            available: true,
+        }],
+        catalog: [{
+            provider: "ollama",
+            model: "qwen3:32b",
+            levels: ["high", "low"],
+        }],
+    });
+    expect(composition.slots[0]?.efforts).toEqual([]);
+    const state = openDialStrip(composition, bare);
+    expect(adjustDialEffort(state, 1)).toBe(state);
+});
+
+test("a model outside the pool still gets its dial from the catalog", () => {
+    const fresh = { provider: "openrouter", model: "moonshotai/kimi-k3" };
+    const composition = composeDialStrip({
+        current: fresh,
+        recents: [],
+        pool: POOL,
+        catalog: [{
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            levels: ["high", "medium", "low"],
+        }],
+    });
+    let state = openDialStrip(composition, fresh);
+    expect(composition.slots[0]?.efforts).toEqual(["high", "medium", "low"]);
+    expect(renderDialStrip(state, "hints").join("\n")).not.toContain(
+        "not available",
+    );
+    state = adjustDialEffort(state, 1);
+    expect(dialStripSelection(state)?.effort).toBe("high");
+});
