@@ -65,8 +65,14 @@ test("the old flat layout is refused rather than read as empty", () => {
     try {
         assertProfileLayout(root);
     } catch (error) {
-        expect((error as Error).message).toContain("auth.json, sessions");
-        expect((error as Error).message).toContain(veraMachineDirectory(root));
+        expect((error as Error).message).toBe(
+            `${join(root, ".vera")} uses the old flat layout and Vera no longer reads it.\n`
+            + "Found old entries: auth.json, sessions\n"
+            + "Run these commands, then start Vera again:\n"
+            + `  mkdir -p ${veraMachineDirectory(root)} ${join(root, ".vera", "profiles", "default")}\n`
+            + `  mv ${join(root, ".vera", "auth.json")} ${veraMachineDirectory(root)}/\n`
+            + `  mv ${join(root, ".vera", "sessions")} ${join(root, ".vera", "profiles", "default")}/`,
+        );
     }
 });
 
