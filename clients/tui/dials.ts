@@ -27,6 +27,8 @@ export interface DialPoolEntry {
     readonly model: string;
     readonly poolName?: string;
     readonly levels: readonly string[];
+    /** The level the model runs at when no effort is chosen, when it says. */
+    readonly defaultLevel?: string;
     /**
      * False on an entry that cannot run right now. Such an entry states no
      * levels, so it must not stand in for the catalog's.
@@ -36,6 +38,15 @@ export interface DialPoolEntry {
 
 /** Internal separator: the TUI paints the provider suffix in a quieter tone. */
 export const DIAL_PROVIDER_SEPARATOR = "\u001f";
+
+/**
+ * Marks the default chip that sits in the gutter beside the effort track.
+ *
+ * Default is not a point on the Faster/Smarter axis, it is the choice to let
+ * the model decide, so it is painted in its own colour rather than reading as
+ * one more stop on the line.
+ */
+export const DIAL_DEFAULT_SEPARATOR = "\u001d";
 /** Internal separator for the independently styled, right-aligned exit cue. */
 export const DIAL_EXIT_SEPARATOR = "\u001e";
 
@@ -49,6 +60,8 @@ export interface DialSlot {
     readonly source: DialSlotSource;
     /** The levels this model publishes, empty when it has no effort dial. */
     readonly efforts: readonly string[];
+    /** What choosing default resolves to, when the model says. */
+    readonly defaultEffort?: string;
     /** Why it cannot be selected, when it cannot. */
     readonly unavailable?: "not in your pool";
 }
@@ -189,12 +202,15 @@ function slotFor(
     // exists does the catalog answer, which is the case for a model reached
     // by name that the pool never admitted.
     const ready = entry !== undefined && entry.available !== false;
-    const levels = ready ? entry.levels : findEntry(pair, catalog)?.levels ?? [];
+    const facts = ready ? entry : findEntry(pair, catalog);
     return {
         label: entry?.poolName ?? shortModel(pair.model),
         pair,
         source,
-        efforts: levels,
+        efforts: facts?.levels ?? [],
+        ...(facts?.defaultLevel === undefined
+            ? {}
+            : { defaultEffort: facts.defaultLevel }),
     };
 }
 
@@ -217,7 +233,7 @@ export interface DialStripState {
     readonly editedEffort?: string | null;
     /** The pair the strip opened with, which is what escape puts back. */
     readonly opened?: DialPair;
-    readonly lane: "model" | "agent" | "access";
+    readonly lane: "model" | "effort" | "agent" | "access";
     readonly agents: readonly string[];
     readonly agentIndex: number;
     readonly openedAgent?: string;
@@ -268,7 +284,7 @@ export function openDialStrip(
     };
 }
 
-const DIAL_LANES = ["model", "agent", "access"] as const;
+const DIAL_LANES = ["model", "effort", "agent", "access"] as const;
 
 export function moveDialLane(
     state: DialStripState,
@@ -283,7 +299,9 @@ function moveChoice(
     state: DialStripState,
     delta: number,
 ): DialStripState {
-    if (state.lane === "model") return adjustDialEffort(state, delta);
+    if (state.lane === "model" || state.lane === "effort") {
+        return adjustDialEffort(state, delta);
+    }
     if (state.lane === "agent") {
         const agentIndex = cycleIndex(
             state.agentIndex,
@@ -407,17 +425,20 @@ export function renderDialStrip(
 ): readonly string[] {
     const cells = state.slots.map((slot, index) => {
         const label = slot.label;
+        // Filled for the pair in use, hollow for one merely shortlisted, and a
+        // return arrow for one used earlier this session.
         const source = slot.source === "current"
             ? "●"
             : slot.source === "recent"
                     ? "↺"
-                    : "·";
-        const numbered = `${source} ${index + 1} ${label}`;
-        const choice = index === state.index ? `[${numbered}]` : ` ${numbered} `;
+                    : "○";
+        // The marker stays outside the brackets: it says where the row came
+        // from, which is true whether or not the row is the highlighted one.
+        const choice = `${source} ${index + 1} ${label}`;
         const provider = slot.pair?.provider;
         return provider === undefined
             ? choice
-            : `${choice}${DIAL_PROVIDER_SEPARATOR} · ${provider}`;
+            : `${choice}${DIAL_PROVIDER_SEPARATOR}${provider}`;
     });
     const modelLines = renderExpandedModelLane(
         cells,
@@ -475,15 +496,15 @@ export function renderDialStrip(
             state.agentPostures[selectedAgent] ?? "restricted"
         }`;
     return [
-        ...modelLines,
-        renderDialLane(
-            false,
+        accessNote === undefined
+            ? accessLine
+            : appendDialNote(accessLine, accessNote, width),
+        ...(showEffortScale ? [] : [renderDialLane(
+            state.lane === "effort",
             "EFFORT",
             selectedSlot?.efforts.length === 0
                 ? ["not available"]
-                : showEffortScale
-                    ? [selectedEffort === undefined ? "[default]" : "default"]
-                    : effortCells,
+                : effortCells,
             selectedEffort === undefined
                 ? 0
                 : Math.max(
@@ -491,12 +512,16 @@ export function renderDialStrip(
                     (selectedSlot?.efforts.indexOf(selectedEffort) ?? -1) + 1,
                 ),
             width,
-        ),
+        )]),
         ...renderEffortScale(
             selectedSlot?.efforts ?? [],
             selectedEffort,
             width,
+            selectedEffort === undefined ? "[default]" : "default",
+            selectedSlot?.defaultEffort,
+            state.lane === "effort",
         ),
+        ...modelLines,
         renderDialLane(
             state.lane === "agent",
             "AGENT",
@@ -504,15 +529,16 @@ export function renderDialStrip(
             state.agentIndex,
             width,
         ),
-        accessNote === undefined
-            ? accessLine
-            : appendDialNote(accessLine, accessNote, width),
         "",
         renderDialFooter(
-            state.lane === "model"
+            state.lane === "effort"
+                ? Number.isFinite(width) && width < 42
+                    ? "←/→"
+                    : "←/→ effort · tab lane"
+                : state.lane === "model"
                 ? Number.isFinite(width) && width < 42
                     ? "↑/↓ · ←/→"
-                    : `${note === "nothing to dial" || note === "no effort dial" ? `${note} · ` : ""}↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · · pool`
+                    : `${note === "nothing to dial" || note === "no effort dial" ? `${note} · ` : ""}↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · ○ pool`
                 : hints,
             width,
         ),
@@ -529,12 +555,17 @@ export function renderEffortScale(
     efforts: readonly string[],
     selected: string | undefined,
     width: number,
+    defaultCell?: string,
+    defaultEffort?: string,
+    active = false,
 ): readonly string[] {
     const choices = [...efforts];
     if (choices.length < 2 || !Number.isFinite(width) || width < 56) {
         return [];
     }
-    const indent = 14;
+    // Wide enough that the lane name and the default chip both sit to the left
+    // of the track, with the axis labels above still aligned to its start.
+    const indent = defaultCell === undefined ? 14 : 24;
     // Keep the scale a compact HUD element; it should explain the axis without
     // stretching a short control panel across the whole terminal.
     const trackWidth = Math.min(36, Math.max(20, width - indent - 2));
@@ -569,10 +600,45 @@ export function renderEffortScale(
         }
         nextStart = start + label.length + 1;
     });
+    // The chip sits in the gutter, joined to the track by a dotted lead-in. The
+    // dots say it belongs to this control while the solid line does not reach
+    // it: choosing default is not a point on the Faster/Smarter axis.
+    const laneLabel = `${active ? "›" : " "} EFFORT  `;
+    const chipStart = defaultCell === undefined
+        ? indent
+        : laneLabel.length + defaultCell.length;
+    const dots = Math.max(0, indent - chipStart - 2);
+    const gutter = defaultCell === undefined
+        ? " ".repeat(indent)
+        : `${laneLabel}${DIAL_DEFAULT_SEPARATOR}${defaultCell}${
+            DIAL_DEFAULT_SEPARATOR
+        } ${"·".repeat(dots)} `;
+    // The chip says the model chooses; the note under it says what it chose.
+    const note = defaultCell === undefined || defaultEffort === undefined
+        ? ""
+        : `(${defaultEffort})`;
+    // Default sits off the track, so its selection marker sits under the chip
+    // rather than on the line, in the same place the track labels sit under
+    // their own marker.
+    const chipMarker = defaultCell !== undefined && selected === undefined
+        ? "\u25b2"
+        : "";
+    const noteLead = laneLabel.length;
+    const gutterMarks = [chipMarker, note].filter((part) => part !== "");
+    const gutterText = gutterMarks.join(" ");
+    const optionGutter = gutterText === ""
+        ? " ".repeat(indent)
+        : `${" ".repeat(noteLead)}${
+            gutterMarks
+                .map((part) =>
+                    `${DIAL_DEFAULT_SEPARATOR}${part}${DIAL_DEFAULT_SEPARATOR}`
+                )
+                .join(" ")
+        }${" ".repeat(Math.max(1, indent - noteLead - gutterText.length))}`;
     return [
         fitDialText(labels, width),
-        fitDialText(`${" ".repeat(indent)}${track}`, width),
-        fitDialText(`${" ".repeat(indent)}${optionLine.join("")}`, width),
+        `${gutter}${track}`,
+        `${optionGutter}${optionLine.join("")}`,
     ];
 }
 
@@ -623,13 +689,15 @@ function renderExpandedModelLane(
             cell.split(DIAL_PROVIDER_SEPARATOR)[1]?.length ?? 0
         ),
     );
+    // Measured without the leading source marker, which sits outside the
+    // brackets and so is not part of the name column.
     const widestChoice = Math.max(
         0,
         ...cells.map((cell) =>
-            (cell.split(DIAL_PROVIDER_SEPARATOR)[0] ?? "")
-                .trim()
-                .replace(/^\[|\]$/g, "")
-                .length
+            Math.max(
+                0,
+                (cell.split(DIAL_PROVIDER_SEPARATOR)[0] ?? "").trim().length - 2,
+            )
         ),
     );
     const row = (left: string, right = "") => showRecent
@@ -643,21 +711,34 @@ function renderExpandedModelLane(
                 ? `${active ? "›" : " "} `
                 : `${active ? "›" : " "} MODEL`.padEnd(14)
             : " ".repeat(compact ? 2 : 14);
+        // The brackets enclose the name and its provider together, so the
+        // highlight reads as one choice rather than as a name with an unclaimed
+        // label trailing it. Unpicked rows spend the same columns on spaces.
+        const picked = start + rowIndex === selected;
+        const marker = choice.slice(0, 1);
+        const name = choice.slice(2);
+        const open = picked ? "[" : " ";
+        const close = picked ? "]" : " ";
+        const head = `${indent}${marker} ${open} `;
         const providerText = showProviders ? provider ?? "" : "";
-        const providerColumn = providerText.length === 0
-            ? leftWidth
+        const nameWidth = providerText.length === 0
+            ? Math.max(
+                1,
+                Math.min(leftWidth - head.length - 2, widestChoice),
+            )
             : Math.max(
                 1,
                 Math.min(
-                    leftWidth - providerWidth - 1,
-                    indent.length + widestChoice + 4,
+                    leftWidth - head.length - providerWidth - 3,
+                    widestChoice + 2,
                 ),
             );
-        const left = `${indent}${fitDialText(choice, Math.max(1, providerColumn - indent.length))}`
-            .padEnd(providerColumn);
+        const left = `${head}${fitDialText(name, nameWidth).padEnd(nameWidth)}`;
         const joined = providerText.length === 0
-            ? left
-            : `${left}${DIAL_PROVIDER_SEPARATOR}${providerText}`;
+            ? `${left} ${close}`
+            : `${left}${DIAL_PROVIDER_SEPARATOR}${
+                providerText.padEnd(providerWidth)
+            }${DIAL_PROVIDER_SEPARATOR} ${close}`;
         return showRecent
             ? `${joined.padEnd(leftWidth)}  ${fitDialText(right, recentWidth)}`
             : joined;

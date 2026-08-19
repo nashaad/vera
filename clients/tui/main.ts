@@ -385,6 +385,7 @@ import {
     openDialStrip,
     renderDialStrip,
     DIAL_EXIT_SEPARATOR,
+    DIAL_DEFAULT_SEPARATOR,
     DIAL_PROVIDER_SEPARATOR,
     type DialPair,
     type DialPoolEntry,
@@ -2247,6 +2248,9 @@ export async function startTui(
                     ? {}
                     : { poolName: entry.poolName }),
                 levels: entry.levels.map((level) => level.id),
+                ...(entry.defaultLevel === undefined
+                    ? {}
+                    : { defaultLevel: entry.defaultLevel }),
                 available: entry.available,
             }),
         );
@@ -2262,6 +2266,9 @@ export async function startTui(
                 provider: entry.provider,
                 model: entry.model,
                 levels: entry.levels.map((level) => level.id),
+                ...(entry.defaultLevel === undefined
+                    ? {}
+                    : { defaultLevel: entry.defaultLevel }),
             }),
         );
     }
@@ -10279,24 +10286,41 @@ export async function startTui(
         const effortRowIndex = hudRows.findIndex((line) =>
             line.includes("EFFORT")
         );
-        const modelRowCount = effortRowIndex >= 0
-            ? effortRowIndex
-            : Math.max(0, hudRows.length - 4);
-        const effortScaleRows = effortRowIndex >= 0
-            && hudRows[effortRowIndex + 1]?.includes("Faster") === true
-            ? 3
+        // The scale puts its axis labels on the row above EFFORT and the option
+        // labels below it, so the lane sits in the middle of its own block.
+        const effortScaleRows = effortRowIndex >= 1
+            && hudRows[effortRowIndex - 1]?.includes("Faster") === true
+            ? 2
             : 0;
+        // Lanes are found by their labels rather than counted from a fixed
+        // offset: the model list is variable height and the effort scale adds
+        // rows only when it is wide enough to draw.
+        const laneRowIndex = (label: string): number =>
+            hudRows.findIndex((line) => /^[\u203a ] /.test(line)
+                && line.trimStart().startsWith(label)
+            );
+        const modelHeaderIndex = laneRowIndex("MODEL");
+        const agentRowIndex = laneRowIndex("AGENT");
+        const accessRowIndex = laneRowIndex("ACCESS");
+        const modelRowEnd = agentRowIndex >= 0 ? agentRowIndex : hudRows.length;
         dialCardTitle.height = Math.max(1, hudRows.length);
         dialCard.height = hudRows.length + 3;
         dialCardTitle.content = new StyledText(hudRows.flatMap((line, index) => {
             const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
             const main = providerParts[0] ?? "";
+            const isModelRow = modelHeaderIndex >= 0
+                && index >= modelHeaderIndex
+                && index < modelRowEnd;
             const activeRow = dialStrip?.lane === "model"
-                ? index < modelRowCount + 1
+                ? isModelRow
+                : dialStrip?.lane === "effort"
+                ? effortRowIndex >= 0
+                    && index >= effortRowIndex - (effortScaleRows > 0 ? 1 : 0)
+                    && index <= effortRowIndex + (effortScaleRows > 0 ? 1 : 0)
                 : dialStrip?.lane === "agent"
-                    ? index === modelRowCount + 1 + effortScaleRows
+                    ? index === agentRowIndex
                     : dialStrip?.lane === "access"
-                        ? index === modelRowCount + 2 + effortScaleRows
+                        ? index === accessRowIndex
                         : false;
             const selectedColor = (part: string): string =>
                 dialStrip?.lane !== "access"
@@ -10309,14 +10333,45 @@ export async function startTui(
                                 ? VERA_TUI_THEME.success
                                 : TUI_TEXT;
             const isEffortScale = effortScaleRows > 0
-                && index > effortRowIndex
-                && index <= effortRowIndex + effortScaleRows;
+                && index >= effortRowIndex - 1
+                && index <= effortRowIndex + 1;
             if (isEffortScale) {
-                const scaleChunks = index === effortRowIndex + 1
-                    ? [fg(TUI_ACCENT)(main)]
-                    : main.split(/(▲)/u).filter(Boolean).map((part) =>
-                        fg(part === "▲" ? TUI_NOTICE : TUI_ACCENT)(part)
-                    );
+                // The gutter chip is delimited rather than matched by text: it
+                // is the one span on these rows that is not part of the axis,
+                // and it carries the selection brackets when it is chosen.
+                const spans = main.split(DIAL_DEFAULT_SEPARATOR);
+                const axis = spans.length > 1 ? spans.pop() ?? "" : main;
+                // Odd spans are the gutter marks, even spans the plain text
+                // between them. The gutter carries the same colour as the
+                // labels under the track, except the resolved-default note,
+                // which is a footnote, and the marker, which is a selection.
+                const gutterChunks = spans.length > 1
+                    ? spans.map((span, at) =>
+                        fg(
+                            at % 2 === 0
+                                ? activeRow ? TUI_TEXT : TUI_MUTED
+                                : span === "\u25b2"
+                                    ? TUI_NOTICE
+                                    : span.startsWith("(") || !activeRow
+                                        ? TUI_MUTED
+                                        : TUI_ACCENT,
+                        )(span)
+                    )
+                    : [];
+                const scaleChunks = [
+                    ...gutterChunks,
+                    ...(index === effortRowIndex - 1
+                        ? [fg(activeRow ? TUI_ACCENT : TUI_MUTED)(axis)]
+                        : axis.split(/(▲|·+)/u).filter(Boolean).map((part) =>
+                            fg(
+                                part === "▲"
+                                    ? TUI_NOTICE
+                                    : part.startsWith("·") || !activeRow
+                                        ? TUI_MUTED
+                                        : TUI_ACCENT,
+                            )(part)
+                        )),
+                ];
                 return [
                     ...scaleChunks,
                     ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
@@ -10325,10 +10380,10 @@ export async function startTui(
             let mainChunks;
             if (!activeRow) {
                 mainChunks = [fg(TUI_MUTED)(main)];
-            } else if (index < modelRowCount) {
+            } else if (isModelRow) {
                 if (main.includes("[")) {
                     mainChunks = [fg(TUI_TEXT)(main)];
-                } else if (index === 0) {
+                } else if (index === modelHeaderIndex) {
                     const prefixLength = main.startsWith("› MODEL") ? 14 : 2;
                     mainChunks = [
                         fg(TUI_TEXT)(main.slice(0, prefixLength)),
@@ -10354,9 +10409,13 @@ export async function startTui(
             }
             return [
                 ...mainChunks,
-                ...(providerParts.length < 2
-                    ? []
-                    : [fg(TUI_MUTED)(providerParts.slice(1).join(""))]),
+                // The provider is muted; anything after it is the closing
+                // bracket, which belongs to the choice, not to the provider.
+                ...providerParts.slice(1).map((part, at) =>
+                    fg(at === 0 ? TUI_MUTED : activeRow ? TUI_TEXT : TUI_MUTED)(
+                        part,
+                    )
+                ),
                 ...(index === hudRows.length - 1
                     ? []
                     : [fg(TUI_TEXT)("\n")]),
