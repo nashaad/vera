@@ -10595,7 +10595,7 @@ export async function startTui(
                 layout === "split" ? mainWidth : renderer.width,
             )
             : sessionTitle !== undefined
-            ? `  SESSION  ${sessionTitle}`
+            ? `  Session: ${sessionTitle}`
             : undefined);
         sidebar.setHeader(
             paneHeadersVisible

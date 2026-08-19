@@ -248,6 +248,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         width: "100%",
         height: 1,
         flexShrink: 0,
+        visible: false,
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
@@ -275,6 +276,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         width: "100%",
         height: 1,
         flexShrink: 0,
+        visible: false,
         content: "",
         fg: SIDEBAR_FOCUS_GREEN,
     });
@@ -311,8 +313,12 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         if (current !== "split") {
             mainFocusRail.content = "";
             sidebarFocusRail.content = "";
+            mainFocusRail.visible = false;
+            sidebarFocusRail.visible = false;
             return;
         }
+        mainFocusRail.visible = true;
+        sidebarFocusRail.visible = true;
         const mainWidth = Math.max(
             0,
             renderer.terminalWidth - width - DIVIDER_WIDTH,

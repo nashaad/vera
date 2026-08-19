@@ -81,7 +81,7 @@ test("rename commands name and clear without reaching the model", async () => {
         pane = await session.waitForVisiblePane("session renamed: Planning");
         expect(pane).not.toContain("/rename Planning");
         expect(pane.split("\n").some((line) =>
-            line.trim() === "SESSION  Planning"
+            line.trim() === "Session: Planning"
         ))
             .toBe(true);
 
@@ -89,7 +89,7 @@ test("rename commands name and clear without reaching the model", async () => {
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("session name cleared");
         expect(pane.split("\n").some((line) =>
-            line.trim() === "SESSION  Planning"
+            line.trim() === "Session: Planning"
         ))
             .toBe(false);
         session.sendKey("C-c");
