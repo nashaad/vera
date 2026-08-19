@@ -1372,7 +1372,46 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ])
             : new StyledText([summary, hint]);
     }
+    if (entry.kind === "thinking") {
+        return new StyledText([fg(TUI_MUTED)(liveThinkingTail(entry.text))]);
+    }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
+}
+
+/**
+ * How many rows the reasoning still arriving is allowed to occupy.
+ *
+ * Enough to see what the agent is chewing on, few enough that a model which
+ * thinks at length cannot push the work above it off the screen.
+ */
+export const LIVE_THINKING_ROWS = 8;
+
+/**
+ * The last few lines of reasoning, as the tail of a fixed-height window.
+ *
+ * The row is bounded from the first delta rather than folded once the phase
+ * ends, so nothing is ever drawn at full height and taken back. What scrolls
+ * out of the window is not lost: the summary this row collapses into holds the
+ * whole phase, which is where reasoning is meant to be read.
+ *
+ * The window is measured in source lines and the row is drawn unwrapped, so a
+ * paragraph counts once however wide it is. Blank runs collapse because a model
+ * that separates every sentence would otherwise spend the window on nothing.
+ */
+function liveThinkingTail(text: string): string {
+    const lines = plainReasoningSummary(text)
+        .split("\n")
+        .map((line) => line.trimEnd());
+    const kept: string[] = [];
+    for (let index = lines.length - 1; index >= 0; index -= 1) {
+        const line = lines[index] ?? "";
+        if (line.length === 0 && (kept.length === 0 || kept[0] === "")) {
+            continue;
+        }
+        kept.unshift(line);
+        if (kept.length === LIVE_THINKING_ROWS) break;
+    }
+    return kept.join("\n");
 }
 
 /** Provider summaries use Markdown headings; this row is a plain-text surface. */
