@@ -397,12 +397,40 @@ test("a model outside the pool still gets its dial from the catalog", () => {
         }],
     });
     let state = openDialStrip(composition, fresh);
-    expect(composition.slots[0]?.efforts).toEqual(["high", "medium", "low"]);
+    // Declared smartest first; the track always runs faster to smarter.
+    expect(composition.slots[0]?.efforts).toEqual(["low", "medium", "high"]);
     expect(renderDialStrip(state, "hints").join("\n")).not.toContain(
         "not available",
     );
     state = adjustDialEffort(state, 1);
-    expect(dialStripSelection(state)?.effort).toBe("high");
+    expect(dialStripSelection(state)?.effort).toBe("low");
+});
+
+test("effort levels run faster to smarter whatever order they arrive in", () => {
+    const pair = { provider: "openrouter", model: "reversed" };
+    const ordered = composeDialStrip({
+        current: pair,
+        recents: [],
+        pool: [{
+            provider: "openrouter",
+            model: "reversed",
+            levels: ["high", "low", "medium"],
+        }],
+    });
+    expect(ordered.slots[0]?.efforts).toEqual(["low", "medium", "high"]);
+
+    // An unrecognised level has no place on the axis, so the declared order
+    // stands rather than being guessed at.
+    const custom = composeDialStrip({
+        current: pair,
+        recents: [],
+        pool: [{
+            provider: "openrouter",
+            model: "reversed",
+            levels: ["high", "ludicrous", "low"],
+        }],
+    });
+    expect(custom.slots[0]?.efforts).toEqual(["high", "ludicrous", "low"]);
 });
 
 test("recents cap at five and the pool backfills the rest of the HUD", () => {

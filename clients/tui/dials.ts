@@ -190,6 +190,30 @@ function findEntry(
     );
 }
 
+/**
+ * Where each known level sits on the faster-to-smarter axis. Providers declare
+ * their levels in whatever order they like, and the track reads backwards when
+ * that order runs the other way.
+ */
+const EFFORT_RANK: Readonly<Record<string, number>> = {
+    none: 0,
+    minimal: 1,
+    low: 2,
+    medium: 3,
+    high: 4,
+    xhigh: 5,
+    max: 6,
+};
+
+/** Sorted faster first, or left as declared when a level is not a known one. */
+function orderEfforts(levels: readonly string[]): readonly string[] {
+    return levels.every((level) => EFFORT_RANK[level] !== undefined)
+        ? [...levels].sort((a, b) =>
+            (EFFORT_RANK[a] ?? 0) - (EFFORT_RANK[b] ?? 0)
+        )
+        : levels;
+}
+
 function slotFor(
     pair: DialPair,
     source: DialSlotSource,
@@ -207,7 +231,7 @@ function slotFor(
         label: entry?.poolName ?? shortModel(pair.model),
         pair,
         source,
-        efforts: facts?.levels ?? [],
+        efforts: orderEfforts(facts?.levels ?? []),
         ...(facts?.defaultLevel === undefined
             ? {}
             : { defaultEffort: facts.defaultLevel }),
