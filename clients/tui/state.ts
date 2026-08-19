@@ -2003,7 +2003,10 @@ function toolCallLines(
 ): readonly string[] {
     return rows
         .filter((row) => row.prefix === "  │ ")
-        .map((row) => tuiToolRowText(row).split("\n")[0] ?? "")
+        // A folded group has one line to say what ran. Keeping only the first
+        // physical line turns a heredoc or a `-e` script into its opener, so
+        // the whole call is flattened and then cut to the line budget.
+        .map((row) => tuiToolRowText(row).replace(/\s+/g, " ").trim())
         .filter((line) => line.length > 0);
 }
 
