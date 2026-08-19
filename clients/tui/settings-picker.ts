@@ -454,6 +454,12 @@ export interface TuiSettingsPickerTransition {
     readonly poolVerifySweep?: boolean;
     /** Same contract again: the pane asks for the prompt, it does not name. */
     readonly poolName?: TuiPoolNameCandidate;
+    /** A reorder of one pool entry, by places, for the client to send on. */
+    readonly poolMove?: {
+        readonly provider: string;
+        readonly model: string;
+        readonly delta: number;
+    };
     /**
      * The model pane asking for the connect pane over it. A request rather than
      * a state: which providers are connected is a fact about the disk, and only
@@ -1785,6 +1791,33 @@ export function handleTuiSettingsPickerKey(
                 provider: selected.provider,
                 model: selected.model,
                 label: selected.label,
+            },
+        };
+    }
+    // Order belongs to the pool, so like a name this does nothing on a row the
+    // user has not pooled. Order is not decoration: the failsafe rung walks
+    // the pool in this order too.
+    if (
+        state.kind === "model"
+        && (tuiBindingId("model_picker", key) === "move_pooled_up"
+            || tuiBindingId("model_picker", key) === "move_pooled_down")
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (
+            selected?.provider === undefined || selected.model === undefined
+            || !isPooled(state, selected)
+        ) {
+            return unchanged(state, true);
+        }
+        return {
+            state,
+            handled: true,
+            poolMove: {
+                provider: selected.provider,
+                model: selected.model,
+                delta: tuiBindingId("model_picker", key) === "move_pooled_up"
+                    ? -1
+                    : 1,
             },
         };
     }

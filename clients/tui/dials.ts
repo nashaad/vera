@@ -64,6 +64,17 @@ export interface DialStripComposition {
 /** How many slots fit on one line before the rest become an ellipsis. */
 export const DIAL_STRIP_CAP = 6;
 
+/**
+ * How many rows the HUD offers, and how many of them recents may take.
+ *
+ * Five and five is a shape, not a promise. Recents are usually pool models
+ * too, and a row is only ever shown once, so the pool backfills whatever the
+ * recents did not use. Guaranteeing a true 5+5 would mean printing one model
+ * on two rows under two digits, which is worse than a floating split.
+ */
+export const DIAL_HUD_CAP = 10;
+export const DIAL_HUD_RECENT_CAP = 5;
+
 function pairOf(entry: DialPoolEntry, effort: string | undefined): DialPair {
     return {
         provider: entry.provider,
@@ -91,9 +102,12 @@ export function composeDialStrip(options: {
      */
     readonly catalog?: readonly DialPoolEntry[];
     readonly cap?: number;
+    /** How many recents may take rows before the pool backfills the rest. */
+    readonly recentCap?: number;
     readonly includePool?: boolean;
 }): DialStripComposition {
     const cap = options.cap ?? DIAL_STRIP_CAP;
+    const recentCap = options.recentCap ?? Number.POSITIVE_INFINITY;
     const catalog = options.catalog ?? [];
     const slots: DialSlot[] = [];
     const seen = new Set<string>();
@@ -101,11 +115,20 @@ export function composeDialStrip(options: {
     if (options.current !== undefined) {
         slots.push(slotFor(options.current, "current", options.pool, catalog));
         seen.add(pairKey(options.current));
+        seen.add(modelKey(options.current));
     }
+    let recentRows = 0;
     for (const pair of [...options.recents].reverse()) {
-        const key = pairKey(pair);
+        if (recentRows >= recentCap) break;
+        // Recents dedupe on the model rather than the pair: one model turned
+        // through three efforts is one model, and each row carries the whole
+        // effort scale anyway. Keying on the pair would spend the recent rows
+        // on a single model and leave nothing for the pool to backfill into.
+        const key = modelKey(pair);
         if (seen.has(key)) continue;
         seen.add(key);
+        seen.add(pairKey(pair));
+        recentRows += 1;
         slots.push(slotFor(pair, "recent", options.pool, catalog));
     }
     if (options.includePool === true) {
@@ -121,7 +144,7 @@ export function composeDialStrip(options: {
     const recent: DialSlot[] = [];
     const recentSeen = new Set<string>();
     for (const pair of [...options.recents].reverse()) {
-        const key = pairKey(pair);
+        const key = modelKey(pair);
         if (recentSeen.has(key)) continue;
         recentSeen.add(key);
         recent.push(slotFor(pair, "recent", options.pool, catalog));
@@ -132,6 +155,11 @@ export function composeDialStrip(options: {
         recent,
         overflow: slots.length - visible.length,
     };
+}
+
+/** One model, whatever effort it is turned to. */
+export function modelKey(pair: DialPair): string {
+    return `${pair.provider ?? ""}/${pair.model}`;
 }
 
 /** Absent effort is its own value: a model with no dial has exactly one pair. */

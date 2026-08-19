@@ -38,7 +38,9 @@ const reviewLog = createReviewLogger();
 import {
     addPoolModel,
     recordLearned,
+    movePoolModel,
     namePoolModel,
+    readUserPoolFile,
     removePoolModel,
     PoolFileWriteRefusedError,
 } from "../model/pool-file-store.ts";
@@ -401,6 +403,20 @@ export async function startResidentHost(
                     && file.models[id]?.name === (name ?? undefined);
             });
             return refused === undefined && named;
+        },
+        movePoolEntry: (entry, delta) => {
+            const id = `${entry.provider}/${entry.model}`;
+            let held = false;
+            const refused = refusedPoolWrite(() => {
+                // Order lives in the user file, so an entry only the project
+                // overlay declares cannot be reordered from here.
+                held = Object.hasOwn(readUserPoolFile().models, id);
+                if (held) movePoolModel(id, delta);
+            });
+            // Success is "the pool holds this and the order now reads the way
+            // the move asked for", not "the order changed". A move off either
+            // end clamps, and clamping is the answer, not a failure.
+            return refused === undefined && held;
         },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
