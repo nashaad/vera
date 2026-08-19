@@ -567,7 +567,7 @@ export function renderEffortScale(
     }
     // Wide enough that the lane name and the default chip both sit to the left
     // of the track, with the axis labels above still aligned to its start.
-    const indent = defaultCell === undefined ? 14 : 24;
+    const indent = defaultCell === undefined ? 14 : 28;
     // Keep the scale a compact HUD element; it should explain the axis without
     // stretching a short control panel across the whole terminal.
     const trackWidth = Math.min(36, Math.max(20, width - indent - 2));
@@ -605,7 +605,9 @@ export function renderEffortScale(
     // The chip sits in the gutter, joined to the track by a dotted lead-in. The
     // dots say it belongs to this control while the solid line does not reach
     // it: choosing default is not a point on the Faster/Smarter axis.
-    const laneLabel = `${active ? "›" : " "} EFFORT  `;
+    // Padded to the same width every other rung uses, so the chip starts in
+    // the column the access and agent choices start in.
+    const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(14);
     const chipStart = defaultCell === undefined
         ? indent
         : laneLabel.length + defaultCell.length;
@@ -708,11 +710,13 @@ function renderExpandedModelLane(
     const modelRow = (cell: string, rowIndex: number, right = "") => {
         const [choice = "", provider] = cell.split(DIAL_PROVIDER_SEPARATOR);
         const compact = leftWidth < 42;
+        // The marker sits in the two columns before the choice column, so the
+        // brackets open where the access and agent brackets open.
         const indent = rowIndex === 0
             ? compact
                 ? `${active ? "›" : " "} `
-                : `${active ? "›" : " "} MODEL`.padEnd(14)
-            : " ".repeat(compact ? 2 : 14);
+                : `${active ? "›" : " "} MODEL`.padEnd(12)
+            : " ".repeat(compact ? 2 : 12);
         // The brackets enclose the name and its provider together, so the
         // highlight reads as one choice rather than as a name with an unclaimed
         // label trailing it. Unpicked rows spend the same columns on spaces.
