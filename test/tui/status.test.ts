@@ -209,3 +209,44 @@ test("the idle status line reports the background agents still running", () => {
     expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
         .toBe("ready · ctrl+p commands");
 });
+
+test("the status line leads with what needs you, and says nothing when nothing does", () => {
+    const line = (needsYou: number): string =>
+        renderTuiStatusDetailsLine(
+            { model: "test", reasoningEffort: "high", contextWindow: 100 },
+            "auto",
+            undefined,
+            "/work/one",
+            0,
+            undefined,
+            true,
+            undefined,
+            {},
+            needsYou,
+        );
+
+    expect(line(0)).not.toContain("need you");
+    expect(line(1)).toContain("1 need you");
+    expect(line(3)).toContain("3 need you");
+    // Ahead of the model, because it is the only thing on the row that is
+    // asking for something.
+    expect(line(2).indexOf("2 need you")).toBeLessThan(line(2).indexOf("test"));
+});
+
+test("what needs you sits beside running subagents rather than replacing them", () => {
+    const line = renderTuiStatusDetailsLine(
+        { model: "test", reasoningEffort: "high", contextWindow: 100 },
+        "auto",
+        undefined,
+        "/work/one",
+        2,
+        undefined,
+        true,
+        undefined,
+        {},
+        1,
+    );
+
+    expect(line).toContain("1 need you");
+    expect(line).toContain("2 async subagents running");
+});

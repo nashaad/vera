@@ -127,6 +127,14 @@ export interface OpenResumePickerTuiCommandAction {
     readonly type: "open_resume_picker";
 }
 
+export interface OpenWorkTabTuiCommandAction {
+    readonly type: "open_work_tab";
+}
+
+export interface OpenSearchTuiCommandAction {
+    readonly type: "open_search";
+}
+
 export interface OpenSubagentsPickerTuiCommandAction {
     readonly type: "open_subagents_picker";
 }
@@ -216,6 +224,8 @@ export type TuiCommandAction =
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
+    | OpenWorkTabTuiCommandAction
+    | OpenSearchTuiCommandAction
     | OpenSubagentsPickerTuiCommandAction
     | GoToParentTuiCommandAction
     | ReconnectTuiCommandAction
@@ -264,6 +274,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "compact_session":
             return "main_session";
         case "open_preferences_list":
+        case "open_work_tab":
+        case "open_search":
         case "open_command_palette":
         case "prefill_composer":
         case "open_theme_picker":
@@ -322,6 +334,8 @@ export interface TuiCommandDefinition {
         | OpenCommandPaletteTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
+        | OpenWorkTabTuiCommandAction
+        | OpenSearchTuiCommandAction
         | OpenSubagentsPickerTuiCommandAction
         | GoToParentTuiCommandAction
         | ReconnectTuiCommandAction
@@ -403,6 +417,18 @@ const RESUME_COMMAND = {
     name: "resume",
     description: "Switch to another conversation",
     usage: "/resume",
+} as const satisfies TuiCommandCatalogEntry;
+
+const WORK_COMMAND = {
+    name: "work",
+    description: "Show every session that needs you or is running",
+    usage: "/work",
+} as const satisfies TuiCommandCatalogEntry;
+
+const SEARCH_COMMAND = {
+    name: "search",
+    description: "Search past work",
+    usage: "/search",
 } as const satisfies TuiCommandCatalogEntry;
 
 const SUBAGENTS_COMMAND = {
@@ -494,6 +520,8 @@ export const BUILTIN_COMMANDS = [
     CONFIGURE_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
+    WORK_COMMAND,
+    SEARCH_COMMAND,
     SUBAGENTS_COMMAND,
     PARENT_COMMAND,
     RECONNECT_COMMAND,
@@ -1128,6 +1156,30 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "resume",
             action: { type: "open_resume_picker" },
+        },
+    });
+    registry.registerCommand({
+        ...WORK_COMMAND,
+        action: { type: "open_work_tab" },
+        palette: {
+            name: "work",
+            label: "Show work",
+            description: "what needs you and what is running",
+            group: "Session",
+            slashName: "work",
+            action: { type: "open_work_tab" },
+        },
+    });
+    registry.registerCommand({
+        ...SEARCH_COMMAND,
+        action: { type: "open_search" },
+        palette: {
+            name: "search",
+            label: "Search past work",
+            description: "find a message, a command, or a file",
+            group: "Session",
+            slashName: "search",
+            action: { type: "open_search" },
         },
     });
     registry.registerCommand({

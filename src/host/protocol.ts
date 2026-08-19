@@ -13,6 +13,11 @@ import type {
 import { isApprovalMode } from "../sdk/permissions.ts";
 import type { ScheduleOperation } from "../scheduler/types.ts";
 import { parseHostCapabilities } from "./capabilities.ts";
+import type { WorkIndexSnapshot } from "./work-index.ts";
+import type {
+    SessionSearchQuery,
+    SessionSearchResults,
+} from "../store/session-search.ts";
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
 // Bump this only when the base wire contract changes. Additive operations use
@@ -33,6 +38,21 @@ export interface HostIdentityRequest {
 
 export interface ListAgentsRequest {
     readonly type: "list_agents";
+}
+
+export interface SearchSessionsRequest {
+    readonly type: "search_sessions";
+    readonly query: SessionSearchQuery;
+}
+
+export interface SearchSessionsResponse {
+    readonly type: "session_search_results";
+    readonly results: SessionSearchResults;
+}
+
+/** The host is running without a session directory to scan. */
+export interface SearchSessionsUnavailableResponse {
+    readonly type: "session_search_unavailable";
 }
 
 export interface ScheduleOperationRequest {
@@ -250,6 +270,17 @@ export interface BackgroundAgentsResponse {
     readonly has_parent: boolean;
 }
 
+/**
+ * Sent whenever the work this host is holding changes, to clients that asked
+ * for it. Unsolicited and unsequenced for the same reason as
+ * `background_agents`: it is a fact about every session, not an engine update
+ * about the attached one, so it stays out of the agent update sequence.
+ */
+export interface WorkIndexResponse {
+    readonly type: "work_index";
+    readonly index: WorkIndexSnapshot;
+}
+
 export interface AttachFailedResponse {
     readonly type: "attach_failed";
     readonly agent_id: string;
@@ -374,6 +405,7 @@ export interface ProtocolErrorResponse {
 export type HostRequest =
     | HostIdentityRequest
     | ListAgentsRequest
+    | SearchSessionsRequest
     | ScheduleOperationRequest
     | ShutdownIfIdleRequest
     | ShutdownForReplacementRequest
@@ -394,6 +426,8 @@ export type AttachedClientMessage =
 export type HostResponse =
     | HostIdentityResponse
     | AgentListResponse
+    | SearchSessionsResponse
+    | SearchSessionsUnavailableResponse
     | ScheduleOperationResponse
     | ScheduleOperationFailedResponse
     | AgentReadyResponse
@@ -412,6 +446,7 @@ export type HostResponse =
     | ShutdownForReplacementResponse
     | AttachedResponse
     | BackgroundAgentsResponse
+    | WorkIndexResponse
     | AttachFailedResponse
     | DetachedResponse
     | ExtensionCommandHostResponse
@@ -424,6 +459,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "list_agents") {
         return { type: "list_agents" };
+    }
+    if (value?.type === "search_sessions") {
+        const query = parseSessionSearchQuery(value.query);
+        if (query !== undefined) {
+            return { type: "search_sessions", query };
+        }
     }
     if (value?.type === "schedule_operation") {
         const operation = parseScheduleOperation(value.operation);
@@ -973,6 +1014,40 @@ function parseJsonObject(source: string): Record<string, unknown> | undefined {
     return typeof value === "object" && value !== null && !Array.isArray(value)
         ? value as Record<string, unknown>
         : undefined;
+}
+
+/**
+ * Bounded before anything reads a file: the query decides how much of every
+ * transcript on disk gets scanned, so an unbounded one is a way to make the
+ * host read the whole session directory on demand.
+ */
+function parseSessionSearchQuery(
+    value: unknown,
+): SessionSearchQuery | undefined {
+    if (!isRecord(value)) return undefined;
+    const query = value.query;
+    if (typeof query !== "string" || query.length === 0 || query.length > 256) {
+        return undefined;
+    }
+    const kind = value.kind;
+    if (kind !== undefined
+        && kind !== "messages"
+        && kind !== "tools"
+        && kind !== "files") {
+        return undefined;
+    }
+    const workspace = value.workspace;
+    if (workspace !== undefined
+        && (typeof workspace !== "string"
+            || workspace.length === 0
+            || workspace.length > 4_096)) {
+        return undefined;
+    }
+    return {
+        query,
+        ...(kind === undefined ? {} : { kind }),
+        ...(workspace === undefined ? {} : { workspace }),
+    };
 }
 
 function parseScheduleOperation(value: unknown): ScheduleOperation | undefined {

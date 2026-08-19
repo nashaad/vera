@@ -61,6 +61,10 @@ export function createReconnectingAgentClient(
         Parameters<AttachedAgentClient["onBackgroundAgents"]>[0]
     >();
     let stopBackgroundAgentUpdates = subscribeToBackgroundAgentUpdates(current);
+    const workIndexListeners = new Set<
+        Parameters<AttachedAgentClient["onWorkIndex"]>[0]
+    >();
+    let stopWorkIndexUpdates = subscribeToWorkIndexUpdates(current);
 
     const client: AttachedAgentClient = {
         get agentId(): string {
@@ -85,6 +89,15 @@ export function createReconnectingAgentClient(
             backgroundAgentListeners.add(listener);
             return (): void => {
                 backgroundAgentListeners.delete(listener);
+            };
+        },
+        get workIndex() {
+            return current.workIndex;
+        },
+        onWorkIndex(listener) {
+            workIndexListeners.add(listener);
+            return (): void => {
+                workIndexListeners.delete(listener);
             };
         },
         send(command) {
@@ -167,6 +180,16 @@ export function createReconnectingAgentClient(
 
     return client;
 
+    function subscribeToWorkIndexUpdates(
+        attached: AttachedAgentClient,
+    ): () => void {
+        return attached.onWorkIndex((index) => {
+            for (const listener of workIndexListeners) {
+                listener(index);
+            }
+        });
+    }
+
     function subscribeToBackgroundAgentUpdates(
         attached: AttachedAgentClient,
     ): () => void {
@@ -211,6 +234,11 @@ export function createReconnectingAgentClient(
                 }
                 stopBackgroundAgentUpdates();
                 stopBackgroundAgentUpdates = subscribeToBackgroundAgentUpdates(next);
+                stopWorkIndexUpdates();
+                stopWorkIndexUpdates = subscribeToWorkIndexUpdates(next);
+                // The reattached host resends the index unprompted, so a stale
+                // one is never replayed here: a reconnect that found different
+                // work reports it, and one that found the same reports nothing.
                 for (const listener of backgroundAgentListeners) {
                     try {
                         listener(next.backgroundAgents);

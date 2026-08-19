@@ -32,6 +32,14 @@ export interface SchedulerRuntimeOptions {
     readonly setTimer?: (callback: () => void, delayMs: number) => unknown;
     readonly clearTimer?: (timer: unknown) => void;
     readonly onError?: (error: unknown) => void;
+    /**
+     * Called after a run is recorded as emitted, never before.
+     *
+     * The recording is what makes the run visible to anything reading the
+     * store, so a listener told at emit time would look and find the run
+     * still pending.
+     */
+    readonly onRunEmitted?: () => void;
     readonly autoStart?: boolean;
 }
 
@@ -243,6 +251,12 @@ export class SchedulerRuntime {
                     result.entry.seq,
                     this.clock().toISOString(),
                 );
+                try {
+                    this.options.onRunEmitted?.();
+                } catch {
+                    // A listener that throws must not stop the schedule that
+                    // triggered it from continuing to fire.
+                }
             } catch (error) {
                 firstFailure ??= new Error(
                     `schedule ${run.scheduleId} occurrence ${run.scheduledFor} failed: ${errorMessage(error)}`,
