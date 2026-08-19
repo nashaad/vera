@@ -1537,6 +1537,10 @@ export async function runTurn(
                 await commitMessage(state, assistantMessage);
                 break;
             }
+            // Every call and result is now durable. This is the only safe
+            // boundary inside a tool turn: compacting any earlier could put a
+            // call in the summary while its result was still being produced.
+            await state.compact?.(turn.signal);
         }
     } finally {
         state.inbound.finishTurn();
