@@ -362,6 +362,15 @@ export interface AgentRegistryOptions {
         name: string | null,
         projectRoot: string,
     ) => boolean;
+    /**
+     * Moves a pool entry by `delta` places in the pool's declared order.
+     * False means nothing moved.
+     */
+    readonly movePoolEntry?: (
+        entry: { readonly provider: string; readonly model: string },
+        delta: number,
+        projectRoot: string,
+    ) => boolean;
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
@@ -2612,6 +2621,40 @@ export class AgentRegistry {
         );
     }
 
+    async poolMove(
+        id: string,
+        entry: { readonly provider: string; readonly model: string },
+        delta: number,
+    ): Promise<ModelTurnSettings | undefined> {
+        const agentEntry = this.agents.get(id);
+        if (
+            agentEntry === undefined
+            || agentEntry.agent.closed
+            || agentEntry.agent.failed
+            || this.options.movePoolEntry === undefined
+        ) {
+            return undefined;
+        }
+        const moved = this.options.movePoolEntry({
+            provider: entry.provider.trim(),
+            model: entry.model.trim(),
+        }, delta, agentEntry.store.header.cwd);
+        if (!moved) {
+            return undefined;
+        }
+        return settingsForClient(
+            agentEntry.modelSettings,
+            agentEntry.modelSettings.provider ?? this.defaultProvider,
+            this.catalog,
+            this.modelsForClient(),
+            this.options.readPool?.(agentEntry.store.header.cwd),
+            this.options.subagentModel,
+            agentEntry.requestedReasoningEffort,
+            this.reviewerDefault(),
+            this.options.contextLimit?.(),
+        );
+    }
+
     async updateApprovalMode(
         id: string,
         mode: ApprovalMode,
@@ -3301,6 +3344,8 @@ export class AgentRegistry {
                     this.poolRemove(agent.id, entry),
                 poolName: (entry, name) =>
                     this.poolName(agent.id, entry, name),
+                poolMove: (entry, delta) =>
+                    this.poolMove(agent.id, entry, delta),
                 ...(adapter === undefined ? {} : {
                     consult: (request, signal) => {
                         // One candidate, so the route cannot fall back: the

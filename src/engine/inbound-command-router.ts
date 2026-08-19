@@ -276,6 +276,14 @@ export interface InboundCommandRouterOptions {
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
     ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Returns the settings snapshot as it stands after the move. `undefined`
+     * means the move was refused and nothing changed.
+     */
+    readonly poolMove?: (
+        entry: { readonly provider: string; readonly model: string },
+        delta: number,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionInspection?: () => PermissionInspection | undefined;
     readonly updateApprovalMode?: (
@@ -746,6 +754,14 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "pool_move") {
+                    await this.poolMove(command.requestId, {
+                        provider: command.provider,
+                        model: command.model,
+                    }, command.delta);
+                    continue;
+                }
+
                 if (command.type === "get_permissions") {
                     this.sendPermissions(command.requestId);
                     continue;
@@ -1109,6 +1125,30 @@ export class InboundCommandRouter {
                 type: "model_settings_rejected",
                 requestId,
                 reason: this.options.poolName === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private async poolMove(
+        requestId: string,
+        entry: { readonly provider: string; readonly model: string },
+        delta: number,
+    ): Promise<void> {
+        const settings = await this.options.poolMove?.(entry, delta);
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: this.options.poolMove === undefined
                     ? "unavailable"
                     : "invalid",
             });

@@ -342,6 +342,22 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^⇧r verify",
     },
     {
+        id: "move_pooled_up",
+        keys: ["shift+up"],
+        scope: "model_picker",
+        description: "Move the selected shortlisted model up the order",
+        hint: "⇧↑ move up",
+        remappable: true,
+    },
+    {
+        id: "move_pooled_down",
+        keys: ["shift+down"],
+        scope: "model_picker",
+        description: "Move the selected shortlisted model down the order",
+        hint: "⇧↓ move down",
+        remappable: true,
+    },
+    {
         id: "name_pooled",
         keys: ["ctrl+n"],
         scope: "model_picker",

@@ -152,6 +152,45 @@ export function namePoolModel(
     });
 }
 
+/**
+ * Moves an entry within the pool's declared order, by `delta` places.
+ *
+ * File order is the mechanism rather than a field, because it already is:
+ * admission writes to the front, and the failsafe rung walks the file in the
+ * order it finds. This rewrites the key order and nothing else, so an entry's
+ * declared and learned halves both travel with it untouched.
+ *
+ * A move past either end clamps rather than wrapping. The pool is a ranked
+ * shortlist, and wrapping would send the user's first preference to last on a
+ * keypress they meant as "already at the top".
+ */
+export function movePoolModel(
+    modelId: string,
+    delta: number,
+    options: PoolStoreOptions = {},
+): PoolFile {
+    return updatePoolFile(options, (file) => {
+        const ids = Object.keys(file.models);
+        const from = ids.indexOf(modelId);
+        if (from === -1 || delta === 0) {
+            return file;
+        }
+        const to = Math.min(ids.length - 1, Math.max(0, from + delta));
+        if (to === from) {
+            return file;
+        }
+        ids.splice(to, 0, ...ids.splice(from, 1));
+        const models: Record<string, PoolFileModel> = {};
+        for (const id of ids) {
+            const entry = file.models[id];
+            if (entry !== undefined) {
+                models[id] = entry;
+            }
+        }
+        return { ...file, models };
+    });
+}
+
 export function removePoolModel(
     modelId: string,
     options: PoolStoreOptions = {},

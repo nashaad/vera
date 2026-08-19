@@ -379,6 +379,8 @@ type TuiAgentCatalog = {
 type TuiAgentCatalogRow = AgentCatalogUpdate["agents"][number];
 import {
     composeDialStrip,
+    DIAL_HUD_CAP,
+    DIAL_HUD_RECENT_CAP,
     handleDialStripKey,
     openDialStrip,
     renderDialStrip,
@@ -2321,7 +2323,8 @@ export async function startTui(
             pool: dialPool(),
             catalog: dialCatalog(),
             includePool: true,
-            cap: Number.POSITIVE_INFINITY,
+            cap: DIAL_HUD_CAP,
+            recentCap: DIAL_HUD_RECENT_CAP,
         });
         dialStrip = openDialStrip(composition, committedDialPair(), {
             agents: catalog?.agents.map((agent) => agent.name),
@@ -8746,6 +8749,19 @@ export async function startTui(
             );
             renderState();
             focusActiveSurface();
+            return;
+        }
+        if ("poolMove" in transition && transition.poolMove !== undefined) {
+            // Same rule as the toggle: the pane is rebuilt from the snapshot
+            // that comes back, not from a guess about where the row landed.
+            const move = transition.poolMove;
+            sendCommand({
+                type: "pool_move",
+                requestId: randomUUID(),
+                provider: move.provider,
+                model: move.model,
+                delta: move.delta,
+            });
             return;
         }
         if ("poolToggle" in transition && transition.poolToggle !== undefined) {

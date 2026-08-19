@@ -3500,6 +3500,61 @@ test("an adapter is built for the agent's own workspace", async () => {
     }
 });
 
+test("a pool move that clamps still reports the snapshot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-pool-move-"));
+    const pooled: readonly PooledModel[] = [
+        {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            label: "GPT-5.6-Sol",
+            available: true,
+            verified: true,
+            levels: [],
+        },
+    ];
+    const deltas: number[] = [];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        approvalMode: "auto",
+        readPool: () => pooled,
+        // The store clamps a move off either end, so the entry stays put and
+        // the host still reports success. Only a model the pool does not hold
+        // is refused.
+        movePoolEntry: (entry, delta) => {
+            deltas.push(delta);
+            return entry.model === "gpt-5.6-sol";
+        },
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        const moved = await registry.poolMove(agent.id, {
+            provider: "openai-codex",
+            model: "  gpt-5.6-sol  ",
+        }, -1);
+        expect(moved?.pooled).toMatchObject([{ model: "gpt-5.6-sol" }]);
+        expect(deltas).toEqual([-1]);
+
+        expect(await registry.poolMove(agent.id, {
+            provider: "openai-codex",
+            model: "never-pooled",
+        }, 1)).toBeUndefined();
+        expect(await registry.poolMove("no-such-agent", {
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        }, 1)).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("naming a pool entry reports the refreshed snapshot, and a refusal reports nothing", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-pool-name-"));
     let pooled: readonly PooledModel[] = [

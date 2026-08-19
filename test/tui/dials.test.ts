@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import {
     adjustDialEffort,
     composeDialStrip,
+    DIAL_HUD_CAP,
+    DIAL_HUD_RECENT_CAP,
     dialStripSelection,
     handleDialStripKey,
     jumpDialStrip,
@@ -47,8 +49,7 @@ test("the strip caps at six and says how many it did not show", () => {
         current: SOL,
         recents: Array.from({ length: 9 }, (_, index) => ({
             provider: "zai",
-            model: "glm-5",
-            effort: `level-${index}`,
+            model: `glm-5-${index}`,
         })),
         pool: POOL,
     });
@@ -388,4 +389,94 @@ test("a model outside the pool still gets its dial from the catalog", () => {
     );
     state = adjustDialEffort(state, 1);
     expect(dialStripSelection(state)?.effort).toBe("high");
+});
+
+test("recents cap at five and the pool backfills the rest of the HUD", () => {
+    const recents = Array.from({ length: 8 }, (_, index) => ({
+        provider: "openrouter",
+        model: `recent-${index}`,
+    }));
+    const pool = Array.from({ length: 8 }, (_, index) => ({
+        provider: "openrouter",
+        model: `pooled-${index}`,
+        levels: ["high"],
+        available: true,
+    }));
+    const composition = composeDialStrip({
+        current: { provider: "openrouter", model: "on-now" },
+        recents,
+        pool,
+        includePool: true,
+        cap: DIAL_HUD_CAP,
+        recentCap: DIAL_HUD_RECENT_CAP,
+    });
+    expect(composition.slots).toHaveLength(DIAL_HUD_CAP);
+    const sources = composition.slots.map((slot) => slot.source);
+    expect(sources[0]).toBe("current");
+    expect(sources.filter((source) => source === "recent")).toHaveLength(5);
+    // One current plus five recents leaves four rows, which the pool takes.
+    expect(sources.filter((source) => source === "pool")).toHaveLength(4);
+    expect(composition.overflow).toBeGreaterThan(0);
+});
+
+test("a recent that is already a pool model does not spend two rows", () => {
+    const shared = { provider: "openrouter", model: "shared" };
+    const composition = composeDialStrip({
+        current: { provider: "openrouter", model: "on-now" },
+        recents: [shared],
+        pool: [{
+            provider: "openrouter",
+            model: "shared",
+            levels: ["high"],
+            available: true,
+        }],
+        includePool: true,
+        cap: DIAL_HUD_CAP,
+        recentCap: DIAL_HUD_RECENT_CAP,
+    });
+    expect(
+        composition.slots.filter((slot) => slot.pair?.model === "shared"),
+    ).toHaveLength(1);
+});
+
+test("one model at several efforts spends one recent row, not several", () => {
+    const recents = ["low", "medium", "high"].map((effort) => ({
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        effort,
+    }));
+    const pool = Array.from({ length: 8 }, (_, index) => ({
+        provider: "openrouter",
+        model: `pooled-${index}`,
+        levels: ["high"],
+        available: true,
+    }));
+    const composition = composeDialStrip({
+        current: { provider: "openrouter", model: "on-now" },
+        recents,
+        pool,
+        includePool: true,
+        cap: DIAL_HUD_CAP,
+        recentCap: DIAL_HUD_RECENT_CAP,
+    });
+    const kimi = composition.slots.filter((slot) =>
+        slot.pair?.model === "moonshotai/kimi-k3"
+    );
+    expect(kimi).toHaveLength(1);
+    // The four rows the repeats would have taken go back to the pool.
+    expect(composition.slots.filter((slot) => slot.source === "pool"))
+        .toHaveLength(8);
+});
+
+test("a recent at a different effort than the current model is not a row", () => {
+    const composition = composeDialStrip({
+        current: { provider: "openrouter", model: "kimi", effort: "high" },
+        recents: [{ provider: "openrouter", model: "kimi", effort: "low" }],
+        pool: [],
+        includePool: true,
+        cap: DIAL_HUD_CAP,
+        recentCap: DIAL_HUD_RECENT_CAP,
+    });
+    expect(composition.slots).toHaveLength(1);
+    expect(composition.slots[0]?.source).toBe("current");
 });

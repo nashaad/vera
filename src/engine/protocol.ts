@@ -327,6 +327,21 @@ export interface PoolNameCommand {
     readonly name: string | null;
 }
 
+/**
+ * Moves a pool entry within the pool's declared order, by `delta` places.
+ *
+ * Order is not decoration: the failsafe rung walks the pool in file order, so
+ * this sets the subagent preference order as much as it sets which entries sit
+ * near the top of the strip. A move past either end clamps.
+ */
+export interface PoolMoveCommand {
+    readonly type: "pool_move";
+    readonly requestId: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly delta: number;
+}
+
 export interface GetPermissionsCommand {
     readonly type: "get_permissions";
     readonly requestId: string;
@@ -427,6 +442,7 @@ export type ClientCommand =
     | PoolAddCommand
     | PoolRemoveCommand
     | PoolNameCommand
+    | PoolMoveCommand
     | GetPermissionsCommand
     | UpdatePermissionsCommand
     | AddPermissionPreferenceCommand
@@ -1177,6 +1193,22 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             ...(command.type === "pool_add" && command.verify === true
                 ? { verify: true }
                 : {}),
+        };
+    }
+    if (
+        command.type === "pool_move"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.provider)
+        && isNonEmptyString(command.model)
+        && typeof command.delta === "number"
+        && Number.isInteger(command.delta)
+    ) {
+        return {
+            type: "pool_move",
+            requestId: command.requestId,
+            provider: command.provider,
+            model: command.model,
+            delta: command.delta,
         };
     }
     if (

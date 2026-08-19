@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     PoolFileWriteRefusedError,
     addPoolModel,
+    movePoolModel,
     namePoolModel,
     readUserPoolFile,
     recordLearned,
@@ -147,4 +148,50 @@ test("naming a model the file does not hold writes nothing", () => {
     const file = namePoolModel("cerebras/absent", "frosty", { path });
 
     expect(file.models["cerebras/absent"]).toBeUndefined();
+});
+
+function threeDeep(): string {
+    const path = poolPath();
+    addPoolModel("openrouter/c", {}, { path });
+    addPoolModel("openrouter/b", {}, { path });
+    addPoolModel("openrouter/a", {}, { path });
+    return path;
+}
+
+const order = (path: string) => Object.keys(readUserPoolFile({ path }).models);
+
+test("admission writes to the front, which is the order a move starts from", () => {
+    expect(order(threeDeep()))
+        .toEqual(["openrouter/a", "openrouter/b", "openrouter/c"]);
+});
+
+test("a move reorders the file and carries the entry with it", () => {
+    const path = threeDeep();
+    recordLearned("openrouter/a", { tools: { ok: true, seen: "now" } }, { path });
+    movePoolModel("openrouter/a", 2, { path });
+    expect(order(path))
+        .toEqual(["openrouter/b", "openrouter/c", "openrouter/a"]);
+    expect(readUserPoolFile({ path }).models["openrouter/a"]?.learned?.tools?.ok)
+        .toBe(true);
+});
+
+test("a move up past the top clamps rather than wrapping", () => {
+    const path = threeDeep();
+    movePoolModel("openrouter/a", -5, { path });
+    expect(order(path))
+        .toEqual(["openrouter/a", "openrouter/b", "openrouter/c"]);
+});
+
+test("a move down past the end clamps rather than wrapping", () => {
+    const path = threeDeep();
+    movePoolModel("openrouter/c", 5, { path });
+    expect(order(path))
+        .toEqual(["openrouter/a", "openrouter/b", "openrouter/c"]);
+});
+
+test("moving a model that is not pooled changes nothing", () => {
+    const path = threeDeep();
+    movePoolModel("openrouter/nope", -1, { path });
+    expect(order(path))
+        .toEqual(["openrouter/a", "openrouter/b", "openrouter/c"]);
 });
