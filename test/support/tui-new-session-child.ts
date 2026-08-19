@@ -1,58 +1,84 @@
 import { join } from "node:path";
 
-import { startTui } from "../../clients/tui/main.ts";
+import {
+    startTui,
+    type TuiDependencies,
+    type TuiExit,
+} from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
-let detached = false;
-let nextDetached = false;
-let createAttempts = 0;
-let createdForWorkspace = "none";
-const client = createSettingsAnsweringClient({
-    agentId: "current-session-id",
-    workspace: "/work/vera",
-    model: "current-model",
-    mode: "review",
-    onDetach: () => {
-        detached = true;
-    },
-});
+export interface TuiNewSessionScenario {
+    readonly dependencies: TuiDependencies;
+    finish(exit: TuiExit): Promise<void>;
+}
 
-const exit = await startTui({
-    client,
-    ...(process.env.CREATE_TIMEOUT === "1"
-        ? { sessionSwitchTimeoutMs: 100 }
-        : {}),
-    createSession: async (workspace) => {
-        createAttempts += 1;
-        createdForWorkspace = workspace;
-        if (process.env.CREATE_TIMEOUT === "1") {
-            return new Promise(() => {});
-        }
-        if (createAttempts === 1) {
-            throw new Error("host refused creation");
-        }
-        await Bun.sleep(400);
-        return createSettingsAnsweringClient({
-            agentId: "new-session-id",
-            workspace,
-            model: "fresh-model",
-            mode: "full_access",
-            onDetach: () => {
-                nextDetached = true;
+export function createTuiNewSessionScenario(options: {
+    readonly home: string;
+    readonly createTimeout?: boolean;
+}): TuiNewSessionScenario {
+    let detached = false;
+    let nextDetached = false;
+    let createAttempts = 0;
+    let createdForWorkspace = "none";
+    const client = createSettingsAnsweringClient({
+        agentId: "current-session-id",
+        workspace: "/work/vera",
+        model: "current-model",
+        mode: "review",
+        onDetach: () => {
+            detached = true;
+        },
+    });
+
+    return {
+        dependencies: {
+            client,
+            ...(options.createTimeout === true
+                ? { sessionSwitchTimeoutMs: 100 }
+                : {}),
+            createSession: async (workspace) => {
+                createAttempts += 1;
+                createdForWorkspace = workspace;
+                if (options.createTimeout === true) {
+                    return new Promise(() => {});
+                }
+                if (createAttempts === 1) {
+                    throw new Error("host refused creation");
+                }
+                await Bun.sleep(400);
+                return createSettingsAnsweringClient({
+                    agentId: "new-session-id",
+                    workspace,
+                    model: "fresh-model",
+                    mode: "full_access",
+                    onDetach: () => {
+                        nextDetached = true;
+                    },
+                });
             },
-        });
-    },
-});
+        },
+        async finish(exit) {
+            await Bun.write(
+                join(options.home, "new-session-result.txt"),
+                [
+                    // The session attached at exit, which is the new one: the
+                    // TUI switched to it in place rather than closing and
+                    // asking to be started again.
+                    exit.agentId ?? "none",
+                    detached ? "detached" : "attached",
+                    nextDetached ? "next detached" : "next attached",
+                    `attempts ${createAttempts}`,
+                    createdForWorkspace,
+                ].join("\n"),
+            );
+        },
+    };
+}
 
-await Bun.write(
-    join(process.env.HOME ?? ".", "new-session-result.txt"),
-    [
-        // The session attached at exit, which is the new one: the TUI switched
-        // to it in place rather than closing and asking to be started again.
-        exit.agentId ?? "none",
-        detached ? "detached" : "attached",
-        nextDetached ? "next detached" : "next attached",
-        `attempts ${createAttempts}`,
-        createdForWorkspace,
-    ].join("\n"),
-);
+if (import.meta.main) {
+    const scenario = createTuiNewSessionScenario({
+        home: process.env.HOME ?? ".",
+        createTimeout: process.env.CREATE_TIMEOUT === "1",
+    });
+    await scenario.finish(await startTui(scenario.dependencies));
+}

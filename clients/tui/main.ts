@@ -10,9 +10,9 @@ import {
     StyledText,
     TextRenderable,
     createCliRenderer,
-    type CliRenderer,
     KeyEvent,
     RGBA,
+    type CliRenderer,
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
