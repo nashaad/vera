@@ -284,7 +284,9 @@ export function openDialStrip(
     };
 }
 
-const DIAL_LANES = ["model", "effort", "agent", "access"] as const;
+// Ordered the way the rungs are stacked on screen, so tab walks down the HUD
+// rather than jumping around it.
+const DIAL_LANES = ["access", "effort", "model", "agent"] as const;
 
 export function moveDialLane(
     state: DialStripState,
