@@ -6269,7 +6269,14 @@ export async function startTui(
                     for (const notice of deferredKeymapNotices.splice(0)) {
                         state = appendTuiNotice(state, notice);
                     }
-                    if (pendingBackNotice !== undefined) {
+                    // An attach delivers empty rebuilds before the real one;
+                    // placing the end copy on one of those stacks it against
+                    // the arrival copy at the top instead of after the
+                    // transcript.
+                    if (
+                        pendingBackNotice !== undefined
+                        && update.entries.length > 0
+                    ) {
                         state = appendTuiNotice(state, pendingBackNotice);
                         pendingBackNotice = undefined;
                     }
@@ -9351,6 +9358,9 @@ export async function startTui(
         clientExtensionRegistry?.conversationChanged();
 
         state = createTuiState();
+        // A hop the notice never landed in is over; it must not surface in
+        // whichever conversation rebuilds next.
+        pendingBackNotice = undefined;
         if (next.agentId !== undefined) {
             try {
                 dependencies.onSessionEntered?.(next.agentId);
