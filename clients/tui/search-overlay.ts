@@ -146,21 +146,28 @@ export function handleSearchOverlayKey(
 }
 
 /**
- * Results are dropped the moment the query changes rather than left on screen
- * under a new query: stale hits under a different search read as answers to it.
+ * The previous query's results stay on screen, marked stale, until the next
+ * response lands: dropping them the instant a key is pressed blanked the
+ * whole list on every keystroke.
  */
 function typed(
     state: SearchOverlayState,
     query: string,
 ): SearchOverlayState {
-    const cleared: SearchOverlayState = {
+    const searching = query.trim().length > 0;
+    const next: SearchOverlayState = {
         query: query,
         scope: state.scope,
         workspace: state.workspace,
-        searching: query.trim().length > 0,
+        searching,
         ...(state.filter === undefined ? {} : { filter: state.filter }),
+        ...(searching && state.results !== undefined
+            ? { results: state.results, ...(state.selected === undefined
+                ? {}
+                : { selected: state.selected }) }
+            : {}),
     };
-    return cleared;
+    return next;
 }
 
 function requery(state: SearchOverlayState): SearchOverlayTransition {
@@ -288,6 +295,8 @@ export interface SearchOverlayLine {
     /** Present on the lines a mouse may select, which is the hits. */
     readonly row_id?: string;
     readonly selected?: boolean;
+    /** Left over from the previous query, while its replacement is in flight. */
+    readonly stale?: boolean;
 }
 
 /** A hit's identity as one string, because a pointer can only carry one. */
@@ -344,15 +353,16 @@ export function searchOverlayLines(
         lines.push({ kind: "notice", text: "Type to search past work." });
         return lines;
     }
-    if (state.searching) {
+    const results = state.results?.results ?? [];
+    if (state.searching && results.length === 0) {
         lines.push({ kind: "notice", text: "Searching…" });
         return lines;
     }
-    const results = state.results?.results ?? [];
-    if (results.length === 0) {
+    if (!state.searching && results.length === 0) {
         lines.push({ kind: "notice", text: "No matches." });
         return lines;
     }
+    const stale = state.searching;
     for (const result of results) {
         lines.push({ kind: "blank", text: "" });
         const age = relativeTime(result.updated_at, now, "");
@@ -364,6 +374,7 @@ export function searchOverlayLines(
             kind: "result",
             text: clip(`${title}${" ".repeat(gap)}${age}`, layout.width),
             session_id: result.session_id,
+            stale,
         });
         result.hits.forEach((hit, hitIndex) => {
             const selected = state.selected?.sessionId === result.session_id
@@ -380,6 +391,7 @@ export function searchOverlayLines(
                     hitIndex,
                 }),
                 selected,
+                stale,
             });
         });
     }
@@ -427,9 +439,9 @@ export function searchOverlayViewState(
             text: line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
             ...(line.selected === true ? { selected: true } : {}),
-            tone: line.kind === "result"
-                ? "text" as const
-                : line.kind === "query"
+            tone: line.stale === true
+                ? "muted" as const
+                : line.kind === "result" || line.kind === "query"
                     ? "text" as const
                     : "muted" as const,
         })),
