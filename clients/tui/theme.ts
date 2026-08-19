@@ -16,6 +16,16 @@ export type TuiThemeName =
     | "nc-navy"
     | "windows-31";
 
+export interface TuiThemeHud {
+    readonly background?: string;
+    readonly border?: string;
+    readonly text?: string;
+    readonly muted?: string;
+    readonly accent?: string;
+    readonly notice?: string;
+    readonly success?: string;
+}
+
 export interface TuiTheme {
     readonly accent: string;
     readonly text: string;
@@ -35,6 +45,7 @@ export interface TuiTheme {
     readonly menu: string;
     readonly chrome: "plain" | "norton";
     readonly selectionText: string;
+    readonly hud?: TuiThemeHud;
 }
 
 export const VERA_TUI_THEME = themeCatalog.themes.vera as TuiTheme;

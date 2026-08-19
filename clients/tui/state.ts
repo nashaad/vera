@@ -22,7 +22,7 @@ import type {
     ApprovalMode,
     PermissionInspection,
 } from "../../src/engine/permissions.ts";
-import type { TuiTheme } from "./theme.ts";
+import type { TuiTheme, TuiThemeHud } from "./theme.ts";
 import type { ModelSubstitution } from "../../src/model/types.ts";
 import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 import {
@@ -256,6 +256,7 @@ export let TUI_INPUT = VERA_TUI_THEME.input;
 export let TUI_MENU = VERA_TUI_THEME.menu;
 export let TUI_CHROME: "plain" | "norton" = "plain";
 export let TUI_SELECTION_TEXT = VERA_TUI_THEME.selectionText;
+export let TUI_HUD: TuiThemeHud | undefined = VERA_TUI_THEME.hud;
 
 export function applyTuiTheme(theme: TuiTheme): void {
     TUI_ACCENT = theme.accent;
@@ -273,6 +274,7 @@ export function applyTuiTheme(theme: TuiTheme): void {
     TUI_MENU = theme.menu;
     TUI_CHROME = theme.chrome;
     TUI_SELECTION_TEXT = theme.selectionText;
+    TUI_HUD = theme.hud;
 }
 
 export function attachmentLabel(attachment: AttachmentRef): string {
