@@ -7,11 +7,17 @@ import {
     dialStripSelection,
     handleDialStripKey,
     jumpDialStrip,
+    DIAL_DEFAULT_SEPARATOR,
+    DIAL_EXIT_SEPARATOR,
+    DIAL_PROVIDER_SEPARATOR,
+    moveDialLane,
     moveDialStrip,
     openDialStrip,
     renderEffortScale,
     renderDialStrip,
+    type DialPair,
     type DialPoolEntry,
+    type DialStripState,
 } from "../../clients/tui/dials.ts";
 
 const POOL: readonly DialPoolEntry[] = [
@@ -122,10 +128,10 @@ test("the model lane names where each choice came from", () => {
     });
     const lines = renderDialStrip(openDialStrip(composition, SOL), "hints");
     const modelList = lines.join("\n");
-    expect(modelList).toContain("● 1 sol");
-    expect(modelList).toContain("↺ 2 qwen3:32b");
-    expect(modelList).toContain("· 3 luna");
-    expect(lines.at(-1)).toContain("● current · ↺ recent · · pool");
+    expect(modelList).toContain("● [ 1 sol");
+    expect(modelList).toContain("↺   2 qwen3:32b");
+    expect(modelList).toContain("○   3 luna");
+    expect(lines.at(-1)).toContain("● current · ↺ recent · ○ pool");
 });
 
 test("moving sideways discards an uncommitted effort edit", () => {
@@ -205,7 +211,15 @@ test("tab changes HUD lanes and horizontal arrows change that lane", () => {
     if (higherEffort.kind !== "state") return;
     state = higherEffort.state;
     expect(dialStripSelection(state)?.effort).toBe("medium");
-    const agentLane = handleDialStripKey(state, { name: "tab" }, undefined);
+    const effortLane = handleDialStripKey(state, { name: "tab" }, undefined);
+    expect(effortLane.kind).toBe("state");
+    if (effortLane.kind !== "state") return;
+    expect(effortLane.state.lane).toBe("effort");
+    const agentLane = handleDialStripKey(
+        effortLane.state,
+        { name: "tab" },
+        undefined,
+    );
     expect(agentLane.kind).toBe("state");
     if (agentLane.kind !== "state") return;
     state = agentLane.state;
@@ -227,8 +241,15 @@ test("tab changes HUD lanes and horizontal arrows change that lane", () => {
     if (nextAgent.kind !== "state") return;
     state = nextAgent.state;
     expect(state.agents[state.agentIndex]).toBe("reviewer");
-    const modelAgain = handleDialStripKey(
+    const effortAgain = handleDialStripKey(
         state,
+        { name: "tab", shift: true },
+        undefined,
+    );
+    expect(effortAgain.kind === "state" && effortAgain.state.lane).toBe("effort");
+    if (effortAgain.kind !== "state") return;
+    const modelAgain = handleDialStripKey(
+        effortAgain.state,
         { name: "tab", shift: true },
         undefined,
     );
@@ -479,4 +500,142 @@ test("a recent at a different effort than the current model is not a row", () =>
     });
     expect(composition.slots).toHaveLength(1);
     expect(composition.slots[0]?.source).toBe("current");
+});
+
+const SCALE_POOL: readonly DialPoolEntry[] = [
+    {
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        poolName: "sol",
+        levels: ["low", "medium", "high"],
+        defaultLevel: "medium",
+    },
+    { provider: "zai", model: "glm-5", poolName: "luna", levels: ["low", "high"] },
+    { provider: "ollama", model: "qwen3:32b", levels: [] },
+];
+
+const PLAIN_SOL = { provider: "openai-codex", model: "gpt-5.6-sol" };
+const QWEN = { provider: "ollama", model: "qwen3:32b" };
+
+/** The strip as a reader sees it, with the styling sentinels taken out. */
+function dialText(
+    state: DialStripState,
+    width = 80,
+): readonly string[] {
+    return renderDialStrip(state, "hints", width).map((line) =>
+        line
+            .split(DIAL_PROVIDER_SEPARATOR).join("")
+            .split(DIAL_DEFAULT_SEPARATOR).join("")
+            .split(DIAL_EXIT_SEPARATOR).join("")
+    );
+}
+
+function scaleStrip(
+    current: DialPair,
+    recents: readonly DialPair[] = [LUNA],
+): DialStripState {
+    return openDialStrip(
+        composeDialStrip({ current, recents, pool: SCALE_POOL }),
+        current,
+        {
+            agents: ["default", "reviewer"],
+            currentAgent: "default",
+            permissionModes: ["readonly", "ask", "auto"],
+            currentPermission: "ask",
+        },
+    );
+}
+
+test("the model lane reads exactly this", () => {
+    expect(dialText(scaleStrip(PLAIN_SOL))).toEqual([
+        "  ACCESS      readonly [ask] auto",
+        "                        Faster                       Smarter",
+        "  EFFORT  [default] ··· ───────────────────────────────────",
+        "          ▲ (medium)    low           medium           high",
+        "› MODEL       ● [ 1 sol  ]                            RECENTLY USED",
+        "              ↺   2 luna                              luna",
+        "  AGENT       [default] reviewer",
+        "",
+        "↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · ○ pool      esc close",
+    ]);
+});
+
+test("the effort lane on default reads exactly this", () => {
+    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 1))).toEqual([
+        "  ACCESS      readonly [ask] auto",
+        "                        Faster                       Smarter",
+        "› EFFORT  [default] ··· ───────────────────────────────────",
+        "          ▲ (medium)    low           medium           high",
+        "  MODEL       ● [ 1 sol  ]                            RECENTLY USED",
+        "              ↺   2 luna                              luna",
+        "  AGENT       [default] reviewer",
+        "",
+        "←/→ effort · tab lane                                                  esc close",
+    ]);
+});
+
+test("the effort lane on a level reads exactly this", () => {
+    expect(dialText(adjustDialEffort(moveDialLane(scaleStrip(PLAIN_SOL), 1), 1)))
+        .toEqual([
+            "  ACCESS      readonly [ask] auto",
+            "                        Faster                       Smarter",
+            "› EFFORT  default ····· ▲──────────────────────────────────",
+            "          (medium)      low           medium           high",
+            "  MODEL       ● [ 1 sol  ]                            RECENTLY USED",
+            "              ↺   2 luna                              luna",
+            "  AGENT       [default] reviewer",
+            "",
+            "←/→ effort · tab lane                                                  esc close",
+        ]);
+});
+
+test("the agent lane reads exactly this", () => {
+    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 2))).toEqual([
+        "  ACCESS      readonly [ask] auto",
+        "                        Faster                       Smarter",
+        "  EFFORT  [default] ··· ───────────────────────────────────",
+        "          ▲ (medium)    low           medium           high",
+        "  MODEL       ● [ 1 sol  ]                            RECENTLY USED",
+        "              ↺   2 luna                              luna",
+        "› AGENT       [default] reviewer",
+        "",
+        "hints                                                                  esc close",
+    ]);
+});
+
+test("the access lane reads exactly this", () => {
+    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 3))).toEqual([
+        "› ACCESS      readonly [ask] auto",
+        "                        Faster                       Smarter",
+        "  EFFORT  [default] ··· ───────────────────────────────────",
+        "          ▲ (medium)    low           medium           high",
+        "  MODEL       ● [ 1 sol  ]                            RECENTLY USED",
+        "              ↺   2 luna                              luna",
+        "  AGENT       [default] reviewer",
+        "",
+        "hints                                                                  esc close",
+    ]);
+});
+
+test("a narrow terminal drops the scale and reads exactly this", () => {
+    expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 1), 50)).toEqual([
+        "  ACCESS      readonly [ask] auto",
+        "› EFFORT      [default] low medium high",
+        "  MODEL       ● [ 1 sol  ]",
+        "              ↺   2 luna  ",
+        "  AGENT       [default] reviewer",
+        "",
+        "←/→ effort · tab lane                    esc close",
+    ]);
+});
+
+test("a model with no effort dial reads exactly this", () => {
+    expect(dialText(moveDialLane(scaleStrip(QWEN, []), 1))).toEqual([
+        "  ACCESS      readonly [ask] auto",
+        "› EFFORT      not available",
+        "  MODEL       ● [ 1 qwen3:32b  ollama ]",
+        "  AGENT       [default] reviewer",
+        "",
+        "←/→ effort · tab lane                                                  esc close",
+    ]);
 });
