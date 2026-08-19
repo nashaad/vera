@@ -595,13 +595,13 @@ function scaleStrip(
 
 test("the model lane reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 2))).toEqual([
-        "  ACCESS      readonly [ask] auto",
-        "                            Faster                       Smarter",
-        "  EFFORT      [default] ··· ───────────────────────────────────",
-        "              ▲ (medium)    low           medium           high",
+        "  ACCESS        readonly [ask] auto",
+        "                              Faster                       Smarter",
+        "  EFFORT        [default] ··· ───────────────────────────────────",
+        "                ▲ (medium)    low           medium           high",
         "› MODEL     ● [ 1 sol  ]                              RECENTLY USED",
         "            ↺   2 luna                                luna",
-        "  AGENT       [default] reviewer",
+        "  AGENT         [default] reviewer",
         "",
         "↑/↓ model · ←/→ effort · tab lane · ● current · ↺ recent · ○ pool      esc close",
     ]);
@@ -609,13 +609,13 @@ test("the model lane reads exactly this", () => {
 
 test("the effort lane on default reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 1))).toEqual([
-        "  ACCESS      readonly [ask] auto",
-        "                            Faster                       Smarter",
-        "› EFFORT      [default] ··· ───────────────────────────────────",
-        "              ▲ (medium)    low           medium           high",
+        "  ACCESS        readonly [ask] auto",
+        "                              Faster                       Smarter",
+        "› EFFORT        [default] ··· ───────────────────────────────────",
+        "                ▲ (medium)    low           medium           high",
         "  MODEL     ● [ 1 sol  ]                              RECENTLY USED",
         "            ↺   2 luna                                luna",
-        "  AGENT       [default] reviewer",
+        "  AGENT         [default] reviewer",
         "",
         "←/→ effort · tab lane                                                  esc close",
     ]);
@@ -624,13 +624,13 @@ test("the effort lane on default reads exactly this", () => {
 test("the effort lane on a level reads exactly this", () => {
     expect(dialText(adjustDialEffort(moveDialLane(scaleStrip(PLAIN_SOL), 1), 1)))
         .toEqual([
-            "  ACCESS      readonly [ask] auto",
-            "                            Faster                       Smarter",
-            "› EFFORT      default ····· ▲──────────────────────────────────",
-            "              (medium)      low           medium           high",
+            "  ACCESS        readonly [ask] auto",
+            "                              Faster                       Smarter",
+            "› EFFORT        default ····· ▲──────────────────────────────────",
+            "                (medium)      low           medium           high",
             "  MODEL     ● [ 1 sol  ]                              RECENTLY USED",
             "            ↺   2 luna                                luna",
-            "  AGENT       [default] reviewer",
+            "  AGENT         [default] reviewer",
             "",
             "←/→ effort · tab lane                                                  esc close",
         ]);
@@ -638,13 +638,13 @@ test("the effort lane on a level reads exactly this", () => {
 
 test("the agent lane reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 3))).toEqual([
-        "  ACCESS      readonly [ask] auto",
-        "                            Faster                       Smarter",
-        "  EFFORT      [default] ··· ───────────────────────────────────",
-        "              ▲ (medium)    low           medium           high",
+        "  ACCESS        readonly [ask] auto",
+        "                              Faster                       Smarter",
+        "  EFFORT        [default] ··· ───────────────────────────────────",
+        "                ▲ (medium)    low           medium           high",
         "  MODEL     ● [ 1 sol  ]                              RECENTLY USED",
         "            ↺   2 luna                                luna",
-        "› AGENT       [default] reviewer",
+        "› AGENT         [default] reviewer",
         "",
         "hints                                                                  esc close",
     ]);
@@ -652,13 +652,13 @@ test("the agent lane reads exactly this", () => {
 
 test("the access lane reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 0))).toEqual([
-        "› ACCESS      readonly [ask] auto",
-        "                            Faster                       Smarter",
-        "  EFFORT      [default] ··· ───────────────────────────────────",
-        "              ▲ (medium)    low           medium           high",
+        "› ACCESS        readonly [ask] auto",
+        "                              Faster                       Smarter",
+        "  EFFORT        [default] ··· ───────────────────────────────────",
+        "                ▲ (medium)    low           medium           high",
         "  MODEL     ● [ 1 sol  ]                              RECENTLY USED",
         "            ↺   2 luna                                luna",
-        "  AGENT       [default] reviewer",
+        "  AGENT         [default] reviewer",
         "",
         "hints                                                                  esc close",
     ]);
@@ -666,11 +666,11 @@ test("the access lane reads exactly this", () => {
 
 test("a narrow terminal drops the scale and reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(PLAIN_SOL), 1), 50)).toEqual([
-        "  ACCESS      readonly [ask] auto",
-        "› EFFORT      [default] low medium high",
+        "  ACCESS        readonly [ask] auto",
+        "› EFFORT        [default] low medium high",
         "  MODEL     ● [ 1 sol  ]",
         "            ↺   2 luna  ",
-        "  AGENT       [default] reviewer",
+        "  AGENT         [default] reviewer",
         "",
         "←/→ effort · tab lane                    esc close",
     ]);
@@ -678,10 +678,10 @@ test("a narrow terminal drops the scale and reads exactly this", () => {
 
 test("a model with no effort dial reads exactly this", () => {
     expect(dialText(moveDialLane(scaleStrip(QWEN, []), 1))).toEqual([
-        "  ACCESS      readonly [ask] auto",
-        "› EFFORT      not available",
+        "  ACCESS        readonly [ask] auto",
+        "› EFFORT        not available",
         "  MODEL     ● [ 1 qwen3:32b  ollama ]",
-        "  AGENT       [default] reviewer",
+        "  AGENT         [default] reviewer",
         "",
         "←/→ effort · tab lane                                                  esc close",
     ]);
