@@ -466,6 +466,7 @@ import {
 } from "./timeline-picker.ts";
 import {
     TUI_ACCENT,
+    TUI_BACKGROUND,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
@@ -497,6 +498,7 @@ import {
     type TuiTranscriptEntry,
 } from "./state.ts";
 import {
+    mixHex,
     resolveTuiTheme,
     tuiHandleActiveColor,
     tuiHandleColor,
@@ -10748,9 +10750,12 @@ export async function startTui(
         // Lanes are found by their labels rather than counted from a fixed
         // offset: the model list is variable height and the effort scale adds
         // rows only when it is wide enough to draw.
+        // The focus marker is dropped before the label is read: a focused row
+        // opens with it, and a lane that cannot find its own row stops being
+        // painted as the active one exactly when it is.
         const laneRowIndex = (label: string): number =>
-            hudRows.findIndex((line) => /^[\u203a ] /.test(line)
-                && line.trimStart().startsWith(label)
+            hudRows.findIndex((line) =>
+                line.replace(/^[\u203a ]\s*/, "").startsWith(label)
             );
         const modelHeaderIndex = laneRowIndex("MODEL");
         const agentRowIndex = laneRowIndex("AGENT");
@@ -10775,19 +10780,27 @@ export async function startTui(
                     : dialStrip?.lane === "access"
                         ? index === accessRowIndex
                         : false;
-            // The access modes keep their colours whether or not the lane is
+            // Three weights, not two. The rung under the cursor is brightest,
+            // a chosen value on a rung the cursor is elsewhere sits between,
+            // and everything unchosen is muted. With only two, every rung's
+            // current value shouts as loudly as the one being changed.
+            const settled = (hex: string): string =>
+                activeRow ? hex : mixHex(TUI_BACKGROUND, hex, 0.45);
+            // The access modes keep their hue whether or not the lane is
             // focused: the posture the session is running under is worth
             // reading at a glance, not only while it is being changed.
             const selectedColor = (part: string): string =>
                 index !== accessRowIndex
-                    ? TUI_TEXT
-                    : part.includes("readonly")
-                        ? "#c586c0"
-                        : part.includes("ask")
-                            ? TUI_ACCENT
-                            : part.includes("auto")
-                                ? VERA_TUI_THEME.success
-                                : TUI_TEXT;
+                    ? settled(TUI_TEXT)
+                    : settled(
+                        part.includes("readonly")
+                            ? "#c586c0"
+                            : part.includes("ask")
+                                ? TUI_ACCENT
+                                : part.includes("auto")
+                                    ? VERA_TUI_THEME.success
+                                    : TUI_TEXT,
+                    );
             const isEffortScale = effortScaleRows > 0
                 && index >= effortRowIndex - 1
                 && index <= effortRowIndex + 1;
@@ -10807,7 +10820,7 @@ export async function startTui(
                             at % 2 === 0
                                 ? activeRow ? TUI_TEXT : TUI_MUTED
                                 : span === "\u25b2"
-                                    ? TUI_NOTICE
+                                    ? settled(TUI_NOTICE)
                                     : span.startsWith("(") || !activeRow
                                         ? TUI_MUTED
                                         : TUI_ACCENT,
@@ -10821,7 +10834,7 @@ export async function startTui(
                         : axis.split(/(▲|·+)/u).filter(Boolean).map((part) =>
                             fg(
                                 part === "▲"
-                                    ? TUI_NOTICE
+                                    ? settled(TUI_NOTICE)
                                     : part.startsWith("·") || !activeRow
                                         ? TUI_MUTED
                                         : TUI_ACCENT,
@@ -10850,10 +10863,10 @@ export async function startTui(
                         fg(activeRow ? TUI_TEXT : TUI_MUTED)(
                             main.slice(0, prefixLength),
                         ),
-                        fg(pickedRow ? TUI_TEXT : TUI_MUTED)(rest),
+                        fg(pickedRow ? settled(TUI_TEXT) : TUI_MUTED)(rest),
                     ];
                 } else if (pickedRow) {
-                    mainChunks = [fg(TUI_TEXT)(main)];
+                    mainChunks = [fg(settled(TUI_TEXT))(main)];
                 } else {
                     mainChunks = [fg(TUI_MUTED)(main)];
                 }

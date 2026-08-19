@@ -155,7 +155,12 @@ function paletteColor(
     return colors.palette[index] ?? fallback;
 }
 
-function mixHex(base: string, overlay: string, amount: number): string {
+/** Blends `overlay` toward `base` by `amount`, 0 being all base. */
+export function mixHex(
+    base: string,
+    overlay: string,
+    amount: number,
+): string {
     const baseRgb = parseHex(base);
     const overlayRgb = parseHex(overlay);
     if (baseRgb === undefined || overlayRgb === undefined) {

@@ -290,7 +290,9 @@ export function openDialStrip(
         slots: composition.slots,
         overflow: composition.overflow,
         index: 0,
-        lane: "model",
+        // The top rung, so tab walks down the HUD from where the eye starts
+        // rather than entering the stack partway and wrapping.
+        lane: "access",
         agents,
         agentIndex: Math.max(0, agents.indexOf(options.currentAgent ?? "")),
         agentPostures: options.agentPostures ?? {},
