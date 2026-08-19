@@ -28,9 +28,16 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         session.sendKey("Right");
         pane = await session.waitForVisiblePane("Open the command palette");
         session.sendKey("Right");
+        pane = await session.waitForVisiblePane("Rewind the active conversation");
+        // The list is longer than the card, so reach a late entry by search.
+        session.sendText("help");
         pane = await session.waitForVisiblePane(
             "Learn Vera controls and command",
         );
+        for (let index = 0; index < 4; index += 1) {
+            session.sendKey("BSpace");
+        }
+        await session.waitForVisiblePane("Rewind the active conversation");
         session.sendKey("Enter");
         pane = session.captureVisiblePane();
         expect(pane).toContain("Help");
