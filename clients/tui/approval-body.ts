@@ -1,3 +1,5 @@
+import { structuredPatch } from "diff";
+
 import type { PermissionPredicate } from "../../src/engine/permissions.ts";
 import type { ToolApprovalUiRequestUpdate } from "../../src/engine/protocol.ts";
 import { tuiDisplayPath } from "./state.ts";
@@ -26,6 +28,14 @@ export interface TuiApprovalBody {
  * count rather than pressing the answers down.
  */
 export const TUI_APPROVAL_BODY_LINES = 15;
+
+/**
+ * How many unchanged lines frame each change cluster in an edit hunk. Enough
+ * to place the change without re-emitting the surrounding block: a one-line
+ * edit in a long file reads as a few dimmed lines, the red and green lines,
+ * and nothing else.
+ */
+const EDIT_DIFF_CONTEXT = 3;
 
 export function tuiApprovalBody(
     update: ToolApprovalUiRequestUpdate,
@@ -137,11 +147,53 @@ function editLines(
         if (index > 0) {
             lines.push({ text: "", tone: "muted" });
         }
-        for (const line of (stringField(hunk, "old_string") ?? "").split("\n")) {
-            lines.push({ text: `- ${line}`, tone: "del" });
+        lines.push(...tuiEditHunkLines(
+            stringField(hunk, "old_string") ?? "",
+            stringField(hunk, "new_string") ?? "",
+        ));
+    });
+    return lines;
+}
+
+/**
+ * The change between two strings as plain-data hunks: unchanged lines dimmed
+ * with one leading space and no marker, removed lines `-`, added lines `+`.
+ * The same `diff` library OpenTUI's `DiffRenderable` parses with, so a
+ * one-line insertion renders as its real hunk instead of the whole surrounding
+ * block deleted and recreated. A run of unchanged lines longer than the
+ * context window collapses behind a `…` gap.
+ */
+export function tuiEditHunkLines(
+    oldString: string,
+    newString: string,
+): readonly TuiApprovalLine[] {
+    const patch = structuredPatch("old", "new", oldString, newString, "", "", {
+        context: EDIT_DIFF_CONTEXT,
+    });
+    const lines: TuiApprovalLine[] = [];
+    patch.hunks.forEach((hunk, index) => {
+        if (index > 0) {
+            // One leading space puts the gap in the content column, where a
+            // context line would have sat, so the collapsed run reads as
+            // missing content rather than a gutter mark.
+            lines.push({ text: " …", tone: "muted" });
         }
-        for (const line of (stringField(hunk, "new_string") ?? "").split("\n")) {
-            lines.push({ text: `+ ${line}`, tone: "add" });
+        for (const raw of hunk.lines) {
+            // A missing trailing newline is a file-ending detail, not a line
+            // of the change; showing it would read as a role the hunk does not
+            // have.
+            if (raw === "\\ No newline at end of file") {
+                continue;
+            }
+            const marker = raw.charAt(0);
+            const content = raw.slice(1);
+            if (marker === "+") {
+                lines.push({ text: `+ ${content}`, tone: "add" });
+            } else if (marker === "-") {
+                lines.push({ text: `- ${content}`, tone: "del" });
+            } else {
+                lines.push({ text: ` ${content}`, tone: "muted" });
+            }
         }
     });
     return lines;
