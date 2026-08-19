@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -64,7 +64,6 @@ test("resume picker switches conversation without restarting the TUI", async () 
             .toBe("/sessions/target.jsonl\ndetached\ntarget-session-id");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -107,7 +106,6 @@ test("session picker renames a conversation it is not attached to", async () => 
         );
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -146,7 +144,6 @@ test("renaming the attached row goes through its own session", async () => {
         )).toBe("\ncurrent the current one");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -182,7 +179,6 @@ test("a refused rename says so and leaves the pane open", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -217,6 +213,5 @@ test("session trash rejection keeps the picker usable", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

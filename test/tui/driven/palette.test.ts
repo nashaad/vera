@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -88,7 +88,6 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         expect(pane).not.toContain("/help");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -112,13 +111,16 @@ test("a keybinding Vera cannot use is named at startup", async () => {
 
     try {
         // The first history rebuilds the transcript, so a notice settled
-        // before it is the one that used to be painted and then dropped.
-        const pane = await session.waitForVisiblePane(
-            "no_such_binding: unknown binding id",
+        // before it is the one that used to be painted and then dropped. Both
+        // notices belong to one frame; a partial paint can show one without
+        // the other for an instant.
+        const pane = await session.waitForVisiblePaneWhere(
+            (visible) => visible.includes("no_such_binding: unknown binding id")
+                && visible.includes("dials.open"),
+            "both keybinding notices",
         );
         expect(pane).toContain("dials.open");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

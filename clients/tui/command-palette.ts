@@ -160,7 +160,7 @@ export function createTuiCommandPaletteView(
         surface,
         update(state): void {
             for (const node of nodes) {
-                node.destroy();
+                node.destroyRecursively();
             }
             nodes = [];
             const header = dialogHeaderNode(

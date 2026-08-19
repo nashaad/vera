@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -54,7 +54,6 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         expect(pane).not.toContain("Diagnostics");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -99,7 +98,6 @@ test("doctor opens the read-only process report inside the TUI", async () => {
         expect(pane).not.toContain("Process summary");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -129,7 +127,6 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         expect(pane).not.toContain("reload       partial");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -159,6 +156,5 @@ test("partial reload names the extensions that stayed active", async () => {
         expect(pane).toContain("reload error");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

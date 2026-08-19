@@ -15,6 +15,11 @@ export interface TuiCloneSessionScenario {
 export function createTuiCloneSessionScenario(options: {
     readonly home: string;
     readonly cloneTimeout?: boolean;
+    /**
+     * Holds the clone in flight until the test releases it, so an assertion
+     * about the pending state never races a wall-clock delay.
+     */
+    readonly release?: Promise<void>;
 }): TuiCloneSessionScenario {
     let detached = false;
     let cloneAttempts = 0;
@@ -40,7 +45,11 @@ export function createTuiCloneSessionScenario(options: {
                 if (options.cloneTimeout === true) {
                     return new Promise(() => {});
                 }
-                await Bun.sleep(400);
+                if (options.release === undefined) {
+                    await Bun.sleep(400);
+                } else {
+                    await options.release;
+                }
                 return createSettingsAnsweringClient({
                     agentId: "cloned-session",
                     model: "cloned-model",

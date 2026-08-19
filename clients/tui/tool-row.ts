@@ -60,7 +60,7 @@ export function updateTuiToolHeader(
             fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`),
         ])
         : "";
-    for (const row of parts.preview) row.destroy();
+    for (const row of parts.preview) row.destroyRecursively();
     parts.preview.length = 0;
     if (entry.inlineDetailPreview === true) return;
     for (const line of entry.detailPreview?.split("\n") ?? []) {

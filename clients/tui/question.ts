@@ -262,7 +262,7 @@ export function createTuiQuestionView(
 
     function renderChoices(update: UserQuestionUiRequestUpdate): void {
         for (const row of choiceRows) {
-            row.destroy();
+            row.destroyRecursively();
         }
         choiceRows = [];
         update.request.choices.forEach((choice, index) => {

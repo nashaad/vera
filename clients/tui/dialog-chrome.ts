@@ -126,6 +126,9 @@ function applyDialogCardChrome(card: BoxRenderable): void {
 
 export function registerDialogCard(card: BoxRenderable): void {
     dialogCards.add(card);
+    // A destroyed card would otherwise sit in the set for the life of the
+    // process, keeping the renderable and its yoga node reachable.
+    card.once("destroyed", () => dialogCards.delete(card));
     applyDialogCardChrome(card);
 }
 
@@ -189,7 +192,14 @@ export function dialogHeaderNode(
     });
     header.add(titleNode);
     header.add(hintNode);
-    dialogHeaders.add({ box: header, title: titleNode, hint: hintNode, plainHint: hint });
+    const record = {
+        box: header,
+        title: titleNode,
+        hint: hintNode,
+        plainHint: hint,
+    };
+    dialogHeaders.add(record);
+    header.once("destroyed", () => dialogHeaders.delete(record));
     return header;
 }
 

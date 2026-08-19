@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -63,7 +63,6 @@ test("clear command leaves the current conversation for a fresh one", async () =
         );
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -99,13 +98,16 @@ test("rename commands name and clear without reaching the model", async () => {
             .toBe("Planning\n<clear>");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
 test("clone switches to the replacement without restarting the TUI", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-clone-"));
-    const scenario = createTuiCloneSessionScenario({ home });
+    const release = Promise.withResolvers<void>();
+    const scenario = createTuiCloneSessionScenario({
+        home,
+        release: release.promise,
+    });
     const session = await startTuiTestSession({
         home,
         dependencies: () => scenario.dependencies,
@@ -123,6 +125,7 @@ test("clone switches to the replacement without restarting the TUI", async () =>
         session.sendKey("Enter");
         await session.settle(50);
         expect(session.captureVisiblePane()).toContain("cloning session");
+        release.resolve();
         pane = await session.waitForVisiblePaneWhere(
             (visible) => !visible.includes("cloning session"),
             "the clone on screen",
@@ -140,7 +143,6 @@ test("clone switches to the replacement without restarting the TUI", async () =>
             .toBe("cloned-session\ndetached\nattempts 1\nsource-session");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -188,7 +190,6 @@ test("fork prepares a replacement and restores the selected prompt", async () =>
         });
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -219,7 +220,6 @@ test("a stalled fork returns control to the source session", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -273,7 +273,6 @@ for (const stalled of stalledSwitches) {
             await session.waitForSessionExit();
         } finally {
             await session.close();
-            rmSync(home, { recursive: true, force: true });
         }
     }, 15_000);
 }
@@ -305,7 +304,6 @@ test("a stalled resume returns control to the current session", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);
 
@@ -335,6 +333,5 @@ test("ctrl+c quits while a session switch is still pending", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

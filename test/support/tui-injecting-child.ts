@@ -3,6 +3,7 @@ import { join } from "node:path";
 import {
     startTui,
     type TuiAgentClient,
+    type TuiDependencies,
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
@@ -91,11 +92,17 @@ function session(id: string): TuiAgentClient {
     };
 }
 
-await startTui({
-    client: session("first-session"),
-    createSession: async () => session("second-session"),
-    clientExtensions: [{ path: EXTENSION, enabled: true, config: {} }],
-});
+export function createTuiInjectingDependencies(): TuiDependencies {
+    return {
+        client: session("first-session"),
+        createSession: async () => session("second-session"),
+        clientExtensions: [{ path: EXTENSION, enabled: true, config: {} }],
+    };
+}
+
+if (import.meta.main) {
+    await startTui(createTuiInjectingDependencies());
+}
 
 function response(text: string): AssistantMessage {
     return {

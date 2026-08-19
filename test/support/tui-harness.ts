@@ -1,4 +1,4 @@
-import { mkdirSync } from "node:fs";
+import { mkdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { createTestRenderer } from "@opentui/core/testing";
 
@@ -19,6 +19,23 @@ import { VERA_HOME_ENV } from "../../src/profile-paths.ts";
 export interface TuiTestSession {
     sendText(value: string): void;
     sendKey(key: string): void;
+    /** Ctrl-modified arrows and friends, the way sendEscapeSequence sent them. */
+    sendKeyWithModifiers(
+        key: "up" | "down" | "left" | "right" | "end" | "home",
+        modifiers: { readonly ctrl?: boolean; readonly shift?: boolean },
+    ): void;
+    sendMouseWheel(
+        direction: "up" | "down",
+        x: number,
+        y: number,
+        times?: number,
+    ): Promise<void>;
+    sendMouseDrag(
+        startX: number,
+        startY: number,
+        endX: number,
+        endY: number,
+    ): Promise<void>;
     captureVisiblePane(): string;
     /**
      * Waits and renders, for asserting that a keystroke changed nothing.
@@ -31,6 +48,12 @@ export interface TuiTestSession {
         predicate: (pane: string) => boolean,
         description: string,
     ): Promise<string>;
+    /** The frame with its colors, where tmux needed capture-pane -e. */
+    captureSpans(): ReturnType<
+        Awaited<ReturnType<typeof createTestRenderer>>["captureSpans"]
+    >;
+    /** The virtual terminal's stand-in for tmux resize-window. */
+    resize(width: number, height: number): void;
     /** Resolves when the TUI quits, the way tmux waited for session exit. */
     waitForSessionExit(): Promise<TuiExit>;
     /** Tears the session down whether or not the TUI already quit. */
@@ -50,11 +73,38 @@ export interface TuiTestSessionOptions {
 const WAIT_TIMEOUT_MS = 5_000;
 const POLL_INTERVAL_MS = 20;
 
+/**
+ * Homes swept once the process ends rather than when their test does.
+ *
+ * A TUI quit mid-turn leaves its headless loop streaming for a few more
+ * seconds, and that loop persists the session under the test's home when it
+ * finishes. Deleting the home in the test's own finally block turned that
+ * late write into an unhandled ENOENT charged to whichever test ran next.
+ */
+const homesToSweep = new Set<string>();
+let sweepRegistered = false;
+
+function sweepHomeAtExit(home: string): void {
+    homesToSweep.add(home);
+    if (sweepRegistered) return;
+    sweepRegistered = true;
+    process.on("exit", () => {
+        for (const dir of homesToSweep) {
+            try {
+                rmSync(dir, { recursive: true, force: true });
+            } catch {
+                // The temp dir outlives the run; the OS owns it from here.
+            }
+        }
+    });
+}
+
 export async function startTuiTestSession(
     options: TuiTestSessionOptions,
 ): Promise<TuiTestSession> {
     const veraHome = join(options.home, ".vera");
     mkdirSync(veraHome, { recursive: true });
+    sweepHomeAtExit(options.home);
     const previousVeraHome = process.env[VERA_HOME_ENV];
     process.env[VERA_HOME_ENV] = veraHome;
 
@@ -132,7 +182,29 @@ export async function startTuiTestSession(
         sendKey(key) {
             pressTmuxKey(setup.mockInput, key);
         },
+        sendKeyWithModifiers(key, modifiers) {
+            if (key === "home" || key === "end") {
+                setup.mockInput.pressKey(
+                    key === "home" ? "HOME" : "END",
+                    modifiers,
+                );
+                return;
+            }
+            setup.mockInput.pressArrow(key, modifiers);
+        },
+        async sendMouseWheel(direction, x, y, times = 1) {
+            for (let index = 0; index < times; index += 1) {
+                await setup.mockMouse.scroll(x, y, direction);
+            }
+        },
+        async sendMouseDrag(startX, startY, endX, endY) {
+            await setup.mockMouse.drag(startX, startY, endX, endY);
+        },
         captureVisiblePane: capture,
+        captureSpans: () => setup.captureSpans(),
+        resize(width, height) {
+            setup.resize(width, height);
+        },
         async settle(ms = 100) {
             await Bun.sleep(ms);
             await setup.renderOnce();
@@ -165,6 +237,11 @@ export async function startTuiTestSession(
                 }
             } finally {
                 restoreVeraHome();
+                // Yoga's WASM heap is fixed-size and shared by every renderer
+                // in the process; nodes freed by finalizers stay allocated
+                // until a collection actually runs. Collecting between
+                // sessions keeps a long test run inside the heap.
+                Bun.gc(true);
             }
         },
     };
@@ -203,6 +280,12 @@ function pressTmuxKey(input: MockInput, key: string): void {
             return;
         case "DC":
             input.pressKey("DELETE");
+            return;
+        case "NPage":
+            input.pressKey("\u001b[6~");
+            return;
+        case "PPage":
+            input.pressKey("\u001b[5~");
             return;
         default:
             break;
