@@ -272,10 +272,10 @@ test("the attention chip names /work, and drops the hint before the count", () =
         row.map((chunk) => chunk.text).join("");
 
     // Room to spare: the count and the command both show.
-    const wide = rows(undefined)[0];
+    const wide = rows(undefined)[0] ?? [];
     expect(rowText(wide)).toContain("1 need you · /work");
     // Too narrow for the whole row: the command goes, the count stays.
-    const tight = rows(20)[0];
+    const tight = rows(20)[0] ?? [];
     expect(rowText(tight)).toContain("1 need you");
     expect(rowText(tight)).not.toContain("/work");
 });
@@ -294,7 +294,7 @@ test("the chip's click span covers the count and the hint, and only them", () =>
             {},
             needsYou,
             width,
-        )[0];
+        )[0] ?? [];
 
     expect(needsYouChipColumns(rows(0), 0)).toBe(0);
     expect(needsYouChipColumns(rows(1), 1)).toBe("1 need you · /work".length);
