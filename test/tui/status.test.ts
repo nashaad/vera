@@ -1,8 +1,10 @@
 import { expect, test } from "bun:test";
 
 import {
+    needsYouChipColumns,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
+    renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
     tuiStatusSnapshot,
 } from "../../clients/tui/status.ts";
@@ -249,4 +251,53 @@ test("what needs you sits beside running subagents rather than replacing them", 
 
     expect(line).toContain("1 need you");
     expect(line).toContain("2 async subagents running");
+});
+
+test("the attention chip names /work, and drops the hint before the count", () => {
+    const rows = (width: number | undefined) =>
+        renderTuiStatusDetailsRows(
+            { model: "test", reasoningEffort: "high", contextWindow: 100 },
+            "auto",
+            undefined,
+            "/work/one",
+            0,
+            undefined,
+            true,
+            undefined,
+            {},
+            1,
+            width,
+        );
+    const rowText = (row: readonly { text: string }[]): string =>
+        row.map((chunk) => chunk.text).join("");
+
+    // Room to spare: the count and the command both show.
+    const wide = rows(undefined)[0];
+    expect(rowText(wide)).toContain("1 need you · /work");
+    // Too narrow for the whole row: the command goes, the count stays.
+    const tight = rows(20)[0];
+    expect(rowText(tight)).toContain("1 need you");
+    expect(rowText(tight)).not.toContain("/work");
+});
+
+test("the chip's click span covers the count and the hint, and only them", () => {
+    const rows = (needsYou: number, width?: number) =>
+        renderTuiStatusDetailsRows(
+            { model: "test", reasoningEffort: "high", contextWindow: 100 },
+            "auto",
+            undefined,
+            "/work/one",
+            0,
+            undefined,
+            true,
+            undefined,
+            {},
+            needsYou,
+            width,
+        )[0];
+
+    expect(needsYouChipColumns(rows(0), 0)).toBe(0);
+    expect(needsYouChipColumns(rows(1), 1)).toBe("1 need you · /work".length);
+    // With the hint dropped, the span shrinks to the count alone.
+    expect(needsYouChipColumns(rows(1, 20), 1)).toBe("1 need you".length);
 });
