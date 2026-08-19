@@ -1373,14 +1373,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     if (entry.kind === "thinking") {
-        // A rule down the left edge says where the window is, so reasoning
-        // scrolling inside it reads as one region with an edge rather than as
-        // the transcript itself moving.
-        const rule = liveThinkingTail(entry.text)
-            .split("\n")
-            .map((line) => `${LIVE_THINKING_RULE} ${line}`.trimEnd())
-            .join("\n");
-        return new StyledText([fg(TUI_MUTED)(rule)]);
+        // The window is marked at its ends rather than down its side: what the
+        // reader needs is where the region starts and stops, and an ellipsis
+        // says the same thing a scrollbar would, that there is more either way.
+        return new StyledText([fg(TUI_MUTED)(
+            `${LIVE_THINKING_ELLIPSIS}\n${
+                liveThinkingTail(entry.text)
+            }\n${LIVE_THINKING_ELLIPSIS}`,
+        )]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
@@ -1393,8 +1393,8 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
  */
 export const LIVE_THINKING_ROWS = 8;
 
-/** The left edge of the window reasoning arrives into. */
-const LIVE_THINKING_RULE = "│";
+/** Both ends of the window reasoning arrives into. */
+const LIVE_THINKING_ELLIPSIS = "···";
 
 /**
  * The last few lines of reasoning, as the tail of a fixed-height window.
@@ -1405,23 +1405,17 @@ const LIVE_THINKING_RULE = "│";
  * whole phase, which is where reasoning is meant to be read.
  *
  * The window is measured in source lines and the row is drawn unwrapped, so a
- * paragraph counts once however wide it is. Blank runs collapse because a model
- * that separates every sentence would otherwise spend the window on nothing.
+ * paragraph counts once however wide it is. Blank lines are dropped rather than
+ * kept: a model that separates every sentence would spend half the window on
+ * nothing, and the gaps read as a rendering fault rather than as the model's
+ * own paragraphing.
  */
 function liveThinkingTail(text: string): string {
     const lines = plainReasoningSummary(text)
         .split("\n")
-        .map((line) => line.trimEnd());
-    const kept: string[] = [];
-    for (let index = lines.length - 1; index >= 0; index -= 1) {
-        const line = lines[index] ?? "";
-        if (line.length === 0 && (kept.length === 0 || kept[0] === "")) {
-            continue;
-        }
-        kept.unshift(line);
-        if (kept.length === LIVE_THINKING_ROWS) break;
-    }
-    return kept.join("\n");
+        .map((line) => line.trimEnd())
+        .filter((line) => line.length > 0);
+    return lines.slice(-LIVE_THINKING_ROWS).join("\n");
 }
 
 /** Provider summaries use Markdown headings; this row is a plain-text surface. */
