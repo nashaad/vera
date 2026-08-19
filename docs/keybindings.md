@@ -5,10 +5,10 @@ nothing else: there are no macros and no action definitions, so a remap can
 only move a key Vera already has.
 
 ```jsonc
-// ~/.vera/tui.json — put the permissions picker on shift+tab, dials on ctrl+d
+// ~/.vera/profiles/default/tui.json — model picker on shift+tab, dials on ctrl+d
 {
   "keybindings": {
-    "permissions.open": ["shift+tab"],
+    "open_model_picker": ["shift+tab"],
     "dials.open": ["ctrl+d"]
   }
 }
