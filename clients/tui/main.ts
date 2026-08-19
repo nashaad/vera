@@ -2651,6 +2651,28 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    /**
+     * A ui_request from the agent (approval, question) owns the screen. Any
+     * picker or menu the user had open locally is not part of answering it,
+     * and activeOverlayFocus() ranks several of them above the request, so
+     * left open they paint over or steal focus from it instead of yielding.
+     */
+    function closeTransientOverlaysForUiRequest(): void {
+        dialStrip = undefined;
+        settingsPicker = undefined;
+        commandPalette = undefined;
+        help = undefined;
+        workTab = undefined;
+        searchOverlay = undefined;
+        queuedSearch = undefined;
+        workTabView.surface.visible = false;
+        searchOverlayView.surface.visible = false;
+        doctorDialog = undefined;
+        diagnosticsDialog = undefined;
+        jumpMenu = undefined;
+        jumpMenuBox.visible = false;
+    }
+
     /** The pair as the next request will carry it. Nothing reaches the API now. */
     function commitDials(
         pair: DialPair,
@@ -6196,6 +6218,12 @@ export async function startTui(
                         queuedUiRequests,
                         update,
                     );
+                    if (
+                        previousRequest === undefined
+                        && pendingUiRequest !== undefined
+                    ) {
+                        closeTransientOverlaysForUiRequest();
+                    }
                     if (pendingUiRequest !== previousRequest) {
                         renderState();
                         if (
