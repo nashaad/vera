@@ -176,6 +176,10 @@ export interface ShowDoctorTuiCommandAction {
     readonly type: "show_doctor";
 }
 
+export interface WriteFailureReportTuiCommandAction {
+    readonly type: "write_failure_report";
+}
+
 export interface ReloadClientExtensionsTuiCommandAction {
     readonly type: "reload_client_extensions";
 }
@@ -240,6 +244,7 @@ export type TuiCommandAction =
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
     | ShowDoctorTuiCommandAction
+    | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | ShowPoolTuiCommandAction
     | ShowDefaultsTuiCommandAction
@@ -287,6 +292,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_theme_picker":
         case "show_diagnostics":
         case "show_doctor":
+        case "write_failure_report":
         case "reload_client_extensions":
         case "show_pool":
         case "show_defaults":
@@ -351,6 +357,7 @@ export interface TuiCommandDefinition {
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
         | ShowDoctorTuiCommandAction
+        | WriteFailureReportTuiCommandAction
         | ShowDefaultsTuiCommandAction
         | OpenProvidersTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
@@ -516,6 +523,12 @@ const DOCTOR_COMMAND = {
     usage: "/doctor",
 } as const satisfies TuiCommandCatalogEntry;
 
+const FAILURE_REPORT_COMMAND = {
+    name: "failure-report",
+    description: "Write a shareable report of recorded model failures",
+    usage: "/failure-report",
+} as const satisfies TuiCommandCatalogEntry;
+
 const RELOAD_EXTENSIONS_COMMAND = {
     name: "reload-extensions",
     description: "Reload client extensions without restarting Vera",
@@ -545,6 +558,7 @@ export const BUILTIN_COMMANDS = [
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
     DOCTOR_COMMAND,
+    FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
     DEFAULTS_COMMAND,
@@ -1319,6 +1333,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "doctor",
             action: { type: "show_doctor" },
+        },
+    });
+    registry.registerCommand({
+        ...FAILURE_REPORT_COMMAND,
+        action: { type: "write_failure_report" },
+        palette: {
+            name: "failure_report",
+            label: "Write a model failure report",
+            description: "summarise recorded model failures into a file",
+            group: "Session",
+            slashName: "failure-report",
+            action: { type: "write_failure_report" },
         },
     });
     registry.registerCommand({

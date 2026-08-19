@@ -19,6 +19,7 @@ import type { InstructionRoot } from "../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
+import type { ModelFailureLedger } from "../store/model-failures.ts";
 import {
     BUILT_IN_PERMISSION_MODE_NAMES,
     builtInPermissionMode,
@@ -328,6 +329,8 @@ export interface AgentRegistryOptions {
     readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
+    /** Shared by every session: a failing model is a fact about the machine. */
+    readonly modelFailureLedger?: ModelFailureLedger;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
     /** Read on each snapshot so a TUI change takes effect without restart. */
     readonly contextLimit?: () => number | undefined;
@@ -3210,6 +3213,9 @@ export class AgentRegistry {
             {
                 sessionStore: store,
                 eventLogPath,
+                ...(this.options.modelFailureLedger === undefined
+                    ? {}
+                    : { modelFailureLedger: this.options.modelFailureLedger }),
                 eventBus: events,
                 approvalMode: entry.approvalMode,
                 // Every shell this session spawns carries its identity name,
