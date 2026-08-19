@@ -143,6 +143,42 @@ test("a wide row states its reason, summary, subagents and age", () => {
     expect(solo).not.toContain("subagent");
 });
 
+test("a summary that only repeats its section heading is dropped", () => {
+    const index = buildWorkIndex([
+        agent({ id: "quiet", title: "quiet", status: "working" }),
+    ], [], { now });
+    const line = tuiWorkTabText(index, { width: 78, now: NOW })
+        .split("\n")
+        .find((candidate) => candidate.includes("quiet")) ?? "";
+
+    // The section header already says Working; the row saying it again is
+    // noise, and the tool name still shows when there is one.
+    expect(line).not.toContain("Working");
+    expect(line).toContain("quiet");
+});
+
+test("the title column widens with the terminal to keep identity readable", () => {
+    const longTitle = "a".repeat(38);
+    const index = buildWorkIndex([
+        agent({
+            id: "titled",
+            title: longTitle,
+            status: "working",
+            active_tool: "bash",
+        }),
+    ], [], { now });
+    const row = (width: number) =>
+        tuiWorkTabText(index, { width, now: NOW })
+            .split("\n")
+            .find((candidate) => candidate.includes("aaaa")) ?? "";
+
+    // At 78 columns the title gets a third of the row; at 120 it reaches
+    // the cap and shows whole.
+    expect(row(78)).toContain("a".repeat(24));
+    expect(row(78)).not.toContain(longTitle);
+    expect(row(120)).toContain(longTitle);
+});
+
 test("no row is wider than the terminal, at either width", () => {
     for (const width of [78, 42]) {
         for (const line of tuiWorkTabLines(inbox(), { width, now: NOW })) {
