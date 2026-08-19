@@ -296,6 +296,7 @@ import {
     type TuiQuote,
 } from "./quote.ts";
 import {
+    needsYouChipColumns,
     renderTuiIdleHint,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -2052,6 +2053,14 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
+    // The attention chip at the head of the status row is a click target for
+    // the same surface `/work` opens. Width zero means no chip is on screen.
+    let needsYouChipWidth = 0;
+    composerStatusText.onMouseDown = (event) => {
+        if (needsYouChipWidth === 0) return;
+        if (event.x - composerStatusText.x >= needsYouChipWidth) return;
+        openWorkTab();
+    };
     let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     function resizeComposer(requestedRows: number): void {
@@ -10378,6 +10387,7 @@ export async function startTui(
                             : { fallbackTo: statusState.modelFallback.to }),
                     },
                     workIndex?.needs_you ?? 0,
+                    Math.max(1, renderer.width - composerHorizontalInset),
                 )
                 : [[{
                     tone: "muted",
@@ -10438,6 +10448,10 @@ export async function startTui(
         const outsideRows = detailsRows.slice(1);
         composerStatusText.content = new StyledText(
             insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
+        );
+        needsYouChipWidth = needsYouChipColumns(
+            insideRow,
+            workIndex?.needs_you ?? 0,
         );
         const detailChunks = outsideRows.flatMap((row, index) => [
             ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),

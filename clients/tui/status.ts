@@ -159,6 +159,7 @@ export function renderTuiStatusDetailsLine(
     branch: string | undefined = undefined,
     dials: TuiStatusDials = {},
     needsYou = 0,
+    width: number | undefined = undefined,
 ): string {
     return renderTuiStatusDetailsRows(
         settings,
@@ -171,6 +172,7 @@ export function renderTuiStatusDetailsLine(
         branch,
         dials,
         needsYou,
+        width,
     )
         .map((row) => row.map((chunk) => chunk.text).join(""))
         .join("\n");
@@ -192,6 +194,7 @@ export function renderTuiStatusDetailsRows(
     branch: string | undefined = undefined,
     dials: TuiStatusDials = {},
     needsYou = 0,
+    width: number | undefined = undefined,
 ): TuiStatusChunk[][] {
     const providerLabel = settings?.provider === undefined
         ? undefined
@@ -226,11 +229,15 @@ export function renderTuiStatusDetailsRows(
         : renderPermissions(approvalMode);
     // The guaranteed way to find out that something is waiting. Terminal
     // notifications are best effort and the Work tab has to be opened; this is
-    // always on screen, so it leads the row and is worded as the count alone.
-    const attention = needsYou === 0
-        ? []
-        : [
+    // always on screen, so it leads the row, and names the command that
+    // answers it. On a row too narrow for both, the count stays and the
+    // command goes: the count is the alarm, the command is the directions.
+    const attention = (hint: boolean): TuiStatusChunk[] =>
+        needsYou === 0 ? [] : [
             { text: `${needsYou} need you`, tone: "danger" as const },
+            ...(hint
+                ? [separator, { text: "/work", tone: "danger" as const }]
+                : []),
             separator,
         ];
     const background = runningBackgroundAgents === 0
@@ -246,8 +253,7 @@ export function renderTuiStatusDetailsRows(
     // The level is the word on its own: the dial it belongs to is named
     // wherever it is changed, and repeating it here spends columns the context
     // share needs.
-    const first: TuiStatusChunk[] = [
-        ...attention,
+    const afterAttention: TuiStatusChunk[] = [
         ...background,
         ...(dials.agent === undefined ? [] : [
             {
@@ -277,6 +283,12 @@ export function renderTuiStatusDetailsRows(
             } as TuiStatusChunk]
             : []),
     ];
+    const rowWidth = (chunks: readonly TuiStatusChunk[]): number =>
+        chunks.reduce((total, chunk) => total + chunk.text.length, 0);
+    let first: TuiStatusChunk[] = [...attention(true), ...afterAttention];
+    if (width !== undefined && needsYou > 0 && rowWidth(first) > width) {
+        first = [...attention(false), ...afterAttention];
+    }
     const second: TuiStatusChunk[] = [
         muted(compactWorkspace(workspace)),
         ...(branch === undefined
@@ -284,6 +296,23 @@ export function renderTuiStatusDetailsRows(
             : [separator, { text: branch, tone: "accent" } as TuiStatusChunk]),
     ];
     return [first, second];
+}
+
+/**
+ * How many columns of the first details row the attention chip covers, hint
+ * included when it survived the width fit: the span a client should treat as
+ * the click target for opening the Work tab.
+ */
+export function needsYouChipColumns(
+    row: readonly TuiStatusChunk[],
+    needsYou: number,
+): number {
+    if (needsYou === 0 || row[0]?.tone !== "danger") return 0;
+    let columns = row[0].text.length;
+    if (row[2]?.text === "/work") {
+        columns += (row[1]?.text.length ?? 0) + row[2].text.length;
+    }
+    return columns;
 }
 
 /**
