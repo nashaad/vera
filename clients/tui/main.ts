@@ -57,6 +57,7 @@ import type {
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
+import { levelsForModel } from "../../src/model/catalog-view.ts";
 import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
     configuredModelAssignments,
@@ -2244,6 +2245,21 @@ export async function startTui(
                     ? {}
                     : { poolName: entry.poolName }),
                 levels: entry.levels.map((level) => level.id),
+                available: entry.available,
+            }),
+        );
+    }
+
+    /**
+     * Level facts for models the pool has no ready entry for, from the
+     * catalog the host already sends. Facts only: these never become rows.
+     */
+    function dialCatalog(): readonly DialPoolEntry[] {
+        return (focusedAgentState().modelSettings?.availableModels ?? []).map(
+            (entry) => ({
+                provider: entry.provider,
+                model: entry.model,
+                levels: entry.levels.map((level) => level.id),
             }),
         );
     }
@@ -2303,6 +2319,7 @@ export async function startTui(
                 }),
             ),
             pool: dialPool(),
+            catalog: dialCatalog(),
             includePool: true,
             cap: Number.POSITIVE_INFINITY,
         });
@@ -7570,14 +7587,12 @@ export async function startTui(
         readonly levels: readonly ReasoningLevel[];
         readonly defaultLevel?: ReasoningLevelId;
     } | undefined {
-        const pooledEntry = source.modelSettings?.pooled?.find((candidate) =>
-            candidate.provider === provider && candidate.model === model
-        );
-        if (pooledEntry?.available === true) {
-            return pooledEntry;
-        }
-        return source.modelSettings?.availableModels?.find((candidate) =>
-            candidate.provider === provider && candidate.model === model
+        if (model === undefined) return undefined;
+        return levelsForModel(
+            provider,
+            model,
+            source.modelSettings?.pooled ?? [],
+            source.modelSettings?.availableModels ?? [],
         );
     }
 
