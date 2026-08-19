@@ -398,6 +398,7 @@ export function createTuiComposerPanel(
         border: true,
         borderStyle: "rounded",
         borderColor: boundaryColor,
+        focusedBorderColor: boundaryColor,
         // The same ground the theme change paints, so the frame looks the
         // same at startup as after the first theme apply.
         backgroundColor: TUI_INPUT,
@@ -422,6 +423,7 @@ export function createTuiComposerPanel(
         id: "composer-rule",
         border: ["top"],
         borderColor: boundaryColor,
+        focusedBorderColor: boundaryColor,
         width: "100%",
         height: 1,
         flexShrink: 0,
