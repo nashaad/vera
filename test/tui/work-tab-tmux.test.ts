@@ -25,10 +25,13 @@ afterAll(() => {
 const tmuxAvailable = runTmux("probe-unused", ["-V"], true).ok;
 
 test.skipIf(!tmuxAvailable)("the work tab lists every section it was given", async () => {
-    const pane = await withTui(async (tui) => {
+    // Tall enough for every section at once: the card holds itself above the
+    // composer, so a shorter terminal windows the last section off the bottom
+    // and this test would be reading the window rather than the list.
+    const { pane, colored } = await withTui(async (tui) => {
         await tui.openWorkTab();
-        return tui.pane();
-    });
+        return { pane: tui.pane(), colored: tui.colored() };
+    }, 100, 44);
 
     expect(pane).toContain("Work · 2 need you · 1 working");
     expect(pane).toContain("Needs you");
@@ -38,7 +41,9 @@ test.skipIf(!tmuxAvailable)("the work tab lists every section it was given", asy
     // A count of what it touched, never a verdict on it.
     expect(pane).toContain("5 files changed");
     expect(pane).toContain("Done recently");
-    expect(pane).toContain("> auth-race");
+    expect(pane).toContain("auth-race");
+    // The cursor opens on the most urgent row, and the highlight bar says so.
+    expect(cursorRow(colored)).toContain("auth-race");
     expect(pane).toContain("Approval");
     expect(pane).toContain("bash bun migrate --production");
     expect(pane).toContain("2m ago");
@@ -52,19 +57,19 @@ test.skipIf(!tmuxAvailable)("the work tab lists every section it was given", asy
     expect(pane).not.toContain("sub-one");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the arrows move the pointer and escape goes back", async () => {
+test.skipIf(!tmuxAvailable)("the arrows move the cursor and escape goes back", async () => {
     const { moved, closed } = await withTui(async (tui) => {
         await tui.openWorkTab();
         tui.key("Down");
-        const moved = await tui.paneWhere((pane) =>
-            pane.includes("> browser-tests"));
+        const moved = await tui.coloredWhere((colored) =>
+            cursorRow(colored).includes("browser-tests"));
         tui.key("Escape");
         const closed = await tui.paneWhere((pane) => !pane.includes("Needs you"));
         return { moved, closed };
     });
 
-    expect(moved).toContain("  auth-race");
-    expect(moved).toContain("> browser-tests");
+    expect(cursorRow(moved)).toContain("browser-tests");
+    expect(cursorRow(moved)).not.toContain("auth-race");
     expect(closed).toContain("Message Vera…");
 }, 60_000);
 
@@ -99,9 +104,6 @@ test.skipIf(!tmuxAvailable)("search groups hits by session and names each kind",
 
     expect(found).toContain("Search · all · this workspace");
     expect(found).toContain("relay-gui");
-    // The pointer sits on the hit rather than the session, because a hit is
-    // what enter opens.
-    expect(found).toContain("> you: if the provider fallback kicks in");
     expect(found).toContain("you: if the provider fallback kicks in");
     expect(found).toContain("provider-fallback");
     expect(found).toContain("agent: the fallback ladder degrades in place");
@@ -218,69 +220,105 @@ test.skipIf(!tmuxAvailable)("an open tab keeps its ages true as time passes", as
 test.skipIf(!tmuxAvailable)("a list longer than the card scrolls with the cursor", async () => {
     const { top, moved } = await withTui(async (tui) => {
         await tui.openWorkTab();
-        const top = await tui.paneWhere((value) => value.includes("auth-race"));
+        const top = await tui.coloredWhere((value) =>
+            value.includes("auth-race"));
         for (let press = 0; press < 25; press += 1) tui.key("Down");
-        const moved = await tui.paneWhere((value) =>
-            value.includes("> bulk-22"));
+        const moved = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("bulk-22"));
         return { top, moved };
     }, 100, 24, { VERA_TEST_MANY: "1" });
 
     // Nothing is cut off the top until the cursor has moved past it, and the
     // row under the cursor is always one the card is showing.
     expect(top).not.toContain("above");
-    expect(top).toContain("> auth-race");
+    expect(cursorRow(top)).toContain("auth-race");
     expect(moved).toContain("above");
-    expect(moved).toContain("> bulk-22");
+    expect(cursorRow(moved)).toContain("bulk-22");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the cursor walks every hit, not one per session", async () => {
     const { first, third } = await withTui(async (tui) => {
         await tui.openSearch();
         tui.text("fallback");
-        const first = await tui.paneWhere((value) =>
-            value.includes("> you: if the provider fallback"));
+        const first = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("you: if the provider fallback"));
         tui.key("Down");
         tui.key("Down");
-        const third = await tui.paneWhere((value) =>
-            value.includes("> ran: bun test"));
+        const third = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("ran: bun test"));
         return { first, third };
     });
 
     // The third hit is the second one in its session, which a cursor that
     // stopped at sessions would leave on screen and unreachable.
-    expect(first).toContain("> you: if the provider fallback");
-    expect(third).toContain("> ran: bun test tests/unit/fallback");
-    expect(third).not.toContain("> you: if the provider fallback");
+    expect(cursorRow(first)).toContain("you: if the provider fallback");
+    expect(cursorRow(third)).toContain("ran: bun test tests/unit/fallback");
+    expect(cursorRow(third)).not.toContain("you: if the provider fallback");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the mouse reaches the rows the arrows reach", async () => {
     const { opened, hovered, wheeled } = await withTui(async (tui) => {
         await tui.openWorkTab();
-        const opened = await tui.paneWhere((value) =>
-            value.includes("> auth-race"));
+        const opened = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("auth-race"));
         // The second row, counted down the pane the way a person points at it.
-        tui.mouse("move", 20, 8);
-        const hovered = await tui.paneWhere((value) =>
-            value.includes("> browser-tests"));
-        for (let notch = 0; notch < 5; notch += 1) tui.mouse("wheel", 20, 8);
-        const wheeled = await tui.paneWhere((value) =>
-            value.includes("> bulk-"));
+        const hoverRow = 1 + opened.split("\n").findIndex((line) =>
+            line.includes("auth-race"));
+        tui.mouse("move", 20, hoverRow + 1);
+        const hovered = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("browser-tests"));
+        for (let notch = 0; notch < 5; notch += 1) {
+            tui.mouse("wheel", 20, hoverRow + 1);
+        }
+        const wheeled = await tui.coloredWhere((value) =>
+            cursorRow(value).includes("bulk-"));
         return { opened, hovered, wheeled };
     }, 100, 24, { VERA_TEST_MANY: "1" });
 
-    expect(opened).toContain("> auth-race");
+    expect(cursorRow(opened)).toContain("auth-race");
     // Hovering moves the cursor, so enter and a click always agree on what
     // they act on.
-    expect(hovered).toContain("> browser-tests");
-    expect(hovered).not.toContain("> auth-race");
+    expect(cursorRow(hovered)).toContain("browser-tests");
+    expect(cursorRow(hovered)).not.toContain("auth-race");
     // The wheel moves the cursor rather than the window, so the card never
     // scrolls the selection out of sight.
     expect(wheeled).toContain("above");
-    expect(wheeled).toMatch(/> bulk-\d/);
+    expect(cursorRow(wheeled)).toMatch(/bulk-\d/);
 }, 60_000);
+
+/**
+ * The row under the cursor, read the way the eye reads it: the highlight bar
+ * is a background colour, so it is the one line painted in a colour no other
+ * line on the card is painted in.
+ */
+export function cursorRow(colored: string): string {
+    const lines = colored.split("\n").map((line) => ({
+        backgrounds: new Set(
+            Array.from(line.matchAll(/\[[\d;]*?48;2;(\d+;\d+;\d+)/g))
+                .map((match) => match[1] ?? ""),
+        ),
+        text: line.replace(/\[[\d;:]*m/g, "").trimEnd(),
+    }));
+    const seen = new Map<string, number>();
+    for (const line of lines) {
+        for (const background of line.backgrounds) {
+            seen.set(background, (seen.get(background) ?? 0) + 1);
+        }
+    }
+    const unique = lines.find((line) =>
+        [...line.backgrounds].some((background) => seen.get(background) === 1)
+    );
+    return unique?.text ?? "";
+}
 
 interface DrivenTui {
     pane(): string;
+    /** The frame with its colours, for the highlight bar the text loses. */
+    colored(): string;
+    coloredWhere(
+        predicate: (colored: string) => boolean,
+        timeoutMs?: number,
+    ): Promise<string>;
     paneWhere(
         predicate: (pane: string) => boolean,
         timeoutMs?: number,
@@ -331,6 +369,8 @@ async function withTui<T>(
 
     const pane = (): string =>
         runTmux(socket, ["capture-pane", "-p", "-t", session]).output;
+    const colored = (): string =>
+        runTmux(socket, ["capture-pane", "-p", "-e", "-t", session]).output;
     const paneWhere = async (
         predicate: (value: string) => boolean,
         timeoutMs = 20_000,
@@ -339,6 +379,19 @@ async function withTui<T>(
         let last = "";
         while (Date.now() < deadline) {
             last = pane();
+            if (predicate(last)) return last;
+            await Bun.sleep(100);
+        }
+        throw new Error(`Timed out waiting for pane:\n${last}`);
+    };
+    const coloredWhere = async (
+        predicate: (value: string) => boolean,
+        timeoutMs = 20_000,
+    ): Promise<string> => {
+        const deadline = Date.now() + timeoutMs;
+        let last = "";
+        while (Date.now() < deadline) {
+            last = colored();
             if (predicate(last)) return last;
             await Bun.sleep(100);
         }
@@ -387,6 +440,8 @@ async function withTui<T>(
     try {
         return await body({
             pane,
+            colored,
+            coloredWhere,
             paneWhere,
             text,
             key,

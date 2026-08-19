@@ -100,7 +100,8 @@ function inbox(): WorkIndexSnapshot {
 }
 
 test("the header states the live counts", () => {
-    expect(tuiWorkTabHeader(inbox())).toBe("Work · 2 need you · 2 working");
+    expect(tuiWorkTabHeader(inbox()))
+        .toBe("Work · 2 need you · 2 working · 1 done");
     expect(tuiWorkTabHeader(buildWorkIndex([], [], { now }))).toBe("Work");
 });
 
@@ -110,7 +111,10 @@ test("the sections are drawn in order with their rows under them", () => {
         .filter((line) => line.kind === "section")
         .map((line) => line.text);
 
-    expect(sections).toEqual(["Needs you", "Working", "Done recently"]);
+    // Each heading counts what is under it, including what the card windowed
+    // off the bottom.
+    expect(sections)
+        .toEqual(["Needs you · 2", "Working · 2", "Done recently · 1"]);
     expect(lines.filter((line) => line.kind === "row").map((line) => line.row_id))
         .toEqual([
             "auth-race",
@@ -130,7 +134,6 @@ test("a wide row states its reason, summary, subagents and age", () => {
     const lines = text.split("\n");
 
     const approval = lines.find((line) => line.includes("auth-race")) ?? "";
-    expect(approval.startsWith("> ")).toBe(true);
     expect(approval).toContain("Approval");
     expect(approval).toContain("bun migrate --production");
     expect(approval).toContain("2m ago");

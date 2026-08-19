@@ -3153,8 +3153,8 @@ export async function startTui(
         searchOverlay = { ...searchOverlay, selected };
         renderState();
     };
-    app.add(workTabView.box);
-    app.add(searchOverlayView.box);
+    app.add(workTabView.surface);
+    app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
     app.add(doctorDialogView.box);
@@ -7112,14 +7112,14 @@ export async function startTui(
             && secretPrompt === undefined
             && preferencesList === undefined
             && commandPalette !== undefined;
-        workTabView.box.visible = uiRequest === undefined
+        workTabView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
-        searchOverlayView.box.visible = uiRequest === undefined
+        searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
@@ -7183,8 +7183,8 @@ export async function startTui(
             || settingsPickerView.box.visible
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
-            || workTabView.box.visible
-            || searchOverlayView.box.visible
+            || workTabView.surface.visible
+            || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
@@ -8688,8 +8688,8 @@ export async function startTui(
         // The scan already running finishes and finds no overlay to fill; the
         // one waiting behind it never starts.
         queuedSearch = undefined;
-        workTabView.box.visible = false;
-        searchOverlayView.box.visible = false;
+        workTabView.surface.visible = false;
+        searchOverlayView.surface.visible = false;
         composer.focus();
         renderState();
         focusActiveSurface();

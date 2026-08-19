@@ -6,10 +6,14 @@ import {
 } from "@opentui/core";
 
 import {
-    attachRowPointer,
-    DIALOG_CARD_Z_INDEX,
+    centeredDialogSurface,
+    DIALOG_CARD_PADDING,
+    dialogFooterNode,
+    dialogGroupHeaderNode,
+    dialogHeaderNode,
+    dialogOptionRow,
 } from "./dialog-chrome.ts";
-import { listWindowRows, listWindowSlice } from "./list-window.ts";
+import { dialogBoxHeight, listWindowRows, listWindowSlice } from "./list-window.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
 
 /**
@@ -20,6 +24,11 @@ import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
  * only thing left is which colour each line takes. A surface that needs the
  * windowed list, group headings and mouse rows of a picker uses the picker
  * chrome instead; this is for the two that lay themselves out.
+ *
+ * It is built from the same pieces as the pickers: a centered card, a header
+ * carrying its own esc hint, a highlight bar on the selected row, and a muted
+ * footer. Only the lines between the header and the footer are the surface's
+ * own.
  */
 
 export type LinesViewTone = "text" | "muted" | "accent";
@@ -33,10 +42,14 @@ export interface LinesViewLine {
      * nothing rather than picking whatever is nearest.
      */
     readonly rowId?: string;
+    /** Draws the highlight bar, the same one every picker's cursor draws. */
+    readonly selected?: boolean;
 }
 
 export interface LinesViewState {
     readonly title: string;
+    /** Follows the title on the right of the header; "esc" when omitted. */
+    readonly hint?: string;
     readonly lines: readonly LinesViewLine[];
     /**
      * Which line the cursor is on, so a list too long for the card scrolls
@@ -47,7 +60,10 @@ export interface LinesViewState {
 }
 
 export interface LinesView {
+    /** The card, for focus and for the wheel. */
     readonly box: BoxRenderable;
+    /** The full-screen flex parent that keeps the card centered. */
+    readonly surface: BoxRenderable;
     /**
      * Told which line the mouse hovered or clicked, by the id the surface put
      * on it. The card knows where its lines are drawn; only the surface knows
@@ -69,12 +85,24 @@ export interface LinesViewPointer {
     readonly activate?: (rowId: string) => void;
 }
 
-const CARD_LEFT_FRACTION = 0.04;
-const CARD_WIDTH_FRACTION = 0.92;
-const CARD_PADDING = 4;
-const CARD_HEIGHT_FRACTION = 0.9;
-/** Title, its blank line, the two markers, the footer and its blank line. */
-const CARD_CHROME_LINES = 6;
+const CARD_WIDTH_FRACTION = 0.9;
+/** The rows a centered card leaves above itself. */
+const CARD_TOP_MARGIN = 3;
+/**
+ * The rows at the bottom the card centres itself above rather than across.
+ *
+ * The composer's own rows say what the session is answering as, and a card
+ * drawn over them reads as two surfaces fighting. These cards are the two tall
+ * ones, so unlike a picker they would reach the composer if they centred on
+ * the whole screen.
+ */
+const COMPOSER_RESERVE = 9;
+/**
+ * Rows the card spends on itself: its padding, the header and the blank line
+ * under it, and the two-line footer. Less than a picker's, which also budgets
+ * for a search field these cards do not have.
+ */
+const CARD_CHROME_HEIGHT = 7;
 
 /**
  * Read per draw, never captured: the theme constants are rebound when the
@@ -95,62 +123,50 @@ export function createTuiLinesView(
         id,
         border: false,
         backgroundColor: TUI_PANEL,
-        position: "absolute",
-        top: 1,
-        left: `${CARD_LEFT_FRACTION * 100}%`,
         width: `${CARD_WIDTH_FRACTION * 100}%`,
-        height: "90%",
-        zIndex: DIALOG_CARD_Z_INDEX,
-        paddingLeft: 2,
-        paddingRight: 2,
-        paddingTop: 1,
+        height: "auto",
+        paddingLeft: DIALOG_CARD_PADDING,
+        paddingRight: DIALOG_CARD_PADDING,
+        paddingTop: 2,
+        paddingBottom: 1,
         focusable: true,
-        visible: false,
     });
+    const surface = centeredDialogSurface(renderer, `${id}-surface`, box);
+    surface.paddingBottom = COMPOSER_RESERVE;
 
     const view: LinesView = {
         box,
+        surface,
         contentWidth(): number {
             return Math.max(
                 20,
-                Math.floor(renderer.width * CARD_WIDTH_FRACTION) - CARD_PADDING,
+                Math.floor(renderer.width * CARD_WIDTH_FRACTION)
+                    - DIALOG_CARD_PADDING * 2,
             );
         },
         update(state): void {
-            for (const node of nodes) node.destroy();
+            for (const node of nodes) node.destroyRecursively();
             nodes = [];
-            const add = (
-                text: string,
-                color: string,
-                rowId?: string,
-            ): void => {
-                const node = new TextRenderable(renderer, {
-                    content: text,
-                    fg: color,
-                    width: "100%",
-                    height: 1,
-                });
-                if (rowId !== undefined) {
-                    attachRowPointer(node, {
-                        ...(view.pointer?.hover === undefined ? {} : {
-                            onHover: () => view.pointer?.hover?.(rowId),
-                        }),
-                        ...(view.pointer?.activate === undefined ? {} : {
-                            onSelect: () => view.pointer?.activate?.(rowId),
-                        }),
-                    });
-                }
+            const add = (node: Renderable): void => {
                 nodes.push(node);
                 box.add(node);
             };
-            add(state.title, TUI_ACCENT);
-            add("", TUI_MUTED);
+            const muted = (text: string): void => {
+                add(new TextRenderable(renderer, {
+                    content: text,
+                    fg: TUI_MUTED,
+                    width: "100%",
+                    height: 1,
+                }));
+            };
+            add(dialogHeaderNode(renderer, state.title, state.hint ?? "esc"));
+            muted("");
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
             const room = listWindowRows(
-                Math.floor(renderer.height * CARD_HEIGHT_FRACTION),
-                CARD_CHROME_LINES,
+                dialogBoxHeight(renderer, CARD_TOP_MARGIN) - COMPOSER_RESERVE,
+                CARD_CHROME_HEIGHT,
             );
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
@@ -163,15 +179,46 @@ export function createTuiLinesView(
                 state.cursorLine ?? 0,
                 room,
             );
-            if (above > 0) add(`… ${above} above`, TUI_MUTED);
+            if (above > 0) muted(`… ${above} above`);
             for (const line of visible) {
-                add(line.text, toneColor(line.tone), line.rowId);
+                add(lineNode(renderer, view, line));
             }
             const below = state.lines.length - above - visible.length;
-            if (below > 0) add(`… ${below} below`, TUI_MUTED);
-            add("", TUI_MUTED);
-            add(state.footer, TUI_MUTED);
+            if (below > 0) muted(`… ${below} below`);
+            add(dialogFooterNode(renderer, state.footer));
         },
     };
     return view;
+}
+
+/**
+ * One line as the shared chrome draws it: a group heading, a selectable row
+ * carrying the picker highlight bar, or plain muted text.
+ */
+function lineNode(
+    renderer: RenderContext,
+    view: LinesView,
+    line: LinesViewLine,
+): Renderable {
+    if (line.rowId === undefined) {
+        return line.tone === "accent" && line.text.length > 0
+            ? dialogGroupHeaderNode(renderer, line.text, false)
+            : new TextRenderable(renderer, {
+                content: line.text,
+                fg: toneColor(line.tone),
+                width: "100%",
+                height: 1,
+            });
+    }
+    const rowId = line.rowId;
+    return dialogOptionRow(renderer, {
+        label: line.text,
+        active: line.selected === true,
+        ...(view.pointer?.hover === undefined ? {} : {
+            onHover: () => view.pointer?.hover?.(rowId),
+        }),
+        ...(view.pointer?.activate === undefined ? {} : {
+            onSelect: () => view.pointer?.activate?.(rowId),
+        }),
+    });
 }
