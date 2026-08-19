@@ -1787,6 +1787,7 @@ export async function startTui(
         border: true,
         borderStyle: "rounded",
         borderColor: TUI_HUD?.border ?? TUI_ELEMENT,
+        focusedBorderColor: TUI_HUD?.border ?? TUI_ELEMENT,
         backgroundColor: TUI_HUD?.background ?? TUI_PANEL,
         height: 6,
         marginLeft: appearance.composerMarginHorizontal,
@@ -10801,6 +10802,7 @@ export async function startTui(
             );
         dialCard.visible = stripLines !== undefined;
         dialCard.borderColor = TUI_HUD?.border ?? TUI_ELEMENT;
+        dialCard.focusedBorderColor = TUI_HUD?.border ?? TUI_ELEMENT;
         dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
         const hudRows = stripLines?.slice(0, -1) ?? [];
         dialCardTitle.height = Math.max(1, hudRows.length);
