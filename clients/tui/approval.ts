@@ -225,7 +225,7 @@ export function createTuiApprovalView(
 
     function renderButtons(update: ToolApprovalUiRequestUpdate): void {
         for (const node of buttonNodes) {
-            node.destroy();
+            node.destroyRecursively();
         }
         buttonNodes = [];
         const available = selectableApprovalKeys(update);

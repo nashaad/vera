@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -30,6 +30,5 @@ test("ctrl+c clears an idle draft before it quits", async () => {
         await session.waitForSessionExit();
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

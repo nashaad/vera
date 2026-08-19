@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -34,6 +34,5 @@ test("a refused settings change is reported in the transcript", async () => {
         expect(pane).toContain("review");
     } finally {
         await session.close();
-        rmSync(home, { recursive: true, force: true });
     }
 }, 15_000);

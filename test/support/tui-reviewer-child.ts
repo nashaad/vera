@@ -1,4 +1,4 @@
-import { startTui } from "../../clients/tui/main.ts";
+import { startTui, type TuiDependencies } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 
 const MODELS = [
@@ -16,15 +16,16 @@ const MODELS = [
     },
 ];
 
-let seq = 2_000;
-let reviewer: unknown = { mode: "agent" };
+export function createTuiReviewerDependencies(): TuiDependencies {
+    let seq = 2_000;
+    let reviewer: unknown = { mode: "agent" };
 
-function settings(): Record<string, unknown> {
-    return {
-        model: "current-model",
-        availableModels: MODELS,
-        reviewerDefault: reviewer,
-    };
+    function settings(): Record<string, unknown> {
+        return {
+            model: "current-model",
+            availableModels: MODELS,
+            reviewerDefault: reviewer,
+        };
 }
 
 const client = createSettingsAnsweringClient({
@@ -56,4 +57,9 @@ const client = createSettingsAnsweringClient({
     },
 });
 
-await startTui({ client });
+return { client };
+}
+
+if (import.meta.main) {
+    await startTui(createTuiReviewerDependencies());
+}

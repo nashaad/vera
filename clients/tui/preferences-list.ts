@@ -228,7 +228,7 @@ export function createTuiPreferencesListView(
         surface,
         update(state): void {
             for (const row of current) {
-                row.destroy();
+                row.destroyRecursively();
             }
             current = [];
             if (state.entries.length === 0) {

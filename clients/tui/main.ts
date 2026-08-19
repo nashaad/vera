@@ -1583,7 +1583,7 @@ export async function startTui(
 
     function clearSidebarEntryNodes(): void {
         while (sidebarEntryNodes.length > 0) {
-            sidebarEntryNodes.pop()?.destroy();
+            sidebarEntryNodes.pop()?.destroyRecursively();
             sidebarEntryNodeKinds.pop();
         }
     }
@@ -2696,7 +2696,7 @@ export async function startTui(
             node,
             speaker: entries[index]?.kind === "user" ? "you" : "agent",
         })));
-        for (const node of discarded) node.destroy();
+        for (const node of discarded) node.destroyRecursively();
         renderSidebarJump();
         renderState();
     }
@@ -6926,7 +6926,7 @@ export async function startTui(
             ? state.entries.length
             : changedKindAt;
         while (entryNodes.length > retainedEntries) {
-            entryNodes.pop()?.destroy();
+            entryNodes.pop()?.destroyRecursively();
             entryNodeKinds.pop();
         }
 
@@ -7009,7 +7009,7 @@ export async function startTui(
 
     function clearTranscriptNodes(): void {
         while (entryNodes.length > 0) {
-            entryNodes.pop()?.destroy();
+            entryNodes.pop()?.destroyRecursively();
             entryNodeKinds.pop();
         }
     }

@@ -1,6 +1,7 @@
 import {
     startTui,
     type TuiAgentClient,
+    type TuiDependencies,
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
@@ -10,40 +11,42 @@ import {
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 
-const channel = createInProcessChannel();
-void runHeadlessLoop(
-    channel.engine,
-    new FauxAdapter([response(`STREAM ${"x".repeat(60)} FINISHED`)], {
-        chunkSize: 1,
-        delayMs: 20,
-    }),
-    "test",
-    "high",
-    {
-        approvalMode: "auto",
-        readModelSettings: () => ({
-            model: "test",
-            reasoningEffort: "high",
-            contextWindow: 100,
+export function createTuiHelpActiveDependencies(): TuiDependencies {
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([response(`STREAM ${"x".repeat(60)} FINISHED`)], {
+            chunkSize: 1,
+            delayMs: 20,
         }),
-        updateModelSettings: async () => undefined,
-        readApprovalMode: () => "auto",
-        updateApprovalMode: async () => undefined,
-    },
-);
+        "test",
+        "high",
+        {
+            approvalMode: "auto",
+            readModelSettings: () => ({
+                model: "test",
+                reasoningEffort: "high",
+                contextWindow: 100,
+            }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+        },
+    );
 
-const client: TuiAgentClient = {
-    async send(command): Promise<void> {
-        channel.client.send(command);
-    },
-    receive(signal) {
-        return channel.client.receive(signal);
-    },
-    async detach(): Promise<void> {},
-    close(): void {},
-};
+    const client: TuiAgentClient = {
+        async send(command): Promise<void> {
+            channel.client.send(command);
+        },
+        receive(signal) {
+            return channel.client.receive(signal);
+        },
+        async detach(): Promise<void> {},
+        close(): void {},
+    };
 
-await startTui({ client });
+    return { client };
+}
 
 function response(text: string): AssistantMessage {
     return {
@@ -53,4 +56,8 @@ function response(text: string): AssistantMessage {
         usage: { ...emptyUsage(), inputTokens: 25 },
         stopReason: "stop",
     };
+}
+
+if (import.meta.main) {
+    await startTui(createTuiHelpActiveDependencies());
 }

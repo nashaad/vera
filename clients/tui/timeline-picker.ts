@@ -241,7 +241,7 @@ export function createTuiTimelinePickerView(
         box,
         update(state): void {
             for (const node of nodes) {
-                node.destroy();
+                node.destroyRecursively();
             }
             nodes = timelineNodes(renderer, state, view.pointer);
             for (const node of nodes) {

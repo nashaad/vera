@@ -256,7 +256,7 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         box,
         update(state): void {
             for (const node of nodes) {
-                node.destroy();
+                node.destroyRecursively();
             }
             nodes = [];
             const tabs = new TextRenderable(renderer, {

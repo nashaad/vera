@@ -2174,7 +2174,7 @@ export function createTuiSettingsPickerView(
         box,
         update(state): void {
             for (const node of nodes) {
-                node.destroy();
+                node.destroyRecursively();
             }
             nodes = [];
             box.title = undefined;
