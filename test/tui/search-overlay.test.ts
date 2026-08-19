@@ -78,7 +78,7 @@ test("typing builds a query scoped to this workspace by default", () => {
     expect(searchOverlayHeader(state)).toBe("Search · all · this workspace");
 });
 
-test("each keystroke asks for a search and drops the old results", () => {
+test("each keystroke asks for a search and keeps the old results as stale", () => {
     const state = applySearchResults(
         typing("fallback"),
         { query: "fallback", workspace: "/work/one" },
@@ -91,8 +91,34 @@ test("each keystroke asks for a search and drops the old results", () => {
         kind: "search",
         query: { query: "fallbacks", workspace: "/work/one" },
     });
-    expect(next.state?.results).toBeUndefined();
+    expect(next.state?.results?.results).toHaveLength(2);
     expect(next.state?.searching).toBe(true);
+
+    const lines = searchOverlayLines(next.state ?? state, {
+        width: 78,
+        now: NOW,
+    });
+    const resultLines = lines.filter((line) => line.kind === "result"
+        || line.kind === "hit");
+    expect(resultLines.length).toBeGreaterThan(0);
+    expect(resultLines.every((line) => line.stale === true)).toBe(true);
+});
+
+test("clearing the query back to empty drops the stale results", () => {
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        results(),
+    );
+
+    let cleared = state;
+    for (let press = 0; press < "fallback".length; press += 1) {
+        cleared = handleSearchOverlayKey(cleared, { name: "backspace" })
+            .state ?? cleared;
+    }
+    expect(cleared.results).toBeUndefined();
+    expect(searchOverlayText(cleared, { width: 78, now: NOW }))
+        .toContain("Type to search past work.");
 });
 
 test("tab cycles the filter and asks again", () => {

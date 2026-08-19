@@ -1200,6 +1200,26 @@ test("a folded tool header bounds the command it shows", () => {
         .toBe(`${"x".repeat(95)}…`);
 });
 
+test("a folded tool header flattens a multi-line command", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "tool_started",
+        tool: "bash",
+        args: { command: "bun -e '\nconsole.log(1);\n'" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "bash",
+        output: Array.from({ length: 8 }, () => "output").join("\n"),
+        seq: 2,
+    });
+
+    const header = state.entries[0];
+    expect(header?.kind).toBe("tool_header");
+    expect(header?.kind === "tool_header" ? header.command : undefined)
+        .toBe("bun -e ' console.log(1); '");
+});
+
 test("a long completed tool group folds and the detail toggle reopens it", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
