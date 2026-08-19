@@ -186,6 +186,67 @@ describe("failed request capture", () => {
         expect(written.omitted).toBeString();
     });
 
+    test("drops the request before the response when over the byte cap", () => {
+        const capture = createFailedRequestCapture({
+            sessionId: "session-keep-response",
+            directory,
+            maxBytes: 4_096,
+        });
+
+        const path = capture({
+            provider: "openrouter",
+            api: "openrouter-chat",
+            model: "test/model",
+            outcome: "provider_error",
+            request: { model: "test/model", messages: ["x".repeat(200_000)] },
+            response: [{ badToolCall: "{ not json" }],
+        });
+
+        const written = JSON.parse(readFileSync(path as string, "utf8")) as {
+            request: unknown;
+            response: readonly { badToolCall: string }[];
+            omitted: string;
+        };
+        expect(written.request).toBeNull();
+        expect(written.response[0]?.badToolCall).toBe("{ not json");
+        expect(written.omitted).toBe("request exceeded the capture byte cap");
+    });
+
+    test("keeps the response tail when even the response is over the cap", () => {
+        const capture = createFailedRequestCapture({
+            sessionId: "session-tail",
+            directory,
+            maxBytes: 4_096,
+        });
+
+        const path = capture({
+            provider: "openrouter",
+            api: "openrouter-chat",
+            model: "test/model",
+            outcome: "provider_error",
+            request: { model: "test/model" },
+            response: [
+                ...Array.from({ length: 100 }, (_, i) => ({
+                    chunk: i,
+                    pad: "y".repeat(500),
+                })),
+                { badToolCall: "{ not json" },
+            ],
+        });
+
+        const source = readFileSync(path as string, "utf8");
+        expect(Buffer.byteLength(source, "utf8")).toBeLessThanOrEqual(4_096);
+        const written = JSON.parse(source) as {
+            request: unknown;
+            response: readonly Record<string, unknown>[];
+            responseTruncated: boolean;
+        };
+        expect(written.request).toBeNull();
+        expect(written.responseTruncated).toBeTrue();
+        expect(written.response.length).toBeGreaterThan(0);
+        expect(written.response.at(-1)).toEqual({ badToolCall: "{ not json" });
+    });
+
     test("redacts credentials without touching message content", () => {
         const redacted = redactSecrets({
             headers: {
