@@ -110,12 +110,20 @@ import {
     type ExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
+import { buildWorkIndex } from "./work-index.ts";
+import { searchSessions } from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
 import {
     startSchedulerRuntime,
     type SchedulerRuntime,
 } from "../scheduler/runtime.ts";
-import { SCHEDULER_SOURCE } from "../scheduler/types.ts";
+import {
+    SCHEDULER_SOURCE,
+    type EmittedScheduleRun,
+} from "../scheduler/types.ts";
+
+/** Schedule runs read per index build. The recent window trims them further. */
+const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
@@ -291,6 +299,17 @@ export async function startResidentHost(
     const inboxDelivery = consumers === null
         ? undefined
         : new InboxDeliveryCoordinator(consumers);
+    const workChangeListeners = new Set<() => void>();
+    const notifyWorkChanged = (): void => {
+        for (const listener of [...workChangeListeners]) {
+            try {
+                listener();
+            } catch {
+                // One client's bookkeeping cannot break the firing that
+                // triggered it, or a schedule would stop running.
+            }
+        }
+    };
     const scheduleStore = inbox === null
         ? null
         : ScheduleStore.open(options.schedulePath);
@@ -591,6 +610,10 @@ export async function startResidentHost(
                 store: scheduleStore,
                 emit: (key, entry) =>
                     inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
+                // A firing changes the work inbox without touching the roster,
+                // so without this the run is recorded and no attached client
+                // is ever told about it.
+                onRunEmitted: notifyWorkChanged,
                 onError: (error) => hostLog({
                     type: "scheduler_failed",
                     message: error instanceof Error
@@ -599,6 +622,17 @@ export async function startResidentHost(
                 }),
                 })
         );
+        // Bounded at the query and best effort: the index is rebuilt on every
+        // roster change, and a schedule database that cannot be read is no
+        // reason to lose the sessions beside it.
+        const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
+            try {
+                return scheduleStore?.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS)
+                    ?? [];
+            } catch {
+                return [];
+            }
+        };
         server = await timed(
             "server_listen_and_lockfile",
             () => startHostServer({
@@ -628,10 +662,31 @@ export async function startResidentHost(
                 registry.list(),
             ),
             listBackgroundAgents: () => registry.list(),
+            // Bounded and best effort: the work index is drawn on every
+            // roster change, and a schedule database that cannot be read is
+            // no reason to lose the sessions beside it.
+            readWorkIndex: () => {
+                const agents = registry.workFacts();
+                return buildWorkIndex(
+                    agents,
+                    registry.scheduleWorkFacts(recentScheduleRuns(), agents),
+                );
+            },
+            searchSessions: (query) => searchSessions(sessionDirectory, query),
             ...(scheduler === null ? {} : {
                 runScheduleOperation: (operation) => scheduler!.execute(operation),
             }),
-            onRosterChanged: (listener) => registry.onRosterChanged(listener),
+            // Two sources, one subscription: what a client draws changes when
+            // the roster changes and when a schedule fires, and a client that
+            // subscribed to only the first would miss every scheduled run.
+            onRosterChanged: (listener) => {
+                const stopRoster = registry.onRosterChanged(listener);
+                workChangeListeners.add(listener);
+                return (): void => {
+                    stopRoster();
+                    workChangeListeners.delete(listener);
+                };
+            },
             createAgent: (createOptions) => registry.create(createOptions),
             resumeAgent: resumeSession,
             branchAgent: (options) => registry.branch(options),

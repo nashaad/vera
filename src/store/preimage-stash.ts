@@ -84,6 +84,42 @@ export interface StashSummary {
     readonly entries: readonly StashEntry[];
 }
 
+/**
+ * The files one session changed, oldest capture first.
+ *
+ * Read from the stash rather than from git, so it holds in a workspace that is
+ * not a repository and says what this session did rather than what the working
+ * tree currently looks like. It is the paths a session was the first to touch,
+ * which is the honest answer to "what did this one change" and nothing more:
+ * it does not know whether an edit was later undone, and it never implies the
+ * change is good, finished or ready to land.
+ *
+ * Synchronous, like the summary beside it: one session's stash is a handful of
+ * files, and this is read while building a listing that must not await.
+ */
+export function sessionChangedFiles(
+    sessionId: string,
+    root: string = defaultStashRoot(),
+): readonly string[] {
+    let files: string[];
+    const directory = join(root, sessionId);
+    try {
+        files = readdirSync(directory);
+    } catch {
+        // A session that changed nothing has no directory at all.
+        return [];
+    }
+    const captured: StashEntry[] = [];
+    for (const file of files) {
+        if (!file.endsWith(".json")) continue;
+        const sidecar = readSidecar(join(directory, file));
+        if (sidecar !== undefined) captured.push(sidecar);
+    }
+    return captured
+        .sort((left, right) => left.capturedAt.localeCompare(right.capturedAt))
+        .map((entry) => entry.path);
+}
+
 /** Sizes up the stash for diagnostics. Synchronous: the stash stays small. */
 export function summarizeStash(
     root: string = defaultStashRoot(),

@@ -28,6 +28,14 @@ export interface ScheduleRun {
     readonly emittedAt: string | null;
 }
 
+/** A run the scheduler already delivered, with the address it was sent to. */
+export interface EmittedScheduleRun extends ScheduleRun {
+    readonly status: "emitted";
+    readonly emittedAt: string;
+    /** The consumer label, which for a session is that session's agent id. */
+    readonly address: string;
+}
+
 export interface PendingScheduleRun extends ScheduleRun {
     readonly status: "pending";
     readonly address: string;

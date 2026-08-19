@@ -401,7 +401,11 @@ export function attachDialogRowPointer(
     attachRowPointer(row, dialogRowPointer(pointer, index));
 }
 
-function attachRowPointer(
+/**
+ * Exported for the surfaces that lay out their own lines rather than build
+ * rows through this module. Mouse behaviour stays in one place either way.
+ */
+export function attachRowPointer(
     row: Renderable,
     handlers: Pick<DialogRowContent, "onSelect" | "onHover">,
 ): void {

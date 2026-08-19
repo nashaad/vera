@@ -329,6 +329,8 @@ function fakeClientFromQueue(
             supportsResume && capability === HOST_CAPABILITY_AGENT_ATTACH_RESUME,
         backgroundAgents,
         onBackgroundAgents: () => () => undefined,
+        workIndex: undefined,
+        onWorkIndex: () => () => undefined,
         send: async () => undefined,
         async receive(signal) {
             const update = await updates.receive(signal);

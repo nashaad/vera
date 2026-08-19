@@ -18,6 +18,7 @@ import {
     isSessionNameReplyUpdate,
     isConsultReplyUpdate,
 } from "../engine/protocol.ts";
+import type { UiRequest } from "../engine/events.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
 
@@ -99,6 +100,12 @@ export class ResidentAgent {
     };
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
+    // What this agent is blocked on and what it is doing, kept because the
+    // buffered updates that carry those facts are addressed to attachments and
+    // an unattended session has none. Both are recomputed from the same
+    // updates every client sees, so nothing here can outlive the fact.
+    private openRequests = new Map<string, UiRequest>();
+    private currentTool: string | undefined;
     private lastSequence = 0;
     private terminalFailure: AgentUpdate | undefined;
     private isClosed = false;
@@ -510,10 +517,22 @@ export class ResidentAgent {
             this.currentStatus = "working";
         } else if (snapshot.type === "ui_request") {
             this.currentStatus = "waiting";
+            this.openRequests.set(snapshot.requestId, snapshot.request);
         } else if (snapshot.type === "ui_request_closed") {
             this.currentStatus = "working";
+            this.openRequests.delete(snapshot.requestId);
+        } else if (snapshot.type === "tool_started") {
+            this.currentTool = snapshot.tool;
+        } else if (snapshot.type === "tool_finished") {
+            this.currentTool = undefined;
         } else if (snapshot.type === "turn_finished") {
             this.currentStatus = "idle";
+            this.currentTool = undefined;
+            // A finished turn cannot still be waiting on an answer. Cleared
+            // here as well as on `ui_request_closed` because a turn that ends
+            // without closing its request would otherwise leave the session
+            // reading as needing someone for the rest of the host's life.
+            this.openRequests.clear();
             if (this.startedTurnActive) {
                 this.startedTurnActive = false;
             } else if (this.unstartedPrompts > 0) {
@@ -527,6 +546,8 @@ export class ResidentAgent {
             this.deliveryTurnStarting = false;
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
+            this.currentTool = undefined;
+            this.openRequests.clear();
             this.unstartedPrompts = 0;
             this.deliveryTurnStarting = false;
             this.startedTurnActive = false;
@@ -563,6 +584,21 @@ export class ResidentAgent {
 
     get status(): AgentStatus {
         return this.currentStatus;
+    }
+
+    /**
+     * The requests this agent is blocked on, oldest first.
+     *
+     * Read-only and a copy: a caller asks what is open so it can say so, and
+     * answering a request stays the attachment's job.
+     */
+    get pendingRequests(): readonly UiRequest[] {
+        return [...this.openRequests.values()];
+    }
+
+    /** The tool in flight right now, absent when none is. */
+    get activeTool(): string | undefined {
+        return this.currentTool;
     }
 
     get attached(): boolean {

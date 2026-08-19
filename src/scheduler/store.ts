@@ -4,6 +4,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type {
+    EmittedScheduleRun,
     PendingScheduleRun,
     ScheduleDefinition,
     ScheduleRun,
@@ -212,6 +213,42 @@ export class ScheduleStore {
         ).all(scheduleId, limit).map(runFromRow);
     }
 
+    /**
+     * Runs already emitted, newest first, across every schedule.
+     *
+     * Joined to the definition because a run on its own names no address, and
+     * the address is the only thing that says which session the run reached.
+     * Bounded at the query, not by the caller: this reads a table that grows
+     * with every firing forever.
+     */
+    recentlyEmitted(limit: number): readonly EmittedScheduleRun[] {
+        if (!Number.isInteger(limit) || limit <= 0) {
+            throw new Error("emitted schedule run limit must be a positive integer");
+        }
+        return this.database.query<EmittedRunRow, [number]>(
+            `SELECT r.schedule_id, r.scheduled_for, r.status, r.inbox_seq,
+                    r.created_at, r.emitted_at, s.address
+             FROM schedule_runs r
+             JOIN schedules s ON s.id = r.schedule_id
+             WHERE r.status = 'emitted' AND r.emitted_at IS NOT NULL
+             ORDER BY r.emitted_at DESC
+             LIMIT ?`,
+        ).all(limit).flatMap((row) => {
+            const run = runFromRow(row);
+            // The query already filters both, so a row failing either is a
+            // schema surprise rather than an ordinary case, and dropping it
+            // keeps the caller from having to re-check what it was promised.
+            return run.status !== "emitted" || run.emittedAt === null
+                ? []
+                : [{
+                    ...run,
+                    status: "emitted" as const,
+                    emittedAt: run.emittedAt,
+                    address: row.address,
+                }];
+        });
+    }
+
     countRuns(scheduleId: string): number {
         const row = this.database.query<{ count: number }, [string]>(
             `SELECT COUNT(*) AS count FROM schedule_runs
@@ -264,6 +301,10 @@ function scheduleFromRow(row: ScheduleRow): ScheduleDefinition {
         createdAt: row.created_at,
         updatedAt: row.updated_at,
     };
+}
+
+interface EmittedRunRow extends RunRow {
+    readonly address: string;
 }
 
 function runFromRow(row: RunRow): ScheduleRun {
