@@ -10805,7 +10805,7 @@ export async function startTui(
                     ? spans.map((span, at) =>
                         fg(
                             at % 2 === 0
-                                ? TUI_TEXT
+                                ? activeRow ? TUI_TEXT : TUI_MUTED
                                 : span === "\u25b2"
                                     ? TUI_NOTICE
                                     : span.startsWith("(") || !activeRow
@@ -10833,9 +10833,8 @@ export async function startTui(
                     ...(index === hudRows.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
                 ];
             }
-            // A lane keeps its name lit even when the focus is elsewhere. The
-            // labels are the map of the control; muting them leaves a block of
-            // grey with nothing to read it by.
+            // Only the lane holding the focus is lit, name included, so the
+            // eye lands on one rung instead of reading four equally bright ones.
             const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)
                 ?.[0];
             // The bracketed row is the one the dial is sitting on, and it reads
@@ -10848,7 +10847,9 @@ export async function startTui(
                     const prefixLength = laneLabel?.length ?? 2;
                     const rest = main.slice(prefixLength);
                     mainChunks = [
-                        fg(TUI_TEXT)(main.slice(0, prefixLength)),
+                        fg(activeRow ? TUI_TEXT : TUI_MUTED)(
+                            main.slice(0, prefixLength),
+                        ),
                         fg(pickedRow ? TUI_TEXT : TUI_MUTED)(rest),
                     ];
                 } else if (pickedRow) {
@@ -10862,7 +10863,7 @@ export async function startTui(
                     .split(/(\[[^\]]+\])/)
                     .filter(Boolean);
                 mainChunks = [
-                    fg(TUI_TEXT)(prefix),
+                    fg(activeRow ? TUI_TEXT : TUI_MUTED)(prefix),
                     ...choices.map((part) => fg(
                         part.startsWith("[")
                             ? selectedColor(part)
