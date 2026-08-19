@@ -33,8 +33,7 @@ export interface TuiTheme {
     readonly input?: string;
     /** Transient completion/menu surface when it should float above the desktop. */
     readonly menu?: string;
-    readonly chrome?: "norton" | "windows-31";
-    readonly chromeTitle?: string;
+    readonly chrome?: "norton";
     readonly selectionText?: string;
 }
 

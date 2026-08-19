@@ -97,8 +97,7 @@ test("retro themes carry their own structural chrome", async () => {
         background: "#008080",
         panel: "#FFFFFF",
         input: "#FFFFFF",
-        chrome: "windows-31",
-        chromeTitle: "#000080",
+        chrome: "norton",
     });
 });
 
