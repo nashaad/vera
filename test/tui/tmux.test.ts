@@ -45,6 +45,8 @@ test.skipIf(!tmuxAvailable)(
                 session,
                 home,
                 "test/support/tui-sidebar-child.ts",
+                100,
+                44,
             );
             await waitForVisiblePane(socket, session, "Start a conversation");
 

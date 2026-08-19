@@ -22,6 +22,10 @@ import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import { projectSkillDirectory } from "../../src/skills/catalog.ts";
 import { loadSkillContribution } from "../../src/skills/contribution.ts";
 import { skillScriptTool } from "../../src/skills/script.ts";
+import {
+    withoutCallDuration,
+    withoutSessionUsage,
+} from "../support/wire-usage.ts";
 
 test("multiple tool calls execute sequentially in content order", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-tool-loop-"));
@@ -93,7 +97,7 @@ test("multiple tool calls execute sequentially in content order", async () => {
             }
         }
 
-        expect(await turn).toEqual(finalResponse);
+        expect(withoutCallDuration(await turn)).toEqual(finalResponse);
         expect(requests).toHaveLength(2);
         for (const request of requests) {
             expect(request.systemPrompt).toContain("## Identity\n");
@@ -287,7 +291,7 @@ test("the turn loop applies a subagent effect and returns its text", async () =>
             // Drain protocol updates until the turn completes.
         }
 
-        expect(await turn).toEqual(finalResponse);
+        expect(withoutCallDuration(await turn)).toEqual(finalResponse);
         expect(requests[0]?.tools?.map((tool) => tool.name)).toContain(
             "subagent",
         );
@@ -375,7 +379,7 @@ test("sibling subagents run concurrently and commit results in call order", asyn
             // Drain protocol updates until the parent turn completes.
         }
 
-        expect(await turn).toEqual(finalResponse);
+        expect(withoutCallDuration(await turn)).toEqual(finalResponse);
         expect(maximumActiveChildren).toBe(2);
         const results = state.messages.filter(
             (message) => message.role === "tool_result",
