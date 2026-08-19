@@ -519,6 +519,10 @@ import {
     updateTuiToolRow,
 } from "./tool-row.ts";
 import {
+    createTuiThinkingWindow,
+    updateTuiThinkingWindow,
+} from "./thinking-window.ts";
+import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
@@ -2779,17 +2783,13 @@ export async function startTui(
                 markdownStyle,
                 inner,
             )
+            : entry.kind === "thinking"
+            ? createTuiThinkingWindow(renderer, id, entry, inner)
             : markdownNode ?? new TextRenderable(renderer, {
                 id,
                 content: renderTuiEntry(entry),
                 width: "100%",
-                // Reasoning still arriving is clipped at the right edge rather
-                // than wrapped, so its window is as many rows as it is lines.
-                // Every other row wraps, because every other row is meant to
-                // be read where it sits.
-                ...(entry.kind === "thinking"
-                    ? { wrapMode: "none" as const, overflow: "hidden" as const }
-                    : { wrapMode: "word" as const }),
+                wrapMode: "word",
                 selectable: true,
                 marginTop: inner,
             });
@@ -2852,8 +2852,12 @@ export async function startTui(
                 ) {
                     updateTuiToolHeader(existing, entry);
                 } else if (
+                    entry.kind === "thinking"
+                    && existing instanceof BoxRenderable
+                ) {
+                    updateTuiThinkingWindow(existing, entry);
+                } else if (
                     (entry.kind === "thought"
-                        || entry.kind === "thinking"
                         || entry.kind === "notice"
                         || entry.kind === "inbox")
                     && existing instanceof TextRenderable
@@ -7463,16 +7467,21 @@ export async function startTui(
                     updateTuiToolHeader(existing, entry);
                 }
                 if (
+                    entry.kind === "thinking"
+                    && existing instanceof BoxRenderable
+                ) {
+                    updateTuiThinkingWindow(existing, entry);
+                }
+                if (
                     (entry.kind === "thought"
-                        || entry.kind === "thinking"
                         || entry.kind === "notice"
                         || entry.kind === "inbox")
                     && existing instanceof TextRenderable
                 ) {
-                    // A thought row's height changes when its fold opens, a
-                    // thinking row grows with every delta, and an admission
-                    // checklist notice is rewritten in place per step, so all
-                    // are re-rendered rather than left as first drawn.
+                    // A thought row's height changes when its fold opens and
+                    // an admission checklist notice is rewritten in place per
+                    // step, so both are re-rendered rather than left as first
+                    // drawn.
                     existing.content = renderTuiEntry(entry);
                 }
                 return;
