@@ -2,7 +2,9 @@ import type {
     ModelTool,
     ToolCallContent,
     ToolResultMessage,
+    ToolResultSource,
 } from "../model/types.ts";
+import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
 import { bashTool } from "./bash.ts";
 import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
@@ -180,15 +182,34 @@ export async function boundToolResult(
     output: ToolOutput,
     spill?: ToolResultSpill,
 ): Promise<BoundToolResult> {
+    const originalBytes = Buffer.byteLength(output.output, "utf8");
     const limited = await limitToolResult(output.output, {
         toolName: toolCall.name,
         ...(spill === undefined ? {} : { spill }),
     });
+    let spillPath = limited.truncation?.spillPath;
+    if (
+        originalBytes > TOOL_RESULT_VERBATIM_FLOOR_BYTES
+        && spillPath === undefined
+        && spill !== undefined
+        && limited.truncation === undefined
+    ) {
+        // The ceiling writes a spill before it cuts. Results between the
+        // floor and the ceiling need the same durable source so a later
+        // assembly-time overlay can remain recoverable.
+        spillPath = await spill.write(toolCall.name, output.output);
+    }
+    const source: ToolResultSource | undefined =
+        originalBytes > TOOL_RESULT_VERBATIM_FLOOR_BYTES
+        && spillPath !== undefined
+        ? { originalBytes, spillPath }
+        : undefined;
     const result = toolResultMessage(
         toolCall,
         limited.truncation === undefined
             ? output
             : { ...output, output: limited.text },
+        source,
     );
     return limited.truncation === undefined
         ? { result }
@@ -228,6 +249,7 @@ export async function executeToolHandler(
 export function toolResultMessage(
     toolCall: ToolCallContent,
     result: ToolOutput,
+    toolResultSource?: ToolResultSource,
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -238,6 +260,7 @@ export function toolResultMessage(
         ...(result.presentation === undefined
             ? {}
             : { presentation: result.presentation }),
+        ...(toolResultSource === undefined ? {} : { toolResultSource }),
     };
 }
 
