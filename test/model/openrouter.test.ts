@@ -15,6 +15,9 @@ import {
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
 import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
 import {
+    OpenRouterAllowanceGuard,
+} from "../../src/providers/openrouter-allowance-guard.ts";
+import {
     encodeOpenRouterTools,
     normalizeOpenRouterToolCallId,
 } from "../../src/providers/openrouter-wire.ts";
@@ -961,6 +964,45 @@ describe("OpenRouter adapter", () => {
             using: "high",
             reason: 'the model does not offer effort "max"',
         }]);
+    });
+
+    test("one adapter refusal prevents a sibling session from sending", async () => {
+        const guard = new OpenRouterAllowanceGuard();
+        let sends = 0;
+        const sendChat: SendOpenRouterChat = async () => {
+            sends += 1;
+            return chunks([chatChunk({
+                delta: {},
+                error: {
+                    code: 402,
+                    message: "Prompt tokens limit exceeded: 1000 > 1",
+                },
+            })]);
+        };
+        const adapter = () => new OpenRouterAdapter(
+            sendChat,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            guard,
+            "credential-a",
+        );
+        const request = {
+            model: "openai/test",
+            messages: [{
+                role: "user" as const,
+                content: [{ type: "text" as const, text: "hello" }],
+            }],
+        };
+
+        await adapter().stream(request).result();
+        const refused = await adapter().stream(request).result();
+
+        expect(sends).toBe(1);
+        expect(refused.stopReason).toBe("error");
+        expect(refused.errorMessage).toContain("Vera did not send it");
     });
 });
 

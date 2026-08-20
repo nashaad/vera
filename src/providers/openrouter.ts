@@ -9,6 +9,10 @@ import type {
 } from "./failed-request-capture.ts";
 import { ProviderFailureError } from "../model/provider-failure.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type {
+    OpenRouterAllowanceGuard,
+    OpenRouterAllowanceRequest,
+} from "./openrouter-allowance-guard.ts";
 import {
     effortSubstitutionNotice,
     resolveReasoningSelection,
@@ -52,6 +56,8 @@ export interface OpenRouterAdapterOptions {
     readonly imageSupport?: ImageSupportLookup;
     /** Where a failed request is kept. Absent keeps nothing. */
     readonly captureFailedRequest?: FailedRequestCapture;
+    readonly allowanceGuard?: OpenRouterAllowanceGuard;
+    readonly allowanceScope?: string;
 }
 
 export interface ChatProviderProfile {
@@ -84,6 +90,8 @@ export class OpenRouterAdapter implements ModelAdapter {
         private readonly effortLevels?: EffortLevelsLookup,
         private readonly captureFailedRequest?: FailedRequestCapture,
         private readonly imageSupport?: ImageSupportLookup,
+        private readonly allowanceGuard?: OpenRouterAllowanceGuard,
+        private readonly allowanceScope?: string,
     ) {
         this.supportsImageInput = profile.supportsImageInput ?? false;
     }
@@ -111,6 +119,7 @@ export class OpenRouterAdapter implements ModelAdapter {
         const rawChunks: unknown[] = [];
         let rawTruncated = false;
         let sentRequest: unknown;
+        let allowanceRequest: OpenRouterAllowanceRequest | undefined;
         const capture = (
             outcome: FailedRequestOutcome,
             detail: { error?: string; failure?: ProviderFailure },
@@ -194,6 +203,29 @@ export class OpenRouterAdapter implements ModelAdapter {
                     : { bodyExtensions: request.bodyExtensions }),
             };
 
+            allowanceRequest = this.allowanceScope === undefined
+                ? undefined
+                : {
+                    scope: this.allowanceScope,
+                    model: request.model,
+                    promptBytes: Buffer.byteLength(
+                        JSON.stringify(providerRequest),
+                        "utf8",
+                    ),
+                    ...(request.maxTokens === undefined
+                        ? {}
+                        : { maxTokens: request.maxTokens }),
+                };
+            const preflight = allowanceRequest === undefined
+                ? undefined
+                : this.allowanceGuard?.preflight(allowanceRequest);
+            if (preflight !== undefined) {
+                throw new ProviderFailureError(
+                    preflight,
+                    new Error(preflight.message),
+                );
+            }
+
             sentRequest = request.bodyExtensions === undefined
                 ? providerRequest
                 : {
@@ -252,6 +284,17 @@ export class OpenRouterAdapter implements ModelAdapter {
                             ?? classifyOpenRouterError(value),
                         value,
                     );
+            if (
+                error instanceof ProviderFailureError
+                && error.failure.allowance !== undefined
+                && error.failure.providerErrorType !== "cached_allowance"
+                && allowanceRequest !== undefined
+            ) {
+                this.allowanceGuard?.observe(
+                    allowanceRequest,
+                    error.failure.allowance,
+                );
+            }
             const stopReason = request.signal?.aborted ? "aborted" : "error";
             // An abort is the user's own doing, not a provider failure, so it
             // writes nothing.
@@ -309,7 +352,14 @@ export function createOpenRouterAdapter(
             },
             { signal },
         );
-    }, options.reasoningMappings, OPENROUTER_PROFILE, options.effortLevels, options.captureFailedRequest, options.imageSupport);
+    },
+    options.reasoningMappings,
+    OPENROUTER_PROFILE,
+    options.effortLevels,
+    options.captureFailedRequest,
+    options.imageSupport,
+    options.allowanceGuard,
+    options.allowanceScope);
 }
 
 /**
