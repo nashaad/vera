@@ -65,6 +65,7 @@ esac
 if [ -n "$(git -C "$root" status --porcelain --untracked-files=all)" ]; then
     die "working tree must be clean before building a release"
 fi
+revision=$(git -C "$root" rev-parse HEAD)
 
 output_dir=$(dirname -- "$output")
 mkdir -p "$output_dir"
@@ -122,6 +123,7 @@ printf '%s\n' "$version" > "$bundle/VERSION"
 cat > "$bundle/manifest.json" <<EOF
 {
   "version": "$version",
+  "source_revision": "$revision",
   "platform": "$platform",
   "architecture": "$arch",
   "archive": "$archive_name",

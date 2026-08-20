@@ -165,6 +165,22 @@ case "$installed_version" in
         ;;
 esac
 
+manifest_value() {
+    key=$1
+    sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
+        "$archive_root/manifest.json" | sed -n '1p'
+}
+
+manifest_version=$(manifest_value version)
+[ "$manifest_version" = "$installed_version" ] \
+    || die "manifest version does not match VERSION"
+manifest_platform=$(manifest_value platform)
+[ "$manifest_platform" = "$platform" ] \
+    || die "manifest platform does not match installer target"
+manifest_arch=$(manifest_value architecture)
+[ "$manifest_arch" = "$arch" ] \
+    || die "manifest architecture does not match installer target"
+
 case "$version" in
     latest) ;;
     v*) [ "${installed_version#v}" = "${version#v}" ] \

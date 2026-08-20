@@ -46,7 +46,10 @@ test("curl installer verifies, installs, and reuses a release archive", () => {
     writeFileSync(executable, "#!/bin/sh\necho fixture-vera\n");
     chmodSync(executable, 0o755);
     writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(join(payload, "manifest.json"), '{"version":"0.1.0"}\n');
+    writeFileSync(
+        join(payload, "manifest.json"),
+        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
+    );
 
     const archive = "vera-darwin-arm64.tar.gz";
     const archivePath = join(release, "latest", "download", archive);
@@ -120,7 +123,10 @@ test("curl installer refuses to replace an executable owned by another install",
     writeFileSync(join(payload, "bin", "vera"), "#!/bin/sh\n");
     chmodSync(join(payload, "bin", "vera"), 0o755);
     writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(join(payload, "manifest.json"), '{"version":"0.1.0"}\n');
+    writeFileSync(
+        join(payload, "manifest.json"),
+        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
+    );
 
     const archivePath = join(release, "latest", "download", "vera-darwin-arm64.tar.gz");
     expect(run(["tar", "-czf", archivePath, "-C", payload, "."]).exitCode).toBe(0);
