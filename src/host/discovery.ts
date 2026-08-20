@@ -1,3 +1,5 @@
+import { resolve } from "node:path";
+
 import {
     createHostLockfile,
     HostProtocolMismatchError,
@@ -19,6 +21,29 @@ import {
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 
+export class HostProjectMismatchError extends Error {
+    readonly pid: number;
+    readonly startedAt: string;
+    readonly socketPath: string;
+    readonly expectedProjectRoot: string;
+    readonly actualProjectRoot?: string;
+
+    constructor(record: HostLockRecord, expectedProjectRoot: string) {
+        const actual = record.project_root
+            ?? "an older host with no project identity";
+        super(
+            `Resident host is bound to ${actual}, not ${expectedProjectRoot}. `
+                + "Replace the resident host before using project-scoped extensions here.",
+        );
+        this.name = "HostProjectMismatchError";
+        this.pid = record.pid;
+        this.startedAt = record.started_at;
+        this.socketPath = record.socket_path;
+        this.expectedProjectRoot = expectedProjectRoot;
+        this.actualProjectRoot = record.project_root;
+    }
+}
+
 export interface EnsureResidentHostOptions {
     readonly startHost: () => void | Promise<void>;
     /** Project identity expected by a client attaching to the host. */
@@ -38,7 +63,10 @@ export interface EnsureResidentHostOptions {
         requesterProtocolVersion: number,
     ) => Promise<ShutdownForReplacementResponse | undefined>;
     readonly confirmBusyUpgrade?: (
-        error: HostProtocolMismatchError | HostUnresponsiveError,
+        error:
+            | HostProtocolMismatchError
+            | HostProjectMismatchError
+            | HostUnresponsiveError,
     ) => boolean | Promise<boolean>;
     readonly terminateHost?: (pid: number) => void | Promise<void>;
     readonly terminateWedgedHost?: (
@@ -96,6 +124,79 @@ export async function ensureResidentHost(
             if (timeout !== undefined) clearTimeout(timeout);
         }
     };
+    const rediscover = (): Promise<HostLockRecord> => {
+        const remainingMs = deadline - now();
+        if (remainingMs <= 0) {
+            return Promise.reject(new Error(
+                "Resident host replacement exceeded its deadline",
+            ));
+        }
+        return ensureResidentHost({
+            ...options,
+            startupTimeoutMs: remainingMs,
+        });
+    };
+    const sameHost = (
+        record: Pick<HostLockRecord, "pid" | "started_at">,
+        expected: Pick<HostLockRecord, "pid" | "started_at">,
+    ): boolean => record.pid === expected.pid
+        && record.started_at === expected.started_at;
+    const waitForHostDeparture = async (
+        expected: Pick<HostLockRecord, "pid" | "started_at">,
+    ): Promise<void> => {
+        while (true) {
+            let current: HostLockRecord | undefined;
+            try {
+                current = await beforeDeadline(
+                    () => lockfile.read(),
+                    "Resident host did not stop before its deadline",
+                );
+            } catch (error) {
+                if (
+                    !(error instanceof HostProtocolMismatchError)
+                    || error.startedAt === undefined
+                    || error.pid !== expected.pid
+                    || error.startedAt !== expected.started_at
+                ) {
+                    return;
+                }
+            }
+            if (current !== undefined) {
+                if (!sameHost(current, expected)) return;
+            } else if (lockfile.diagnose !== undefined) {
+                try {
+                    const diagnosis = await beforeDeadline(
+                        () => lockfile.diagnose!(),
+                        "Resident host did not stop before its deadline",
+                    );
+                    if (
+                        diagnosis.record === undefined
+                        || !sameHost(diagnosis.record, expected)
+                    ) {
+                        return;
+                    }
+                } catch (error) {
+                    if (
+                        !(error instanceof HostProtocolMismatchError)
+                        || error.startedAt === undefined
+                        || error.pid !== expected.pid
+                        || error.startedAt !== expected.started_at
+                    ) {
+                        return;
+                    }
+                }
+            } else {
+                return;
+            }
+            const remainingMs = deadline - now();
+            if (remainingMs <= 0) {
+                throw new Error(
+                    "Resident host did not stop before its deadline",
+                );
+            }
+            await wait(Math.min(pollIntervalMs, remainingMs));
+        }
+    };
 
     const shutdownIfIdle = options.shutdownIfIdle ?? requestHostShutdownIfIdle;
     const shutdownForReplacement = options.shutdownForReplacement
@@ -139,7 +240,7 @@ export async function ensureResidentHost(
                     () => lockfile.read(),
                     "Resident host replacement exceeded its deadline",
                 );
-                if (current !== undefined) return current;
+                if (current !== undefined) return rediscover();
             } catch (currentError) {
                 if (!(currentError instanceof HostProtocolMismatchError)) {
                     throw currentError;
@@ -170,7 +271,7 @@ export async function ensureResidentHost(
                     () => lockfile.read(),
                     "Resident host replacement exceeded its deadline",
                 );
-                if (current !== undefined) return current;
+                if (current !== undefined) return rediscover();
             } catch (currentError) {
                 if (
                     !(currentError instanceof HostProtocolMismatchError)
@@ -188,33 +289,83 @@ export async function ensureResidentHost(
                 );
             }
         }
-        while (true) {
-            try {
-                const replacement = await beforeDeadline(
-                    () => lockfile.read(),
-                    "Resident host did not stop before its deadline",
-                );
-                if (replacement === undefined) {
-                    break;
-                }
-                return replacement;
-            } catch (nextError) {
-                if (
-                    !(nextError instanceof HostProtocolMismatchError)
-                    || nextError.pid !== error.pid
-                    || nextError.startedAt !== error.startedAt
-                ) {
-                    throw nextError;
-                }
-            }
-            const remainingMs = deadline - now();
-            if (remainingMs <= 0) {
-                throw new Error(
-                    "Resident host did not stop before its deadline",
-                );
-            }
-            await wait(Math.min(pollIntervalMs, remainingMs));
+        await waitForHostDeparture({
+            pid: error.pid,
+            started_at: error.startedAt,
+        });
+        return rediscover();
+    }
+    if (
+        running !== undefined
+        && options.projectRoot !== undefined
+        && running.project_root !== resolve(options.projectRoot)
+    ) {
+        const mismatch = new HostProjectMismatchError(
+            running,
+            resolve(options.projectRoot),
+        );
+        const identity: HostIdentity = {
+            pid: running.pid,
+            started_at: running.started_at,
+            protocol_version: HOST_PROTOCOL_VERSION,
+        };
+        const replacement = await beforeDeadline(
+            () => shutdownForReplacement(
+                running.socket_path,
+                identity,
+                HOST_PROTOCOL_VERSION,
+            ),
+            "Resident host replacement exceeded its deadline",
+        );
+        if (
+            replacement?.type === "shutdown_for_replacement_refused"
+            && replacement.reason === "identity_mismatch"
+        ) {
+            return rediscover();
         }
+        const response = replacement?.type
+                === "shutdown_for_replacement_accepted"
+            ? replacement
+            : await beforeDeadline(
+                () => shutdownIfIdle(running.socket_path, identity),
+                "Resident host replacement exceeded its deadline",
+            );
+        if (
+            response?.type !== "shutdown_if_idle_accepted"
+            && response?.type !== "shutdown_for_replacement_accepted"
+            || response.pid !== running.pid
+            || response.started_at !== running.started_at
+        ) {
+            const approved = await withoutDeadline(
+                () => options.confirmBusyUpgrade?.(mismatch) ?? false,
+            );
+            if (!approved) throw mismatch;
+            let current: HostLockRecord | undefined;
+            try {
+                current = await beforeDeadline(
+                    () => lockfile.read(),
+                    "Resident host replacement exceeded its deadline",
+                );
+            } catch (error) {
+                if (error instanceof HostProtocolMismatchError) {
+                    return rediscover();
+                }
+                throw error;
+            }
+            if (
+                current === undefined
+                || current.pid !== running.pid
+                || current.started_at !== running.started_at
+            ) {
+                return rediscover();
+            }
+            await beforeDeadline(
+                () => (options.terminateHost ?? terminateHost)(running.pid),
+                "Resident host replacement exceeded its deadline",
+            );
+        }
+        await waitForHostDeparture(running);
+        return rediscover();
     }
     if (running !== undefined) {
         return running;
@@ -255,6 +406,12 @@ export async function ensureResidentHost(
             "Resident host did not start before its deadline",
         );
         if (started !== undefined) {
+            if (
+                options.projectRoot !== undefined
+                && started.project_root !== resolve(options.projectRoot)
+            ) {
+                return rediscover();
+            }
             return started;
         }
         const remainingMs = deadline - now();

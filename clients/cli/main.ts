@@ -32,6 +32,7 @@ import {
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../../src/host/lockfile.ts";
+import { HostProjectMismatchError } from "../../src/host/discovery.ts";
 import {
     forceStopResidentHost,
     type ForceStopOutcome,
@@ -1074,6 +1075,8 @@ async function confirmBusyHostUpgrade(error?: Error): Promise<boolean> {
         const answer = await prompt.question(
             error instanceof HostUnresponsiveError
                 ? `The resident Vera host (PID ${error.pid}) is not responding. Replace it? [y/N] `
+                : error instanceof HostProjectMismatchError
+                    ? "Vera needs to restart the resident host for this checkout. Restart it and disconnect attached clients? [y/N] "
                 : "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
         );
         return answer.trim().toLowerCase() === "y"
