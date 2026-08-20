@@ -1,13 +1,18 @@
 import { createServer, type Server, type Socket } from "node:net";
-import { chmod, mkdir, unlink } from "node:fs/promises";
+import { chmod, mkdir, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import {
     createHostLockfile,
     defaultHostLockPath,
     defaultHostSocketPath,
+    readHostLockRecordFile,
     type HostLockRecord,
 } from "./lockfile.ts";
+import {
+    processIsAlive,
+    recordMatchesRunningProcess,
+} from "./process-identity.ts";
 import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
     HOST_PROTOCOL_VERSION,
@@ -382,7 +387,11 @@ export async function startHostServer(
     });
     try {
         await prepareSocketDirectory(socketPath);
-        await listenAfterRemovingStaleSocket(server, socketPath);
+        await listenAfterRemovingStaleSocket(
+            server,
+            socketPath,
+            options.lockPath ?? defaultHostLockPath(),
+        );
         await chmod(socketPath, 0o600);
         const lock = await createHostLockfile({
             path: options.lockPath ?? defaultHostLockPath(),
@@ -1503,10 +1512,30 @@ function listen(server: Server, socketPath: string): Promise<void> {
     });
 }
 
+export class HostSocketHeldError extends Error {
+    constructor(readonly pid: number, socketPath: string, answering = false) {
+        super(
+            answering
+                ? `Resident Vera host PID ${pid} is already serving `
+                    + `${socketPath}, so a new host did not take it. Stop it`
+                    + " with 'vera host stop'."
+                : `Resident Vera host PID ${pid} still holds ${socketPath} but`
+                    + " is not answering, so a new host did not take it. Stop"
+                    + " it with 'vera host stop --force'.",
+        );
+        this.name = "HostSocketHeldError";
+    }
+}
+
 async function listenAfterRemovingStaleSocket(
     server: Server,
     socketPath: string,
+    lockPath: string,
 ): Promise<void> {
+    // Ownership is settled before binding rather than after a failed bind:
+    // binding an occupied unix socket path does not reliably report
+    // EADDRINUSE, and a silent rebind steals a live host's socket.
+    await clearSocketPathOrRefuse(socketPath, lockPath);
     try {
         await listen(server, socketPath);
         return;
@@ -1514,11 +1543,45 @@ async function listenAfterRemovingStaleSocket(
         if ((error as NodeJS.ErrnoException).code !== "EADDRINUSE") {
             throw error;
         }
-        for (let attempt = 0; attempt < 3; attempt += 1) {
-            if (await requestHostIdentity(socketPath) !== undefined) {
-                throw error;
-            }
+    }
+    await clearSocketPathOrRefuse(socketPath, lockPath);
+    await listen(server, socketPath);
+}
+
+/**
+ * Removes the socket path when nothing owns it, and throws when something
+ * does. Silence is not proof the socket is abandoned: a wedged host holds its
+ * socket open and answers nothing, which looks identical from here, so the
+ * lockfile decides. Only a socket no live recorded host owns is stale.
+ */
+async function clearSocketPathOrRefuse(
+    socketPath: string,
+    lockPath: string,
+): Promise<void> {
+    try {
+        await stat(socketPath);
+    } catch (error) {
+        if ((error as NodeJS.ErrnoException).code === "ENOENT") return;
+        throw error;
+    }
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+        const identity = await requestHostIdentity(socketPath);
+        if (identity !== undefined) {
+            throw new HostSocketHeldError(identity.pid, socketPath, true);
         }
+    }
+    const owner = await readHostLockRecordFile(lockPath);
+    // A record naming this very process describes an earlier incarnation of
+    // the host inside it, which is gone; only another process can hold a
+    // socket against us.
+    if (
+        owner !== undefined
+        && owner.socket_path === socketPath
+        && owner.pid !== process.pid
+        && processIsAlive(owner.pid)
+        && recordMatchesRunningProcess(owner)
+    ) {
+        throw new HostSocketHeldError(owner.pid, socketPath);
     }
 
     try {
@@ -1528,7 +1591,6 @@ async function listenAfterRemovingStaleSocket(
             throw error;
         }
     }
-    await listen(server, socketPath);
 }
 
 function closeServer(server: Server): Promise<void> {
