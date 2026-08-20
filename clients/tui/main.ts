@@ -179,6 +179,7 @@ import {
 import {
     renderTuiDiagnostics,
     type TuiClientExtensionReloadSnapshot,
+    type TuiDiagnosticsScope,
     type TuiDiagnosticsSnapshot,
 } from "./diagnostics.ts";
 import {
@@ -1181,7 +1182,10 @@ export async function startTui(
     let queuedSearch: SessionSearchQuery | undefined;
     let help: TuiHelpState | undefined;
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
+    let diagnosticsScope: TuiDiagnosticsScope = "session";
     let diagnosticsSessionPath: string | undefined;
+    let diagnosticsSessionPathResolved = false;
+    let diagnosticsGeneration = 0;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
@@ -2030,7 +2034,9 @@ export async function startTui(
     const workTabView = createTuiLinesView(renderer, "work-tab");
     const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
-    const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer);
+    const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
+        showScopeTabs: true,
+    });
     const doctorDialogView = createTuiDiagnosticsDialogView(renderer, {
         id: "doctor-dialog",
         title: "Doctor",
@@ -4064,14 +4070,32 @@ export async function startTui(
         }
 
         if (diagnosticsDialog !== undefined) {
-            const action = handleTuiDiagnosticsDialogKey(key);
+            const action = handleTuiDiagnosticsDialogKey(key, true);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
+                    diagnosticsGeneration += 1;
                     diagnosticsDialog = undefined;
                     diagnosticsSessionPath = undefined;
+                    diagnosticsSessionPathResolved = false;
                     focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                if (action === "switch_scope") {
+                    diagnosticsScope = diagnosticsScope === "session"
+                        ? "vera"
+                        : "session";
+                    diagnosticsDialog = {
+                        text: renderTuiDiagnostics({
+                            ...diagnosticsSnapshot(),
+                            sessionPath: diagnosticsSessionPath,
+                        }),
+                        scope: diagnosticsScope,
+                        copyReady: diagnosticsScope === "vera"
+                            || diagnosticsSessionPathResolved,
+                    };
                     renderState();
                     return;
                 }
@@ -4081,11 +4105,17 @@ export async function startTui(
                 const text = diagnosticsDialog.text;
                 void copyText(text).then(() => {
                     if (diagnosticsDialog?.text !== text) return;
-                    diagnosticsDialog = { text, copyStatus: "copied" };
+                    diagnosticsDialog = {
+                        ...diagnosticsDialog,
+                        copyStatus: "copied",
+                    };
                     renderState();
                 }).catch(() => {
                     if (diagnosticsDialog?.text !== text) return;
-                    diagnosticsDialog = { text, copyStatus: "failed" };
+                    diagnosticsDialog = {
+                        ...diagnosticsDialog,
+                        copyStatus: "failed",
+                    };
                     renderState();
                 });
                 return;
@@ -4654,6 +4684,8 @@ export async function startTui(
             state,
             activity,
             elapsed: elapsedWorkingTime(),
+            scope: diagnosticsScope,
+            sessionId: client.agentId,
             workspace: client.workspace ?? process.cwd(),
             runningBackgroundAgents,
             stash: summarizeStash(),
@@ -4879,11 +4911,11 @@ export async function startTui(
             clientExtensionReload = clientExtensionReloadStarted();
             if (diagnosticsDialog !== undefined) {
                 diagnosticsDialog = {
+                    ...diagnosticsDialog,
                     text: renderTuiDiagnostics({
                         ...diagnosticsSnapshot(),
                         sessionPath: diagnosticsSessionPath,
                     }),
-                    copyReady: diagnosticsDialog.copyReady,
                 };
             }
             void reloadTuiClientExtensions({
@@ -4912,11 +4944,11 @@ export async function startTui(
                     clientExtensionReloadSucceeded(loadedExtensionIds);
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
+                        ...diagnosticsDialog,
                         text: renderTuiDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
-                        copyReady: diagnosticsDialog.copyReady,
                     };
                 }
                 state = appendTuiNotice(state, "Client extensions reloaded");
@@ -4931,11 +4963,11 @@ export async function startTui(
                 clientExtensionReload = outcome.snapshot;
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
+                        ...diagnosticsDialog,
                         text: renderTuiDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
-                        copyReady: diagnosticsDialog.copyReady,
                     };
                 }
                 state = appendTuiNotice(
@@ -4953,15 +4985,19 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
+            diagnosticsScope = "session";
             diagnosticsSessionPath = undefined;
+            const generation = ++diagnosticsGeneration;
             const agentId = client.agentId;
             const resolvingSessionPath = agentId !== undefined
                 && dependencies.listAgents !== undefined;
+            diagnosticsSessionPathResolved = !resolvingSessionPath;
             diagnosticsDialog = {
                 text: renderTuiDiagnostics({
                     ...diagnosticsSnapshot(),
                 }),
-                copyReady: !resolvingSessionPath,
+                scope: diagnosticsScope,
+                copyReady: diagnosticsSessionPathResolved,
             };
             renderState();
             focusActiveSurface();
@@ -4972,8 +5008,10 @@ export async function startTui(
                     )?.session_path;
                     if (
                         diagnosticsDialog === undefined
+                        || diagnosticsGeneration !== generation
                         || client.agentId !== agentId
                     ) return;
+                    diagnosticsSessionPathResolved = true;
                     if (sessionPath === undefined) {
                         diagnosticsDialog = {
                             ...diagnosticsDialog,
@@ -4988,14 +5026,17 @@ export async function startTui(
                             ...diagnosticsSnapshot(),
                             sessionPath,
                         }),
+                        scope: diagnosticsScope,
                         copyReady: true,
                     };
                     renderState();
                 }).catch(() => {
                     if (
                         diagnosticsDialog === undefined
+                        || diagnosticsGeneration !== generation
                         || client.agentId !== agentId
                     ) return;
+                    diagnosticsSessionPathResolved = true;
                     diagnosticsDialog = {
                         ...diagnosticsDialog,
                         copyReady: true,

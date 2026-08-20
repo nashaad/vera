@@ -771,14 +771,14 @@ test("model settings are snapshotted once when each turn starts", async () => {
     await secondTurn;
 });
 
-test("permission mode is fixed for one turn and changes on the next", async () => {
+test("permission changes apply before a tool executes in the active turn", async () => {
     const toolResponse = (id: string): AssistantMessage => ({
         role: "assistant",
         content: [{
             type: "tool_call",
             id,
             name: "bash",
-            input: { command: "uname -a" },
+            input: { command: "python3 --version" },
         }],
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
@@ -791,57 +791,57 @@ test("permission mode is fixed for one turn and changes on the next", async () =
         usage: emptyUsage(),
         stopReason: "stop",
     });
-    const responses = [
-        toolResponse("first-bash"),
-        finalResponse("first done"),
-        toolResponse("second-bash"),
-        finalResponse("second done"),
-    ];
+    const responses = [toolResponse("first-bash"), finalResponse("done")];
+    let signalRequestStarted: () => void = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+        signalRequestStarted = resolve;
+    });
+    const faux = new FauxAdapter(responses, { delayMs: 20 });
+    const adapter: ModelAdapter = {
+        stream(request) {
+            signalRequestStarted();
+            return faux.stream(request);
+        },
+    };
     let mode: ApprovalMode = "ask";
+    const reviewed: string[] = [];
     const channel = createInProcessChannel();
     const events = createTestEvents(channel.engine);
     const state: RunTurnState = {
         messages: [],
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(process.cwd()),
-        inbound: new InboundCommandRouter(channel.engine, events, {
-            readApprovalMode: () => mode,
-        }),
+        inbound: new InboundCommandRouter(channel.engine, events),
         events,
         hooks: new ToolHooks(),
         approvalMode: "ask",
+        readApprovalMode: () => mode,
+        reviewToolCall: async (request) => {
+            reviewed.push(String(request.toolCall.input.command));
+            return {
+                decision: "allow",
+                reason: "The version check is read-only.",
+                riskLevel: "low",
+                userAuthorization: "unknown",
+            };
+        },
     };
-    const adapter = new FauxAdapter(responses);
 
     channel.client.send({ type: "prompt", content: "first turn" });
     const firstTurn = runTurn(adapter, "test", state);
     await expectUserPrompt(channel, "first turn", 1);
     await expectContextMeasured(channel, 2);
-    mode = "full_access";
+    await requestStarted;
+    mode = "auto";
 
-    const approval = await channel.client.receive();
-    expect(approval.type).toBe("ui_request");
-    if (approval.type !== "ui_request") {
-        throw new Error("Expected the first turn to retain ask mode");
+    const updates: AgentUpdate[] = [];
+    while (updates.at(-1)?.type !== "tool_started") {
+        updates.push(await channel.client.receive());
     }
-    channel.client.send({
-        type: "ui_response",
-        requestId: approval.requestId,
-        response: { type: "tool_approval", decision: "allow_once" },
-    });
+    expect(updates.map((update) => update.type)).not.toContain("ui_request");
+    expect(reviewed).toEqual(["python3 --version"]);
     await receiveThroughTurnFinished(channel);
     await firstTurn;
-
-    channel.client.send({ type: "prompt", content: "second turn" });
-    const secondTurn = runTurn(adapter, "test", state);
-    await expectUserPrompt(channel, "second turn", 10);
-    await expectContextMeasured(channel, 11);
-    expect(await channel.client.receive()).toMatchObject({
-        type: "tool_started",
-        tool: "bash",
-    });
-    await receiveThroughTurnFinished(channel);
-    await secondTurn;
 });
 
 test("turn finished waits for the assistant message append", async () => {
@@ -2828,6 +2828,48 @@ test("auto sends a boundary crossing to the reviewer, not the user", async () =>
     expect(updates).not.toContain("ui_request");
 });
 
+test("a stricter mode set during review blocks the stale allow", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let mode: ApprovalMode = "auto";
+    let signalReviewStarted: () => void = () => {};
+    const reviewStarted = new Promise<void>((resolve) => {
+        signalReviewStarted = resolve;
+    });
+    let finishReview: () => void = () => {};
+    const reviewFinished = new Promise<void>((resolve) => {
+        finishReview = resolve;
+    });
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, async () => {
+            signalReviewStarted();
+            await reviewFinished;
+            return {
+                decision: "allow",
+                reason: "The old policy allowed it.",
+                riskLevel: "low",
+                userAuthorization: "unknown",
+            };
+        }),
+        readApprovalMode: () => mode,
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(
+        new FauxAdapter(boundaryCrossingResponses()),
+        "test",
+        state,
+    );
+    await reviewStarted;
+    mode = "readonly";
+    finishReview();
+    const updates = await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
+    expect(updates.map((update) => update.type)).not.toContain("tool_review");
+});
+
 test("auto reviews and executes a structured write outside the workspace", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-outside-write-"));
     temporaryWorkspaces.push(root);
@@ -2952,6 +2994,41 @@ test("ask requests approval before a structured outside write", async () => {
     await turn;
 
     expect(readFileSync(join(root, "outside.txt"), "utf8")).toBe("updated");
+});
+
+test("a stricter mode set during approval blocks the stale allow", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    let mode: ApprovalMode = "ask";
+    const state: RunTurnState = {
+        ...reviewedTurnState(channel, events, undefined),
+        approvalMode: mode,
+        readApprovalMode: () => mode,
+    };
+
+    channel.client.send({ type: "prompt", content: "go" });
+    const turn = runTurn(
+        new FauxAdapter(boundaryCrossingResponses()),
+        "test",
+        state,
+    );
+    const updates: AgentUpdate[] = [];
+    let requestId = "";
+    while (requestId.length === 0) {
+        const update = await channel.client.receive();
+        updates.push(update);
+        if (update.type === "ui_request") requestId = update.requestId;
+    }
+    mode = "readonly";
+    channel.client.send({
+        type: "ui_response",
+        requestId,
+        response: { type: "tool_approval", decision: "allow_once" },
+    });
+    updates.push(...await receiveThroughTurnFinished(channel));
+    await turn;
+
+    expect(updates.map((update) => update.type)).not.toContain("tool_started");
 });
 
 test("a custom permission mode routes to its named reviewer", async () => {

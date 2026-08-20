@@ -1115,9 +1115,6 @@ export async function runTurn(
         // the model, or the next request in the tool loop would restore an
         // effort the fallback model cannot be asked for.
         let turnReasoningEffort = modelSettings.reasoningEffort;
-        const turnApprovalMode = turn.approvalMode
-            ?? state.readApprovalMode?.()
-            ?? state.approvalMode;
         // Substitutions settled before the round's message exists. They are
         // drained into that message once it does.
         const pendingSubstitutions: ModelSubstitution[] = [];
@@ -1636,7 +1633,6 @@ export async function runTurn(
                             state,
                             first,
                             turn.signal,
-                            turnApprovalMode,
                             {
                                 model: activeModel,
                                 ...(turnReasoningEffort === undefined
@@ -1673,7 +1669,6 @@ export async function runTurn(
                             state,
                             prepared,
                             turn.signal,
-                            turnApprovalMode,
                             {
                                 model: activeModel,
                                 ...(turnReasoningEffort === undefined
@@ -1971,7 +1966,6 @@ async function executePreparedTool(
     state: RunTurnState,
     prepared: PreparedToolCall,
     signal: AbortSignal,
-    approvalMode: ApprovalMode,
     modelSettings: ModelTurnSettings,
     breaker: ReviewCircuitBreaker,
 ): Promise<CompletedToolCall> {
@@ -2011,74 +2005,83 @@ async function executePreparedTool(
         state.toolRuntime.workspace,
         hookCall,
     );
-    const permissionOptions = {
-        permissionModes: state.permissionModes,
-        permissionPreferences: state.readPermissionPreferences?.() ?? [],
-        extensionTools: state.extensionTools,
-        ...(state.scratchDir === undefined
-            ? {}
-            : { scratchDir: state.scratchDir }),
-    };
-    const ownPermission = decideToolPermission(
-        approvalMode,
-        permissionContext.toolCall,
-        permissionContext.workspace,
-        state.readPermissionGrants?.() ?? [],
-        permissionOptions,
-    );
-    // A delegated turn is clamped by the parent's mode, per action. The
-    // parent's grants and preferences are deliberately absent: a grant the
-    // user gave one session is not a grant to everything it spawns.
-    const permission = state.clampPermissionMode === undefined
-        ? ownPermission
-        : stricterToolPermission(
-            ownPermission,
-            decideToolPermission(
-                state.clampPermissionMode,
-                permissionContext.toolCall,
-                permissionContext.workspace,
-                [],
-                { ...permissionOptions, permissionPreferences: [] },
-            ),
-        );
-    const scratchNote = scratchAlternativeNote(permission, state.scratchDir);
-    if (permission.behavior === "deny") {
-        return {
-            result: deniedByPolicy(
-                state,
-                toolCall,
-                permission.reason,
-                scratchNote,
-                "permission-mode",
-            ),
+    // Permission mode is policy over the action about to run, not a model
+    // setting. Re-evaluate after every asynchronous allow so a second dial
+    // change made during review or approval cannot authorize stale policy.
+    let approvalMode = state.approvalMode;
+    permissionCheck: while (true) {
+        approvalMode = state.readApprovalMode?.() ?? state.approvalMode;
+        const permissionOptions = {
+            permissionModes: state.permissionModes,
+            permissionPreferences: state.readPermissionPreferences?.() ?? [],
+            extensionTools: state.extensionTools,
+            ...(state.scratchDir === undefined
+                ? {}
+                : { scratchDir: state.scratchDir }),
         };
-    }
-    const grantProposals = permissionGrantProposals(permission);
-    if (permission.behavior === "review") {
-        const reviewCall = state.reviewToolCallForProfile === undefined
-            ? state.reviewToolCall
-            : (
-                request: Parameters<ReviewToolCall>[0],
-                nextSignal: AbortSignal,
-            ) =>
-                state.reviewToolCallForProfile!(
-                    permission.reviewerProfile,
-                    request,
-                    nextSignal,
-                );
-        if (reviewCall === undefined) {
-            const reason =
-                "The automatic reviewer is unavailable, so the action did not run.";
-            state.events.emit({
-                type: "tool_review_decided",
-                toolCall: hookCall,
-                decision: "unavailable",
-                reason,
-                riskLevel: "high",
-                userAuthorization: "unknown",
-            });
-            return { result: deniedToolResult(toolCall, reason) };
-        } else {
+        const ownPermission = decideToolPermission(
+            approvalMode,
+            permissionContext.toolCall,
+            permissionContext.workspace,
+            state.readPermissionGrants?.() ?? [],
+            permissionOptions,
+        );
+        // A delegated turn is clamped by the parent's mode, per action. The
+        // parent's grants and preferences are deliberately absent: a grant the
+        // user gave one session is not a grant to everything it spawns.
+        const permission = state.clampPermissionMode === undefined
+            ? ownPermission
+            : stricterToolPermission(
+                ownPermission,
+                decideToolPermission(
+                    state.clampPermissionMode,
+                    permissionContext.toolCall,
+                    permissionContext.workspace,
+                    [],
+                    { ...permissionOptions, permissionPreferences: [] },
+                ),
+            );
+        const scratchNote = scratchAlternativeNote(
+            permission,
+            state.scratchDir,
+        );
+        if (permission.behavior === "deny") {
+            return {
+                result: deniedByPolicy(
+                    state,
+                    toolCall,
+                    permission.reason,
+                    scratchNote,
+                    "permission-mode",
+                ),
+            };
+        }
+        const grantProposals = permissionGrantProposals(permission);
+        if (permission.behavior === "review") {
+            const reviewCall = state.reviewToolCallForProfile === undefined
+                ? state.reviewToolCall
+                : (
+                    request: Parameters<ReviewToolCall>[0],
+                    nextSignal: AbortSignal,
+                ) =>
+                    state.reviewToolCallForProfile!(
+                        permission.reviewerProfile,
+                        request,
+                        nextSignal,
+                    );
+            if (reviewCall === undefined) {
+                const reason =
+                    "The automatic reviewer is unavailable, so the action did not run.";
+                state.events.emit({
+                    type: "tool_review_decided",
+                    toolCall: hookCall,
+                    decision: "unavailable",
+                    reason,
+                    riskLevel: "high",
+                    userAuthorization: "unknown",
+                });
+                return { result: deniedToolResult(toolCall, reason) };
+            }
             const review = await reviewCall(
                 {
                     toolCall: hookCall,
@@ -2094,6 +2097,12 @@ async function executePreparedTool(
                 },
                 signal,
             );
+            if (
+                (state.readApprovalMode?.() ?? state.approvalMode)
+                    !== approvalMode
+            ) {
+                continue permissionCheck;
+            }
             state.events.emit({
                 type: "tool_review_decided",
                 toolCall: hookCall,
@@ -2119,29 +2128,43 @@ async function executePreparedTool(
                 return {
                     result: deniedToolResult(toolCall, review.reason),
                 };
-            } else {
-                breaker.record("allow");
+            }
+            breaker.record("allow");
+        }
+        if (permission.behavior === "ask") {
+            const approval = await state.inbound.requestToolApproval(
+                hookCall,
+                permission.reason,
+                {
+                    timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
+                    signal,
+                    ...(grantProposals.length === 0
+                        ? {}
+                        : { permissionGrants: grantProposals }),
+                },
+            );
+            if (approval.behavior === "deny") {
+                return {
+                    result: deniedToolResult(
+                        toolCall,
+                        approval.reason,
+                        scratchNote,
+                    ),
+                };
+            }
+            if (
+                (state.readApprovalMode?.() ?? state.approvalMode)
+                    !== approvalMode
+            ) {
+                continue permissionCheck;
             }
         }
-    }
-    if (permission.behavior === "ask") {
-        const askReason = permission.reason;
-        const approval = await state.inbound.requestToolApproval(
-            hookCall,
-            askReason,
-            {
-                timeoutMs: TOOL_APPROVAL_TIMEOUT_MS,
-                signal,
-                ...(grantProposals.length === 0
-                    ? {}
-                    : { permissionGrants: grantProposals }),
-            },
-        );
-        if (approval.behavior === "deny") {
-            return {
-                result: deniedToolResult(toolCall, approval.reason, scratchNote),
-            };
+        if (
+            (state.readApprovalMode?.() ?? state.approvalMode) !== approvalMode
+        ) {
+            continue permissionCheck;
         }
+        break permissionCheck;
     }
 
     state.events.emit({ type: "tool_execution_started", toolCall });
