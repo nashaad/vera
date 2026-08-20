@@ -1808,6 +1808,9 @@ function sanitizedProviderFailure(failure: ProviderFailure): ProviderFailure {
                     failure.providerMessage,
                 ),
             }),
+        ...(failure.userAction === undefined
+            ? {}
+            : { userAction: sanitizeDiagnosticText(failure.userAction) }),
     };
 }
 

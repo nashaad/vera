@@ -195,6 +195,19 @@ function modelFailureLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     const worst = summary.signatures[0];
     if (worst !== undefined) {
         lines.push(`  last error   ${worst.lastDetail}`);
+        if (worst.lastRequestTokens !== undefined) {
+            lines.push(
+                `  last request ${worst.lastRequestTokens.toLocaleString()}`
+                    + `${worst.lastRequestTokensEstimated ? " estimated" : ""}`
+                    + " tokens (attempted, not billed usage)",
+            );
+        }
+        if (worst.lastAllowance !== undefined) {
+            lines.push(
+                `  allowance    ${worst.lastAllowance.available.toLocaleString()}`
+                    + ` ${worst.lastAllowance.kind.replace("_", " ")}`,
+            );
+        }
     }
     return lines;
 }
