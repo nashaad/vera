@@ -352,6 +352,11 @@ export function createTuiComposer(
             { name: "return", shift: true, action: "newline" },
             { name: "enter", shift: true, action: "newline" },
             { name: "kpenter", shift: true, action: "newline" },
+            // Terminals outside the kitty protocol cannot encode shift+enter
+            // and send ESC CR instead (option+enter, or a shift+enter remap).
+            { name: "return", meta: true, action: "newline" },
+            { name: "enter", meta: true, action: "newline" },
+            { name: "kpenter", meta: true, action: "newline" },
         ],
         onSubmit,
     });

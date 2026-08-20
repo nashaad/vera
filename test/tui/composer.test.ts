@@ -139,6 +139,28 @@ test("TUI composer edits, pastes, submits, and survives resize", async () => {
     }
 });
 
+test("ESC-prefixed Enter inserts a newline instead of submitting", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const submitted: string[] = [];
+    const composer = createTuiComposer(setup.renderer, () => {
+        submitted.push(composer.plainText);
+    });
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        await setup.mockInput.typeText("first");
+        setup.mockInput.pressKey("\x1b\r");
+        await setup.mockInput.typeText("second");
+        await setup.flush();
+
+        expect(composer.plainText).toBe("first\nsecond");
+        expect(submitted).toEqual([]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("Command-Delete clears the whole composer before word-delete handling", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const composer = createTuiComposer(setup.renderer, () => {});
