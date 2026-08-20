@@ -8,6 +8,7 @@ import {
     compactionBudgetWarning,
     compactionTargetBudget,
     compactSession,
+    MAX_COMPACTION_ATTEMPTS,
     MIN_SUMMARY_TOKENS,
     shouldCompact,
     UNKNOWN_CAPACITY_TARGET_FRACTION,
@@ -349,6 +350,134 @@ test("a second cut inside one turn finds another seam, not keep-nothing", async 
     expect(kept.length).toBeGreaterThan(0);
     expect(kept[0]?.role).toBe("assistant");
     assertToolCallsPaired(store.modelContext(), "The compacted context");
+});
+
+test("a summarizer that overshoots drops the ladder to a looser rung", async () => {
+    const store = await session(6);
+    const targets: number[] = [];
+    const result = await compactSession(
+        options(store, (request) => {
+            targets.push(request.targetTokens);
+            // Over the target the first time, inside it after that. The rung
+            // had room by measurement, so nothing but a retry recovers.
+            return targets.length === 1
+                ? { projection: [summary("over ".repeat(4_000))] }
+                : { projection: [summary()] };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(targets.length).toBe(2);
+    // The second rung keeps less verbatim, so it asks for a bigger summary.
+    expect(targets[1]).toBeGreaterThan(targets[0] ?? 0);
+    expect(store.modelContext()[0]).toEqual(summary());
+});
+
+test("a summarizer that always overshoots reports the rejection, once", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return { projection: [summary("over ".repeat(4_000))] };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("rejected");
+    // Bounded: a session that cannot be summarized must not spend calls
+    // walking every seam in it.
+    expect(calls).toBeLessThanOrEqual(MAX_COMPACTION_ATTEMPTS);
+    expect(store.latestCompaction()).toBeUndefined();
+});
+
+test("a structural rejection is not retried down the ladder", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            // A fault no amount of extra room changes, so every rung would
+            // return it again.
+            return {
+                projection: [{
+                    role: "tool_result",
+                    toolCallId: "call-1",
+                    toolName: "read",
+                    content: [{ type: "text", text: "x" }],
+                    isError: false,
+                }],
+            };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("rejected");
+    expect(calls).toBe(1);
+});
+
+test("the ladder keeps its failsafe rung when the cap trims the middle", async () => {
+    const store = await session(8);
+    const targets: number[] = [];
+    const result = await compactSession(
+        options(store, (request) => {
+            targets.push(request.targetTokens);
+            // Only the rung that keeps nothing verbatim has room for this one.
+            return request.targetTokens < 4_000
+                ? { projection: [summary("over ".repeat(4_000))] }
+                : { projection: [summary()] };
+        }, {
+            // More rungs than the cap allows, so it has to drop some of them.
+            retainedUserTurns: 5,
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+    expect(targets.length).toBeLessThanOrEqual(MAX_COMPACTION_ATTEMPTS);
+    // Keep nothing verbatim is the loosest rung there is, and the cap must
+    // spend its last attempt on that rather than on another tight seam.
+    expect(store.modelContext()).toEqual([summary()]);
+});
+
+test("a compaction cancelled during a rung stops calling the summarizer", async () => {
+    const store = await session(6);
+    const controller = new AbortController();
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            // Cancelled while the first rung was being summarized.
+            controller.abort();
+            return { projection: [summary("over ".repeat(4_000))] };
+        }),
+        pressure(store, 10_000),
+        controller.signal,
+    );
+
+    expect(result.outcome).toBe("cancelled");
+    expect(calls).toBe(1);
+});
+
+test("an unavailable summarizer is not retried down the ladder", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            throw new CompletionUnavailableError("no model");
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("unavailable");
+    expect(calls).toBe(1);
 });
 
 test("the ladder gives up less verbatim as the window tightens", async () => {
