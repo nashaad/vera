@@ -21,6 +21,8 @@ const DEFAULT_POLL_INTERVAL_MS = 25;
 
 export interface EnsureResidentHostOptions {
     readonly startHost: () => void | Promise<void>;
+    /** Project identity expected by a client attaching to the host. */
+    readonly projectRoot?: string;
     readonly lockfile?: HostLockfile;
     readonly startupTimeoutMs?: number;
     readonly pollIntervalMs?: number;

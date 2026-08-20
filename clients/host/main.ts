@@ -24,7 +24,11 @@ try {
 }
 
 const start = (): ReturnType<typeof startResidentHost> =>
-    startResidentHost({ config, entrypoint: fileURLToPath(import.meta.url) });
+    startResidentHost({
+        config,
+        entrypoint: fileURLToPath(import.meta.url),
+        projectRoot: process.cwd(),
+    });
 
 let host;
 try {

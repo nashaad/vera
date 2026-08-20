@@ -181,6 +181,21 @@ test("extension manager slash commands are application-owned actions", () => {
             scope: "project",
         },
     });
+    expect(registry.dispatch(
+        `/extension install "/tmp/My Local Extension" --dry-run`,
+    )).toEqual({
+        type: "manage_extensions",
+        command: {
+            operation: "install",
+            source: "/tmp/My Local Extension",
+            scope: "profile",
+            dryRun: true,
+        },
+    });
+    expect(registry.dispatch("/extension list --project")).toEqual({
+        type: "show_extensions",
+        scope: "project",
+    });
     expect(registry.dispatch("/extension reload")).toEqual({
         type: "manage_extensions",
         command: { operation: "reload" },

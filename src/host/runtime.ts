@@ -147,6 +147,8 @@ export interface StartResidentHostOptions {
     readonly startedAt?: string;
     /** Absolute path of the entrypoint this host was started from. */
     readonly entrypoint?: string;
+    /** Project whose project-scoped extensions this host loaded. */
+    readonly projectRoot?: string;
     readonly sessionDirectory?: string;
     /** Overrides `~/.vera/preferences.json`, so tests do not read the
      * developer's real preferences. */
@@ -727,6 +729,9 @@ export async function startResidentHost(
             ...(options.entrypoint === undefined
                 ? {}
                 : { entrypoint: options.entrypoint }),
+            ...(options.projectRoot === undefined
+                ? {}
+                : { projectRoot: options.projectRoot }),
             findAgent: (agentId) => findOrRestoreAgent(
                 registry,
                 agentId,
