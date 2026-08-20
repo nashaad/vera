@@ -35,6 +35,7 @@ import {
     createTuiFlightRecorder,
     type TuiFlightRecorder,
 } from "./flight-recorder.ts";
+import { installTerminalRestoreOnExit } from "./terminal-restore.ts";
 import { readLatestHostStartupTiming } from "./host-startup-diagnostics.ts";
 
 import {
@@ -789,6 +790,7 @@ export async function startConfiguredTui(
     target: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
+    installTerminalRestoreOnExit();
     // Optional on purpose: the host owns the config, and the only fields read
     // here are the client's own extension lists. Requiring the file made
     // `vera attach` against an already-running host fail on a fresh machine.
@@ -892,10 +894,13 @@ export async function startConfiguredTui(
             searchSessions: (query) =>
                 searchSessionsThroughHost(host.socket_path, query),
             reconnectSession: async (currentAgentId) => {
+                // No confirmation here, unlike at startup: the renderer owns
+                // the screen and stdin by now, and a readline prompt would
+                // draw into the alternate screen and hand back a terminal
+                // without raw mode. Declining surfaces the error with its
+                // recovery commands instead, which the user runs elsewhere.
                 host = await findOrStartResidentHost({
-                    ...(options.confirmBusyUpgrade === undefined
-                        ? {}
-                        : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
+                    confirmBusyUpgrade: () => false,
                 });
                 return attach(currentAgentId);
             },
