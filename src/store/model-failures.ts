@@ -28,6 +28,11 @@ export interface ModelFailureRecord {
     readonly providerErrorType?: string;
     readonly providerName?: string;
     readonly statusCode?: number;
+    /** Engine estimate for the refused request; this is not billed usage. */
+    readonly requestTokens?: number;
+    readonly requestTokensEstimated?: boolean;
+    /** Provider-reported allowance at the instant the request was refused. */
+    readonly allowance?: ProviderFailure["allowance"];
 }
 
 /**
@@ -120,6 +125,10 @@ export interface ModelFailureSignatureSummary {
     readonly lastDetail: string;
     /** Distinct sessions this signature has appeared in. */
     readonly sessions: number;
+    /** Latest refused request estimate; never presented as billed usage. */
+    readonly lastRequestTokens?: number;
+    readonly lastRequestTokensEstimated?: boolean;
+    readonly lastAllowance?: ProviderFailure["allowance"];
 }
 
 export interface ModelFailureSummary {
@@ -153,6 +162,7 @@ export function summariseModelFailures(
         firstSeenAt: string;
         lastSeenAt: string;
         lastDetail: string;
+        lastRecord: ModelFailureRecord;
         readonly sessions: Set<string>;
     }>();
     for (const record of records) {
@@ -165,6 +175,7 @@ export function summariseModelFailures(
                 firstSeenAt: record.at,
                 lastSeenAt: record.at,
                 lastDetail: record.detail,
+                lastRecord: record,
                 sessions: new Set([record.sessionId]),
             });
             continue;
@@ -172,6 +183,7 @@ export function summariseModelFailures(
         existing.count += 1;
         existing.lastSeenAt = record.at;
         existing.lastDetail = record.detail;
+        existing.lastRecord = record;
         existing.sessions.add(record.sessionId);
     }
     const signatures = [...bySignature.entries()]
@@ -185,6 +197,18 @@ export function summariseModelFailures(
             lastSeenAt: entry.lastSeenAt,
             lastDetail: entry.lastDetail,
             sessions: entry.sessions.size,
+            ...(entry.lastRecord.requestTokens === undefined
+                ? {}
+                : { lastRequestTokens: entry.lastRecord.requestTokens }),
+            ...(entry.lastRecord.requestTokensEstimated === undefined
+                ? {}
+                : {
+                    lastRequestTokensEstimated:
+                        entry.lastRecord.requestTokensEstimated,
+                }),
+            ...(entry.lastRecord.allowance === undefined
+                ? {}
+                : { lastAllowance: entry.lastRecord.allowance }),
         }))
         .sort((left, right) =>
             right.count - left.count

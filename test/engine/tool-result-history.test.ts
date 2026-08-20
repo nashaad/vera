@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     assembleAgedToolResults,
     TOOL_RESULT_STUB_AFTER_TURNS,
+    TOOL_RESULT_TOTAL_BUDGET_BYTES,
 } from "../../src/engine/tool-result-history.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 
@@ -141,6 +142,124 @@ test("results younger than the age line remain verbatim", async () => {
     const result = projected.find((message) => message.role === "tool_result");
     expect(result?.role === "tool_result" && result.content[0]?.text)
         .toBe(original);
+});
+
+test("several legal results in one turn are bounded together", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-budget-"));
+    try {
+        const entries: { readonly message: ModelMessage }[] = [user("find it")];
+        const originals: string[] = [];
+        for (let index = 0; index < 4; index += 1) {
+            const id = `call-${index}`;
+            const original = Array.from(
+                { length: 2_400 },
+                (_, line) => `src/file-${index}.ts:${line + 1}:result-${index}`,
+            ).join("\n");
+            const spillPath = join(directory, `${id}.txt`);
+            await writeFile(spillPath, original, "utf8");
+            originals.push(original);
+            entries.push(call(id, "grep"));
+            entries.push({
+                message: {
+                    role: "tool_result",
+                    toolCallId: id,
+                    toolName: "grep",
+                    content: [{ type: "text", text: original }],
+                    isError: false,
+                    toolResultSource: {
+                        originalBytes: Buffer.byteLength(original, "utf8"),
+                        spillPath,
+                    },
+                },
+            });
+        }
+
+        const projected = assembleAgedToolResults(entries);
+        const results = projected.filter((message) =>
+            message.role === "tool_result"
+        );
+        const carriedBytes = results.reduce((total, message) =>
+            total + (message.role === "tool_result"
+                ? Buffer.byteLength(message.content[0]?.text ?? "", "utf8")
+                : 0), 0);
+
+        expect(carriedBytes).toBeLessThanOrEqual(
+            TOOL_RESULT_TOTAL_BUDGET_BYTES,
+        );
+        expect(results[0]?.role === "tool_result"
+            && results[0].content[0]?.text).toContain("Digest of older grep");
+        expect(results.at(-1)?.role === "tool_result"
+            && results.at(-1)?.content[0]?.text).toBe(originals.at(-1));
+        const durable = entries.filter((entry) =>
+            entry.message.role === "tool_result"
+        );
+        for (let index = 0; index < durable.length; index += 1) {
+            const message = durable[index]?.message;
+            expect(message?.role === "tool_result"
+                && message.content[0]?.text).toBe(originals[index]);
+        }
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("source-less results cannot fail open past the cumulative budget", () => {
+    const entries: { readonly message: ModelMessage }[] = [user("work")];
+    for (let index = 0; index < 65; index += 1) {
+        const id = `call-${index}`;
+        entries.push(call(id, "extension_tool"));
+        entries.push({
+            message: {
+                role: "tool_result",
+                toolCallId: id,
+                toolName: "extension_tool",
+                content: [{ type: "text", text: "x".repeat(2_048) }],
+                isError: false,
+            },
+        });
+    }
+
+    const projected = assembleAgedToolResults(entries);
+    const carriedBytes = projected.reduce((total, message) =>
+        total + (message.role === "tool_result"
+            ? Buffer.byteLength(message.content[0]?.text ?? "", "utf8")
+            : 0), 0);
+    expect(carriedBytes).toBeLessThanOrEqual(TOOL_RESULT_TOTAL_BUDGET_BYTES);
+    expect(projected.some((message) =>
+        message.role === "tool_result"
+        && message.content[0]?.text.includes("no re-readable spill")
+    )).toBe(true);
+});
+
+test("an expired spill never becomes a false recovery pointer", () => {
+    const entries: { readonly message: ModelMessage }[] = [user("work")];
+    for (let index = 0; index < 3; index += 1) {
+        const id = `call-${index}`;
+        entries.push(call(id, "grep"));
+        entries.push({
+            message: {
+                role: "tool_result",
+                toolCallId: id,
+                toolName: "grep",
+                content: [{ type: "text", text: "x".repeat(65_536) }],
+                isError: false,
+                toolResultSource: {
+                    originalBytes: 65_536,
+                    spillPath: `/missing/${id}`,
+                },
+            },
+        });
+    }
+
+    const text = assembleAgedToolResults(entries)
+        .filter((message) => message.role === "tool_result")
+        .map((message) => message.content[0]?.text ?? "")
+        .join("\n");
+    expect(Buffer.byteLength(text, "utf8")).toBeLessThanOrEqual(
+        TOOL_RESULT_TOTAL_BUDGET_BYTES,
+    );
+    expect(text).not.toContain("Full output remains available");
+    expect(text).toContain("no re-readable spill");
 });
 
 function agedEntries(

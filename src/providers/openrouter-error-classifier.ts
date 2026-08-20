@@ -39,13 +39,21 @@ export function classifyOpenRouterError(value: unknown): ProviderFailure {
     }
 
     const statusCode = value.statusCode;
+    const diagnostics = openRouterDiagnostics(value);
+    if (statusCode === 402) {
+        return openRouterPaymentFailure(
+            openRouterEnvelopeMessage(value) ?? diagnostics.providerMessage ?? message,
+            statusCode,
+            diagnostics,
+        );
+    }
     if (statusCode >= 500) {
         return {
             kind: "server",
             resolution: "retry",
             message,
             statusCode,
-            ...openRouterDiagnostics(value),
+            ...diagnostics,
         };
     }
 
@@ -53,7 +61,7 @@ export function classifyOpenRouterError(value: unknown): ProviderFailure {
     if (mapping === undefined) {
         return { kind: "unknown", resolution: "none", message, statusCode };
     }
-    return { ...mapping, message, statusCode, ...openRouterDiagnostics(value) };
+    return { ...mapping, message, statusCode, ...diagnostics };
 }
 
 const STREAM_FAILURES: Readonly<Partial<Record<
@@ -111,6 +119,26 @@ export function classifyOpenRouterStreamError(
     error: ChatStreamChunkError,
 ): ProviderFailure {
     const providerErrorType = error.metadata?.errorType;
+    const allowance = parseAllowance(error.message);
+    if (
+        error.code === 402
+        || providerErrorType === "payment_required"
+        || (
+            allowance !== undefined
+            && (
+                providerErrorType === undefined
+                || providerErrorType === "token_limit_exceeded"
+            )
+        )
+    ) {
+        return {
+            ...openRouterPaymentFailure(error.message, error.code),
+            ...(providerErrorType === undefined ? {} : { providerErrorType }),
+            ...(error.metadata?.providerCode === undefined
+                ? {}
+                : { providerCode: error.metadata.providerCode }),
+        };
+    }
     const mapped = providerErrorType === undefined
         ? undefined
         : STREAM_FAILURES[providerErrorType];
@@ -132,6 +160,67 @@ export function classifyOpenRouterStreamError(
     };
 }
 
+const OPENROUTER_PAYMENT_ACTION = "Add OpenRouter credits or raise this key's "
+    + "limit, then retry. Otherwise switch provider or model.";
+
+function openRouterPaymentFailure(
+    detail: string,
+    statusCode: number,
+    diagnostics: OpenRouterDiagnostics = {},
+): ProviderFailure {
+    const allowance = parseAllowance(detail);
+    const measured = allowance === undefined
+        ? ""
+        : allowance.kind === "prompt_tokens"
+        ? ` Requested ${allowance.requested.toLocaleString()} prompt tokens; `
+            + `the key currently permits ${allowance.available.toLocaleString()}.`
+        : ` Requested up to ${allowance.requested.toLocaleString()} output tokens; `
+            + `the available credit permits ${allowance.available.toLocaleString()}.`;
+    return {
+        kind: "payment_required",
+        resolution: "user_action",
+        message: `OpenRouter credit or key allowance is insufficient for this request.${measured} ${OPENROUTER_PAYMENT_ACTION}`,
+        statusCode,
+        ...diagnostics,
+        ...(allowance === undefined ? {} : { allowance }),
+        userAction: OPENROUTER_PAYMENT_ACTION,
+    };
+}
+
+function parseAllowance(
+    message: string,
+): ProviderFailure["allowance"] {
+    const prompt = /prompt tokens limit exceeded:\s*([\d,]+)\s*>\s*([\d,]+)/i
+        .exec(message);
+    if (prompt !== null) {
+        const requested = numberFrom(prompt[1]!);
+        const available = numberFrom(prompt[2]!);
+        if (requested === undefined || available === undefined) return undefined;
+        return {
+            kind: "prompt_tokens",
+            requested,
+            available,
+        };
+    }
+    const output = /requested up to\s*([\d,]+)\s*tokens.*can only afford\s*([\d,]+)/i
+        .exec(message);
+    if (output === null) return undefined;
+    const requested = numberFrom(output[1]!);
+    const available = numberFrom(output[2]!);
+    return requested === undefined || available === undefined
+        ? undefined
+        : {
+            kind: "max_tokens",
+            requested,
+            available,
+        };
+}
+
+function numberFrom(value: string): number | undefined {
+    const parsed = Number(value.replaceAll(",", ""));
+    return Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : undefined;
+}
+
 function streamErrorMessage(error: ChatStreamChunkError): string {
     const details = [
         error.metadata?.errorType,
@@ -148,6 +237,10 @@ interface OpenRouterDiagnostics {
     readonly providerCode?: string;
     readonly providerName?: string;
     readonly providerMessage?: string;
+}
+
+function openRouterEnvelopeMessage(error: OpenRouterError): string | undefined {
+    return stringField(recordField(parseRecord(error.body), "error"), "message");
 }
 
 /**

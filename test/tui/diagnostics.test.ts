@@ -444,6 +444,13 @@ test("TUI diagnostics ranks repeated model failures worst first", () => {
                 kind: "no_visible_response",
                 detail: "Model returned no visible response.",
                 sessionId: "session-c",
+                requestTokens: 80_004,
+                requestTokensEstimated: true,
+                allowance: {
+                    kind: "prompt_tokens",
+                    requested: 80_004,
+                    available: 51_390,
+                },
             },
         ]),
     });
@@ -456,6 +463,10 @@ test("TUI diagnostics ranks repeated model failures worst first", () => {
     expect(text).toContain(
         "ledger       /home/user/.vera/failures/ledger.jsonl",
     );
+    expect(text).toContain(
+        "last request 80,004 estimated tokens (attempted, not billed usage)",
+    );
+    expect(text).toContain("allowance    51,390 prompt tokens");
 });
 
 test("TUI diagnostics says so when no model has failed", () => {
