@@ -6,6 +6,7 @@ import {
     type ClientExtensionAddressingAdapter,
     type ClientExtensionAgentsAdapter,
     type ClientExtensionConsultAdapter,
+    type ClientExtensionContextAdapter,
     type ClientExtensionExperimentalTuiAdapter,
     type ClientExtensionMentionsAdapter,
     type ClientExtensionModelSettingsAdapter,
@@ -24,6 +25,7 @@ import type {
     VeraClientThreadTurn,
     VeraClientTranscriptBlock,
 } from "../../src/sdk/extensions.ts";
+import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 import {
     deleteTuiExtensionPreference,
     loadTuiExtensionPreference,
@@ -38,6 +40,7 @@ import { tuiChordOwner } from "./keymap.ts";
 export interface StartTuiClientExtensionHostOptions {
     readonly extensions: readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
+    readonly currentContext?: ClientExtensionContextAdapter["current"];
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
     readonly requestPicker: ClientExtensionPickerAdapter["request"];
@@ -69,6 +72,7 @@ export interface StartTuiClientExtensionHostOptions {
 export interface TuiClientExtensionHostBindings {
     readonly extensions: () => readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
+    readonly currentContext?: ClientExtensionContextAdapter["current"];
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
     readonly requestPicker: (
@@ -121,6 +125,7 @@ export function createTuiClientExtensionHostStarter(
         const registry = await startTuiClientExtensionHost({
             extensions,
             currentModelSettings: options.currentModelSettings,
+            currentContext: options.currentContext,
             updateModelSettings: options.updateModelSettings,
             subscribeModelSettings: options.subscribeModelSettings,
             requestPicker: (_extensionId, request, requestSignal) =>
@@ -261,6 +266,10 @@ export async function startTuiClientExtensionHost(
         agents: options.agents,
         experimentalTui: options.experimentalTui,
         thread: { read: options.readThread },
+        context: {
+            current: options.currentContext
+                ?? (() => ({ availability: "unavailable" } satisfies VeraClientContextSnapshot)),
+        },
         transcript: {
             append(_extensionId, block) {
                 options.appendTranscript(block);

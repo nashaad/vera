@@ -38,11 +38,13 @@ import type {
     VeraClientExperimentalHostedAgentAddressing,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
+import type { VeraClientContextSnapshot } from "../sdk/context.ts";
 import type {
     VeraClientExperimentalTui,
     VeraExperimentalTuiViewSpec,
     VeraExperimentalTuiAgentSurfaceSnapshot,
     VeraExperimentalTuiRawViewSpec,
+    VeraExperimentalTuiTranscriptRenderableSpec,
 } from "../sdk/experimental-tui.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
@@ -75,6 +77,7 @@ const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
 const CLIENT_CONSULT_CAPABILITY = "client.consult";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
+const CLIENT_CONTEXT_CAPABILITY = "client.context.read";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
@@ -213,6 +216,10 @@ export interface ClientExtensionTranscriptAdapter {
     append(extensionId: string, block: VeraClientTranscriptBlock): void;
 }
 
+export interface ClientExtensionContextAdapter {
+    current(): VeraClientContextSnapshot;
+}
+
 export interface ClientExtensionSidebarAdapter {
     /** Throws when another extension already holds the sidebar. */
     open(extensionId: string): void;
@@ -275,6 +282,10 @@ export interface ClientExtensionExperimentalTuiAdapter {
         extensionId: string,
         spec: VeraExperimentalTuiRawViewSpec,
     ): VeraExtensionDisposer;
+    appendTranscriptRenderable?: (
+        extensionId: string,
+        spec: VeraExperimentalTuiTranscriptRenderableSpec,
+    ) => VeraExtensionDisposer;
     events: {
         on(
             extensionId: string,
@@ -299,6 +310,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly notice: ClientExtensionNoticeAdapter;
     readonly consult?: ClientExtensionConsultAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
+    readonly context?: ClientExtensionContextAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly mentions?: ClientExtensionMentionsAdapter;
     readonly addressing?: ClientExtensionAddressingAdapter;
@@ -508,6 +520,7 @@ export async function startClientExtensionRegistry(
                 notice: options.notice,
                 consult: options.consult,
                 transcript: options.transcript,
+                context: options.context,
                 sidebar: options.sidebar,
                 mentions: options.mentions,
                 addressing: options.addressing,
@@ -854,6 +867,7 @@ interface ActivateClientExtensionOptions {
     readonly thread: ClientExtensionThreadAdapter | undefined;
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
+    readonly context: ClientExtensionContextAdapter | undefined;
     readonly activationTimeoutMs: number;
     readonly signal?: AbortSignal;
 }
@@ -945,6 +959,11 @@ async function activateClientExtension(
             throw new Error("This client has no experimental TUI host");
         }
         return options.experimentalTui;
+    };
+    const readContext = (): VeraClientContextSnapshot => {
+        requireAvailable();
+        requireCapability(CLIENT_CONTEXT_CAPABILITY);
+        return options.context?.current() ?? { availability: "unavailable" };
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -1266,6 +1285,33 @@ async function activateClientExtension(
                 disposers.push(dispose);
                 return dispose;
             },
+            appendTranscriptRenderable(
+                spec: VeraExperimentalTuiTranscriptRenderableSpec,
+            ): VeraExtensionDisposer {
+                validateExperimentalTuiTranscriptRenderableSpec(spec);
+                if (experimentalTuiViewIds.has(spec.id)) {
+                    throw new Error(
+                        `Duplicate experimental TUI view: ${spec.id}`,
+                    );
+                }
+                const append = requireExperimentalTui().appendTranscriptRenderable;
+                if (append === undefined) {
+                    throw new Error(
+                        "This client cannot append transcript renderables",
+                    );
+                }
+                const mounted = append(options.id, spec);
+                experimentalTuiViewIds.add(spec.id);
+                let active = true;
+                const dispose = async (): Promise<void> => {
+                    if (!active) return;
+                    active = false;
+                    experimentalTuiViewIds.delete(spec.id);
+                    await mounted();
+                };
+                disposers.push(dispose);
+                return dispose;
+            },
             events: Object.freeze({
                 on(...args: unknown[]): VeraExtensionDisposer {
                     const [event, listener] = args;
@@ -1482,6 +1528,11 @@ async function activateClientExtension(
                     );
                 }
                 messageInterceptor = handler;
+            },
+        }),
+        context: Object.freeze({
+            current(): VeraClientContextSnapshot {
+                return structuredClone(readContext());
             },
         }),
         thread: Object.freeze({
@@ -1858,6 +1909,22 @@ function validateExperimentalTuiRawViewSpec(
         || typeof spec.create !== "function"
     ) {
         throw new Error("Invalid experimental raw TUI view registration");
+    }
+}
+
+function validateExperimentalTuiTranscriptRenderableSpec(
+    spec: VeraExperimentalTuiTranscriptRenderableSpec,
+): void {
+    if (
+        typeof spec !== "object"
+        || spec === null
+        || !isRegistrationId(spec.id)
+        || typeof spec.create !== "function"
+        || (spec.onResize !== undefined && typeof spec.onResize !== "function")
+    ) {
+        throw new Error(
+            "Invalid experimental TUI transcript renderable registration",
+        );
     }
 }
 

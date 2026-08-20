@@ -22,9 +22,15 @@ export interface ExtensionCommandTextBody {
     readonly text: string;
 }
 
+/** The command already rendered its result into a client-owned surface. */
+export interface ExtensionCommandHandledBody {
+    readonly kind: "handled";
+}
+
 export type ExtensionCommandBody =
     | ExtensionCommandNoticeBody
-    | ExtensionCommandTextBody;
+    | ExtensionCommandTextBody
+    | ExtensionCommandHandledBody;
 
 export interface ExtensionCommandResult {
     readonly version: typeof EXTENSION_COMMAND_RESULT_VERSION;
@@ -62,6 +68,12 @@ export function parseExtensionCommandBody(
 ): ExtensionCommandBody | undefined {
     if (!isPlainObject(value)) {
         return undefined;
+    }
+    if (
+        value.kind === "handled"
+        && hasExactKeys(value, ["kind"])
+    ) {
+        return { kind: "handled" };
     }
     if (
         value.kind === "text"
