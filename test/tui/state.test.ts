@@ -30,6 +30,7 @@ import {
     tuiEntryMarginTop,
     tuiToolRowText,
     TUI_MUTED,
+    TUI_ACCENT,
     TUI_NOTICE,
     TUI_SUCCESS,
     type TuiState,
@@ -1192,6 +1193,22 @@ test("TUI entries render with kind-specific prefixes", () => {
             "Resident agent stopped unexpectedly",
         ),
     }))).toBe("× stopped  Resident agent stopped unexpectedly");
+});
+
+test("tool rows accent semantic actions and mute their targets", () => {
+    const rendered = renderTuiEntry({
+        kind: "tool",
+        prefix: "  └ ",
+        text: "Search activity in clients/tui",
+    });
+    const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
+        chunk.text.toString() === text
+    );
+
+    expect(chunkFor("  └ ")?.fg).toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor("Search")?.fg).toEqual(parseColor(TUI_ACCENT));
+    expect(chunkFor(" activity in clients/tui")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
 });
 
 test("identical diagnostics collapse in place with a count", () => {
