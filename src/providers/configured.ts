@@ -20,6 +20,10 @@ import { UserFacingError } from "../user-facing-error.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { createCustomOpenAIAdapter } from "./custom-openai.ts";
 import { createCustomAnthropicAdapter } from "./custom-anthropic.ts";
+import {
+    type OpenRouterAllowanceGuard,
+    openRouterAllowanceScope,
+} from "./openrouter-allowance-guard.ts";
 
 export interface ConfiguredProviderOptions {
     readonly authStorage?: AuthStorage;
@@ -46,6 +50,8 @@ export interface ConfiguredProviderOptions {
      * adapter, because the caps it enforces are per session.
      */
     readonly captureFailedRequest?: FailedRequestCapture;
+    /** Host-wide, short-lived OpenRouter allowance evidence. */
+    readonly openRouterAllowanceGuard?: OpenRouterAllowanceGuard;
 }
 
 /**
@@ -96,13 +102,20 @@ const ADAPTERS: Readonly<Record<
                 ? {}
                 : { projectRoot: options.projectRoot },
         );
+        const apiKey = requiredApiKey("openrouter", options);
         return createOpenRouterAdapter({
-            apiKey: requiredApiKey("openrouter", options),
+            apiKey,
             ...(baseUrl === undefined ? {} : { baseUrl }),
             effortLevels: options.effortLevels
                 ?? poolEffortLevels({ provider: "openrouter", pool }),
             imageSupport: options.imageSupport
                 ?? poolImageSupport({ provider: "openrouter", pool }),
+            ...(options.openRouterAllowanceGuard === undefined
+                ? {}
+                : {
+                    allowanceGuard: options.openRouterAllowanceGuard,
+                    allowanceScope: openRouterAllowanceScope(apiKey),
+                }),
             ...capture(options),
         });
     },

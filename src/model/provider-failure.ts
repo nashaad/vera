@@ -26,6 +26,14 @@ export interface ProviderFailure {
     readonly providerName?: string;
     /** Upstream provider's parsed error message, never its raw response body. */
     readonly providerMessage?: string;
+    /** Provider-reported request allowance at the time this call was refused. */
+    readonly allowance?: {
+        readonly kind: "prompt_tokens" | "max_tokens";
+        readonly requested: number;
+        readonly available: number;
+    };
+    /** Concrete next action suitable for a client to present verbatim. */
+    readonly userAction?: string;
 }
 
 export class ProviderFailureError extends Error {

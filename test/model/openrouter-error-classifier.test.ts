@@ -94,6 +94,93 @@ describe("OpenRouter failure classification", () => {
         expect(JSON.stringify(failure)).not.toContain("raw");
     });
 
+    test("names a shrinking prompt allowance as a credit failure", () => {
+        const body = JSON.stringify({
+            error: {
+                message: "Prompt tokens limit exceeded: 158544 > 91805. To increase, adjust the key's daily limit.",
+            },
+        });
+        const failure = classifyOpenRouterError(httpError(402, body));
+
+        expect(failure).toMatchObject({
+            kind: "payment_required",
+            resolution: "user_action",
+            allowance: {
+                kind: "prompt_tokens",
+                requested: 158_544,
+                available: 91_805,
+            },
+        });
+        expect(failure.message).toContain("credit or key allowance");
+        expect(failure.message).toContain("Add OpenRouter credits");
+        expect(failure.message).not.toContain("Prompt tokens limit exceeded");
+    });
+
+    test("parses the envelope allowance before generic upstream diagnostics", () => {
+        const body = JSON.stringify({
+            error: {
+                message: "Prompt tokens limit exceeded: 158544 > 91805",
+                metadata: {
+                    raw: JSON.stringify({ error: { message: "insufficient balance" } }),
+                },
+            },
+        });
+        expect(classifyOpenRouterError(httpError(402, body)).allowance).toEqual({
+            kind: "prompt_tokens",
+            requested: 158_544,
+            available: 91_805,
+        });
+    });
+
+    test("authoritative rate-limit metadata beats fuzzy key-limit wording", () => {
+        expect(classifyOpenRouterStreamError({
+            code: 429,
+            message: "API key's limit for requests per minute exceeded",
+            metadata: { errorType: "rate_limit_exceeded" },
+        })).toMatchObject({
+            kind: "rate_limit",
+            resolution: "retry",
+        });
+    });
+
+    test("typed token-limit metadata retains a reported credit allowance", () => {
+        expect(classifyOpenRouterStreamError({
+            code: 400,
+            message: "Prompt tokens limit exceeded: 158544 > 91805",
+            metadata: { errorType: "token_limit_exceeded" },
+        })).toMatchObject({
+            kind: "payment_required",
+            allowance: { available: 91_805 },
+        });
+    });
+
+    test("unsafe allowance numbers are not persisted", () => {
+        const digits = "9".repeat(400);
+        const failure = classifyOpenRouterStreamError({
+            code: 402,
+            message: `Prompt tokens limit exceeded: ${digits} > ${digits}`,
+        });
+        expect(failure.allowance).toBeUndefined();
+    });
+
+    test("records the output allowance when credit cannot fund max tokens", () => {
+        const failure = classifyOpenRouterStreamError({
+            code: 402,
+            message: "This request requires more credits, or fewer max_tokens. You requested up to 65536 tokens, but can only afford 27597.",
+            metadata: { errorType: "token_limit_exceeded" },
+        });
+
+        expect(failure).toMatchObject({
+            kind: "payment_required",
+            allowance: {
+                kind: "max_tokens",
+                requested: 65_536,
+                available: 27_597,
+            },
+        });
+        expect(failure.userAction).toContain("switch provider or model");
+    });
+
     test("falls back to HTTP classification when stream metadata is absent", () => {
         expect(classifyOpenRouterStreamError({
             code: 429,
