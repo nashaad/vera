@@ -15,6 +15,7 @@ import {
     type ClientExtensionRegistryFailure,
     type ClientExtensionSidebarAdapter,
     type ClientExtensionThreadAdapter,
+    type ClientExtensionSessionsAdapter,
     type ClientExtensionTranscriptAdapter,
 } from "../../src/extensions/client-registry.ts";
 import type {
@@ -23,6 +24,8 @@ import type {
     VeraClientPickerRequest,
     VeraClientPickerResult,
     VeraClientThreadTurn,
+    VeraClientSessionListRequest,
+    VeraClientSessionPage,
     VeraClientTranscriptBlock,
 } from "../../src/sdk/extensions.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
@@ -54,6 +57,7 @@ export interface StartTuiClientExtensionHostOptions {
     readonly agents: ClientExtensionAgentsAdapter;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: ClientExtensionThreadAdapter["read"];
+    readonly listSessions?: ClientExtensionSessionsAdapter["list"];
     readonly appendTranscript: (
         block: VeraClientTranscriptBlock,
     ) => void;
@@ -92,6 +96,9 @@ export interface TuiClientExtensionHostBindings {
     readonly agents: ClientExtensionAgentsAdapter;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter;
     readonly readThread: () => readonly VeraClientThreadTurn[];
+    readonly listSessions?: (
+        request: VeraClientSessionListRequest,
+    ) => Promise<VeraClientSessionPage>;
     readonly appendTranscript: (block: VeraClientTranscriptBlock) => void;
     readonly postNotice: StartTuiClientExtensionHostOptions["postNotice"];
     readonly commandRegistry: TuiCommandRegistry;
@@ -141,6 +148,12 @@ export function createTuiClientExtensionHostStarter(
             agents: options.agents,
             experimentalTui: options.experimentalTui,
             readThread: (_extensionId) => options.readThread(),
+            ...(options.listSessions === undefined ? {} : {
+                listSessions: (
+                    _extensionId: string,
+                    request: VeraClientSessionListRequest,
+                ) => options.listSessions!(request),
+            }),
             appendTranscript: options.appendTranscript,
             postNotice: options.postNotice,
             commandRegistry: options.commandRegistry,
@@ -266,6 +279,9 @@ export async function startTuiClientExtensionHost(
         agents: options.agents,
         experimentalTui: options.experimentalTui,
         thread: { read: options.readThread },
+        ...(options.listSessions === undefined
+            ? {}
+            : { sessions: { list: options.listSessions } }),
         context: {
             current: options.currentContext
                 ?? (() => ({ availability: "unavailable" } satisfies VeraClientContextSnapshot)),

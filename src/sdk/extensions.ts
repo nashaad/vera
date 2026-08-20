@@ -158,6 +158,7 @@ export interface VeraClientExtensionApi {
     readonly messages: VeraClientExtensionMessages;
     readonly context: VeraClientExtensionContext;
     readonly thread: VeraClientExtensionThread;
+    readonly sessions: VeraClientExtensionSessions;
     readonly conversation: VeraClientExtensionConversation;
     readonly consult: VeraClientExtensionConsult;
     readonly agents: VeraClientExtensionAgents;
@@ -732,6 +733,118 @@ export interface VeraClientExtensionThread {
 export interface VeraClientThreadTurn {
     readonly role: "user" | "assistant";
     readonly text: string;
+}
+
+/**
+ * Every session in the active profile, as plain immutable facts.
+ *
+ * Capability: `client.sessions.read`.
+ *
+ * Read in three widening steps. Identity fields cost nothing and always
+ * arrive. Anything in `facts` costs the host a read of the session file, so it
+ * is computed only for the names passed in `include`, and only for the page
+ * asked for. A fact that was not requested, or that the session has no answer
+ * for, is absent; it is never zero, so a reader must check before summing.
+ */
+export interface VeraClientExtensionSessions {
+    list(
+        request?: VeraClientSessionListRequest,
+    ): Promise<VeraClientSessionPage>;
+}
+
+export type VeraClientSessionFactName =
+    | "usage"
+    | "context"
+    | "failure"
+    | "model";
+
+export interface VeraClientSessionListRequest {
+    readonly include?: readonly VeraClientSessionFactName[];
+    readonly limit?: number;
+    /** From a previous page's `nextCursor`. Absent starts at the top. */
+    readonly cursor?: string;
+    readonly order?: "id" | "recent";
+}
+
+export interface VeraClientSessionPage {
+    readonly sessions: readonly VeraClientSession[];
+    /** Absent once the listing is exhausted. */
+    readonly nextCursor?: string;
+    /** Sessions in the whole listing, not in this page. */
+    readonly total?: number;
+}
+
+export interface VeraClientSession {
+    readonly id: string;
+    readonly title?: string;
+    readonly workspace: string;
+    readonly kind: "interactive" | "background";
+    readonly status:
+        | "idle"
+        | "working"
+        | "waiting"
+        | "completed"
+        | "closed"
+        | "failed";
+    /** Whether anything is happening in this session right now. */
+    readonly live: boolean;
+    readonly createdAt?: string;
+    readonly updatedAt?: string;
+    readonly facts?: VeraClientSessionFacts;
+}
+
+export interface VeraClientSessionFacts {
+    readonly usage?: VeraClientSessionUsage;
+    /**
+     * The provider's own token count for the most recent request. Never a
+     * transcript size and never a message-only estimate, so it is safe to
+     * present as the session's real context size.
+     */
+    readonly context?: VeraClientSessionContext;
+    readonly model?: VeraClientSessionModel;
+    readonly failure?: VeraClientSessionFailure;
+}
+
+export interface VeraClientSessionUsage {
+    readonly rows: readonly VeraClientSessionUsageRow[];
+}
+
+export interface VeraClientSessionUsageRow {
+    readonly provider: string;
+    readonly model: string;
+    readonly calls: number;
+    readonly durationMs: number;
+    readonly inputTokens: number;
+    readonly outputTokens: number;
+    readonly cachedInputTokens: number;
+    readonly reasoningTokens: number;
+    readonly totalTokens: number;
+    /** Absent when no call in this row reported a price. */
+    readonly cost?: number;
+    readonly callsWithoutCost: number;
+}
+
+export interface VeraClientSessionContext {
+    readonly tokens: number;
+    /** Absent for a model whose window Vera has no entry for. */
+    readonly capacity?: number;
+    readonly estimated: boolean;
+    readonly measuredAt?: string;
+}
+
+export interface VeraClientSessionModel {
+    readonly provider: string;
+    readonly model: string;
+    readonly effort?: string;
+}
+
+export interface VeraClientSessionFailure {
+    readonly at: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly kind: string;
+    readonly detail: string;
+    readonly statusCode?: number;
 }
 
 /**
