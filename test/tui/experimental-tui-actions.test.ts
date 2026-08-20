@@ -3,6 +3,9 @@ import { expect, test } from "bun:test";
 import { invokeTuiExperimentalAction } from "../../clients/tui/experimental-tui-actions.ts";
 
 const context = {
+    width: 80,
+    height: 24,
+    requestRender() {},
     workspace: "/workspace",
     focused: false,
     theme: {

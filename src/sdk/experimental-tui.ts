@@ -54,12 +54,30 @@ export interface VeraExperimentalTuiTheme {
 
 export interface VeraExperimentalTuiContext {
     readonly workspace: string;
+    /**
+     * Columns available to the view. A view that lays out more than one column
+     * has to know this; the alternative is horizontal truncation, which drops
+     * facts rather than reflowing them.
+     */
+    readonly width: number;
+    /**
+     * Rows available to the view. A view taller than this is squashed rather
+     * than scrolled, so a view that can produce more rows than it is given has
+     * to decide itself what to leave out.
+     */
+    readonly height: number;
     readonly focused: boolean;
     readonly theme: VeraExperimentalTuiTheme;
     readonly transcript: readonly {
         readonly role: "user" | "assistant";
         readonly text: string;
     }[];
+    /**
+     * Repaints the view. A view whose data arrives after the render that
+     * mounted it has no other way to show it: the client repaints on its own
+     * events, and data loaded in the background is not one of them.
+     */
+    requestRender(): void;
 }
 
 export interface VeraExperimentalTuiKey {
