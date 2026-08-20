@@ -10,6 +10,7 @@ import { installHostCrashGuard } from "./crash-guard.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
 import { HostStartupInProgressError } from "../../src/host/startup-claim.ts";
 import { recordCleanBoot } from "../../src/pinned-build.ts";
+import { isSupervisedHost, startWaitingOutRivals } from "./supervised-start.ts";
 
 let config;
 try {
@@ -22,12 +23,16 @@ try {
     throw error;
 }
 
+const start = (): ReturnType<typeof startResidentHost> =>
+    startResidentHost({ config, entrypoint: fileURLToPath(import.meta.url) });
+
 let host;
 try {
-    host = await startResidentHost({
-        config,
-        entrypoint: fileURLToPath(import.meta.url),
-    });
+    host = isSupervisedHost()
+        ? await startWaitingOutRivals(start, {
+            onWait: (error) => process.stderr.write(`${error.message}\n`),
+        })
+        : await start();
 } catch (error) {
     // Losing the startup race is another host winning it, which is a working
     // outcome for the user and must not be counted against the build. Its own
