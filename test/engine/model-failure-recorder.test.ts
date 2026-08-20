@@ -86,6 +86,11 @@ test("Vera's own synthesised failure is not recorded", () => {
 test("a provider failure carries the provider's own error detail", () => {
     const records = recorded([
         {
+            type: "context_measured",
+            model: "moonshotai/kimi-k3",
+            measurement: { tokens: 80_004, estimated: true },
+        },
+        {
             type: "model_stream_error",
             error: "429",
             errorName: "ProviderFailureError",
@@ -96,6 +101,11 @@ test("a provider failure carries the provider's own error detail", () => {
                 statusCode: 429,
                 providerErrorType: "rate_limit_error",
                 providerName: "Moonshot",
+                allowance: {
+                    kind: "prompt_tokens",
+                    requested: 80_004,
+                    available: 51_390,
+                },
             },
             message: assistantMessage(),
         },
@@ -104,6 +114,41 @@ test("a provider failure carries the provider's own error detail", () => {
     expect(records[0]?.kind).toBe("provider_failure");
     expect(records[0]?.statusCode).toBe(429);
     expect(records[0]?.providerName).toBe("Moonshot");
+    expect(records[0]?.requestTokens).toBe(80_004);
+    expect(records[0]?.requestTokensEstimated).toBe(true);
+    expect(records[0]?.allowance).toEqual({
+        kind: "prompt_tokens",
+        requested: 80_004,
+        available: 51_390,
+    });
+});
+
+test("the latest model round is attributed when a fallback is refused", () => {
+    const records = recorded([
+        {
+            type: "context_measured",
+            model: "first-model",
+            measurement: { tokens: 158_544, estimated: true },
+        },
+        {
+            type: "context_measured",
+            model: "moonshotai/kimi-k3",
+            measurement: { tokens: 158_544, estimated: true },
+        },
+        {
+            type: "model_stream_error",
+            error: "402",
+            errorName: "ProviderFailureError",
+            failure: {
+                kind: "payment_required",
+                resolution: "user_action",
+                message: "credit allowance exceeded",
+            },
+            message: assistantMessage(),
+        },
+        { type: "turn_finished", message: assistantMessage() },
+    ]);
+    expect(records[0]?.requestTokens).toBe(158_544);
 });
 
 // A stream error the engine recovered from never ends a turn, so attributing
@@ -128,4 +173,5 @@ test("a stream error from an earlier turn does not colour a later failure", () =
         { type: "turn_finished", message: assistantMessage() },
     ]);
     expect(records[0]?.kind).toBe("no_visible_response");
+    expect(records[0]?.requestTokens).toBeUndefined();
 });
