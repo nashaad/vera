@@ -11,6 +11,15 @@ test("diagnostics dialog copies on Enter and dismisses on Escape", () => {
     expect(handleTuiDiagnosticsDialogKey({ name: "escape" })).toBe("dismiss");
 });
 
+test("diagnostics dialog switches scope with Tab", () => {
+    expect(handleTuiDiagnosticsDialogKey({ name: "tab" }, true))
+        .toBe("switch_scope");
+    expect(handleTuiDiagnosticsDialogKey({ name: "tab", shift: true }, true))
+        .toBe("switch_scope");
+    expect(handleTuiDiagnosticsDialogKey({ name: "tab" }))
+        .toBeUndefined();
+});
+
 test("diagnostics dialog leaves unrelated and modified keys alone", () => {
     expect(handleTuiDiagnosticsDialogKey({ name: "a" })).toBeUndefined();
     expect(handleTuiDiagnosticsDialogKey({ name: "enter", ctrl: true }))

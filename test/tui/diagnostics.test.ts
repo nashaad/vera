@@ -83,7 +83,34 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
 
     expect(text).toContain("turn         idle");
     expect(text).toContain("context      unavailable");
-    expect(text).toContain("session      unavailable");
+    expect(text).toContain("id           unavailable");
+    expect(text).toContain("file         unavailable");
+    expect(text).not.toContain("Model failures");
+    expect(text).not.toContain("Pre-image stash");
+});
+
+test("TUI session diagnostics prints the session ID and keeps Vera data out", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        sessionId: "session-123",
+        sessionPath: "/home/user/.vera/sessions/session-123.jsonl",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        modelFailures: summariseModelFailures([]),
+        stashRoot: "/home/user/.vera/stash",
+    });
+
+    expect(text).toContain("# Session diagnostics");
+    expect(text).toContain("id           session-123");
+    expect(text).toContain(
+        "file         /home/user/.vera/sessions/session-123.jsonl",
+    );
+    expect(text).not.toContain("## Build");
+    expect(text).not.toContain("## Extensions");
+    expect(text).not.toContain("## Model failures");
+    expect(text).not.toContain("## Pre-image stash");
 });
 
 test("TUI diagnostics shows marked startup timings near the top", () => {
@@ -91,6 +118,7 @@ test("TUI diagnostics shows marked startup timings near the top", () => {
         state: createTuiState(),
         activity: "idle",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         startup: {
@@ -107,7 +135,8 @@ test("TUI diagnostics shows marked startup timings near the top", () => {
         },
     });
 
-    expect(text.indexOf("Startup")).toBeLessThan(text.indexOf("Runtime"));
+    expect(text.indexOf("Build")).toBeLessThan(text.indexOf("Startup"));
+    expect(text).not.toContain("Runtime");
     expect(text).toContain("| total | 1.68s | ok |");
     expect(text).toContain("| model_discovery | 308ms | ok, slowest |");
     expect(text).toContain("| extension · vera.mcp | 1.32s | ok, slowest |");
@@ -151,6 +180,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
         state: createTuiState(),
         activity: "idle",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         build: {
@@ -183,6 +213,7 @@ test("TUI diagnostics reports the latest client extension reload", () => {
         state: createTuiState(),
         activity: "idle",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         clientExtensionReload: {
@@ -202,6 +233,7 @@ test("TUI diagnostics shows when client extensions have never reloaded", () => {
         state: createTuiState(),
         activity: "idle",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
     });
@@ -214,6 +246,7 @@ test("TUI diagnostics does not present old extensions during a reload", () => {
         state: createTuiState(),
         activity: "idle",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         clientExtensionReload: {
@@ -336,6 +369,7 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
         state: createTuiState(),
         activity: "thinking",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         stash: {
@@ -365,6 +399,7 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
         state: createTuiState(),
         activity: "thinking",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         stashRoot: "/home/user/.vera/stash",
@@ -380,6 +415,7 @@ test("TUI diagnostics ranks repeated model failures worst first", () => {
         state: createTuiState(),
         activity: "ready",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         now: Date.parse("2026-08-19T15:00:00.000Z"),
@@ -427,6 +463,7 @@ test("TUI diagnostics says so when no model has failed", () => {
         state: createTuiState(),
         activity: "ready",
         elapsed: "0s",
+        scope: "vera",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         modelFailures: summariseModelFailures([]),
