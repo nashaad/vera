@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
-import { TextAttributes, type StyledText } from "@opentui/core";
+import {
+    parseColor,
+    TextAttributes,
+    type StyledText,
+} from "@opentui/core";
 
 import {
     appendTuiExtensionBlock,
+    applyTuiTheme,
     appendTuiDiagnostic,
     appendTuiNotice,
     appendTuiThought,
@@ -24,9 +29,14 @@ import {
     tuiDisplayPath,
     tuiEntryMarginTop,
     tuiToolRowText,
+    TUI_MUTED,
+    TUI_NOTICE,
+    TUI_SUCCESS,
+    type TuiState,
+    type TuiTranscriptEntry,
 } from "../../clients/tui/state.ts";
-import type { TuiState, TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
 
@@ -1904,6 +1914,92 @@ test("reviewer decisions remain visible with their risk and authorization", () =
                 + " Deletes files outside the workspace.",
         ),
     });
+});
+
+function autoReviewEntry(
+    userAuthorization: "unknown" | "low" | "medium" | "high",
+    reason: string,
+): TuiTranscriptEntry {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason,
+        riskLevel: "low",
+        userAuthorization,
+        seq: 1,
+    });
+    const entry = state.entries.at(-1);
+    if (entry === undefined) {
+        throw new Error("auto-review update did not append an entry");
+    }
+    return entry;
+}
+
+test("auto-review approval uses semantic status colors", () => {
+    const entry = autoReviewEntry(
+        "unknown",
+        "Auto-review returned an allow decision; the sandbox does not allow"
+            + " network access and matches an allow-list entry.",
+    );
+    const text = entry.text;
+    const rendered = renderTuiEntry(entry);
+    const chunks = rendered.chunks;
+    const chunkFor = (chunkText: string) => chunks.find((chunk) =>
+        chunk.text.toString() === chunkText
+    );
+
+    expect(chunks.map((chunk) => chunk.text.toString()).join(""))
+        .toBe(text);
+    expect(chunkFor("approved")?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(chunkFor("authorization: unknown")?.fg)
+        .toEqual(parseColor(TUI_NOTICE));
+    expect(chunkFor("allow")?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(chunkFor(" decision; the sandbox does not allow"
+        + " network access and matches an allow-list entry.")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor("Auto review ")?.fg).toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor(" bash (risk: low, ")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
+});
+
+test("authorization other than unknown stays muted", () => {
+    const entry = autoReviewEntry("high", "Auto-review returned an allow decision.");
+    const rendered = renderTuiEntry(entry);
+    const authorization = rendered.chunks.find((chunk) =>
+        chunk.text.toString() === "authorization: high"
+    );
+
+    expect(authorization?.fg).toEqual(parseColor(TUI_MUTED));
+});
+
+test("auto-review approval resolves colors from the current theme", () => {
+    const theme = {
+        ...VERA_TUI_THEME,
+        muted: "#102030",
+        notice: "#304050",
+        success: "#506070",
+    };
+    applyTuiTheme(theme);
+    try {
+        const rendered = renderTuiEntry(
+            autoReviewEntry("unknown", "Auto-review returned an allow decision."),
+        );
+        const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
+            chunk.text.toString() === text
+        );
+
+        expect(chunkFor("Auto review ")?.fg)
+            .toEqual(parseColor(theme.muted));
+        expect(chunkFor("approved")?.fg)
+            .toEqual(parseColor(theme.success));
+        expect(chunkFor("authorization: unknown")?.fg)
+            .toEqual(parseColor(theme.notice));
+        expect(chunkFor("allow")?.fg)
+            .toEqual(parseColor(theme.success));
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
+    }
 });
 
 test("a matching history checkpoint preserves a live auto-review notice", () => {
