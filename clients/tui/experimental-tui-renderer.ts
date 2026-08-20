@@ -24,6 +24,8 @@ export interface TuiExperimentalViewRenderOptions {
     readonly id: string;
     readonly overlay: boolean;
     readonly title?: string;
+    /** Client chrome, not the view's own text: a transient line of feedback. */
+    readonly notice?: string;
     readonly focus: () => void;
     readonly triggerAction: (action: string) => void | Promise<void>;
 }
@@ -42,7 +44,10 @@ export function renderTuiExperimentalView(
     if (options.title !== undefined) {
         root.add(new TextRenderable(options.renderer, {
             id: `${root.id}-title`,
-            content: options.title,
+            selectable: true,
+            content: options.notice === undefined
+                ? options.title
+                : `${options.title} · ${options.notice}`,
             fg: options.theme.accent,
             attributes: TextAttributes.BOLD,
             width: "100%",
@@ -108,12 +113,18 @@ function renderNode(
             attributes: node.bold ? TextAttributes.BOLD : undefined,
             width: "100%",
             wrapMode: "word",
+            // Dragging across a view copies it, the same gesture the
+            // transcript answers to.
+            selectable: true,
         });
     }
     if (node.kind === "rule") {
         return new TextRenderable(options.renderer, {
             id,
             content: "─".repeat(Math.max(1, Math.min(240, options.renderer.terminalWidth - 4))),
+            // A run of box drawing is noise in whatever the copy is pasted
+            // into, so a drag across a view skips the rules between sections.
+            selectable: false,
             fg: toneColor(options.theme, node.tone ?? "muted"),
             width: "100%",
             height: 1,

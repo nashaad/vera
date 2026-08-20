@@ -82,6 +82,8 @@ export interface TuiExperimentalHost {
     clearTranscriptRenderables(): void;
     agentEvent(event: VeraExperimentalTuiAgentEvent): void;
     hasModal(): boolean;
+    /** Shows a line of client feedback on the focused overlay's title row. */
+    showNotice(message: string): boolean;
     hasFocus(): boolean;
     focus(): void;
     handleKey(key: TuiChordKey): boolean;
@@ -105,11 +107,15 @@ interface TranscriptRenderable {
     lastWidth: number;
 }
 
+const NOTICE_DURATION_MS = 2_000;
+
 export function createTuiExperimentalHost(
     options: TuiExperimentalHostOptions,
 ): TuiExperimentalHost {
     let theme = options.theme;
     let focusedView: MountedView | undefined;
+    let notice: string | undefined;
+    let noticeVersion = 0;
     let closed = false;
     const views = new Map<string, MountedView>();
     const rawViews = new Map<string, TuiExperimentalRawView>();
@@ -256,9 +262,12 @@ export function createTuiExperimentalHost(
     function contextFor(view: MountedView): VeraExperimentalTuiContext {
         return {
             workspace: options.workspace(),
+            width: options.renderer.width,
+            height: options.renderer.height,
             focused: view === focusedView,
             theme: experimentalTheme(theme),
             transcript: eventBus.currentTranscript(),
+            requestRender: options.onRenderRequested,
         };
     }
 
@@ -300,6 +309,9 @@ export function createTuiExperimentalHost(
                 context.focused,
                 context.theme,
             );
+            if (signature !== undefined && notice !== undefined) {
+                signature = `${signature}\u0000${notice}`;
+            }
         } catch (error) {
             reportFailure(view, error);
             removeView(view);
@@ -321,6 +333,9 @@ export function createTuiExperimentalHost(
             id: `experimental-tui-view-${view.extensionId}-${view.spec.id}`,
             overlay: view.spec.slot === "overlay",
             title: view.spec.title,
+            ...(notice === undefined || view.spec.slot !== "overlay"
+                ? {}
+                : { notice }),
             focus: () => focusView(view),
             triggerAction: (action) => triggerAction(view, action),
         });
@@ -437,6 +452,24 @@ export function createTuiExperimentalHost(
             (view) => view.spec,
             (view) => view.container.visible,
         ),
+        showNotice(message): boolean {
+            const overlayView = [...views.values()].find((view) =>
+                view.spec.slot === "overlay" && visible(view)
+            );
+            if (overlayView === undefined) return false;
+            notice = message;
+            noticeVersion += 1;
+            const version = noticeVersion;
+            render();
+            options.onRenderRequested();
+            setTimeout(() => {
+                if (noticeVersion !== version) return;
+                notice = undefined;
+                render();
+                options.onRenderRequested();
+            }, NOTICE_DURATION_MS);
+            return true;
+        },
         hasFocus: () => focusedView !== undefined,
         focus(): void {
             const rawModal = findTuiExperimentalModal(

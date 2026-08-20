@@ -119,7 +119,14 @@ import { createAgentThroughHost, resumeAgentThroughHost } from
     "../../src/host/agent-start-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
-import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { listSessionsForExtension } from "./session-listing-projection.ts";
+import type { VeraClientSessionListRequest } from "../../src/sdk/extensions.ts";
+import {
+    listAgentPageThroughHost,
+    listAgentsThroughHost,
+    type ListAgentsOptions,
+    type ListedAgentsPage,
+} from "../../src/host/agent-list-client.ts";
 import {
     trashSessionThroughHost,
     type TrashSessionResult,
@@ -694,6 +701,10 @@ export interface TuiDependencies {
     readonly copyText?: (text: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    /** One page of the session listing, with the facts the caller named. */
+    readonly listSessionPage?: (
+        options: ListAgentsOptions,
+    ) => Promise<ListedAgentsPage>;
     /**
      * The four ways to reach another session, each handed the identity of the
      * one being left rather than closing over it.
@@ -897,6 +908,8 @@ export async function startConfiguredTui(
     const attach = (id: string) => agentClients.attach(id);
     try {
         const listAgents = () => listAgentsThroughHost(host.socket_path);
+        const listSessionPage = (options: ListAgentsOptions) =>
+            listAgentPageThroughHost(host.socket_path, options);
         const mismatchNotice = hostEntrypointMismatchNotice(host);
         // A pool file the parser had to reduce still produced a pool, so this
         // says so instead of failing: the entries that were dropped are the
@@ -912,6 +925,7 @@ export async function startConfiguredTui(
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
+            listSessionPage,
             createSession: async (workspace) => {
                 const createStartedAt = performance.now();
                 const created = await createAgentThroughHost(
@@ -1552,6 +1566,13 @@ export async function startTui(
                 ...experimentalTuiHost.adapter,
                 agentSurface: hostedAgentSurface,
             },
+            ...(dependencies.listSessionPage === undefined ? {} : {
+                listSessions: (request: VeraClientSessionListRequest) =>
+                    listSessionsForExtension(
+                        dependencies.listSessionPage!,
+                        request,
+                    ),
+            }),
             readThread() {
                 return state.entries
                     .filter((entry) =>
@@ -3523,8 +3544,18 @@ export async function startTui(
             }),
             ...sidebar.blocks(),
         ];
-        if (isTranscriptSelection(selection, [...copyableNodes, ...sidebar
-            .blocks().map((block) => block.node)])) {
+        if (
+            isTranscriptSelection(selection, [
+                ...copyableNodes,
+                ...sidebar.blocks().map((block) => block.node),
+                // An extension view is text on the same screen, so the same
+                // drag has to copy it. The slot is the whole boundary: the
+                // selection walks up to it from whatever line it landed on.
+                experimentalTuiHost.overlay,
+                experimentalTuiHost.transcriptTop,
+                experimentalTuiHost.transcriptBottom,
+            ])
+        ) {
             void copyTranscriptSelection(selection);
         }
         const speaker = selectionSpeaker(selection, quotable);
@@ -10929,11 +10960,20 @@ export async function startTui(
                 return;
             }
             const count = countTuiCharacters(text);
-            showStatusNotice(`copied ${count} character${count === 1 ? "" : "s"}`);
+            announceCopy(`copied ${count} character${count === 1 ? "" : "s"}`);
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error);
-            showStatusNotice(`copy failed · ${message}`);
+            announceCopy(`copy failed · ${message}`);
         }
+    }
+
+    /**
+     * An overlay covers the status line, so a copy made from inside one has to
+     * say so somewhere still on screen.
+     */
+    function announceCopy(message: string): void {
+        if (experimentalTuiHost.showNotice(message)) return;
+        showStatusNotice(message);
     }
 
     function showStatusNotice(message: string): void {
@@ -10956,6 +10996,8 @@ export async function startTui(
         const version = modeToastVersion;
         modeToastText.content = message;
         modeToast.width = message.length + 4;
+        // Above the overlay when one is open, so the toast is not painted
+        // behind the card that prompted it.
         modeToast.visible = true;
         setTimeout(() => {
             if (modeToastVersion !== version) return;
