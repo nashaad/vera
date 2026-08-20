@@ -109,6 +109,11 @@ else
     )
 fi
 
+# Bun creates convenience links in node_modules/.bin. They are not needed by
+# the runtime bundle, and removing all links keeps the archive self-contained
+# under the installer's no-symlink policy.
+find "$bundle" -type l -delete
+
 cp "$bun" "$bundle/runtime/bun"
 chmod 755 "$bundle/runtime/bun"
 cp "$root/scripts/portable-launcher.sh" "$bundle/bin/vera"
