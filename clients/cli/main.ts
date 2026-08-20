@@ -68,6 +68,16 @@ interface PoolAddOptions {
 }
 import type { TuiStartOptions, TuiStartTarget } from "../tui/main.ts";
 import { renderCliHelp, renderCliUsage } from "./help.ts";
+import {
+    findHelpTopic,
+    loadHelpCorpus,
+    parseHelpRequest,
+    renderHelpIndex,
+    renderHelpTopic,
+    renderHelpUsage,
+    renderLlmHelp,
+    type HelpCorpus,
+} from "./help-corpus.ts";
 import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
@@ -162,6 +172,7 @@ export interface CliDependencies {
         options: PoolAddOptions,
     ) => Promise<PoolAdmissionOutcome>;
     readonly removePoolModel?: (workspace: string, ref: string) => Promise<void>;
+    readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
 }
 
@@ -177,6 +188,34 @@ export async function runCli(
     const tuiOptions: TuiStartOptions = {
         confirmBusyUpgrade: assumeYes ? () => true : confirmBusyHostUpgrade,
     };
+
+    if (args[0] === "help") {
+        const request = parseHelpRequest(args);
+        if (request === undefined) {
+            errorOutput.write(renderHelpUsage());
+            return 1;
+        }
+        const corpus = await (dependencies.helpCorpus ?? loadHelpCorpus)();
+        if (request.llms) {
+            output.write(renderLlmHelp(corpus));
+            return 0;
+        }
+        if (request.topic === undefined) {
+            output.write(renderHelpIndex(corpus));
+            return 0;
+        }
+        const topic = findHelpTopic(corpus, request.topic);
+        if (topic === undefined) {
+            errorOutput.write(
+                `Unknown Vera help topic '${request.topic}'. Available topics: `
+                    + `${corpus.topics.map((item) => item.slug).join(", ")}\n`
+                    + renderHelpUsage(),
+            );
+            return 1;
+        }
+        output.write(renderHelpTopic(topic));
+        return 0;
+    }
 
     if (
         args.length === 1
