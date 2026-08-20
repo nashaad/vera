@@ -333,9 +333,10 @@ export async function runCli(
         try {
             if (command.operation === "list") {
                 output.write(renderExtensionList(manager.list({
-                    projectRoot: command.scope === "project"
-                        ? process.cwd()
-                        : undefined,
+                    ...(command.scope === "project"
+                        ? { projectRoot: process.cwd() }
+                        : {}),
+                    scope: command.scope,
                 })));
                 return 0;
             }
@@ -348,6 +349,9 @@ export async function runCli(
                     output.write(
                         `Installed ${result.record?.id ?? result.preview.id}`
                             + ` in the ${result.preview.scope} scope.\n`,
+                    );
+                    output.write(
+                        "Restart the resident host to apply host-side capabilities.\n",
                     );
                 }
                 return 0;
@@ -363,10 +367,16 @@ export async function runCli(
                     record,
                     command.scope,
                 ));
+                output.write(
+                    "Restart the resident host to apply host-side capabilities.\n",
+                );
                 return 0;
             }
             const record = manager.remove(command.id, target);
             output.write(renderExtensionMutation("remove", record, command.scope));
+            output.write(
+                "Restart the resident host to apply host-side capabilities.\n",
+            );
             return 0;
         } catch (error) {
             errorOutput.write(`Extension operation failed: ${renderCliFailure(error)}\n`);
@@ -687,7 +697,9 @@ async function runOnceOnResidentHost(request: {
     readonly startupProfile?: StartupProfile;
 }): Promise<RunOnceOutcome> {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
-    const host = await findOrStartResidentHost();
+    const host = await findOrStartResidentHost({
+        projectRoot: request.workspace,
+    });
     return runOnceThroughHost(host.socket_path, request);
 }
 

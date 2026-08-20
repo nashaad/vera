@@ -92,6 +92,8 @@ export interface StartHostServerOptions {
     readonly startedAt?: string;
     /** Absolute path of the entrypoint this host was started from. */
     readonly entrypoint?: string;
+    /** Project whose project-scoped extensions this host loaded. */
+    readonly projectRoot?: string;
     readonly startupClaimPath?: string;
     readonly capabilities?: readonly string[];
     /**
@@ -401,6 +403,9 @@ export async function startHostServer(
             ...(options.entrypoint === undefined
                 ? {}
                 : { entrypoint: options.entrypoint }),
+            ...(options.projectRoot === undefined
+                ? {}
+                : { projectRoot: options.projectRoot }),
         }).publish();
         await startupClaim.release();
 

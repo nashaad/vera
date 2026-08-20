@@ -863,6 +863,7 @@ export async function startConfiguredTui(
     // `vera attach` against an already-running host fail on a fresh machine.
     const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
     let host = await findOrStartResidentHost({
+        projectRoot: process.cwd(),
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -967,6 +968,7 @@ export async function startConfiguredTui(
                 // without raw mode. Declining surfaces the error with its
                 // recovery commands instead, which the user runs elsewhere.
                 host = await findOrStartResidentHost({
+                    projectRoot: process.cwd(),
                     confirmBusyUpgrade: () => false,
                 });
                 return attach(currentAgentId);
@@ -5031,6 +5033,9 @@ export async function startTui(
                 extensionsDialog = {
                     text: renderExtensionList(listExtensions({
                         projectRoot: process.cwd(),
+                        ...(commandAction.scope === undefined
+                            ? {}
+                            : { scope: commandAction.scope }),
                     })),
                     copyReady: true,
                 };
@@ -5052,6 +5057,11 @@ export async function startTui(
             renderCommandSuggestions();
             const command = commandAction.command;
             if (command.operation === "reload") {
+                state = appendTuiNotice(
+                    state,
+                    "Client extensions reload now; restart the resident host for host-side capabilities.",
+                );
+                renderState();
                 submitPrompt("/reload-extensions");
                 return;
             }
@@ -5080,6 +5090,9 @@ export async function startTui(
                 } else {
                     const record = removeExtension(command.id, target);
                     text = renderExtensionMutation("remove", record, command.scope);
+                }
+                if (command.operation !== "install" || !command.dryRun) {
+                    text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
                 }
                 extensionsDialog = { text, copyReady: true };
                 renderState();

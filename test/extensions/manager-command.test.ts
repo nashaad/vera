@@ -4,6 +4,7 @@ import { runCli } from "../../clients/cli/main.ts";
 import {
     parseExtensionManagerCommand,
     renderExtensionList,
+    tokenizeExtensionManagerArguments,
 } from "../../src/extensions/manager-command.ts";
 import type {
     ExtensionManagerOptions,
@@ -36,6 +37,16 @@ test("extension manager command parsing keeps profile default and explicit proje
     expect(parseExtensionManagerCommand(["extension", "remove"])).toEqual({
         error: "Usage: vera extension remove <id> [--project]",
     });
+});
+
+test("extension command tokenization preserves quoted local paths", () => {
+    expect(tokenizeExtensionManagerArguments(
+        `install "/tmp/My Local Extension" --dry-run`,
+    )).toEqual({
+        words: ["install", "/tmp/My Local Extension", "--dry-run"],
+    });
+    expect(tokenizeExtensionManagerArguments("install 'unfinished"))
+        .toEqual({ error: "Unclosed quote in extension command" });
 });
 
 test("extension CLI renders dry-run plans and delegates mutations", async () => {

@@ -9,6 +9,7 @@ import type {
 } from "../../src/extensions/commands.ts";
 import {
     parseExtensionManagerCommand,
+    tokenizeExtensionManagerArguments,
     type ExtensionManagerCommand,
 } from "../../src/extensions/manager-command.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
@@ -176,6 +177,7 @@ export interface ShowDiagnosticsTuiCommandAction {
 
 export interface ShowExtensionsTuiCommandAction {
     readonly type: "show_extensions";
+    readonly scope?: "profile" | "project";
 }
 
 export interface ManageExtensionsTuiCommandAction {
@@ -1371,9 +1373,13 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     registry.registerCommand({
         ...EXTENSION_COMMAND,
         parse: (argumentsText) => {
+            const tokenized = tokenizeExtensionManagerArguments(argumentsText);
+            if ("error" in tokenized) {
+                return { type: "command_error", message: tokenized.error };
+            }
             const parsed = parseExtensionManagerCommand([
                 "extension",
-                ...argumentsText.split(/\s+/).filter((word) => word.length > 0),
+                ...tokenized.words,
             ]);
             if (parsed === undefined) {
                 return {
@@ -1385,7 +1391,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 return { type: "command_error", message: parsed.error };
             }
             return parsed.command.operation === "list"
-                ? { type: "show_extensions" }
+                ? { type: "show_extensions", scope: parsed.command.scope }
                 : { type: "manage_extensions", command: parsed.command };
         },
         palette: {
