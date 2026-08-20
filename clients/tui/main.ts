@@ -91,6 +91,7 @@ import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.
 import {
     type ClientExtensionRegistry,
 } from "../../src/extensions/client-registry.ts";
+import { findActiveComposeSuggester } from "./compose-suggester.ts";
 import type {
     VeraClientConsultRequest,
     VeraClientConsultResult,
@@ -10754,16 +10755,11 @@ export async function startTui(
         | { readonly source: string; readonly agent: string; readonly hint: string }
         | undefined
     {
-        const text = composer.plainText;
-        if (text.trim().length === 0 || text.startsWith("/")) return undefined;
-        return (clientExtensionRegistry?.composeSuggesters() ?? []).find(
-            (suggester) =>
-                focusedAgentState().agent?.name !== suggester.agent
-                &&
-                !dismissedComposeSuggesters.has(
-                    `${suggester.source}:${suggester.agent}`,
-                )
-                && suggester.matches(text),
+        return findActiveComposeSuggester(
+            clientExtensionRegistry?.composeSuggesters() ?? [],
+            composer.plainText,
+            focusedAgentState().agent?.name ?? "default",
+            dismissedComposeSuggesters,
         );
     }
 

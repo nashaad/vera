@@ -1,0 +1,8 @@
+{
+    "id": "example.agent-suggestions",
+    "version": "0.1.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": ["client.compose.suggester"],
+    "contributes": {}
+}

@@ -570,6 +570,11 @@ export interface VeraClientExtensionComposeSuggesterSpec {
     /** One line, shown under the composer while `match` holds. */
     readonly hint: string;
     /**
+     * Only offer while one of these agents is worn. Omit to allow every
+     * current agent. This scopes an offer; it does not change its target.
+     */
+    readonly fromAgents?: readonly string[];
+    /**
      * A pure predicate over the composer's text. No network, no model calls,
      * no side effects: the client debounces it and calls it on every keystroke
      * that survives the debounce, and never on empty input.
