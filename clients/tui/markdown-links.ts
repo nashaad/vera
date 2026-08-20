@@ -70,6 +70,9 @@ export function isSupportedTuiLink(url: string): boolean {
         if (parsed.protocol === "http:" || parsed.protocol === "https:") {
             return true;
         }
+        if (parsed.protocol === "obsidian:") {
+            return parsed.hostname === "open";
+        }
         return parsed.protocol === "file:"
             && (parsed.hostname === "" || parsed.hostname === "localhost")
             && parsed.pathname.length > 0;
