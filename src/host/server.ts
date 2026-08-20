@@ -9,6 +9,8 @@ import {
     readHostLockRecordFile,
     type HostLockRecord,
 } from "./lockfile.ts";
+import type { SessionFactName } from "../store/session-facts.ts";
+import { pageSessionListing } from "./session-listing.ts";
 import {
     processIsAlive,
     recordMatchesRunningProcess,
@@ -109,6 +111,15 @@ export interface StartHostServerOptions {
     readonly listAgents?: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
+    /**
+     * Fills in the optional facts named by `include`, for one page of rows.
+     * Injected rather than computed here: the server knows how to page a
+     * listing, not how to read a session file or resolve a context window.
+     */
+    readonly readSessionFacts?: (
+        sessions: readonly RegisteredAgentSummary[],
+        include: readonly SessionFactName[],
+    ) => Promise<readonly RegisteredAgentSummary[]>;
     readonly listBackgroundAgents?: () => readonly RegisteredAgentSummary[];
     /**
      * The machine-wide work inbox as it stands now.
@@ -342,6 +353,7 @@ export async function startHostServer(
             capabilities,
             options.findAgent ?? (() => undefined),
             options.listAgents ?? (() => []),
+            options.readSessionFacts ?? ((sessions) => Promise.resolve(sessions)),
             options.listBackgroundAgents ?? (() => {
                 const agents = options.listAgents?.();
                 return Array.isArray(agents) ? agents : [];
@@ -439,6 +451,10 @@ function receiveConnection(
     listAgents: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>,
+    readSessionFacts: (
+        sessions: readonly RegisteredAgentSummary[],
+        include: readonly SessionFactName[],
+    ) => Promise<readonly RegisteredAgentSummary[]>,
     listBackgroundAgents: () => readonly RegisteredAgentSummary[],
     runScheduleOperation: (
         operation: ScheduleOperation,
@@ -870,9 +886,21 @@ function receiveConnection(
         if (request?.type === "list_agents") {
             clearDeadline();
             finished = true;
-            void Promise.resolve().then(listAgents).then(
-                (agents) => send({ type: "agent_list", agents }),
-            ).then(() => socket.end(), () => socket.destroy());
+            const listRequest = request;
+            void Promise.resolve().then(listAgents).then(async (agents) => {
+                const page = pageSessionListing(agents, listRequest);
+                const rows = listRequest.include === undefined
+                    ? page.agents
+                    : await readSessionFacts(page.agents, listRequest.include);
+                return send({
+                    type: "agent_list",
+                    agents: rows,
+                    ...(page.next_cursor === undefined
+                        ? {}
+                        : { next_cursor: page.next_cursor }),
+                    total: page.total,
+                });
+            }).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (isShutdownFenced()) {

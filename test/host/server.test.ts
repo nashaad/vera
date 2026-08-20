@@ -488,6 +488,7 @@ afterEach(() => {
                     status: "waiting",
                     live: true,
                 }],
+                total: 1,
             });
         } finally {
             connection.close();
