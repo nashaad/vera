@@ -6,10 +6,14 @@ import type {
     HostStartupTimingSnapshot,
 } from "./host-startup-diagnostics.ts";
 
+export type TuiDiagnosticsScope = "session" | "vera";
+
 export interface TuiDiagnosticsSnapshot {
     readonly state: TuiState;
     readonly activity: string;
     readonly elapsed: string;
+    readonly scope?: TuiDiagnosticsScope;
+    readonly sessionId?: string;
     readonly sessionPath?: string;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
@@ -42,32 +46,23 @@ export interface TuiClientExtensionReloadSnapshot {
 export function renderTuiDiagnostics(
     snapshot: TuiDiagnosticsSnapshot,
 ): string {
+    return snapshot.scope === "vera"
+        ? renderVeraDiagnostics(snapshot)
+        : renderSessionDiagnostics(snapshot);
+}
+
+function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     const { state } = snapshot;
     const lines = [
-        "# Diagnostics",
-        "## Build",
-        ...markdownTable(
-            ["Component", "Value"],
-            [
-                ["Client", snapshot.build?.clientVersion ?? "unknown"],
-                ["Client entrypoint", snapshot.build?.clientEntrypoint ?? "unknown"],
-                ["Host", hostLabel(snapshot)],
-                ["Host entrypoint", snapshot.build?.hostEntrypoint ?? "unknown"],
-            ],
-        ),
-        "",
-        "## Startup",
-        ...startupSummaryLines(snapshot.startup),
+        "# Session diagnostics",
+        "## Session",
+        `  id           ${snapshot.sessionId ?? "unavailable"}`,
+        `  file         ${snapshot.sessionPath ?? "unavailable"}`,
+        `  workspace    ${snapshot.workspace}`,
+        `  background   ${snapshot.runningBackgroundAgents} running`,
         "",
         "## Session usage",
         ...sessionUsageLines(state.sessionUsage),
-        "",
-        "## Startup extensions",
-        ...startupExtensionLines(snapshot.startup),
-        "",
-        "## Extensions",
-        ...extensionLines(snapshot),
-        ...clientExtensionReloadLines(snapshot),
         "",
         "## Runtime",
         `  turn         ${state.working ? snapshot.activity : "idle"}`,
@@ -137,19 +132,39 @@ export function renderTuiDiagnostics(
     } else {
         lines.push("  context      unavailable");
     }
-
-    lines.push("");
-    lines.push("## Session");
-    lines.push(`  session      ${snapshot.sessionPath ?? "unavailable"}`);
-    lines.push(`  workspace    ${snapshot.workspace}`);
-    lines.push(`  background   ${snapshot.runningBackgroundAgents} running`);
-    lines.push("");
-    lines.push("## Model failures");
-    lines.push(...modelFailureLines(snapshot));
-    lines.push("");
-    lines.push("## Pre-image stash");
-    lines.push(...stashLines(snapshot));
     return lines.join("\n");
+}
+
+function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
+    return [
+        "# Vera diagnostics",
+        "## Build",
+        ...markdownTable(
+            ["Component", "Value"],
+            [
+                ["Client", snapshot.build?.clientVersion ?? "unknown"],
+                ["Client entrypoint", snapshot.build?.clientEntrypoint ?? "unknown"],
+                ["Host", hostLabel(snapshot)],
+                ["Host entrypoint", snapshot.build?.hostEntrypoint ?? "unknown"],
+            ],
+        ),
+        "",
+        "## Startup",
+        ...startupSummaryLines(snapshot.startup),
+        "",
+        "## Startup extensions",
+        ...startupExtensionLines(snapshot.startup),
+        "",
+        "## Extensions",
+        ...extensionLines(snapshot),
+        ...clientExtensionReloadLines(snapshot),
+        "",
+        "## Model failures",
+        ...modelFailureLines(snapshot),
+        "",
+        "## Pre-image stash",
+        ...stashLines(snapshot),
+    ].join("\n");
 }
 
 /** Most repeated first: the top row is the one worth acting on. */

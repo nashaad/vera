@@ -11,6 +11,7 @@ import {
     createTuiPartialReloadDependencies,
 } from "../../support/tui-partial-reload-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import type { RegisteredAgentSummary } from "../../../src/host/agent-registry.ts";
 
 test("diagnostics opens as a large copyable overlay instead of transcript text", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-diagnostics-"));
@@ -30,9 +31,12 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("copy  enter");
-        expect(pane).toContain("Extensions");
+        expect(pane).toContain("[Session]");
+        expect(pane).toContain("Session usage");
         expect(pane).toContain("Runtime");
         expect(pane).toContain("copy  enter");
+        expect(pane).not.toContain("Extensions");
+        expect(pane).not.toContain("Pre-image stash");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
         expect(pane).toContain("test · HIGH");
@@ -40,9 +44,18 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendKey("C-p");
         await session.settle(100);
         pane = session.captureVisiblePane();
-        expect(pane).toContain("Build");
+        expect(pane).toContain("Session usage");
         expect(pane).not.toContain("Commands");
 
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("✓ copied");
+        session.sendKey("Tab");
+        pane = await session.waitForVisiblePane("[Vera]");
+        expect(pane).toContain("Build");
+        expect(pane).toContain("Extensions");
+        expect(pane).toContain("Model failures");
+        expect(pane).toContain("Pre-image stash");
+        expect(pane).not.toContain("Session usage");
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Escape");
@@ -52,6 +65,70 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
             "diagnostics overlay to close without transcript output",
         );
         expect(pane).not.toContain("Diagnostics");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a stale session-path lookup cannot update a reopened dialog", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-diagnostics-race-"));
+    const firstLookup = deferred<readonly RegisteredAgentSummary[]>();
+    const secondLookup = deferred<readonly RegisteredAgentSummary[]>();
+    const agent: RegisteredAgentSummary = {
+        id: "current-session",
+        workspace: "/workspace",
+        session_path: "/sessions/current.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: true,
+    };
+    let listCalls = 0;
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 52,
+        dependencies: () => {
+            const base = createTuiChildDependencies();
+            return {
+                ...base,
+                client: {
+                    ...base.client,
+                    agentId: agent.id,
+                    workspace: agent.workspace,
+                },
+                listAgents: () => {
+                    listCalls += 1;
+                    if (listCalls === 1) return Promise.resolve([agent]);
+                    if (listCalls === 2) return firstLookup.promise;
+                    return secondLookup.promise;
+                },
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("finding session path…");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("Message Vera");
+
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("finding session path…");
+        firstLookup.resolve([{
+            ...agent,
+            session_path: "/sessions/stale.jsonl",
+        }]);
+        await session.settle(100);
+        let pane = session.captureVisiblePane();
+        expect(pane).toContain("finding session path…");
+        expect(pane).not.toContain("/sessions/stale.jsonl");
+
+        secondLookup.resolve([agent]);
+        pane = await session.waitForVisiblePane("/sessions/current.jsonl");
+        expect(pane).not.toContain("/sessions/stale.jsonl");
     } finally {
         await session.close();
     }
@@ -101,6 +178,17 @@ test("doctor opens the read-only process report inside the TUI", async () => {
     }
 }, 15_000);
 
+function deferred<T>(): {
+    readonly promise: Promise<T>;
+    readonly resolve: (value: T) => void;
+} {
+    let resolve: (value: T) => void = () => {};
+    const promise = new Promise<T>((next) => {
+        resolve = next;
+    });
+    return { promise, resolve };
+}
+
 test("reload failure reaches the TUI diagnostics overlay", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reload-failure-"));
     const session = await startTuiTestSession({
@@ -124,6 +212,8 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
+        await session.waitForVisiblePane("[Session]");
+        session.sendKey("Tab");
         pane = await session.waitForVisiblePane("reload       failed");
         expect(pane).toContain("reload error");
         expect(pane).not.toContain("reload       partial");
@@ -155,6 +245,8 @@ test("partial reload names the extensions that stayed active", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
+        await session.waitForVisiblePane("[Session]");
+        session.sendKey("Tab");
         pane = await session.waitForVisiblePane("reload       partial (1 loaded)");
         expect(pane).toContain("active       test.sidebar");
         expect(pane).toContain("reload error");
