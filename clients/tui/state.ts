@@ -199,6 +199,12 @@ export interface TuiState {
     readonly modelSettingsOrigin?: "agent-default" | "user";
     /** Where the posture in force came from, when the host has said. */
     readonly approvalModeOrigin?: "agent-default" | "user";
+    /**
+     * When the running compaction started. Compaction is otherwise silent
+     * until its outcome, so this is what lets the status line show it working
+     * instead of looking like a hang.
+     */
+    readonly compactingSince?: number;
     /** The agent this session is wearing, as the host last reported it. */
     readonly agent?: {
         readonly name: string;
@@ -408,6 +414,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             )),
             working: false,
             modelActivity: undefined,
+            compactingSince: undefined,
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
@@ -444,6 +451,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
+            compactingSince: undefined,
         }, "resident_agent_stopped", update.detail);
     }
     if (update.type === "status") {
@@ -500,9 +508,10 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             // A rebuild can restore a summary the canonical rows no longer
             // have a place for, which lands it behind the answer it belongs
             // in front of. Settling here is what the end of a turn does.
-            entries: settleTrailingThoughts(preserveLiveReviewEntries(
-                state.entries,
-                canonicalEntries,
+            entries: settleTrailingThoughts(foldAdjacentThoughts(
+                hoistStrandedThoughts(
+                    preserveLiveReviewEntries(state.entries, canonicalEntries),
+                ),
             )),
             ...(update.context === undefined
                 ? {}
@@ -702,6 +711,53 @@ function settleTrailingThoughts(
     return next;
 }
 
+/**
+ * A summary stranded at the tail of a shortened rebuild lands behind the
+ * notice that ended its turn, but the thinking happened before the end: the
+ * stretch moves back above the trailing notices, where folding can rejoin it
+ * to the stretch it was split from.
+ */
+function hoistStrandedThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    let thoughtStart = entries.length;
+    while (thoughtStart > 0 && entries[thoughtStart - 1]?.kind === "thought") {
+        thoughtStart -= 1;
+    }
+    let insert = thoughtStart;
+    while (insert > 0 && entries[insert - 1]?.kind === "notice") {
+        insert -= 1;
+    }
+    if (thoughtStart === entries.length || insert === thoughtStart) {
+        return entries;
+    }
+    const next = [...entries];
+    const thoughts = next.splice(thoughtStart);
+    next.splice(insert, 0, ...thoughts);
+    return next;
+}
+
+/**
+ * A rebuild can land summaries side by side: restoring drops the rows that
+ * separated them, and a summary whose anchor count outruns a shortened
+ * history is placed at the tail next to the ones after it. Adjacent summaries
+ * are one stretch to the reader, so each run collapses to one row.
+ */
+function foldAdjacentThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    const next: TuiTranscriptEntry[] = [];
+    for (const entry of entries) {
+        const previous = next.at(-1);
+        if (entry.kind === "thought" && previous?.kind === "thought") {
+            next[next.length - 1] = mergeThoughts(previous, entry);
+        } else {
+            next.push(entry);
+        }
+    }
+    return next;
+}
+
 /** One stretch of thinking is one row, however many phases reported it. */
 function foldThoughts(
     thoughts: readonly TuiTextTranscriptEntry[],
@@ -724,21 +780,27 @@ function applyCompaction(
     update: CompactionUpdate,
 ): TuiState {
     if (update.phase === "started") {
+        const started = { ...state, compactingSince: Date.now() };
         return update.warning === undefined
-            ? state
-            : appendTuiNotice(state, update.warning);
+            ? started
+            : appendTuiNotice(started, update.warning);
     }
+    if (update.outcome === "busy") {
+        // A refused manual request. It had no started phase of its own, so it
+        // must not clear the mark of a compaction that is still running.
+        return appendTuiNotice(
+            state,
+            "Compaction runs between turns. Try again once this one finishes.",
+        );
+    }
+    // Every other finish clears the start mark, whatever the outcome: the
+    // status line must never keep filling after the work has stopped.
+    state = { ...state, compactingSince: undefined };
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
             "Earlier messages were summarized. They are still shown here, but "
                 + "the model now sees the summary instead.",
-        );
-    }
-    if (update.outcome === "busy") {
-        return appendTuiNotice(
-            state,
-            "Compaction runs between turns. Try again once this one finishes.",
         );
     }
     if (update.outcome === "not_needed") {
@@ -1183,6 +1245,7 @@ export function failTuiConnection(state: TuiState): TuiState {
         ),
         working: false,
         queuedPrompts: [],
+        compactingSince: undefined,
     };
 }
 
@@ -1320,7 +1383,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         // bracket or an asterisk in it must survive being displayed.
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
-    if (entry.kind === "notice" || entry.kind === "review") {
+    if (entry.kind === "review") {
+        return new StyledText(renderTuiReview(entry.text));
+    }
+    if (entry.kind === "notice") {
         if (entry.diagnostic === undefined && entry.admission !== undefined) {
             // The heading keeps a colour so a probe block can be found on the
             // way back up; the steps under it are Vera narrating itself and
@@ -1426,6 +1492,101 @@ function plainReasoningSummary(reasoning: string): string {
         .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
         .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]+#*[ \t]*$/gm, "$1")
         .replace(/^[ \t]*(?:\*\*|__)(.*?)(?:\*\*|__)[ \t]*$/gm, "$1");
+}
+
+interface TuiReviewHighlightMatch {
+    readonly index: number;
+    readonly text: string;
+}
+
+/** Routine approval is quiet; only its decision and unresolved authorization stand out. */
+function renderTuiReview(text: string): TextChunk[] {
+    const chunks: TextChunk[] = [];
+    const approvalPrefix = "Auto review ";
+    if (!text.startsWith(approvalPrefix)) {
+        return text.length === 0 ? [] : [fg(TUI_MUTED)(text)];
+    }
+    chunks.push(fg(TUI_MUTED)(approvalPrefix));
+
+    let remaining = text.slice(approvalPrefix.length);
+    const approved = "approved";
+    if (!remaining.startsWith(approved)) {
+        chunks.push(fg(TUI_MUTED)(remaining));
+        return chunks;
+    }
+    chunks.push(fg(TUI_SUCCESS)(approved));
+    remaining = remaining.slice(approved.length);
+
+    const riskMarker = " (risk: ";
+    const authorizationMarker = ", authorization: ";
+    const authorizationTextPrefix = ", ";
+    const headerEnd = "): ";
+    const riskIndex = remaining.indexOf(riskMarker);
+    const authorizationIndex = remaining.indexOf(
+        authorizationMarker,
+        riskIndex + riskMarker.length,
+    );
+    const headerEndIndex = remaining.indexOf(
+        headerEnd,
+        authorizationIndex + authorizationMarker.length,
+    );
+    if (riskIndex === -1 || authorizationIndex === -1 || headerEndIndex === -1) {
+        chunks.push(fg(TUI_MUTED)(remaining));
+        return chunks;
+    }
+
+    const authorizationTextStart = authorizationIndex
+        + authorizationTextPrefix.length;
+    const authorizationValueStart = authorizationIndex
+        + authorizationMarker.length;
+    chunks.push(fg(TUI_MUTED)(remaining.slice(0, authorizationTextStart)));
+    const authorizationValue = remaining.slice(
+        authorizationValueStart,
+        headerEndIndex,
+    );
+    const authorizationText = remaining.slice(
+        authorizationTextStart,
+        headerEndIndex,
+    );
+    chunks.push(
+        fg(authorizationValue === "unknown" ? TUI_NOTICE : TUI_MUTED)(
+            authorizationText,
+        ),
+    );
+    const reasonStart = headerEndIndex + headerEnd.length;
+    chunks.push(fg(TUI_MUTED)(remaining.slice(headerEndIndex, reasonStart)));
+    appendTuiReviewReason(chunks, remaining.slice(reasonStart));
+    return chunks;
+}
+
+function appendTuiReviewReason(chunks: TextChunk[], reason: string): void {
+    let remaining = reason;
+    while (remaining.length > 0) {
+        const match = findTuiReviewAllowDecision(remaining);
+        if (match === undefined) {
+            chunks.push(fg(TUI_MUTED)(remaining));
+            return;
+        }
+        if (match.index > 0) {
+            chunks.push(fg(TUI_MUTED)(remaining.slice(0, match.index)));
+        }
+        chunks.push(fg(TUI_SUCCESS)(match.text));
+        remaining = remaining.slice(match.index + match.text.length);
+    }
+}
+
+function findTuiReviewAllowDecision(
+    text: string,
+): TuiReviewHighlightMatch | undefined {
+    const phrase = "an allow decision";
+    const phraseIndex = text.indexOf(phrase);
+    if (phraseIndex === -1) {
+        return undefined;
+    }
+    return {
+        index: phraseIndex + "an ".length,
+        text: "allow",
+    };
 }
 
 function renderTuiDiagnostic(
