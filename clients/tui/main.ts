@@ -2713,7 +2713,7 @@ export async function startTui(
         }
         if (permission !== undefined
             && permission !== opened?.openedPermission) {
-            requestPermissionsChange(permission, target);
+            requestPermissionsChange(permission, target, "session");
         }
     }
 
