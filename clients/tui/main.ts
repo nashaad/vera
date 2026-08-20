@@ -585,6 +585,12 @@ const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
 const ACTIVE_GRID_TRAIL = "#B8B6D9";
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
+/**
+ * Two plain escapes in this window open the timeline picker, the same gesture
+ * /rewind is. One press arms the window; any other key disarms it, so typing
+ * between presses never counts as a double press.
+ */
+const DOUBLE_ESCAPE_REWIND_WINDOW_MS = 500;
 /** Rows the composer, the status band and a little transcript need. */
 const SUGGESTIONS_RESERVED_ROWS = 12;
 
@@ -3426,11 +3432,28 @@ export async function startTui(
         }
     });
 
+    /**
+     * The moment a plain escape last landed while idle. Two consecutive
+     * escapes within the window open the timeline picker. Every keypress
+     * disarms it first thing in `handleKeypress`, and the paste handler
+     * disarms it too, so anything at all between the two presses — even an
+     * escape that closed an overlay, a typed key, or a pasted image chip that
+     * never lands in `plainText` — breaks the pair. Only the qualifying idle
+     * branch re-arms it. The timestamp is `performance.now()`, which a system
+     * clock correction cannot move.
+     */
+    let lastIdleEscapeAt: number | undefined;
+
     // The composer takes pastes through its own renderable handler, but the
     // secret prompt is a plain box drawn over whatever is behind it, so the
     // paste has to be routed here. Ahead of the composer, which would otherwise
     // end up with the key as visible text in the transcript.
     renderer.keyInput.on("paste", (event) => {
+        // A paste is input between the two presses, and a pasted image chip
+        // is draft content even though it never lands in `plainText`, so a
+        // paste always disarms the pair rather than leaving an armed first
+        // escape to pair across it.
+        lastIdleEscapeAt = undefined;
         if (
             providerForm !== undefined
             && providerFormView.surface.visible
@@ -3499,6 +3522,13 @@ export async function startTui(
                 });
             });
         }
+        // Every keypress disarms the rewind pair unless the branch below
+        // re-arms it: the pair must be two consecutive escapes with nothing
+        // between them, not even an escape that closed an overlay or cleared
+        // a draft. Captured first so the branch can still see the previous
+        // press across the disarm.
+        const previousIdleEscapeAt = lastIdleEscapeAt;
+        lastIdleEscapeAt = undefined;
         if (parseRawInputEvent(key)?.type === "open_palette") {
             key.preventDefault();
             key.stopPropagation();
@@ -4193,6 +4223,42 @@ export async function startTui(
             renderCommandSuggestions();
             renderState();
             composer.focus();
+            return;
+        }
+
+        // Two plain escapes while idle open the timeline picker, the same
+        // gesture /rewind is. The clear branch above already took any escape
+        // with text, and a working agent's escape belongs to the stop handling
+        // at the end, so both keys here see an idle, empty composer. The first
+        // press only arms the window; the second one acts. Both are claimed
+        // even when they do not act, so the focused surface never receives a
+        // stray escape that could blur it and swallow the next keystroke.
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !anyOverlayOpen()
+            && !sessionSwitchPending
+            && !focusedAgentState().working
+            && focusedAgentState().queuedPrompts.length === 0
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            const now = performance.now();
+            const doubled = previousIdleEscapeAt !== undefined
+                && now - previousIdleEscapeAt <= DOUBLE_ESCAPE_REWIND_WINDOW_MS;
+            lastIdleEscapeAt = now;
+            if (!doubled) return;
+            lastIdleEscapeAt = undefined;
+            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+                // Rewind manages the main conversation only, matching /rewind.
+                showStatusNotice(
+                    "Switch to Vera with Ctrl+G to manage its conversation",
+                );
+                return;
+            }
+            applyTimelineTransition(startTuiTimelinePicker(randomUUID()));
             return;
         }
 

@@ -439,7 +439,7 @@ function generalHelp(): StyledText {
         fg(TUI_TEXT)("Composer\n"),
         fg(TUI_MUTED)(
             "Enter send   Shift+Enter newline   Up recall last submission\n"
-            + "/ browse commands\n\n",
+            + "/ browse commands   Esc Esc rewind when idle\n\n",
         ),
         fg(TUI_TEXT)("While Vera is working\n"),
         fg(TUI_MUTED)(
