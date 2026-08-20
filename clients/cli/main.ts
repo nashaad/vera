@@ -23,7 +23,12 @@ import {
 import {
     createHostLockfile,
     HostProtocolMismatchError,
+    HostUnresponsiveError,
 } from "../../src/host/lockfile.ts";
+import {
+    forceStopResidentHost,
+    type ForceStopOutcome,
+} from "../../src/host/force-stop.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { sourceVersion } from "../../src/build-info.ts";
 import {
@@ -144,6 +149,7 @@ export interface CliDependencies {
     ) => Promise<void>;
     readonly confirmHostStop?: () => boolean | Promise<boolean>;
     readonly stopHost?: () => Promise<number | undefined>;
+    readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly providerDoctor?: (
         options: ProviderDoctorOptions,
@@ -412,24 +418,53 @@ export async function runCli(
         return 0;
     }
 
-    const hostStopAssumeYes = assumeYes
-        || (
-            args.length === 3
-            && args[0] === "host"
-            && args[1] === "stop"
-            && (args[2] === "--yes" || args[2] === "-y")
-        );
     if (
-        (args.length === 2 || hostStopAssumeYes)
-        && args[0] === "host"
+        args[0] === "host"
         && args[1] === "stop"
+        && args.slice(2).every((flag) =>
+            flag === "--yes" || flag === "-y" || flag === "--force"
+        )
     ) {
+        const flags = args.slice(2);
+        const force = flags.includes("--force");
+        const hostStopAssumeYes = assumeYes
+            || flags.includes("--yes")
+            || flags.includes("-y");
         const confirmed = hostStopAssumeYes
             || await (
                 dependencies.confirmHostStop ?? confirmResidentHostStop
             )();
         if (!confirmed) {
             output.write("Resident Vera host was not stopped.\n");
+            return 0;
+        }
+        if (force) {
+            const outcome = await (
+                dependencies.forceStopHost ?? forceStopResidentHost
+            )();
+            if (outcome === undefined) {
+                output.write("No resident Vera host is recorded.\n");
+                return 0;
+            }
+            if (outcome.endedBy === "survived") {
+                output.write(
+                    `Resident Vera host PID ${outcome.pid} is still running`
+                        + " after SIGKILL, which means it is stuck in the"
+                        + " kernel. Its lockfile was left in place. Wait for"
+                        + " the operation it is blocked on, or reboot.\n",
+                );
+                return 1;
+            }
+            output.write(`Stopped resident Vera host PID ${outcome.pid} (${
+                outcome.endedBy === "sigkill"
+                    ? "killed after it ignored SIGTERM"
+                    : outcome.endedBy === "already_dead"
+                    ? "it was already dead; cleared its lockfile"
+                    : outcome.endedBy === "not_ours"
+                    ? "that PID belongs to another process now; cleared its"
+                        + " stale lockfile"
+                    : "SIGTERM"
+            }).\n`);
             return 0;
         }
         const pid = await (dependencies.stopHost ?? stopResidentHost)();
@@ -540,6 +575,14 @@ function parseExportRequest(
  * Consumed before dispatch so every path lookup downstream sees one profile,
  * including the ones reached through module-level defaults.
  */
+/** The name `--profile` carries, without consuming the flag. */
+export function namedProfileFlag(args: readonly string[]): string | undefined {
+    const index = args.indexOf("--profile");
+    if (index === -1) return undefined;
+    const name = args[index + 1];
+    return name === undefined || name.startsWith("-") ? undefined : name;
+}
+
 export function applyProfileFlag(
     args: readonly string[],
     env: NodeJS.ProcessEnv = process.env,
@@ -554,12 +597,50 @@ export function applyProfileFlag(
     return [...args.slice(0, index), ...args.slice(index + 2)];
 }
 
+/**
+ * `vera rescue` is `vera` under the fixed `rescue` profile: its own host,
+ * socket, lockfile, sessions, and config, with credentials shared from the
+ * machine tier. Nothing else changes, which is the point: when the default
+ * profile's host is wedged, this reaches a working Vera while that host stays
+ * where it is. Stopping the wedged host is a separate command that names the
+ * profile it targets, as in `vera host stop --force --profile default`.
+ * Consumed here for the same reason as `--profile`: every path lookup after
+ * dispatch must see one profile.
+ *
+ * Runs after `applyProfileFlag`, so an explicit `--profile` has already been
+ * consumed by the time this sees the arguments. Naming both is a contradiction
+ * rather than a preference, so it is refused instead of silently resolved.
+ */
+export function applyRescueCommand(
+    args: readonly string[],
+    env: NodeJS.ProcessEnv = process.env,
+    profileFlagName?: string,
+): readonly string[] {
+    const index = args.findIndex((arg) => arg !== "--yes" && arg !== "-y");
+    if (index === -1 || args[index] !== "rescue") return args;
+    if (profileFlagName !== undefined) {
+        throw new VeraProfileError(
+            `vera rescue always runs under the rescue profile, so it cannot also take --profile ${profileFlagName}.\n`
+                + `Use one or the other:\n`
+                + `  vera rescue\n`
+                + `  vera --profile ${profileFlagName}`,
+        );
+    }
+    env[VERA_PROFILE_ENV] = "rescue";
+    return [...args.slice(0, index), ...args.slice(index + 1)];
+}
+
 export async function runCliMain(
     args: readonly string[],
     dependencies: CliDependencies = {},
 ): Promise<number> {
     try {
-        const remaining = applyProfileFlag(args);
+        const requestedProfile = namedProfileFlag(args);
+        const remaining = applyRescueCommand(
+            applyProfileFlag(args),
+            process.env,
+            requestedProfile,
+        );
         veraProfileName();
         return await runCli(remaining, dependencies);
     } catch (error) {
@@ -572,6 +653,13 @@ export async function runCliMain(
 export function renderCliFailure(error: unknown): string {
     if (error instanceof VeraProfileError) {
         return error.message;
+    }
+    if (error instanceof HostUnresponsiveError) {
+        return `${error.message}\n`
+            + "Run 'vera host stop --force' to kill it.\n"
+            + "For a working Vera while it stays wedged, run 'vera rescue',"
+            + " then stop this one with"
+            + ` 'vera host stop --force --profile ${veraProfileName()}'.`;
     }
     if (error instanceof HostProtocolMismatchError) {
         return `Vera host upgrade required: ${error.message}\n`
@@ -780,12 +868,14 @@ function runLogin(output: CliOutput): number {
     return 0;
 }
 
-async function confirmBusyHostUpgrade(): Promise<boolean> {
+async function confirmBusyHostUpgrade(error?: Error): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
     try {
         const answer = await prompt.question(
-            "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
+            error instanceof HostUnresponsiveError
+                ? `The resident Vera host (PID ${error.pid}) is not responding. Replace it? [y/N] `
+                : "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
         );
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";
