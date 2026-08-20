@@ -83,7 +83,10 @@ import {
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import { projectModelRequest } from "./model-request.ts";
 import { loadScratchState } from "./scratch-state.ts";
-import { createToolResultSpill } from "./tool-result-spill.ts";
+import {
+    createToolResultSpill,
+    SPILL_DIRECTORY_NAME,
+} from "./tool-result-spill.ts";
 import type {
     ToolResultSpill,
     ToolResultTruncation,
@@ -94,6 +97,7 @@ import {
     measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
+import type { ToolResultAgingPolicy } from "./tool-result-history.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import type { CompleteText } from "./completion-service.ts";
 import {
@@ -194,7 +198,9 @@ export interface RunTurnState {
      * What to send the model, which compaction replaces. Absent means the
      * transcript itself, which is what a session without compaction sends.
      */
-    readonly modelContext?: () => readonly ModelMessage[];
+    readonly modelContext?: (
+        context?: CompactionContext,
+    ) => readonly ModelMessage[];
     readonly contextWatch?: ContextWatch;
     readonly compact?: (
         signal: AbortSignal,
@@ -831,24 +837,38 @@ export async function runHeadlessLoop(
     // pending message, one large prompt can jump from below the trigger to
     // beyond the provider's window. The last request's fixed overhead (system
     // prompt, tools, instructions) is carried over because it remains true.
-    const measureContextNow = (
-        pendingMessages: readonly ModelMessage[] = [],
-        context?: CompactionContext,
-    ): ContextMeasurement => {
+    const fixedOverhead = (): number => {
         const watched = contextWatch.measurement;
-        const overhead = watched === undefined
+        return watched === undefined
             ? 0
             : Math.max(
                 0,
                 watched.tokens
                     - (contextWatch.messageTokens ?? watched.tokens),
             );
+    };
+    const spillDirectory = join(scratchDir, SPILL_DIRECTORY_NAME);
+    const agingPolicy = (
+        context?: CompactionContext,
+        pendingMessages: readonly ModelMessage[] = [],
+    ): ToolResultAgingPolicy => {
+        const capacity = compactionCapacity(context);
+        return {
+            overheadTokens: fixedOverhead() + measureMessages(pendingMessages),
+            spillDirectory,
+            ...(capacity === undefined ? {} : { capacity }),
+        };
+    };
+    const measureContextNow = (
+        pendingMessages: readonly ModelMessage[] = [],
+        context?: CompactionContext,
+    ): ContextMeasurement => {
         const capacity = compactionCapacity(context);
         return {
             tokens: measureMessages([
-                ...store.modelContext(),
+                ...store.modelContext(agingPolicy(context, pendingMessages)),
                 ...pendingMessages,
-            ]) + overhead,
+            ]) + fixedOverhead(),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -969,7 +989,7 @@ export async function runHeadlessLoop(
         sessionId,
         messages,
         store,
-        modelContext: () => store.modelContext(),
+        modelContext: (context) => store.modelContext(agingPolicy(context)),
         contextWatch,
         ...(runCompaction === undefined
             ? {}
@@ -1371,7 +1391,9 @@ export async function runTurn(
                 ...(turnReasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: turnReasoningEffort }),
-                messages: state.modelContext?.() ?? state.messages,
+                messages: state.modelContext?.(
+                    compactionContextForSettings(modelSettings, activeModel),
+                ) ?? state.messages,
                 tools,
                 workspace: state.toolRuntime.workspace,
                 ...(state.scratchDir === undefined

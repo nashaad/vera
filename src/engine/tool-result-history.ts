@@ -7,12 +7,68 @@ import type {
 } from "../model/types.ts";
 import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
 import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
+import { measureMessages } from "./context-measurement.ts";
 
 /** A turn is a visible user prompt; internal continuation messages do not age results. */
 export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
 
 /** Several legal per-result outputs must not compose one enormous request. */
 export const TOOL_RESULT_TOTAL_BUDGET_BYTES = 128 * 1024;
+
+/**
+ * How readily old results give way, chosen by the size of the context the
+ * session actually has (the configured cap, not the model's native window).
+ */
+export type ToolResultAgingLevel = "relaxed" | "normal" | "tight";
+
+export interface ToolResultAgingLevelSettings {
+    /** Fraction of capacity the context must reach before any result ages. */
+    readonly gateFraction: number;
+    /** Results from the most recent turns never age. */
+    readonly ageAfterTurns: number;
+    /** Whether `read` results may age at all once bash, grep, and list are spent. */
+    readonly ageReads: boolean;
+}
+
+export const TOOL_RESULT_AGING_LEVELS: Readonly<
+    Record<ToolResultAgingLevel, ToolResultAgingLevelSettings>
+> = {
+    relaxed: { gateFraction: 0.8, ageAfterTurns: 5, ageReads: false },
+    normal: { gateFraction: 0.6, ageAfterTurns: 3, ageReads: true },
+    tight: { gateFraction: 0.4, ageAfterTurns: 3, ageReads: true },
+};
+
+export const RELAXED_AGING_MIN_CAPACITY = 400_000;
+export const NORMAL_AGING_MIN_CAPACITY = 128_000;
+
+/** Stand-in capacity when the model's window is unknown. */
+const UNKNOWN_CAPACITY_TOKENS = 100_000;
+
+export function toolResultAgingLevel(
+    capacity: number | undefined,
+): ToolResultAgingLevel {
+    if (capacity === undefined) return "normal";
+    if (capacity >= RELAXED_AGING_MIN_CAPACITY) return "relaxed";
+    if (capacity >= NORMAL_AGING_MIN_CAPACITY) return "normal";
+    return "tight";
+}
+
+export interface ToolResultAgingPolicy {
+    /** Context window the session runs under; unknown means a 100k stand-in. */
+    readonly capacity?: number;
+    /** Tokens the request carries beyond its messages: system prompt and tools. */
+    readonly overheadTokens?: number;
+    /** Overrides the level derived from `capacity`. */
+    readonly level?: ToolResultAgingLevel;
+    /**
+     * The session's spill directory. A read or bash command that targets it is
+     * re-reading a spill file and never ages; absent, nothing is exempt.
+     */
+    readonly spillDirectory?: string;
+    /** Overrides the level's own turn line. */
+    readonly ageAfterTurns?: number;
+    readonly budgetBytes?: number;
+}
 
 export interface ToolResultHistoryEntry {
     readonly message: ModelMessage;
@@ -26,9 +82,16 @@ export interface ToolResultHistoryEntry {
  */
 export function assembleAgedToolResults(
     entries: readonly ToolResultHistoryEntry[],
-    ageAfterTurns = TOOL_RESULT_STUB_AFTER_TURNS,
-    budgetBytes = TOOL_RESULT_TOTAL_BUDGET_BYTES,
+    policy: ToolResultAgingPolicy = {},
 ): readonly ModelMessage[] {
+    const level = TOOL_RESULT_AGING_LEVELS[
+        policy.level ?? toolResultAgingLevel(policy.capacity)
+    ];
+    const ageAfterTurns = policy.ageAfterTurns ?? level.ageAfterTurns;
+    const budgetBytes = policy.budgetBytes ?? TOOL_RESULT_TOTAL_BUDGET_BYTES;
+    const gateTokens = (policy.capacity ?? UNKNOWN_CAPACITY_TOKENS)
+        * level.gateFraction;
+
     const turnsAt = new Map<number, number>();
     const calls = new Map<string, ToolCallContent>();
     let turn = -1;
@@ -49,41 +112,81 @@ export function assembleAgedToolResults(
         }
     }
 
-    const projected = entries.map((entry, index) => {
-        const message = entry.message;
+    const projected: ModelMessage[] = entries.map((entry) => entry.message);
+    let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);
+
+    // Oldest first, and reads last: the edit tool needs a read's exact text,
+    // while a bash or grep result has usually been acted on by the next turn.
+    const candidates: number[] = [];
+    const readCandidates: number[] = [];
+    for (let index = 0; index < projected.length; index += 1) {
+        const message = projected[index];
         if (
-            message.role !== "tool_result"
+            message?.role !== "tool_result"
             || message.toolResultSource?.spillPath === undefined
             || message.toolResultSource.originalBytes
                 <= TOOL_RESULT_VERBATIM_FLOOR_BYTES
         ) {
-            return message;
+            continue;
         }
-        const resultTurn = turnsAt.get(index) ?? -1;
-        const age = turn - resultTurn;
-        if (age < ageAfterTurns) {
-            return message;
+        const age = turn - (turnsAt.get(index) ?? -1);
+        if (age < ageAfterTurns) continue;
+        const call = calls.get(message.toolCallId);
+        // A re-read of a spill file is the recovery route every digest names;
+        // aging it would make that route circular.
+        if (readsSpill(call, policy.spillDirectory)) continue;
+        if (message.toolName === "read") {
+            if (level.ageReads) readCandidates.push(index);
+            continue;
         }
-        const sourceText = readSpill(message.toolResultSource.spillPath);
+        candidates.push(index);
+    }
+
+    for (const index of [...candidates, ...readCandidates]) {
+        if (tokens < gateTokens) break;
+        const message = projected[index];
+        if (message?.role !== "tool_result") continue;
+        const sourceText = readSpill(message.toolResultSource?.spillPath);
         // The spill quota is intentionally disposable. If it has gone away,
         // retain the durable excerpt rather than replacing it with a pointer
         // that cannot be followed (or silently discarding an extension result).
-        if (sourceText === undefined) {
-            return message;
-        }
-        return agedToolResult(
+        if (sourceText === undefined) continue;
+        const aged = agedToolResult(
             message,
             calls.get(message.toolCallId),
             laterAssistantText(entries, index),
             sourceText,
         );
-    });
+        // A digest with provenance can outgrow a short excerpt; that swap
+        // would spend the window it is meant to recover.
+        const saved = measureMessages([message]) - measureMessages([aged]);
+        if (saved <= 0) continue;
+        tokens -= saved;
+        projected[index] = aged;
+    }
+
     return Object.freeze(applyToolResultBudget(
         projected,
         entries,
         calls,
         budgetBytes,
     ));
+}
+
+function readsSpill(
+    call: ToolCallContent | undefined,
+    spillDirectory: string | undefined,
+): boolean {
+    if (call === undefined || spillDirectory === undefined) return false;
+    if (call.name === "read") {
+        return typeof call.input.path === "string"
+            && call.input.path.startsWith(spillDirectory);
+    }
+    if (call.name === "bash") {
+        return typeof call.input.command === "string"
+            && call.input.command.includes(spillDirectory);
+    }
+    return false;
 }
 
 /**
