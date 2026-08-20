@@ -170,6 +170,12 @@ export interface VeraCompactionConfig {
     readonly trigger_tokens?: number;
     /** Token target for a session whose window is unknown. */
     readonly target_tokens?: number;
+    /**
+     * Complete user turns kept verbatim after the boundary, when they fit.
+     * A preference, not a floor: a turn too large for the target is cut into
+     * rather than compaction declining to run.
+     */
+    readonly retained_user_turns?: number;
 }
 
 export interface ResolvedCompactionProfile {
@@ -182,6 +188,7 @@ export interface ResolvedCompactionProfile {
     readonly trigger_fraction?: number;
     readonly trigger_tokens?: number;
     readonly target_tokens?: number;
+    readonly retained_user_turns?: number;
 }
 
 export function parseCompactionConfig(
@@ -197,6 +204,7 @@ export function parseCompactionConfig(
     const triggerFraction = value.trigger_fraction;
     const triggerTokens = value.trigger_tokens;
     const targetTokens = value.target_tokens;
+    const retainedTurns = value.retained_user_turns;
     if (
         typeof strategy !== "string"
         || !isStrategyId(strategy)
@@ -219,6 +227,10 @@ export function parseCompactionConfig(
             && (typeof targetTokens !== "number"
                 || !Number.isInteger(targetTokens)
                 || targetTokens < 1))
+        || (retainedTurns !== undefined
+            && (typeof retainedTurns !== "number"
+                || !Number.isInteger(retainedTurns)
+                || retainedTurns < 0))
     ) {
         return undefined;
     }
@@ -246,6 +258,9 @@ export function parseCompactionConfig(
         ...(targetTokens === undefined
             ? {}
             : { target_tokens: targetTokens }),
+        ...(retainedTurns === undefined
+            ? {}
+            : { retained_user_turns: retainedTurns }),
     };
 }
 
@@ -279,6 +294,9 @@ export function resolveCompactionProfile(
         ...(compaction.target_tokens === undefined
             ? {}
             : { target_tokens: compaction.target_tokens }),
+        ...(compaction.retained_user_turns === undefined
+            ? {}
+            : { retained_user_turns: compaction.retained_user_turns }),
     };
 }
 

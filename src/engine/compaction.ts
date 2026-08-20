@@ -54,9 +54,18 @@ export interface CompactionStrategyDefinition {
  * and the answer was unusable, which is what a user needs told.
  */
 export class CompactionRejectedError extends Error {
-    constructor(reason: string) {
+    /**
+     * Whether a boundary with more room to summarize into could have produced
+     * an accepted proposal. False for the structural faults, which a strategy
+     * would reproduce exactly at any boundary, and retrying those only spends
+     * calls to collect the same answer again.
+     */
+    readonly roomRelated: boolean;
+
+    constructor(reason: string, roomRelated = false) {
         super(reason);
         this.name = "CompactionRejectedError";
+        this.roomRelated = roomRelated;
     }
 }
 
@@ -97,6 +106,7 @@ export function validateProposal(
         throw new CompactionRejectedError(
             `The compacted context is ${tokens} tokens, over the `
                 + `${request.targetTokens} it had to fit.`,
+            true,
         );
     }
     return projection;

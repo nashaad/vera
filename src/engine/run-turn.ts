@@ -266,6 +266,8 @@ export interface SessionCompactionOptions {
     readonly trigger?: CompactionTrigger;
     /** Token target for a session whose window is unknown. */
     readonly targetTokens?: number;
+    /** Complete user turns preferred verbatim after compaction. */
+    readonly retainedUserTurns?: number;
 }
 
 export interface RunHeadlessLoopOptions {
@@ -786,6 +788,9 @@ export async function runHeadlessLoop(
                 ...(compaction.targetTokens === undefined
                     ? {}
                     : { targetTokens: compaction.targetTokens }),
+                ...(compaction.retainedUserTurns === undefined
+                    ? {}
+                    : { retainedUserTurns: compaction.retainedUserTurns }),
             }, measurement, signal);
             events.emit({
                 type: "compaction_finished",
@@ -1574,6 +1579,10 @@ export async function runTurn(
                 await commitMessage(state, assistantMessage);
                 break;
             }
+            // Every call and result is now durable. This is the only safe
+            // boundary inside a tool turn: compacting any earlier could put a
+            // call in the summary while its result was still being produced.
+            await state.compact?.(turn.signal);
         }
     } finally {
         state.inbound.finishTurn();

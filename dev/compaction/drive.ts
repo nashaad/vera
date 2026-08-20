@@ -122,6 +122,9 @@ function compactionProfileFor(
         ...(args.budget.targetTokens === undefined
             ? {}
             : { target_tokens: args.budget.targetTokens }),
+        ...(args.budget.retainedUserTurns === undefined
+            ? {}
+            : { retained_user_turns: args.budget.retainedUserTurns }),
     };
 }
 

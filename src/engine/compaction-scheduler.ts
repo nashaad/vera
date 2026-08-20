@@ -62,7 +62,7 @@ function effectiveTriggerTokens(
 /** A summary smaller than this cannot carry a session, so do not ask for one. */
 export const MIN_SUMMARY_TOKENS = 400;
 
-/** Complete user turns kept verbatim after the boundary. */
+/** Complete user turns kept verbatim after the boundary, when they fit. */
 export const RETAINED_USER_TURNS = 2;
 
 export type CompactionOutcome =
@@ -98,6 +98,8 @@ export interface CompactionSchedulerOptions {
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
+    /** Complete user turns preferred verbatim. `RETAINED_USER_TURNS` if unset. */
+    readonly retainedUserTurns?: number;
 }
 
 /**
@@ -233,9 +235,10 @@ function targetAboveTriggerWarning(
 /**
  * Compacts the session in place, at a boundary the engine picks.
  *
- * Called between turns, never inside one: the span it compacts has to be
- * finished and durable, and a strategy running against a half-written turn
- * would summarize a tool call whose result does not exist yet.
+ * Called only at durable boundaries: before a turn or after every tool call
+ * and result in a model round has finished. A strategy must never run against
+ * a half-written round, where it could summarize a call whose result does not
+ * exist yet.
  *
  * Nothing is announced before the append. Every failure leaves the previous
  * projection exactly as it was, because the alternative to a compacted session
@@ -259,14 +262,6 @@ export async function compactSession(
         ? -1
         : active.findIndex((entry) => entry.id === previous.boundaryMessageId);
 
-    const plan = planBoundary(active, previousBoundary);
-    if (plan === undefined) {
-        return {
-            outcome: "no_boundary",
-            reason: "There is not enough finished history to compact yet.",
-        };
-    }
-
     // What the request costs beyond its messages: the system prompt, the tool
     // definitions, the project instructions. Compaction cannot shrink any of
     // it, so it comes off the budget before the strategy is given a number.
@@ -278,16 +273,132 @@ export async function compactSession(
         0,
         measurement.tokens - measureMessages(modelContext),
     );
-    const suffix = active.slice(plan.boundaryIndex + 1)
-        .map((entry) => entry.message);
-    const targetTokens = budget - overhead - measureMessages(suffix);
-    if (targetTokens < MIN_SUMMARY_TOKENS) {
+
+    const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
+    let sawCandidate = false;
+    for (
+        const candidate of candidateBoundaries(
+            active,
+            previousBoundary,
+            options.retainedUserTurns ?? RETAINED_USER_TURNS,
+        )
+    ) {
+        sawCandidate = true;
+        const kept = active.slice(candidate.boundaryIndex + 1)
+            .map((entry) => entry.message);
+        const room = budget - overhead - measureMessages(kept);
+        if (room < MIN_SUMMARY_TOKENS) {
+            continue;
+        }
+        const previousRoom = viable[viable.length - 1]?.targetTokens;
+        // Only rungs that pose a materially easier problem than the last one
+        // are worth a second call: adjacent seams differ by one message, so
+        // retrying on those would burn calls to ask the same question again.
+        if (
+            previousRoom !== undefined
+            && room < previousRoom + MIN_SUMMARY_TOKENS
+        ) {
+            continue;
+        }
+        viable.push({ plan: candidate, targetTokens: room });
+    }
+    // The last rung has the most room and is the ladder's failsafe, so the cap
+    // takes rungs off the front, never off the end. Trimming the end would
+    // leave the retry unable to reach the boundary most likely to fit.
+    const attempts = viable.length > MAX_COMPACTION_ATTEMPTS
+        ? [
+            ...viable.slice(0, MAX_COMPACTION_ATTEMPTS - 1),
+            ...viable.slice(-1),
+        ]
+        : viable;
+    if (attempts.length === 0) {
         return {
             outcome: "no_boundary",
-            reason: "The kept turns and the system prompt already fill the "
-                + "window, so a summary would have nowhere to go.",
+            reason: sawCandidate
+                ? "No boundary leaves room for a usable summary: what must "
+                    + "be kept verbatim plus the fixed request overhead "
+                    + "already fills the compaction target."
+                : "There is not enough finished history to compact yet.",
         };
     }
+
+    // A rejection is not the end. The rung had room by measurement and the
+    // summarizer overshot it anyway, which the next turn would reproduce
+    // exactly, so the session would never compact again. Dropping to a looser
+    // rung costs one more call and is the only thing here that recovers.
+    let rejection: CompactionOutcome | undefined;
+    for (const attempt of attempts) {
+        if (signal.aborted) {
+            return { outcome: "cancelled" };
+        }
+        const outcome = await attemptCompaction({
+            attempt,
+            active,
+            previousProjection,
+            previousBoundary,
+            modelContext,
+            overhead,
+            capacity,
+            measurement,
+            options,
+            store,
+            signal,
+        });
+        if (outcome.result.outcome !== "rejected") {
+            return outcome.result;
+        }
+        rejection = outcome.result;
+        // A fault no extra room would change: every further rung would spend a
+        // call to collect the same answer.
+        if (!outcome.retry) {
+            return rejection;
+        }
+    }
+    return rejection ?? { outcome: "cancelled" };
+}
+
+/** How many boundaries one compaction may spend a summarizer call on. */
+export const MAX_COMPACTION_ATTEMPTS = 3;
+
+interface AttemptOptions {
+    readonly attempt: { plan: BoundaryPlan; targetTokens: number };
+    readonly active: readonly SessionMessageEntry[];
+    readonly previousProjection: readonly ModelMessage[];
+    readonly previousBoundary: number;
+    readonly modelContext: readonly ModelMessage[];
+    readonly overhead: number;
+    readonly capacity: number | undefined;
+    readonly measurement: ContextMeasurement;
+    readonly options: CompactionSchedulerOptions;
+    readonly store: SessionStore;
+    readonly signal: AbortSignal;
+}
+
+/** A rung's result, and whether a rung with more room could do better. */
+interface AttemptResult {
+    readonly result: CompactionOutcome;
+    readonly retry: boolean;
+}
+
+/** One rung: summarize the span before it, check it, append it. */
+async function attemptCompaction(
+    input: AttemptOptions,
+): Promise<AttemptResult> {
+    const {
+        active,
+        capacity,
+        measurement,
+        modelContext,
+        options,
+        overhead,
+        previousBoundary,
+        previousProjection,
+        signal,
+        store,
+    } = input;
+    const { plan, targetTokens } = input.attempt;
+    const suffix = active.slice(plan.boundaryIndex + 1)
+        .map((entry) => entry.message);
 
     const span: readonly ModelMessage[] = [
         ...previousProjection,
@@ -307,22 +418,31 @@ export async function compactSession(
     try {
         const proposal = await options.strategy.compact(request, signal);
         if (signal.aborted) {
-            return { outcome: "cancelled" };
+            return { result: { outcome: "cancelled" }, retry: false };
         }
         projection = validateProposal(proposal, request);
     } catch (error) {
         if (signal.aborted) {
-            return { outcome: "cancelled" };
+            return { result: { outcome: "cancelled" }, retry: false };
         }
         if (error instanceof CompactionRejectedError) {
-            return { outcome: "rejected", reason: error.message };
+            return {
+                result: { outcome: "rejected", reason: error.message },
+                retry: error.roomRelated,
+            };
         }
         if (error instanceof CompletionUnavailableError) {
-            return { outcome: "unavailable", reason: error.message };
+            return {
+                result: { outcome: "unavailable", reason: error.message },
+                retry: false,
+            };
         }
         return {
-            outcome: "unavailable",
-            reason: error instanceof Error ? error.message : String(error),
+            result: {
+                outcome: "unavailable",
+                reason: error instanceof Error ? error.message : String(error),
+            },
+            retry: false,
         };
     }
 
@@ -331,11 +451,19 @@ export async function compactSession(
     // accepting it would let the next turn ask again immediately.
     const before = measureMessages(modelContext) + overhead;
     const after = measureMessages([...projection, ...suffix]) + overhead;
+    if (signal.aborted) {
+        return { result: { outcome: "cancelled" }, retry: false };
+    }
     if (after >= before) {
         return {
-            outcome: "rejected",
-            reason: "The compacted context is no smaller than the one it "
-                + "would replace.",
+            result: {
+                outcome: "rejected",
+                reason: "The compacted context is no smaller than the one it "
+                    + "would replace.",
+            },
+            // A boundary further along replaces more of the transcript, so
+            // this is one a looser rung can beat.
+            retry: true,
         };
     }
 
@@ -355,11 +483,14 @@ export async function compactSession(
         });
     } catch (error) {
         return {
-            outcome: "unavailable",
-            reason: error instanceof Error ? error.message : String(error),
+            result: {
+                outcome: "unavailable",
+                reason: error instanceof Error ? error.message : String(error),
+            },
+            retry: false,
         };
     }
-    return { outcome: "compacted", before, after };
+    return { result: { outcome: "compacted", before, after }, retry: false };
 }
 
 function deepFreeze<T>(value: T): T {
@@ -379,36 +510,94 @@ interface BoundaryPlan {
 }
 
 /**
- * The latest boundary that keeps `RETAINED_USER_TURNS` complete turns verbatim
- * and leaves something in front of it worth compacting.
+ * Boundary candidates in order of preference, each keeping less verbatim than
+ * the one before it. The caller takes the first whose kept tail leaves room
+ * for a usable summary, so a session whose newest turn alone outgrows the
+ * budget degrades to a tighter cut instead of silently declining forever.
  *
- * A boundary is only ever placed directly before a user message. Anywhere else
- * splits a turn: the suffix would open on an assistant message answering a
- * question the model can no longer see, or on a tool result whose call went
- * into the summary.
+ * The rungs:
+ *
+ * 1. Directly before a user message, keeping the preferred number of complete
+ *    turns, then fewer, down to one.
+ * 2. Directly before an assistant message inside the newest turn, splitting
+ *    the turn at a finished model round. Never before a tool result: its call
+ *    would be in the summary and the pair would be broken.
+ * 3. After the last message, keeping nothing verbatim.
+ *
+ * A `compactionBarrier` message caps the ladder: everything from the barrier
+ * on is kept verbatim, so the barrier is the only cut offered and rungs past
+ * it never come up.
  */
-function planBoundary(
+function* candidateBoundaries(
     active: readonly SessionMessageEntry[],
     previousBoundary: number,
-): BoundaryPlan | undefined {
+    retainedUserTurns: number,
+): Generator<BoundaryPlan> {
     const barrierIndex = active.findIndex((entry, index) =>
         index > previousBoundary
         && entry.message.role === "user"
         && entry.message.compactionBarrier === true
     );
+    if (barrierIndex !== -1) {
+        const plan = planAt(active, previousBoundary, barrierIndex);
+        if (plan !== undefined) {
+            yield plan;
+        }
+        return;
+    }
     const userStarts = active.flatMap((entry, index) =>
-        entry.message.role === "user"
-            && index > previousBoundary
-            && (barrierIndex === -1 || index < barrierIndex)
+        entry.message.role === "user" && index > previousBoundary
             ? [index]
             : []
     );
-    const suffixStart = barrierIndex === -1
-        ? userStarts[userStarts.length - RETAINED_USER_TURNS]
-        : barrierIndex;
-    if (suffixStart === undefined || suffixStart === 0) {
-        return undefined;
+    for (
+        let keep = Math.min(retainedUserTurns, userStarts.length);
+        keep >= 1;
+        keep -= 1
+    ) {
+        const suffixStart = userStarts[userStarts.length - keep];
+        const plan = suffixStart === undefined
+            ? undefined
+            : planAt(active, previousBoundary, suffixStart);
+        if (plan !== undefined) {
+            yield plan;
+        }
     }
+    // From the previous boundary when it already sits inside the newest turn,
+    // which is where a second compaction during one long turn starts. Anchoring
+    // on the user message instead would offer no seam at all there, and the
+    // turn would go straight to keeping nothing.
+    const seamStart = Math.max(
+        previousBoundary,
+        userStarts[userStarts.length - 1] ?? previousBoundary,
+    );
+    if (retainedUserTurns > 0) {
+        for (let index = seamStart + 1; index < active.length; index += 1) {
+            if (active[index]?.message.role !== "assistant") {
+                continue;
+            }
+            const plan = planAt(active, previousBoundary, index);
+            if (plan !== undefined) {
+                yield plan;
+            }
+        }
+    }
+    const last = active[active.length - 1];
+    if (last !== undefined && active.length - 1 > previousBoundary) {
+        yield {
+            boundaryIndex: active.length - 1,
+            boundaryId: last.id,
+            firstRetainedId: null,
+        };
+    }
+}
+
+/** The boundary directly before `suffixStart`, when it covers anything new. */
+function planAt(
+    active: readonly SessionMessageEntry[],
+    previousBoundary: number,
+    suffixStart: number,
+): BoundaryPlan | undefined {
     const boundaryIndex = suffixStart - 1;
     if (boundaryIndex <= previousBoundary) {
         // Nothing has been added since the last compaction that a new one
