@@ -136,6 +136,7 @@ export interface ClientExtensionTipDescriptor {
 }
 
 export interface ClientExtensionComposeSuggesterDescriptor {
+    readonly id: string;
     readonly agent: string;
     readonly hint: string;
     readonly source: string;
@@ -864,6 +865,7 @@ async function activateClientExtension(
     const keybindings: RegisteredKeybinding[] = [];
     const tips: RegisteredTip[] = [];
     const composeSuggesters: ClientExtensionComposeSuggesterDescriptor[] = [];
+    const composeSuggesterIds = new Set<string>();
     const commandNames = new Set<string>();
     const keybindingIds = new Set<string>();
     const tipIds = new Set<string>();
@@ -1342,6 +1344,13 @@ async function activateClientExtension(
                 requireCapability(CLIENT_COMPOSE_SUGGESTER_CAPABILITY);
                 if (
                     typeof spec !== "object" || spec === null
+                    || (
+                        spec.id !== undefined
+                        && (
+                            typeof spec.id !== "string"
+                            || spec.id.trim().length === 0
+                        )
+                    )
                     || typeof spec.agent !== "string"
                     || spec.agent.trim().length === 0
                     || typeof spec.hint !== "string"
@@ -1363,8 +1372,16 @@ async function activateClientExtension(
                         "Invalid client extension compose suggester registration",
                     );
                 }
+                const id = spec.id?.trim() ?? spec.agent.trim();
+                if (composeSuggesterIds.has(id)) {
+                    throw new Error(
+                        `Duplicate client extension compose suggester: ${id}`,
+                    );
+                }
+                composeSuggesterIds.add(id);
                 const match = spec.match;
                 composeSuggesters.push({
+                    id,
                     agent: spec.agent.trim(),
                     hint: spec.hint.trim(),
                     source: options.id,

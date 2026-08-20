@@ -91,7 +91,10 @@ import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.
 import {
     type ClientExtensionRegistry,
 } from "../../src/extensions/client-registry.ts";
-import { findActiveComposeSuggester } from "./compose-suggester.ts";
+import {
+    composeSuggesterDismissalKey,
+    findActiveComposeSuggester,
+} from "./compose-suggester.ts";
 import type {
     VeraClientConsultRequest,
     VeraClientConsultResult,
@@ -4184,7 +4187,7 @@ export async function startTui(
             key.preventDefault();
             key.stopPropagation();
             dismissedComposeSuggesters.add(
-                `${composeSuggester.source}:${composeSuggester.agent}`,
+                composeSuggesterDismissalKey(composeSuggester),
             );
             wearAgent(composeSuggester.agent);
             renderCommandSuggestions();
@@ -4207,7 +4210,7 @@ export async function startTui(
             const suggester = activeComposeSuggester();
             if (suggester !== undefined) {
                 dismissedComposeSuggesters.add(
-                    `${suggester.source}:${suggester.agent}`,
+                    composeSuggesterDismissalKey(suggester),
                 );
             }
             renderCommandSuggestions();
@@ -10752,7 +10755,12 @@ export async function startTui(
      * and a suggester dismissed with escape stays dismissed for the session.
      */
     function activeComposeSuggester():
-        | { readonly source: string; readonly agent: string; readonly hint: string }
+        | {
+            readonly id: string;
+            readonly source: string;
+            readonly agent: string;
+            readonly hint: string;
+        }
         | undefined
     {
         return findActiveComposeSuggester(

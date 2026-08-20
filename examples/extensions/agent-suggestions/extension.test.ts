@@ -32,6 +32,7 @@ test("missing and malformed rules register no behavior", () => {
 
 test("configured terms match whole words and phrases", () => {
     const registered: Array<{
+        readonly id: string;
         readonly agent: string;
         readonly hint: string;
         readonly fromAgents?: readonly string[];
@@ -62,4 +63,41 @@ test("configured terms match whole words and phrases", () => {
     expect(registered[0]?.match("plan the change")).toBe(true);
     expect(registered[0]?.match("HOW   SHOULD WE fix this?")).toBe(true);
     expect(registered[0]?.match("planet data")).toBe(false);
+});
+
+test("rules for one target keep distinct dismissal identities", () => {
+    const registered: Array<{ readonly id: string }> = [];
+    activateClient({
+        config: {
+            rules: [
+                { terms: ["plan"], agent: "plan", hint: "Create a plan?" },
+                { terms: ["strategy"], agent: "plan", hint: "Plan strategy?" },
+            ],
+        },
+        compose: {
+            registerSuggester(value: { readonly id: string }) {
+                registered.push(value);
+            },
+        },
+    });
+
+    expect(registered).toHaveLength(2);
+    expect(registered[0]?.id).not.toBe(registered[1]?.id);
+});
+
+test("a combining mark is part of the visible word boundary", () => {
+    let match: ((text: string) => boolean) | undefined;
+    activateClient({
+        config: {
+            rules: [{ terms: ["cafe"], agent: "plan", hint: "Plan cafe?" }],
+        },
+        compose: {
+            registerSuggester(value: { match(text: string): boolean }) {
+                match = value.match;
+            },
+        },
+    });
+
+    expect(match?.("visit the cafe tomorrow")).toBe(true);
+    expect(match?.("visit the cafe\u0301 tomorrow")).toBe(false);
 });

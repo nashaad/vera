@@ -9,6 +9,7 @@ function suggester(
     overrides: Partial<ClientExtensionComposeSuggesterDescriptor> = {},
 ): ClientExtensionComposeSuggesterDescriptor {
     return {
+        id: "plan",
         agent: "plan",
         hint: "Create a plan?",
         source: "example.suggestions",
@@ -32,6 +33,24 @@ test("a compose offer can be limited to named current agents", () => {
         "reviewer",
         new Set(),
     )).toBeUndefined();
+});
+
+test("dismissing one rule does not suppress a sibling for the same agent", () => {
+    const first = suggester({
+        id: "plan-word",
+        matches: (text) => text.includes("plan"),
+    });
+    const second = suggester({
+        id: "strategy-word",
+        matches: (text) => text.includes("strategy"),
+    });
+
+    expect(findActiveComposeSuggester(
+        [first, second],
+        "choose a strategy",
+        "default",
+        new Set(["example.suggestions:plan-word"]),
+    )).toBe(second);
 });
 
 test("an unscoped compose offer remains eligible for every current agent", () => {
