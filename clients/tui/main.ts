@@ -518,6 +518,7 @@ import {
     saveTuiThemePreference,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
+import { materializeDroppedImage } from "./dropped-image.ts";
 import { createTuiUserEntry } from "./user-entry.ts";
 import {
     createTuiToolHeader,
@@ -1332,6 +1333,8 @@ export async function startTui(
         id?: string;
         name?: string;
     }> = [];
+    /** Scratch copies of dropped images, held until the host has the bytes. */
+    const droppedImageReleases = new Map<string, () => Promise<void>>();
     if (dependencies.initialDraft !== undefined) {
         pendingImages = dependencies.initialDraft.attachmentIds.map((id) => ({
             requestId: randomUUID(),
@@ -1965,6 +1968,7 @@ export async function startTui(
         return true;
     };
     composer.onImageChipRemoved = (requestId) => {
+        releaseDroppedImage(requestId);
         pendingImages = pendingImages.filter(
             (image) => image.requestId !== requestId,
         );
@@ -6061,8 +6065,22 @@ export async function startTui(
         const requestId = randomUUID();
         pendingImages.push({ requestId, path });
         composer.attachImageChip(requestId);
-        sendCommand({ type: "attach_image", requestId, path });
         renderState();
+        void materializeDroppedImage(path).then(({ path: taken, release }) => {
+            if (!pendingImages.some((image) => image.requestId === requestId)) {
+                void release();
+                return;
+            }
+            droppedImageReleases.set(requestId, release);
+            sendCommand({ type: "attach_image", requestId, path: taken });
+        });
+    }
+
+    function releaseDroppedImage(requestId: string): void {
+        const release = droppedImageReleases.get(requestId);
+        if (release === undefined) return;
+        droppedImageReleases.delete(requestId);
+        void release();
     }
 
     async function receiveAgentUpdates(): Promise<void> {
@@ -6089,6 +6107,7 @@ export async function startTui(
                     update.type === "image_attached"
                     || update.type === "image_attachment_rejected"
                 ) {
+                    releaseDroppedImage(update.requestId);
                     const imageIndex = pendingImages.findIndex(
                         (image) => image.requestId === update.requestId,
                     );
