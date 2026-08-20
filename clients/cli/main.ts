@@ -2,8 +2,15 @@
 
 // This is the installed command dispatcher; the interactive client lives in ../tui.
 
+import { spawn } from "node:child_process";
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
+import { fileURLToPath } from "node:url";
+
+import {
+    PINNED_BUILD_ENV,
+    pinnedCliEntrypoint,
+} from "../../src/pinned-build.ts";
 
 import {
     isVeraProviderId,
@@ -134,6 +141,10 @@ export interface CliDependencies {
     readonly openConfigure?: () => Promise<void>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
+    readonly runPinnedBuild?: (
+        args: readonly string[],
+        output: CliOutput,
+    ) => Promise<number | undefined>;
     readonly runRpc?: () => Promise<void>;
     readonly runOnce?: (request: {
         readonly workspace: string;
@@ -611,6 +622,11 @@ export function applyProfileFlag(
  * consumed by the time this sees the arguments. Naming both is a contradiction
  * rather than a preference, so it is refused instead of silently resolved.
  */
+export function isRescueInvocation(args: readonly string[]): boolean {
+    const index = args.findIndex((arg) => arg !== "--yes" && arg !== "-y");
+    return index !== -1 && args[index] === "rescue";
+}
+
 export function applyRescueCommand(
     args: readonly string[],
     env: NodeJS.ProcessEnv = process.env,
@@ -636,18 +652,53 @@ export async function runCliMain(
 ): Promise<number> {
     try {
         const requestedProfile = namedProfileFlag(args);
+        const withoutProfileFlag = applyProfileFlag(args);
+        const rescuing = isRescueInvocation(withoutProfileFlag);
         const remaining = applyRescueCommand(
-            applyProfileFlag(args),
+            withoutProfileFlag,
             process.env,
             requestedProfile,
         );
         veraProfileName();
+        if (rescuing) {
+            const pinned = await (dependencies.runPinnedBuild
+                ?? runPinnedBuild)(remaining, dependencies.stderr ?? stderr);
+            if (pinned !== undefined) return pinned;
+        }
         return await runCli(remaining, dependencies);
     } catch (error) {
         const output = dependencies.stderr ?? stderr;
         output.write(`${renderCliFailure(error)}\n`);
         return 1;
     }
+}
+
+/**
+ * Runs the rescue under the last build whose host booted cleanly, when that
+ * is not the build already running. A rescue that runs the same code as the
+ * sick host cannot help when the host is sick because the code is broken.
+ *
+ * Returns undefined when there is no usable pinned build, which leaves rescue
+ * running in place: a rescue that refuses to start would be worse than one
+ * that runs possibly-broken code, since the broken case is the rarer one.
+ */
+async function runPinnedBuild(
+    args: readonly string[],
+    output: CliOutput,
+): Promise<number | undefined> {
+    const entrypoint = pinnedCliEntrypoint(fileURLToPath(import.meta.url));
+    if (entrypoint === undefined) return undefined;
+    output.write(`Starting rescue from the pinned build at ${entrypoint}.\n`);
+    const child = spawn(process.execPath, [entrypoint, ...args], {
+        stdio: "inherit",
+        env: { ...process.env, [PINNED_BUILD_ENV]: "1" },
+    });
+    return await new Promise<number>((resolve, reject) => {
+        child.once("error", reject);
+        child.once("exit", (code, signal) => {
+            resolve(signal !== null ? 1 : code ?? 0);
+        });
+    });
 }
 
 export function renderCliFailure(error: unknown): string {
