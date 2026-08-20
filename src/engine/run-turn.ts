@@ -2160,6 +2160,7 @@ async function finishExecutedTool(
             toolCall,
             effective,
             toolResultChanged ? undefined : result.presentation,
+            toolResultChanged ? undefined : result.toolResultSource,
         );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
@@ -2211,6 +2212,9 @@ function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.toolResultSource === undefined
+            ? {}
+            : { toolResultSource: result.toolResultSource }),
     };
 }
 
@@ -2235,6 +2239,7 @@ function hookResultMessage(
     toolCall: ToolCallContent,
     result: Pick<HookToolResult, "content" | "isError">,
     presentation?: ToolResultMessage["presentation"],
+    toolResultSource?: ToolResultMessage["toolResultSource"],
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -2243,6 +2248,7 @@ function hookResultMessage(
         content: result.content,
         isError: result.isError,
         ...(presentation === undefined ? {} : { presentation }),
+        ...(toolResultSource === undefined ? {} : { toolResultSource }),
     };
 }
 

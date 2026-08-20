@@ -1794,9 +1794,9 @@ function formatToolCall(
 }
 
 const TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Explored",
-    grep: "Explored",
-    list: "Explored",
+    read: "Read",
+    grep: "Searched",
+    list: "Listed",
     bash: "Ran",
     edit: "Edited",
     write: "Edited",
@@ -1806,9 +1806,9 @@ const TOOL_HEADERS: Readonly<Record<string, string>> = {
 };
 
 const LIVE_TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Exploring",
-    grep: "Exploring",
-    list: "Exploring",
+    read: "Reading",
+    grep: "Searching",
+    list: "Listing",
     bash: "Running",
     edit: "Editing",
     write: "Editing",

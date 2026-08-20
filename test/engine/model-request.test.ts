@@ -69,6 +69,10 @@ test("model requests strip durable tool presentation metadata", () => {
                 path: "notes.txt",
                 patch: "SECRET DIFF",
             },
+            toolResultSource: {
+                originalBytes: 3_000,
+                spillPath: "/private/scratch/tool-results/result.txt",
+            },
         }],
         tools: [],
         workspace: "/work/vera",
