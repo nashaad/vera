@@ -36,6 +36,11 @@ import {
     forceStopResidentHost,
     type ForceStopOutcome,
 } from "../../src/host/force-stop.ts";
+import {
+    type SupervisionReport,
+    superviseHost,
+} from "../../src/host/supervision.ts";
+import { residentHostEntrypoint } from "../host/launch.ts";
 import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
 import { sourceVersion } from "../../src/build-info.ts";
 import {
@@ -151,6 +156,9 @@ export interface CliDependencies {
     readonly openConfigure?: () => Promise<void>;
     readonly stdout?: CliOutput;
     readonly stderr?: CliOutput;
+    readonly superviseHost?: (
+        action: "on" | "off" | "status",
+    ) => SupervisionReport;
     readonly runPinnedBuild?: (
         args: readonly string[],
         output: CliOutput,
@@ -522,6 +530,15 @@ export async function runCli(
             ? "No resident Vera host is running.\n"
             : `Stopped resident Vera host PID ${pid}.\n`);
         return 0;
+    }
+
+    if (
+        args[0] === "host"
+        && args[1] === "supervise"
+        && args.length <= 3
+        && (args[2] === undefined || args[2] === "off" || args[2] === "status")
+    ) {
+        return runHostSupervision(args[2], output, errorOutput, dependencies);
     }
 
     if (args[0] === "login" && args.length <= 2) {
@@ -972,6 +989,64 @@ async function confirmBusyHostUpgrade(error?: Error): Promise<boolean> {
     } finally {
         prompt.close();
     }
+}
+
+function runHostSupervision(
+    keyword: string | undefined,
+    output: CliOutput,
+    errorOutput: CliOutput,
+    dependencies: CliDependencies,
+): number {
+    const action = keyword === undefined
+        ? "on"
+        : keyword === "off"
+        ? "off"
+        : "status";
+    let report: SupervisionReport;
+    try {
+        report = (dependencies.superviseHost ?? ((requested) =>
+            superviseHost(requested, {
+                entrypoint: residentHostEntrypoint(),
+            })))(action);
+    } catch (error) {
+        errorOutput.write(`${renderCliFailure(error)}\n`);
+        return 1;
+    }
+    if (report.action === "on") {
+        output.write(
+            `${report.replaced ? "Replaced" : "Installed"} ${report.label}.`
+                + " launchd starts the resident host at login and again"
+                + " whenever it dies. Turn it off with"
+                + " 'vera host supervise off'.\n",
+        );
+        return 0;
+    }
+    if (report.action === "off") {
+        output.write(report.removed
+            ? `Removed ${report.label}. Nothing restarts the resident host`
+                + " now; the next 'vera' starts one.\n"
+            : "Host supervision was not installed for this profile.\n");
+        return 0;
+    }
+    if (!report.installed && !report.loaded) {
+        output.write(
+            "Host supervision is off for this profile."
+                + " Turn it on with 'vera host supervise'.\n",
+        );
+        return 0;
+    }
+    output.write(
+        `Host supervision is on for this profile (${report.label}).\n`
+            + `  plist: ${report.plistPath}\n`
+            + `  launchd: ${
+                report.loaded
+                    ? report.pid === undefined
+                        ? "loaded, no host running right now"
+                        : `running the host as PID ${report.pid}`
+                    : "not loaded; run 'vera host supervise' to load it"
+            }\n`,
+    );
+    return 0;
 }
 
 async function confirmResidentHostStop(): Promise<boolean> {
