@@ -12,6 +12,7 @@ export function activateClient(vera: any): void {
     for (const rule of agentSuggestionRules(vera.config)) {
         const patterns = rule.terms.map(termPattern);
         vera.compose.registerSuggester({
+            id: ruleIdentity(rule),
             agent: rule.agent,
             hint: rule.hint,
             ...(rule.fromAgents === undefined
@@ -57,9 +58,18 @@ function termPattern(term: string): RegExp {
         .map((part) => part.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
         .join("\\s+");
     return new RegExp(
-        `(?:^|[^\\p{L}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{N}_])`,
+        `(?:^|[^\\p{L}\\p{M}\\p{N}_])${escaped}(?=$|[^\\p{L}\\p{M}\\p{N}_])`,
         "iu",
     );
+}
+
+function ruleIdentity(rule: AgentSuggestionRule): string {
+    return JSON.stringify([
+        rule.terms,
+        rule.agent,
+        rule.hint,
+        rule.fromAgents ?? null,
+    ]);
 }
 
 function stringList(value: unknown): readonly string[] | undefined {

@@ -19,7 +19,13 @@ export function findActiveComposeSuggester(
             suggester.fromAgents === undefined
             || suggester.fromAgents.includes(currentAgent)
         )
-        && !dismissed.has(`${suggester.source}:${suggester.agent}`)
+        && !dismissed.has(composeSuggesterDismissalKey(suggester))
         && suggester.matches(text)
     );
+}
+
+export function composeSuggesterDismissalKey(
+    suggester: Pick<ClientExtensionComposeSuggesterDescriptor, "source" | "id">,
+): string {
+    return `${suggester.source}:${suggester.id}`;
 }

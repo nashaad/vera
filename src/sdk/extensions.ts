@@ -565,6 +565,11 @@ export interface VeraClientExtensionCompose {
 }
 
 export interface VeraClientExtensionComposeSuggesterSpec {
+    /**
+     * Stable identity for session dismissal. Omit only when this extension
+     * registers at most one suggester for the target agent.
+     */
+    readonly id?: string;
     /** The agent to offer. Usually one this extension also registered. */
     readonly agent: string;
     /** One line, shown under the composer while `match` holds. */

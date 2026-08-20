@@ -631,11 +631,43 @@ test("compose suggesters preserve their current-agent scope", async () => {
 
     expect(registry.composeSuggesters()).toHaveLength(1);
     expect(registry.composeSuggesters()[0]).toMatchObject({
+        id: "plan",
         agent: "plan",
         hint: "Create a plan?",
         fromAgents: ["default", "reviewer"],
     });
     expect(registry.composeSuggesters()[0]?.matches("make a plan")).toBe(true);
+    await registry.close();
+});
+
+test("compose suggesters require distinct dismissal identities", async () => {
+    const extension = createExtension(
+        "client.compose-duplicate",
+        ["client.compose.suggester"],
+        `
+            export function activateClient(vera) {
+                for (const hint of ["Plan?", "Strategy?"]) {
+                    vera.compose.registerSuggester({
+                        agent: "plan",
+                        hint,
+                        match: () => true,
+                    });
+                }
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.composeSuggesters()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "Duplicate client extension compose suggester: plan",
+    );
     await registry.close();
 });
 
