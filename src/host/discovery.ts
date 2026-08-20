@@ -1,9 +1,12 @@
 import {
     createHostLockfile,
     HostProtocolMismatchError,
+    HostUnresponsiveError,
+    type HostLockDiagnosis,
     type HostLockfile,
     type HostLockRecord,
 } from "./lockfile.ts";
+import { forceStopHostProcess } from "./force-stop.ts";
 import {
     HOST_PROTOCOL_VERSION,
     requestHostShutdownForReplacement,
@@ -33,9 +36,12 @@ export interface EnsureResidentHostOptions {
         requesterProtocolVersion: number,
     ) => Promise<ShutdownForReplacementResponse | undefined>;
     readonly confirmBusyUpgrade?: (
-        error: HostProtocolMismatchError,
+        error: HostProtocolMismatchError | HostUnresponsiveError,
     ) => boolean | Promise<boolean>;
     readonly terminateHost?: (pid: number) => void | Promise<void>;
+    readonly terminateWedgedHost?: (
+        record: HostLockRecord,
+    ) => void | Promise<void>;
 }
 
 export async function ensureResidentHost(
@@ -52,7 +58,24 @@ export async function ensureResidentHost(
     const lockfile = options.lockfile ?? createHostLockfile();
     const now = options.now ?? Date.now;
     const wait = options.wait ?? waitFor;
-    const deadline = now() + startupTimeoutMs;
+    let deadline = now() + startupTimeoutMs;
+    /**
+     * Runs an operation the deadline must not apply to, and pushes the deadline
+     * out by however long it took. The deadline bounds how long Vera waits on
+     * machines; a question put to a person is answered in human time, and
+     * racing it both abandons a prompt that still owns stdin and reports the
+     * timeout as a startup failure.
+     */
+    const withoutDeadline = async <T>(
+        operation: () => Promise<T> | T,
+    ): Promise<T> => {
+        const startedAt = now();
+        try {
+            return await operation();
+        } finally {
+            deadline += now() - startedAt;
+        }
+    };
     const beforeDeadline = async <T>(
         operation: () => Promise<T> | T,
         message: string,
@@ -135,9 +158,8 @@ export async function ensureResidentHost(
             || response.pid !== error.pid
             || response.started_at !== error.startedAt
         ) {
-            const approved = await beforeDeadline(
+            const approved = await withoutDeadline(
                 () => options.confirmBusyUpgrade?.(error) ?? false,
-                "Resident host replacement exceeded its deadline",
             );
             if (!approved) throw error;
             let sameHostStillRunning = false;
@@ -196,6 +218,31 @@ export async function ensureResidentHost(
         return running;
     }
 
+    // A recorded host whose pid is alive but whose socket never answers is
+    // wedged, not absent. Starting a fresh host over it would leave two hosts
+    // fighting for one socket, so replacement is offered instead, through the
+    // same confirmation seam a busy protocol upgrade uses.
+    const diagnosis = await beforeDeadline<HostLockDiagnosis>(
+        () => lockfile.diagnose?.() ?? {},
+        "Resident host did not answer before its deadline",
+    );
+    if (diagnosis.wedged === true && diagnosis.record !== undefined) {
+        const record = diagnosis.record;
+        const unresponsive = new HostUnresponsiveError(
+            record.pid,
+            record.started_at,
+            record.socket_path,
+        );
+        const approved = await withoutDeadline(
+            () => options.confirmBusyUpgrade?.(unresponsive) ?? false,
+        );
+        if (!approved) throw unresponsive;
+        await beforeDeadline(
+            () => (options.terminateWedgedHost ?? terminateWedgedHost)(record),
+            "Resident host replacement exceeded its deadline",
+        );
+    }
+
     await beforeDeadline(
         () => options.startHost(),
         "Resident host did not start before its deadline",
@@ -218,6 +265,25 @@ export async function ensureResidentHost(
 
 function terminateHost(pid: number): void {
     process.kill(pid, "SIGTERM");
+}
+
+async function terminateWedgedHost(record: HostLockRecord): Promise<void> {
+    // Short graces: this runs inside the discovery deadline, and a wedged
+    // host was already given its chance to answer.
+    const outcome = await forceStopHostProcess(record, {
+        sigtermGraceMs: 1_000,
+        sigkillGraceMs: 1_000,
+    });
+    // Starting a fresh host over a live one gives two hosts racing for one
+    // socket, so a kill that did not take stops the start rather than
+    // being read as a clear runway.
+    if (outcome.endedBy === "survived") {
+        throw new Error(
+            `Resident Vera host PID ${record.pid} did not stop, so a new one`
+                + " was not started. It is stuck in the kernel; wait for it or"
+                + " reboot.",
+        );
+    }
 }
 
 function waitFor(delayMs: number): Promise<void> {

@@ -12,6 +12,11 @@ import { dirname } from "node:path";
 interface StartupClaimRecord {
     readonly pid: number;
     readonly token: string;
+    /**
+     * When the claim was written. Absent on a record from a build that
+     * predates claim aging; such a claim never expires by age.
+     */
+    readonly created_at?: string;
 }
 
 interface StartupClaimFile {
@@ -28,11 +33,27 @@ export interface AcquireHostStartupClaimOptions {
     readonly pid?: number;
     readonly createToken?: () => string;
     readonly isProcessAlive?: (pid: number) => boolean;
+    /**
+     * How old a claim may grow before it stops blocking, even with its owner
+     * alive. Startup phases are logged and finite, so a claim this old means
+     * the owner hung mid-startup; without a bound it blocks new hosts forever.
+     */
+    readonly maxClaimAgeMs?: number;
+    readonly now?: () => number;
+    /** Called with the holder of an over-age claim before it is replaced. */
+    readonly onStaleClaim?: (holder: { readonly pid: number }) => void;
 }
 
+/** Minutes, not seconds: a slow cold start must never lose its claim. */
+const DEFAULT_MAX_CLAIM_AGE_MS = 5 * 60 * 1_000;
+
 export class HostStartupInProgressError extends Error {
-    constructor() {
-        super("Resident host startup is already in progress");
+    constructor(readonly holderPid?: number) {
+        super(
+            holderPid === undefined
+                ? "Resident host startup is already in progress"
+                : `Resident host startup is already in progress (PID ${holderPid})`,
+        );
         this.name = "HostStartupInProgressError";
     }
 }
@@ -45,12 +66,15 @@ export async function acquireHostStartupClaim(
         throw new Error("Host startup PID must be a positive integer");
     }
     const isProcessAlive = options.isProcessAlive ?? processIsAlive;
+    const now = options.now ?? Date.now;
+    const maxClaimAgeMs = options.maxClaimAgeMs ?? DEFAULT_MAX_CLAIM_AGE_MS;
     const record: StartupClaimRecord = {
         pid,
         token: nonEmpty(
             (options.createToken ?? randomUUID)(),
             "host startup token",
         ),
+        created_at: new Date(now()).toISOString(),
     };
     const source = `${JSON.stringify(record)}\n`;
     await mkdir(dirname(options.path), { recursive: true, mode: 0o700 });
@@ -88,7 +112,10 @@ export async function acquireHostStartupClaim(
                 existing.record !== undefined
                 && isProcessAlive(existing.record.pid)
             ) {
-                throw new HostStartupInProgressError();
+                if (!isOverAge(existing.record, now(), maxClaimAgeMs)) {
+                    throw new HostStartupInProgressError(existing.record.pid);
+                }
+                options.onStaleClaim?.({ pid: existing.record.pid });
             }
             await removeIfUnchanged(options.path, existing.source);
         }
@@ -162,6 +189,9 @@ async function readClaimFile(path: string): Promise<StartupClaimFile | undefined
         || (record.pid as number) <= 0
         || typeof record.token !== "string"
         || record.token.length === 0
+        || (record.created_at !== undefined
+            && (typeof record.created_at !== "string"
+                || Number.isNaN(Date.parse(record.created_at))))
     ) {
         return { source };
     }
@@ -169,6 +199,15 @@ async function readClaimFile(path: string): Promise<StartupClaimFile | undefined
         source,
         record: record as unknown as StartupClaimRecord,
     };
+}
+
+function isOverAge(
+    record: StartupClaimRecord,
+    nowMs: number,
+    maxClaimAgeMs: number,
+): boolean {
+    if (record.created_at === undefined) return false;
+    return nowMs - Date.parse(record.created_at) > maxClaimAgeMs;
 }
 
 function processIsAlive(pid: number): boolean {

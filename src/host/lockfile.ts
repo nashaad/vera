@@ -17,6 +17,7 @@ import {
     type HostIdentity,
 } from "./protocol.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import { recordMatchesRunningProcess } from "./process-identity.ts";
 
 export const HOST_LOCK_SCHEMA_VERSION = 2;
 
@@ -36,6 +37,32 @@ export interface HostLockRecord {
 export interface HostLockfile {
     publish(): Promise<HostLockRecord>;
     read(): Promise<HostLockRecord | undefined>;
+    /**
+     * Like read(), but a recorded host whose pid is alive while its socket
+     * gives no answer comes back as `wedged` instead of vanishing into
+     * undefined. Optional so hand-written fakes stay valid; a caller that
+     * cannot ask treats the host as absent, which is read()'s behavior.
+     */
+    diagnose?(): Promise<HostLockDiagnosis>;
+}
+
+export interface HostLockDiagnosis {
+    readonly record?: HostLockRecord;
+    /** The recorded host is alive but did not answer the identity handshake. */
+    readonly wedged?: boolean;
+}
+
+export class HostUnresponsiveError extends Error {
+    constructor(
+        readonly pid: number,
+        readonly startedAt?: string,
+        readonly socketPath?: string,
+    ) {
+        super(
+            `Resident Vera host PID ${pid} is running but not responding.`,
+        );
+        this.name = "HostUnresponsiveError";
+    }
 }
 
 export interface HostLockfileOptions {
@@ -47,6 +74,11 @@ export interface HostLockfileOptions {
     readonly inspectSocket?: (
         socketPath: string,
     ) => Promise<HostIdentity | undefined>;
+    readonly isProcessAlive?: (pid: number) => boolean;
+    /** Whether a live recorded pid is still the process that recorded it. */
+    readonly matchesRecord?: (
+        record: Pick<HostLockRecord, "pid" | "started_at">,
+    ) => boolean;
 }
 
 export class HostProtocolMismatchError extends Error {
@@ -89,6 +121,8 @@ export function createHostLockfile(
     const pid = options.pid ?? process.pid;
     const startedAt = options.startedAt ?? currentProcessStartedAt();
     const inspectSocket = options.inspectSocket ?? requestHostIdentity;
+    const isProcessAlive = options.isProcessAlive ?? processIsAlive;
+    const matchesRecord = options.matchesRecord ?? recordMatchesRunningProcess;
 
     return {
         async publish(): Promise<HostLockRecord> {
@@ -140,32 +174,71 @@ export function createHostLockfile(
         },
 
         async read(): Promise<HostLockRecord | undefined> {
-            const serialized = await readLockSource(path);
-            if (serialized === undefined) {
-                return undefined;
-            }
-            const record = parseHostLock(serialized);
-            if (record === undefined || record.socket_path !== socketPath) {
-                return undefined;
-            }
-            const identity = await inspectSocket(socketPath);
-            if (
-                identity?.pid !== record.pid
-                || identity.started_at !== record.started_at
-            ) {
-                return undefined;
-            }
-            if (!isCompatibleHostProtocol(identity)) {
-                throw new HostProtocolMismatchError(
-                    identity.pid,
-                    identity.protocol_version,
-                    identity.started_at,
-                    socketPath,
-                );
-            }
-            return record;
+            const diagnosis = await diagnose();
+            return diagnosis.wedged === true ? undefined : diagnosis.record;
         },
+
+        diagnose,
     };
+
+    async function diagnose(): Promise<HostLockDiagnosis> {
+        const serialized = await readLockSource(path);
+        if (serialized === undefined) {
+            return {};
+        }
+        const record = parseHostLock(serialized);
+        if (record === undefined || record.socket_path !== socketPath) {
+            return {};
+        }
+        const identity = await inspectSocket(socketPath);
+        if (identity === undefined) {
+            // Only silence from a live pid that is still the recorded process
+            // counts as wedged. A pid that outlived its host and was reused
+            // makes the record stale, and what follows a wedged diagnosis is a
+            // kill, so a stranger holding that pid must never reach it.
+            const wedged = isProcessAlive(record.pid)
+                && matchesRecord(record);
+            return wedged ? { record, wedged: true } : {};
+        }
+        if (
+            identity.pid !== record.pid
+            || identity.started_at !== record.started_at
+        ) {
+            return {};
+        }
+        if (!isCompatibleHostProtocol(identity)) {
+            throw new HostProtocolMismatchError(
+                identity.pid,
+                identity.protocol_version,
+                identity.started_at,
+                socketPath,
+            );
+        }
+        return { record };
+    }
+}
+
+function processIsAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "EPERM";
+    }
+}
+
+/**
+ * The lock record as written, with no socket handshake. `read()` proves the
+ * host is alive and answering before trusting the record; recovery paths must
+ * not, because a wedged host accepts connections and never answers, which
+ * would hang or blank the very command meant to kill it.
+ */
+export async function readHostLockRecordFile(
+    path: string = defaultHostLockPath(),
+): Promise<HostLockRecord | undefined> {
+    const serialized = await readLockSource(path);
+    if (serialized === undefined) return undefined;
+    return parseHostLock(serialized);
 }
 
 function isCompatibleHostProtocol(identity: HostIdentity): boolean {

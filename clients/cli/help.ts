@@ -24,7 +24,8 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera schedule list", description: "List schedules" },
     { usage: "vera schedule show ID", description: "Inspect a schedule and its runs" },
     { usage: "vera schedule pause|resume|remove|run ID", description: "Control or trigger a schedule" },
-    { usage: "vera host stop [-y|--yes]", description: "Stop the resident host and attached clients" },
+    { usage: "vera host stop [-y|--yes] [--force] [--profile NAME]", description: "Stop the resident host and attached clients; --force kills one that is not answering, --profile picks whose host to stop" },
+    { usage: "vera rescue", description: "Start Vera under the isolated rescue profile, when the default profile's host is wedged" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },
     { usage: "vera rpc", description: "Run the NDJSON integration bridge" },
 ] as const;
