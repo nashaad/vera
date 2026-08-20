@@ -1956,13 +1956,10 @@ test("a resumed registry wakes the model for a pending delivery", async () => {
             .trim()
             .split("\n")
             .map((line) => JSON.parse(line) as { type: string });
-        expect(events.map((event) => event.type).filter(
-            (type) => type !== "model_stream",
-        )).toEqual([
+        expect(events.map((event) => event.type)).toEqual([
             "task_notification",
             "delivery_turn_started",
             "model_request",
-            "context_measured",
             "turn_finished",
         ]);
     } finally {
