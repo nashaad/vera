@@ -18,6 +18,7 @@ import {
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
+import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 
 test("vera help and version are available without starting a client", async () => {
     let output = "";
@@ -961,4 +962,91 @@ test("vera models refresh fails when no provider could be asked", async () => {
 
     expect(exitCode).toBe(1);
     expect(output).toBe("openrouter: skipped (no credential)\n");
+});
+
+test("vera host supervise turns supervision on", async () => {
+    let output = "";
+    let requested: string | undefined;
+    const exitCode = await runCli(["host", "supervise"], {
+        superviseHost: (action) => {
+            requested = action;
+            return {
+                action: "on",
+                label: "dev.vera.host.default",
+                plistPath: "/home/Library/LaunchAgents/dev.vera.host.default.plist",
+                replaced: false,
+            };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(requested).toBe("on");
+    expect(output).toStartWith("Installed dev.vera.host.default.");
+    expect(output).toContain("vera host supervise off");
+});
+
+test("vera host supervise off says what is no longer watching", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "supervise", "off"], {
+        superviseHost: () => ({
+            action: "off",
+            label: "dev.vera.host.default",
+            plistPath: "/plist",
+            removed: true,
+        }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("Nothing restarts the resident host now");
+});
+
+test("vera host supervise status names the supervised host's pid", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "supervise", "status"], {
+        superviseHost: () => ({
+            action: "status",
+            label: "dev.vera.host.default",
+            plistPath: "/plist",
+            installed: true,
+            loaded: true,
+            pid: 4321,
+        }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("running the host as PID 4321");
+});
+
+test("vera host supervise status on a profile without it names the fix", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "supervise", "status"], {
+        superviseHost: () => ({
+            action: "status",
+            label: "dev.vera.host.default",
+            plistPath: "/plist",
+            installed: false,
+            loaded: false,
+        }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("Turn it on with 'vera host supervise'.");
+});
+
+test("supervision on an unsupported platform fails with a usable message", async () => {
+    let errors = "";
+    const exitCode = await runCli(["host", "supervise"], {
+        superviseHost: () => {
+            throw new SupervisionUnsupportedError("linux");
+        },
+        stdout: { write: () => undefined },
+        stderr: { write: (text) => errors += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errors).toContain("launchd, which linux does not have");
 });
