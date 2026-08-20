@@ -56,10 +56,8 @@ export interface UpdatePermissionsTuiCommandAction {
     /**
      * Whether the host default moves too.
      *
-     * Absent is session-scoped, which is the default action now: choosing a
-     * posture for this conversation stopped deciding it for every future one.
-     * `/permissions <mode> default` is how you ask for the old behaviour, and
-     * it is explicit because it is the one that outlives the session.
+     * The normal TUI action changes the persistent host default. The explicit
+     * field remains for callers that need to name that scope in a typed action.
      */
     readonly scope?: "global";
 }
@@ -393,7 +391,7 @@ const EFFORT_COMMAND = {
 
 const PERMISSIONS_COMMAND = {
     name: "permissions",
-    description: "Change this session's permission mode",
+    description: "Change Vera's default permission mode",
     usage: "/permissions <mode> [default]",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1106,7 +1104,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             return {
                 type: "update_permissions",
                 mode,
-                ...(scope === "default" ? { scope: "global" as const } : {}),
+                scope: "global",
             };
         },
         palette: {
