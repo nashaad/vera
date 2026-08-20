@@ -40,6 +40,7 @@ export type TuiKeyScope =
     | "question"
     | "help"
     | "dials"
+    | "diagnostics"
     | "search";
 
 /** Every scope name, for validating one that arrived from an extension. */
@@ -57,6 +58,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "approval",
     "question",
     "help",
+    "diagnostics",
     "search",
 ];
 
@@ -83,6 +85,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "question",
     "help",
     "dials",
+    "diagnostics",
     "search",
 ];
 
@@ -529,6 +532,16 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "search",
         description: "Search this workspace or everywhere",
         hint: "ctrl+w scope",
+    },
+    {
+        id: "switch_diagnostics_scope",
+        // Terminals disagree on shift+tab: some report the shifted name, some
+        // send the dedicated backtab key.
+        keys: ["tab", "shift+tab", "backtab"],
+        scope: "diagnostics",
+        description: "Show this session's diagnostics or the whole host's",
+        hint: "tab scope",
+        overrides: ["dials.open"],
     },
 ];
 

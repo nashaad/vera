@@ -19,6 +19,7 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import type { TuiDiagnosticsScope } from "./diagnostics.ts";
+import { tuiBindingId } from "./keymap.ts";
 
 export interface TuiDiagnosticsDialogState {
     readonly text: string;
@@ -63,7 +64,10 @@ export function handleTuiDiagnosticsDialogKey(
     if (key.ctrl || key.meta) {
         return undefined;
     }
-    if (canSwitchScope && key.name === "tab") {
+    if (
+        canSwitchScope
+        && tuiBindingId("diagnostics", key) === "switch_diagnostics_scope"
+    ) {
         return "switch_scope";
     }
     if (key.shift) return undefined;
