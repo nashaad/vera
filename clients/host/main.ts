@@ -14,7 +14,7 @@ import { isSupervisedHost, startWaitingOutRivals } from "./supervised-start.ts";
 
 let config;
 try {
-    config = loadOrCreateVeraConfig();
+    config = loadOrCreateVeraConfig({ projectRoot: process.cwd() });
 } catch (error) {
     if (error instanceof VeraConfigError) {
         process.stderr.write(`${renderCliFailure(error)}\n`);
@@ -24,7 +24,11 @@ try {
 }
 
 const start = (): ReturnType<typeof startResidentHost> =>
-    startResidentHost({ config, entrypoint: fileURLToPath(import.meta.url) });
+    startResidentHost({
+        config,
+        entrypoint: fileURLToPath(import.meta.url),
+        projectRoot: process.cwd(),
+    });
 
 let host;
 try {

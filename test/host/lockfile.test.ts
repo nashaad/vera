@@ -331,6 +331,18 @@ test("the record carries the host entrypoint when one is given", async () => {
     expect(await createTestLockfile(path).read()).toEqual(record);
 });
 
+test("the record carries the project identity used for project extensions", async () => {
+    const path = temporaryLockPath();
+    const lockfile = createTestLockfile(path, {
+        projectRoot: "/checkouts/project-a",
+    });
+
+    const record = await lockfile.publish();
+
+    expect(record.project_root).toBe("/checkouts/project-a");
+    expect(await createTestLockfile(path).read()).toEqual(record);
+});
+
 test("a record without an entrypoint publishes and reads without one", async () => {
     const path = temporaryLockPath();
     const record = await createTestLockfile(path).publish();
@@ -369,6 +381,7 @@ interface TestLockfileOverrides {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly entrypoint?: string;
+    readonly projectRoot?: string;
     readonly inspectSocket?: () => Promise<{
         readonly pid: number;
         readonly started_at: string;
@@ -389,6 +402,9 @@ function createTestLockfile(
         ...(overrides.entrypoint === undefined
             ? {}
             : { entrypoint: overrides.entrypoint }),
+        ...(overrides.projectRoot === undefined
+            ? {}
+            : { projectRoot: overrides.projectRoot }),
         inspectSocket: overrides.inspectSocket ?? (async () => ({
             pid: overrides.pid ?? 101,
             started_at: overrides.startedAt ?? startedAt,

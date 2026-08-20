@@ -106,6 +106,20 @@ import {
     type ProviderDoctorOptions,
     type ProviderDoctorReport,
 } from "../provider-doctor.ts";
+import {
+    installExtension,
+    listExtensions,
+    removeExtension,
+    setExtensionEnabled,
+    type ExtensionManagerOperations,
+} from "../../src/extensions/manager.ts";
+import {
+    extensionTarget,
+    parseExtensionManagerCommand,
+    renderExtensionInstallPreview,
+    renderExtensionList,
+    renderExtensionMutation,
+} from "../../src/extensions/manager-command.ts";
 
 const PROVIDER_CHECK_FLAG = "--check-providers";
 
@@ -191,6 +205,7 @@ export interface CliDependencies {
         options: PoolAddOptions,
     ) => Promise<PoolAdmissionOutcome>;
     readonly removePoolModel?: (workspace: string, ref: string) => Promise<void>;
+    readonly extensionManager?: Partial<ExtensionManagerOperations>;
     readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
 }
@@ -292,6 +307,81 @@ export async function runCli(
     ) {
         await runTui({ type: "resume", sessionPath: args[1] }, tuiOptions);
         return 0;
+    }
+
+    const extensionRequest = parseExtensionManagerCommand(args);
+    if (extensionRequest !== undefined) {
+        if ("error" in extensionRequest) {
+            errorOutput.write(`${extensionRequest.error}\n`);
+            return 1;
+        }
+        if (extensionRequest.command.operation === "reload") {
+            errorOutput.write(
+                "Extension reload is available in the TUI as /extension reload.\n",
+            );
+            return 1;
+        }
+        const command = extensionRequest.command;
+        const manager: ExtensionManagerOperations = {
+            install: dependencies.extensionManager?.install ?? installExtension,
+            list: dependencies.extensionManager?.list ?? listExtensions,
+            setEnabled: dependencies.extensionManager?.setEnabled
+                ?? setExtensionEnabled,
+            remove: dependencies.extensionManager?.remove ?? removeExtension,
+        };
+        const target = extensionTarget(command, process.cwd());
+        try {
+            if (command.operation === "list") {
+                output.write(renderExtensionList(manager.list({
+                    ...(command.scope === "project"
+                        ? { projectRoot: process.cwd() }
+                        : {}),
+                    scope: command.scope,
+                })));
+                return 0;
+            }
+            if (command.operation === "install") {
+                const result = manager.install(command.source, target, {
+                    dryRun: command.dryRun,
+                });
+                output.write(renderExtensionInstallPreview(result.preview));
+                if (!command.dryRun) {
+                    output.write(
+                        `Installed ${result.record?.id ?? result.preview.id}`
+                            + ` in the ${result.preview.scope} scope.\n`,
+                    );
+                    output.write(
+                        "Restart the resident host to apply host-side capabilities.\n",
+                    );
+                }
+                return 0;
+            }
+            if (command.operation === "enable" || command.operation === "disable") {
+                const record = manager.setEnabled(
+                    command.id,
+                    command.operation === "enable",
+                    target,
+                );
+                output.write(renderExtensionMutation(
+                    command.operation,
+                    record,
+                    command.scope,
+                ));
+                output.write(
+                    "Restart the resident host to apply host-side capabilities.\n",
+                );
+                return 0;
+            }
+            const record = manager.remove(command.id, target);
+            output.write(renderExtensionMutation("remove", record, command.scope));
+            output.write(
+                "Restart the resident host to apply host-side capabilities.\n",
+            );
+            return 0;
+        } catch (error) {
+            errorOutput.write(`Extension operation failed: ${renderCliFailure(error)}\n`);
+            return 1;
+        }
     }
 
     if (args[0] === "-p") {
@@ -607,7 +697,9 @@ async function runOnceOnResidentHost(request: {
     readonly startupProfile?: StartupProfile;
 }): Promise<RunOnceOutcome> {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
-    const host = await findOrStartResidentHost();
+    const host = await findOrStartResidentHost({
+        projectRoot: request.workspace,
+    });
     return runOnceThroughHost(host.socket_path, request);
 }
 

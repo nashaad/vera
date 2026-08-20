@@ -45,7 +45,10 @@ import type { JsonValue } from "./sdk/hooks.ts";
 import {
     defaultVeraExtensionDirectory,
     discoverExtensionConfigs,
+    discoverManagedExtensionConfigs,
     mergeExtensionConfigs,
+    mergeExtensionScopes,
+    projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
 
@@ -284,6 +287,8 @@ export interface VeraExperimentalConfig {
 export interface LoadVeraConfigOptions {
     readonly path?: string;
     readonly extensionDirectory?: string;
+    /** Adds the explicit project's `.vera/extensions` overlay. */
+    readonly projectRoot?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
@@ -420,10 +425,25 @@ export function loadVeraConfig(
             extensions: override,
         };
     }
-    const extensions = mergeExtensionConfigs(
-        discoverExtensionConfigs(extensionDirectory),
-        config.extensions ?? [],
+    const explicitExtensions = config.extensions ?? [];
+    const profileExtensions = mergeExtensionConfigs(
+        mergeExtensionConfigs(
+            discoverExtensionConfigs(extensionDirectory),
+            explicitExtensions,
+        ),
+        discoverManagedExtensionConfigs(extensionDirectory),
     );
+    const projectExtensions = options.projectRoot === undefined
+        ? []
+        : mergeExtensionConfigs(
+            discoverExtensionConfigs(
+                projectVeraExtensionDirectory(options.projectRoot),
+            ),
+            discoverManagedExtensionConfigs(
+                projectVeraExtensionDirectory(options.projectRoot),
+            ),
+        );
+    const extensions = mergeExtensionScopes(profileExtensions, projectExtensions);
     if (extensions.length === 0 && config.extensions === undefined) {
         return resolved;
     }

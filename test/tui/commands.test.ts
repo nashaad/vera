@@ -44,6 +44,16 @@ test("every slash action has an explicit pane scope", () => {
         { type: "clone_session" },
         { type: "compact_session" },
         { type: "show_diagnostics" },
+        { type: "show_extensions" },
+        {
+            type: "manage_extensions",
+            command: {
+                operation: "install",
+                source: "./extension",
+                scope: "profile",
+                dryRun: true,
+            },
+        },
         { type: "show_doctor" },
         { type: "show_pool" },
         { type: "pool_current_model" },
@@ -82,6 +92,8 @@ test("every slash action has an explicit pane scope", () => {
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
             ["show_diagnostics", "application"],
+            ["show_extensions", "application"],
+            ["manage_extensions", "application"],
             ["show_doctor", "application"],
             ["show_pool", "application"],
             ["pool_current_model", "application"],
@@ -144,6 +156,50 @@ test("reload extensions is an application-owned client action", () => {
     const action = registry.dispatch("/reload-extensions");
     expect(action).toEqual({ type: "reload_client_extensions" });
     expect(tuiCommandScope(action!)).toBe("application");
+});
+
+test("extension manager slash commands are application-owned actions", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/extensions")).toEqual({
+        type: "show_extensions",
+    });
+    expect(registry.dispatch("/extension install ./local --dry-run")).toEqual({
+        type: "manage_extensions",
+        command: {
+            operation: "install",
+            source: "./local",
+            scope: "profile",
+            dryRun: true,
+        },
+    });
+    expect(registry.dispatch("/extension disable sample --project")).toEqual({
+        type: "manage_extensions",
+        command: {
+            operation: "disable",
+            id: "sample",
+            scope: "project",
+        },
+    });
+    expect(registry.dispatch(
+        `/extension install "/tmp/My Local Extension" --dry-run`,
+    )).toEqual({
+        type: "manage_extensions",
+        command: {
+            operation: "install",
+            source: "/tmp/My Local Extension",
+            scope: "profile",
+            dryRun: true,
+        },
+    });
+    expect(registry.dispatch("/extension list --project")).toEqual({
+        type: "show_extensions",
+        scope: "project",
+    });
+    expect(registry.dispatch("/extension reload")).toEqual({
+        type: "manage_extensions",
+        command: { operation: "reload" },
+    });
 });
 
 test("doctor is an application-owned client action", () => {
