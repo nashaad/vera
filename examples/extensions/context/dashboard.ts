@@ -9,9 +9,13 @@ import {
 } from "./dashboard-report.ts";
 import { renderDashboard, type DashboardViewState } from "./dashboard-view.ts";
 
-const PAGE_SIZE = 50;
+/**
+ * Sessions per request. Large enough that a normal profile arrives in one
+ * round trip, small enough that the first page draws before the rest is read.
+ */
+const PAGE_SIZE = 200;
 /** Pages read per refresh. Bounds a profile with thousands of sessions. */
-const MAX_PAGES = 20;
+const MAX_PAGES = 10;
 
 const FACTS = ["usage", "context", "failure", "model"] as const;
 
