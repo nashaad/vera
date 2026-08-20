@@ -208,6 +208,8 @@ export interface SessionCompactionMeasurement {
     readonly inputTokens: number;
     /** Absent when the model's window was never discovered. */
     readonly contextWindow?: number;
+    /** The model whose request was measured, absent in older session files. */
+    readonly model?: string;
     readonly estimated: boolean;
 }
 
@@ -2215,6 +2217,9 @@ function validateCompactionMeasurement(
         || (measured.contextWindow !== undefined
             && (!Number.isSafeInteger(measured.contextWindow)
                 || measured.contextWindow <= 0))
+        || (measured.model !== undefined
+            && (typeof measured.model !== "string"
+                || measured.model.length === 0))
         || typeof measured.estimated !== "boolean"
     ) {
         throw new Error("Compaction measurement is not a usable reading");
@@ -2224,6 +2229,7 @@ function validateCompactionMeasurement(
         ...(measured.contextWindow === undefined
             ? {}
             : { contextWindow: measured.contextWindow }),
+        ...(measured.model === undefined ? {} : { model: measured.model }),
         estimated: measured.estimated,
     };
 }
@@ -2302,6 +2308,9 @@ function isCompactionMeasurement(
         && (measured.contextWindow === undefined
             || (Number.isSafeInteger(measured.contextWindow)
                 && (measured.contextWindow as number) > 0))
+        && (measured.model === undefined
+            || (typeof measured.model === "string"
+                && measured.model.length > 0))
         && typeof measured.estimated === "boolean";
 }
 
