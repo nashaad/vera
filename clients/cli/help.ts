@@ -14,6 +14,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
     { usage: "vera configure", description: "Open Vera's config file in your editor" },
+    { usage: "vera extension list|install|enable|disable|remove", description: "Manage profile or project extensions" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn" },
     { usage: "vera doctor", description: "Check resident hosts, Vera process health, and providers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },

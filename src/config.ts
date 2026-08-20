@@ -2,6 +2,7 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
@@ -45,7 +46,9 @@ import type { JsonValue } from "./sdk/hooks.ts";
 import {
     defaultVeraExtensionDirectory,
     discoverExtensionConfigs,
+    discoverManagedExtensionConfigs,
     mergeExtensionConfigs,
+    projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
 
@@ -284,6 +287,8 @@ export interface VeraExperimentalConfig {
 export interface LoadVeraConfigOptions {
     readonly path?: string;
     readonly extensionDirectory?: string;
+    /** Adds the explicit project's `.vera/extensions` overlay. */
+    readonly projectRoot?: string;
 }
 
 export interface VeraConfigDefaultsPatch {
@@ -420,10 +425,29 @@ export function loadVeraConfig(
             extensions: override,
         };
     }
-    const extensions = mergeExtensionConfigs(
+    const explicitExtensions = config.extensions ?? [];
+    const profileExtensions = mergeExtensionConfigs(
         discoverExtensionConfigs(extensionDirectory),
-        config.extensions ?? [],
+        [
+            ...discoverManagedExtensionConfigs(extensionDirectory)
+                .filter((managed) => !explicitExtensions.some((explicit) =>
+                    canonicalExtensionPath(explicit.path)
+                        === canonicalExtensionPath(managed.path)
+                )),
+            ...explicitExtensions,
+        ],
     );
+    const projectExtensions = options.projectRoot === undefined
+        ? []
+        : mergeExtensionConfigs(
+            discoverExtensionConfigs(
+                projectVeraExtensionDirectory(options.projectRoot),
+            ),
+            discoverManagedExtensionConfigs(
+                projectVeraExtensionDirectory(options.projectRoot),
+            ),
+        );
+    const extensions = [...profileExtensions, ...projectExtensions];
     if (extensions.length === 0 && config.extensions === undefined) {
         return resolved;
     }
@@ -431,6 +455,14 @@ export function loadVeraConfig(
         ...resolved,
         extensions,
     };
+}
+
+function canonicalExtensionPath(path: string): string {
+    try {
+        return realpathSync(path);
+    } catch {
+        return resolve(path);
+    }
 }
 
 /**

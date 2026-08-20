@@ -14,7 +14,7 @@ import { isSupervisedHost, startWaitingOutRivals } from "./supervised-start.ts";
 
 let config;
 try {
-    config = loadOrCreateVeraConfig();
+    config = loadOrCreateVeraConfig({ projectRoot: process.cwd() });
 } catch (error) {
     if (error instanceof VeraConfigError) {
         process.stderr.write(`${renderCliFailure(error)}\n`);

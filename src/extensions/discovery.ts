@@ -13,9 +13,14 @@ import {
 import type { VeraExtensionConfig } from "../config.ts";
 import { EXTENSION_MANIFEST_FILENAME } from "./manifest.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import { managedExtensionConfigs } from "./manager.ts";
 
 export function defaultVeraExtensionDirectory(): string {
     return join(veraProfileDirectory(), "extensions");
+}
+
+export function projectVeraExtensionDirectory(projectRoot: string): string {
+    return join(resolve(projectRoot), ".vera", "extensions");
 }
 
 export function discoverExtensionConfigs(
@@ -46,6 +51,17 @@ export function discoverExtensionConfigs(
             enabled: true,
             config: {},
         }));
+}
+
+/**
+ * Managed installs overlay ordinary directory discovery so a disabled copy
+ * remains on disk without being loaded. Hand-managed directories keep the
+ * existing discovery behavior and are intentionally not adopted.
+ */
+export function discoverManagedExtensionConfigs(
+    directory: string,
+): readonly VeraExtensionConfig[] {
+    return managedExtensionConfigs(directory);
 }
 
 export function mergeExtensionConfigs(
