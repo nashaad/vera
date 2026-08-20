@@ -83,7 +83,19 @@ mkdir -p "$bundle/bin" "$bundle/runtime"
 # Archive tracked source instead of copying the checkout. This excludes local
 # ignored state and makes the release input explicit: the clean commit above.
 git -C "$root" archive HEAD | tar -xf - -C "$bundle"
-rm -rf "$bundle/.git" "$bundle/test" "$bundle/.worktrees" "$bundle/install"
+rm -rf \
+    "$bundle/.claude" \
+    "$bundle/.env.test" \
+    "$bundle/.git" \
+    "$bundle/.worktrees" \
+    "$bundle/AGENTS.md" \
+    "$bundle/README.md" \
+    "$bundle/dev" \
+    "$bundle/docs" \
+    "$bundle/examples" \
+    "$bundle/install" \
+    "$bundle/scripts" \
+    "$bundle/test"
 
 if [ -n "${VERA_RELEASE_NODE_MODULES:-}" ]; then
     [ -d "$VERA_RELEASE_NODE_MODULES" ] \
