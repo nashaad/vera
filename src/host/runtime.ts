@@ -86,6 +86,7 @@ import {
     type AuthStorage,
 } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { providerEndpointUrl } from "../providers/endpoint-url.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
 import { normalizeOllamaHost } from "../providers/ollama-openai.ts";
@@ -295,6 +296,7 @@ export async function startResidentHost(
         }),
     );
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
+    const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
     const createAdapter = options.createAdapter
         ?? ((
             provider?: string,
@@ -308,6 +310,7 @@ export async function startResidentHost(
             }, {
                 authStorage,
                 log: hostLog,
+                openRouterAllowanceGuard,
                 ...scoped(projectRoot),
                 ...(captureFailedRequest === undefined
                     ? {}

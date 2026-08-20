@@ -45,6 +45,25 @@ test("a recorded failure survives being written and read back", () => {
     }
 });
 
+test("failed request attribution survives being written and read back", () => {
+    const path = ledgerPath();
+    const attributed = record({
+        requestTokens: 158_544,
+        requestTokensEstimated: true,
+        allowance: {
+            kind: "prompt_tokens",
+            requested: 158_544,
+            available: 91_805,
+        },
+    });
+    try {
+        new ModelFailureLedger(path).record(attributed);
+        expect(readModelFailures(path)).toEqual([attributed]);
+    } finally {
+        rmSync(path, { force: true });
+    }
+});
+
 test("the same model failing the same way twice is one signature", () => {
     const records = [record(), record({ sessionId: "session-b" })];
     const summary = summariseModelFailures(records);
@@ -78,6 +97,24 @@ test("the most repeated signature is reported first", () => {
         record(),
     ]);
     expect(summary.signatures[0]?.kind).toBe("no_visible_response");
+});
+
+test("a failure summary carries the latest attempted request and allowance", () => {
+    const summary = summariseModelFailures([
+        record({ requestTokens: 100 }),
+        record({
+            requestTokens: 80_004,
+            requestTokensEstimated: true,
+            allowance: {
+                kind: "prompt_tokens",
+                requested: 80_004,
+                available: 51_390,
+            },
+        }),
+    ]);
+    expect(summary.signatures[0]?.lastRequestTokens).toBe(80_004);
+    expect(summary.signatures[0]?.lastRequestTokensEstimated).toBe(true);
+    expect(summary.signatures[0]?.lastAllowance?.available).toBe(51_390);
 });
 
 test("a first failure is not nudged about", () => {

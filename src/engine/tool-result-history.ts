@@ -11,6 +11,9 @@ import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
 /** A turn is a visible user prompt; internal continuation messages do not age results. */
 export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
 
+/** Several legal per-result outputs must not compose one enormous request. */
+export const TOOL_RESULT_TOTAL_BUDGET_BYTES = 128 * 1024;
+
 export interface ToolResultHistoryEntry {
     readonly message: ModelMessage;
 }
@@ -24,6 +27,7 @@ export interface ToolResultHistoryEntry {
 export function assembleAgedToolResults(
     entries: readonly ToolResultHistoryEntry[],
     ageAfterTurns = TOOL_RESULT_STUB_AFTER_TURNS,
+    budgetBytes = TOOL_RESULT_TOTAL_BUDGET_BYTES,
 ): readonly ModelMessage[] {
     const turnsAt = new Map<number, number>();
     const calls = new Map<string, ToolCallContent>();
@@ -74,7 +78,111 @@ export function assembleAgedToolResults(
             sourceText,
         );
     });
-    return Object.freeze(projected);
+    return Object.freeze(applyToolResultBudget(
+        projected,
+        entries,
+        calls,
+        budgetBytes,
+    ));
+}
+
+/**
+ * Age is the normal replacement trigger. This second pass is the safety
+ * trigger: it also applies inside one long user turn, before anything ages.
+ */
+function applyToolResultBudget(
+    projected: readonly ModelMessage[],
+    entries: readonly ToolResultHistoryEntry[],
+    calls: ReadonlyMap<string, ToolCallContent>,
+    budgetBytes: number,
+): readonly ModelMessage[] {
+    const messages = [...projected];
+    let carriedBytes = totalToolResultBytes(messages);
+    if (carriedBytes <= budgetBytes) return messages;
+
+    const eligible: number[] = [];
+    const digestible: number[] = [];
+    for (let index = 0; index < messages.length; index += 1) {
+        const message = messages[index];
+        if (
+            message?.role === "tool_result"
+        ) {
+            eligible.push(index);
+            if (
+                message.toolResultSource?.spillPath !== undefined
+                && message.toolResultSource.originalBytes
+                    > TOOL_RESULT_VERBATIM_FLOOR_BYTES
+            ) {
+                digestible.push(index);
+            }
+        }
+    }
+
+    // Keep useful mechanical shape first. Unknown tools already become stubs.
+    for (const index of digestible) {
+        if (carriedBytes <= budgetBytes) break;
+        const message = messages[index];
+        if (message?.role !== "tool_result") continue;
+        const source = readSpill(message.toolResultSource?.spillPath);
+        if (source === undefined) continue;
+        carriedBytes = replaceWhenSmaller(
+            messages,
+            index,
+            message,
+            agedToolResult(
+                message,
+                calls.get(message.toolCallId),
+                laterAssistantText(entries, index),
+                source,
+            ),
+            carriedBytes,
+        );
+    }
+
+    // If digests still do not fit, recoverability matters more than shape.
+    for (const index of eligible) {
+        if (carriedBytes <= budgetBytes) break;
+        const message = messages[index];
+        if (message?.role !== "tool_result") continue;
+        carriedBytes = replaceWhenSmaller(
+            messages,
+            index,
+            message,
+            stubbedToolResult(message),
+            carriedBytes,
+        );
+    }
+    return messages;
+}
+
+function replaceWhenSmaller(
+    messages: ModelMessage[],
+    index: number,
+    current: ToolResultMessage,
+    replacement: ToolResultMessage,
+    carriedBytes: number,
+): number {
+    const currentBytes = toolResultBytes(current);
+    const replacementBytes = toolResultBytes(replacement);
+    if (replacementBytes >= currentBytes) return carriedBytes;
+    messages[index] = replacement;
+    return carriedBytes - currentBytes + replacementBytes;
+}
+
+function totalToolResultBytes(messages: readonly ModelMessage[]): number {
+    return messages.reduce(
+        (total, message) => total + (message.role === "tool_result"
+            ? toolResultBytes(message)
+            : 0),
+        0,
+    );
+}
+
+function toolResultBytes(message: ToolResultMessage): number {
+    return message.content.reduce(
+        (total, content) => total + Buffer.byteLength(content.text, "utf8"),
+        0,
+    );
 }
 
 function agedToolResult(
@@ -85,10 +193,7 @@ function agedToolResult(
 ): ToolResultMessage {
     const sourcePath = result.toolResultSource?.spillPath;
     if (!isDigestableTool(result.toolName)) {
-        return {
-            ...result,
-            content: [{ type: "text", text: stubFor(result) }],
-        };
+        return stubbedToolResult(result);
     }
     const references = extractReferences(laterText);
     const body = digestFor(result, call, sourceText);
@@ -111,6 +216,13 @@ function agedToolResult(
     };
 }
 
+function stubbedToolResult(result: ToolResultMessage): ToolResultMessage {
+    return {
+        ...result,
+        content: [{ type: "text", text: stubFor(result) }],
+    };
+}
+
 function isDigestableTool(tool: string): boolean {
     return tool === "grep"
         || tool === "bash"
@@ -119,11 +231,15 @@ function isDigestableTool(tool: string): boolean {
 }
 
 function stubFor(result: ToolResultMessage): string {
+    const sourcePath = result.toolResultSource?.spillPath;
     return [
         `[vera] Stub for older ${result.toolName} result: `
             + `${formatBytes(result.toolResultSource?.originalBytes ?? 0)}.`,
-        "[vera] Full output remains available at "
-            + `${result.toolResultSource?.spillPath}; re-read it if needed.`,
+        sourcePath === undefined || readSpill(sourcePath) === undefined
+            ? "[vera] The durable session retains the original result, but no "
+                + "re-readable spill is available for this request."
+            : "[vera] Full output remains available at "
+                + `${sourcePath}; re-read it if needed.`,
     ].join("\n");
 }
 

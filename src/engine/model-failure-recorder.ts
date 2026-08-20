@@ -25,10 +25,22 @@ export function createModelFailureRecorder(
 ): EngineEventSubscriber {
     const now = options.now ?? (() => new Date());
     let pendingFailure: ProviderFailure | undefined;
+    let pendingRequest: {
+        readonly tokens: number;
+        readonly estimated: boolean;
+    } | undefined;
 
     return (event: EngineEvent): void => {
         if (event.type === "turn_started") {
             pendingFailure = undefined;
+            pendingRequest = undefined;
+            return;
+        }
+        if (event.type === "context_measured") {
+            pendingRequest = {
+                tokens: event.measurement.tokens,
+                estimated: event.measurement.estimated,
+            };
             return;
         }
         if (event.type === "model_stream_error") {
@@ -39,6 +51,8 @@ export function createModelFailureRecorder(
         const message = event.message;
         const failure = pendingFailure;
         pendingFailure = undefined;
+        const request = pendingRequest;
+        pendingRequest = undefined;
         if (message.stopReason !== "error") return;
         if (message.source.provider === "vera") return;
         options.ledger.record({
@@ -57,6 +71,15 @@ export function createModelFailureRecorder(
             ...(failure?.statusCode === undefined
                 ? {}
                 : { statusCode: failure.statusCode }),
+            ...(request === undefined
+                ? {}
+                : {
+                    requestTokens: request.tokens,
+                    requestTokensEstimated: request.estimated,
+                }),
+            ...(failure?.allowance === undefined
+                ? {}
+                : { allowance: failure.allowance }),
         });
     };
 }
