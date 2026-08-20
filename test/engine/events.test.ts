@@ -15,6 +15,8 @@ import {
     EngineEventBus,
     createJsonlEventLogger,
     defaultEventLogPath,
+    eventLogLevel,
+    resolveEventLogLevel,
     modelRequestSnapshotPath,
     type EngineEvent,
 } from "../../src/engine/events.ts";
@@ -74,6 +76,8 @@ test("a turn fans out to updates and a per-session event log", async () => {
         path: logPath,
         sessionId: "session-test",
         now: () => new Date("2026-07-17T12:00:00.000Z"),
+        // At debug the log mirrors the bus, which is what this test is for.
+        level: "debug",
     }));
     events.subscribe((event) => {
         observed.push(event);
@@ -140,7 +144,7 @@ test("a turn fans out to updates and a per-session event log", async () => {
         expect(lines.every((line) =>
             line.timestamp === "2026-07-17T12:00:00.000Z"
             && line.sessionId === "session-test"
-            && line.level === "debug"
+            && line.level === eventLogLevel(line.type as EngineEvent["type"])
         )).toBe(true);
         const requestLine = lines.find((line) => line.type === "model_request");
         expect(requestLine?.systemPrompt).toBeUndefined();
@@ -332,10 +336,11 @@ test("repeated model requests keep the log flat and the latest in the slot", asy
     const logPath = join(workspace, "events.jsonl");
     try {
         const events = new EngineEventBus();
-        events.subscribe(createJsonlEventLogger({
+        const logger = createJsonlEventLogger({
             path: logPath,
             sessionId: "session-test",
-        }));
+        });
+        events.subscribe(logger);
         const emitRequest = (turn: number): void => {
             events.emit({
                 type: "model_request",
@@ -358,6 +363,8 @@ test("repeated model requests keep the log flat and the latest in the slot", asy
             emitRequest(turn);
         }
 
+        logger.flush();
+
         const lines = (await readFile(logPath, "utf8")).trim().split("\n");
         expect(lines).toHaveLength(20);
         const first = JSON.parse(lines[0] ?? "") as LoggedEventLine;
@@ -375,6 +382,169 @@ test("repeated model requests keep the log flat and the latest in the slot", asy
             await readFile(modelRequestSnapshotPath(logPath), "utf8"),
         ) as { readonly messages: readonly unknown[] };
         expect(snapshot.messages).toHaveLength(20);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+const userTurn = {
+    type: "turn_started" as const,
+    message: {
+        role: "user" as const,
+        content: [{ type: "text" as const, text: "hi" }],
+    },
+};
+
+const streamFailure = {
+    type: "model_stream_error" as const,
+    error: "boom",
+    errorName: "Error",
+    message: {
+        role: "assistant" as const,
+        content: [],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "error" as const,
+    },
+};
+
+test("the default level keeps the per-chunk stream out of the log", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        const logger = createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+        });
+        events.subscribe(logger);
+
+        events.emit(userTurn);
+        for (let chunk = 0; chunk < 100; chunk += 1) {
+            events.emit({
+                type: "model_stream",
+                event: { type: "text_delta", contentIndex: 0, text: "hi" },
+            });
+        }
+        events.emit(streamFailure);
+        logger.flush();
+
+        const lines = (await readFile(logPath, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as LoggedEventLine);
+        expect(lines.map((line) => line.type)).toEqual([
+            "turn_started",
+            "model_stream_error",
+        ]);
+        expect(lines[1]?.level).toBe("error");
+        logger.close();
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a failure is on disk before the batch it arrived in drains", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        const logger = createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+        });
+        events.subscribe(logger);
+
+        events.emit(userTurn);
+        events.emit(streamFailure);
+
+        // No flush: an error takes the queue with it, so a reader tailing the
+        // file sees the lines that led up to the failure too.
+        const lines = (await readFile(logPath, "utf8")).trim().split("\n");
+        expect(lines).toHaveLength(2);
+        logger.close();
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("VERA_LOG_LEVEL names the level, and nonsense falls back", () => {
+    expect(resolveEventLogLevel({})).toBe("info");
+    expect(resolveEventLogLevel({ VERA_LOG_LEVEL: "debug" })).toBe("debug");
+    expect(resolveEventLogLevel({ VERA_LOG_LEVEL: " WARN " })).toBe("warn");
+    expect(resolveEventLogLevel({ VERA_LOG_LEVEL: "loud" })).toBe("info");
+});
+
+test("a process that exits mid-batch still leaves its last lines on disk", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    const scriptPath = join(workspace, "emit.ts");
+    try {
+        await writeFile(
+            scriptPath,
+            [
+                `import { EngineEventBus, createJsonlEventLogger } from ${
+                    JSON.stringify(
+                        new URL("../../src/engine/events.ts", import.meta.url)
+                            .pathname,
+                    )
+                };`,
+                "const events = new EngineEventBus();",
+                `events.subscribe(createJsonlEventLogger({ path: ${
+                    JSON.stringify(logPath)
+                }, sessionId: "session-test" }));`,
+                'events.emit({ type: "turn_started", message: { role: "user",'
+                + ' content: [{ type: "text", text: "hi" }] } });',
+                'events.emit({ type: "prompt_queued", content: "hi" });',
+                // Exits inside the same tick the lines were queued in, so the
+                // batch has had no chance to drain on its own.
+                "process.exit(0);",
+            ].join("\n"),
+        );
+
+        const exited = Bun.spawnSync(["bun", scriptPath]);
+        expect(exited.exitCode).toBe(0);
+
+        const lines = (await readFile(logPath, "utf8")).trim().split("\n");
+        expect(lines).toHaveLength(2);
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("the request slot is kept even at a level that logs no request line", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-events-"));
+    const logPath = join(workspace, "events.jsonl");
+    try {
+        const events = new EngineEventBus();
+        const logger = createJsonlEventLogger({
+            path: logPath,
+            sessionId: "session-test",
+            level: "error",
+        });
+        events.subscribe(logger);
+
+        events.emit({
+            type: "model_request",
+            model: "test",
+            maxTokens: 1_024,
+            systemPrompt: "system",
+            messages: [{
+                role: "user",
+                content: [{ type: "text", text: "hi" }],
+            }],
+            tools: [],
+            promptContributions: [],
+            toolResultBytes: 0,
+        });
+        logger.flush();
+
+        expect(await readFile(logPath, "utf8")).toBe("");
+        const slot = JSON.parse(
+            await readFile(modelRequestSnapshotPath(logPath), "utf8"),
+        ) as { messages: unknown[] };
+        expect(slot.messages).toHaveLength(1);
+        logger.close();
     } finally {
         await rm(workspace, { recursive: true, force: true });
     }

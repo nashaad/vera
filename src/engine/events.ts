@@ -578,6 +578,8 @@ export interface JsonlEventLoggerOptions {
     readonly path: string;
     readonly sessionId: string;
     readonly now?: () => Date;
+    /** Defaults to the level the process is running with. */
+    readonly level?: EventLogLevel;
 }
 
 /** The root every event log lives under, unless a caller names another. */
@@ -626,20 +628,174 @@ export function modelRequestSnapshotPath(logPath: string): string {
         : `${logPath}.model-request.json`;
 }
 
+/**
+ * How loud an event is. The log keeps every event at or above the level the
+ * process is running with.
+ */
+export type EventLogLevel = "debug" | "info" | "warn" | "error";
+
+const LEVEL_RANK: Record<EventLogLevel, number> = {
+    debug: 10,
+    info: 20,
+    warn: 30,
+    error: 40,
+};
+
+/**
+ * The level each event is recorded at.
+ *
+ * Keyed by the whole event union, so a new event type fails the build until
+ * it is placed here. Two questions decide a placement: would a reader
+ * reconstructing the turn miss this line, and how many does one turn produce.
+ * `model_stream` is one per chunk, which is what makes `debug` too loud to be
+ * the default.
+ */
+const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
+    abort_requested: "info",
+    agent_catalog: "debug",
+    agent_rejected: "error",
+    agent_worn: "info",
+    compaction_finished: "info",
+    compaction_started: "info",
+    context_measured: "debug",
+    delivery_turn_started: "info",
+    model_effort_coarsened: "warn",
+    model_fallback_selected: "warn",
+    model_length_continuation: "warn",
+    model_request: "info",
+    model_retry_scheduled: "warn",
+    model_settings_changed: "info",
+    model_settings_rejected: "error",
+    model_stream: "debug",
+    model_stream_error: "error",
+    model_substituted: "warn",
+    notice: "info",
+    permissions_changed: "info",
+    permissions_rejected: "error",
+    pool_admission_progress: "debug",
+    pool_admission_result: "info",
+    prompt_prefix_drift: "warn",
+    prompt_queued: "info",
+    session_model_settings_history: "debug",
+    task_notification: "info",
+    tool_denied: "warn",
+    tool_execution_finished: "info",
+    tool_execution_replaced: "info",
+    tool_execution_started: "info",
+    tool_hook_failed: "error",
+    tool_input_changed: "debug",
+    tool_presentation_ready: "debug",
+    tool_result_changed: "debug",
+    tool_review_decided: "info",
+    turn_finished: "info",
+    turn_started: "info",
+    ui_request: "info",
+    ui_request_closed: "info",
+    ui_response: "info",
+};
+
+export function eventLogLevel(type: EngineEvent["type"]): EventLogLevel {
+    return EVENT_LEVELS[type];
+}
+
+/**
+ * The level the log runs at. `info` unless asked otherwise, so a session
+ * records the shape of its turns rather than every token of them, and
+ * `VERA_LOG_LEVEL=debug` brings the whole stream back while a bug is being
+ * watched. An unreadable value falls back instead of throwing: losing the
+ * session to a typo in a log setting is worse than logging the wrong amount.
+ */
+export function resolveEventLogLevel(
+    env: Record<string, string | undefined> = process.env,
+): EventLogLevel {
+    const raw = env.VERA_LOG_LEVEL?.trim().toLowerCase();
+    return raw !== undefined && raw in LEVEL_RANK
+        ? raw as EventLogLevel
+        : "info";
+}
+
+/**
+ * A subscriber that also lets its owner force the queued lines out. `flush`
+ * is for a caller about to read the file; `close` drops the exit handler that
+ * guarantees the tail.
+ */
+export interface JsonlEventLogger extends EngineEventSubscriber {
+    flush(): void;
+    close(): void;
+}
+
+/**
+ * The loggers with lines queued. One process handler drains all of them, so a
+ * host that opens a logger per session does not accumulate exit listeners.
+ */
+const liveLoggers = new Set<() => void>();
+let exitHandlerInstalled = false;
+
+function drainOnExit(drain: () => void): void {
+    liveLoggers.add(drain);
+    if (exitHandlerInstalled) {
+        return;
+    }
+    exitHandlerInstalled = true;
+    process.on("exit", () => {
+        for (const pending of liveLoggers) {
+            pending();
+        }
+    });
+}
+
 export function createJsonlEventLogger(
     options: JsonlEventLoggerOptions,
-): EngineEventSubscriber {
+): JsonlEventLogger {
     const now = options.now ?? (() => new Date());
+    const threshold = LEVEL_RANK[options.level ?? resolveEventLogLevel()];
     let logPrepared = false;
+    let pending: string[] = [];
+    let scheduled: ReturnType<typeof setTimeout> | undefined;
 
-    return (event): void => {
-        if (!logPrepared) {
-            prepareEventLog(options.path);
-            logPrepared = true;
+    const drain = (quiet: boolean): void => {
+        if (scheduled !== undefined) {
+            clearTimeout(scheduled);
+            scheduled = undefined;
         }
+        if (pending.length === 0) {
+            return;
+        }
+        const batch = pending.join("");
+        // Cleared before the write, so a write that throws drops the batch
+        // rather than replaying it onto the next flush.
+        pending = [];
+        try {
+            appendFileSync(options.path, batch, {
+                encoding: "utf8",
+                mode: 0o600,
+            });
+        } catch (error) {
+            // A timed or at-exit drain has no caller to answer to, and
+            // observation must never change the turn outcome. An asked-for
+            // flush does have one, and it is about to read the file.
+            if (!quiet) {
+                throw error;
+            }
+        }
+    };
 
+    const quietDrain = (): void => drain(true);
+
+    const write = (event: EngineEvent): void => {
+        const level = eventLogLevel(event.type);
         const timestamp = now().toISOString();
+
         if (event.type === "model_request") {
+            if (!logPrepared) {
+                prepareEventLog(options.path);
+                logPrepared = true;
+                drainOnExit(quietDrain);
+            }
+            // Ahead of the level check, and written straight through. The
+            // slot is a reader's only copy of the latest request, so it is
+            // kept at every level and survives a process that dies before the
+            // queue drains.
             writeModelRequestSnapshot(options.path, {
                 timestamp,
                 sessionId: options.sessionId,
@@ -647,23 +803,51 @@ export function createJsonlEventLogger(
             });
         }
 
-        appendFileSync(
-            options.path,
-            `${JSON.stringify({
-                timestamp,
-                level: event.type === "model_stream_error"
-                    ? "error"
-                    : event.type === "prompt_prefix_drift"
-                        ? "warn"
-                        : "debug",
-                sessionId: options.sessionId,
-                ...(event.type === "model_request"
-                    ? summarizeModelRequest(event)
-                    : event),
-            })}\n`,
-            { encoding: "utf8", mode: 0o600 },
-        );
+        if (LEVEL_RANK[level] < threshold) {
+            return;
+        }
+
+        if (!logPrepared) {
+            prepareEventLog(options.path);
+            logPrepared = true;
+            drainOnExit(quietDrain);
+        }
+
+        pending.push(`${JSON.stringify({
+            timestamp,
+            level,
+            sessionId: options.sessionId,
+            ...(event.type === "model_request"
+                ? summarizeModelRequest(event)
+                : event),
+        })}\n`);
+
+        // A turn's worth of lines lands in one append. The exceptions go now:
+        // a failure is what someone tails the file for, and the end of a turn
+        // is the point a reader expects the file to be whole.
+        if (
+            LEVEL_RANK[level] >= LEVEL_RANK.warn
+            || event.type === "turn_finished"
+        ) {
+            drain(true);
+            return;
+        }
+        if (scheduled === undefined) {
+            const timer = setTimeout(quietDrain, 0);
+            // Never the reason a process stays alive.
+            timer.unref?.();
+            scheduled = timer;
+        }
     };
+
+    const logger: JsonlEventLogger = Object.assign(write, {
+        flush: (): void => drain(false),
+        close: (): void => {
+            liveLoggers.delete(quietDrain);
+            drain(true);
+        },
+    });
+    return logger;
 }
 
 /**
