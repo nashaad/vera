@@ -111,21 +111,29 @@ else
 fi
 
 # Bun creates convenience links in node_modules/.bin. They are not needed by
-# the runtime bundle, and removing all links keeps the archive self-contained
-# under the installer's no-symlink policy.
-find "$bundle" -type l -delete
+# the runtime bundle. Any other link is a packaging error because the installer
+# intentionally accepts only self-contained archives.
+if [ -d "$bundle/node_modules/.bin" ]; then
+    find "$bundle/node_modules/.bin" -type l -delete
+fi
+if find "$bundle" -type l -print -quit | grep . >/dev/null 2>&1; then
+    die "release bundle contains a symlink outside node_modules/.bin"
+fi
 
 cp "$bun" "$bundle/runtime/bun"
 chmod 755 "$bundle/runtime/bun"
 cp "$root/scripts/portable-launcher.sh" "$bundle/bin/vera"
 chmod 755 "$bundle/bin/vera"
 printf '%s\n' "$version" > "$bundle/VERSION"
+libc=none
+[ "$platform" = "linux" ] && libc=glibc
 cat > "$bundle/manifest.json" <<EOF
 {
   "version": "$version",
   "source_revision": "$revision",
   "platform": "$platform",
   "architecture": "$arch",
+  "libc": "$libc",
   "archive": "$archive_name",
   "entrypoint": "bin/vera",
   "runtime": "runtime/bun"

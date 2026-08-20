@@ -65,7 +65,14 @@ esac
 archive_name="vera-$platform-$arch.tar.gz"
 case "$version" in
     latest) release_asset_path="latest/download" ;;
-    *) release_asset_path="download/$version" ;;
+    *)
+        release_version=$version
+        case "$release_version" in
+            v*) ;;
+            *) release_version="v$release_version" ;;
+        esac
+        release_asset_path="download/$release_version"
+        ;;
 esac
 archive_url="$release_base/$release_asset_path/$archive_name"
 checksum_url="$archive_url.sha256"
@@ -85,13 +92,30 @@ case "$release_base" in
     *) die "release URL must use HTTPS" ;;
 esac
 
+if [ "$platform" = "linux" ]; then
+    libc=${VERA_INSTALL_LIBC:-}
+    if [ -z "$libc" ]; then
+        command -v getconf >/dev/null 2>&1 \
+            || die "Linux releases require glibc; getconf is unavailable"
+        libc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
+    fi
+    case "$libc" in
+        glibc\ *) ;;
+        *) die "this Linux release requires glibc (musl/unknown libc is unsupported)" ;;
+    esac
+fi
+
 mkdir -p "$install_root/versions" "$bin_dir"
+lock_dir="$install_root/.install.lock"
+mkdir "$lock_dir" 2>/dev/null \
+    || die "another Vera install is already running; remove $lock_dir if stale"
 staging="$install_root/.staging.$$.${RANDOM:-0}"
-mkdir "$staging"
 cleanup() {
     rm -rf "$staging"
+    rmdir "$lock_dir" 2>/dev/null || true
 }
 trap cleanup EXIT HUP INT TERM
+mkdir "$staging"
 
 download() {
     url=$1
@@ -142,6 +166,23 @@ while IFS= read -r member || [ -n "$member" ]; do
     esac
 done < "$staging/archive.list"
 
+# Inspect entry types before extraction. A post-extraction symlink check is too
+# late if a platform tar implementation follows a link while unpacking.
+tar -tvzf "$staging/$archive_name" > "$staging/archive.details"
+while IFS= read -r detail || [ -n "$detail" ]; do
+    case "$detail" in
+        "") ;;
+        d*|-*)
+            case "$detail" in
+                *" link to "*)
+                    die "release archive contains a hard link"
+                    ;;
+            esac
+            ;;
+        *) die "release archive contains an unsupported entry type" ;;
+    esac
+done < "$staging/archive.details"
+
 tar -xzf "$staging/$archive_name" -C "$archive_root"
 [ -f "$archive_root/VERSION" ] \
     || die "release archive is missing VERSION"
@@ -166,20 +207,25 @@ case "$installed_version" in
 esac
 
 manifest_value() {
-    key=$1
+    manifest_root=$1
+    key=$2
     sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-        "$archive_root/manifest.json" | sed -n '1p'
+        "$manifest_root/manifest.json" | sed -n '1p'
 }
 
-manifest_version=$(manifest_value version)
+manifest_version=$(manifest_value "$archive_root" version)
 [ "$manifest_version" = "$installed_version" ] \
     || die "manifest version does not match VERSION"
-manifest_platform=$(manifest_value platform)
+manifest_platform=$(manifest_value "$archive_root" platform)
 [ "$manifest_platform" = "$platform" ] \
     || die "manifest platform does not match installer target"
-manifest_arch=$(manifest_value architecture)
+manifest_arch=$(manifest_value "$archive_root" architecture)
 [ "$manifest_arch" = "$arch" ] \
     || die "manifest architecture does not match installer target"
+if [ "$platform" = "linux" ]; then
+    [ "$(manifest_value "$archive_root" libc)" = "glibc" ] \
+        || die "manifest libc does not match the supported Linux target"
+fi
 
 case "$version" in
     latest) ;;
@@ -194,7 +240,10 @@ if [ -e "$current" ] || [ -L "$current" ]; then
     [ -L "$current" ] || die "refusing to replace non-Vera path: $current"
     existing_current=$(readlink "$current" || true)
     case "$existing_current" in
-        versions/*|"$install_root"/*) ;;
+        versions/*)
+            case "$existing_current" in *..*) die "refusing unsafe current target: $current" ;; esac
+            ;;
+        "$install_root"/versions/*) ;;
         *) die "refusing to replace current owned by another install: $current" ;;
     esac
 fi
@@ -204,15 +253,36 @@ if [ -e "$bin_path" ] || [ -L "$bin_path" ]; then
     [ -L "$bin_path" ] || die "refusing to replace existing executable: $bin_path"
     existing_target=$(readlink "$bin_path" || true)
     case "$existing_target" in
-        "$install_root"/*|../share/vera/*) ;;
+        "$install_root/current/bin/vera"|../share/vera/current/bin/vera) ;;
         *) die "refusing to replace executable owned by another install: $bin_path" ;;
     esac
 fi
 
 target="$install_root/versions/$installed_version"
-if [ -e "$target" ] || [ -L "$target" ]; then
+if [ -L "$target" ]; then
+    die "refusing to reuse symlinked Vera version: $target"
+elif [ -e "$target" ]; then
+    [ -d "$target" ] \
+        || die "existing Vera version is not a directory: $target"
     [ -f "$target/VERSION" ] && [ -x "$target/bin/vera" ] \
         || die "existing Vera version is incomplete: $target"
+    [ -s "$target/manifest.json" ] \
+        || die "existing Vera version is missing manifest: $target"
+    [ "$(tr -d '\r\n' < "$target/VERSION")" = "$installed_version" ] \
+        || die "existing Vera version has the wrong VERSION: $target"
+    [ "$(manifest_value "$target" version)" = "$installed_version" ] \
+        || die "existing Vera version has the wrong manifest version: $target"
+    [ "$(manifest_value "$target" platform)" = "$platform" ] \
+        || die "existing Vera version has the wrong manifest platform: $target"
+    [ "$(manifest_value "$target" architecture)" = "$arch" ] \
+        || die "existing Vera version has the wrong manifest architecture: $target"
+    if [ "$platform" = "linux" ]; then
+        [ "$(manifest_value "$target" libc)" = "glibc" ] \
+            || die "existing Vera version has the wrong manifest libc: $target"
+    fi
+    if find "$target" -type l -print -quit | grep . >/dev/null 2>&1; then
+        die "existing Vera version contains a symlink: $target"
+    fi
     rm -rf "$archive_root"
 else
     chmod 755 "$archive_root/bin/vera"
