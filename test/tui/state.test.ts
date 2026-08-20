@@ -2434,6 +2434,57 @@ test("TUI shows a compaction budget warning when the run starts", () => {
     expect(quiet.entries).toEqual([]);
 });
 
+test("a running compaction is marked on state and cleared by any finish", () => {
+    const started = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        seq: 1,
+    });
+    expect(started.compactingSince).toBeGreaterThan(0);
+
+    for (
+        const outcome of [
+            "compacted",
+            "no_boundary",
+            "rejected",
+            "unavailable",
+            "cancelled",
+        ] as const
+    ) {
+        const finished = applyAgentUpdate(started, {
+            type: "compaction",
+            phase: "finished",
+            strategy: "vera/full-summary",
+            outcome,
+            ...(outcome === "compacted" ? { before: 100, after: 50 } : {}),
+            seq: 2,
+        });
+        expect(finished.compactingSince).toBeUndefined();
+    }
+
+    // A refused manual request had no started phase of its own, so it must
+    // not clear the mark of the compaction that is still running.
+    const busy = applyAgentUpdate(started, {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "busy",
+        seq: 2,
+    });
+    expect(busy.compactingSince).toBe(started.compactingSince);
+
+    // The finished update can be lost with the turn, so the turn's own end
+    // and a dead connection both clear the mark rather than leave the bar
+    // filling forever.
+    const turnEnded = applyAgentUpdate(started, {
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(turnEnded.compactingSince).toBeUndefined();
+    expect(failTuiConnection(started).compactingSince).toBeUndefined();
+});
+
 test("dropping an admission takes its checklist entry with it", () => {
     let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
     state = applyAgentUpdate(state, {
