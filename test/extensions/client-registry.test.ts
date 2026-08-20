@@ -608,6 +608,67 @@ test("modelSettings.currentLevels is empty for a model missing from availableMod
     await registry.close();
 });
 
+test("compose suggesters preserve their current-agent scope", async () => {
+    const extension = createExtension(
+        "client.compose-scope",
+        ["client.compose.suggester"],
+        `
+            export function activateClient(vera) {
+                vera.compose.registerSuggester({
+                    agent: "plan",
+                    hint: "Create a plan?",
+                    fromAgents: [" default ", "reviewer", "default"],
+                    match: (text) => text.includes("plan"),
+                });
+            }
+        `,
+    );
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+    });
+
+    expect(registry.composeSuggesters()).toHaveLength(1);
+    expect(registry.composeSuggesters()[0]).toMatchObject({
+        agent: "plan",
+        hint: "Create a plan?",
+        fromAgents: ["default", "reviewer"],
+    });
+    expect(registry.composeSuggesters()[0]?.matches("make a plan")).toBe(true);
+    await registry.close();
+});
+
+test("compose suggesters reject an empty current-agent scope", async () => {
+    const extension = createExtension(
+        "client.compose-empty-scope",
+        ["client.compose.suggester"],
+        `
+            export function activateClient(vera) {
+                vera.compose.registerSuggester({
+                    agent: "plan",
+                    hint: "Create a plan?",
+                    fromAgents: [],
+                    match: () => true,
+                });
+            }
+        `,
+    );
+    const failures: ClientExtensionRegistryFailure[] = [];
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        onFailure: (failure) => failures.push(failure),
+        ...harness.adapters,
+    });
+
+    expect(registry.composeSuggesters()).toEqual([]);
+    expect(failures[0]?.message).toContain(
+        "Invalid client extension compose suggester registration",
+    );
+    await registry.close();
+});
+
 test("bundled reasoning cycle uses the same public seams as a user extension", async () => {
     const extension = join(
         import.meta.dir,

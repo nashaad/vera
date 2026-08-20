@@ -20,6 +20,7 @@ const ASKS_FOR_A_PLAN =
 
 interface PlanExtensionConfig {
     readonly allowSkillScripts: boolean;
+    readonly composeSuggestion: boolean;
     /** Undefined keeps the agent convention: every installed skill. */
     readonly skills?: readonly string[];
 }
@@ -51,7 +52,7 @@ export function activate(vera: any): void {
 
 export function planExtensionConfig(value: unknown): PlanExtensionConfig {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { allowSkillScripts: true };
+        return { allowSkillScripts: true, composeSuggestion: true };
     }
     const raw = value as Record<string, unknown>;
     const skills = Array.isArray(raw.skills)
@@ -62,11 +63,13 @@ export function planExtensionConfig(value: unknown): PlanExtensionConfig {
         : undefined;
     return {
         allowSkillScripts: raw.allow_skill_scripts !== false,
+        composeSuggestion: raw.compose_suggestion !== false,
         ...(skills === undefined ? {} : { skills }),
     };
 }
 
 export function activateClient(vera: any): void {
+    if (!planExtensionConfig(vera.config).composeSuggestion) return;
     vera.compose.registerSuggester({
         agent: "plan",
         hint: "Create a plan?",

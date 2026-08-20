@@ -16,6 +16,7 @@ const ASKS_TO_EXPLORE =
 
 interface ExploreExtensionConfig {
     readonly allowSkillScripts: boolean;
+    readonly composeSuggestion: boolean;
     /** Undefined keeps the agent convention: every installed skill. */
     readonly skills?: readonly string[];
 }
@@ -47,7 +48,7 @@ export function activate(vera: any): void {
 
 export function exploreExtensionConfig(value: unknown): ExploreExtensionConfig {
     if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return { allowSkillScripts: true };
+        return { allowSkillScripts: true, composeSuggestion: true };
     }
     const raw = value as Record<string, unknown>;
     const skills = Array.isArray(raw.skills)
@@ -58,11 +59,13 @@ export function exploreExtensionConfig(value: unknown): ExploreExtensionConfig {
         : undefined;
     return {
         allowSkillScripts: raw.allow_skill_scripts !== false,
+        composeSuggestion: raw.compose_suggestion !== false,
         ...(skills === undefined ? {} : { skills }),
     };
 }
 
 export function activateClient(vera: any): void {
+    if (!exploreExtensionConfig(vera.config).composeSuggestion) return;
     vera.compose.registerSuggester({
         agent: "explore",
         hint: "Explore this first?",

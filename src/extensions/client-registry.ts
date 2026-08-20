@@ -139,6 +139,8 @@ export interface ClientExtensionComposeSuggesterDescriptor {
     readonly agent: string;
     readonly hint: string;
     readonly source: string;
+    /** Undefined means the offer may appear while any agent is worn. */
+    readonly fromAgents?: readonly string[];
     /** Safe to call on a keystroke: a predicate that throws reads as "no". */
     matches(text: string): boolean;
 }
@@ -1344,6 +1346,17 @@ async function activateClientExtension(
                     || spec.agent.trim().length === 0
                     || typeof spec.hint !== "string"
                     || spec.hint.trim().length === 0
+                    || (
+                        spec.fromAgents !== undefined
+                        && (
+                            !Array.isArray(spec.fromAgents)
+                            || spec.fromAgents.length === 0
+                            || spec.fromAgents.some((agent) =>
+                                typeof agent !== "string"
+                                || agent.trim().length === 0
+                            )
+                        )
+                    )
                     || typeof spec.match !== "function"
                 ) {
                     throw new Error(
@@ -1355,6 +1368,13 @@ async function activateClientExtension(
                     agent: spec.agent.trim(),
                     hint: spec.hint.trim(),
                     source: options.id,
+                    ...(spec.fromAgents === undefined
+                        ? {}
+                        : {
+                            fromAgents: [...new Set(
+                                spec.fromAgents.map((agent) => agent.trim()),
+                            )],
+                        }),
                     matches(text) {
                         if (text.trim().length === 0) return false;
                         try {

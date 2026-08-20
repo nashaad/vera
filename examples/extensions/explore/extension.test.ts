@@ -9,16 +9,18 @@ import {
 test("explore is read-only and keeps skill access configurable", () => {
     expect(exploreExtensionConfig(undefined)).toEqual({
         allowSkillScripts: true,
+        composeSuggestion: true,
     });
     expect(exploreExtensionConfig({
         allow_skill_scripts: true,
         skills: [" search-sessions "],
     })).toEqual({
         allowSkillScripts: true,
+        composeSuggestion: true,
         skills: ["search-sessions"],
     });
     expect(exploreExtensionConfig({ allow_skill_scripts: false }))
-        .toEqual({ allowSkillScripts: false });
+        .toEqual({ allowSkillScripts: false, composeSuggestion: true });
 
     let registered: Record<string, unknown> | undefined;
     activate({
@@ -55,4 +57,18 @@ test("explore offers itself only for investigation-shaped prompts", () => {
     expect(suggester?.agent).toBe("explore");
     expect(suggester?.match("investigate why this request retries")).toBe(true);
     expect(suggester?.match("implement the retry fix")).toBe(false);
+});
+
+test("explore's built-in compose offer can be disabled", () => {
+    let registrations = 0;
+    activateClient({
+        config: { compose_suggestion: false },
+        compose: {
+            registerSuggester() {
+                registrations += 1;
+            },
+        },
+    });
+
+    expect(registrations).toBe(0);
 });
