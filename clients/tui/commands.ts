@@ -392,7 +392,7 @@ const EFFORT_COMMAND = {
 const PERMISSIONS_COMMAND = {
     name: "permissions",
     description: "Change Vera's default permission mode",
-    usage: "/permissions <mode> [default]",
+    usage: "/permissions <mode>",
 } as const satisfies TuiCommandCatalogEntry;
 
 const AGENT_COMMAND = {
