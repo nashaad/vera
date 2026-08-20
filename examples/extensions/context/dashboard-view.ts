@@ -20,6 +20,12 @@ export interface DashboardViewState {
 }
 
 const UNAVAILABLE = "unavailable";
+/**
+ * A cell with nothing behind it. Short, because a column of the long word
+ * crowds out the numbers it sits beside and reads as a wall of text.
+ */
+const ABSENT = "-";
+const COLUMN_WIDTH = 9;
 
 /**
  * Session rows drawn at once. The overlay is one screen and the listing is
@@ -28,10 +34,14 @@ const UNAVAILABLE = "unavailable";
  */
 const MAX_SESSION_ROWS = 8;
 const MIN_SESSION_ROWS = 1;
+/** Below this the list stops reading as a list, so other sections yield first. */
+const COMFORTABLE_SESSION_ROWS = 3;
 /** Failure groups drawn at once; each takes a headline and a detail line. */
 const MAX_FAILURE_GROUPS = 4;
+/** Rows drawn by the two ranked summaries, largest contexts and usage by model. */
+const MAX_DETAIL_ROWS = 3;
 /** Rows the overlay chrome takes before any section is drawn. */
-const CHROME_ROWS = 10;
+const CHROME_ROWS = 7;
 /** Overlay border and padding, taken off the terminal width. */
 const CHROME_COLUMNS = 10;
 
@@ -53,22 +63,28 @@ export function renderDashboard(
 ): VeraExperimentalTuiNode {
     const width = dashboardWidth(columns);
     const inner = Math.max(20, columns - CHROME_COLUMNS);
-    const build = (
-        sessionRows: number,
-        failureGroups: number,
-    ): VeraExperimentalTuiNode[] => [
-        healthSection(report, state, width),
-        ...(state.failuresOnly ? [] : [
-            activeSection(report, width),
-            contextSection(report, width),
-            modelSection(report, width),
-        ]),
-        failureSection(report, width, failureGroups),
-        ...(state.failuresOnly
-            ? []
-            : [sessionSection(report, state, width, sessionRows)]),
-        footer(state, width),
-    ];
+    const build = (budget: RowBudget): VeraExperimentalTuiNode[] => {
+        const dropped = budget.dropped;
+        const shown = (name: OptionalSection) =>
+            !state.failuresOnly && !dropped.includes(name);
+        return [
+            healthSection(report, state, width),
+            ...(shown("active now") ? [activeSection(report, width)] : []),
+            ...(shown("largest contexts")
+                ? [contextSection(report, width, budget.detailRows)]
+                : []),
+            ...(shown("usage by model")
+                ? [modelSection(report, width, budget.detailRows)]
+                : []),
+            ...(dropped.includes("recent failures")
+                ? []
+                : [failureSection(report, width, budget.failureGroups)]),
+            ...(state.failuresOnly
+                ? []
+                : [sessionSection(report, state, width, budget.sessionRows)]),
+            footer(state, width, dropped),
+        ];
+    };
     return clipNode({
         kind: "stack",
         direction: "column",
@@ -84,24 +100,58 @@ export function renderDashboard(
  * way first, then failure groups; both say how many they left out.
  */
 function fit(
-    build: (sessionRows: number, failureGroups: number) => VeraExperimentalTuiNode[],
+    build: (budget: RowBudget) => VeraExperimentalTuiNode[],
     rows: number | undefined,
 ): VeraExperimentalTuiNode[] {
-    let sessionRows = MAX_SESSION_ROWS;
-    let failureGroups = MAX_FAILURE_GROUPS;
-    if (rows === undefined) return build(sessionRows, failureGroups);
+    const budget: RowBudget = {
+        sessionRows: MAX_SESSION_ROWS,
+        failureGroups: MAX_FAILURE_GROUPS,
+        detailRows: MAX_DETAIL_ROWS,
+        dropped: [],
+    };
+    if (rows === undefined) return build(budget);
     const available = rows - CHROME_ROWS;
     const height = (children: VeraExperimentalTuiNode[]): number =>
         children.reduce(sumHeight, 0) + Math.max(0, children.length - 1);
-    let children = build(sessionRows, failureGroups);
+    let children = build(budget);
     while (height(children) > available) {
-        if (sessionRows > MIN_SESSION_ROWS) sessionRows -= 1;
-        else if (failureGroups > 1) failureGroups -= 1;
+        // Sessions give way first, but only down to a list still worth
+        // reading. Then the ranked summaries shorten, then whole sections
+        // leave, because a section squeezed to one row of a ranking says
+        // less than a footer naming what a taller terminal would show.
+        if (budget.sessionRows > COMFORTABLE_SESSION_ROWS) budget.sessionRows -= 1;
+        else if (budget.failureGroups > 1) budget.failureGroups -= 1;
+        else if (budget.detailRows > 1) budget.detailRows -= 1;
+        else if (budget.dropped.length < DROP_ORDER.length) {
+            budget.dropped = DROP_ORDER.slice(0, budget.dropped.length + 1);
+        } else if (budget.sessionRows > MIN_SESSION_ROWS) budget.sessionRows -= 1;
         else break;
-        children = build(sessionRows, failureGroups);
+        children = build(budget);
     }
     return children;
 }
+
+/** How many rows each section that can give ground is allowed to draw. */
+interface RowBudget {
+    sessionRows: number;
+    failureGroups: number;
+    detailRows: number;
+    dropped: readonly OptionalSection[];
+}
+
+type OptionalSection =
+    | "active now"
+    | "usage by model"
+    | "largest contexts"
+    | "recent failures";
+
+/** The order sections leave in when the terminal is too short for all of them. */
+const DROP_ORDER: readonly OptionalSection[] = [
+    "active now",
+    "usage by model",
+    "largest contexts",
+    "recent failures",
+];
 
 /**
  * Clips every line to the overlay's inner width. A line that wraps costs a row
@@ -200,41 +250,49 @@ function activeSection(
 function contextSection(
     report: DashboardReport,
     width: DashboardWidth,
+    maxRows: number,
 ): VeraExperimentalTuiNode {
     if (report.largestContexts.length === 0) {
         return section("Largest contexts", width, [
             textNode("No measured request contexts.", "muted"),
         ]);
     }
+    const nameWidth = width === "narrow" ? 26 : 42;
     return section(
         "Largest contexts",
         width,
-        report.largestContexts.map((row) =>
+        [
+            textNode(
+                `${"session".padEnd(nameWidth)} ${"tokens".padStart(7)}  of cap`,
+                "muted",
+            ),
+        ].concat(report.largestContexts.slice(0, maxRows).map((row) =>
             textNode(
                 `${clip(row.title, width === "narrow" ? 26 : 42).padEnd(
                     width === "narrow" ? 26 : 42,
                 )} ${formatTokens(row.tokens).padStart(7)}`
                     + `  ${
                         row.percentOfCapacity === undefined
-                            ? UNAVAILABLE
+                            ? ABSENT
                             : `${row.percentOfCapacity}%`
                     }`
                     + (row.estimated ? "  estimated" : ""),
             )
-        ),
+        )),
     );
 }
 
 function modelSection(
     report: DashboardReport,
     width: DashboardWidth,
+    maxRows: number,
 ): VeraExperimentalTuiNode {
     if (report.usageByModel.length === 0) {
         return section("Usage by model", width, [
             textNode("No recorded usage.", "muted"),
         ]);
     }
-    return section("Usage by model", width, report.usageByModel.map((row) =>
+    return section("Usage by model", width, report.usageByModel.slice(0, maxRows).map((row) =>
         textNode(
             `${
                 clip(`${row.provider}/${row.model}`, modelNameWidth(width))
@@ -245,7 +303,10 @@ function modelSection(
                 + ` ${formatTokens(row.tokens.totalTokens).padStart(7)}`
                 + (width === "narrow"
                     ? ""
-                    : `  ${formatCost(row.cost).padStart(11)}`)
+                    : `  ${
+                        (row.cost === undefined ? ABSENT : formatCost(row.cost))
+                            .padStart(11)
+                    }`)
                 + (width === "wide" && row.unpricedCalls > 0
                     ? `  ${row.unpricedCalls} unpriced`
                     : ""),
@@ -310,6 +371,7 @@ function sessionSection(
     const rows = report.sessions.slice(start, start + maxRows);
     const hidden = report.sessions.length - rows.length;
     return section(`Sessions (by ${state.sort})`, width, [
+        textNode(sessionHeader(width), "muted"),
         ...rows.map((row, index) =>
             textNode(
                 sessionLine(row, width),
@@ -327,52 +389,88 @@ function sessionSection(
 }
 
 function sessionLine(row: DashboardSessionRow, width: DashboardWidth): string {
-    const titleWidth = width === "narrow" ? 24 : width === "medium" ? 32 : 32;
-    const title = clip(row.title, titleWidth).padEnd(titleWidth);
-    const base = `${row.live ? "*" : " "} ${title} ${
-        column(
-            row.contextTokens === undefined
-                ? undefined
-                : formatTokens(row.contextTokens),
-        )
-    }`;
+    return sessionColumns(width, {
+        marker: row.live ? "*" : " ",
+        title: row.title,
+        context: row.contextTokens === undefined
+            ? undefined
+            : formatTokens(row.contextTokens),
+        tokens: row.totalTokens === undefined
+            ? undefined
+            : formatTokens(row.totalTokens),
+        cost: row.cost === undefined ? undefined : formatCost(row.cost),
+        model: row.model,
+        workspace: row.workspace,
+    });
+}
+
+/** Names the columns, so a row of bare numbers says what it is counting. */
+function sessionHeader(width: DashboardWidth): string {
+    return sessionColumns(width, {
+        marker: " ",
+        title: "session",
+        context: "context",
+        tokens: "tokens",
+        cost: "cost",
+        model: "model",
+        workspace: "workspace",
+    });
+}
+
+interface SessionCells {
+    readonly marker: string;
+    readonly title: string;
+    readonly context?: string;
+    readonly tokens?: string;
+    readonly cost?: string;
+    readonly model?: string;
+    readonly workspace: string;
+}
+
+function sessionColumns(width: DashboardWidth, cells: SessionCells): string {
+    const titleWidth = width === "narrow" ? 24 : 32;
+    const title = clip(cells.title, titleWidth).padEnd(titleWidth);
+    const base = `${cells.marker} ${title} ${column(cells.context)}`;
     if (width === "narrow") return base;
-    const withTokens = `${base} ${
-        column(
-            row.totalTokens === undefined
-                ? undefined
-                : formatTokens(row.totalTokens),
-        )
-    } ${column(row.cost === undefined ? undefined : formatCost(row.cost))}`;
+    const withTokens = `${base} ${column(cells.tokens)} ${column(cells.cost)}`;
     if (width === "medium") return withTokens;
-    return `${withTokens}  ${clip(row.model ?? UNAVAILABLE, 18).padEnd(18)}  ${
-        clip(row.workspace, 16)
+    return `${withTokens}  ${clip(cells.model ?? ABSENT, 18).padEnd(18)}  ${
+        clip(cells.workspace, 16)
     }`;
 }
 
-/** One numeric column. Absent reads as absent, right-aligned like a number. */
 function column(value: string | undefined): string {
-    return (value ?? UNAVAILABLE).padStart(UNAVAILABLE.length);
+    return (value ?? ABSENT).padStart(COLUMN_WIDTH);
 }
 
 function footer(
     state: DashboardViewState,
     width: DashboardWidth,
+    dropped: readonly OptionalSection[],
 ): VeraExperimentalTuiNode {
     const scope = state.failuresOnly ? "all" : "fail";
-    if (width === "wide") {
-        return textNode(
-            `c context · t tokens · $ cost · f ${
-                state.failuresOnly ? "all sections" : "failures only"
-            }`
-                + " · r refresh · enter open · esc close",
-            "muted",
-        );
+    const keys = width === "wide"
+        ? `c context · t tokens · $ cost · f ${
+            state.failuresOnly ? "all sections" : "failures only"
+        } · r refresh · enter open · esc close`
+        : `c ctx · t tok · $ cost · f ${scope} · r refresh · esc close`;
+    if (dropped.length === 0 || state.failuresOnly) {
+        return textNode(keys, "muted");
     }
-    return textNode(
-        `c ctx · t tok · $ cost · f ${scope} · r refresh · esc close`,
-        "muted",
-    );
+    return {
+        kind: "stack",
+        direction: "column",
+        gap: 0,
+        children: [
+            // Naming what left is the whole point: a section that vanished
+            // without a word reads as a section that had nothing to say.
+            textNode(
+                `hidden, needs a taller window: ${[...dropped].join(", ")}`,
+                "notice",
+            ),
+            textNode(keys, "muted"),
+        ],
+    };
 }
 
 function section(
@@ -383,7 +481,10 @@ function section(
     return {
         kind: "stack",
         direction: "column",
-        gap: width === "narrow" ? 0 : 1,
+        // No gap inside a section: the blank line between sections already
+        // separates them, and a blank between every line of a section costs
+        // roughly half the screen.
+        gap: 0,
         children: [
             { kind: "text", text: title, bold: true, tone: "accent" },
             { kind: "rule", tone: "muted" },

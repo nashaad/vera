@@ -181,7 +181,8 @@ test("the session list keeps a window around the selection", () => {
 function sessionRows(node: ReturnType<typeof renderDashboard>): string[] {
     const lines = text(node).split("\n");
     const start = lines.findIndex((line) => line.startsWith("Sessions (by"));
-    return lines.slice(start + 2).filter((line) => line.startsWith("  "));
+    // The rule under the heading, then the column header row.
+    return lines.slice(start + 3).filter((line) => line.startsWith("  "));
 }
 
 function text(node: ReturnType<typeof renderDashboard>): string {
