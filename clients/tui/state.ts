@@ -1794,9 +1794,9 @@ function formatToolCall(
 }
 
 const TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Read",
-    grep: "Searched",
-    list: "Listed",
+    read: "Explored",
+    grep: "Explored",
+    list: "Explored",
     bash: "Ran",
     edit: "Edited",
     write: "Edited",
@@ -1806,9 +1806,9 @@ const TOOL_HEADERS: Readonly<Record<string, string>> = {
 };
 
 const LIVE_TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Reading",
-    grep: "Searching",
-    list: "Listing",
+    read: "Exploring",
+    grep: "Exploring",
+    list: "Exploring",
     bash: "Running",
     edit: "Editing",
     write: "Editing",
@@ -1827,6 +1827,30 @@ function toolHeader(tool: string, active: boolean): string {
     return active
         ? LIVE_TOOL_HEADERS[tool] ?? "Working"
         : TOOL_HEADERS[tool] ?? "Worked";
+}
+
+/**
+ * Live and completed labels are two states of one activity group. Comparing
+ * the rendered words directly would split a sweep whenever its first call
+ * finished before the next call started.
+ */
+const TOOL_HEADER_GROUPS: Readonly<Record<string, string>> = {
+    Exploring: "Explored",
+    Explored: "Explored",
+    Running: "Ran",
+    Ran: "Ran",
+    Editing: "Edited",
+    Edited: "Edited",
+    Delegating: "Delegated",
+    Delegated: "Delegated",
+    Asking: "Asked",
+    Asked: "Asked",
+    Working: "Worked",
+    Worked: "Worked",
+};
+
+function toolHeaderGroup(header: string): string {
+    return TOOL_HEADER_GROUPS[header] ?? header;
 }
 
 function stringArg(
@@ -1947,15 +1971,40 @@ function withToolEntry(
         );
     }
     const open = (previous?.kind === "tool" || previous?.kind === "tool_header")
-        && previous.header === header;
+        && previous.header !== undefined
+        && toolHeaderGroup(previous.header) === toolHeaderGroup(header);
     if (open) {
-        return [...entries, {
+        const joined = [...entries, {
             kind: "tool",
             header,
             ...(active ? { tool, active: true } : {}),
             prefix: previous?.kind === "tool_header" ? "  └ " : "    ",
             text: row,
-        }];
+        } satisfies TuiTranscriptEntry];
+        if (!active) {
+            return joined;
+        }
+
+        // A settled group is working again. Keep its header in the live tense
+        // until the last active call settles, without opening a second group.
+        let headerIndex = entries.length - 1;
+        while (
+            headerIndex >= 0
+            && entries[headerIndex]?.kind !== "tool_header"
+        ) {
+            headerIndex -= 1;
+        }
+        const groupHeader = entries[headerIndex];
+        if (groupHeader?.kind !== "tool_header") {
+            return joined;
+        }
+        joined[headerIndex] = {
+            ...groupHeader,
+            header,
+            text: header,
+            active: true,
+        };
+        return joined;
     }
     return [
         ...entries,

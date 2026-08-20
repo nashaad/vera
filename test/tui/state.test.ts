@@ -902,10 +902,10 @@ test("TUI applies canonical history and prompts from other clients", () => {
     expect(state.entries).toEqual([
         { kind: "user", text: "inspect" },
         { kind: "assistant", text: "Checking." },
-        { kind: "tool_header", header: "Read", text: "Read" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
         {
             kind: "tool",
-            header: "Read",
+            header: "Explored",
             prefix: "  └ ",
             text: "Read note.txt",
         },
@@ -1307,7 +1307,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     expect(state.entries[0]).toMatchObject({
         kind: "tool_header",
-        text: "+ Listed",
+        text: "+ Explored",
         command: "List /workspace",
         detailLines: 11,
         detailPreview: "  └ file-0",
@@ -1315,7 +1315,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "  Listed  List /workspace  ctrl+e details",
+            "  Explored  List /workspace  ctrl+e details",
             "  └ file-0",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -1324,7 +1324,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "- Listed",
+        text: "- Explored",
         expanded: true,
     });
     expect(state.entries[0]).not.toHaveProperty("detailPreview");
@@ -1335,7 +1335,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "+ Listed",
+        text: "+ Explored",
         expanded: false,
     });
     expect(state.entries.slice(1).every((entry) =>
@@ -1498,7 +1498,7 @@ test("the first detail toggle hides completed activity that is currently visible
         .toBe(true);
     expect(state.entries.filter((entry) => entry.kind === "tool_header")
         .map((entry) => entry.text))
-        .toEqual(["+ Read", "+ Ran"]);
+        .toEqual(["+ Explored", "+ Ran"]);
     expect(state.entries.filter((entry) => entry.kind === "tool_header")
         .map((entry) => entry.kind === "tool_header" ? entry.hint : undefined))
         .toEqual([true, undefined]);
@@ -1534,11 +1534,85 @@ test("a run of tool calls hangs off the first one", () => {
         "go",
         "Running",
         "  └ pwd",
-        "Reading",
+        "Exploring",
         "  └ Read note.txt",
         "ok",
         "Running",
         "  └ ls",
+    ]);
+});
+
+test("an exploration sweep stays under one header as calls settle", () => {
+    let state = createTuiState();
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "read",
+        args: { path: "first.ts" },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "read",
+        output: "first content",
+        seq: 2,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "list",
+        args: { path: "src" },
+        seq: 3,
+    });
+
+    // The first call is already settled, but the live second call continues
+    // the same exploration group instead of opening a new header.
+    expect(state.entries.filter((entry) => entry.kind === "tool_header"))
+        .toHaveLength(1);
+    expect(state.entries.find((entry) =>
+        entry.kind === "tool" && entry.active === true
+    )).toMatchObject({ text: "List src" });
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        text: "Exploring",
+    });
+
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "list",
+        output: "file.ts",
+        seq: 4,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_started",
+        tool: "grep",
+        args: { pattern: "TODO", path: "src" },
+        seq: 5,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_finished",
+        tool: "grep",
+        output: "match",
+        seq: 6,
+    });
+
+    expect(state.entries.filter((entry) => entry.kind === "tool_header"))
+        .toHaveLength(1);
+    expect(state.entries[0]).toMatchObject({
+        kind: "tool_header",
+        text: "+ Explored",
+    });
+    expect(state.entries.slice(1).every((entry) =>
+        entry.kind === "tool" && entry.hidden === true
+    )).toBe(true);
+
+    state = toggleTuiToolDetails(state);
+    expect(state.entries.map(entryLine)).toEqual([
+        "- Explored",
+        "  │ Read first.ts",
+        "  └ first content",
+        "  │ List src",
+        "  └ file.ts",
+        "  │ Search TODO in src",
+        "  └ match",
     ]);
 });
 
@@ -1628,7 +1702,7 @@ test("history threads a run the same way the live turn did", () => {
         "go",
         "Ran",
         "  └ pwd",
-        "Read",
+        "Explored",
         "  └ Read note.txt",
     ]);
 });
@@ -1638,10 +1712,10 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
-        { kind: "tool_header", header: "Read", text: "Read" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
         {
             kind: "tool",
-            header: "Read",
+            header: "Explored",
             prefix: "  └ ",
             text: "Read note.txt",
         },
@@ -1659,7 +1733,7 @@ test("TUI spacing accepts separate message and activity-group gaps", () => {
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
-        { kind: "tool_header", header: "Read", text: "Read" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
         { kind: "assistant", text: "Done." },
     ] as const;
 
@@ -1755,8 +1829,8 @@ test("a tool header leaves a row after expanded reasoning", () => {
             reasoning: "Inspecting Obsidian file in-flight",
             expanded: true,
         },
-        { kind: "tool_header", header: "Read", text: "+ Read" },
-        { kind: "tool", header: "Read", prefix: "  └ ", text: "Read file" },
+        { kind: "tool_header", header: "Explored", text: "+ Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read file" },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
@@ -1766,8 +1840,8 @@ test("a tool header leaves a row after expanded reasoning", () => {
 
 test("a continued tool run also leaves a row after expanded reasoning", () => {
     const entries = [
-        { kind: "tool_header", header: "Read", text: "Read" },
-        { kind: "tool", header: "Read", prefix: "  └ ", text: "Read first" },
+        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
         {
             kind: "thought",
             text: "Reasoning: 3.6s",
@@ -1775,7 +1849,7 @@ test("a continued tool run also leaves a row after expanded reasoning", () => {
             reasoning: "Checking the next file",
             expanded: true,
         },
-        { kind: "tool", header: "Read", prefix: "    ", text: "Read next" },
+        { kind: "tool", header: "Explored", prefix: "    ", text: "Read next" },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
