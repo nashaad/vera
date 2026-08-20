@@ -335,6 +335,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^z undo",
     },
     {
+        id: "refresh_catalog",
+        keys: ["ctrl+f"],
+        scope: "model_picker",
+        description: "Ask the highlighted row's provider for its model list now",
+        hint: "^f refresh",
+    },
+    {
         id: "verify_pool",
         keys: ["ctrl+v"],
         scope: "model_picker",

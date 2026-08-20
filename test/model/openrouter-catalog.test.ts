@@ -190,6 +190,31 @@ describe("normalizeOpenRouterModels", () => {
             .toEqual(["high", "medium", "low"]);
     });
 
+    test("a model whose only effort is none gets no levels", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { supported_efforts: ["none"] },
+            })],
+        });
+
+        // It stated its vocabulary and Vera offers none of it. That is an
+        // answer, so the three documented levels are not put in its mouth.
+        expect(catalog.models[0]?.levels).toEqual([]);
+    });
+
+    test("an underscored level reads as words", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { supported_efforts: ["ultra_high"] },
+            })],
+        });
+
+        expect(catalog.models[0]?.levels.map((level) => level.label))
+            .toEqual(["Ultra High"]);
+    });
+
     test("a body that is not a model list yields no models", () => {
         expect(normalizeOpenRouterModels({}).models).toEqual([]);
         expect(normalizeOpenRouterModels(null).models).toEqual([]);

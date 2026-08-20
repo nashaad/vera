@@ -315,6 +315,23 @@ export interface PoolRemoveCommand {
 }
 
 /**
+ * Asks one provider for its model list now, rather than waiting out the
+ * snapshot's age. The reply is a `model_settings` carrying the list with that
+ * provider's rows replaced, so a client refreshes and re-renders on the same
+ * round trip; a provider that could not be asked is refused instead.
+ *
+ * The provider is named rather than optional. A command whose narrowing field
+ * is unreadable would otherwise widen into asking every provider at once,
+ * which is the most expensive thing this can do and the opposite of what was
+ * sent.
+ */
+export interface CatalogRefreshCommand {
+    readonly type: "catalog_refresh";
+    readonly requestId: string;
+    readonly provider: string;
+}
+
+/**
  * Names a pool entry, or clears its name with `null`. The name is that
  * entry's identity rather than a setting on it, so a name another entry
  * already holds, a name shaped like a model id, or a model outside the pool
@@ -442,6 +459,7 @@ export type ClientCommand =
     | ConsultCommand
     | PoolAddCommand
     | PoolRemoveCommand
+    | CatalogRefreshCommand
     | PoolNameCommand
     | PoolMoveCommand
     | GetPermissionsCommand
@@ -1179,6 +1197,17 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
         if (parsed !== undefined) {
             return parsed;
         }
+    }
+    if (
+        command.type === "catalog_refresh"
+        && isRequestId(command.requestId)
+        && isNonEmptyString(command.provider)
+    ) {
+        return {
+            type: "catalog_refresh",
+            requestId: command.requestId,
+            provider: command.provider,
+        };
     }
     if (
         (command.type === "pool_add" || command.type === "pool_remove")

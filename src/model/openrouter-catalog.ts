@@ -202,7 +202,9 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
  * at all. A model that announces no reasoning parameter gets no levels.
  *
  * `none` is dropped. It means "do not think", which is Vera's `off`, and a row
- * for it beside Low and Medium reads as a fourth depth rather than a switch.
+ * for it beside Low and Medium reads as a fourth depth rather than a switch. A
+ * model whose whole vocabulary is `none` is left with no levels: it stated
+ * what it takes, and the documented three are not what it said.
  */
 function readReasoning(
     value: unknown,
@@ -211,13 +213,20 @@ function readReasoning(
     if (!acceptsEffort) {
         return { levels: [] };
     }
-    const efforts = isRecord(value) && Array.isArray(value.supported_efforts)
+    const announced = isRecord(value) && Array.isArray(value.supported_efforts)
         ? value.supported_efforts.filter((entry): entry is string =>
-            typeof entry === "string" && entry.length > 0 && entry !== "none"
+            typeof entry === "string" && entry.length > 0
         )
-        : [];
-    if (efforts.length === 0) {
+        : undefined;
+    if (announced === undefined || announced.length === 0) {
         return { levels: DOCUMENTED_LEVELS };
+    }
+    const efforts = announced.filter((entry) => entry !== "none");
+    if (efforts.length === 0) {
+        // The model stated its vocabulary and it holds nothing Vera offers as
+        // a level. That is an answer, not a gap, so the documented three are
+        // not put in its mouth.
+        return { levels: [] };
     }
     const levels = strongestFirst(dedupe(efforts)).map((id) => ({
         id,
@@ -256,7 +265,11 @@ function strongestFirst(ids: readonly string[]): readonly string[] {
 }
 
 function titleCase(id: string): string {
-    return id.charAt(0).toUpperCase() + id.slice(1);
+    return id
+        .split(/[_-]+/)
+        .filter((word) => word.length > 0)
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(" ");
 }
 
 const LEVEL_LABELS: Readonly<Record<string, string>> = {

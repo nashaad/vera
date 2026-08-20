@@ -1198,6 +1198,8 @@ export async function startTui(
      * each entry is a live call to a provider, and a burst of them is the
      * shape rate limits are written against.
      */
+    /** In-flight catalog refreshes, by request, so the reply can name one. */
+    const catalogRefreshes = new Map<string, string>();
     let poolVerifySweep: {
         readonly queue: readonly { readonly provider: string; readonly model: string }[];
         readonly total: number;
@@ -6458,6 +6460,27 @@ export async function startTui(
                     }
                 }
                 if (
+                    (update.type === "model_settings"
+                        || update.type === "model_settings_rejected")
+                    && catalogRefreshes.has(update.requestId)
+                ) {
+                    const provider = catalogRefreshes.get(update.requestId)!;
+                    catalogRefreshes.delete(update.requestId);
+                    if (update.type === "model_settings_rejected") {
+                        // The remembered list is still in place: a provider
+                        // that could not be asked is not a provider whose
+                        // models went away.
+                        showStatusNotice(
+                            `could not ask ${provider}, its saved list stands`,
+                        );
+                    } else {
+                        const count = (state.modelSettings?.availableModels ?? [])
+                            .filter((entry) => entry.provider === provider)
+                            .length;
+                        showStatusNotice(`${provider}: ${count} models`);
+                    }
+                }
+                if (
                     update.type === "model_settings"
                     && settingsPicker?.kind === "reviewer_settings"
                 ) {
@@ -9211,6 +9234,13 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (
+            "refreshCatalog" in transition
+            && transition.refreshCatalog !== undefined
+        ) {
+            requestCatalogRefresh(transition.refreshCatalog);
+            return;
+        }
         if ("poolVerifySweep" in transition && transition.poolVerifySweep === true) {
             openPoolVerifyScopePicker();
             return;
@@ -10028,6 +10058,21 @@ export async function startTui(
      * transcript entry is written whether or not the dialog is showing: it is
      * the durable record, and the only surface a reattached client gets.
      */
+    /**
+     * Asks the provider for its list now. The pane stays open and is rebuilt
+     * by the `model_settings` reply on the route every other edit to it takes,
+     * so the only thing owed here is a word about what is happening: the wait
+     * is bounded but it is not instant, and a list that comes back identical
+     * would otherwise look like a key that did nothing.
+     */
+    function requestCatalogRefresh(provider: string): void {
+        const requestId = randomUUID();
+        catalogRefreshes.set(requestId, provider);
+        showStatusNotice(`asking ${provider} for its model list…`);
+        sendCommand({ type: "catalog_refresh", requestId, provider });
+        renderState();
+    }
+
     function requestPoolAdmission(
         provider: string,
         model: string,
