@@ -2338,6 +2338,36 @@ test("TUI shows a compaction budget warning when the run starts", () => {
     expect(quiet.entries).toEqual([]);
 });
 
+test("a running compaction is marked on state and cleared by any finish", () => {
+    const started = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        seq: 1,
+    });
+    expect(started.compactingSince).toBeGreaterThan(0);
+
+    for (
+        const outcome of [
+            "compacted",
+            "no_boundary",
+            "rejected",
+            "unavailable",
+            "cancelled",
+        ] as const
+    ) {
+        const finished = applyAgentUpdate(started, {
+            type: "compaction",
+            phase: "finished",
+            strategy: "vera/full-summary",
+            outcome,
+            ...(outcome === "compacted" ? { before: 100, after: 50 } : {}),
+            seq: 2,
+        });
+        expect(finished.compactingSince).toBeUndefined();
+    }
+});
+
 test("dropping an admission takes its checklist entry with it", () => {
     let state = beginTuiAdmission(createTuiState(), "pool-3", "or/glm");
     state = applyAgentUpdate(state, {

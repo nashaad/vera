@@ -402,6 +402,31 @@ export function renderTuiIdleHint(
     return `waiting for ${agents} · ${readyHint}`;
 }
 
+/** Cells in the compaction bar. */
+const COMPACTION_BAR_CELLS = 12;
+
+/**
+ * Milliseconds at which the bar reaches half. The summarizer call has no
+ * measurable progress, so the fill is elapsed time on an asymptote: it keeps
+ * moving however long the call takes, and only the finish completes it.
+ */
+const COMPACTION_BAR_HALF_LIFE_MS = 20_000;
+
+/** The status line while compaction runs: a bar filling with elapsed time. */
+export function renderTuiCompactionHint(elapsedMs: number): string {
+    const fraction = Math.max(0, elapsedMs)
+        / (Math.max(0, elapsedMs) + COMPACTION_BAR_HALF_LIFE_MS);
+    const filled = Math.min(
+        COMPACTION_BAR_CELLS - 1,
+        Math.round(fraction * COMPACTION_BAR_CELLS),
+    );
+    const bar = `${"█".repeat(filled)}${
+        "░".repeat(COMPACTION_BAR_CELLS - filled)
+    }`;
+    const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
+    return `compacting [${bar}] · ${seconds}s`;
+}
+
 function compactWorkspace(workspace: string): string {
     const home = homedir();
     return workspace === home

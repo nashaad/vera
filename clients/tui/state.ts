@@ -199,6 +199,12 @@ export interface TuiState {
     readonly modelSettingsOrigin?: "agent-default" | "user";
     /** Where the posture in force came from, when the host has said. */
     readonly approvalModeOrigin?: "agent-default" | "user";
+    /**
+     * When the running compaction started. Compaction is otherwise silent
+     * until its outcome, so this is what lets the status line show it working
+     * instead of looking like a hang.
+     */
+    readonly compactingSince?: number;
     /** The agent this session is wearing, as the host last reported it. */
     readonly agent?: {
         readonly name: string;
@@ -724,10 +730,15 @@ function applyCompaction(
     update: CompactionUpdate,
 ): TuiState {
     if (update.phase === "started") {
+        const started = { ...state, compactingSince: Date.now() };
         return update.warning === undefined
-            ? state
-            : appendTuiNotice(state, update.warning);
+            ? started
+            : appendTuiNotice(started, update.warning);
     }
+    // Every finish clears the start mark, whatever the outcome: the status
+    // line must never keep filling after the work has stopped.
+    const { compactingSince: _, ...settled } = state;
+    state = settled;
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
