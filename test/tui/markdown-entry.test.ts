@@ -289,6 +289,14 @@ test("link activation enforces supported schemes", () => {
         opened.push(url);
     }))
         .toBe(false);
+    expect(activateTuiLink("obsidian://open?vault=Private", (url) => {
+        opened.push(url);
+    }))
+        .toBe(false);
+    expect(activateTuiLink("obsidian://open/path?file=Vera%20Agent%2Findex.md", (url) => {
+        opened.push(url);
+    }))
+        .toBe(false);
     expect(opened).toEqual([
         "https://example.com/report.html",
         "obsidian://open?vault=Private&file=Vera%20Agent%2Findex.md",

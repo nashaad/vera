@@ -1,0 +1,34 @@
+{
+    "schema_version": 1,
+    "links": [
+        {
+            "id": "http",
+            "scheme": "http",
+            "hosts": ["*"],
+            "path": "any",
+            "allow_extra_query": true
+        },
+        {
+            "id": "https",
+            "scheme": "https",
+            "hosts": ["*"],
+            "path": "any",
+            "allow_extra_query": true
+        },
+        {
+            "id": "local-file",
+            "scheme": "file",
+            "hosts": ["", "localhost"],
+            "path": "non-empty",
+            "allow_extra_query": true
+        },
+        {
+            "id": "obsidian-open",
+            "scheme": "obsidian",
+            "hosts": ["open"],
+            "path": "empty",
+            "required_query": ["file"],
+            "allow_extra_query": true
+        }
+    ]
+}

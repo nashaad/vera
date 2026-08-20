@@ -8,6 +8,8 @@ import {
 import { Parser } from "htmlparser2";
 import { Lexer } from "marked";
 
+import { isSupportedLink } from "../shared/link-policy.ts";
+
 export type TuiLinkOpener = (url: string) => void | Promise<void>;
 
 interface LinkTarget {
@@ -65,20 +67,7 @@ interface TuiMousePosition {
 }
 
 export function isSupportedTuiLink(url: string): boolean {
-    try {
-        const parsed = new URL(url);
-        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
-            return true;
-        }
-        if (parsed.protocol === "obsidian:") {
-            return parsed.hostname === "open";
-        }
-        return parsed.protocol === "file:"
-            && (parsed.hostname === "" || parsed.hostname === "localhost")
-            && parsed.pathname.length > 0;
-    } catch {
-        return false;
-    }
+    return isSupportedLink(url);
 }
 
 export function activateTuiLink(
