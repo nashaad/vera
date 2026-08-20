@@ -193,6 +193,51 @@ test("consecutive thought phases report as one stretch", () => {
     }]);
 });
 
+test("summaries a shortened rebuild strands report as one stretch", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    for (const [index, seconds] of [11, 6.8, 9.2].entries()) {
+        state = thinkFor(state, `phase ${index}`, seconds);
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "search",
+            args: { pattern: String(index) },
+            seq: 1,
+        });
+        state = applyAgentUpdate(state, {
+            type: "assistant_delta",
+            text: `answer ${index}`,
+            seq: 2,
+        });
+    }
+    state = applyAgentUpdate(state, {
+        type: "turn_finished",
+        outcome: "aborted",
+        seq: 3,
+    });
+
+    // A checkpoint replays fewer rows than the live transcript held, so every
+    // summary anchored past its end lands at the tail, behind the notice.
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "go" },
+            { kind: "error", outcome: "aborted" },
+        ],
+        seq: 4,
+    });
+
+    const stacked = state.entries.some((entry, index) =>
+        entry.kind === "thought"
+        && state.entries[index - 1]?.kind === "thought"
+    );
+    expect(stacked).toBe(false);
+    const kept = state.entries
+        .filter((entry) => entry.kind === "thought")
+        .map((entry) => entry.reasoning)
+        .join("\n\n");
+    expect(kept).toBe("phase 0\n\nphase 1\n\nphase 2");
+});
+
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
     let state = createTuiState();
     for (const text of ["first ", "part"]) {

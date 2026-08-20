@@ -508,9 +508,8 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             // A rebuild can restore a summary the canonical rows no longer
             // have a place for, which lands it behind the answer it belongs
             // in front of. Settling here is what the end of a turn does.
-            entries: settleTrailingThoughts(preserveLiveReviewEntries(
-                state.entries,
-                canonicalEntries,
+            entries: settleTrailingThoughts(foldAdjacentThoughts(
+                preserveLiveReviewEntries(state.entries, canonicalEntries),
             )),
             ...(update.context === undefined
                 ? {}
@@ -707,6 +706,27 @@ function settleTrailingThoughts(
     const next = [...entries];
     const thoughts = next.splice(thoughtStart) as TuiTextTranscriptEntry[];
     next.splice(thoughtStart - 1, 0, ...foldThoughts(thoughts));
+    return next;
+}
+
+/**
+ * A rebuild can land summaries side by side: restoring drops the rows that
+ * separated them, and a summary whose anchor count outruns a shortened
+ * history is placed at the tail next to the ones after it. Adjacent summaries
+ * are one stretch to the reader, so each run collapses to one row.
+ */
+function foldAdjacentThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    const next: TuiTranscriptEntry[] = [];
+    for (const entry of entries) {
+        const previous = next.at(-1);
+        if (entry.kind === "thought" && previous?.kind === "thought") {
+            next[next.length - 1] = mergeThoughts(previous, entry);
+        } else {
+            next.push(entry);
+        }
+    }
     return next;
 }
 
