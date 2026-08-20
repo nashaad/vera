@@ -1362,7 +1362,7 @@ test("permission changes preserve earlier prompts and order later prompts", asyn
     channel.client.send({ type: "prompt", content: "after change" });
 
     const first = await router.startTurn();
-    expect(first.approvalMode).toBe("ask");
+    expect(first.prompt.content).toBe("before change");
     router.finishTurn();
     const secondTurn = router.startTurn();
     expect(await Promise.race([
@@ -1378,7 +1378,7 @@ test("permission changes preserve earlier prompts and order later prompts", asyn
         pending: false,
     });
     const second = await secondTurn;
-    expect(second.approvalMode).toBe("full_access");
+    expect(second.prompt.content).toBe("after change");
     router.finishTurn();
 });
 
@@ -1408,7 +1408,35 @@ test("a failed permissions write rejects without closing the command router", as
     channel.client.send({ type: "prompt", content: "still connected" });
     const turn = await router.startTurn();
     expect(turn.prompt.content).toBe("still connected");
-    expect(turn.approvalMode).toBe("ask");
+    router.finishTurn();
+});
+
+test("a failed session permission write rejects without closing the router", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        readApprovalMode: () => "ask",
+        async updateSessionPermissionMode() {
+            throw new Error("disk unavailable");
+        },
+    });
+
+    channel.client.send({
+        type: "update_session_permission_mode",
+        requestId: "failed-session-permissions",
+        mode: "auto",
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "permissions_rejected",
+        requestId: "failed-session-permissions",
+        reason: "unavailable",
+        seq: 1,
+    });
+
+    channel.client.send({ type: "prompt", content: "still connected" });
+    const turn = await router.startTurn();
+    expect(turn.prompt.content).toBe("still connected");
     router.finishTurn();
 });
 

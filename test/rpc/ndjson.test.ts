@@ -164,6 +164,44 @@ test("NDJSON frames stream and abort across a process boundary", async () => {
     expect(await child.exited).toBe(0);
 }, 5_000);
 
+test("NDJSON permission changes govern a tool still being generated", async () => {
+    const child = Bun.spawn(
+        [process.execPath, "test/support/ndjson-permission-child.ts"],
+        {
+            cwd: process.cwd(),
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+        },
+    );
+    const frames = readFrames(child.stdout);
+
+    expect(await frames.next()).toMatchObject({ type: "history" });
+    sendFrame(child.stdin, { type: "prompt", content: "check Python" });
+    expect(await frames.next()).toMatchObject({ type: "user_prompt" });
+    expect(await frames.next()).toMatchObject({ type: "context" });
+    sendFrame(child.stdin, {
+        type: "update_permissions",
+        requestId: "permission-during-generation",
+        mode: "full_access",
+    });
+
+    const updates: AgentUpdate[] = [];
+    while (updates.at(-1)?.type !== "turn_finished") {
+        updates.push(await frames.next());
+    }
+    expect(updates).toContainEqual(expect.objectContaining({
+        type: "permissions",
+        requestId: "permission-during-generation",
+        mode: "full_access",
+    }));
+    expect(updates.map((update) => update.type)).toContain("tool_started");
+    expect(updates.map((update) => update.type)).not.toContain("ui_request");
+
+    child.stdin.end();
+    expect(await child.exited).toBe(0);
+}, 5_000);
+
 test("stdin EOF waits for the active turn to finish", async () => {
     const child = Bun.spawn(
         [process.execPath, "test/support/ndjson-child.ts"],
