@@ -509,7 +509,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             // have a place for, which lands it behind the answer it belongs
             // in front of. Settling here is what the end of a turn does.
             entries: settleTrailingThoughts(foldAdjacentThoughts(
-                preserveLiveReviewEntries(state.entries, canonicalEntries),
+                hoistStrandedThoughts(
+                    preserveLiveReviewEntries(state.entries, canonicalEntries),
+                ),
             )),
             ...(update.context === undefined
                 ? {}
@@ -706,6 +708,32 @@ function settleTrailingThoughts(
     const next = [...entries];
     const thoughts = next.splice(thoughtStart) as TuiTextTranscriptEntry[];
     next.splice(thoughtStart - 1, 0, ...foldThoughts(thoughts));
+    return next;
+}
+
+/**
+ * A summary stranded at the tail of a shortened rebuild lands behind the
+ * notice that ended its turn, but the thinking happened before the end: the
+ * stretch moves back above the trailing notices, where folding can rejoin it
+ * to the stretch it was split from.
+ */
+function hoistStrandedThoughts(
+    entries: readonly TuiTranscriptEntry[],
+): readonly TuiTranscriptEntry[] {
+    let thoughtStart = entries.length;
+    while (thoughtStart > 0 && entries[thoughtStart - 1]?.kind === "thought") {
+        thoughtStart -= 1;
+    }
+    let insert = thoughtStart;
+    while (insert > 0 && entries[insert - 1]?.kind === "notice") {
+        insert -= 1;
+    }
+    if (thoughtStart === entries.length || insert === thoughtStart) {
+        return entries;
+    }
+    const next = [...entries];
+    const thoughts = next.splice(thoughtStart);
+    next.splice(insert, 0, ...thoughts);
     return next;
 }
 

@@ -226,16 +226,12 @@ test("summaries a shortened rebuild strands report as one stretch", () => {
         seq: 4,
     });
 
-    const stacked = state.entries.some((entry, index) =>
-        entry.kind === "thought"
-        && state.entries[index - 1]?.kind === "thought"
-    );
-    expect(stacked).toBe(false);
-    const kept = state.entries
-        .filter((entry) => entry.kind === "thought")
-        .map((entry) => entry.reasoning)
-        .join("\n\n");
-    expect(kept).toBe("phase 0\n\nphase 1\n\nphase 2");
+    // The whole stretch reads as one row, above the notice that ended it.
+    const thoughts = state.entries.filter((entry) => entry.kind === "thought");
+    expect(thoughts).toHaveLength(1);
+    expect(thoughts[0]?.text).toBe("Reasoning: 27.0s");
+    expect(thoughts[0]?.reasoning).toBe("phase 0\n\nphase 1\n\nphase 2");
+    expect(state.entries.at(-1)?.kind).toBe("notice");
 });
 
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
