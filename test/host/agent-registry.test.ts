@@ -249,6 +249,74 @@ test("a created agent persists its per-session permission mode", async () => {
     }
 });
 
+test("a session permission change governs a tool still being generated", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-live-permissions-"));
+    let signalRequestStarted: () => void = () => {};
+    const requestStarted = new Promise<void>((resolve) => {
+        signalRequestStarted = resolve;
+    });
+    const faux = new FauxAdapter([
+        {
+            role: "assistant",
+            content: [{
+                type: "tool_call",
+                id: "python-after-permission-change",
+                name: "bash",
+                input: { command: "python3 --version" },
+            }],
+            source: { provider: "faux", api: "scripted", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+        textResponse("done"),
+    ], { delayMs: 50 });
+    const registry = new AgentRegistry({
+        createAdapter: () => ({
+            stream(request) {
+                signalRequestStarted();
+                return faux.stream(request);
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "ask",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "check Python" });
+        await requestStarted;
+        attachment.send({
+            type: "update_session_permission_mode",
+            requestId: "live-permission-change",
+            mode: "full_access",
+        });
+        expect(await receivePermissions(attachment)).toMatchObject({
+            requestId: "live-permission-change",
+            mode: "full_access",
+        });
+
+        let sawToolStart = false;
+        while (true) {
+            const update = await attachment.receive();
+            expect(
+                update.type === "ui_request"
+                    && isToolApprovalUiRequestUpdate(update),
+            ).toBe(false);
+            if (update.type === "tool_started") sawToolStart = true;
+            if (update.type === "turn_finished") break;
+        }
+        expect(sawToolStart).toBe(true);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("an ephemeral agent stays attachable but out of the session roster", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-ephemeral-"));
     const registry = new AgentRegistry({

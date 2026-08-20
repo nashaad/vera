@@ -18,14 +18,19 @@ import {
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
+import type { TuiDiagnosticsScope } from "./diagnostics.ts";
 
 export interface TuiDiagnosticsDialogState {
     readonly text: string;
+    readonly scope?: TuiDiagnosticsScope;
     readonly copyReady?: boolean;
     readonly copyStatus?: "copied" | "failed";
 }
 
-export type TuiDiagnosticsDialogAction = "copy" | "dismiss";
+export type TuiDiagnosticsDialogAction =
+    | "copy"
+    | "dismiss"
+    | "switch_scope";
 
 export interface TuiDiagnosticsDialogKey {
     readonly name: string;
@@ -48,14 +53,20 @@ export interface TuiDiagnosticsDialogOptions {
     readonly pendingText?: string;
     readonly sections?: ReadonlySet<string>;
     readonly skipFirstLine?: boolean;
+    readonly showScopeTabs?: boolean;
 }
 
 export function handleTuiDiagnosticsDialogKey(
     key: TuiDiagnosticsDialogKey,
+    canSwitchScope = false,
 ): TuiDiagnosticsDialogAction | undefined {
-    if (key.ctrl || key.meta || key.shift) {
+    if (key.ctrl || key.meta) {
         return undefined;
     }
+    if (canSwitchScope && key.name === "tab") {
+        return "switch_scope";
+    }
+    if (key.shift) return undefined;
     if (key.name === "escape") {
         return "dismiss";
     }
@@ -95,6 +106,15 @@ export function createTuiDiagnosticsDialogView(
         visible: false,
     });
     const header = dialogHeaderNode(renderer, options.title ?? "Diagnostics");
+    const scopeTabs = options.showScopeTabs === true
+        ? new TextRenderable(renderer, {
+            id: `${id}-scope-tabs`,
+            content: diagnosticsScopeTabs("session"),
+            width: "100%",
+            height: 1,
+            marginTop: 1,
+        })
+        : undefined;
     const bodyText = new TextRenderable(renderer, {
         id: `${id}-text`,
         content: "",
@@ -138,8 +158,10 @@ export function createTuiDiagnosticsDialogView(
     footer.add(shareHint);
     footer.add(copyHint);
     box.add(header);
+    if (scopeTabs !== undefined) box.add(scopeTabs);
     box.add(body);
     box.add(footer);
+    let activeScope: TuiDiagnosticsScope = "session";
 
     return {
         box,
@@ -147,6 +169,10 @@ export function createTuiDiagnosticsDialogView(
             body.focus();
         },
         update(state): void {
+            if (scopeTabs !== undefined) {
+                activeScope = state.scope ?? "session";
+                scopeTabs.content = diagnosticsScopeTabs(activeScope);
+            }
             bodyText.content = styledDiagnostics(state.text, {
                 sections: options.sections,
                 skipFirstLine: options.skipFirstLine,
@@ -165,10 +191,28 @@ export function createTuiDiagnosticsDialogView(
         repaint(): void {
             box.backgroundColor = TUI_PANEL;
             bodyText.fg = TUI_MUTED;
+            if (scopeTabs !== undefined) {
+                scopeTabs.content = diagnosticsScopeTabs(activeScope);
+            }
             shareHint.fg = TUI_MUTED;
             copyHint.fg = TUI_MUTED;
         },
     };
+}
+
+function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
+    const session = scope === "session"
+        ? bold(fg(TUI_TEXT)("[Session]"))
+        : fg(TUI_MUTED)("Session");
+    const vera = scope === "vera"
+        ? bold(fg(TUI_TEXT)("[Vera]"))
+        : fg(TUI_MUTED)("Vera");
+    return new StyledText([
+        session,
+        fg(TUI_MUTED)("  "),
+        vera,
+        fg(TUI_MUTED)("    tab switch"),
+    ]);
 }
 
 const DIAGNOSTIC_SECTIONS = new Set([

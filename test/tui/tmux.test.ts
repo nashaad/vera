@@ -89,6 +89,8 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/diagnostics");
             sendKey(socket, session, "Enter");
+            await waitForVisiblePane(socket, session, "[Session]");
+            sendKey(socket, session, "Tab");
             pane = await waitForVisiblePane(
                 socket,
                 session,
@@ -2051,4 +2053,3 @@ async function stopTemporaryHost(home: string): Promise<void> {
 function shellQuote(value: string): string {
     return `'${value.replaceAll("'", `'\\''`)}'`;
 }
-

@@ -141,13 +141,11 @@ export interface InboundTurn {
     readonly prompt: PromptCommand;
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
-    readonly approvalMode?: ApprovalMode;
     readonly triggeredByDelivery?: true;
 }
 
 interface QueuedTurnContext {
     readonly modelSettings?: ModelTurnSettings;
-    readonly approvalMode?: ApprovalMode;
 }
 
 interface QueuedPrompt extends QueuedTurnContext {
@@ -406,9 +404,6 @@ export class InboundCommandRouter {
             ...(queued.modelSettings === undefined
                 ? {}
                 : { modelSettings: queued.modelSettings }),
-            ...(queued.approvalMode === undefined
-                ? {}
-                : { approvalMode: queued.approvalMode }),
         };
         return queued.triggeredByDelivery === true
             ? {
@@ -617,16 +612,12 @@ export class InboundCommandRouter {
                     }
                     this.deliveryTurnQueued = true;
                     const settings = this.options.readModelSettings?.();
-                    const approvalMode = this.options.readApprovalMode?.();
                     this.pendingPromptCount += 1;
                     this.prompts.push({
                         triggeredByDelivery: true,
                         ...(settings === undefined
                             ? {}
                             : { modelSettings: copyModelSettings(settings) }),
-                        ...(approvalMode === undefined
-                            ? {}
-                            : { approvalMode }),
                     });
                     continue;
                 }
@@ -640,16 +631,12 @@ export class InboundCommandRouter {
                 if (command.type === "prompt") {
                     await this.contextAppend;
                     const settings = this.options.readModelSettings?.();
-                    const approvalMode = this.options.readApprovalMode?.();
                     this.pendingPromptCount += 1;
                     this.prompts.push({
                         prompt: command,
                         ...(settings === undefined
                             ? {}
                             : { modelSettings: copyModelSettings(settings) }),
-                        ...(approvalMode === undefined
-                            ? {}
-                            : { approvalMode }),
                     });
                     if (this.activeTurn !== undefined) {
                         this.events.emit({
@@ -1052,7 +1039,17 @@ export class InboundCommandRouter {
             });
             return;
         }
-        const result = await this.options.updateSessionPermissionMode(mode);
+        let result: ApprovalMode | undefined;
+        try {
+            result = await this.options.updateSessionPermissionMode(mode);
+        } catch {
+            this.events.emit({
+                type: "permissions_rejected",
+                requestId,
+                reason: "unavailable",
+            });
+            return;
+        }
         if (result === undefined) {
             this.events.emit({
                 type: "permissions_rejected",
