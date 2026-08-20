@@ -4586,9 +4586,16 @@ function pickerSelection(
         };
     }
     if (kind === "catalog_refresh_scope") {
+        // The all row is read off the pane the user answered, not recomputed
+        // later: what it stands for is the list they were looking at when they
+        // pressed the key.
         return {
             kind,
-            providers: value === CATALOG_REFRESH_ALL_VALUE ? [] : [value],
+            providers: value === CATALOG_REFRESH_ALL_VALUE
+                ? state.allOptions
+                    .map((option) => option.value)
+                    .filter((name) => name !== CATALOG_REFRESH_ALL_VALUE)
+                : [value],
         };
     }
     if (kind === "model_assignment") {

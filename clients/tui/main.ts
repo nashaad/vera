@@ -10216,6 +10216,14 @@ export async function startTui(
             : refreshableProvidersOf(state.modelSettings?.availableModels);
         settingsPicker = undefined;
         composer.blur();
+        if (catalogRefreshSweep !== undefined) {
+            // Two sweeps at once cannot both be reported: the second would
+            // claim the first one's answers as its own.
+            showStatusNotice("a refresh is already running");
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         if (queue.length === 0) {
             showStatusNotice("no provider here keeps a model list to refresh");
             renderState();
