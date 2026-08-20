@@ -123,6 +123,7 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
             tokens: compacted?.after,
             capacity: 40_000,
             estimated: true,
+            compaction: { triggerFraction: 0.82 },
         },
     });
 

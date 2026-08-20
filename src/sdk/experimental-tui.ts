@@ -141,6 +141,13 @@ export interface VeraExperimentalTuiRawViewSpec {
     ) => boolean | void;
 }
 
+/** A raw view inserted once at the current transcript position. */
+export interface VeraExperimentalTuiTranscriptRenderableSpec {
+    readonly id: string;
+    create(context: VeraExperimentalTuiRawContext): Renderable;
+    onResize?(width: number): void;
+}
+
 export interface VeraExperimentalTuiEvents {
     on(
         event: "conversation_changed",
@@ -187,6 +194,9 @@ export interface VeraClientExperimentalTui {
     mount(spec: VeraExperimentalTuiViewSpec): VeraExtensionDisposer;
     mountRenderable(
         spec: VeraExperimentalTuiRawViewSpec,
+    ): VeraExtensionDisposer;
+    appendTranscriptRenderable(
+        spec: VeraExperimentalTuiTranscriptRenderableSpec,
     ): VeraExtensionDisposer;
     readonly events: VeraExperimentalTuiEvents;
     readonly agentSurface: VeraExperimentalTuiAgentSurface;

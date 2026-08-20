@@ -13,6 +13,7 @@ import type { ModelReasoningEffort } from "../model/types.ts";
 import type { ToolPresentation } from "../model/types.ts";
 import type { PermissionInputSpec } from "../tools/types.ts";
 import type { VeraClientExperimentalTui } from "./experimental-tui.ts";
+import type { VeraClientContextSnapshot } from "./context.ts";
 
 export interface VeraExtensionApi {
     readonly config: JsonValue;
@@ -155,6 +156,7 @@ export interface VeraClientExtensionApi {
     readonly keybindings: VeraClientExtensionKeybindings;
     readonly statusLine: VeraClientExtensionStatusLine;
     readonly messages: VeraClientExtensionMessages;
+    readonly context: VeraClientExtensionContext;
     readonly thread: VeraClientExtensionThread;
     readonly conversation: VeraClientExtensionConversation;
     readonly consult: VeraClientExtensionConsult;
@@ -163,6 +165,11 @@ export interface VeraClientExtensionApi {
     /** Experimental, TUI-only component host. Not a portable SDK surface. */
     readonly experimentalTui: VeraClientExperimentalTui;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+export interface VeraClientExtensionContext {
+    /** Reads the latest local snapshot without waiting for the host. */
+    current(): VeraClientContextSnapshot;
 }
 
 export type VeraClientAgentPane = "main" | "sidebar";

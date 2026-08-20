@@ -1,0 +1,12 @@
+{
+    "id": "example.context",
+    "version": "0.1.0",
+    "sdk": "1",
+    "entrypoint": "extension.ts",
+    "capabilities": [
+        "client.commands.register",
+        "client.context.read",
+        "client.experimental_tui"
+    ],
+    "contributes": {}
+}

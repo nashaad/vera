@@ -252,6 +252,84 @@ test("experimental TUI host mounts and disposes extension-owned renderables", as
     }
 });
 
+test("experimental TUI host cleans transcript renderables on conversation changes", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const added: string[] = [];
+    const removed: string[] = [];
+    const resized: number[] = [];
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure() {},
+        onRenderRequested() {},
+        appendTranscriptRenderable(node) {
+            added.push(node.id);
+            return async () => { removed.push(node.id); };
+        },
+    });
+    try {
+        const dispose = host.adapter.appendTranscriptRenderable!("fixture", {
+            id: "context-report",
+            create(context) {
+                return new TextRenderable(context.renderer, {
+                    id: "context-report-root",
+                    content: "context",
+                    height: 1,
+                });
+            },
+            onResize(width) {
+                resized.push(width);
+            },
+        });
+        expect(added).toEqual(["context-report-root"]);
+        host.render();
+        expect(resized).toEqual([]);
+        host.conversationChanged();
+        await Promise.resolve();
+        expect(removed).toEqual(["context-report-root"]);
+        await dispose();
+        expect(removed).toEqual(["context-report-root"]);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
+test("experimental TUI host fails closed when native transcript wiring is absent", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure() {},
+        onRenderRequested() {},
+    });
+    try {
+        expect(() => host.adapter.appendTranscriptRenderable!("fixture", {
+            id: "context-report",
+            create(context) {
+                return new TextRenderable(context.renderer, {
+                    id: "context-report-root",
+                    content: "context",
+                    height: 1,
+                });
+            },
+        })).toThrow("Native transcript renderables are unavailable");
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});
+
 test("experimental TUI host isolates raw visibility failures", async () => {
     const renderer = await createCliRenderer({
         exitOnCtrlC: false,

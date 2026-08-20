@@ -13,6 +13,7 @@ import {
     KeyEvent,
     RGBA,
     type CliRenderer,
+    type Renderable,
     type Selection,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
@@ -101,7 +102,9 @@ import type {
     VeraClientAgentCreateRequest,
     VeraClientAgentOpenRequest,
     VeraClientAgentMessageRequest,
+    VeraExtensionDisposer,
 } from "../../src/sdk/extensions.ts";
+import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import type {
     TuiTimelinePickerState,
@@ -629,6 +632,56 @@ function displayModeLabel(label: string): string {
     return `${label.slice(0, 1).toUpperCase()}${label.slice(1)}`;
 }
 
+function tuiContextSnapshot(
+    measurement: TuiState["context"],
+    settings: TuiState["modelSettings"],
+): VeraClientContextSnapshot {
+    if (measurement === undefined) {
+        return { availability: "unavailable" };
+    }
+    const model = settings?.model === undefined
+        ? undefined
+        : {
+            model: settings.model,
+            ...(settings.provider === undefined
+                ? {}
+                : { provider: settings.provider }),
+            ...(measurement.capacity === undefined
+                ? {}
+                : { capacity: measurement.capacity }),
+        };
+    const projection = measurement.projection === undefined
+        ? undefined
+        : {
+            estimatedTokens: measurement.projection.estimatedTokens,
+            components: measurement.projection.components.map((component) => ({
+                kind: component.kind,
+                id: component.id,
+                owner: component.owner,
+                source: component.source,
+                displayName: component.displayName,
+                count: component.count,
+                estimatedTokens: component.estimatedTokens,
+            })),
+        };
+    return {
+        availability: model !== undefined
+                && measurement.capacity !== undefined
+                && projection !== undefined
+            ? "available"
+            : "partial",
+        ...(model === undefined ? {} : { model }),
+        headline: {
+            tokens: measurement.tokens,
+            estimated: measurement.estimated,
+        },
+        ...(projection === undefined ? {} : { projection }),
+        ...(measurement.compaction === undefined
+            ? {}
+            : { compaction: measurement.compaction }),
+    };
+}
+
 export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly appearance?: TuiAppearance;
@@ -986,6 +1039,11 @@ export async function startTui(
     applyTuiTheme(theme);
 
     let state = createTuiState();
+    let appendTranscriptRenderable: (
+        node: Renderable,
+    ) => VeraExtensionDisposer = () => {
+        throw new Error("Native transcript is not ready");
+    };
     for (const notice of dependencies.startupNotices ?? []) {
         state = appendTuiNotice(state, notice);
     }
@@ -1017,6 +1075,7 @@ export async function startTui(
         onRenderRequested: () => {
             if (clientSurfaceReady) renderState();
         },
+        appendTranscriptRenderable: (node) => appendTranscriptRenderable(node),
     });
     let connectionFailed = false;
     let connectionFailure: string | undefined;
@@ -1395,6 +1454,10 @@ export async function startTui(
         createTuiClientExtensionHostStarter({
             extensions: () => configuredClientExtensions,
             currentModelSettings: () => focusedAgentState().modelSettings,
+            currentContext: () => tuiContextSnapshot(
+                focusedAgentState().context,
+                focusedAgentState().modelSettings,
+            ),
             updateModelSettings: requestExtensionModelSettingsUpdate,
             subscribeModelSettings(listener) {
                 extensionSettingsListeners.add(listener);
@@ -1677,6 +1740,22 @@ export async function startTui(
             paddingLeft: appearance.transcriptPaddingLeft,
         },
     });
+    appendTranscriptRenderable = (node) => {
+        const container = new BoxRenderable(renderer, {
+            id: `extension-transcript-${randomUUID()}`,
+            width: "100%",
+        });
+        container.add(node);
+        let active = true;
+        transcript.add(container);
+        return async () => {
+            if (!active) return;
+            active = false;
+            transcript.remove(container.id);
+            container.remove(node.id);
+            container.destroy();
+        };
+    };
 
     const JUMP_TO_BOTTOM_LABEL =
         ` ↓ Jump to bottom · ${tuiKeyHint("jump_to_bottom")} `;
@@ -5212,7 +5291,7 @@ export async function startTui(
                             hostExtensionCommands,
                         );
                     }
-                } else {
+                } else if (result.body.kind !== "handled") {
                     state = appendTuiNotice(
                         state,
                         extensionCommandResultText({
@@ -7803,6 +7882,7 @@ export async function startTui(
     }
 
     function clearTranscriptNodes(): void {
+        experimentalTuiHost.clearTranscriptRenderables();
         while (entryNodes.length > 0) {
             entryNodes.pop()?.destroyRecursively();
             entryNodeKinds.pop();

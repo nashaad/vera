@@ -5,6 +5,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProjectedModelRequest } from "./model-request.ts";
+import type { PromptContribution } from "./prompt-contributions.ts";
 
 /**
  * How much of the model's context window the next request occupies.
@@ -27,6 +28,30 @@ export interface ContextMeasurement {
      * reports one.
      */
     readonly estimated: boolean;
+    /** Optional safe facts about the exact request that was measured. */
+    readonly projection?: ContextProjectionMeasurement;
+    /** The effective runtime policy that is active for this request. */
+    readonly compaction?: ContextCompactionMeasurement;
+}
+
+export interface ContextProjectionComponent {
+    readonly kind: "prompt_contribution" | "tool_schema" | "message";
+    readonly id: string;
+    readonly owner: string;
+    readonly source: string;
+    readonly displayName: string;
+    readonly count: number;
+    readonly estimatedTokens: number;
+}
+
+export interface ContextProjectionMeasurement {
+    readonly estimatedTokens: number;
+    readonly components: readonly ContextProjectionComponent[];
+}
+
+export interface ContextCompactionMeasurement {
+    readonly triggerFraction?: number;
+    readonly triggerTokens?: number;
 }
 
 /**
@@ -46,19 +71,54 @@ const TOKENS_PER_MESSAGE = 4;
 export function measureProjectedRequest(
     request: ProjectedModelRequest,
     capacity?: number,
+    options: {
+        readonly promptContributions?: readonly PromptContribution[];
+        readonly compaction?: ContextCompactionMeasurement;
+        readonly extensionToolNames?: readonly string[];
+    } = {},
 ): ContextMeasurement {
-    let characters = request.systemPrompt.length;
-    for (const tool of request.tools) {
-        characters += measureTool(tool);
-    }
-    for (const message of request.messages) {
-        characters += measureMessage(message);
-    }
+    const extensionToolNames = new Set(options.extensionToolNames ?? []);
+    const parts = [
+        ...systemParts(request.systemPrompt, options.promptContributions),
+        ...request.tools.map((tool) => ({
+            kind: "tool_schema" as const,
+            id: `tool:${tool.name}`,
+            owner: extensionToolNames.has(tool.name) ? "extension" : "engine",
+            source: "tool",
+            displayName: tool.name,
+            count: 1,
+            characters: measureTool(tool),
+            fixedTokens: 0,
+        })),
+        ...request.messages.map((message, index) => ({
+            kind: "message" as const,
+            id: `message:${index + 1}`,
+            owner: "session",
+            source: message.role,
+            displayName: `${message.role} message`,
+            count: 1,
+            characters: measureMessage(message),
+            fixedTokens: TOKENS_PER_MESSAGE,
+        })),
+    ];
+    const characters = parts.reduce((total, part) => total + part.characters, 0);
+    const tokens = Math.ceil(characters / CHARACTERS_PER_TOKEN)
+        + request.messages.length * TOKENS_PER_MESSAGE;
     return {
-        tokens: Math.ceil(characters / CHARACTERS_PER_TOKEN)
-            + request.messages.length * TOKENS_PER_MESSAGE,
+        tokens,
         ...(capacity === undefined ? {} : { capacity }),
         estimated: true,
+        ...(options.promptContributions === undefined
+            ? {}
+            : {
+                projection: {
+                    estimatedTokens: tokens,
+                    components: reconcileParts(parts, tokens),
+                },
+            }),
+        ...(options.compaction === undefined
+            ? {}
+            : { compaction: options.compaction }),
     };
 }
 
@@ -116,12 +176,162 @@ export function isContextMeasurement(
         return false;
     }
     const measurement = value as Record<string, unknown>;
-    return Number.isSafeInteger(measurement.tokens)
+    const tokens = measurement.tokens;
+    const projection = measurement.projection;
+    return Number.isSafeInteger(tokens)
         && (measurement.tokens as number) >= 0
         && (measurement.capacity === undefined
             || (Number.isSafeInteger(measurement.capacity)
                 && (measurement.capacity as number) > 0))
-        && typeof measurement.estimated === "boolean";
+        && typeof measurement.estimated === "boolean"
+        && isProjection(projection)
+        && (projection === undefined
+            || (
+                projection.estimatedTokens === tokens
+                && projection.components.reduce(
+                    (total, component) => total + component.estimatedTokens,
+                    0,
+                ) === tokens
+            ))
+        && isCompaction(measurement.compaction);
+}
+
+interface MeasuredPart {
+    readonly kind: ContextProjectionComponent["kind"];
+    readonly id: string;
+    readonly owner: string;
+    readonly source: string;
+    readonly displayName: string;
+    readonly count: number;
+    readonly characters: number;
+    readonly fixedTokens: number;
+}
+
+function systemParts(
+    systemPrompt: string,
+    contributions: readonly PromptContribution[] | undefined,
+): readonly MeasuredPart[] {
+    if (contributions === undefined || contributions.length === 0) {
+        return [{
+            kind: "prompt_contribution",
+            id: "system.prompt",
+            owner: "engine",
+            source: "system",
+            displayName: "System prompt",
+            count: 1,
+            characters: systemPrompt.length,
+            fixedTokens: 0,
+        }];
+    }
+    return contributions.map((contribution, index) => ({
+        kind: "prompt_contribution",
+        id: contribution.id,
+        owner: contribution.owner,
+        source: contribution.target,
+        displayName: safeContributionDisplayName(contribution),
+        count: 1,
+        characters: renderContribution(contribution).length
+            + (index === 0 ? 0 : 2),
+        fixedTokens: 0,
+    }));
+}
+
+function renderContribution(contribution: PromptContribution): string {
+    return `## ${contribution.title}\n${contribution.content}`;
+}
+
+/** Keep extension-provided labels useful without putting prompt text on the wire. */
+function safeContributionDisplayName(
+    contribution: PromptContribution,
+): string {
+    const title = contribution.title.trim();
+    if (
+        title.length === 0
+        || title.length > 80
+        || /[\\/\u0000-\u001f\u007f]/u.test(title)
+    ) {
+        return "Prompt contribution";
+    }
+    return title;
+}
+
+function reconcileParts(
+    parts: readonly MeasuredPart[],
+    totalTokens: number,
+): readonly ContextProjectionComponent[] {
+    if (parts.length === 0) return [];
+    const raw = parts.reduce((total, part) => total + part.characters, 0);
+    const fixedTokens = parts.reduce(
+        (total, part) => total + part.fixedTokens,
+        0,
+    );
+    const characterTokens = Math.max(0, totalTokens - fixedTokens);
+    let assignedCharacterTokens = 0;
+    const components = parts.map((part, index) => {
+        const proportional = raw === 0
+            ? 0
+            : Math.floor(characterTokens * part.characters / raw);
+        const allocatedCharacterTokens = index === parts.length - 1
+            ? characterTokens - assignedCharacterTokens
+            : proportional;
+        assignedCharacterTokens += allocatedCharacterTokens;
+        return {
+            kind: part.kind,
+            id: part.id,
+            owner: part.owner,
+            source: part.source,
+            displayName: part.displayName,
+            count: part.count,
+            estimatedTokens: part.fixedTokens + allocatedCharacterTokens,
+        } satisfies ContextProjectionComponent;
+    });
+    return components;
+}
+
+function isProjection(value: unknown): value is ContextProjectionMeasurement | undefined {
+    if (value === undefined) return true;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const projection = value as Record<string, unknown>;
+    return Number.isSafeInteger(projection.estimatedTokens)
+        && (projection.estimatedTokens as number) >= 0
+        && Array.isArray(projection.components)
+        && projection.components.every(isProjectionComponent);
+}
+
+function isProjectionComponent(value: unknown): boolean {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const component = value as Record<string, unknown>;
+    return (component.kind === "prompt_contribution"
+        || component.kind === "tool_schema"
+        || component.kind === "message")
+        && typeof component.id === "string"
+        && typeof component.owner === "string"
+        && typeof component.source === "string"
+        && typeof component.displayName === "string"
+        && Number.isSafeInteger(component.count)
+        && (component.count as number) >= 0
+        && Number.isSafeInteger(component.estimatedTokens)
+        && (component.estimatedTokens as number) >= 0;
+}
+
+function isCompaction(value: unknown): value is ContextCompactionMeasurement | undefined {
+    if (value === undefined) return true;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const compaction = value as Record<string, unknown>;
+    return (compaction.triggerFraction === undefined
+        || (typeof compaction.triggerFraction === "number"
+            && Number.isFinite(compaction.triggerFraction)
+            && compaction.triggerFraction > 0
+            && compaction.triggerFraction <= 1))
+        && (compaction.triggerTokens === undefined
+            || (Number.isSafeInteger(compaction.triggerTokens)
+                && (compaction.triggerTokens as number) > 0));
 }
 
 function measureTool(tool: ModelTool): number {
