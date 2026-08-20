@@ -989,6 +989,7 @@ export interface ProtocolEncoder extends EngineEventSubscriber {
     checkpoint(
         messages: readonly ModelMessage[],
         messageIds?: MessageIdLookup,
+        context?: ContextMeasurement,
     ): void;
 }
 
@@ -1900,6 +1901,7 @@ export function createProtocolEncoder(
         checkpoint(
             messages: readonly ModelMessage[],
             messageIds?: MessageIdLookup,
+            checkpointContext?: ContextMeasurement,
         ): void {
             const restored = latestMeasurement(
                 messages,
@@ -1913,19 +1915,20 @@ export function createProtocolEncoder(
             // checkpoint. Keep it when the window is unchanged; a fresh
             // encoder after restart has only durable provider usage and uses
             // `restored` without pretending the old projection survived.
-            const context = restored === undefined
-                ? floor
-                : floor !== undefined
+            const context = checkpointContext
+                ?? (restored === undefined
+                    ? floor
+                    : floor !== undefined
                         && floor.capacity === restored.capacity
-                    ? {
-                        ...restored,
-                        tokens: Math.max(
-                            restored.tokens,
-                            floor.tokens,
-                        ),
-                        estimated: true,
-                    }
-                    : restored;
+                        ? {
+                            ...restored,
+                            tokens: Math.max(
+                                restored.tokens,
+                                floor.tokens,
+                            ),
+                            estimated: true,
+                        }
+                        : restored);
             sessionUsage = summarizeSessionModelUsage(messages);
             sender.send({
                 type: "history",
