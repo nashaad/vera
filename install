@@ -125,6 +125,20 @@ if ! mkdir "$lock_dir" 2>/dev/null; then
         || die "another Vera install started while clearing stale lock: $lock_dir"
 fi
 printf '%s\n' "$$" > "$lock_dir/pid"
+
+for stale_staging in "$install_root"/.staging.*; do
+    [ -d "$stale_staging" ] || continue
+    stale_name=${stale_staging##*/}
+    stale_pid=${stale_name#.staging.}
+    stale_pid=${stale_pid%%.*}
+    case "$stale_pid" in
+        ""|*[!0-9]*) continue ;;
+    esac
+    if ! kill -0 "$stale_pid" 2>/dev/null; then
+        rm -rf "$stale_staging"
+    fi
+done
+
 staging="$install_root/.staging.$$.${RANDOM:-0}"
 cleanup() {
     rm -rf "$staging"
