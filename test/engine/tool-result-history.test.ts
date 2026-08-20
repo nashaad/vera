@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     assembleAgedToolResults,
     TOOL_RESULT_STUB_AFTER_TURNS,
+    toolResultAgingLevel,
     TOOL_RESULT_TOTAL_BUDGET_BYTES,
 } from "../../src/engine/tool-result-history.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
@@ -29,7 +30,7 @@ test("old built-in results get mechanical digests at assembly time", async () =>
             await writeFile(spillPath, original, "utf8");
             const projected = assembleAgedToolResults(
                 agedEntries(tool, original, spillPath),
-                1,
+                PRESSURED,
             );
             const result = projected.find((message) =>
                 message.role === "tool_result"
@@ -51,7 +52,7 @@ test("unknown tools receive a recoverable stub instead of an invented digest", a
         await writeFile(spillPath, "extension output", "utf8");
         const result = assembleAgedToolResults(
             agedEntries("extension_dump", "extension output", spillPath),
-            1,
+            PRESSURED,
         ).find((message) => message.role === "tool_result");
 
         expect(result?.role === "tool_result" && result.content[0]?.text)
@@ -72,7 +73,7 @@ test("provenance references add original lines to, never subtract from, a digest
         const result = assembleAgedToolResults([
             ...agedEntries("grep", original, spillPath),
             assistant("I used src/a.ts:12, needleIdentifier, and the \"needle\" line."),
-        ], 1).find((message) => message.role === "tool_result");
+        ], PRESSURED).find((message) => message.role === "tool_result");
 
         expect(result?.role === "tool_result" && result.content[0]?.text)
             .toContain("Provenance retained");
@@ -87,7 +88,7 @@ test("a missing spill preserves the durable result instead of a dead pointer", (
     const original = "x".repeat(3_000);
     const result = assembleAgedToolResults(
         agedEntries("extension_dump", original, "/missing/spill"),
-        1,
+        PRESSURED,
     ).find((message) => message.role === "tool_result");
 
     expect(result?.role === "tool_result" && result.content[0]?.text)
@@ -102,7 +103,7 @@ test("generated digests stay under the tool-result ceiling", async () => {
         await writeFile(spillPath, original, "utf8");
         const result = assembleAgedToolResults(
             agedEntries("bash", original, spillPath),
-            1,
+            PRESSURED,
         ).find((message) => message.role === "tool_result");
 
         expect(result?.role === "tool_result" && result.content[0]?.text)
@@ -120,7 +121,7 @@ test("grep count output is rolled up as counts, not one match per file", async (
         await writeFile(spillPath, original, "utf8");
         const result = assembleAgedToolResults(
             agedEntries("grep", original, spillPath, "count"),
-            1,
+            PRESSURED,
         ).find((message) => message.role === "tool_result");
         const text = result?.role === "tool_result"
             ? result.content[0]?.text
@@ -137,11 +138,11 @@ test("results younger than the age line remain verbatim", async () => {
     const original = "src/a.ts:12:needle";
     const projected = assembleAgedToolResults(
         agedEntries("grep", original, "/missing/spill"),
-        TOOL_RESULT_STUB_AFTER_TURNS,
+        { ...PRESSURED, ageAfterTurns: TOOL_RESULT_STUB_AFTER_TURNS },
     );
     const result = projected.find((message) => message.role === "tool_result");
     expect(result?.role === "tool_result" && result.content[0]?.text)
-        .toBe(original);
+        .toBe(original.padEnd(3_000, "\n"));
 });
 
 test("several legal results in one turn are bounded together", async () => {
@@ -262,6 +263,220 @@ test("an expired spill never becomes a false recovery pointer", () => {
     expect(text).toContain("no re-readable spill");
 });
 
+test("nothing ages while the context sits under the level's gate", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-gate-"));
+    try {
+        const original = "x".repeat(3_000);
+        const spillPath = join(directory, "bash.txt");
+        await writeFile(spillPath, original, "utf8");
+        const result = assembleAgedToolResults(
+            agedEntries("bash", original, spillPath),
+            { ageAfterTurns: 1, capacity: 200_000 },
+        ).find((message) => message.role === "tool_result");
+
+        expect(result?.role === "tool_result" && result.content[0]?.text)
+            .toBe(original);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("over the gate, bash ages before read, and only until the context fits", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-order-"));
+    try {
+        const entries = pair(directory, [
+            ["call-read", "read", "1\tline\n".repeat(400)],
+            ["call-bash-1", "bash", "output\n".repeat(400)],
+            ["call-bash-2", "bash", "output\n".repeat(400)],
+        ]);
+        // Each result is ~700 tokens; a 1,600-token gate needs one digest.
+        const texts = resultTexts(assembleAgedToolResults(await entries, {
+            ageAfterTurns: 1,
+            level: "normal",
+            capacity: 1_600 / 0.6,
+        }));
+
+        expect(texts[0]).toBe("1\tline\n".repeat(400));
+        expect(texts[1]).toContain("Digest of older bash");
+        expect(texts[2]).toBe("output\n".repeat(400));
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("relaxed never ages a read, even with nothing else left to give", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-relaxed-"));
+    try {
+        const entries = pair(directory, [
+            ["call-read", "read", "1\tline\n".repeat(400)],
+        ]);
+        const relaxed = resultTexts(assembleAgedToolResults(await entries, {
+            ageAfterTurns: 1,
+            level: "relaxed",
+            capacity: 1,
+        }));
+        const normal = resultTexts(assembleAgedToolResults(await entries, {
+            ageAfterTurns: 1,
+            level: "normal",
+            capacity: 1,
+        }));
+
+        expect(relaxed[0]).toBe("1\tline\n".repeat(400));
+        expect(normal[0]).toContain("Digest of older read");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a re-read of a spill file stays verbatim at any pressure", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-reread-"));
+    try {
+        const spillDir = join(directory, "scratch", "tool-results");
+        const original = "1\tline\n".repeat(400);
+        const entries = [
+            user("first"),
+            callWithInput("call-read", "read", {
+                path: join(spillDir, "read-1.txt"),
+            }),
+            spilled("call-read", "read", original, join(directory, "a.txt")),
+            callWithInput("call-bash", "bash", {
+                command: `awk 'NR>=1' ${join(spillDir, "read-1.txt")}`,
+            }),
+            spilled("call-bash", "bash", original, join(directory, "b.txt")),
+            assistant("done"),
+            user("second"),
+        ];
+        for (const entry of entries) {
+            const message = entry.message;
+            if (message.role === "tool_result") {
+                await writeFile(
+                    message.toolResultSource?.spillPath ?? "",
+                    original,
+                    "utf8",
+                );
+            }
+        }
+        const texts = resultTexts(assembleAgedToolResults(entries, {
+            ...PRESSURED,
+            spillDirectory: spillDir,
+        }));
+        const unanchored = resultTexts(assembleAgedToolResults(entries, PRESSURED));
+
+        expect(texts).toEqual([original, original]);
+        expect(unanchored[0]).toContain("Digest of older read");
+        expect(unanchored[1]).toContain("Digest of older bash");
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("a digest that would be larger than the excerpt is not swapped in", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-grow-"));
+    try {
+        const identifiers = Array.from({ length: 40 }, (_, i) => `needleIdent${i}`);
+        const original = identifiers
+            .map((name, i) => `src/file-${i}.ts:${i + 1}:${name} ${"pad".repeat(30)}`)
+            .join("\n");
+        const excerpt = original.slice(0, 2_100);
+        const spillPath = join(directory, "grep.txt");
+        await writeFile(spillPath, original, "utf8");
+        const entries = [
+            user("first"),
+            call("call-1", "grep"),
+            {
+                message: {
+                    role: "tool_result" as const,
+                    toolCallId: "call-1",
+                    toolName: "grep",
+                    content: [{ type: "text" as const, text: excerpt }],
+                    isError: false,
+                    toolResultSource: {
+                        originalBytes: Buffer.byteLength(original, "utf8"),
+                        spillPath,
+                    },
+                },
+            },
+            assistant(`I used ${identifiers.join(", ")}.`),
+            user("second"),
+        ];
+        const texts = resultTexts(assembleAgedToolResults(entries, PRESSURED));
+
+        expect(texts[0]).toBe(excerpt);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
+test("the aging level follows the context cap", () => {
+    expect(toolResultAgingLevel(1_000_000)).toBe("relaxed");
+    expect(toolResultAgingLevel(400_000)).toBe("relaxed");
+    expect(toolResultAgingLevel(204_800)).toBe("normal");
+    expect(toolResultAgingLevel(undefined)).toBe("normal");
+    expect(toolResultAgingLevel(64_000)).toBe("tight");
+});
+
+/** Any level's gate is crossed at once, so age lines alone decide. */
+const PRESSURED = { ageAfterTurns: 1, capacity: 1 } as const;
+
+function resultTexts(messages: readonly ModelMessage[]): string[] {
+    return messages
+        .filter((message) => message.role === "tool_result")
+        .map((message) =>
+            message.role === "tool_result" ? message.content[0]?.text ?? "" : ""
+        );
+}
+
+async function pair(
+    directory: string,
+    results: readonly [string, string, string][],
+): Promise<{ readonly message: ModelMessage }[]> {
+    const entries: { readonly message: ModelMessage }[] = [user("first")];
+    for (const [id, tool, output] of results) {
+        const spillPath = join(directory, `${id}.txt`);
+        await writeFile(spillPath, output, "utf8");
+        entries.push(call(id, tool), spilled(id, tool, output, spillPath));
+    }
+    entries.push(assistant("done"), user("second"));
+    return entries;
+}
+
+function spilled(
+    id: string,
+    tool: string,
+    output: string,
+    spillPath: string,
+): { readonly message: ModelMessage } {
+    return {
+        message: {
+            role: "tool_result",
+            toolCallId: id,
+            toolName: tool,
+            content: [{ type: "text", text: output }],
+            isError: false,
+            toolResultSource: {
+                originalBytes: Math.max(3_000, Buffer.byteLength(output, "utf8")),
+                spillPath,
+            },
+        },
+    };
+}
+
+function callWithInput(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+): { readonly message: ModelMessage } {
+    return {
+        message: {
+            role: "assistant",
+            content: [{ type: "tool_call", id, name, input }],
+            source: { provider: "test", api: "test", model: "test" },
+            usage: emptyUsage(),
+            stopReason: "tool_use",
+        },
+    };
+}
+
 function agedEntries(
     tool: string,
     output: string,
@@ -276,7 +491,9 @@ function agedEntries(
                 role: "tool_result",
                 toolCallId: "call-1",
                 toolName: tool,
-                content: [{ type: "text", text: output }],
+                // Results under the verbatim floor never carry a source, so
+                // an aged entry's in-context text is at least floor-sized.
+                content: [{ type: "text", text: output.padEnd(3_000, "\n") }],
                 isError: false,
                 toolResultSource: {
                     originalBytes: Math.max(

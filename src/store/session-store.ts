@@ -12,7 +12,10 @@ import { dirname, join } from "node:path";
 import type { AgentWearSnapshot } from "../agents/wear.ts";
 import type { ModelMessage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
-import { assembleAgedToolResults } from "../engine/tool-result-history.ts";
+import {
+    assembleAgedToolResults,
+    type ToolResultAgingPolicy,
+} from "../engine/tool-result-history.ts";
 import type { ImageMediaType } from "../attachments/image.ts";
 import {
     isModelTurnSettings,
@@ -798,11 +801,13 @@ export class SessionStore {
      * its prefix only; the turns that follow it, including ones appended after
      * it was accepted, are still owed to the model.
      */
-    modelContext(): readonly ModelMessage[] {
+    modelContext(
+        aging: ToolResultAgingPolicy = {},
+    ): readonly ModelMessage[] {
         const compaction = this.latestCompaction();
         const active = this.activeEntries();
         if (compaction === undefined) {
-            return assembleAgedToolResults(active);
+            return assembleAgedToolResults(active, aging);
         }
         const boundary = active.findIndex(
             (entry) => entry.id === compaction.boundaryMessageId,
@@ -810,7 +815,7 @@ export class SessionStore {
         return assembleAgedToolResults([
             ...compaction.projection.map((message) => ({ message })),
             ...active.slice(boundary + 1),
-        ]);
+        ], aging);
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {

@@ -1703,12 +1703,12 @@ test("aged tool results inside a compaction projection are assembled too", async
         measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
     });
 
-    const projected = store.modelContext().find((message) =>
+    const projected = store.modelContext(PRESSURED).find((message) =>
         message.role === "tool_result"
     );
     expect(projected?.role === "tool_result" && projected.content[0]?.text)
         .toContain("Digest of older grep");
-    expect((await SessionStore.open(path)).modelContext().find((message) =>
+    expect((await SessionStore.open(path)).modelContext(PRESSURED).find((message) =>
         message.role === "tool_result"
     )).toEqual(projected);
 });
@@ -2029,7 +2029,7 @@ test("aged tool results are an assembly overlay that survives reopen and rewind"
     await store.appendMessage(assistantMessage("third answer"));
     await store.appendMessage(userMessage("fourth"));
 
-    const assembled = store.modelContext();
+    const assembled = store.modelContext(PRESSURED);
     const assembledResult = assembled.find((message) =>
         message.role === "tool_result"
     );
@@ -2037,18 +2037,21 @@ test("aged tool results are an assembly overlay that survives reopen and rewind"
         && assembledResult.content[0]?.text).toContain("Digest of older grep");
     expect(store.messages().find((message) => message.role === "tool_result"))
         .toEqual(result);
-    expect((await SessionStore.open(path)).modelContext().find((message) =>
+    expect((await SessionStore.open(path)).modelContext(PRESSURED).find((message) =>
         message.role === "tool_result"
     )).toEqual(assembledResult);
 
     await store.rewindBefore(thirdUser.id);
-    const rewoundResult = store.modelContext().find((message) =>
+    const rewoundResult = store.modelContext(PRESSURED).find((message) =>
         message.role === "tool_result"
     );
     expect(rewoundResult).toEqual(result);
     expect(store.messages()).toContainEqual(result);
 });
 
+
+/** Every aging level's gate sits below this context, so age alone decides. */
+const PRESSURED = { capacity: 1 } as const;
 
 async function countedStore(
     path: string,
