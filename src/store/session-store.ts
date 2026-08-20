@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import type { AgentWearSnapshot } from "../agents/wear.ts";
 import type { ModelMessage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
+import { assembleAgedToolResults } from "../engine/tool-result-history.ts";
 import type { ImageMediaType } from "../attachments/image.ts";
 import {
     isModelTurnSettings,
@@ -797,17 +798,17 @@ export class SessionStore {
      */
     modelContext(): readonly ModelMessage[] {
         const compaction = this.latestCompaction();
-        if (compaction === undefined) {
-            return this.messages();
-        }
         const active = this.activeEntries();
+        if (compaction === undefined) {
+            return assembleAgedToolResults(active);
+        }
         const boundary = active.findIndex(
             (entry) => entry.id === compaction.boundaryMessageId,
         );
-        return [
-            ...compaction.projection,
-            ...active.slice(boundary + 1).map((entry) => entry.message),
-        ];
+        return assembleAgedToolResults([
+            ...compaction.projection.map((message) => ({ message })),
+            ...active.slice(boundary + 1),
+        ]);
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
@@ -2432,6 +2433,8 @@ function isModelMessage(value: unknown): value is ModelMessage {
             && typeof message.isError === "boolean"
             && (message.presentation === undefined
                 || isToolPresentation(message.presentation))
+            && (message.toolResultSource === undefined
+                || isToolResultSource(message.toolResultSource))
             && message.content.every(isTextContent);
     }
     if (message.role !== "assistant") {
@@ -2449,6 +2452,15 @@ function isModelMessage(value: unknown): value is ModelMessage {
         && (message.errorMessage === undefined
             || typeof message.errorMessage === "string")
         && message.content.every(isAssistantContent);
+}
+
+function isToolResultSource(value: unknown): boolean {
+    if (!isRecord(value)) return false;
+    return Number.isSafeInteger(value.originalBytes)
+        && (value.originalBytes as number) >= 0
+        && (value.spillPath === undefined
+            || (typeof value.spillPath === "string"
+                && value.spillPath.length > 0));
 }
 
 function isToolPresentation(value: unknown): boolean {
