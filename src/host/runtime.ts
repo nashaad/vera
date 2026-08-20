@@ -17,6 +17,7 @@ import {
     type VeraConfig,
 } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
+import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
 import { defaultEventLogPath } from "../engine/events.ts";
 import {
@@ -263,6 +264,7 @@ export async function startResidentHost(
             ? discoverAvailableModels(options.config, authStorage)
             : configuredCatalog(options.config)
     );
+    let catalogRefreshes: Promise<void> = Promise.resolve();
     // Opened once per host, not per agent: the file is per-user. A malformed
     // or missing file reads as no preferences rather than failing startup, so
     // this cannot block the host from coming up.
@@ -372,6 +374,46 @@ export async function startResidentHost(
                 return models;
             }
             : undefined,
+        refreshCatalog: (provider) => {
+            // One at a time. A refresh reads the discovered list, replaces one
+            // provider's rows in it and writes it back, so two overlapping
+            // refreshes would each build on the list the other started from
+            // and whichever finished second would undo the first.
+            const refreshed = catalogRefreshes.then(async () => {
+                // Ollama, DeepSeek and Codex are read locally on every call,
+                // so there is nothing to refresh for them and asking is a
+                // no-op the user would read as a refusal. Only the
+                // snapshot-backed providers answer here.
+                if (!isRefreshableProvider(provider)) {
+                    return undefined;
+                }
+                const config = currentConfig();
+                // A provider that cannot be reached answers from its snapshot,
+                // which is the right list to keep and the wrong thing to call
+                // a refresh: the user pressed the key to find out whether they
+                // are current. The snapshot's own timestamp is what says a
+                // request actually landed, so it is read either side of the
+                // call.
+                const before = readProviderCatalogSnapshot(provider).fetched_at;
+                const rows = provider === "cerebras"
+                    ? await discoveredCerebrasModels(config, {
+                        authStorage,
+                        maxAgeMs: 0,
+                    })
+                    : await discoveredOpenRouterModels(config, { maxAgeMs: 0 });
+                if (
+                    readProviderCatalogSnapshot(provider).fetched_at === before
+                ) {
+                    return undefined;
+                }
+                models = withProviderRows(models, provider, rows);
+                return models;
+            });
+            // The queue carries the turn, not its failure: one refresh that
+            // throws must not leave every later one rejected.
+            catalogRefreshes = refreshed.then(() => undefined, () => undefined);
+            return refreshed;
+        },
         readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
         // Built here because the pool lives in a file the host owns; the
         // engine receives only the interface. One per agent, because the
@@ -925,6 +967,33 @@ function refreshOutcome(
     return models === undefined
         ? { provider, skipped: "no credential" }
         : { provider, models: models.length };
+}
+
+/**
+ * Replaces one provider's rows in an already discovered list, leaving every
+ * other provider's rows exactly where they were.
+ *
+ * Rediscovering everything to refresh one provider would let an unrelated
+ * provider that happens to be down at that moment drop out of the picker,
+ * which is not something the user asked for by pressing refresh on an
+ * OpenRouter row.
+ */
+export function withProviderRows(
+    models: readonly SuggestedModel[],
+    provider: string,
+    rows: readonly SuggestedModel[],
+): readonly SuggestedModel[] {
+    if (rows.length === 0) {
+        return models;
+    }
+    const named = new Set(rows.map((row) => row.model));
+    // The placeholder for a configured model the provider does not list stays:
+    // it is the row the session is running on.
+    const others = models.filter((model) =>
+        model.provider !== provider
+        || (model.description === "configured model" && !named.has(model.model))
+    );
+    return [...others, ...rows];
 }
 
 async function discoverAvailableModels(

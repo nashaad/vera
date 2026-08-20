@@ -1,0 +1,94 @@
+import {
+    startTui,
+    type TuiAgentClient,
+    type TuiDependencies,
+} from "../../clients/tui/main.ts";
+import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
+import type { AvailableModel } from "../../src/model/catalog-view.ts";
+import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { FauxAdapter } from "./faux-adapter.ts";
+
+const PROVIDER = "openrouter";
+
+/**
+ * A fixture whose provider has a list to fetch, so the picker's refresh key
+ * has somewhere to go. The second list is what the provider answers with.
+ */
+export function createTuiCatalogRefreshDependencies(): TuiDependencies {
+    let availableModels: readonly AvailableModel[] = [
+        {
+            provider: PROVIDER,
+            model: "one/model",
+            label: "One",
+            description: "the list before the refresh",
+            levels: [],
+        },
+    ];
+    const settings = () => ({
+        provider: PROVIDER,
+        model: "one/model",
+        availableModels,
+    });
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([response("REFRESH FIXTURE")], { chunkSize: 1 }),
+        "one/model",
+        undefined,
+        {
+            approvalMode: "auto",
+            readModelSettings: settings,
+            updateModelSettings: async () => settings(),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => "auto",
+            refreshCatalog: async (provider) => {
+                if (provider !== PROVIDER) {
+                    return undefined;
+                }
+                availableModels = [
+                    ...availableModels,
+                    {
+                        provider: PROVIDER,
+                        model: "two/model",
+                        label: "Two",
+                        description: "arrived with the refresh",
+                        levels: [],
+                    },
+                ];
+                return settings();
+            },
+        },
+    );
+
+    const client: TuiAgentClient = {
+        async send(command): Promise<void> {
+            channel.client.send(command);
+        },
+        receive(signal) {
+            return channel.client.receive(signal);
+        },
+        async detach(): Promise<void> {},
+        close(): void {},
+    };
+
+    return { client };
+}
+
+if (import.meta.main) {
+    await startTui(createTuiCatalogRefreshDependencies());
+}
+
+function response(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: {
+            provider: PROVIDER,
+            api: "openai-chat-completions",
+            model: "one/model",
+        },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}

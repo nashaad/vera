@@ -33,6 +33,7 @@ import { VERA_PROVIDER_IDS } from "../../src/config.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
+import type { SuggestedModel } from "../../src/model/supported-models.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -3608,6 +3609,60 @@ test("naming a pool entry reports the refreshed snapshot, and a refusal reports 
             provider: "openai-codex",
             model: "gpt-5.6-sol",
         }, "frosty")).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a catalog refresh reports the newly fetched list, and a refusal reports nothing", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-catalog-refresh-"));
+    const asked: (string | undefined)[] = [];
+    const refreshed: readonly SuggestedModel[] = [
+        {
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            label: "Kimi K3",
+            description: "just fetched",
+        },
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        approvalMode: "auto",
+        availableModels: [
+            {
+                provider: "openai-codex",
+                model: "gpt-5.6-sol",
+                label: "GPT-5.6-Sol",
+                description: "the list before the refresh",
+            },
+        ],
+        refreshCatalog: (provider) => {
+            asked.push(provider);
+            return Promise.resolve(
+                provider === "nowhere" ? undefined : refreshed,
+            );
+        },
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+
+        const settings = await registry.refreshCatalog(agent.id, "openrouter");
+        expect(asked).toEqual(["openrouter"]);
+        expect(settings?.availableModels).toMatchObject([
+            { provider: "openrouter", model: "moonshotai/kimi-k3" },
+        ]);
+
+        expect(await registry.refreshCatalog(agent.id, "nowhere"))
+            .toBeUndefined();
+        expect(await registry.refreshCatalog("no-such-agent", "openrouter"))
+            .toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

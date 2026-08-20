@@ -26,6 +26,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
+import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import {
     isVeraProviderId,
@@ -478,6 +479,13 @@ export interface TuiSettingsPickerTransition {
      * `config.json`, and only the caller touches the disk.
      */
     readonly declareProvider?: boolean;
+    /**
+     * The provider whose model list should be asked for again now. Named
+     * rather than boolean because the answer is always "the one under the
+     * cursor": on the connect pane that is the row itself, and on a model
+     * list it is the provider the highlighted model belongs to.
+     */
+    readonly refreshCatalog?: string;
     /** A declared provider whose form should reopen filled in. */
     readonly editProvider?: string;
     /** A shipped provider whose endpoint the user wants to move. */
@@ -1820,6 +1828,22 @@ export function handleTuiSettingsPickerKey(
                     : 1,
             },
         };
+    }
+    // A refresh spends no model call and cannot change a setting, so unlike
+    // the probe keys below it asks nothing first: the only question it could
+    // ask is which provider, and the cursor has already answered that.
+    if (
+        (state.kind === "model" || state.kind === "provider")
+        && tuiBindingId("model_picker", key) === "refresh_catalog"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        const provider = state.kind === "provider"
+            ? (selected?.action === true ? undefined : selected?.value)
+            : selected?.provider;
+        if (provider === undefined || !isRefreshableProvider(provider)) {
+            return unchanged(state, true);
+        }
+        return { state, handled: true, refreshCatalog: provider };
     }
     // The sweep asks how much of the collection it covers before it spends
     // anything, so the key is safe to press to find out what it would do.
@@ -3230,6 +3254,10 @@ function pickerFooterText(
             ...(selected?.action === true
                 ? []
                 : [tuiKeyHint("declare_provider")]),
+            ...(selected?.value !== undefined
+                    && isRefreshableProvider(selected.value)
+                ? [tuiKeyHint("refresh_catalog")]
+                : []),
             ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
@@ -3271,6 +3299,10 @@ function pickerFooterText(
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
+            ...(selected?.provider !== undefined
+                    && isRefreshableProvider(selected.provider)
+                ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
+                : []),
             // Behind the single-model key, since the sweep is the rarer of the
             // two and the one that costs a call per row.
             ...(state.tab === "pool"

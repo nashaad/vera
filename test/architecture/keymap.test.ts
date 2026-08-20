@@ -80,6 +80,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "toggle_pooled",
     "undo_pool_change",
     "verify_pool",
+    "refresh_catalog",
     "verify_model",
     "name_pooled",
     "open_providers",

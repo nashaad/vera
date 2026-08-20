@@ -629,6 +629,36 @@ test("model picker keeps the current model selected", async () => {
     expect(frame).not.toContain("Recent");
 });
 
+test("ctrl+f on a model row asks that provider for its list again", () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+
+    expect(handleTuiSettingsPickerKey(state, { name: "f", ctrl: true }))
+        .toMatchObject({ handled: true, refreshCatalog: "openrouter" });
+
+    // A provider whose list Vera reads off disk rather than fetching has
+    // nothing to ask for, so the key is swallowed instead of acted on.
+    const row = state.options[state.selectedIndex] as TuiSettingsPickerOption;
+    const onCodex = {
+        ...state,
+        options: [{ ...row, provider: "openai-codex" }],
+        selectedIndex: 0,
+    };
+    const refused = handleTuiSettingsPickerKey(onCodex, {
+        name: "f",
+        ctrl: true,
+    });
+    expect(refused.handled).toBe(true);
+    expect(refused.refreshCatalog).toBeUndefined();
+});
+
 test("model picker filters its choices as the user types", async () => {
     const state = startTuiSettingsPicker(
         "model",

@@ -804,6 +804,99 @@ test("a failed model settings write rejects without stopping later commands", as
     });
 });
 
+test("a catalog refresh reports the new settings, and no owner rejects it", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const asked: (string | undefined)[] = [];
+    new InboundCommandRouter(channel.engine, events, {
+        refreshCatalog: (provider) => {
+            asked.push(provider);
+            return Promise.resolve(
+                provider === "openrouter"
+                    ? { model: "refreshed-model" }
+                    : undefined,
+            );
+        },
+    });
+
+    channel.client.send({
+        type: "catalog_refresh",
+        requestId: "refresh-1",
+        provider: "openrouter",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings",
+        requestId: "refresh-1",
+        settings: { model: "refreshed-model" },
+    });
+    expect(asked).toEqual(["openrouter"]);
+
+    channel.client.send({
+        type: "catalog_refresh",
+        requestId: "refresh-2",
+        provider: "nowhere",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings_rejected",
+        requestId: "refresh-2",
+        reason: "invalid",
+    });
+});
+
+test("a refresh that throws is refused and the session keeps reading", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events, {
+        refreshCatalog: async () => {
+            throw new Error("the network is not there");
+        },
+        readApprovalMode: () => "auto",
+    });
+
+    channel.client.send({
+        type: "catalog_refresh",
+        requestId: "refresh-throw",
+        provider: "openrouter",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings_rejected",
+        requestId: "refresh-throw",
+        reason: "invalid",
+    });
+
+    // The command loop is still alive: a failed provider call is not a
+    // reason to stop reading this session's commands.
+    channel.client.send({
+        type: "catalog_refresh",
+        requestId: "refresh-after",
+        provider: "openrouter",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings_rejected",
+        requestId: "refresh-after",
+    });
+});
+
+test("a catalog refresh rejects explicitly when no owner is installed", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    new InboundCommandRouter(channel.engine, events);
+
+    channel.client.send({
+        type: "catalog_refresh",
+        requestId: "refresh-1",
+        provider: "openrouter",
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_settings_rejected",
+        requestId: "refresh-1",
+        reason: "unavailable",
+    });
+});
+
 test("permission commands reject explicitly when no owner is installed", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
