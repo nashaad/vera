@@ -5,6 +5,11 @@ import {
 } from "@opentui/core";
 
 import type { TuiTranscriptEntry } from "./state.ts";
+import {
+    installTuiMarkdownLinkHandlers,
+    openTuiLink,
+    type TuiLinkOpener,
+} from "./markdown-links.ts";
 
 export function tuiMarkdownEntryContent(entry: TuiTranscriptEntry): string {
     return entry.text;
@@ -17,6 +22,7 @@ export function createTuiMarkdownEntry(
     syntaxStyle: SyntaxStyle,
     foreground: string,
     marginTop: number,
+    openLink: TuiLinkOpener = openTuiLink,
 ): MarkdownRenderable | undefined {
     if (entry.kind !== "assistant" && entry.kind !== "notification") {
         return undefined;
@@ -30,5 +36,9 @@ export function createTuiMarkdownEntry(
         streaming: entry.kind === "assistant",
         width: "100%",
         marginTop,
+        renderBefore() {
+            if (openLink === undefined) return;
+            installTuiMarkdownLinkHandlers(this, openLink);
+        },
     });
 }
