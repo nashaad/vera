@@ -199,6 +199,12 @@ export interface TuiState {
     readonly modelSettingsOrigin?: "agent-default" | "user";
     /** Where the posture in force came from, when the host has said. */
     readonly approvalModeOrigin?: "agent-default" | "user";
+    /**
+     * When the running compaction started. Compaction is otherwise silent
+     * until its outcome, so this is what lets the status line show it working
+     * instead of looking like a hang.
+     */
+    readonly compactingSince?: number;
     /** The agent this session is wearing, as the host last reported it. */
     readonly agent?: {
         readonly name: string;
@@ -408,6 +414,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             )),
             working: false,
             modelActivity: undefined,
+            compactingSince: undefined,
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
@@ -444,6 +451,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
+            compactingSince: undefined,
         }, "resident_agent_stopped", update.detail);
     }
     if (update.type === "status") {
@@ -724,21 +732,27 @@ function applyCompaction(
     update: CompactionUpdate,
 ): TuiState {
     if (update.phase === "started") {
+        const started = { ...state, compactingSince: Date.now() };
         return update.warning === undefined
-            ? state
-            : appendTuiNotice(state, update.warning);
+            ? started
+            : appendTuiNotice(started, update.warning);
     }
+    if (update.outcome === "busy") {
+        // A refused manual request. It had no started phase of its own, so it
+        // must not clear the mark of a compaction that is still running.
+        return appendTuiNotice(
+            state,
+            "Compaction runs between turns. Try again once this one finishes.",
+        );
+    }
+    // Every other finish clears the start mark, whatever the outcome: the
+    // status line must never keep filling after the work has stopped.
+    state = { ...state, compactingSince: undefined };
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
             "Earlier messages were summarized. They are still shown here, but "
                 + "the model now sees the summary instead.",
-        );
-    }
-    if (update.outcome === "busy") {
-        return appendTuiNotice(
-            state,
-            "Compaction runs between turns. Try again once this one finishes.",
         );
     }
     if (update.outcome === "not_needed") {
@@ -1183,6 +1197,7 @@ export function failTuiConnection(state: TuiState): TuiState {
         ),
         working: false,
         queuedPrompts: [],
+        compactingSince: undefined,
     };
 }
 
