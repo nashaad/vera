@@ -111,6 +111,19 @@ import type {
 } from "../../src/sdk/extensions.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
 import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
+import {
+    listExtensions,
+    installExtension,
+    removeExtension,
+    setExtensionEnabled,
+} from "../../src/extensions/manager.ts";
+import {
+    extensionTarget,
+    renderExtensionInstallPreview,
+    renderExtensionList,
+    renderExtensionMutation,
+    type ExtensionManagerCommand,
+} from "../../src/extensions/manager-command.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -859,8 +872,9 @@ export async function startConfiguredTui(
     // Optional on purpose: the host owns the config, and the only fields read
     // here are the client's own extension lists. Requiring the file made
     // `vera attach` against an already-running host fail on a fresh machine.
-    const config = loadOptionalVeraConfig();
+    const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
     let host = await findOrStartResidentHost({
+        projectRoot: process.cwd(),
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -968,6 +982,7 @@ export async function startConfiguredTui(
                 // without raw mode. Declining surfaces the error with its
                 // recovery commands instead, which the user runs elsewhere.
                 host = await findOrStartResidentHost({
+                    projectRoot: process.cwd(),
                     confirmBusyUpgrade: () => false,
                 });
                 return attach(currentAgentId);
@@ -987,7 +1002,7 @@ export async function startConfiguredTui(
                 ? {}
                 : { clientExtensions: config.extensions }),
             loadClientExtensionConfiguration() {
-                const latest = loadOptionalVeraConfig();
+                const latest = loadOptionalVeraConfig({ projectRoot: process.cwd() });
                 return {
                     disabledBuiltinExtensions:
                         latest?.disabled_builtin_extensions ?? [],
@@ -1261,6 +1276,7 @@ export async function startTui(
     let diagnosticsGeneration = 0;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
+    let extensionsDialog: TuiDiagnosticsDialogState | undefined;
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let disposeHostExtensionCommands = (): void => {};
     let extensionCommandsGeneration = 0;
@@ -2137,6 +2153,13 @@ export async function startTui(
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
         showScopeTabs: true,
     });
+    const extensionsDialogView = createTuiDiagnosticsDialogView(renderer, {
+        id: "extensions-dialog",
+        title: "Extensions",
+        footerText: "Managed installs stay outside the Vera release.",
+        skipFirstLine: false,
+        sections: new Set(["Extensions", "Extension install", "Extension install plan (dry run)"]),
+    });
     const doctorDialogView = createTuiDiagnosticsDialogView(renderer, {
         id: "doctor-dialog",
         title: "Doctor",
@@ -2166,6 +2189,7 @@ export async function startTui(
         commandPaletteView,
         helpView,
         diagnosticsDialogView,
+        extensionsDialogView,
         doctorDialogView,
         permissionsConfirmView,
         admissionDialogView,
@@ -3399,6 +3423,7 @@ export async function startTui(
     app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
+    app.add(extensionsDialogView.box);
     app.add(doctorDialogView.box);
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.surface);
@@ -4173,6 +4198,32 @@ export async function startTui(
                 }).catch(() => {
                     if (doctorDialog?.text !== text) return;
                     doctorDialog = { text, copyStatus: "failed" };
+                    renderState();
+                });
+                return;
+            }
+        }
+
+        if (extensionsDialog !== undefined) {
+            const action = handleTuiDiagnosticsDialogKey(key);
+            if (action !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (action === "dismiss") {
+                    extensionsDialog = undefined;
+                    focusActiveSurface();
+                    renderState();
+                    return;
+                }
+                if (extensionsDialog.copyReady === false) return;
+                const text = extensionsDialog.text;
+                void copyText(text).then(() => {
+                    if (extensionsDialog?.text !== text) return;
+                    extensionsDialog = { ...extensionsDialog, copyStatus: "copied" };
+                    renderState();
+                }).catch(() => {
+                    if (extensionsDialog?.text !== text) return;
+                    extensionsDialog = { ...extensionsDialog, copyStatus: "failed" };
                     renderState();
                 });
                 return;
@@ -5003,6 +5054,92 @@ export async function startTui(
         if (commandAction?.type === "command_error") {
             state = appendTuiNotice(state, commandAction.message);
             renderState();
+            return;
+        }
+        if (commandAction?.type === "show_extensions") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            try {
+                extensionsDialog = {
+                    text: renderExtensionList(listExtensions({
+                        projectRoot: process.cwd(),
+                        ...(commandAction.scope === undefined
+                            ? {}
+                            : { scope: commandAction.scope }),
+                    })),
+                    copyReady: true,
+                };
+            } catch (error) {
+                extensionsDialog = {
+                    text: `Extensions\n\nCould not read extension state: ${
+                        error instanceof Error ? error.message : String(error)
+                    }\n`,
+                    copyReady: true,
+                };
+            }
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (commandAction?.type === "manage_extensions") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            const command = commandAction.command;
+            if (command.operation === "reload") {
+                state = appendTuiNotice(
+                    state,
+                    "Client extensions reload now; restart the resident host for host-side capabilities.",
+                );
+                renderState();
+                submitPrompt("/reload-extensions");
+                return;
+            }
+            try {
+                const target = extensionTarget(command, process.cwd());
+                let text: string;
+                if (command.operation === "install") {
+                    const result = installExtension(command.source, target, {
+                        dryRun: command.dryRun,
+                    });
+                    text = renderExtensionInstallPreview(result.preview)
+                        + (result.record === undefined
+                            ? ""
+                            : `\nInstalled ${result.record.id} in the ${result.preview.scope} scope.\n`);
+                } else if (command.operation === "enable" || command.operation === "disable") {
+                    const record = setExtensionEnabled(
+                        command.id,
+                        command.operation === "enable",
+                        target,
+                    );
+                    text = renderExtensionMutation(
+                        command.operation,
+                        record,
+                        command.scope,
+                    );
+                } else {
+                    const record = removeExtension(command.id, target);
+                    text = renderExtensionMutation("remove", record, command.scope);
+                }
+                if (command.operation !== "install" || !command.dryRun) {
+                    text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
+                }
+                extensionsDialog = { text, copyReady: true };
+                renderState();
+                focusActiveSurface();
+                if (command.operation !== "install" || !command.dryRun) {
+                    submitPrompt("/reload-extensions");
+                }
+            } catch (error) {
+                state = appendTuiError(
+                    state,
+                    `Extension operation failed: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+                renderState();
+            }
             return;
         }
         if (commandAction?.type === "reload_client_extensions") {
@@ -7216,6 +7353,9 @@ export async function startTui(
         if (doctorDialog !== undefined) {
             return () => doctorDialogView.focus();
         }
+        if (extensionsDialog !== undefined) {
+            return () => extensionsDialogView.focus();
+        }
         if (diagnosticsDialog !== undefined) {
             return () => diagnosticsDialogView.focus();
         }
@@ -7668,6 +7808,7 @@ export async function startTui(
             && commandPalette === undefined
             && help === undefined
             && diagnosticsDialog === undefined
+            && extensionsDialog === undefined
             && doctorDialog !== undefined;
         diagnosticsDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
@@ -7678,7 +7819,19 @@ export async function startTui(
             && commandPalette === undefined
             && help === undefined
             && doctorDialog === undefined
+            && extensionsDialog === undefined
             && diagnosticsDialog !== undefined;
+        extensionsDialogView.box.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && providerForgetCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && help === undefined
+            && doctorDialog === undefined
+            && diagnosticsDialog === undefined
+            && extensionsDialog !== undefined;
         permissionsConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && sessionTrashCandidate === undefined
@@ -7710,6 +7863,7 @@ export async function startTui(
             || helpView.box.visible
             || doctorDialogView.box.visible
             || diagnosticsDialogView.box.visible
+            || extensionsDialogView.box.visible
             || permissionsConfirmView.box.visible
             || admissionDialogView.surface.visible
             || sessionTrashConfirmView.surface.visible
@@ -7791,6 +7945,9 @@ export async function startTui(
         }
         if (diagnosticsDialog !== undefined) {
             diagnosticsDialogView.update(diagnosticsDialog);
+        }
+        if (extensionsDialog !== undefined) {
+            extensionsDialogView.update(extensionsDialog);
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
@@ -7955,6 +8112,7 @@ export async function startTui(
             || help !== undefined
             || doctorDialog !== undefined
             || diagnosticsDialog !== undefined
+            || extensionsDialog !== undefined
             || confirmingFullAccess
             || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined

@@ -32,6 +32,8 @@ export interface HostLockRecord {
      * means unknown, not mismatched.
      */
     readonly entrypoint?: string;
+    /** Project whose project-scoped extensions the host loaded at startup. */
+    readonly project_root?: string;
 }
 
 export interface HostLockfile {
@@ -71,6 +73,7 @@ export interface HostLockfileOptions {
     readonly pid?: number;
     readonly startedAt?: string;
     readonly entrypoint?: string;
+    readonly projectRoot?: string;
     readonly inspectSocket?: (
         socketPath: string,
     ) => Promise<HostIdentity | undefined>;
@@ -145,6 +148,9 @@ export function createHostLockfile(
                             "host entrypoint",
                         ),
                     }),
+                ...(options.projectRoot === undefined
+                    ? {}
+                    : { project_root: nonEmpty(options.projectRoot, "host project root") }),
             };
             const serialized = `${JSON.stringify(record, null, 2)}\n`;
 
@@ -302,6 +308,9 @@ function parseHostLock(source: string): HostLockRecord | undefined {
         || (record.entrypoint !== undefined
             && (typeof record.entrypoint !== "string"
                 || record.entrypoint.length === 0))
+        || (record.project_root !== undefined
+            && (typeof record.project_root !== "string"
+                || record.project_root.length === 0))
     ) {
         return undefined;
     }
