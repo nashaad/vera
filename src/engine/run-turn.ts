@@ -1071,6 +1071,10 @@ export async function runTurn(
                 activeModel,
                 "the selected model provider does not support image input",
             );
+            // Committed so the refusal survives a rebuild or resume: an
+            // emitted-only reply leaves the session showing a user message
+            // with no answer at all.
+            await commitMessage(state, assistantMessage);
             state.events.emit({ type: "turn_finished", message: assistantMessage });
             return assistantMessage;
         }

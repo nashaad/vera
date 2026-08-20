@@ -320,6 +320,7 @@ import {
 } from "./quote.ts";
 import {
     needsYouChipColumns,
+    renderTuiCompactionHint,
     renderTuiIdleHint,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -2716,7 +2717,7 @@ export async function startTui(
         }
         if (permission !== undefined
             && permission !== opened?.openedPermission) {
-            requestPermissionsChange(permission, target);
+            requestPermissionsChange(permission, target, "session");
         }
     }
 
@@ -5249,7 +5250,7 @@ export async function startTui(
                 requestPermissionsChange(
                     commandAction.mode,
                     focusedAgentClient(),
-                    commandAction.scope ?? "session",
+                    commandAction.scope ?? "global",
                 );
             }
             renderState();
@@ -10241,19 +10242,11 @@ export async function startTui(
         renderState();
     }
 
-    /**
-     * Change the posture for this session.
-     *
-     * Session-scoped by default. Writing the host default too used to be
-     * implicit and unavoidable; it is now its own action, so choosing a
-     * posture for one conversation stops deciding it for every future one. A
-     * host too old to know the session-scoped command gets the old behaviour,
-     * which is the only honest fallback.
-     */
+    /** Change the persistent host default used by new sessions. */
     function requestPermissionsChange(
         mode: string,
         target: TuiAgentClient = focusedAgentClient(),
-        scope: "session" | "global" = "session",
+        scope: "session" | "global" = "global",
     ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
@@ -10815,6 +10808,10 @@ export async function startTui(
             lifecycleHint = tuiApprovalHint(uiRequest);
         } else if (uiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${focusedElapsed}`;
+        } else if (statusState.compactingSince !== undefined) {
+            lifecycleHint = renderTuiCompactionHint(
+                Date.now() - statusState.compactingSince,
+            );
         } else if (statusState.working) {
             const modelActivity = statusState.modelActivity;
             const waitingToRetry = modelActivity !== undefined
@@ -10842,6 +10839,7 @@ export async function startTui(
             : statusNotice !== undefined
             ? TUI_NOTICE
             : statusState.working
+                    || statusState.compactingSince !== undefined
                     || uiRequest !== undefined
                     || extensionCommandPending
                 ? TUI_ACCENT
