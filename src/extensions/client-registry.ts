@@ -14,6 +14,8 @@ import type {
     VeraClientMessageDecision,
     VeraClientConsultRequest,
     VeraClientThreadTurn,
+    VeraClientSessionListRequest,
+    VeraClientSessionPage,
     VeraClientTranscriptBlock,
     VeraClientConsultResult,
     VeraClientMessageInterceptor,
@@ -82,6 +84,7 @@ const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
 const CLIENT_MENTIONS_CAPABILITY = "client.ui.mentions";
 const CLIENT_ADDRESSING_CAPABILITY = "client.ui.addressing";
 const CLIENT_THREAD_CAPABILITY = "client.thread.read";
+const CLIENT_SESSIONS_CAPABILITY = "client.sessions.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
 const CLIENT_COMPOSE_SUGGESTER_CAPABILITY = "client.compose.suggester";
 const CLIENT_AGENTS_CAPABILITY = "client.agents";
@@ -249,6 +252,13 @@ export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
 }
 
+export interface ClientExtensionSessionsAdapter {
+    list(
+        extensionId: string,
+        request: VeraClientSessionListRequest,
+    ): Promise<VeraClientSessionPage>;
+}
+
 export interface ClientExtensionAgentsAdapter {
     visible(extensionId: string): readonly VeraClientVisibleAgent[];
     create(
@@ -315,6 +325,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly mentions?: ClientExtensionMentionsAdapter;
     readonly addressing?: ClientExtensionAddressingAdapter;
     readonly thread?: ClientExtensionThreadAdapter;
+    readonly sessions?: ClientExtensionSessionsAdapter;
     readonly agents?: ClientExtensionAgentsAdapter;
     readonly experimentalTui?: ClientExtensionExperimentalTuiAdapter;
     readonly reservedCommandNames?: readonly string[];
@@ -525,6 +536,7 @@ export async function startClientExtensionRegistry(
                 mentions: options.mentions,
                 addressing: options.addressing,
                 thread: options.thread,
+                sessions: options.sessions,
                 agents: options.agents,
                 experimentalTui: options.experimentalTui,
                 activationTimeoutMs,
@@ -865,6 +877,7 @@ interface ActivateClientExtensionOptions {
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
     readonly addressing: ClientExtensionAddressingAdapter | undefined;
     readonly thread: ClientExtensionThreadAdapter | undefined;
+    readonly sessions: ClientExtensionSessionsAdapter | undefined;
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
     readonly context: ClientExtensionContextAdapter | undefined;
@@ -943,6 +956,15 @@ async function activateClientExtension(
             throw new Error("This client has no thread to read");
         }
         return options.thread;
+    };
+
+    const requireSessions = (): ClientExtensionSessionsAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_SESSIONS_CAPABILITY);
+        if (options.sessions === undefined) {
+            throw new Error("This client cannot list sessions");
+        }
+        return options.sessions;
     };
     const requireAgents = (): ClientExtensionAgentsAdapter => {
         requireAvailable();
@@ -1538,6 +1560,13 @@ async function activateClientExtension(
         thread: Object.freeze({
             read(): readonly VeraClientThreadTurn[] {
                 return requireThread().read(options.id);
+            },
+        }),
+        sessions: Object.freeze({
+            list(
+                request: VeraClientSessionListRequest = {},
+            ): Promise<VeraClientSessionPage> {
+                return requireSessions().list(options.id, request);
             },
         }),
         conversation: Object.freeze({
