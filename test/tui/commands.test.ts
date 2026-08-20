@@ -267,10 +267,12 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/permissions ask")).toEqual({
         type: "update_permissions",
         mode: "ask",
+        scope: "global",
     });
     expect(registry.dispatch("/permissions unattended")).toEqual({
         type: "update_permissions",
         mode: "unattended",
+        scope: "global",
     });
     expect(registry.dispatch("/eff")).toEqual({
         type: "open_reasoning_picker",

@@ -5246,7 +5246,7 @@ export async function startTui(
                 requestPermissionsChange(
                     commandAction.mode,
                     focusedAgentClient(),
-                    commandAction.scope ?? "session",
+                    commandAction.scope ?? "global",
                 );
             }
             renderState();
@@ -10173,19 +10173,11 @@ export async function startTui(
         renderState();
     }
 
-    /**
-     * Change the posture for this session.
-     *
-     * Session-scoped by default. Writing the host default too used to be
-     * implicit and unavoidable; it is now its own action, so choosing a
-     * posture for one conversation stops deciding it for every future one. A
-     * host too old to know the session-scoped command gets the old behaviour,
-     * which is the only honest fallback.
-     */
+    /** Change the persistent host default used by new sessions. */
     function requestPermissionsChange(
         mode: string,
         target: TuiAgentClient = focusedAgentClient(),
-        scope: "session" | "global" = "session",
+        scope: "session" | "global" = "global",
     ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);

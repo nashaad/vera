@@ -30,13 +30,14 @@ test("the agent surface is a command, not a chord that changes state", () => {
         .toBe("command_error");
 });
 
-test("permissions is session-scoped unless the global word is written out", () => {
+test("permissions changes the persistent default", () => {
     const registry = createBuiltinTuiCommandRegistry();
     expect(registry.dispatch("/permissions readonly")).toEqual({
         type: "update_permissions",
         mode: "readonly",
+        scope: "global",
     });
-    // The one that outlives the session is the one you have to say.
+    // Keep accepting the old explicit spelling for scripts and muscle memory.
     expect(registry.dispatch("/permissions readonly default")).toEqual({
         type: "update_permissions",
         mode: "readonly",
