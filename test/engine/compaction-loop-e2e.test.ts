@@ -16,6 +16,7 @@ import {
     runHeadlessLoop,
     type SessionCompactionOptions,
 } from "../../src/engine/run-turn.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { assertToolCallsPaired } from "../../src/model/tool-pairing.ts";
 import {
     emptyUsage,
@@ -90,7 +91,7 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
     });
 
     channel.client.send({ type: "prompt", content: "do the long job" });
-    await drain(channel);
+    const updates = await drain(channel);
 
     const finished = seen.filter((event) =>
         event.type === "compaction_finished"
@@ -103,6 +104,27 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
     expect(finished.every((event) =>
         !("outcome" in event) || event.outcome !== "no_boundary"
     )).toBe(true);
+
+    const compacted = updates.find((update): update is Extract<
+        AgentUpdate,
+        { readonly type: "compaction" }
+    > =>
+        update.type === "compaction"
+        && update.phase === "finished"
+        && update.outcome === "compacted"
+    );
+    expect(compacted).toBeDefined();
+    const refreshed = updates.find((update, index) =>
+        index > updates.indexOf(compacted!) && update.type === "context"
+    );
+    expect(refreshed).toMatchObject({
+        type: "context",
+        measurement: {
+            tokens: compacted?.after,
+            capacity: 40_000,
+            estimated: true,
+        },
+    });
 
     // The turn still finished after being compacted underneath.
     expect(store.messages().some((message) =>
@@ -191,14 +213,16 @@ function firstText(request: ModelRequest | undefined): string {
 /** Reads updates until the turn ends, whatever it ends as. */
 async function drain(
     channel: ReturnType<typeof createInProcessChannel>,
-): Promise<void> {
+): Promise<readonly AgentUpdate[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
+    const updates: AgentUpdate[] = [];
     try {
         for (;;) {
             const update = await channel.client.receive(controller.signal);
+            updates.push(update);
             if (update.type === "turn_finished") {
-                return;
+                return updates;
             }
         }
     } catch {
@@ -206,6 +230,7 @@ async function drain(
     } finally {
         clearTimeout(timer);
     }
+    return updates;
 }
 
 function temporaryDirectory(): string {
