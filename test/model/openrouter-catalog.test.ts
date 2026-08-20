@@ -122,6 +122,99 @@ describe("normalizeOpenRouterModels", () => {
         expect(plain.models[0]?.levels).toEqual([]);
     });
 
+    test("publishes the levels a model announces, ladder order", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: {
+                    supported_efforts: [
+                        "low",
+                        "max",
+                        "medium",
+                        "high",
+                        "xhigh",
+                        "none",
+                    ],
+                    default_effort: "medium",
+                },
+            })],
+        });
+
+        const entry = catalog.models[0];
+        // Announced order is not trusted: the ladder decides which way is up.
+        // `none` is not a depth, so it is not a row.
+        expect(entry?.levels.map((level) => level.id))
+            .toEqual(["max", "xhigh", "high", "medium", "low"]);
+        expect(entry?.levels.map((level) => level.label))
+            .toEqual(["Max", "Extra High", "High", "Medium", "Low"]);
+        expect(entry?.default_level).toBe("medium");
+    });
+
+    test("a level outside the ladder is kept, after the ones on it", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { supported_efforts: ["low", "ultra", "high"] },
+            })],
+        });
+
+        expect(catalog.models[0]?.levels.map((level) => level.id))
+            .toEqual(["high", "low", "ultra"]);
+        expect(catalog.models[0]?.levels.map((level) => level.label))
+            .toEqual(["High", "Low", "Ultra"]);
+    });
+
+    test("a default the model does not list is not published", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: {
+                    supported_efforts: ["high", "low"],
+                    default_effort: "none",
+                },
+            })],
+        });
+
+        expect(catalog.models[0]?.default_level).toBeUndefined();
+    });
+
+    test("an effort-taking model that lists no efforts keeps the three", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { mandatory: false },
+            })],
+        });
+
+        expect(catalog.models[0]?.levels.map((level) => level.id))
+            .toEqual(["high", "medium", "low"]);
+    });
+
+    test("a model whose only effort is none gets no levels", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { supported_efforts: ["none"] },
+            })],
+        });
+
+        // It stated its vocabulary and Vera offers none of it. That is an
+        // answer, so the three documented levels are not put in its mouth.
+        expect(catalog.models[0]?.levels).toEqual([]);
+    });
+
+    test("an underscored level reads as words", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                supported_parameters: ["tools", "reasoning_effort"],
+                reasoning: { supported_efforts: ["ultra_high"] },
+            })],
+        });
+
+        expect(catalog.models[0]?.levels.map((level) => level.label))
+            .toEqual(["Ultra High"]);
+    });
+
     test("a body that is not a model list yields no models", () => {
         expect(normalizeOpenRouterModels({}).models).toEqual([]);
         expect(normalizeOpenRouterModels(null).models).toEqual([]);

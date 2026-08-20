@@ -14,6 +14,7 @@ import {
     startTuiContextLimitPicker,
     startTuiSettingsPicker,
     switchedModelTab,
+    tuiModelActionOptions,
     startTuiProviderPicker,
     TUI_DECLARE_PROVIDER_VALUE,
     startTuiReasoningPicker,
@@ -38,6 +39,7 @@ import {
     tuiProviderFormFields,
     tuiProviderFormRows,
     type TuiProviderFormState,
+    startTuiCatalogRefreshScopePicker,
     startTuiPoolVerifyScopePicker,
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     startTuiModelAssignmentPicker,
@@ -627,6 +629,36 @@ test("model picker keeps the current model selected", async () => {
     expect(frame).toMatch(/openrouter\s+\n/);
     expect(frame).toMatch(/●\s+GLM-5\.2/);
     expect(frame).not.toContain("Recent");
+});
+
+test("ctrl+f on a model row asks that provider for its list again", () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+
+    expect(handleTuiSettingsPickerKey(state, { name: "f", ctrl: true }))
+        .toMatchObject({ handled: true, refreshCatalog: "openrouter" });
+
+    // A provider whose list Vera reads off disk rather than fetching has
+    // nothing to ask for, so the key is swallowed instead of acted on.
+    const row = state.options[state.selectedIndex] as TuiSettingsPickerOption;
+    const onCodex = {
+        ...state,
+        options: [{ ...row, provider: "openai-codex" }],
+        selectedIndex: 0,
+    };
+    const refused = handleTuiSettingsPickerKey(onCodex, {
+        name: "f",
+        ctrl: true,
+    });
+    expect(refused.handled).toBe(true);
+    expect(refused.refreshCatalog).toBeUndefined();
 });
 
 test("model picker filters its choices as the user types", async () => {
@@ -1261,10 +1293,9 @@ test("the model pane opens on Shortlist, in the order the user's own use produce
     expect(frame).not.toContain("unavailable");
     expect(frame).toContain("GLM-5.2");
     expect(frame).not.toContain("Z-AI: GLM-5.2");
-    expect(frame).toContain("All models");
     expect(frame).toContain("Shortlist");
     expect(frame).toMatch(
-        /Shortlist \(2\).*All models \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
+        /Shortlist \(2\).*All \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
     );
 });
 
@@ -1294,7 +1325,7 @@ test("with an empty pool the pane opens on All models, full width", async () => 
     // Hundreds of rows, read by scanning names: the whole card goes to the
     // names rather than half of it to facts about one of them.
     const frame = await pickerFrame(state);
-    expect(frame).toContain("All models");
+    expect(frame).toMatch(/All \(\d+\)/);
     expect(frame).not.toContain("\u2502");
 });
 
@@ -1343,8 +1374,10 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // The cycle is Pool, All models, Slots, Help, and round again.
-    const slots = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    // The cycle is Pool, All models, Actions, Defaults, Help, and round again.
+    const actions = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    expect(actions.tab).toBe("actions");
+    const slots = handleTuiSettingsPickerKey(actions, { name: "tab" }).state!;
     expect(slots.tab).toBe("defaults");
     const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
     expect(help.tab).toBe("help");
@@ -1551,9 +1584,9 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
 test("a fold survives a tab away and back, and a search opens everything", () => {
     const folded = allTabWithRecommendations();
 
-    // All -> Slots -> Help -> Pool, the long way round the strip.
+    // All -> Actions -> Defaults -> Help -> Pool, the long way round the strip.
     let pool = folded;
-    for (let step = 0; step < 3; step += 1) {
+    for (let step = 0; step < 4; step += 1) {
         pool = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
     }
     expect(pool.tab).toBe("pool");
@@ -2122,7 +2155,9 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Shortlist \(2\)\s+All models \(\d+\)\s+Defaults\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(
+        /Shortlist \(2\)\s+All \(\d+\)\s+Actions\s+Defaults\s+Help\s+Providers \^e/,
+    );
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });
@@ -2922,4 +2957,127 @@ test("the sweep scope pane offers the cheaper answer first", () => {
     expect(
         handleTuiSettingsPickerKey(pane, { name: "enter" }).selection,
     ).toEqual({ kind: "pool_verify_scope", onlyUnverified: true });
+});
+
+function pickerWithActions() {
+    return {
+        ...modelPickerWithPool(),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    } as TuiSettingsPickerState;
+}
+
+test("the Actions tab lists what the pane can do in words", () => {
+    const actions = switchedModelTab(pickerWithActions(), "actions");
+
+    expect(actions.options.map((option) => option.label)).toEqual([
+        "Refresh model lists",
+        "Check that shortlisted models work",
+        "Show or hide the rarely used models",
+        "Connect, edit or forget a provider",
+    ]);
+    // The chord sits on the row, so the tab teaches the key rather than
+    // replacing it.
+    expect(actions.options[0]?.description).toBe(
+        tuiKeyHint("refresh_catalog").split(" ")[0],
+    );
+});
+
+test("an action is found by word from the model list, above the models", () => {
+    let state = pickerWithActions();
+    for (const name of "refresh") {
+        state = handleTuiSettingsPickerKey(state, { name }).state!;
+    }
+
+    const labels = state.options.map((option) => option.label);
+    expect(labels[0]).toBe("Actions");
+    expect(labels[1]).toBe("Refresh model lists");
+});
+
+test("the refresh row asks which providers before asking any", () => {
+    const actions = switchedModelTab(pickerWithActions(), "actions");
+    const transition = handleTuiSettingsPickerKey(actions, { name: "return" });
+
+    // Not a refresh yet: the row opens the question of scope, and the answer
+    // to that is what spends the calls.
+    expect(transition.refreshCatalogScope).toBe(true);
+    expect(transition.refreshCatalog).toBeUndefined();
+    expect(transition.selection).toBeUndefined();
+});
+
+test("the refresh scope pane leads with every provider and its size", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "cerebras", models: 12 },
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(scope.options.map((option) => option.label)).toEqual([
+        "Every provider (2)",
+        "cerebras",
+        "openrouter",
+    ]);
+    expect(scope.options[0]?.description).toBe("360 in their catalogs");
+    expect(scope.selectedIndex).toBe(0);
+});
+
+test("one provider gets no every-provider row", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(scope.options.map((option) => option.label)).toEqual(["openrouter"]);
+});
+
+test("a scope answer names the providers to ask, and all names none", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "cerebras", models: 12 },
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(handleTuiSettingsPickerKey(scope, { name: "return" }).selection)
+        .toEqual({
+            kind: "catalog_refresh_scope",
+            providers: ["cerebras", "openrouter"],
+        });
+    expect(
+        handleTuiSettingsPickerKey(
+            { ...scope, selectedIndex: 2 },
+            { name: "return" },
+        ).selection,
+    ).toEqual({ kind: "catalog_refresh_scope", providers: ["openrouter"] });
+});
+
+test("the providers row opens the provider pane", () => {
+    let actions = switchedModelTab(pickerWithActions(), "actions");
+    actions = {
+        ...actions,
+        selectedIndex: actions.options.findIndex((option) =>
+            option.label.startsWith("Connect,")
+        ),
+    };
+
+    expect(handleTuiSettingsPickerKey(actions, { name: "return" }).openProviders)
+        .toBe(true);
+});
+
+test("an unsearched model list lists models only", () => {
+    const all = switchedModelTab(pickerWithActions(), "all");
+
+    expect(all.options.some((option) =>
+        option.label.startsWith("Refresh openrouter")
+    )).toBe(false);
+});
+
+test("the show-or-hide row lands on the list it changed", () => {
+    let actions = switchedModelTab(pickerWithActions(), "actions");
+    actions = {
+        ...actions,
+        selectedIndex: actions.options.findIndex((option) =>
+            option.label.startsWith("Show or hide")
+        ),
+    };
+
+    const revealed = handleTuiSettingsPickerKey(actions, { name: "return" })
+        .state as TuiSettingsPickerState;
+    expect(revealed.revealAll).toBe(true);
+    expect(revealed.tab).toBe("all");
 });

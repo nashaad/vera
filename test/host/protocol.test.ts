@@ -424,6 +424,35 @@ test("host protocol parses messages after attach", () => {
         patch: { reasoningEffort: "" },
     }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
+        type: "catalog_refresh",
+        requestId: "refresh-1",
+        provider: "openrouter",
+    }))).toEqual({
+        type: "catalog_refresh",
+        requestId: "refresh-1",
+        provider: "openrouter",
+    });
+    // A refresh names its provider. An unreadable or absent one is refused
+    // rather than widened into asking every provider at once.
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "catalog_refresh",
+        requestId: "refresh-2",
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "catalog_refresh",
+        requestId: "refresh-3",
+        provider: 42,
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "catalog_refresh",
+        requestId: "refresh-4",
+        provider: "",
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "catalog_refresh",
+        provider: "openrouter",
+    }))).toBeUndefined();
+    expect(parseAttachedClientMessage(JSON.stringify({
         type: "pool_add",
         requestId: "pool-verify",
         provider: "openai-codex",

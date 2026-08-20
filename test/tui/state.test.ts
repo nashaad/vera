@@ -1,8 +1,13 @@
 import { expect, test } from "bun:test";
-import { TextAttributes, type StyledText } from "@opentui/core";
+import {
+    parseColor,
+    TextAttributes,
+    type StyledText,
+} from "@opentui/core";
 
 import {
     appendTuiExtensionBlock,
+    applyTuiTheme,
     appendTuiDiagnostic,
     appendTuiNotice,
     appendTuiThought,
@@ -24,9 +29,15 @@ import {
     tuiDisplayPath,
     tuiEntryMarginTop,
     tuiToolRowText,
+    TUI_MUTED,
+    TUI_ACCENT,
+    TUI_NOTICE,
+    TUI_SUCCESS,
+    type TuiState,
+    type TuiTranscriptEntry,
 } from "../../clients/tui/state.ts";
-import type { TuiState, TuiTranscriptEntry } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { renderTuiStatusDetailsLine } from "../../clients/tui/status.ts";
 
@@ -181,6 +192,47 @@ test("consecutive thought phases report as one stretch", () => {
         seconds: 6,
         reasoning: "first\n\nsecond\n\nthird",
     }]);
+});
+
+test("summaries a shortened rebuild strands report as one stretch", () => {
+    let state = beginTuiTurn(createTuiState(), "go");
+    for (const [index, seconds] of [11, 6.8, 9.2].entries()) {
+        state = thinkFor(state, `phase ${index}`, seconds);
+        state = applyAgentUpdate(state, {
+            type: "tool_started",
+            tool: "search",
+            args: { pattern: String(index) },
+            seq: 1,
+        });
+        state = applyAgentUpdate(state, {
+            type: "assistant_delta",
+            text: `answer ${index}`,
+            seq: 2,
+        });
+    }
+    state = applyAgentUpdate(state, {
+        type: "turn_finished",
+        outcome: "aborted",
+        seq: 3,
+    });
+
+    // A checkpoint replays fewer rows than the live transcript held, so every
+    // summary anchored past its end lands at the tail, behind the notice.
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [
+            { kind: "user", text: "go" },
+            { kind: "error", outcome: "aborted" },
+        ],
+        seq: 4,
+    });
+
+    // The whole stretch reads as one row, above the notice that ended it.
+    const thoughts = state.entries.filter((entry) => entry.kind === "thought");
+    expect(thoughts).toHaveLength(1);
+    expect(thoughts[0]?.text).toBe("Reasoning: 27.0s");
+    expect(thoughts[0]?.reasoning).toBe("phase 0\n\nphase 1\n\nphase 2");
+    expect(state.entries.at(-1)?.kind).toBe("notice");
 });
 
 test("streamed reasoning shows live and is rebuilt from what arrived", () => {
@@ -850,10 +902,10 @@ test("TUI applies canonical history and prompts from other clients", () => {
     expect(state.entries).toEqual([
         { kind: "user", text: "inspect" },
         { kind: "assistant", text: "Checking." },
-        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool_header", header: "Read", text: "Read" },
         {
             kind: "tool",
-            header: "Explored",
+            header: "Read",
             prefix: "  └ ",
             text: "Read note.txt",
         },
@@ -1143,6 +1195,22 @@ test("TUI entries render with kind-specific prefixes", () => {
     }))).toBe("× stopped  Resident agent stopped unexpectedly");
 });
 
+test("tool rows accent semantic actions and mute their targets", () => {
+    const rendered = renderTuiEntry({
+        kind: "tool",
+        prefix: "  └ ",
+        text: "Search activity in clients/tui",
+    });
+    const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
+        chunk.text.toString() === text
+    );
+
+    expect(chunkFor("  └ ")?.fg).toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor("Search")?.fg).toEqual(parseColor(TUI_ACCENT));
+    expect(chunkFor(" activity in clients/tui")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
+});
+
 test("identical diagnostics collapse in place with a count", () => {
     let state = createTuiState();
     for (let attempt = 0; attempt < 10; attempt += 1) {
@@ -1239,7 +1307,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     expect(state.entries[0]).toMatchObject({
         kind: "tool_header",
-        text: "+ Explored",
+        text: "+ Listed",
         command: "List /workspace",
         detailLines: 11,
         detailPreview: "  └ file-0",
@@ -1247,7 +1315,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "  Explored  List /workspace  ctrl+e details",
+            "  Listed  List /workspace  ctrl+e details",
             "  └ file-0",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -1256,7 +1324,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "- Explored",
+        text: "- Listed",
         expanded: true,
     });
     expect(state.entries[0]).not.toHaveProperty("detailPreview");
@@ -1267,7 +1335,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
 
     state = toggleTuiToolDetails(state);
     expect(state.entries[0]).toMatchObject({
-        text: "+ Explored",
+        text: "+ Listed",
         expanded: false,
     });
     expect(state.entries.slice(1).every((entry) =>
@@ -1430,7 +1498,7 @@ test("the first detail toggle hides completed activity that is currently visible
         .toBe(true);
     expect(state.entries.filter((entry) => entry.kind === "tool_header")
         .map((entry) => entry.text))
-        .toEqual(["+ Explored", "+ Ran"]);
+        .toEqual(["+ Read", "+ Ran"]);
     expect(state.entries.filter((entry) => entry.kind === "tool_header")
         .map((entry) => entry.kind === "tool_header" ? entry.hint : undefined))
         .toEqual([true, undefined]);
@@ -1466,7 +1534,7 @@ test("a run of tool calls hangs off the first one", () => {
         "go",
         "Running",
         "  └ pwd",
-        "Exploring",
+        "Reading",
         "  └ Read note.txt",
         "ok",
         "Running",
@@ -1560,7 +1628,7 @@ test("history threads a run the same way the live turn did", () => {
         "go",
         "Ran",
         "  └ pwd",
-        "Explored",
+        "Read",
         "  └ Read note.txt",
     ]);
 });
@@ -1570,10 +1638,10 @@ test("TUI spacing compacts consecutive tools but preserves message boundaries", 
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
-        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool_header", header: "Read", text: "Read" },
         {
             kind: "tool",
-            header: "Explored",
+            header: "Read",
             prefix: "  └ ",
             text: "Read note.txt",
         },
@@ -1591,7 +1659,7 @@ test("TUI spacing accepts separate message and activity-group gaps", () => {
         { kind: "user", text: "inspect" },
         { kind: "tool_header", header: "Ran", text: "Ran" },
         { kind: "tool", header: "Ran", prefix: "  └ ", text: "pwd" },
-        { kind: "tool_header", header: "Explored", text: "Explored" },
+        { kind: "tool_header", header: "Read", text: "Read" },
         { kind: "assistant", text: "Done." },
     ] as const;
 
@@ -1687,8 +1755,8 @@ test("a tool header leaves a row after expanded reasoning", () => {
             reasoning: "Inspecting Obsidian file in-flight",
             expanded: true,
         },
-        { kind: "tool_header", header: "Explored", text: "+ Explored" },
-        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read file" },
+        { kind: "tool_header", header: "Read", text: "+ Read" },
+        { kind: "tool", header: "Read", prefix: "  └ ", text: "Read file" },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
@@ -1698,8 +1766,8 @@ test("a tool header leaves a row after expanded reasoning", () => {
 
 test("a continued tool run also leaves a row after expanded reasoning", () => {
     const entries = [
-        { kind: "tool_header", header: "Explored", text: "Explored" },
-        { kind: "tool", header: "Explored", prefix: "  └ ", text: "Read first" },
+        { kind: "tool_header", header: "Read", text: "Read" },
+        { kind: "tool", header: "Read", prefix: "  └ ", text: "Read first" },
         {
             kind: "thought",
             text: "Reasoning: 3.6s",
@@ -1707,7 +1775,7 @@ test("a continued tool run also leaves a row after expanded reasoning", () => {
             reasoning: "Checking the next file",
             expanded: true,
         },
-        { kind: "tool", header: "Explored", prefix: "    ", text: "Read next" },
+        { kind: "tool", header: "Read", prefix: "    ", text: "Read next" },
     ] as const;
 
     expect(entries.map((_, index) => tuiEntryMarginTop(entries, index)))
@@ -1904,6 +1972,92 @@ test("reviewer decisions remain visible with their risk and authorization", () =
                 + " Deletes files outside the workspace.",
         ),
     });
+});
+
+function autoReviewEntry(
+    userAuthorization: "unknown" | "low" | "medium" | "high",
+    reason: string,
+): TuiTranscriptEntry {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason,
+        riskLevel: "low",
+        userAuthorization,
+        seq: 1,
+    });
+    const entry = state.entries.at(-1);
+    if (entry === undefined) {
+        throw new Error("auto-review update did not append an entry");
+    }
+    return entry;
+}
+
+test("auto-review approval uses semantic status colors", () => {
+    const entry = autoReviewEntry(
+        "unknown",
+        "Auto-review returned an allow decision; the sandbox does not allow"
+            + " network access and matches an allow-list entry.",
+    );
+    const text = entry.text;
+    const rendered = renderTuiEntry(entry);
+    const chunks = rendered.chunks;
+    const chunkFor = (chunkText: string) => chunks.find((chunk) =>
+        chunk.text.toString() === chunkText
+    );
+
+    expect(chunks.map((chunk) => chunk.text.toString()).join(""))
+        .toBe(text);
+    expect(chunkFor("approved")?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(chunkFor("authorization: unknown")?.fg)
+        .toEqual(parseColor(TUI_NOTICE));
+    expect(chunkFor("allow")?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(chunkFor(" decision; the sandbox does not allow"
+        + " network access and matches an allow-list entry.")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor("Auto review ")?.fg).toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor(" bash (risk: low, ")?.fg)
+        .toEqual(parseColor(TUI_MUTED));
+});
+
+test("authorization other than unknown stays muted", () => {
+    const entry = autoReviewEntry("high", "Auto-review returned an allow decision.");
+    const rendered = renderTuiEntry(entry);
+    const authorization = rendered.chunks.find((chunk) =>
+        chunk.text.toString() === "authorization: high"
+    );
+
+    expect(authorization?.fg).toEqual(parseColor(TUI_MUTED));
+});
+
+test("auto-review approval resolves colors from the current theme", () => {
+    const theme = {
+        ...VERA_TUI_THEME,
+        muted: "#102030",
+        notice: "#304050",
+        success: "#506070",
+    };
+    applyTuiTheme(theme);
+    try {
+        const rendered = renderTuiEntry(
+            autoReviewEntry("unknown", "Auto-review returned an allow decision."),
+        );
+        const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
+            chunk.text.toString() === text
+        );
+
+        expect(chunkFor("Auto review ")?.fg)
+            .toEqual(parseColor(theme.muted));
+        expect(chunkFor("approved")?.fg)
+            .toEqual(parseColor(theme.success));
+        expect(chunkFor("authorization: unknown")?.fg)
+            .toEqual(parseColor(theme.notice));
+        expect(chunkFor("allow")?.fg)
+            .toEqual(parseColor(theme.success));
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
+    }
 });
 
 test("a matching history checkpoint preserves a live auto-review notice", () => {
@@ -2336,6 +2490,57 @@ test("TUI shows a compaction budget warning when the run starts", () => {
         liveOnly: true,
     });
     expect(quiet.entries).toEqual([]);
+});
+
+test("a running compaction is marked on state and cleared by any finish", () => {
+    const started = applyAgentUpdate(createTuiState(), {
+        type: "compaction",
+        phase: "started",
+        strategy: "vera/full-summary",
+        seq: 1,
+    });
+    expect(started.compactingSince).toBeGreaterThan(0);
+
+    for (
+        const outcome of [
+            "compacted",
+            "no_boundary",
+            "rejected",
+            "unavailable",
+            "cancelled",
+        ] as const
+    ) {
+        const finished = applyAgentUpdate(started, {
+            type: "compaction",
+            phase: "finished",
+            strategy: "vera/full-summary",
+            outcome,
+            ...(outcome === "compacted" ? { before: 100, after: 50 } : {}),
+            seq: 2,
+        });
+        expect(finished.compactingSince).toBeUndefined();
+    }
+
+    // A refused manual request had no started phase of its own, so it must
+    // not clear the mark of the compaction that is still running.
+    const busy = applyAgentUpdate(started, {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "busy",
+        seq: 2,
+    });
+    expect(busy.compactingSince).toBe(started.compactingSince);
+
+    // The finished update can be lost with the turn, so the turn's own end
+    // and a dead connection both clear the mark rather than leave the bar
+    // filling forever.
+    const turnEnded = applyAgentUpdate(started, {
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(turnEnded.compactingSince).toBeUndefined();
+    expect(failTuiConnection(started).compactingSince).toBeUndefined();
 });
 
 test("dropping an admission takes its checklist entry with it", () => {

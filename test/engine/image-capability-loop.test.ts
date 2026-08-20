@@ -264,13 +264,19 @@ test("the recorded refusal stops the next turn from sending the image", async ()
     expect(recorded.requests).toHaveLength(1);
     expect(result.errorMessage)
         .toContain("does not support image input");
-    expect(two.state.messages).toEqual([{
+    expect(two.state.messages[0]).toEqual({
         role: "user",
         content: [
             { type: "text", text: "and this one" },
             { type: "image_attachment", attachmentId: "shot.png" },
         ],
-    }]);
+    });
+    // The refusal itself is committed, so a resume still shows why the turn
+    // ended instead of a user message with no reply.
+    expect(two.state.messages[1]).toMatchObject({
+        role: "assistant",
+        stopReason: "error",
+    });
 });
 
 test("a model nothing knows about still gets its image sent", async () => {

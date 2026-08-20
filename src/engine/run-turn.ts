@@ -350,6 +350,9 @@ export interface RunHeadlessLoopOptions {
     readonly poolRemove?: (
         entry: { readonly provider: string; readonly model: string },
     ) => Promise<ModelTurnSettings | undefined>;
+    readonly refreshCatalog?: (
+        provider: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly poolName?: (
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
@@ -604,6 +607,9 @@ export async function runHeadlessLoop(
         ...(options.poolRemove === undefined
             ? {}
             : { poolRemove: options.poolRemove }),
+        ...(options.refreshCatalog === undefined
+            ? {}
+            : { refreshCatalog: options.refreshCatalog }),
         ...(options.poolName === undefined
             ? {}
             : { poolName: options.poolName }),
@@ -1065,6 +1071,10 @@ export async function runTurn(
                 activeModel,
                 "the selected model provider does not support image input",
             );
+            // Committed so the refusal survives a rebuild or resume: an
+            // emitted-only reply leaves the session showing a user message
+            // with no answer at all.
+            await commitMessage(state, assistantMessage);
             state.events.emit({ type: "turn_finished", message: assistantMessage });
             return assistantMessage;
         }
@@ -2150,6 +2160,7 @@ async function finishExecutedTool(
             toolCall,
             effective,
             toolResultChanged ? undefined : result.presentation,
+            toolResultChanged ? undefined : result.toolResultSource,
         );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
@@ -2201,6 +2212,9 @@ function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.toolResultSource === undefined
+            ? {}
+            : { toolResultSource: result.toolResultSource }),
     };
 }
 
@@ -2225,6 +2239,7 @@ function hookResultMessage(
     toolCall: ToolCallContent,
     result: Pick<HookToolResult, "content" | "isError">,
     presentation?: ToolResultMessage["presentation"],
+    toolResultSource?: ToolResultMessage["toolResultSource"],
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -2233,6 +2248,7 @@ function hookResultMessage(
         content: result.content,
         isError: result.isError,
         ...(presentation === undefined ? {} : { presentation }),
+        ...(toolResultSource === undefined ? {} : { toolResultSource }),
     };
 }
 

@@ -1,0 +1,352 @@
+import { readFileSync } from "node:fs";
+
+import type {
+    ModelMessage,
+    ToolCallContent,
+    ToolResultMessage,
+} from "../model/types.ts";
+import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
+import { TOOL_RESULT_CEILING_BYTES } from "../tools/tool-result-limit.ts";
+
+/** A turn is a visible user prompt; internal continuation messages do not age results. */
+export const TOOL_RESULT_STUB_AFTER_TURNS = 3;
+
+export interface ToolResultHistoryEntry {
+    readonly message: ModelMessage;
+}
+
+/**
+ * Builds the model-facing overlay for active history. The entries themselves
+ * are never changed: callers keep the returned array only for the next model
+ * request, while transcript rendering and rewind continue to use the source
+ * messages.
+ */
+export function assembleAgedToolResults(
+    entries: readonly ToolResultHistoryEntry[],
+    ageAfterTurns = TOOL_RESULT_STUB_AFTER_TURNS,
+): readonly ModelMessage[] {
+    const turnsAt = new Map<number, number>();
+    const calls = new Map<string, ToolCallContent>();
+    let turn = -1;
+
+    for (let index = 0; index < entries.length; index += 1) {
+        const message = entries[index]?.message;
+        if (message === undefined) continue;
+        if (message.role === "user" && message.internal !== true) {
+            turn += 1;
+        }
+        turnsAt.set(index, turn);
+        if (message.role === "assistant") {
+            for (const content of message.content) {
+                if (content.type === "tool_call") {
+                    calls.set(content.id, content);
+                }
+            }
+        }
+    }
+
+    const projected = entries.map((entry, index) => {
+        const message = entry.message;
+        if (
+            message.role !== "tool_result"
+            || message.toolResultSource?.spillPath === undefined
+            || message.toolResultSource.originalBytes
+                <= TOOL_RESULT_VERBATIM_FLOOR_BYTES
+        ) {
+            return message;
+        }
+        const resultTurn = turnsAt.get(index) ?? -1;
+        const age = turn - resultTurn;
+        if (age < ageAfterTurns) {
+            return message;
+        }
+        const sourceText = readSpill(message.toolResultSource.spillPath);
+        // The spill quota is intentionally disposable. If it has gone away,
+        // retain the durable excerpt rather than replacing it with a pointer
+        // that cannot be followed (or silently discarding an extension result).
+        if (sourceText === undefined) {
+            return message;
+        }
+        return agedToolResult(
+            message,
+            calls.get(message.toolCallId),
+            laterAssistantText(entries, index),
+            sourceText,
+        );
+    });
+    return Object.freeze(projected);
+}
+
+function agedToolResult(
+    result: ToolResultMessage,
+    call: ToolCallContent | undefined,
+    laterText: string,
+    sourceText: string,
+): ToolResultMessage {
+    const sourcePath = result.toolResultSource?.spillPath;
+    if (!isDigestableTool(result.toolName)) {
+        return {
+            ...result,
+            content: [{ type: "text", text: stubFor(result) }],
+        };
+    }
+    const references = extractReferences(laterText);
+    const body = digestFor(result, call, sourceText);
+    const retained = provenanceLines(sourceText, references);
+    const provenance = retained.length === 0
+        ? []
+        : [
+            "[vera] Provenance retained from later assistant messages:",
+            ...retained.map((line) => `  ${line}`),
+        ];
+    const output = boundDigest([
+        body,
+        ...provenance,
+        "[vera] Full output remains available at "
+            + `${sourcePath}; re-read it if needed.`,
+    ].join("\n"), result.toolResultSource?.originalBytes ?? 0);
+    return {
+        ...result,
+        content: [{ type: "text", text: output }],
+    };
+}
+
+function isDigestableTool(tool: string): boolean {
+    return tool === "grep"
+        || tool === "bash"
+        || tool === "read"
+        || tool === "list";
+}
+
+function stubFor(result: ToolResultMessage): string {
+    return [
+        `[vera] Stub for older ${result.toolName} result: `
+            + `${formatBytes(result.toolResultSource?.originalBytes ?? 0)}.`,
+        "[vera] Full output remains available at "
+            + `${result.toolResultSource?.spillPath}; re-read it if needed.`,
+    ].join("\n");
+}
+
+function digestFor(
+    result: ToolResultMessage,
+    call: ToolCallContent | undefined,
+    source: string,
+): string {
+    const header = `[vera] Digest of older ${result.toolName} result: `
+        + `${formatBytes(result.toolResultSource?.originalBytes ?? 0)}.`;
+    switch (result.toolName) {
+        case "grep":
+            return `${header}\n${grepDigest(source, call)}`;
+        case "bash":
+            return `${header}\n${bashDigest(source, call, result.isError)}`;
+        case "read":
+            return `${header}\n${readDigest(source, call)}`;
+        case "list":
+            return `${header}\n${listDigest(source)}`;
+        default:
+            return `${header}\n[vera] This tool has no mechanical digest; `
+                + "the result is represented by this pointer.";
+    }
+}
+
+function grepDigest(source: string, call: ToolCallContent | undefined): string {
+    const countMode = call?.input.output_mode === "count";
+    const files = new Map<string, { count: number; lines: string[] }>();
+    for (const raw of source.split(/\r?\n/)) {
+        const line = raw.trimEnd();
+        if (
+            line.length === 0
+            || line === "--"
+            || line.startsWith("[")
+            || line.startsWith("(")
+        ) {
+            continue;
+        }
+        const countMatch = countMode ? /^(.*?):(\d+)$/.exec(line) : null;
+        if (countMatch !== null) {
+            const path = countMatch[1]!;
+            const row = files.get(path) ?? { count: 0, lines: [] };
+            row.count += Number(countMatch[2]);
+            files.set(path, row);
+            continue;
+        }
+        const match = /^(.*?):(\d+)(?::|\t|$)/.exec(line);
+        if (match !== null) {
+            const path = match[1]!;
+            const row = files.get(path) ?? { count: 0, lines: [] };
+            row.count += 1;
+            if (row.lines.length < 12) row.lines.push(match[2]!);
+            files.set(path, row);
+            continue;
+        }
+        // `files_with_matches` emits one path per line, and `count` emits
+        // path:count. Both still provide a useful per-file rollup.
+        const count = /^(.*?):(\d+)$/.exec(line);
+        const path = count?.[1] ?? line;
+        const row = files.get(path) ?? { count: 0, lines: [] };
+        row.count += count === null ? 1 : Number(count[2]);
+        files.set(path, row);
+    }
+    if (files.size === 0) return source.includes("no matches") ? "No matches." : "No file rollup available.";
+    return [...files.entries()].slice(0, 64).map(([path, row]) => {
+        const locations = row.lines.length === 0
+            ? ""
+            : ` (lines ${row.lines.join(", ")})`;
+        return `- ${path}: ${row.count} match${row.count === 1 ? "" : "es"}${locations}`;
+    }).join("\n");
+}
+
+function bashDigest(
+    source: string,
+    call: ToolCallContent | undefined,
+    isError: boolean,
+): string {
+    const command = typeof call?.input.command === "string"
+        ? call.input.command
+        : "(command unavailable)";
+    const tail = source.split(/\r?\n/).filter((line) => line.length > 0).slice(-12);
+    return [
+        `Command: ${command}`,
+        `Exit: ${isError ? "non-zero" : "0"}`,
+        "Tail:",
+        ...(tail.length === 0 ? ["(no output)"] : tail.map((line) => `  ${line}`)),
+    ].join("\n");
+}
+
+function readDigest(source: string, call: ToolCallContent | undefined): string {
+    const path = typeof call?.input.path === "string"
+        ? call.input.path
+        : "(path unavailable)";
+    const footer = /\[vera\] Showing lines ([^.]+)\./.exec(source)?.[1]
+        ?? "range unavailable";
+    const signatures = source.split(/\r?\n/)
+        .filter((line) => /^\d+\t/.test(line))
+        .slice(0, 8);
+    return [
+        `Path: ${path}`,
+        `Range: ${footer}`,
+        "Signature lines:",
+        ...(signatures.length === 0
+            ? ["(none)"]
+            : signatures.map((line) => `  ${line}`)),
+    ].join("\n");
+}
+
+function listDigest(source: string): string {
+    const lines = source.split(/\r?\n/)
+        .filter((line) => line.length > 0 && !line.startsWith("(") && !line.startsWith("["));
+    const footer = /of (\d+)/.exec(source)?.[1];
+    const count = footer ?? String(lines.length);
+    return [
+        `Entries: ${count}`,
+        "First entries:",
+        ...(lines.length === 0 ? ["(none)"] : lines.slice(0, 12).map((line) => `  ${line}`)),
+    ].join("\n");
+}
+
+function laterAssistantText(
+    entries: readonly ToolResultHistoryEntry[],
+    resultIndex: number,
+): string {
+    return entries.slice(resultIndex + 1)
+        .flatMap(({ message }) => message.role === "assistant"
+            ? message.content.flatMap((content) =>
+                content.type === "text" || content.type === "thinking"
+                    ? [content.text]
+                    : [])
+            : [])
+        .join("\n");
+}
+
+interface References {
+    readonly locations: readonly { path: string; line: string }[];
+    readonly fragments: readonly string[];
+    readonly identifiers: readonly string[];
+}
+
+function extractReferences(text: string): References {
+    const locations: { path: string; line: string }[] = [];
+    for (const match of text.matchAll(/([\w.~\/-]+):(\d+)(?::\d+)?/g)) {
+        locations.push({ path: match[1]!, line: match[2]! });
+    }
+    const fragments = new Set<string>();
+    for (const match of text.matchAll(/["'`]([^"'`\n]{3,120})["'`]/g)) {
+        fragments.add(match[1]!);
+    }
+    const identifiers = new Set<string>();
+    const stopWords = new Set([
+        "and", "are", "but", "for", "from", "has", "have", "into",
+        "line", "that", "the", "this", "used", "was", "with",
+    ]);
+    for (const match of text.matchAll(/[A-Za-z_][A-Za-z0-9_]{2,}/g)) {
+        if (!stopWords.has(match[0]!.toLowerCase())) {
+            identifiers.add(match[0]!);
+        }
+    }
+    return {
+        locations,
+        fragments: [...fragments],
+        identifiers: [...identifiers],
+    };
+}
+
+function provenanceLines(source: string, references: References): readonly string[] {
+    if (
+        references.locations.length === 0
+        && references.fragments.length === 0
+        && references.identifiers.length === 0
+    ) {
+        return [];
+    }
+    const retained: string[] = [];
+    for (const line of source.split(/\r?\n/)) {
+        if (
+            references.fragments.some((fragment) => line.includes(fragment))
+            || references.identifiers.some((identifier) => line.includes(identifier))
+            || references.locations.some((location) =>
+                line.includes(`${location.path}:${location.line}`)
+                || line.startsWith(`${location.line}\t`)
+            )
+        ) {
+            retained.push(line);
+            if (retained.length === 32) break;
+        }
+    }
+    return retained;
+}
+
+function readSpill(path: string | undefined): string | undefined {
+    if (path === undefined) return undefined;
+    try {
+        return readFileSync(path, "utf8");
+    } catch {
+        return undefined;
+    }
+}
+
+function boundDigest(text: string, originalBytes: number): string {
+    const ceiling = Math.min(originalBytes, TOOL_RESULT_CEILING_BYTES);
+    if (Buffer.byteLength(text, "utf8") <= ceiling) return text;
+    const marker = `\n[vera] Digest clipped to ${ceiling} bytes.\n`;
+    const markerBytes = Buffer.byteLength(marker, "utf8");
+    if (markerBytes >= ceiling) {
+        return decode(Buffer.from(text, "utf8").subarray(0, ceiling));
+    }
+    const available = ceiling - markerBytes;
+    const headBytes = Math.ceil(available / 2);
+    const bytes = Buffer.from(text, "utf8");
+    return decode(bytes.subarray(0, headBytes))
+        + marker
+        + decode(bytes.subarray(bytes.length - (available - headBytes)));
+}
+
+function decode(bytes: Uint8Array): string {
+    return new TextDecoder("utf-8")
+        .decode(bytes)
+        .replace(/^�+/, "")
+        .replace(/�+$/, "");
+}
+
+function formatBytes(bytes: number): string {
+    return `${bytes.toLocaleString()} bytes`;
+}
