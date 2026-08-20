@@ -14,6 +14,7 @@ import {
     TOOL_RESULT_CEILING_BYTES,
 } from "../../src/tools/tool-result-limit.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
+import { boundToolResult } from "../../src/tools/execute.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import {
     emptyUsage,
@@ -96,6 +97,44 @@ test("an output larger than the whole quota spills nowhere", async () => {
     } finally {
         await rm(scratch, { recursive: true, force: true });
     }
+});
+
+test("a medium result gets a spill pointer even when the ceiling did not cut it", async () => {
+    const scratch = await mkdtemp(join(tmpdir(), "vera-spill-medium-"));
+    try {
+        const text = "m".repeat(3_000);
+        const bound = await boundToolResult(
+            { type: "tool_call", id: "call-1", name: "read", input: {} },
+            { kind: "output", output: text, isError: false },
+            createToolResultSpill(scratch),
+        );
+
+        expect(bound.result.toolResultSource).toMatchObject({
+            originalBytes: text.length,
+        });
+        expect(await readFile(bound.result.toolResultSource!.spillPath!, "utf8"))
+            .toBe(text);
+        expect(bound.result.content[0]?.text).toBe(text);
+    } finally {
+        await rm(scratch, { recursive: true, force: true });
+    }
+});
+
+test("an oversized result does not retry a failed ceiling spill", async () => {
+    let writes = 0;
+    const bound = await boundToolResult(
+        { type: "tool_call", id: "call-1", name: "bash", input: {} },
+        { kind: "output", output: "x".repeat(200_000), isError: false },
+        {
+            write: async () => {
+                writes += 1;
+                return undefined;
+            },
+        },
+    );
+
+    expect(writes).toBe(1);
+    expect(bound.result.toolResultSource).toBeUndefined();
 });
 
 test("an extension tool passes under the same ceiling, and the numbers are reported", async () => {

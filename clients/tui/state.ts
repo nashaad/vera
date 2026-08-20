@@ -1359,9 +1359,7 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ]);
     }
     if (entry.kind === "tool") {
-        return new StyledText([
-            fg(TUI_MUTED)(`${entry.prefix ?? ""}${tuiToolRowText(entry)}`),
-        ]);
+        return renderTuiToolRow(entry);
     }
     if (entry.kind === "substitution") {
         // Its own marker rather than a plain notice: a substitution says the
@@ -1665,6 +1663,47 @@ export function tuiToolRowText(entry: TuiTextTranscriptEntry): string {
     return repeat > 1 ? `${entry.text} ×${repeat}` : entry.text;
 }
 
+/**
+ * Tool rows keep their target quiet while giving the operation a semantic
+ * accent. Result rows stay entirely muted: their text is output, not another
+ * action label.
+ */
+function renderTuiToolRowChunks(
+    entry: TuiTextTranscriptEntry,
+): TextChunk[] {
+    const text = tuiToolRowText(entry);
+    if (entry.result === true) {
+        return [fg(TUI_MUTED)(text)];
+    }
+
+    const action = /^(Read|List|Search|Edit|Write)(?=\s|$)/.exec(text);
+    if (action === null) {
+        return [fg(TUI_MUTED)(text)];
+    }
+    const label = action[1] ?? "";
+    return [
+        fg(TUI_ACCENT)(label),
+        fg(TUI_MUTED)(text.slice(label.length)),
+    ];
+}
+
+/** Renders a transcript row, including its inline gutter prefix. */
+export function renderTuiToolRow(
+    entry: TuiTextTranscriptEntry,
+): StyledText {
+    return new StyledText([
+        fg(TUI_MUTED)(entry.prefix ?? ""),
+        ...renderTuiToolRowChunks(entry),
+    ]);
+}
+
+/** Renders the content column used by the dedicated tool-row component. */
+export function renderTuiToolRowContent(
+    entry: TuiTextTranscriptEntry,
+): StyledText {
+    return new StyledText(renderTuiToolRowChunks(entry));
+}
+
 export interface TuiEntrySpacing {
     readonly message: number;
     readonly toolGroup: number;
@@ -1755,9 +1794,9 @@ function formatToolCall(
 }
 
 const TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Explored",
-    grep: "Explored",
-    list: "Explored",
+    read: "Read",
+    grep: "Searched",
+    list: "Listed",
     bash: "Ran",
     edit: "Edited",
     write: "Edited",
@@ -1767,9 +1806,9 @@ const TOOL_HEADERS: Readonly<Record<string, string>> = {
 };
 
 const LIVE_TOOL_HEADERS: Readonly<Record<string, string>> = {
-    read: "Exploring",
-    grep: "Exploring",
-    list: "Exploring",
+    read: "Reading",
+    grep: "Searching",
+    list: "Listing",
     bash: "Running",
     edit: "Editing",
     write: "Editing",

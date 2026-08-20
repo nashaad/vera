@@ -10,9 +10,9 @@ import { tuiKeyHint } from "./keymap.ts";
 import type { TuiTextTranscriptEntry } from "./state.ts";
 import {
     renderTuiEntry,
+    renderTuiToolRowContent,
     TUI_MUTED,
     TUI_TEXT,
-    tuiToolRowText,
 } from "./state.ts";
 
 const rowText = new WeakMap<BoxRenderable, TextRenderable>();
@@ -151,7 +151,7 @@ export function updateTuiToolRow(
 ): void {
     const text = rowText.get(node);
     if (text !== undefined) {
-        text.content = tuiToolRowText(entry);
+        text.content = renderTuiToolRowContent(entry);
     }
     const gutter = rowGutter.get(node);
     if (gutter !== undefined) {
@@ -218,7 +218,7 @@ export function createTuiToolRow(
     row.add(gutter);
     const text = new TextRenderable(renderer, {
         id: `${id}-text`,
-        content: tuiToolRowText(entry),
+        content: renderTuiToolRowContent(entry),
         fg: TUI_MUTED,
         flexGrow: 1,
         wrapMode: "word",
