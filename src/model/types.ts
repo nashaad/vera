@@ -134,7 +134,22 @@ export interface ToolResultMessage {
     readonly content: readonly TextContent[];
     readonly isError: boolean;
     readonly presentation?: ToolPresentation;
+    /**
+     * Durable pointer to the original output. The engine uses it only when
+     * assembling an aged model context; providers never receive it.
+     */
+    readonly toolResultSource?: ToolResultSource;
 }
+
+export interface ToolResultSource {
+    /** Byte length of the complete output before any per-result ceiling. */
+    readonly originalBytes: number;
+    /** The owner-only spill file containing the complete output. */
+    readonly spillPath?: string;
+}
+
+/** Results at or below this size remain verbatim for the life of a session. */
+export const TOOL_RESULT_VERBATIM_FLOOR_BYTES = 2 * 1024;
 
 export interface UnifiedDiffPresentation {
     readonly kind: "unified_diff";
@@ -154,7 +169,7 @@ export type ToolPresentation =
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
 export type ModelInputToolResultMessage =
-    Omit<ToolResultMessage, "presentation">;
+    Omit<ToolResultMessage, "presentation" | "toolResultSource">;
 
 export type ModelInputMessage =
     | ModelInputUserMessage
