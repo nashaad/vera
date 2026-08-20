@@ -9,6 +9,7 @@ import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
 import { HostStartupInProgressError } from "../../src/host/startup-claim.ts";
+import { recordCleanBoot } from "../../src/pinned-build.ts";
 
 let config;
 try {
@@ -39,6 +40,9 @@ try {
 }
 
 clearBootFailures();
+// The host is serving by now, which is what makes this commit worth pinning:
+// the pin means "this build boots", never "this build is newest".
+recordCleanBoot(fileURLToPath(import.meta.url));
 const removeCrashGuard = installHostCrashGuard();
 await runResidentHostProcess(host, {
     stopAbsorbingFaults: removeCrashGuard,
