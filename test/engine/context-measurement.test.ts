@@ -6,6 +6,7 @@ import {
     measureReportedUsage,
 } from "../../src/engine/context-measurement.ts";
 import type { ProjectedModelRequest } from "../../src/engine/model-request.ts";
+import type { PromptContribution } from "../../src/engine/prompt-contributions.ts";
 import type { ModelMessage, ModelTool } from "../../src/model/types.ts";
 import { emptyUsage } from "../../src/model/types.ts";
 
@@ -93,10 +94,140 @@ test("tool results and tool calls are measured, not skipped", () => {
     expect(withToolRound.tokens - empty.tokens).toBeGreaterThan(900);
 });
 
+test("a projection attributes the measured request without carrying prompt data", () => {
+    const contributions: readonly PromptContribution[] = [
+        {
+            id: "core.identity",
+            owner: "core",
+            target: "stable",
+            title: "Identity",
+            content: "You are Vera.",
+        },
+        {
+            id: "core.memory",
+            owner: "core",
+            target: "contextual",
+            title: "Memory",
+            content: "A private memory.",
+        },
+    ];
+    const measurement = measureProjectedRequest(
+        request({
+            systemPrompt: "ignored because contributions are authoritative",
+            messages: [userMessage("hello")],
+            tools: [tool()],
+        }),
+        10_000,
+        {
+            promptContributions: contributions,
+            compaction: { triggerFraction: 0.82 },
+        },
+    );
+
+    expect(measurement.projection?.estimatedTokens).toBe(measurement.tokens);
+    expect(measurement.projection?.components.reduce(
+        (total, component) => total + component.estimatedTokens,
+        0,
+    )).toBe(measurement.tokens);
+    expect(measurement.compaction).toEqual({ triggerFraction: 0.82 });
+    expect(JSON.stringify(measurement)).not.toContain("private memory");
+    expect(JSON.stringify(measurement)).not.toContain("ignored");
+});
+
+test("projection reconciliation never assigns negative component tokens", () => {
+    const measurement = measureProjectedRequest(
+        request({
+            messages: [userMessage("a"), userMessage("b"), userMessage("c")],
+        }),
+        undefined,
+        { promptContributions: [] },
+    );
+    const components = measurement.projection?.components ?? [];
+
+    expect(components.every((component) => component.estimatedTokens >= 0))
+        .toBe(true);
+    expect(components.reduce(
+        (total, component) => total + component.estimatedTokens,
+        0,
+    )).toBe(measurement.tokens);
+});
+
+test("prompt contribution labels are sanitized before reaching the client", () => {
+    const measurement = measureProjectedRequest(
+        request({}),
+        undefined,
+        {
+            promptContributions: [{
+                id: "extension.secret",
+                owner: "extension",
+                target: "contextual",
+                title: "/private/project/secret instructions",
+                content: "private prompt content",
+            }],
+        },
+    );
+
+    expect(measurement.projection?.components[0]?.displayName)
+        .toBe("Prompt contribution");
+    expect(JSON.stringify(measurement)).not.toContain("/private/project");
+});
+
+test("a projection identifies extension tool schemas without exposing their definition", () => {
+    const measurement = measureProjectedRequest(
+        request({ tools: [tool()] }),
+        10_000,
+        { extensionToolNames: ["bash"] },
+    );
+
+    expect(measurement.projection).toBeUndefined();
+    const projected = measureProjectedRequest(
+        request({ tools: [tool()] }),
+        10_000,
+        { promptContributions: [], extensionToolNames: ["bash"] },
+    );
+    expect(projected.projection?.components.find((component) =>
+        component.kind === "tool_schema"
+    )?.owner).toBe("extension");
+    expect(JSON.stringify(projected)).not.toContain("inputSchema");
+});
+
 test("a measurement is rejected unless it says how it was arrived at", () => {
     expect(isContextMeasurement({ tokens: 10, estimated: true })).toBe(true);
     expect(isContextMeasurement({ tokens: 10, capacity: 20, estimated: false }))
         .toBe(true);
+    expect(isContextMeasurement({
+        tokens: 10,
+        estimated: true,
+        projection: {
+            estimatedTokens: 10,
+            components: [{
+                kind: "message",
+                id: "message:1",
+                owner: "session",
+                source: "user",
+                displayName: "user message",
+                count: 1,
+                estimatedTokens: 10,
+            }],
+        },
+        compaction: { triggerTokens: 8 },
+    })).toBe(true);
+    expect(isContextMeasurement({
+        tokens: 10,
+        estimated: true,
+        projection: {
+            estimatedTokens: 10,
+            components: [{ kind: "message" }],
+        },
+    })).toBe(false);
+    expect(isContextMeasurement({
+        tokens: 10,
+        estimated: true,
+        projection: {
+            estimatedTokens: 9,
+            components: [],
+        },
+    })).toBe(false);
     expect(isContextMeasurement({ tokens: 10 })).toBe(false);
     expect(isContextMeasurement({ tokens: -1, estimated: true })).toBe(false);
     expect(isContextMeasurement({ tokens: 10, capacity: 0, estimated: true }))

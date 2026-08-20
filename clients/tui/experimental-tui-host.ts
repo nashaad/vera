@@ -50,6 +50,7 @@ import type {
     VeraExperimentalTuiTheme,
     VeraExperimentalTuiViewSpec,
     VeraExperimentalTuiRawViewSpec,
+    VeraExperimentalTuiTranscriptRenderableSpec,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
 
@@ -60,6 +61,10 @@ export interface TuiExperimentalHostOptions {
     readonly transcript: () => VeraExperimentalTuiContext["transcript"];
     readonly onFailure: (extensionId: string, message: string) => void;
     readonly onRenderRequested: () => void;
+    /** Appends and removes a node in the native transcript. */
+    readonly appendTranscriptRenderable?: (
+        node: Renderable,
+    ) => VeraExtensionDisposer;
 }
 
 export interface TuiExperimentalHost {
@@ -73,6 +78,8 @@ export interface TuiExperimentalHost {
     render(): void;
     setTheme(theme: TuiTheme): void;
     conversationChanged(): void;
+    /** Remove non-durable transcript renderables before a history rebuild. */
+    clearTranscriptRenderables(): void;
     agentEvent(event: VeraExperimentalTuiAgentEvent): void;
     hasModal(): boolean;
     hasFocus(): boolean;
@@ -89,6 +96,15 @@ interface MountedView {
     focused: boolean;
 }
 
+interface TranscriptRenderable {
+    readonly extensionId: string;
+    readonly spec: VeraExperimentalTuiTranscriptRenderableSpec;
+    readonly root: Renderable;
+    readonly remove: VeraExtensionDisposer;
+    active: boolean;
+    lastWidth: number;
+}
+
 export function createTuiExperimentalHost(
     options: TuiExperimentalHostOptions,
 ): TuiExperimentalHost {
@@ -97,6 +113,7 @@ export function createTuiExperimentalHost(
     let closed = false;
     const views = new Map<string, MountedView>();
     const rawViews = new Map<string, TuiExperimentalRawView>();
+    const transcriptRenderables = new Set<TranscriptRenderable>();
 
     const slotRegistry = createTuiExperimentalSlotRegistry({
         renderer: options.renderer,
@@ -163,6 +180,67 @@ export function createTuiExperimentalHost(
                     );
                 } finally {
                     rawViews.delete(key);
+                    options.onRenderRequested();
+                }
+            };
+        },
+        appendTranscriptRenderable(
+            extensionId,
+            spec,
+        ): VeraExtensionDisposer {
+            if (closed) throw new Error("Experimental TUI host is closed");
+            if ([...transcriptRenderables].some((entry) =>
+                entry.extensionId === extensionId && entry.spec.id === spec.id
+            )) {
+                throw new Error(`Duplicate experimental TUI view: ${spec.id}`);
+            }
+            const root = spec.create({
+                renderer: options.renderer,
+                workspace: options.workspace(),
+                theme: experimentalTheme(theme),
+                transcript: options.transcript(),
+                requestRender: options.onRenderRequested,
+            });
+            if (
+                typeof root !== "object"
+                || root === null
+                || typeof root.destroy !== "function"
+                || typeof root.destroyRecursively !== "function"
+            ) {
+                throw new Error(
+                    "Transcript experimental TUI view must return a Renderable",
+                );
+            }
+            let remove: VeraExtensionDisposer = async () => {};
+            try {
+                if (options.appendTranscriptRenderable === undefined) {
+                    throw new Error(
+                        "Native transcript renderables are unavailable on this host",
+                    );
+                }
+                remove = options.appendTranscriptRenderable(root);
+            } catch (error) {
+                root.destroyRecursively();
+                throw error;
+            }
+            const entry: TranscriptRenderable = {
+                extensionId,
+                spec,
+                root,
+                remove,
+                active: true,
+                lastWidth: options.renderer.terminalWidth,
+            };
+            transcriptRenderables.add(entry);
+            options.onRenderRequested();
+            return async () => {
+                if (!entry.active) return;
+                entry.active = false;
+                transcriptRenderables.delete(entry);
+                try {
+                    await remove();
+                } finally {
+                    root.destroyRecursively();
                     options.onRenderRequested();
                 }
             };
@@ -305,6 +383,18 @@ export function createTuiExperimentalHost(
         for (const view of rawViews.values()) {
             refreshTuiExperimentalRawView(view, options.onFailure);
         }
+        for (const entry of transcriptRenderables) {
+            if (entry.lastWidth === options.renderer.terminalWidth) continue;
+            entry.lastWidth = options.renderer.terminalWidth;
+            try {
+                entry.spec.onResize?.(options.renderer.terminalWidth);
+            } catch (error) {
+                options.onFailure(
+                    entry.extensionId,
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+        }
         refreshTuiExperimentalSlotVisibility({
             transcriptTop,
             transcriptBottom,
@@ -330,7 +420,13 @@ export function createTuiExperimentalHost(
             theme = nextTheme;
             for (const view of views.values()) view.lastRender = undefined;
         },
-        conversationChanged: eventBus.conversationChanged,
+        conversationChanged(): void {
+            void clearTranscriptRenderables();
+            eventBus.conversationChanged();
+        },
+        clearTranscriptRenderables(): void {
+            void clearTranscriptRenderables();
+        },
         agentEvent: eventBus.agentEvent,
         hasModal: () => hasTuiExperimentalModal(
             views.values(),
@@ -412,6 +508,7 @@ export function createTuiExperimentalHost(
         async close(): Promise<void> {
             if (closed) return;
             closed = true;
+            await clearTranscriptRenderables();
             for (const view of [...views.values()]) removeView(view);
             views.clear();
             for (const view of rawViews.values()) {
@@ -439,6 +536,32 @@ export function createTuiExperimentalHost(
             }
         },
     };
+
+    async function clearTranscriptRenderables(): Promise<void> {
+        const current = [...transcriptRenderables];
+        transcriptRenderables.clear();
+        for (const entry of current) {
+            if (!entry.active) continue;
+            entry.active = false;
+            try {
+                await entry.remove();
+            } catch (error) {
+                options.onFailure(
+                    entry.extensionId,
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+            try {
+                entry.root.destroyRecursively();
+            } catch (error) {
+                options.onFailure(
+                    entry.extensionId,
+                    error instanceof Error ? error.message : String(error),
+                );
+            }
+        }
+        if (current.length > 0) options.onRenderRequested();
+    }
 }
 
 function experimentalTheme(theme: TuiTheme): VeraExperimentalTuiTheme {

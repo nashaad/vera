@@ -373,6 +373,50 @@ test("turn completion adds the reply to the provider's request count", () => {
     ]);
 });
 
+test("turn completion preserves the local projection and compaction policy", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+    const projection = {
+        estimatedTokens: 64_500,
+        components: [{
+            kind: "message" as const,
+            id: "message:1",
+            owner: "session",
+            source: "user",
+            displayName: "user message",
+            count: 1,
+            estimatedTokens: 64_500,
+        }],
+    };
+    const compaction = { triggerFraction: 0.82 };
+
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: {
+            tokens: 64_500,
+            capacity: 100_000,
+            estimated: true,
+            projection,
+            compaction,
+        },
+    });
+    protocol({ type: "turn_finished", message });
+
+    expect(updates[1]).toMatchObject({
+        type: "context",
+        measurement: { projection, compaction },
+    });
+});
+
 test("turn completion cannot lower the current context estimate", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
