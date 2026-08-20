@@ -2366,6 +2366,27 @@ test("a running compaction is marked on state and cleared by any finish", () => 
         });
         expect(finished.compactingSince).toBeUndefined();
     }
+
+    // A refused manual request had no started phase of its own, so it must
+    // not clear the mark of the compaction that is still running.
+    const busy = applyAgentUpdate(started, {
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "busy",
+        seq: 2,
+    });
+    expect(busy.compactingSince).toBe(started.compactingSince);
+
+    // The finished update can be lost with the turn, so the turn's own end
+    // and a dead connection both clear the mark rather than leave the bar
+    // filling forever.
+    const turnEnded = applyAgentUpdate(started, {
+        type: "turn_finished",
+        seq: 2,
+    });
+    expect(turnEnded.compactingSince).toBeUndefined();
+    expect(failTuiConnection(started).compactingSince).toBeUndefined();
 });
 
 test("dropping an admission takes its checklist entry with it", () => {

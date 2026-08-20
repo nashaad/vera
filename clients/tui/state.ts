@@ -414,6 +414,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             )),
             working: false,
             modelActivity: undefined,
+            compactingSince: undefined,
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
@@ -450,6 +451,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             queuedPrompts: [],
             modelActivity: undefined,
+            compactingSince: undefined,
         }, "resident_agent_stopped", update.detail);
     }
     if (update.type === "status") {
@@ -735,21 +737,22 @@ function applyCompaction(
             ? started
             : appendTuiNotice(started, update.warning);
     }
-    // Every finish clears the start mark, whatever the outcome: the status
-    // line must never keep filling after the work has stopped.
-    const { compactingSince: _, ...settled } = state;
-    state = settled;
+    if (update.outcome === "busy") {
+        // A refused manual request. It had no started phase of its own, so it
+        // must not clear the mark of a compaction that is still running.
+        return appendTuiNotice(
+            state,
+            "Compaction runs between turns. Try again once this one finishes.",
+        );
+    }
+    // Every other finish clears the start mark, whatever the outcome: the
+    // status line must never keep filling after the work has stopped.
+    state = { ...state, compactingSince: undefined };
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
             "Earlier messages were summarized. They are still shown here, but "
                 + "the model now sees the summary instead.",
-        );
-    }
-    if (update.outcome === "busy") {
-        return appendTuiNotice(
-            state,
-            "Compaction runs between turns. Try again once this one finishes.",
         );
     }
     if (update.outcome === "not_needed") {
@@ -1194,6 +1197,7 @@ export function failTuiConnection(state: TuiState): TuiState {
         ),
         working: false,
         queuedPrompts: [],
+        compactingSince: undefined,
     };
 }
 
