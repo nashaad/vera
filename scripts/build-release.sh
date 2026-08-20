@@ -75,28 +75,22 @@ archive_name="vera-$platform-$arch.tar.gz"
 
 stage=$(mktemp -d "${TMPDIR:-/tmp}/vera-release.XXXXXX")
 bundle="$stage/bundle"
+source_tree="$stage/source"
 cleanup() {
     rm -rf "$stage"
 }
 trap cleanup EXIT HUP INT TERM
 mkdir -p "$bundle/bin" "$bundle/runtime"
+mkdir "$source_tree"
 
 # Archive tracked source instead of copying the checkout. This excludes local
-# ignored state and makes the release input explicit: the clean commit above.
-git -C "$root" archive HEAD | tar -xf - -C "$bundle"
-rm -rf \
-    "$bundle/.claude" \
-    "$bundle/.env.test" \
-    "$bundle/.git" \
-    "$bundle/.worktrees" \
-    "$bundle/AGENTS.md" \
-    "$bundle/README.md" \
-    "$bundle/dev" \
-    "$bundle/docs" \
-    "$bundle/examples" \
-    "$bundle/install" \
-    "$bundle/scripts" \
-    "$bundle/test"
+# ignored state. Keep the runtime input explicit so a new private/development
+# tree cannot silently enter a public release.
+git -C "$root" archive HEAD | tar -xf - -C "$source_tree"
+for path in clients config extensions src bun.lock bunfig.toml package.json tsconfig.json index.ts; do
+    [ -e "$source_tree/$path" ] || die "release keep-list entry is missing: $path"
+    mv "$source_tree/$path" "$bundle/$path"
+done
 
 if [ -n "${VERA_RELEASE_NODE_MODULES:-}" ]; then
     [ -d "$VERA_RELEASE_NODE_MODULES" ] \
@@ -127,10 +121,12 @@ chmod 755 "$bundle/bin/vera"
 printf '%s\n' "$version" > "$bundle/VERSION"
 libc=none
 [ "$platform" = "linux" ] && libc=glibc
+bun_version=$("$bun" --version)
 cat > "$bundle/manifest.json" <<EOF
 {
   "version": "$version",
   "source_revision": "$revision",
+  "bun_version": "$bun_version",
   "platform": "$platform",
   "architecture": "$arch",
   "libc": "$libc",
