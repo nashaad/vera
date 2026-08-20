@@ -6,7 +6,7 @@ import {
     unlinkSync,
     writeFileSync,
 } from "node:fs";
-import { dirname, join, resolve } from "node:path";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -27,15 +27,6 @@ export function findOrStartResidentHost(
     return ensureResidentHost({
         ...options,
         startHost: spawnDetachedResidentHost,
-    }).then((record) => {
-        if (options.projectRoot === undefined) return record;
-        const requested = resolve(options.projectRoot);
-        if (record.project_root === requested) return record;
-        const actual = record.project_root ?? "an older host with no project identity";
-        throw new Error(
-            `Resident host is bound to ${actual}, not ${requested}. `
-                + "Stop the resident host before using project-scoped extensions here.",
-        );
     });
 }
 
