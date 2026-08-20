@@ -621,13 +621,33 @@ test("an unsupported image prompt remains durable for a model switch", async () 
         stopReason: "error",
         errorMessage: "Image attachment unavailable: the selected model provider does not support image input",
     });
-    expect(state.messages.map(withoutCallDuration)).toEqual([{
-        role: "user",
-        content: [
-            { type: "text", text: "inspect this image" },
-            { type: "image_attachment", attachmentId: "image-1.png" },
-        ],
-    }]);
+    expect(state.messages.map(withoutCallDuration)).toEqual([
+        {
+            role: "user",
+            content: [
+                { type: "text", text: "inspect this image" },
+                { type: "image_attachment", attachmentId: "image-1.png" },
+            ],
+        },
+        {
+            role: "assistant",
+            content: [],
+            source: {
+                provider: "vera",
+                api: "attachment",
+                model: "deepseek-v4-flash",
+            },
+            usage: emptyUsage(),
+            stopReason: "error",
+            errorMessage: "Image attachment unavailable: the selected model provider does not support image input",
+        },
+    ]);
+    // What a resumed session projects: the refusal must still be visible.
+    expect(projectTranscript(state.messages)).toContainEqual({
+        kind: "error",
+        outcome: "error",
+        detail: "Image attachment unavailable: the selected model provider does not support image input",
+    });
     expect(providerCalls).toBe(0);
     expect(await channel.client.receive()).toMatchObject({
         type: "user_prompt",
