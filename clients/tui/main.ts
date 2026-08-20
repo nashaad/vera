@@ -67,6 +67,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../src/model/catalog-view.ts";
+import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
     configuredModelAssignments,
@@ -319,6 +320,7 @@ import {
 } from "./quote.ts";
 import {
     needsYouChipColumns,
+    renderTuiCompactionHint,
     renderTuiIdleHint,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -350,6 +352,8 @@ import {
     type TuiReviewerSlot,
     startTuiModelAssignmentPicker,
     startTuiPoolVerifyScopePicker,
+    tuiModelActionOptions,
+    startTuiCatalogRefreshScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
@@ -1204,6 +1208,24 @@ export async function startTui(
      * each entry is a live call to a provider, and a burst of them is the
      * shape rate limits are written against.
      */
+    /** In-flight catalog refreshes, by request, so the reply can name one. */
+    const catalogRefreshes = new Map<string, string>();
+    /**
+     * A refresh of several providers, one at a time. Sequential for the same
+     * reason the probe sweep is: each entry is a live call, and what comes
+     * back is counted against what was there before so the sweep can say what
+     * actually changed.
+     */
+    let catalogRefreshSweep: {
+        readonly queue: readonly string[];
+        index: number;
+        readonly results: {
+            provider: string;
+            before: number;
+            after?: number;
+        }[];
+        requestId?: string;
+    } | undefined;
     let poolVerifySweep: {
         readonly queue: readonly { readonly provider: string; readonly model: string }[];
         readonly total: number;
@@ -2718,7 +2740,7 @@ export async function startTui(
         }
         if (permission !== undefined
             && permission !== opened?.openedPermission) {
-            requestPermissionsChange(permission, target);
+            requestPermissionsChange(permission, target, "session");
         }
     }
 
@@ -5311,7 +5333,7 @@ export async function startTui(
                 requestPermissionsChange(
                     commandAction.mode,
                     focusedAgentClient(),
-                    commandAction.scope ?? "session",
+                    commandAction.scope ?? "global",
                 );
             }
             renderState();
@@ -6521,6 +6543,36 @@ export async function startTui(
                             ...settingsPicker,
                             canUndoPoolChange: true,
                         };
+                    }
+                }
+                if (
+                    (update.type === "model_settings"
+                        || update.type === "model_settings_rejected")
+                    && catalogRefreshSweepResult(
+                        update.requestId,
+                        update.type === "model_settings",
+                    )
+                ) {
+                    // The sweep owns its own reporting.
+                } else if (
+                    (update.type === "model_settings"
+                        || update.type === "model_settings_rejected")
+                    && catalogRefreshes.has(update.requestId)
+                ) {
+                    const provider = catalogRefreshes.get(update.requestId)!;
+                    catalogRefreshes.delete(update.requestId);
+                    if (update.type === "model_settings_rejected") {
+                        // The remembered list is still in place: a provider
+                        // that could not be asked is not a provider whose
+                        // models went away.
+                        showStatusNotice(
+                            `could not ask ${provider}, its saved list stands`,
+                        );
+                    } else {
+                        const count = (state.modelSettings?.availableModels ?? [])
+                            .filter((entry) => entry.provider === provider)
+                            .length;
+                        showStatusNotice(`${provider}: ${count} models`);
                     }
                 }
                 if (
@@ -7850,6 +7902,15 @@ export async function startTui(
                 targetState.modelSettings?.reasoningEffort,
                 targetState.modelSettings?.contextLimit,
             ),
+            actionOptions: tuiModelActionOptions(
+                refreshableProvidersOf(
+                    targetState.modelSettings?.availableModels,
+                ),
+                {
+                    hasPool: (targetState.modelSettings?.pooled?.length ?? 0)
+                        > 0,
+                },
+            ),
         };
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
@@ -7857,6 +7918,26 @@ export async function startTui(
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    /** The connected providers whose model list can be fetched again. */
+    function refreshableProvidersOf(
+        models: readonly { readonly provider: string }[] | undefined,
+    ): readonly string[] {
+        const named = new Set<string>();
+        for (const model of models ?? []) {
+            if (isRefreshableProvider(model.provider)) {
+                named.add(model.provider);
+            }
+        }
+        return [...named].toSorted();
+    }
+
+    /** How many models the current snapshot holds for one provider. */
+    function catalogSizeOf(provider: string): number {
+        return (state.modelSettings?.availableModels ?? [])
+            .filter((entry) => entry.provider === provider)
+            .length;
     }
 
     /**
@@ -9277,6 +9358,20 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (
+            "refreshCatalog" in transition
+            && transition.refreshCatalog !== undefined
+        ) {
+            requestCatalogRefresh(transition.refreshCatalog);
+            return;
+        }
+        if (
+            "refreshCatalogScope" in transition
+            && transition.refreshCatalogScope === true
+        ) {
+            openCatalogRefreshScopePicker();
+            return;
+        }
         if ("poolVerifySweep" in transition && transition.poolVerifySweep === true) {
             openPoolVerifyScopePicker();
             return;
@@ -9519,6 +9614,9 @@ export async function startTui(
                 }
             } else if (selection.kind === "pool_verify_scope") {
                 startPoolVerifySweep(selection.onlyUnverified);
+                return;
+            } else if (selection.kind === "catalog_refresh_scope") {
+                startCatalogRefreshSweep(selection.providers);
                 return;
             } else if (selection.kind === "model_assignment_browse") {
                 // Keeping a model is what makes it available as a default, so
@@ -10094,6 +10192,21 @@ export async function startTui(
      * transcript entry is written whether or not the dialog is showing: it is
      * the durable record, and the only surface a reattached client gets.
      */
+    /**
+     * Asks the provider for its list now. The pane stays open and is rebuilt
+     * by the `model_settings` reply on the route every other edit to it takes,
+     * so the only thing owed here is a word about what is happening: the wait
+     * is bounded but it is not instant, and a list that comes back identical
+     * would otherwise look like a key that did nothing.
+     */
+    function requestCatalogRefresh(provider: string): void {
+        const requestId = randomUUID();
+        catalogRefreshes.set(requestId, provider);
+        showStatusNotice(`asking ${provider} for its model list…`);
+        sendCommand({ type: "catalog_refresh", requestId, provider });
+        renderState();
+    }
+
     function requestPoolAdmission(
         provider: string,
         model: string,
@@ -10139,6 +10252,117 @@ export async function startTui(
             model: entry.model,
             verified: entry.verified === true,
         }));
+    }
+
+    function openCatalogRefreshScopePicker(): void {
+        const providers = refreshableProvidersOf(
+            state.modelSettings?.availableModels,
+        );
+        if (providers.length === 0) {
+            showStatusNotice("no provider here keeps a model list to refresh");
+            return;
+        }
+        settingsPicker = withTuiPickerParent(
+            startTuiCatalogRefreshScopePicker(
+                providers.map((name) => ({
+                    name,
+                    models: catalogSizeOf(name),
+                })),
+            ),
+            settingsPicker?.kind === "model" ? settingsPicker : undefined,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    /** An empty scope names every provider that keeps a list. */
+    function startCatalogRefreshSweep(providers: readonly string[]): void {
+        const queue = providers.length > 0
+            ? providers
+            : refreshableProvidersOf(state.modelSettings?.availableModels);
+        settingsPicker = undefined;
+        composer.blur();
+        if (catalogRefreshSweep !== undefined) {
+            // Two sweeps at once cannot both be reported: the second would
+            // claim the first one's answers as its own.
+            showStatusNotice("a refresh is already running");
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (queue.length === 0) {
+            showStatusNotice("no provider here keeps a model list to refresh");
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        catalogRefreshSweep = { queue, index: 0, results: [] };
+        renderState();
+        focusActiveSurface();
+        advanceCatalogRefreshSweep();
+    }
+
+    function advanceCatalogRefreshSweep(): void {
+        const sweep = catalogRefreshSweep;
+        if (sweep === undefined) return;
+        const next = sweep.queue[sweep.index];
+        if (next === undefined) {
+            catalogRefreshSweep = undefined;
+            showStatusNotice(catalogRefreshSummary(sweep.results));
+            renderState();
+            return;
+        }
+        sweep.results.push({ provider: next, before: catalogSizeOf(next) });
+        showStatusNotice(
+            `asking ${next} (${sweep.index + 1}/${sweep.queue.length})\u2026`,
+        );
+        const requestId = randomUUID();
+        sweep.requestId = requestId;
+        sendCommand({ type: "catalog_refresh", requestId, provider: next });
+        renderState();
+    }
+
+    /** True when the reply belonged to the sweep, which then steps on. */
+    function catalogRefreshSweepResult(
+        requestId: string,
+        refreshed: boolean,
+    ): boolean {
+        const sweep = catalogRefreshSweep;
+        if (sweep === undefined || sweep.requestId !== requestId) return false;
+        const result = sweep.results.at(-1);
+        if (result !== undefined && refreshed) {
+            result.after = catalogSizeOf(result.provider);
+        }
+        sweep.index += 1;
+        advanceCatalogRefreshSweep();
+        return true;
+    }
+
+    /**
+     * What the sweep changed, provider by provider. The delta leads because it
+     * is the reason to have run it; a provider that could not be asked says so
+     * rather than being left out.
+     */
+    function catalogRefreshSummary(
+        results: readonly {
+            readonly provider: string;
+            readonly before: number;
+            readonly after?: number;
+        }[],
+    ): string {
+        return results
+            .map((entry) => {
+                if (entry.after === undefined) {
+                    return `${entry.provider}: could not ask`;
+                }
+                const delta = entry.after - entry.before;
+                return delta === 0
+                    ? `${entry.provider}: ${entry.after}, nothing new`
+                    : `${entry.provider}: ${entry.after}, ${
+                        delta > 0 ? `+${delta} new` : `${-delta} gone`
+                    }`;
+            })
+            .join(" \u00b7 ");
     }
 
     function openPoolVerifyScopePicker(): void {
@@ -10238,19 +10462,11 @@ export async function startTui(
         renderState();
     }
 
-    /**
-     * Change the posture for this session.
-     *
-     * Session-scoped by default. Writing the host default too used to be
-     * implicit and unavoidable; it is now its own action, so choosing a
-     * posture for one conversation stops deciding it for every future one. A
-     * host too old to know the session-scoped command gets the old behaviour,
-     * which is the only honest fallback.
-     */
+    /** Change the persistent host default used by new sessions. */
     function requestPermissionsChange(
         mode: string,
         target: TuiAgentClient = focusedAgentClient(),
-        scope: "session" | "global" = "session",
+        scope: "session" | "global" = "global",
     ): void {
         const requestId = randomUUID();
         requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
@@ -10812,6 +11028,10 @@ export async function startTui(
             lifecycleHint = tuiApprovalHint(uiRequest);
         } else if (uiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${focusedElapsed}`;
+        } else if (statusState.compactingSince !== undefined) {
+            lifecycleHint = renderTuiCompactionHint(
+                Date.now() - statusState.compactingSince,
+            );
         } else if (statusState.working) {
             const modelActivity = statusState.modelActivity;
             const waitingToRetry = modelActivity !== undefined
@@ -10839,6 +11059,7 @@ export async function startTui(
             : statusNotice !== undefined
             ? TUI_NOTICE
             : statusState.working
+                    || statusState.compactingSince !== undefined
                     || uiRequest !== undefined
                     || extensionCommandPending
                 ? TUI_ACCENT

@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 
 import {
     needsYouChipColumns,
+    renderTuiCompactionHint,
     renderTuiIdleHint,
     renderTuiStatusDetailsLine,
     renderTuiStatusDetailsRows,
@@ -210,6 +211,21 @@ test("the idle status line reports the background agents still running", () => {
     // Back to the plain hint once the children are done.
     expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
         .toBe("ready · ctrl+p commands");
+});
+
+test("the compaction hint fills with time and never completes on its own", () => {
+    expect(renderTuiCompactionHint(0)).toBe("compacting [░░░░░░░░░░░░] · 0s");
+    // Half life: 20s of elapsed time fills half the bar.
+    expect(renderTuiCompactionHint(20_000))
+        .toBe("compacting [██████░░░░░░] · 20s");
+    // The fill grows monotonically with elapsed time.
+    const fills = [1_000, 5_000, 30_000, 120_000, 600_000].map((ms) =>
+        renderTuiCompactionHint(ms).split("█").length - 1
+    );
+    expect([...fills].sort((a, b) => a - b)).toEqual(fills);
+    // Only the finish completes the bar: elapsed time alone leaves a gap.
+    expect(renderTuiCompactionHint(Number.MAX_SAFE_INTEGER))
+        .toContain("░");
 });
 
 test("the status line leads with what needs you, and says nothing when nothing does", () => {

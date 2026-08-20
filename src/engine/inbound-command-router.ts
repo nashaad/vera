@@ -284,6 +284,15 @@ export interface InboundCommandRouterOptions {
         entry: { readonly provider: string; readonly model: string },
         delta: number,
     ) => Promise<ModelTurnSettings | undefined>;
+    /**
+     * Asks the named provider (or every askable one) for its list now and
+     * returns the settings snapshot the refreshed list produces. `undefined`
+     * means nothing could be asked, which is a refusal rather than an empty
+     * list: the remembered list stays.
+     */
+    readonly refreshCatalog?: (
+        provider: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     readonly readApprovalMode?: () => ApprovalMode;
     readonly readPermissionInspection?: () => PermissionInspection | undefined;
     readonly updateApprovalMode?: (
@@ -746,6 +755,14 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "catalog_refresh") {
+                    await this.refreshCatalog(
+                        command.requestId,
+                        command.provider,
+                    );
+                    continue;
+                }
+
                 if (command.type === "pool_name") {
                     await this.poolName(command.requestId, {
                         provider: command.provider,
@@ -1101,6 +1118,36 @@ export class InboundCommandRouter {
                 type: "model_settings_rejected",
                 requestId,
                 reason: this.options.poolRemove === undefined
+                    ? "unavailable"
+                    : "invalid",
+            });
+            return;
+        }
+        this.events.emit({
+            type: "model_settings_changed",
+            requestId,
+            settings: copyModelSettings(settings),
+            pending: this.hasPendingTurn(),
+        });
+    }
+
+    private async refreshCatalog(
+        requestId: string,
+        provider: string,
+    ): Promise<void> {
+        let settings: ModelTurnSettings | undefined;
+        try {
+            settings = await this.options.refreshCatalog?.(provider);
+        } catch {
+            // Asking a provider is a network call, and one that throws is not
+            // a reason to stop reading this session's commands.
+            settings = undefined;
+        }
+        if (settings === undefined) {
+            this.events.emit({
+                type: "model_settings_rejected",
+                requestId,
+                reason: this.options.refreshCatalog === undefined
                     ? "unavailable"
                     : "invalid",
             });

@@ -322,6 +322,14 @@ export interface AgentRegistryOptions {
     /** Rebuilds dynamic provider rows after credentials change in this process. */
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
     /**
+     * Asks a provider for its model list now, past whatever age the snapshot
+     * would otherwise be trusted for, and returns the replacement list.
+     * `undefined` means nothing could be asked and the remembered list stands.
+     */
+    readonly refreshCatalog?: (
+        provider: string,
+    ) => Promise<readonly SuggestedModel[] | undefined>;
+    /**
      * Read per settings snapshot, not once at startup: the pool changes while
      * the host runs, so a snapshot taken when it came up would freeze the
      * list for the life of the host.
@@ -2560,6 +2568,44 @@ export class AgentRegistry {
         };
     }
 
+    /**
+     * Refetches a provider's list on the user's say-so and answers with the
+     * settings the refreshed list produces, so the pane that asked can redraw
+     * from one reply. A provider that cannot be asked leaves the list alone:
+     * a stale list beats an empty one, which is the same rule discovery
+     * itself follows on a failed fetch.
+     */
+    async refreshCatalog(
+        id: string,
+        provider: string,
+    ): Promise<ModelTurnSettings | undefined> {
+        const agentEntry = this.agents.get(id);
+        if (
+            agentEntry === undefined
+            || agentEntry.agent.closed
+            || agentEntry.agent.failed
+            || this.options.refreshCatalog === undefined
+        ) {
+            return undefined;
+        }
+        const refreshed = await this.options.refreshCatalog(provider);
+        if (refreshed === undefined) {
+            return undefined;
+        }
+        this.availableModels = refreshed;
+        return settingsForClient(
+            agentEntry.modelSettings,
+            agentEntry.modelSettings.provider ?? this.defaultProvider,
+            this.catalog,
+            this.availableModels,
+            this.options.readPool?.(agentEntry.store.header.cwd),
+            this.options.subagentModel,
+            agentEntry.requestedReasoningEffort,
+            this.reviewerDefault(),
+            this.options.contextLimit?.(),
+        );
+    }
+
     async poolRemove(
         id: string,
         entry: { readonly provider: string; readonly model: string },
@@ -3348,6 +3394,8 @@ export class AgentRegistry {
                     this.poolAdd(agent.id, entry, onStep, options),
                 poolRemove: (entry) =>
                     this.poolRemove(agent.id, entry),
+                refreshCatalog: (provider) =>
+                    this.refreshCatalog(agent.id, provider),
                 poolName: (entry, name) =>
                     this.poolName(agent.id, entry, name),
                 poolMove: (entry, delta) =>

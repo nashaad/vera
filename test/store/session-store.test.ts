@@ -1660,6 +1660,59 @@ test("a compaction replaces the model context without touching the transcript", 
         .toEqual([summary, second, secondAnswer]);
 });
 
+test("aged tool results inside a compaction projection are assembled too", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const spillPath = join(directory, "projected-tool.txt");
+    const original = "src/a.ts:12:needle\n".repeat(200);
+    writeFileSync(spillPath, original);
+    const store = await countedStore(path, directory);
+    await store.appendMessage(userMessage("first"));
+    await store.appendMessage(assistantMessage("first answer"));
+    await store.appendMessage(userMessage("second"));
+    await store.appendMessage(assistantMessage("second answer"));
+    await store.appendMessage(userMessage("third"));
+    await store.appendMessage(assistantMessage("third answer"));
+    await store.appendMessage(userMessage("fourth"));
+
+    const call: ModelMessage = {
+        role: "assistant",
+        content: [{ type: "tool_call", id: "projected-call", name: "grep", input: {
+            pattern: "needle",
+            path: ".",
+        } }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const result: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "projected-call",
+        toolName: "grep",
+        content: [{ type: "text", text: original }],
+        isError: false,
+        toolResultSource: {
+            originalBytes: Buffer.byteLength(original, "utf8"),
+            spillPath,
+        },
+    };
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [call, result],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    const projected = store.modelContext().find((message) =>
+        message.role === "tool_result"
+    );
+    expect(projected?.role === "tool_result" && projected.content[0]?.text)
+        .toContain("Digest of older grep");
+    expect((await SessionStore.open(path)).modelContext().find((message) =>
+        message.role === "tool_result"
+    )).toEqual(projected);
+});
+
 test("compacting again summarizes the previous projection's span", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
@@ -1937,6 +1990,63 @@ test("a compaction cannot leave a gap between its boundary and its suffix", asyn
         projection: [assistantMessage("summary")],
         measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
     })).rejects.toThrow("must retain the message following its boundary");
+});
+
+test("aged tool results are an assembly overlay that survives reopen and rewind", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const spillPath = join(directory, "old-tool-output.txt");
+    const original = "src/a.ts:12:needle\nsrc/a.ts:20:other\n".repeat(100);
+    writeFileSync(spillPath, original);
+    const store = await countedStore(path, directory);
+    await store.appendMessage(userMessage("find it"));
+    await store.appendMessage({
+        role: "assistant",
+        content: [{ type: "tool_call", id: "call-1", name: "grep", input: {
+            pattern: "needle",
+            path: ".",
+        } }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    });
+    const result: ModelMessage = {
+        role: "tool_result",
+        toolCallId: "call-1",
+        toolName: "grep",
+        content: [{ type: "text", text: original }],
+        isError: false,
+        toolResultSource: {
+            originalBytes: Buffer.byteLength(original, "utf8"),
+            spillPath,
+        },
+    };
+    await store.appendMessage(result);
+    await store.appendMessage(assistantMessage("first answer"));
+    await store.appendMessage(userMessage("second"));
+    await store.appendMessage(assistantMessage("second answer"));
+    const thirdUser = await store.appendMessage(userMessage("third"));
+    await store.appendMessage(assistantMessage("third answer"));
+    await store.appendMessage(userMessage("fourth"));
+
+    const assembled = store.modelContext();
+    const assembledResult = assembled.find((message) =>
+        message.role === "tool_result"
+    );
+    expect(assembledResult?.role === "tool_result"
+        && assembledResult.content[0]?.text).toContain("Digest of older grep");
+    expect(store.messages().find((message) => message.role === "tool_result"))
+        .toEqual(result);
+    expect((await SessionStore.open(path)).modelContext().find((message) =>
+        message.role === "tool_result"
+    )).toEqual(assembledResult);
+
+    await store.rewindBefore(thirdUser.id);
+    const rewoundResult = store.modelContext().find((message) =>
+        message.role === "tool_result"
+    );
+    expect(rewoundResult).toEqual(result);
+    expect(store.messages()).toContainEqual(result);
 });
 
 
