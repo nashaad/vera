@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
+import { parseColor } from "@opentui/core";
 
 import {
     createTuiToolHeader,
     createTuiToolRow,
     updateTuiToolRow,
 } from "../../clients/tui/tool-row.ts";
+import { TUI_ACCENT, TUI_MUTED } from "../../clients/tui/state.ts";
 
 test("a compact tool preview stays to one row per summary", async () => {
     const setup = await createTestRenderer({ width: 28, height: 8 });
@@ -87,6 +89,35 @@ test("a wrapped tool row hangs under its own text", async () => {
         // The wrap lands under the text, not back at the left edge.
         expect(rows[1]?.startsWith("    ")).toBe(true);
         expect(rows[1]?.trim()).toBe("bravo charlie");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a tool row highlights its semantic action", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 4 });
+    const row = createTuiToolRow(
+        setup.renderer,
+        "entry-semantic-action",
+        {
+            kind: "tool",
+            header: "Explored",
+            prefix: "  └ ",
+            text: "Read state.ts",
+        },
+        0,
+    );
+    setup.renderer.root.add(row);
+
+    try {
+        await setup.flush();
+        const spans = setup.captureSpans().lines.flatMap((line) => line.spans);
+        const spanFor = (value: string) => spans.find((span) =>
+            span.text === value
+        );
+        expect(spanFor("Read")?.fg.equals(parseColor(TUI_ACCENT))).toBe(true);
+        expect(spanFor(" state.ts")?.fg.equals(parseColor(TUI_MUTED)))
+            .toBe(true);
     } finally {
         setup.renderer.destroy();
     }
