@@ -1,9 +1,11 @@
 import type { VeraClientExtensionApi } from "../../../src/sdk/extensions.ts";
 import { createContextView, type ContextView } from "./context-view.ts";
+import { registerDashboard } from "./dashboard.ts";
 
 let reportNumber = 0;
 
 export function activateClient(vera: VeraClientExtensionApi): void {
+    registerDashboard(vera);
     vera.commands.register({
         name: "context",
         description: "Show context usage",

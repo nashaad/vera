@@ -6,7 +6,9 @@
     "capabilities": [
         "client.commands.register",
         "client.context.read",
-        "client.experimental_tui"
+        "client.experimental_tui",
+        "client.sessions.read",
+        "client.agents"
     ],
     "contributes": {}
 }
