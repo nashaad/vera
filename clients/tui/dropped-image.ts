@@ -54,18 +54,26 @@ async function copyIntoScratch(
  */
 export async function materializeDroppedImage(
     path: string,
+    options: {
+        /** Where a dismissed capture is looked for. Defaults to the macOS setting. */
+        readonly savedCaptures?: () => Promise<string>;
+    } = {},
 ): Promise<{ path: string; release: () => Promise<void> }> {
     const root = join(tmpdir(), "vera-dropped-images");
     await mkdir(root, { recursive: true });
     const scratch = await mkdtemp(join(root, "drop-"));
+    let released = false;
     const release = async (): Promise<void> => {
+        if (released) return;
+        released = true;
         await rm(scratch, { recursive: true, force: true }).catch(() => {});
     };
 
     const direct = await copyIntoScratch(path, scratch);
     if (direct !== undefined) return { path: direct, release };
 
-    const saved = join(await savedCaptureDirectory(), basename(path));
+    const locate = options.savedCaptures ?? savedCaptureDirectory;
+    const saved = join(await locate(), basename(path));
     if (saved !== path) {
         const recovered = await copyIntoScratch(saved, scratch);
         if (recovered !== undefined) return { path: recovered, release };

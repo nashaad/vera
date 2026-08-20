@@ -277,6 +277,34 @@ test("TUI composer turns a pasted screenshot path into an attachment action", as
     }
 });
 
+test("TUI composer attaches a capture dropped from the macOS thumbnail", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 20 });
+    const paths: string[] = [];
+    const composer = createTuiComposer(
+        setup.renderer,
+        () => {},
+        (path) => paths.push(path),
+    );
+    setup.renderer.root.add(composer);
+    composer.focus();
+    try {
+        // Verbatim from a thumbnail drag: escaped ASCII spaces, a bare narrow
+        // no-break space before the meridiem, and a trailing space.
+        await setup.mockInput.pasteBracketedText(
+            "/var/folders/qs/T/TemporaryItems/NSIRD_screencaptureui_zExC81"
+                + "/Screenshot\\ 2026-08-19\\ at\\ 10.20.08 PM.png ",
+        );
+        await setup.flush();
+        expect(paths).toEqual([
+            "/var/folders/qs/T/TemporaryItems/NSIRD_screencaptureui_zExC81"
+                + "/Screenshot 2026-08-19 at 10.20.08 PM.png",
+        ]);
+        expect(composer.plainText).toBe("");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("TUI composer keeps the caret at the end after setting text", async () => {
     const setup = await createTestRenderer({
         width: 40,
