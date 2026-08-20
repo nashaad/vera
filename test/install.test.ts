@@ -99,6 +99,24 @@ test("curl installer verifies, installs, and reuses a release archive", () => {
             "0.1.0\n",
         );
 
+        const upgradePayload = join(root, "payload-v2");
+        mkdirSync(join(upgradePayload, "bin"), { recursive: true });
+        writeFileSync(join(upgradePayload, "bin", "vera"), "#!/bin/sh\necho fixture-v2\n");
+        chmodSync(join(upgradePayload, "bin", "vera"), 0o755);
+        writeFileSync(join(upgradePayload, "VERSION"), "0.2.0\n");
+        writeFileSync(
+            join(upgradePayload, "manifest.json"),
+            '{"version":"0.2.0","platform":"darwin","architecture":"arm64"}\n',
+        );
+        const upgradeArchivePath = join(release, "latest", "download", archive);
+        expect(
+            run(["tar", "-czf", upgradeArchivePath, "-C", upgradePayload, "."]).exitCode,
+        ).toBe(0);
+        const upgradeDigest = createHash("sha256")
+            .update(readFileSync(upgradeArchivePath))
+            .digest("hex");
+        writeFileSync(`${upgradeArchivePath}.sha256`, `${upgradeDigest}\n`);
+
         const second = run(["sh", join(import.meta.dir, "..", "install")], {
             env: {
                 ...process.env,
@@ -113,7 +131,14 @@ test("curl installer verifies, installs, and reuses a release archive", () => {
             },
         });
         expect(second.exitCode).toBe(0);
-        expect(second.stdout.toString()).toContain("Installed Vera 0.1.0");
+        expect(second.stdout.toString()).toContain("Installed Vera 0.2.0");
+        expect(readFileSync(join(installRoot, "current", "VERSION"), "utf8")).toBe(
+            "0.2.0\n",
+        );
+        expect(run([join(binDir, "vera")]).stdout.toString()).toBe("fixture-v2\n");
+        expect(readFileSync(join(installRoot, "versions", "0.1.0", "VERSION"), "utf8")).toBe(
+            "0.1.0\n",
+        );
     } finally {
         rmSync(root, { recursive: true, force: true });
     }
