@@ -4,6 +4,7 @@ import {
     writeProviderCatalogSnapshot,
 } from "./catalog-cache.ts";
 import { mergeCatalogReleaseDates } from "./catalog-release-dates.ts";
+import { EFFORT_LADDER } from "./effort-ladder.ts";
 import type {
     CatalogModel,
     ProviderCatalog,
@@ -169,6 +170,12 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         ? value.created
         : undefined;
 
+    const reasoning = readReasoning(
+        value.reasoning,
+        parameters.includes("reasoning")
+            || parameters.includes("reasoning_effort"),
+    );
+
     return {
         id: value.id,
         label,
@@ -177,27 +184,93 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
         ...(created === undefined ? {} : { created }),
         tool_support: true,
-        levels: parameters.includes("reasoning")
-                || parameters.includes("reasoning_effort")
-            ? REASONING_LEVELS
-            : [],
+        ...(reasoning.defaultLevel === undefined
+            ? {}
+            : { default_level: reasoning.defaultLevel }),
+        levels: reasoning.levels,
     };
 }
 
 /**
- * OpenRouter's `supported_parameters` names `reasoning` (the object the
- * adapter sends) on some models and `reasoning_effort` (the shorthand) on
- * others; either one means the model takes an effort. OpenRouter does not
- * publish which values each model accepts, so every reasoning-capable model
- * gets the same three levels: they are the values OpenRouter documents, and it
- * maps an effort a model does not implement onto one that model does. Levels
- * are strongest-first, as `CatalogModel.levels` requires.
+ * The levels a model announces, and the level it picks when asked for none.
  *
- * The cost of the missing per-model vocabulary is that a model with a level
- * above "high" cannot reach it from here. That is a ceiling on the level, not a
- * wrong answer, and it goes away if OpenRouter ever exposes the enum.
+ * OpenRouter states both under a per-model `reasoning` object. A model whose
+ * `supported_parameters` names `reasoning` or `reasoning_effort` but carries
+ * no such object accepts an effort whose vocabulary the listing does not
+ * state, so it falls back to the three values OpenRouter documents; that is a
+ * guess, and it is only ever made where the alternative is offering no level
+ * at all. A model that announces no reasoning parameter gets no levels.
+ *
+ * `none` is dropped. It means "do not think", which is Vera's `off`, and a row
+ * for it beside Low and Medium reads as a fourth depth rather than a switch.
  */
-const REASONING_LEVELS: readonly ReasoningLevel[] = [
+function readReasoning(
+    value: unknown,
+    acceptsEffort: boolean,
+): { readonly levels: readonly ReasoningLevel[]; readonly defaultLevel?: string } {
+    if (!acceptsEffort) {
+        return { levels: [] };
+    }
+    const efforts = isRecord(value) && Array.isArray(value.supported_efforts)
+        ? value.supported_efforts.filter((entry): entry is string =>
+            typeof entry === "string" && entry.length > 0 && entry !== "none"
+        )
+        : [];
+    if (efforts.length === 0) {
+        return { levels: DOCUMENTED_LEVELS };
+    }
+    const levels = strongestFirst(dedupe(efforts)).map((id) => ({
+        id,
+        label: LEVEL_LABELS[id] ?? titleCase(id),
+    }));
+    const declaredDefault = isRecord(value)
+            && typeof value.default_effort === "string"
+        ? value.default_effort
+        : undefined;
+    const defaultLevel =
+        declaredDefault !== undefined
+            && levels.some((level) => level.id === declaredDefault)
+            ? declaredDefault
+            : undefined;
+    return {
+        levels,
+        ...(defaultLevel === undefined ? {} : { defaultLevel }),
+    };
+}
+
+function dedupe(ids: readonly string[]): readonly string[] {
+    return [...new Set(ids)];
+}
+
+/**
+ * `CatalogModel.levels` requires strongest first. Vera's ladder decides that
+ * for the levels it knows; anything else keeps the order the listing gave and
+ * sorts after them, since a level Vera cannot place on the ladder is one it
+ * cannot claim is stronger or weaker than another.
+ */
+function strongestFirst(ids: readonly string[]): readonly string[] {
+    const ladder: readonly string[] = EFFORT_LADDER;
+    const known = ladder.filter((level) => ids.includes(level)).reverse();
+    const unknown = ids.filter((id) => !ladder.includes(id));
+    return [...known, ...unknown];
+}
+
+function titleCase(id: string): string {
+    return id.charAt(0).toUpperCase() + id.slice(1);
+}
+
+const LEVEL_LABELS: Readonly<Record<string, string>> = {
+    max: "Max",
+    xhigh: "Extra High",
+    high: "High",
+    medium: "Medium",
+    low: "Low",
+    minimal: "Minimal",
+    off: "Off",
+};
+
+/** The three values OpenRouter documents, strongest first. */
+const DOCUMENTED_LEVELS: readonly ReasoningLevel[] = [
     { id: "high", label: "High" },
     { id: "medium", label: "Medium" },
     { id: "low", label: "Low" },
