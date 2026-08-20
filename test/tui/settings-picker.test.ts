@@ -3034,7 +3034,10 @@ test("a scope answer names the providers to ask, and all names none", () => {
     ]);
 
     expect(handleTuiSettingsPickerKey(scope, { name: "return" }).selection)
-        .toEqual({ kind: "catalog_refresh_scope", providers: [] });
+        .toEqual({
+            kind: "catalog_refresh_scope",
+            providers: ["cerebras", "openrouter"],
+        });
     expect(
         handleTuiSettingsPickerKey(
             { ...scope, selectedIndex: 2 },
