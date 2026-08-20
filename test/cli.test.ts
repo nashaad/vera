@@ -3,10 +3,20 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
-import { runCli, runCliMain } from "../clients/cli/main.ts";
+import {
+    applyProfileFlag,
+    applyRescueCommand,
+    namedProfileFlag,
+    runCli,
+    runCliMain,
+} from "../clients/cli/main.ts";
+import { VeraProfileError } from "../src/profile-paths.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
-import { HostProtocolMismatchError } from "../src/host/lockfile.ts";
+import {
+    HostProtocolMismatchError,
+    HostUnresponsiveError,
+} from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 
 test("vera help and version are available without starting a client", async () => {
@@ -698,6 +708,91 @@ test("vera host stop --yes skips confirmation", async () => {
     expect(exitCode).toBe(0);
     expect(confirmed).toBe(false);
     expect(stopped).toBe(true);
+});
+
+test("vera host stop --force uses the handshake-free stop", async () => {
+    let output = "";
+    let forced = false;
+    const exitCode = await runCli(["host", "stop", "--force", "--yes"], {
+        forceStopHost: async () => {
+            forced = true;
+            return { pid: 51639, endedBy: "sigkill" };
+        },
+        stopHost: async () => {
+            throw new Error("the graceful stop must not run under --force");
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(forced).toBe(true);
+    expect(output).toBe(
+        "Stopped resident Vera host PID 51639 (killed after it ignored SIGTERM).\n",
+    );
+});
+
+test("vera host stop --force still asks for confirmation", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--force"], {
+        confirmHostStop: () => false,
+        forceStopHost: async () => {
+            throw new Error("declined stop must not force anything");
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toBe("Resident Vera host was not stopped.\n");
+});
+
+test("vera rescue runs the TUI under the rescue profile", async () => {
+    const env: NodeJS.ProcessEnv = {};
+    expect(applyRescueCommand(["rescue"], env)).toEqual([]);
+    expect(env.VERA_PROFILE).toBe("rescue");
+    expect(applyRescueCommand(["host", "stop"], env)).toEqual(["host", "stop"]);
+});
+
+test("vera names the recovery commands for an unresponsive host", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        runTui: () => Promise.reject(new HostUnresponsiveError(51639)),
+        stderr: { write: (text) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toBe(
+        "Resident Vera host PID 51639 is running but not responding.\n"
+        + "Run 'vera host stop --force' to kill it.\n"
+        + "For a working Vera while it stays wedged, run 'vera rescue', then"
+        + " stop this one with"
+        + " 'vera host stop --force --profile default'.\n",
+    );
+});
+
+test("vera rescue reads past the global yes flag", () => {
+    const env: NodeJS.ProcessEnv = {};
+    expect(applyRescueCommand(["--yes", "rescue"], env)).toEqual(["--yes"]);
+    expect(env.VERA_PROFILE).toBe("rescue");
+});
+
+test("vera rescue refuses to also take an explicit profile", () => {
+    const env: NodeJS.ProcessEnv = {};
+    expect(() => applyRescueCommand(["rescue"], env, "dogfood")).toThrow(
+        VeraProfileError,
+    );
+    expect(env.VERA_PROFILE).toBeUndefined();
+});
+
+test("host stop under a named profile targets that profile's host", () => {
+    const env: NodeJS.ProcessEnv = {};
+    expect(namedProfileFlag(["host", "stop", "--force", "--profile", "default"]))
+        .toBe("default");
+    expect(namedProfileFlag(["host", "stop", "--force"])).toBeUndefined();
+    expect(applyProfileFlag(
+        ["host", "stop", "--force", "--profile", "default"],
+        env,
+    )).toEqual(["host", "stop", "--force"]);
+    expect(env.VERA_PROFILE).toBe("default");
 });
 
 test("vera reports a damaged config without a runtime stack trace", async () => {
