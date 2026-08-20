@@ -95,6 +95,8 @@ export interface CompactionSchedulerOptions {
     readonly strategy: CompactionStrategyDefinition;
     /** Slot name to bound model, already resolved from config routes. */
     readonly models: Readonly<Record<string, CompleteText>>;
+    /** Model whose next request this measurement describes. */
+    readonly model?: string;
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
@@ -475,6 +477,7 @@ async function attemptCompaction(
             measured: {
                 inputTokens: after,
                 ...(capacity === undefined ? {} : { contextWindow: capacity }),
+                ...(options.model === undefined ? {} : { model: options.model }),
                 estimated: measurement.estimated,
             },
             ...(options.diagnostics === undefined

@@ -322,6 +322,30 @@ test("protocol replay restores usage against the effective context cap", () => {
     });
 });
 
+test("a checkpoint can restore the persisted compaction measurement", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol.checkpoint(messages, undefined, {
+        tokens: 1_800,
+        capacity: 100_000,
+        estimated: true,
+    });
+
+    expect(updates.at(-1)).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 1_800,
+            capacity: 100_000,
+            estimated: true,
+        },
+    });
+});
+
 test("turn completion adds the reply to the provider's request count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

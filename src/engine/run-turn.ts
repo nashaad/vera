@@ -178,6 +178,12 @@ export interface ContextWatch {
     messageTokens?: number;
 }
 
+/** The model and window a turn's next request will use for compaction. */
+export interface CompactionContext {
+    readonly model: string;
+    readonly capacity?: number;
+}
+
 export interface RunTurnState {
     readonly sessionId?: string;
     readonly messages: ModelMessage[];
@@ -191,6 +197,7 @@ export interface RunTurnState {
     readonly compact?: (
         signal: AbortSignal,
         pendingMessages?: readonly ModelMessage[],
+        context?: CompactionContext,
     ) => Promise<void>;
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
@@ -422,6 +429,69 @@ export function sessionScratchDir(sessionId: string): string {
     const dir = join(tmpdir(), "vera", sessionId);
     mkdirSync(dir, { recursive: true });
     return realpathSync(dir);
+}
+
+function compactionContextForSettings(
+    settings: ModelTurnSettings,
+    model = settings.model,
+): CompactionContext {
+    const declared = model === settings.model
+        ? settings.contextWindow
+        : contextWindowForModel(
+            settings.provider,
+            model,
+            settings.availableModels,
+        );
+    const capacity = effectiveContextWindow(declared, settings.contextLimit);
+    return {
+        model,
+        ...(capacity === undefined ? {} : { capacity }),
+    };
+}
+
+function latestCompactionContext(
+    store: SessionStore,
+    current?: CompactionContext,
+): ContextMeasurement | undefined {
+    const compaction = store.latestCompaction();
+    if (compaction === undefined) {
+        return undefined;
+    }
+    if (
+        current !== undefined
+        && (
+            (compaction.measured.model !== undefined
+                && compaction.measured.model !== current.model)
+            || (
+                compaction.measured.contextWindow !== undefined
+                && current.capacity !== undefined
+                && compaction.measured.contextWindow !== current.capacity
+            )
+        )
+    ) {
+        return undefined;
+    }
+    // A later provider response is a newer, authoritative measurement. Let
+    // the protocol reconstruct it from the transcript rather than replacing
+    // it with this older compaction baseline.
+    if (store.activeEntries().some((entry) =>
+        entry.timestamp > compaction.timestamp
+        && entry.message.role === "assistant"
+        && entry.message.usage.inputTokens > 0
+    )) {
+        return undefined;
+    }
+    return {
+        tokens: compaction.measured.inputTokens,
+        ...(compaction.measured.contextWindow === undefined
+            ? {}
+            : { capacity: compaction.measured.contextWindow }),
+        ...(current?.capacity !== undefined
+            && compaction.measured.contextWindow === undefined
+            ? { capacity: current.capacity }
+            : {}),
+        estimated: compaction.measured.estimated,
+    };
 }
 
 export async function runHeadlessLoop(
@@ -711,7 +781,12 @@ export async function runHeadlessLoop(
     // between turns, and the window that matters is the one the next request
     // will be sent into. The settings carry a window the catalog may not
     // have: a locally served model's was measured at discovery.
-    const compactionCapacity = (): number | undefined => {
+    const compactionCapacity = (
+        context?: CompactionContext,
+    ): number | undefined => {
+        if (context?.capacity !== undefined) {
+            return context.capacity;
+        }
         const settings = options.readModelSettings?.();
         return settings?.contextWindow
             ?? contextWindowForModel(
@@ -726,6 +801,7 @@ export async function runHeadlessLoop(
     // prompt, tools, instructions) is carried over because it remains true.
     const measureContextNow = (
         pendingMessages: readonly ModelMessage[] = [],
+        context?: CompactionContext,
     ): ContextMeasurement => {
         const watched = contextWatch.measurement;
         const overhead = watched === undefined
@@ -735,7 +811,7 @@ export async function runHeadlessLoop(
                 watched.tokens
                     - (contextWatch.messageTokens ?? watched.tokens),
             );
-        const capacity = compactionCapacity();
+        const capacity = compactionCapacity(context);
         return {
             tokens: measureMessages([
                 ...store.modelContext(),
@@ -768,8 +844,12 @@ export async function runHeadlessLoop(
             signal: AbortSignal,
             force = false,
             pendingMessages: readonly ModelMessage[] = [],
+            context?: CompactionContext,
         ): Promise<void> => {
-            const measurement = measureContextNow(pendingMessages);
+            const measurement = measureContextNow(pendingMessages, context);
+            const compactionModel = context?.model
+                ?? options.readModelSettings?.().model
+                ?? model;
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
@@ -785,6 +865,7 @@ export async function runHeadlessLoop(
                 store,
                 strategy: compaction.strategy,
                 models: compaction.models,
+                model: compactionModel,
                 ...(compaction.diagnostics === undefined
                     ? {}
                     : { diagnostics: compaction.diagnostics }),
@@ -808,6 +889,22 @@ export async function runHeadlessLoop(
                     : {}),
             });
             if (result.outcome === "compacted") {
+                // The compaction result already measured the next request,
+                // including the fixed prompt overhead. Publish it now so a
+                // client does not keep showing the pre-compaction estimate
+                // until another model request happens.
+                const refreshedMeasurement: ContextMeasurement = {
+                    tokens: result.after,
+                    ...(measurement.capacity === undefined
+                        ? {}
+                        : { capacity: measurement.capacity }),
+                    estimated: measurement.estimated,
+                };
+                events.emit({
+                    type: "context_measured",
+                    model: compactionModel,
+                    measurement: refreshedMeasurement,
+                });
                 // The measurement that triggered this described the request
                 // that no longer exists. Leaving it in place is the stale
                 // trigger that makes a session compact every turn.
@@ -840,7 +937,13 @@ export async function runHeadlessLoop(
                 compact: (
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
-                ) => runCompaction(signal, false, pendingMessages),
+                    context?: CompactionContext,
+                ) => runCompaction(
+                    signal,
+                    false,
+                    pendingMessages,
+                    context,
+                ),
             }),
         deliveryInbox: store,
         toolRuntime: newStashingToolRuntime(
@@ -901,7 +1004,15 @@ export async function runHeadlessLoop(
             loadContextualContributions: options.loadContextualContributions,
         }),
     };
-    protocol.checkpoint(state.messages, store.activeMessageIds());
+    const startupSettings = options.readModelSettings?.();
+    const startupContext = startupSettings === undefined
+        ? { model }
+        : compactionContextForSettings(startupSettings);
+    protocol.checkpoint(
+        state.messages,
+        store.activeMessageIds(),
+        latestCompactionContext(store, startupContext),
+    );
 
     while (true) {
         const checkpointMessages = [...state.messages];
@@ -1103,6 +1214,7 @@ export async function runTurn(
             await state.compact(
                 turn.signal,
                 userMessage === undefined ? [] : [userMessage],
+                compactionContextForSettings(modelSettings, activeModel),
             );
         }
         if (userMessage === undefined) {
@@ -1592,7 +1704,11 @@ export async function runTurn(
             // Every call and result is now durable. This is the only safe
             // boundary inside a tool turn: compacting any earlier could put a
             // call in the summary while its result was still being produced.
-            await state.compact?.(turn.signal);
+            const capacity = capacityForModel(activeModel);
+            await state.compact?.(turn.signal, [], {
+                model: activeModel,
+                ...(capacity === undefined ? {} : { capacity }),
+            });
         }
     } finally {
         state.inbound.finishTurn();
