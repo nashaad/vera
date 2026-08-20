@@ -274,8 +274,7 @@ export async function compactSession(
         measurement.tokens - measureMessages(modelContext),
     );
 
-    let plan: BoundaryPlan | undefined;
-    let targetTokens = 0;
+    const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
     let sawCandidate = false;
     for (
         const candidate of candidateBoundaries(
@@ -288,13 +287,31 @@ export async function compactSession(
         const kept = active.slice(candidate.boundaryIndex + 1)
             .map((entry) => entry.message);
         const room = budget - overhead - measureMessages(kept);
-        if (room >= MIN_SUMMARY_TOKENS) {
-            plan = candidate;
-            targetTokens = room;
-            break;
+        if (room < MIN_SUMMARY_TOKENS) {
+            continue;
         }
+        const previousRoom = viable[viable.length - 1]?.targetTokens;
+        // Only rungs that pose a materially easier problem than the last one
+        // are worth a second call: adjacent seams differ by one message, so
+        // retrying on those would burn calls to ask the same question again.
+        if (
+            previousRoom !== undefined
+            && room < previousRoom + MIN_SUMMARY_TOKENS
+        ) {
+            continue;
+        }
+        viable.push({ plan: candidate, targetTokens: room });
     }
-    if (plan === undefined) {
+    // The last rung has the most room and is the ladder's failsafe, so the cap
+    // takes rungs off the front, never off the end. Trimming the end would
+    // leave the retry unable to reach the boundary most likely to fit.
+    const attempts = viable.length > MAX_COMPACTION_ATTEMPTS
+        ? [
+            ...viable.slice(0, MAX_COMPACTION_ATTEMPTS - 1),
+            ...viable.slice(-1),
+        ]
+        : viable;
+    if (attempts.length === 0) {
         return {
             outcome: "no_boundary",
             reason: sawCandidate
@@ -304,6 +321,82 @@ export async function compactSession(
                 : "There is not enough finished history to compact yet.",
         };
     }
+
+    // A rejection is not the end. The rung had room by measurement and the
+    // summarizer overshot it anyway, which the next turn would reproduce
+    // exactly, so the session would never compact again. Dropping to a looser
+    // rung costs one more call and is the only thing here that recovers.
+    let rejection: CompactionOutcome | undefined;
+    for (const attempt of attempts) {
+        if (signal.aborted) {
+            return { outcome: "cancelled" };
+        }
+        const outcome = await attemptCompaction({
+            attempt,
+            active,
+            previousProjection,
+            previousBoundary,
+            modelContext,
+            overhead,
+            capacity,
+            measurement,
+            options,
+            store,
+            signal,
+        });
+        if (outcome.result.outcome !== "rejected") {
+            return outcome.result;
+        }
+        rejection = outcome.result;
+        // A fault no extra room would change: every further rung would spend a
+        // call to collect the same answer.
+        if (!outcome.retry) {
+            return rejection;
+        }
+    }
+    return rejection ?? { outcome: "cancelled" };
+}
+
+/** How many boundaries one compaction may spend a summarizer call on. */
+export const MAX_COMPACTION_ATTEMPTS = 3;
+
+interface AttemptOptions {
+    readonly attempt: { plan: BoundaryPlan; targetTokens: number };
+    readonly active: readonly SessionMessageEntry[];
+    readonly previousProjection: readonly ModelMessage[];
+    readonly previousBoundary: number;
+    readonly modelContext: readonly ModelMessage[];
+    readonly overhead: number;
+    readonly capacity: number | undefined;
+    readonly measurement: ContextMeasurement;
+    readonly options: CompactionSchedulerOptions;
+    readonly store: SessionStore;
+    readonly signal: AbortSignal;
+}
+
+/** A rung's result, and whether a rung with more room could do better. */
+interface AttemptResult {
+    readonly result: CompactionOutcome;
+    readonly retry: boolean;
+}
+
+/** One rung: summarize the span before it, check it, append it. */
+async function attemptCompaction(
+    input: AttemptOptions,
+): Promise<AttemptResult> {
+    const {
+        active,
+        capacity,
+        measurement,
+        modelContext,
+        options,
+        overhead,
+        previousBoundary,
+        previousProjection,
+        signal,
+        store,
+    } = input;
+    const { plan, targetTokens } = input.attempt;
     const suffix = active.slice(plan.boundaryIndex + 1)
         .map((entry) => entry.message);
 
@@ -325,22 +418,31 @@ export async function compactSession(
     try {
         const proposal = await options.strategy.compact(request, signal);
         if (signal.aborted) {
-            return { outcome: "cancelled" };
+            return { result: { outcome: "cancelled" }, retry: false };
         }
         projection = validateProposal(proposal, request);
     } catch (error) {
         if (signal.aborted) {
-            return { outcome: "cancelled" };
+            return { result: { outcome: "cancelled" }, retry: false };
         }
         if (error instanceof CompactionRejectedError) {
-            return { outcome: "rejected", reason: error.message };
+            return {
+                result: { outcome: "rejected", reason: error.message },
+                retry: error.roomRelated,
+            };
         }
         if (error instanceof CompletionUnavailableError) {
-            return { outcome: "unavailable", reason: error.message };
+            return {
+                result: { outcome: "unavailable", reason: error.message },
+                retry: false,
+            };
         }
         return {
-            outcome: "unavailable",
-            reason: error instanceof Error ? error.message : String(error),
+            result: {
+                outcome: "unavailable",
+                reason: error instanceof Error ? error.message : String(error),
+            },
+            retry: false,
         };
     }
 
@@ -349,11 +451,19 @@ export async function compactSession(
     // accepting it would let the next turn ask again immediately.
     const before = measureMessages(modelContext) + overhead;
     const after = measureMessages([...projection, ...suffix]) + overhead;
+    if (signal.aborted) {
+        return { result: { outcome: "cancelled" }, retry: false };
+    }
     if (after >= before) {
         return {
-            outcome: "rejected",
-            reason: "The compacted context is no smaller than the one it "
-                + "would replace.",
+            result: {
+                outcome: "rejected",
+                reason: "The compacted context is no smaller than the one it "
+                    + "would replace.",
+            },
+            // A boundary further along replaces more of the transcript, so
+            // this is one a looser rung can beat.
+            retry: true,
         };
     }
 
@@ -373,11 +483,14 @@ export async function compactSession(
         });
     } catch (error) {
         return {
-            outcome: "unavailable",
-            reason: error instanceof Error ? error.message : String(error),
+            result: {
+                outcome: "unavailable",
+                reason: error instanceof Error ? error.message : String(error),
+            },
+            retry: false,
         };
     }
-    return { outcome: "compacted", before, after };
+    return { result: { outcome: "compacted", before, after }, retry: false };
 }
 
 function deepFreeze<T>(value: T): T {
