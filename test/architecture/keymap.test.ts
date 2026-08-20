@@ -102,6 +102,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "next_help_tab",
     "cycle_search_filter",
     "toggle_search_scope",
+    "switch_diagnostics_scope",
 ]);
 
 test("no new binding changes state without showing a picker", () => {
