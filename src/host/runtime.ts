@@ -23,7 +23,15 @@ import { defaultEventLogPath } from "../engine/events.ts";
 import {
     ModelFailureLedger,
     defaultModelFailureLedgerPath,
+    readModelFailures,
 } from "../store/model-failures.ts";
+import {
+    latestFailureBySession,
+    readSessionFacts,
+    type SessionFactName,
+    type SessionFacts,
+} from "../store/session-facts.ts";
+import { contextWindowForModel } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
 import type {
@@ -735,6 +743,16 @@ export async function startResidentHost(
                 await storedSessions,
                 registry.list(),
             ),
+            // Facts are read for the page the server sliced, never for the
+            // whole listing: a profile holds thousands of sessions and each
+            // usage fold is a file scan.
+            readSessionFacts: (sessions, include) =>
+                enrichSessionsWithFacts(
+                    sessions,
+                    include,
+                    options.modelFailureLedgerPath
+                        ?? defaultModelFailureLedgerPath(),
+                ),
             listBackgroundAgents: () => registry.list(),
             // Bounded and best effort: the work index is drawn on every
             // roster change, and a schedule database that cannot be read is
@@ -1694,6 +1712,7 @@ export async function indexStoredSession(
             status: "completed",
             live: false,
             updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
+            created_at: header.timestamp,
             ...(metadata.title === undefined
                 ? {}
                 : { title: metadata.title.slice(0, 80) }),
@@ -1706,6 +1725,36 @@ export async function indexStoredSession(
     } catch {
         // A corrupt unopened session cannot block healthy lazy resumes.
     }
+}
+
+/**
+ * Fills one page of listing rows with the facts the caller named. The failure
+ * ledger is profile-wide, so it is read once for the page rather than once per
+ * row; usage and context need the session file and are read per row.
+ */
+async function enrichSessionsWithFacts(
+    sessions: readonly RegisteredAgentSummary[],
+    include: readonly SessionFactName[],
+    ledgerPath: string,
+): Promise<readonly RegisteredAgentSummary[]> {
+    const failures = include.includes("failure")
+        ? latestFailureBySession(readModelFailures(ledgerPath))
+        : undefined;
+    return await Promise.all(sessions.map(async (session) => {
+        const facts = await readSessionFacts(session.session_path, {
+            include,
+            capacity: (provider, model) =>
+                contextWindowForModel(provider, model),
+        });
+        const failure = failures?.get(session.id);
+        const merged: SessionFacts = {
+            ...facts,
+            ...(failure === undefined ? {} : { failure }),
+        };
+        return Object.keys(merged).length === 0
+            ? session
+            : { ...session, facts: merged };
+    }));
 }
 
 function mergeStoredAndResidentAgents(

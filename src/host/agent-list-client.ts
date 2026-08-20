@@ -1,14 +1,46 @@
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
+import type { SessionFactName } from "../store/session-facts.ts";
 import { connectHost } from "./connection.ts";
+
+export interface ListAgentsOptions {
+    /** Optional facts to compute. Each name costs the host a read. */
+    readonly include?: readonly SessionFactName[];
+    readonly limit?: number;
+    readonly cursor?: string;
+    readonly order?: "id" | "recent";
+}
+
+export interface ListedAgentsPage {
+    readonly agents: readonly RegisteredAgentSummary[];
+    /** Absent once the listing is exhausted. */
+    readonly nextCursor?: string;
+    /** Rows in the whole listing, not in this page. */
+    readonly total?: number;
+}
 
 export async function listAgentsThroughHost(
     socketPath: string,
     responseTimeoutMs = 2_000,
 ): Promise<RegisteredAgentSummary[]> {
+    return [...(await listAgentPageThroughHost(socketPath, {}, responseTimeoutMs))
+        .agents];
+}
+
+export async function listAgentPageThroughHost(
+    socketPath: string,
+    options: ListAgentsOptions = {},
+    responseTimeoutMs = 2_000,
+): Promise<ListedAgentsPage> {
     const connection = await connectHost({ socketPath });
     let timeout: ReturnType<typeof setTimeout> | undefined;
     try {
-        await connection.send({ type: "list_agents" });
+        await connection.send({
+            type: "list_agents",
+            ...(options.include === undefined ? {} : { include: options.include }),
+            ...(options.limit === undefined ? {} : { limit: options.limit }),
+            ...(options.cursor === undefined ? {} : { cursor: options.cursor }),
+            ...(options.order === undefined ? {} : { order: options.order }),
+        });
         const response = asRecord(await Promise.race([
             connection.receive(),
             new Promise<never>((_, reject) => {
@@ -24,7 +56,17 @@ export async function listAgentsThroughHost(
         ) {
             throw new Error("Host returned an invalid agent list");
         }
-        return response.agents;
+        return {
+            agents: response.agents,
+            ...(typeof response.next_cursor === "string"
+                    && response.next_cursor.length > 0
+                ? { nextCursor: response.next_cursor }
+                : {}),
+            ...(typeof response.total === "number"
+                    && Number.isSafeInteger(response.total)
+                ? { total: response.total }
+                : {}),
+        };
     } finally {
         clearTimeout(timeout);
         connection.close();
@@ -75,13 +117,16 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
                 && agent.size_bytes >= 0
             )
         )
-        && (
-            agent.updated_at === undefined
-            || (
-                typeof agent.updated_at === "string"
-                && !Number.isNaN(Date.parse(agent.updated_at))
-            )
-        );
+        && isOptionalTimestamp(agent.created_at)
+        && isOptionalTimestamp(agent.updated_at)
+        // Facts are opaque to the listing contract: an older client that never
+        // asked for them must not reject a row that carries them.
+        && (agent.facts === undefined || asRecord(agent.facts) !== undefined);
+}
+
+function isOptionalTimestamp(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "string" && !Number.isNaN(Date.parse(value)));
 }
 
 function asRecord(value: unknown): Record<string, unknown> | undefined {

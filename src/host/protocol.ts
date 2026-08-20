@@ -4,6 +4,7 @@ import {
     parseClientCommand,
     type ClientCommand,
 } from "../engine/protocol.ts";
+import type { SessionFactName } from "../store/session-facts.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
 import type {
@@ -38,6 +39,13 @@ export interface HostIdentityRequest {
 
 export interface ListAgentsRequest {
     readonly type: "list_agents";
+    readonly include?: readonly SessionFactName[];
+    /** Row order. Defaults to id, which is the historic shape. */
+    readonly order?: "id" | "recent";
+    /** Rows per page. Absent means every row, which is the historic shape. */
+    readonly limit?: number;
+    /** Opaque position from a previous response's `next_cursor`. */
+    readonly cursor?: string;
 }
 
 export interface SearchSessionsRequest {
@@ -296,6 +304,10 @@ export interface DetachedResponse {
 export interface AgentListResponse {
     readonly type: "agent_list";
     readonly agents: readonly RegisteredAgentSummary[];
+    /** Absent once the listing is exhausted. */
+    readonly next_cursor?: string;
+    /** Rows in the whole listing, not in this page. */
+    readonly total?: number;
 }
 
 export interface AgentReadyResponse {
@@ -452,13 +464,47 @@ export type HostResponse =
     | ExtensionCommandHostResponse
     | ProtocolErrorResponse;
 
+const SESSION_FACT_NAMES: readonly SessionFactName[] = [
+    "usage",
+    "context",
+    "failure",
+    "model",
+];
+
+/** Unknown names are dropped rather than refused, so a newer client still lists. */
+function parseSessionFactNames(
+    value: unknown,
+): readonly SessionFactName[] | undefined {
+    if (!Array.isArray(value)) return undefined;
+    const names = value.filter((entry): entry is SessionFactName =>
+        typeof entry === "string"
+        && SESSION_FACT_NAMES.includes(entry as SessionFactName)
+    );
+    return names.length === 0 ? undefined : [...new Set(names)];
+}
+
 export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
     if (value?.type === "host_identity") {
         return { type: "host_identity" };
     }
     if (value?.type === "list_agents") {
-        return { type: "list_agents" };
+        const include = parseSessionFactNames(value.include);
+        const order = value.order === "recent" ? "recent" : undefined;
+        const limit = value.limit;
+        const cursor = value.cursor;
+        return {
+            type: "list_agents",
+            ...(include === undefined ? {} : { include }),
+            ...(order === undefined ? {} : { order }),
+            ...(typeof limit === "number" && Number.isSafeInteger(limit)
+                    && limit > 0
+                ? { limit }
+                : {}),
+            ...(typeof cursor === "string" && cursor.length > 0
+                ? { cursor }
+                : {}),
+        };
     }
     if (value?.type === "search_sessions") {
         const query = parseSessionSearchQuery(value.query);

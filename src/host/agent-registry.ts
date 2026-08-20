@@ -15,6 +15,7 @@ import { tmpdir } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
+import type { SessionFacts } from "../store/session-facts.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
 import type { PromptContribution } from "../engine/prompt-contributions.ts";
@@ -248,6 +249,14 @@ export interface RegisteredAgentSummary {
      * running total would drift with no event to correct it.
      */
     readonly size_bytes?: number;
+    /** The time the session was started, from its header. */
+    readonly created_at?: string;
+    /**
+     * Optional facts, present only for the names the caller passed in
+     * `include`. Absent means "not asked for, or not available"; it never
+     * means zero, so a reader must distinguish the two before summing.
+     */
+    readonly facts?: SessionFacts;
 }
 
 export interface AgentRegistryOptions {
