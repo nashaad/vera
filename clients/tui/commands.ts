@@ -820,6 +820,9 @@ export function extensionCommandResultText(
     if (result.body.kind === "text") {
         return `${result.source}: ${result.body.text}`;
     }
+    if (result.body.kind === "handled") {
+        return result.source;
+    }
     return `${result.source} [${result.body.level}]: ${result.body.text}`;
 }
 

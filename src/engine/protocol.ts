@@ -1875,6 +1875,12 @@ export function createProtocolEncoder(
                         ? {}
                         : { capacity: reportedRequest.capacity }),
                     estimated: true,
+                    ...(measuredContext?.projection === undefined
+                        ? {}
+                        : { projection: measuredContext.projection }),
+                    ...(measuredContext?.compaction === undefined
+                        ? {}
+                        : { compaction: measuredContext.compaction }),
                 };
                 measuredContext = measurement;
                 pendingCheckpointFloor = measurement;
@@ -1927,6 +1933,12 @@ export function createProtocolEncoder(
                                 floor.tokens,
                             ),
                             estimated: true,
+                            ...(floor.projection === undefined
+                                ? {}
+                                : { projection: floor.projection }),
+                            ...(floor.compaction === undefined
+                                ? {}
+                                : { compaction: floor.compaction }),
                         }
                         : restored);
             sessionUsage = summarizeSessionModelUsage(messages);

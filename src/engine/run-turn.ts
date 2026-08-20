@@ -99,6 +99,8 @@ import type { CompleteText } from "./completion-service.ts";
 import {
     compactionBudgetWarning,
     compactSession,
+    COMPACTION_TRIGGER_FRACTION,
+    UNKNOWN_CAPACITY_TRIGGER_TOKENS,
     shouldCompact,
     type CompactionTrigger,
 } from "./compaction-scheduler.ts";
@@ -199,6 +201,9 @@ export interface RunTurnState {
         pendingMessages?: readonly ModelMessage[],
         context?: CompactionContext,
     ) => Promise<void>;
+    readonly compactionPolicy?: {
+        readonly trigger?: CompactionTrigger;
+    };
     readonly deliveryInbox?: SessionDeliveryInbox;
     readonly toolRuntime: ToolRuntime;
     /**
@@ -452,6 +457,7 @@ function compactionContextForSettings(
 function latestCompactionContext(
     store: SessionStore,
     current?: CompactionContext,
+    compactionPolicy?: { readonly trigger?: CompactionTrigger },
 ): ContextMeasurement | undefined {
     const compaction = store.latestCompaction();
     if (compaction === undefined) {
@@ -491,6 +497,32 @@ function latestCompactionContext(
             ? { capacity: current.capacity }
             : {}),
         estimated: compaction.measured.estimated,
+        ...(compactionPolicy === undefined
+            ? {}
+            : {
+                compaction: contextCompactionPolicy(
+                    compactionPolicy.trigger,
+                    current?.capacity,
+                ),
+            }),
+    };
+}
+
+function contextCompactionPolicy(
+    trigger: CompactionTrigger | undefined,
+    capacity: number | undefined,
+): {
+    readonly triggerFraction: number;
+    readonly triggerTokens?: number;
+} {
+    return {
+        triggerFraction: trigger?.fraction ?? COMPACTION_TRIGGER_FRACTION,
+        ...(trigger?.tokens === undefined && capacity !== undefined
+            ? {}
+            : {
+                triggerTokens: trigger?.tokens
+                    ?? UNKNOWN_CAPACITY_TRIGGER_TOKENS,
+            }),
     };
 }
 
@@ -899,6 +931,14 @@ export async function runHeadlessLoop(
                         ? {}
                         : { capacity: measurement.capacity }),
                     estimated: measurement.estimated,
+                    // The old request's component projection is no longer
+                    // truthful after compaction. The next model request will
+                    // publish a fresh one; keep the active policy visible in
+                    // the interim measurement.
+                    compaction: contextCompactionPolicy(
+                        compaction.trigger,
+                        measurement.capacity,
+                    ),
                 };
                 events.emit({
                     type: "context_measured",
@@ -934,6 +974,7 @@ export async function runHeadlessLoop(
         ...(runCompaction === undefined
             ? {}
             : {
+                compactionPolicy: compaction,
                 compact: (
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
@@ -1011,7 +1052,11 @@ export async function runHeadlessLoop(
     protocol.checkpoint(
         state.messages,
         store.activeMessageIds(),
-        latestCompactionContext(store, startupContext),
+        latestCompactionContext(
+            store,
+            startupContext,
+            state.compactionPolicy,
+        ),
     );
 
     while (true) {
@@ -1380,6 +1425,20 @@ export async function runTurn(
             const measurement = measureProjectedRequest(
                 request,
                 capacityForModel(activeModel),
+                {
+                    promptContributions: projection.promptContributions,
+                    extensionToolNames: state.extensionTools?.map((tool) =>
+                        tool.definition.name
+                    ),
+                    ...(state.compactionPolicy === undefined
+                        ? {}
+                        : {
+                            compaction: contextCompactionPolicy(
+                                state.compactionPolicy.trigger,
+                                capacityForModel(activeModel),
+                            ),
+                        }),
+                },
             );
             state.events.emit({
                 type: "context_measured",
@@ -2655,6 +2714,12 @@ function remeasuredAgainst(
         tokens: measurement.tokens,
         estimated: measurement.estimated,
         ...(capacity === undefined ? {} : { capacity }),
+        ...(measurement.projection === undefined
+            ? {}
+            : { projection: measurement.projection }),
+        ...(measurement.compaction === undefined
+            ? {}
+            : { compaction: measurement.compaction }),
     };
 }
 
