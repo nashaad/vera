@@ -7,6 +7,10 @@ import type {
     ExtensionCommandDescriptor,
     ExtensionCommandResult,
 } from "../../src/extensions/commands.ts";
+import {
+    parseExtensionManagerCommand,
+    type ExtensionManagerCommand,
+} from "../../src/extensions/manager-command.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 
@@ -170,6 +174,15 @@ export interface ShowDiagnosticsTuiCommandAction {
     readonly type: "show_diagnostics";
 }
 
+export interface ShowExtensionsTuiCommandAction {
+    readonly type: "show_extensions";
+}
+
+export interface ManageExtensionsTuiCommandAction {
+    readonly type: "manage_extensions";
+    readonly command: Exclude<ExtensionManagerCommand, { readonly operation: "list" }>;
+}
+
 export interface ShowDoctorTuiCommandAction {
     readonly type: "show_doctor";
 }
@@ -241,6 +254,8 @@ export type TuiCommandAction =
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
+    | ShowExtensionsTuiCommandAction
+    | ManageExtensionsTuiCommandAction
     | ShowDoctorTuiCommandAction
     | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
@@ -289,6 +304,8 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "prefill_composer":
         case "open_theme_picker":
         case "show_diagnostics":
+        case "show_extensions":
+        case "manage_extensions":
         case "show_doctor":
         case "write_failure_report":
         case "reload_client_extensions":
@@ -354,6 +371,7 @@ export interface TuiCommandDefinition {
         | CloneSessionTuiCommandAction
         | CompactSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
+        | ShowExtensionsTuiCommandAction
         | ShowDoctorTuiCommandAction
         | WriteFailureReportTuiCommandAction
         | ShowDefaultsTuiCommandAction
@@ -515,6 +533,18 @@ const DIAGNOSTICS_COMMAND = {
     usage: "/diagnostics",
 } as const satisfies TuiCommandCatalogEntry;
 
+const EXTENSIONS_COMMAND = {
+    name: "extensions",
+    description: "Show installed extensions and their state",
+    usage: "/extensions",
+} as const satisfies TuiCommandCatalogEntry;
+
+const EXTENSION_COMMAND = {
+    name: "extension",
+    description: "Install, enable, disable, remove, or reload an extension",
+    usage: "/extension <op> …",
+} as const satisfies TuiCommandCatalogEntry;
+
 const DOCTOR_COMMAND = {
     name: "doctor",
     description: "Check resident hosts and Vera process health",
@@ -555,6 +585,8 @@ export const BUILTIN_COMMANDS = [
     CLONE_COMMAND,
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
+    EXTENSIONS_COMMAND,
+    EXTENSION_COMMAND,
     DOCTOR_COMMAND,
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
@@ -1322,6 +1354,47 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "diagnostics",
             action: { type: "show_diagnostics" },
+        },
+    });
+    registry.registerCommand({
+        ...EXTENSIONS_COMMAND,
+        action: { type: "show_extensions" },
+        palette: {
+            name: "extensions",
+            label: "Manage extensions",
+            description: "see installed capabilities and their state",
+            group: "Extensions",
+            slashName: "extensions",
+            action: { type: "show_extensions" },
+        },
+    });
+    registry.registerCommand({
+        ...EXTENSION_COMMAND,
+        parse: (argumentsText) => {
+            const parsed = parseExtensionManagerCommand([
+                "extension",
+                ...argumentsText.split(/\s+/).filter((word) => word.length > 0),
+            ]);
+            if (parsed === undefined) {
+                return {
+                    type: "command_error",
+                    message: `Usage: ${EXTENSION_COMMAND.usage}`,
+                };
+            }
+            if ("error" in parsed) {
+                return { type: "command_error", message: parsed.error };
+            }
+            return parsed.command.operation === "list"
+                ? { type: "show_extensions" }
+                : { type: "manage_extensions", command: parsed.command };
+        },
+        palette: {
+            name: "extension",
+            label: "Change an extension",
+            description: "install or change managed extension state",
+            group: "Extensions",
+            slashName: "extension",
+            action: { type: "prefill_composer", text: "/extension " },
         },
     });
     registry.registerCommand({
