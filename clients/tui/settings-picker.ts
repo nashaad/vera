@@ -96,7 +96,8 @@ export type TuiSettingsPickerKind =
     | "reviewer_settings"
     | "reviewer"
     | "model_assignment"
-    | "pool_verify_scope";
+    | "pool_verify_scope"
+    | "catalog_refresh_scope";
 
 /**
  * Where a menu row leads. The menu kinds carry no value of their own: choosing
@@ -415,6 +416,11 @@ export type TuiSettingsPickerSelection =
     }
     /** How much of the kept collection the probe sweep should cover. */
     | { readonly kind: "pool_verify_scope"; readonly onlyUnverified: boolean }
+    /** Which providers to ask for their model lists. Empty names them all. */
+    | {
+        readonly kind: "catalog_refresh_scope";
+        readonly providers: readonly string[];
+    }
     /** The Defaults pane was left for the collection defaults are chosen from. */
     | { readonly kind: "model_assignment_browse" }
     /** A Defaults-tab row was chosen: open the model list for it. */
@@ -498,6 +504,8 @@ export interface TuiSettingsPickerTransition {
      * list it is the provider the highlighted model belongs to.
      */
     readonly refreshCatalog?: string;
+    /** Ask which providers to refresh before asking any of them. */
+    readonly refreshCatalogScope?: boolean;
     /** A declared provider whose form should reopen filled in. */
     readonly editProvider?: string;
     /** A shipped provider whose endpoint the user wants to move. */
@@ -1057,16 +1065,20 @@ export function tuiModelActionOptions(
     providers: readonly string[],
     options: { readonly hasPool?: boolean } = {},
 ): readonly TuiSettingsPickerOption[] {
-    const rows: TuiSettingsPickerOption[] = providers.map((provider) => ({
-        value: tuiModelActionValue(`refresh:${provider}`),
-        label: `Refresh ${provider}'s model list`,
+    // One row, not one per provider: which providers to ask is the second
+    // question, and asking it here would repeat the same chord down the list.
+    const rows: TuiSettingsPickerOption[] = providers.length === 0 ? [] : [{
+        value: tuiModelActionValue("refresh"),
+        label: "Refresh model lists",
         description: tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
         note:
-            `Asks ${provider} for its models again, so anything released since the last check shows up here.`,
-        detailTitle: `refresh ${provider}`,
+            "Asks the providers for their models again, so anything released since the last check shows up here. Which ones to ask comes next.",
+        detailTitle: "refresh model lists",
         detailFacts: [],
-        searchText: `refresh reload update fetch new models catalog ${provider}`,
-    }));
+        searchText: `refresh reload update fetch new models catalog ${
+            providers.join(" ")
+        }`,
+    }];
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
@@ -1407,6 +1419,49 @@ export function startTuiPoolVerifyScopePicker(
         allOptions: options,
         options,
         selectedIndex: unverified === 0 ? 1 : 0,
+        query: "",
+    };
+}
+
+/** The one row that stands for every provider at once. */
+export const CATALOG_REFRESH_ALL_VALUE = "\u0000all";
+
+/**
+ * Asked after the refresh row, because which providers to ask is a separate
+ * question from whether to ask at all. Each row says how many models that
+ * provider holds now, which is the number the refresh is about to change.
+ */
+export function startTuiCatalogRefreshScopePicker(
+    providers: readonly { readonly name: string; readonly models: number }[],
+): TuiSettingsPickerState {
+    const total = providers.reduce((sum, entry) => sum + entry.models, 0);
+    // The catalog is the whole list a provider offers, which is larger than the
+    // model tab's count, since that one is folded. Saying which is which keeps
+    // the two numbers from reading as a contradiction.
+    const rows: TuiSettingsPickerOption[] = providers.map((entry) => ({
+        value: entry.name,
+        label: entry.name,
+        description: `${entry.models} in its catalog`,
+    }));
+    // One provider needs no row for all of them: it would be the same call
+    // twice under two names.
+    const options: readonly TuiSettingsPickerOption[] = providers.length < 2
+        ? rows
+        : [
+            {
+                value: CATALOG_REFRESH_ALL_VALUE,
+                label: `Every provider (${providers.length})`,
+                description: `${total} in their catalogs`,
+            },
+            ...rows,
+        ];
+    return {
+        kind: "catalog_refresh_scope",
+        title: "Refresh model lists",
+        subtitle: "each provider is one call over the network",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
         query: "",
     };
 }
@@ -2805,7 +2860,8 @@ function renderListPickerRows(
     // A pane whose whole list is two fixed answers has nothing to filter, and
     // an empty field above them reads as a row the cursor has landed on.
     const searchable = state.kind !== "extension"
-        && state.kind !== "pool_verify_scope";
+        && state.kind !== "pool_verify_scope"
+        && state.kind !== "catalog_refresh_scope";
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
@@ -4426,12 +4482,8 @@ function modelActionTransition(
     if (action === undefined) {
         return undefined;
     }
-    if (action.startsWith("refresh:")) {
-        return {
-            state,
-            handled: true,
-            refreshCatalog: action.slice("refresh:".length),
-        };
+    if (action === "refresh") {
+        return { state, handled: true, refreshCatalogScope: true };
     }
     if (action === "verify_pool") {
         return { state, handled: true, poolVerifySweep: true };
@@ -4531,6 +4583,12 @@ function pickerSelection(
         return {
             kind,
             onlyUnverified: value === POOL_VERIFY_UNVERIFIED_VALUE,
+        };
+    }
+    if (kind === "catalog_refresh_scope") {
+        return {
+            kind,
+            providers: value === CATALOG_REFRESH_ALL_VALUE ? [] : [value],
         };
     }
     if (kind === "model_assignment") {

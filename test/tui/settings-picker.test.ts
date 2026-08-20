@@ -39,6 +39,7 @@ import {
     tuiProviderFormFields,
     tuiProviderFormRows,
     type TuiProviderFormState,
+    startTuiCatalogRefreshScopePicker,
     startTuiPoolVerifyScopePicker,
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     startTuiModelAssignmentPicker,
@@ -2969,7 +2970,7 @@ test("the Actions tab lists what the pane can do in words", () => {
     const actions = switchedModelTab(pickerWithActions(), "actions");
 
     expect(actions.options.map((option) => option.label)).toEqual([
-        "Refresh openrouter's model list",
+        "Refresh model lists",
         "Check that shortlisted models work",
         "Show or hide the rarely used models",
         "Connect, edit or forget a provider",
@@ -2989,15 +2990,57 @@ test("an action is found by word from the model list, above the models", () => {
 
     const labels = state.options.map((option) => option.label);
     expect(labels[0]).toBe("Actions");
-    expect(labels[1]).toBe("Refresh openrouter's model list");
+    expect(labels[1]).toBe("Refresh model lists");
 });
 
-test("running the refresh row does what its chord does", () => {
+test("the refresh row asks which providers before asking any", () => {
     const actions = switchedModelTab(pickerWithActions(), "actions");
     const transition = handleTuiSettingsPickerKey(actions, { name: "return" });
 
-    expect(transition.refreshCatalog).toBe("openrouter");
+    // Not a refresh yet: the row opens the question of scope, and the answer
+    // to that is what spends the calls.
+    expect(transition.refreshCatalogScope).toBe(true);
+    expect(transition.refreshCatalog).toBeUndefined();
     expect(transition.selection).toBeUndefined();
+});
+
+test("the refresh scope pane leads with every provider and its size", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "cerebras", models: 12 },
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(scope.options.map((option) => option.label)).toEqual([
+        "Every provider (2)",
+        "cerebras",
+        "openrouter",
+    ]);
+    expect(scope.options[0]?.description).toBe("360 in their catalogs");
+    expect(scope.selectedIndex).toBe(0);
+});
+
+test("one provider gets no every-provider row", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(scope.options.map((option) => option.label)).toEqual(["openrouter"]);
+});
+
+test("a scope answer names the providers to ask, and all names none", () => {
+    const scope = startTuiCatalogRefreshScopePicker([
+        { name: "cerebras", models: 12 },
+        { name: "openrouter", models: 348 },
+    ]);
+
+    expect(handleTuiSettingsPickerKey(scope, { name: "return" }).selection)
+        .toEqual({ kind: "catalog_refresh_scope", providers: [] });
+    expect(
+        handleTuiSettingsPickerKey(
+            { ...scope, selectedIndex: 2 },
+            { name: "return" },
+        ).selection,
+    ).toEqual({ kind: "catalog_refresh_scope", providers: ["openrouter"] });
 });
 
 test("the providers row opens the provider pane", () => {
