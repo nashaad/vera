@@ -254,7 +254,12 @@ export interface TuiProviderRow {
  * first section, above the providers, and the same models keep their rows in
  * the provider sections below.
  */
-export type TuiModelPickerTab = "all" | "pool" | "defaults" | "help";
+export type TuiModelPickerTab =
+    | "all"
+    | "pool"
+    | "actions"
+    | "defaults"
+    | "help";
 
 export interface TuiExtensionPickerRow {
     readonly id: string;
@@ -302,6 +307,13 @@ export interface TuiSettingsPickerState {
      * pool rather than from the settings snapshot the pane is built from.
      */
     readonly assignmentOptions?: readonly TuiSettingsPickerOption[];
+    /**
+     * The Actions tab's rows: the things this pane can do that are not
+     * choosing a model. They are rows so they can be read and searched for
+     * by name, rather than only being reachable by a chord the user has to
+     * already know about.
+     */
+    readonly actionOptions?: readonly TuiSettingsPickerOption[];
     /** The caller has one confirmed pool change it can reverse. */
     readonly canUndoPoolChange?: boolean;
     /**
@@ -684,6 +696,9 @@ export function syncTuiModelPicker(
         ...(state.assignmentOptions === undefined
             ? {}
             : { assignmentOptions: state.assignmentOptions }),
+        ...(state.actionOptions === undefined
+            ? {}
+            : { actionOptions: state.actionOptions }),
         options: modelPickerOptions(
             rebuilt.allOptions,
             tab,
@@ -691,6 +706,7 @@ export function syncTuiModelPicker(
             "",
             state.revealAll === true,
             state.assignmentOptions ?? [],
+            state.actionOptions ?? [],
         ),
     };
     const options = state.query.length === 0
@@ -1020,10 +1036,82 @@ const MODEL_ASSIGNMENT_VALUE_PREFIX = "\u0000assignment:";
 
 /** The session's own model, which is a row here but is not an assignment. */
 const SESSION_MODEL_VALUE = "\u0000session-model";
+const MODEL_ACTION_VALUE_PREFIX = "\u0000action:";
 const CONTEXT_LIMIT_VALUE = "\u0000context-limit";
 
 export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
     return `${MODEL_ASSIGNMENT_VALUE_PREFIX}${assignment}`;
+}
+
+/**
+ * The rows the Actions tab holds, and the same rows a search on any model tab
+ * can turn up. Each is a sentence about what will happen, with the chord that
+ * also does it on the right, so the pane teaches its own keys instead of
+ * relying on a footer that truncates.
+ *
+ * Only actions that stand on their own are here. A key that acts on whichever
+ * model the cursor is over has no meaning as a row, since selecting the row
+ * moves the cursor off the model.
+ */
+export function tuiModelActionOptions(
+    providers: readonly string[],
+    options: { readonly hasPool?: boolean } = {},
+): readonly TuiSettingsPickerOption[] {
+    const rows: TuiSettingsPickerOption[] = providers.map((provider) => ({
+        value: tuiModelActionValue(`refresh:${provider}`),
+        label: `Refresh ${provider}'s model list`,
+        description: tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
+        note:
+            `Asks ${provider} for its models again, so anything released since the last check shows up here.`,
+        detailTitle: `refresh ${provider}`,
+        detailFacts: [],
+        searchText: `refresh reload update fetch new models catalog ${provider}`,
+    }));
+    if (options.hasPool === true) {
+        rows.push({
+            value: tuiModelActionValue("verify_pool"),
+            label: "Check that shortlisted models work",
+            description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
+            note:
+                "Sends one small request to each model on the shortlist and marks the ones that answer.",
+            detailTitle: "check the shortlist",
+            detailFacts: [],
+            searchText: "verify check test probe working broken shortlist pool",
+        });
+    }
+    rows.push({
+        value: tuiModelActionValue("reveal_all"),
+        label: "Show or hide the rarely used models",
+        description: tuiKeyHint("reveal_all_models").split(" ")[0] ?? "",
+        note:
+            "All models opens short by default. This is the switch between the short list and the whole catalog.",
+        detailTitle: "show every model",
+        detailFacts: [],
+        searchText: "show hide all hidden folded every catalog reveal more",
+    });
+    rows.push({
+        value: tuiModelActionValue("providers"),
+        label: "Connect, edit or forget a provider",
+        description: tuiKeyHint("open_providers").split(" ")[0] ?? "",
+        note:
+            "Opens the provider list, where keys and endpoints are set and a provider can be removed.",
+        detailTitle: "providers",
+        detailFacts: [],
+        searchText:
+            "provider providers connect add key api endpoint forget remove declare openrouter cerebras",
+    });
+    return rows;
+}
+
+function tuiModelActionValue(action: string): string {
+    return `${MODEL_ACTION_VALUE_PREFIX}${action}`;
+}
+
+/** The action a row stands for, or undefined when the row is not one. */
+export function tuiModelActionOfValue(value: string): string | undefined {
+    return value.startsWith(MODEL_ACTION_VALUE_PREFIX)
+        ? value.slice(MODEL_ACTION_VALUE_PREFIX.length)
+        : undefined;
 }
 
 function modelAssignmentOfValue(value: string): ModelAssignmentId | undefined {
@@ -1888,6 +1976,7 @@ export function handleTuiSettingsPickerKey(
             modelState.query,
             revealAll,
             modelState.assignmentOptions ?? [],
+            modelState.actionOptions ?? [],
         );
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
@@ -1922,6 +2011,7 @@ export function handleTuiSettingsPickerKey(
         const cycle: readonly TuiModelPickerTab[] = [
             "pool",
             "all",
+            "actions",
             "defaults",
             "help",
         ];
@@ -2021,6 +2111,7 @@ export function handleTuiSettingsPickerKey(
             modelState.query,
             modelState.revealAll === true,
             modelState.assignmentOptions ?? [],
+            modelState.actionOptions ?? [],
         );
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
@@ -2158,6 +2249,12 @@ export function handleTuiSettingsPickerKey(
         // The session's model is shown on the Slots tab but is not changed
         // there: choosing it moves to the list that does change it, which is
         // the same list every other way in reaches.
+        const action = state.kind === "model"
+            ? modelActionTransition(state as TuiSettingsPickerState, selected)
+            : undefined;
+        if (action !== undefined) {
+            return action;
+        }
         if (state.kind === "model" && selected.value === SESSION_MODEL_VALUE) {
             return {
                 state: switchedModelTab(state as TuiSettingsPickerState, "all"),
@@ -2357,7 +2454,7 @@ export function tuiPickerViewportRows(
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
-    return tab === "pool" || tab === "defaults";
+    return tab === "pool" || tab === "defaults" || tab === "actions";
 }
 
 /** The narrowest the detail column is worth drawing at. */
@@ -3002,6 +3099,7 @@ function modelStripStop(
 const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["pool", "Shortlist"],
     ["all", "All models"],
+    ["actions", "Actions"],
     ["defaults", "Defaults"],
     ["help", "Help"],
 ];
@@ -3018,6 +3116,7 @@ const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
     pool: "Models you keep close. ^s pins one here, or unpins it.",
     all: "Everything your providers offer. Enter runs one without adding it.",
+    actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
 };
 
@@ -3052,19 +3151,38 @@ function modelTabStripNode(
         return count === undefined ? label : `${label} (${count})`;
     });
     const namesWithoutCounts = MODEL_TAB_LABELS.map(([, label]) => label);
-    const stripWidth = (names: readonly string[], gap: number) =>
-        names.reduce((total, name) => total + Bun.stringWidth(name) + 2, 0)
+    const stripWidth = (names: readonly string[], gap: number, pad = 1) =>
+        names.reduce(
+            (total, name) => total + Bun.stringWidth(name) + pad * 2,
+            0,
+        )
         + gap * MODEL_TAB_LABELS.length
         // The active Providers stop carries padding on both sides.
         + Bun.stringWidth(" Providers ^e ");
-    const fullFits = stripWidth(fullNames, 2) <= width;
-    const labelsFit = stripWidth(namesWithoutCounts, 2) <= width;
-    const names = fullFits
-        ? fullNames
-        : labelsFit
-        ? namesWithoutCounts
-        : namesWithoutCounts.map((name) => name === "All models" ? "All" : name);
-    const gap = fullFits || labelsFit ? 2 : 1;
+    const shortened = (names: readonly string[]) =>
+        names.map((name) =>
+            name.startsWith("All models")
+                ? name.replace("All models", "All")
+                : name
+        );
+    // How many models a collection holds is the first thing asked of a
+    // shortlist, so the counts are the last thing given up: the strip tightens
+    // its gaps and shortens its longest name before it drops them.
+    const rungs: readonly (readonly [readonly string[], number, number])[] = [
+        [fullNames, 2, 1],
+        [fullNames, 1, 1],
+        [shortened(fullNames), 1, 1],
+        [namesWithoutCounts, 2, 1],
+        [namesWithoutCounts, 1, 1],
+        [shortened(namesWithoutCounts), 1, 1],
+        // The last rung gives up the padding inside the chips, which costs the
+        // highlight its margin but keeps every stop on the strip. A stop the
+        // user cannot see is a stop they cannot reach.
+        [shortened(namesWithoutCounts), 1, 0],
+    ];
+    const [names, gap, pad] = rungs.find(([candidate, spacing, padding]) =>
+        stripWidth(candidate, spacing, padding) <= width
+    ) ?? rungs.at(-1)!;
     MODEL_TAB_LABELS.forEach(([id], index) => {
         // The active tab is a filled chip, as the help card's tabs are: a tab
         // that differs from its neighbour only in colour reads as a heading
@@ -3075,7 +3193,10 @@ function modelTabStripNode(
         // models a collection holds is the first thing asked of a shortlist.
         // Help is a page, not a collection, so it carries no count.
         const named = names[index]!;
-        const text = index === 0 ? `${named} ` : ` ${named} `;
+        const margin = " ".repeat(pad);
+        const text = index === 0
+            ? `${named}${margin}`
+            : `${margin}${named}${margin}`;
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
                 id === tab
@@ -3266,10 +3387,16 @@ function pickerFooterText(
     // what to do about one, so the cursor's row explains itself down here.
     // The Defaults tab's rows explain themselves in the column beside the
     // list, so the footer stays keys.
-    if (state.kind === "model" && state.tab === "defaults") {
+    if (
+        state.kind === "model"
+        && (state.tab === "defaults" || state.tab === "actions")
+    ) {
         return fittedHints([
             { text: "\u2191\u2193 move", drop: 0 },
-            { text: "\u23ce change", drop: 0 },
+            {
+                text: state.tab === "actions" ? "\u23ce run" : "\u23ce change",
+                drop: 0,
+            },
             { text: "\u21e5 tabs", drop: 1 },
             { text: "esc close", drop: 0 },
         ], width);
@@ -3586,7 +3713,12 @@ function optionMeta(
     // An assignment row's whole content is what runs it, so the column carries
     // rather than the facts a model row shows.
     // The status word is the row's whole right-hand column, at any width.
-    if (state.tab === "defaults") {
+    // An action carries its chord wherever it is listed, including where a
+    // search has lifted it above the models.
+    if (
+        state.tab === "defaults" || state.tab === "actions"
+        || tuiModelActionOfValue(option.value) !== undefined
+    ) {
         return option.description === ""
             ? undefined
             : [{ text: option.description }];
@@ -3778,6 +3910,7 @@ export function switchedModelTab(
         "",
         state.revealAll === true,
         state.assignmentOptions ?? [],
+        state.actionOptions ?? [],
     );
     return {
         ...state,
@@ -3848,6 +3981,7 @@ function searched(
             query,
             state.revealAll === true,
             state.assignmentOptions ?? [],
+            state.actionOptions ?? [],
         );
     const next = { ...state, options, selectedIndex: 0, query };
     return {
@@ -4020,9 +4154,13 @@ function modelTabRows(
     tab: TuiModelPickerTab,
     revealAll = false,
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
+    actionOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
     if (tab === "help") {
         return [];
+    }
+    if (tab === "actions") {
+        return actionOptions;
     }
     if (tab === "defaults") {
         return assignmentOptions;
@@ -4057,6 +4195,7 @@ function modelPickerOptions(
     query: string,
     revealAll = false,
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
+    actionOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
     // Search reaches a folded row whether or not the pane is revealed. Typing
     // an id is naming a model outright, and a list that answers "no such
@@ -4066,22 +4205,35 @@ function modelPickerOptions(
         tab,
         revealAll || query !== "",
         assignmentOptions,
+        actionOptions,
     );
     const matched = query === "" ? rows : matching(rows, query);
     // Neither list is sectioned by provider: the pool is one short list, and a
     // assignment row is a job, which has no provider to be grouped under.
-    if ((tab === "pool" || tab === "defaults") && query === "") {
+    if ((tab === "pool" || tab === "defaults" || tab === "actions")
+        && query === ""
+    ) {
         return matched;
     }
-    if (tab === "defaults") {
+    if (tab === "defaults" || tab === "actions") {
         return matched;
     }
-    return sectionedOptions(
-        matched,
-        query === "" ? collapsed : [],
-        tab === "all",
-        groupTotals(allOptions, tab),
-    );
+    // A search on a model list is the user asking for something by name, and
+    // what they name is as often a thing to do as a model to run. The matching
+    // actions ride above the models under their own heading, so the word finds
+    // them without the user having to know which tab they live on.
+    const actions = query === "" ? [] : matching(actionOptions, query);
+    return [
+        ...(actions.length === 0
+            ? []
+            : [sectionHeader("Actions", actions, []), ...actions]),
+        ...sectionedOptions(
+            matched,
+            query === "" ? collapsed : [],
+            tab === "all",
+            groupTotals(allOptions, tab),
+        ),
+    ];
 }
 
 /**
@@ -4203,6 +4355,7 @@ function sectionLabels(
         state.query,
         state.revealAll === true,
         state.assignmentOptions ?? [],
+        state.actionOptions ?? [],
     ).flatMap((option) => option.section === undefined ? [] : [option.section]);
 }
 
@@ -4240,6 +4393,7 @@ function toggledSection(
         state.query,
         state.revealAll === true,
         state.assignmentOptions ?? [],
+        state.actionOptions ?? [],
     );
     return {
         state: {
@@ -4257,6 +4411,43 @@ function toggledSection(
 
 function providerModelKey(provider: string, model: string): string {
     return JSON.stringify([provider, model]);
+}
+
+/**
+ * An Actions row resolved to the same transition its chord produces, so the
+ * two ways in cannot drift apart. Rows that only rearrange this pane are done
+ * here; the rest hand the client the work it already knows how to do.
+ */
+function modelActionTransition(
+    state: TuiSettingsPickerState,
+    option: TuiSettingsPickerOption,
+): TuiSettingsPickerTransition | undefined {
+    const action = tuiModelActionOfValue(option.value);
+    if (action === undefined) {
+        return undefined;
+    }
+    if (action.startsWith("refresh:")) {
+        return {
+            state,
+            handled: true,
+            refreshCatalog: action.slice("refresh:".length),
+        };
+    }
+    if (action === "verify_pool") {
+        return { state, handled: true, poolVerifySweep: true };
+    }
+    if (action === "providers") {
+        return { state, handled: true, openProviders: true };
+    }
+    if (action === "reveal_all") {
+        // Showing the folded rows is a change to the model list, so it lands
+        // the user on that list rather than leaving them on the Actions tab
+        // wondering whether anything happened.
+        const revealAll = state.revealAll !== true;
+        const revealed = switchedModelTab({ ...state, revealAll }, "all");
+        return { state: revealed, handled: true };
+    }
+    return unchanged(state, true);
 }
 
 function pickerSelection(

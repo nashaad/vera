@@ -14,6 +14,7 @@ import {
     startTuiContextLimitPicker,
     startTuiSettingsPicker,
     switchedModelTab,
+    tuiModelActionOptions,
     startTuiProviderPicker,
     TUI_DECLARE_PROVIDER_VALUE,
     startTuiReasoningPicker,
@@ -1291,10 +1292,9 @@ test("the model pane opens on Shortlist, in the order the user's own use produce
     expect(frame).not.toContain("unavailable");
     expect(frame).toContain("GLM-5.2");
     expect(frame).not.toContain("Z-AI: GLM-5.2");
-    expect(frame).toContain("All models");
     expect(frame).toContain("Shortlist");
     expect(frame).toMatch(
-        /Shortlist \(2\).*All models \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
+        /Shortlist \(2\).*All \(2\).*\n\s*\n.*Models you keep close\..*\n\s*\n.*GPT-5\.6-Sol/,
     );
 });
 
@@ -1324,7 +1324,7 @@ test("with an empty pool the pane opens on All models, full width", async () => 
     // Hundreds of rows, read by scanning names: the whole card goes to the
     // names rather than half of it to facts about one of them.
     const frame = await pickerFrame(state);
-    expect(frame).toContain("All models");
+    expect(frame).toMatch(/All \(\d+\)/);
     expect(frame).not.toContain("\u2502");
 });
 
@@ -1373,8 +1373,10 @@ test("⇥ moves to All models, which lists what can run", async () => {
     ]);
     expect(await pickerFrame(allTab!)).not.toContain("not available right now");
 
-    // The cycle is Pool, All models, Slots, Help, and round again.
-    const slots = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    // The cycle is Pool, All models, Actions, Defaults, Help, and round again.
+    const actions = handleTuiSettingsPickerKey(allTab!, { name: "tab" }).state!;
+    expect(actions.tab).toBe("actions");
+    const slots = handleTuiSettingsPickerKey(actions, { name: "tab" }).state!;
     expect(slots.tab).toBe("defaults");
     const help = handleTuiSettingsPickerKey(slots, { name: "tab" }).state!;
     expect(help.tab).toBe("help");
@@ -1581,9 +1583,9 @@ test("⇧← folds every section and ⇧→ opens every one", () => {
 test("a fold survives a tab away and back, and a search opens everything", () => {
     const folded = allTabWithRecommendations();
 
-    // All -> Slots -> Help -> Pool, the long way round the strip.
+    // All -> Actions -> Defaults -> Help -> Pool, the long way round the strip.
     let pool = folded;
-    for (let step = 0; step < 3; step += 1) {
+    for (let step = 0; step < 4; step += 1) {
         pool = handleTuiSettingsPickerKey(pool, { name: "tab" }).state!;
     }
     expect(pool.tab).toBe("pool");
@@ -2152,7 +2154,9 @@ test("the connect pane opened from the model pane draws in the same card", async
     // strip the user tabbed along is still there to tab back on.
     expect(frame).toContain("Select model");
     expect(frame).not.toContain("Connect a provider");
-    expect(frame).toMatch(/Shortlist \(2\)\s+All models \(\d+\)\s+Defaults\s+Help\s+Providers \^e/);
+    expect(frame).toMatch(
+        /Shortlist \(2\)\s+All \(\d+\)\s+Actions\s+Defaults\s+Help\s+Providers \^e/,
+    );
     expect(frame).toContain("⇥ tabs");
     expect(frame).toContain("OpenRouter");
 });
@@ -2952,4 +2956,82 @@ test("the sweep scope pane offers the cheaper answer first", () => {
     expect(
         handleTuiSettingsPickerKey(pane, { name: "enter" }).selection,
     ).toEqual({ kind: "pool_verify_scope", onlyUnverified: true });
+});
+
+function pickerWithActions() {
+    return {
+        ...modelPickerWithPool(),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    } as TuiSettingsPickerState;
+}
+
+test("the Actions tab lists what the pane can do in words", () => {
+    const actions = switchedModelTab(pickerWithActions(), "actions");
+
+    expect(actions.options.map((option) => option.label)).toEqual([
+        "Refresh openrouter's model list",
+        "Check that shortlisted models work",
+        "Show or hide the rarely used models",
+        "Connect, edit or forget a provider",
+    ]);
+    // The chord sits on the row, so the tab teaches the key rather than
+    // replacing it.
+    expect(actions.options[0]?.description).toBe(
+        tuiKeyHint("refresh_catalog").split(" ")[0],
+    );
+});
+
+test("an action is found by word from the model list, above the models", () => {
+    let state = pickerWithActions();
+    for (const name of "refresh") {
+        state = handleTuiSettingsPickerKey(state, { name }).state!;
+    }
+
+    const labels = state.options.map((option) => option.label);
+    expect(labels[0]).toBe("Actions");
+    expect(labels[1]).toBe("Refresh openrouter's model list");
+});
+
+test("running the refresh row does what its chord does", () => {
+    const actions = switchedModelTab(pickerWithActions(), "actions");
+    const transition = handleTuiSettingsPickerKey(actions, { name: "return" });
+
+    expect(transition.refreshCatalog).toBe("openrouter");
+    expect(transition.selection).toBeUndefined();
+});
+
+test("the providers row opens the provider pane", () => {
+    let actions = switchedModelTab(pickerWithActions(), "actions");
+    actions = {
+        ...actions,
+        selectedIndex: actions.options.findIndex((option) =>
+            option.label.startsWith("Connect,")
+        ),
+    };
+
+    expect(handleTuiSettingsPickerKey(actions, { name: "return" }).openProviders)
+        .toBe(true);
+});
+
+test("an unsearched model list lists models only", () => {
+    const all = switchedModelTab(pickerWithActions(), "all");
+
+    expect(all.options.some((option) =>
+        option.label.startsWith("Refresh openrouter")
+    )).toBe(false);
+});
+
+test("the show-or-hide row lands on the list it changed", () => {
+    let actions = switchedModelTab(pickerWithActions(), "actions");
+    actions = {
+        ...actions,
+        selectedIndex: actions.options.findIndex((option) =>
+            option.label.startsWith("Show or hide")
+        ),
+    };
+
+    const revealed = handleTuiSettingsPickerKey(actions, { name: "return" })
+        .state as TuiSettingsPickerState;
+    expect(revealed.revealAll).toBe(true);
+    expect(revealed.tab).toBe("all");
 });

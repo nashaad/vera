@@ -67,6 +67,7 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../src/model/catalog-view.ts";
+import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
     configuredModelAssignments,
@@ -350,6 +351,7 @@ import {
     type TuiReviewerSlot,
     startTuiModelAssignmentPicker,
     startTuiPoolVerifyScopePicker,
+    tuiModelActionOptions,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
@@ -7807,6 +7809,15 @@ export async function startTui(
                 targetState.modelSettings?.reasoningEffort,
                 targetState.modelSettings?.contextLimit,
             ),
+            actionOptions: tuiModelActionOptions(
+                refreshableProvidersOf(
+                    targetState.modelSettings?.availableModels,
+                ),
+                {
+                    hasPool: (targetState.modelSettings?.pooled?.length ?? 0)
+                        > 0,
+                },
+            ),
         };
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
@@ -7814,6 +7825,19 @@ export async function startTui(
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    /** The connected providers whose model list can be fetched again. */
+    function refreshableProvidersOf(
+        models: readonly { readonly provider: string }[] | undefined,
+    ): readonly string[] {
+        const named = new Set<string>();
+        for (const model of models ?? []) {
+            if (isRefreshableProvider(model.provider)) {
+                named.add(model.provider);
+            }
+        }
+        return [...named].toSorted();
     }
 
     /**
