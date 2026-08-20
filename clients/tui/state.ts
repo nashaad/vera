@@ -1320,7 +1320,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         // bracket or an asterisk in it must survive being displayed.
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
-    if (entry.kind === "notice" || entry.kind === "review") {
+    if (entry.kind === "review") {
+        return new StyledText(renderTuiReview(entry.text));
+    }
+    if (entry.kind === "notice") {
         if (entry.diagnostic === undefined && entry.admission !== undefined) {
             // The heading keeps a colour so a probe block can be found on the
             // way back up; the steps under it are Vera narrating itself and
@@ -1426,6 +1429,101 @@ function plainReasoningSummary(reasoning: string): string {
         .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
         .replace(/^[ \t]{0,3}#{1,6}[ \t]+(.*?)[ \t]+#*[ \t]*$/gm, "$1")
         .replace(/^[ \t]*(?:\*\*|__)(.*?)(?:\*\*|__)[ \t]*$/gm, "$1");
+}
+
+interface TuiReviewHighlightMatch {
+    readonly index: number;
+    readonly text: string;
+}
+
+/** Routine approval is quiet; only its decision and unresolved authorization stand out. */
+function renderTuiReview(text: string): TextChunk[] {
+    const chunks: TextChunk[] = [];
+    const approvalPrefix = "Auto review ";
+    if (!text.startsWith(approvalPrefix)) {
+        return text.length === 0 ? [] : [fg(TUI_MUTED)(text)];
+    }
+    chunks.push(fg(TUI_MUTED)(approvalPrefix));
+
+    let remaining = text.slice(approvalPrefix.length);
+    const approved = "approved";
+    if (!remaining.startsWith(approved)) {
+        chunks.push(fg(TUI_MUTED)(remaining));
+        return chunks;
+    }
+    chunks.push(fg(TUI_SUCCESS)(approved));
+    remaining = remaining.slice(approved.length);
+
+    const riskMarker = " (risk: ";
+    const authorizationMarker = ", authorization: ";
+    const authorizationTextPrefix = ", ";
+    const headerEnd = "): ";
+    const riskIndex = remaining.indexOf(riskMarker);
+    const authorizationIndex = remaining.indexOf(
+        authorizationMarker,
+        riskIndex + riskMarker.length,
+    );
+    const headerEndIndex = remaining.indexOf(
+        headerEnd,
+        authorizationIndex + authorizationMarker.length,
+    );
+    if (riskIndex === -1 || authorizationIndex === -1 || headerEndIndex === -1) {
+        chunks.push(fg(TUI_MUTED)(remaining));
+        return chunks;
+    }
+
+    const authorizationTextStart = authorizationIndex
+        + authorizationTextPrefix.length;
+    const authorizationValueStart = authorizationIndex
+        + authorizationMarker.length;
+    chunks.push(fg(TUI_MUTED)(remaining.slice(0, authorizationTextStart)));
+    const authorizationValue = remaining.slice(
+        authorizationValueStart,
+        headerEndIndex,
+    );
+    const authorizationText = remaining.slice(
+        authorizationTextStart,
+        headerEndIndex,
+    );
+    chunks.push(
+        fg(authorizationValue === "unknown" ? TUI_NOTICE : TUI_MUTED)(
+            authorizationText,
+        ),
+    );
+    const reasonStart = headerEndIndex + headerEnd.length;
+    chunks.push(fg(TUI_MUTED)(remaining.slice(headerEndIndex, reasonStart)));
+    appendTuiReviewReason(chunks, remaining.slice(reasonStart));
+    return chunks;
+}
+
+function appendTuiReviewReason(chunks: TextChunk[], reason: string): void {
+    let remaining = reason;
+    while (remaining.length > 0) {
+        const match = findTuiReviewAllowDecision(remaining);
+        if (match === undefined) {
+            chunks.push(fg(TUI_MUTED)(remaining));
+            return;
+        }
+        if (match.index > 0) {
+            chunks.push(fg(TUI_MUTED)(remaining.slice(0, match.index)));
+        }
+        chunks.push(fg(TUI_SUCCESS)(match.text));
+        remaining = remaining.slice(match.index + match.text.length);
+    }
+}
+
+function findTuiReviewAllowDecision(
+    text: string,
+): TuiReviewHighlightMatch | undefined {
+    const phrase = "an allow decision";
+    const phraseIndex = text.indexOf(phrase);
+    if (phraseIndex === -1) {
+        return undefined;
+    }
+    return {
+        index: phraseIndex + "an ".length,
+        text: "allow",
+    };
 }
 
 function renderTuiDiagnostic(
