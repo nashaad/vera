@@ -280,6 +280,63 @@ test("compaction preflight includes the pending user prompt", async () => {
     }]);
 });
 
+test("a tool round can compact before its next model request", async () => {
+    const toolCall = toolResponse(
+        "call_1",
+        "bash",
+        { command: "printf compact-me" },
+    );
+    const answer = assistantText("done");
+    const faux = new FauxAdapter([toolCall, answer]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const store = new InMemorySessionStore();
+    const compactedContext: ModelMessage[] = [{
+        role: "user",
+        content: [{ type: "text", text: "compacted history" }],
+        internal: true,
+    }];
+    let compacted = false;
+    const compactedAt: ModelMessage[][] = [];
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        modelContext: () => compacted ? compactedContext : store.messages,
+        compact: async (_signal, pending = []) => {
+            if (pending.length > 0) {
+                return;
+            }
+            compactedAt.push([...store.messages]);
+            compacted = true;
+        },
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+    };
+
+    channel.client.send({ type: "prompt", content: "use the tool" });
+    const turn = runTurn(adapter, "test", state);
+    await receiveThroughTurnFinished(channel);
+    await turn;
+
+    expect(compactedAt).toHaveLength(1);
+    expect(compactedAt[0]?.at(-1)).toMatchObject({
+        role: "tool_result",
+        toolCallId: "call_1",
+        isError: false,
+    });
+    expect(requests[1]?.messages).toEqual(compactedContext);
+});
+
 test("a thinking-only stop becomes a visible durable model error", async () => {
     const response: AssistantMessage = {
         role: "assistant",
