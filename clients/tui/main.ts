@@ -319,6 +319,7 @@ import {
 } from "./quote.ts";
 import {
     needsYouChipColumns,
+    renderTuiCompactionHint,
     renderTuiIdleHint,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -10746,6 +10747,10 @@ export async function startTui(
             lifecycleHint = tuiApprovalHint(uiRequest);
         } else if (uiRequest?.request.type === "user_question") {
             lifecycleHint = `${QUESTION_HINT} · ${focusedElapsed}`;
+        } else if (statusState.compactingSince !== undefined) {
+            lifecycleHint = renderTuiCompactionHint(
+                Date.now() - statusState.compactingSince,
+            );
         } else if (statusState.working) {
             const modelActivity = statusState.modelActivity;
             const waitingToRetry = modelActivity !== undefined
@@ -10773,6 +10778,7 @@ export async function startTui(
             : statusNotice !== undefined
             ? TUI_NOTICE
             : statusState.working
+                    || statusState.compactingSince !== undefined
                     || uiRequest !== undefined
                     || extensionCommandPending
                 ? TUI_ACCENT
