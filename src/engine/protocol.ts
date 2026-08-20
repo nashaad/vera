@@ -1866,18 +1866,26 @@ export function createProtocolEncoder(
                 // disappear merely because the turn finished.
                 const reportedNextContext = reportedRequest.tokens
                     + measureCompletedAssistant(event.message);
+                const tokens = Math.max(
+                    measuredContext?.tokens ?? 0,
+                    reportedNextContext,
+                );
+                const projection = completedContextProjection(
+                    measuredContext?.projection,
+                    reportedRequest.tokens,
+                    reportedNextContext,
+                    tokens,
+                );
                 const measurement: ContextMeasurement = {
-                    tokens: Math.max(
-                        measuredContext?.tokens ?? 0,
-                        reportedNextContext,
-                    ),
+                    tokens,
                     ...(reportedRequest.capacity === undefined
                         ? {}
                         : { capacity: reportedRequest.capacity }),
                     estimated: true,
-                    ...(measuredContext?.projection === undefined
+                    ...(projection === undefined
+                            || projection.estimatedTokens !== tokens
                         ? {}
-                        : { projection: measuredContext.projection }),
+                        : { projection }),
                     ...(measuredContext?.compaction === undefined
                         ? {}
                         : { compaction: measuredContext.compaction }),
@@ -1921,7 +1929,7 @@ export function createProtocolEncoder(
             // checkpoint. Keep it when the window is unchanged; a fresh
             // encoder after restart has only durable provider usage and uses
             // `restored` without pretending the old projection survived.
-            const context = checkpointContext
+            const candidateContext = checkpointContext
                 ?? (restored === undefined
                     ? floor
                     : floor !== undefined
@@ -1941,6 +1949,7 @@ export function createProtocolEncoder(
                                 : { compaction: floor.compaction }),
                         }
                         : restored);
+            const context = coherentContextMeasurement(candidateContext);
             sessionUsage = summarizeSessionModelUsage(messages);
             sender.send({
                 type: "history",
@@ -2049,6 +2058,66 @@ function latestMeasurement(
         }
     }
     return undefined;
+}
+
+/**
+ * A projection describes one exact request. Once reconciliation changes the
+ * top-level token count, retaining that older breakdown makes the measurement
+ * invalid on the wire. Keep the useful count and policy, but drop attribution
+ * that no longer adds up to it.
+ */
+function coherentContextMeasurement(
+    measurement: ContextMeasurement | undefined,
+): ContextMeasurement | undefined {
+    if (
+        measurement?.projection === undefined
+        || (
+            measurement.projection.estimatedTokens === measurement.tokens
+            && measurement.projection.components.reduce(
+                (total, component) => total + component.estimatedTokens,
+                0,
+            ) === measurement.tokens
+        )
+    ) {
+        return measurement;
+    }
+    const { projection: _stale, ...coherent } = measurement;
+    return coherent;
+}
+
+function completedContextProjection(
+    projection: ContextMeasurement["projection"],
+    reportedRequestTokens: number,
+    reportedNextContext: number,
+    tokens: number,
+): ContextMeasurement["projection"] {
+    if (
+        projection === undefined
+        || projection.estimatedTokens !== reportedRequestTokens
+        || tokens !== reportedNextContext
+    ) {
+        return undefined;
+    }
+    const responseTokens = reportedNextContext - reportedRequestTokens;
+    const messageIndexes = projection.components.flatMap((component) => {
+        const match = /^message:(\d+)$/.exec(component.id);
+        return match === null ? [] : [Number(match[1])];
+    });
+    return {
+        estimatedTokens: reportedNextContext,
+        components: [
+            ...projection.components,
+            {
+                kind: "message",
+                id: `message:${Math.max(0, ...messageIndexes) + 1}`,
+                owner: "session",
+                source: "assistant",
+                displayName: "assistant message",
+                count: 1,
+                estimatedTokens: responseTokens,
+            },
+        ],
+    };
 }
 
 function reportedMeasurement(

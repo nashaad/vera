@@ -13,6 +13,7 @@ import {
     type ModelMessage,
 } from "../../src/model/types.ts";
 import { measureMessages } from "../../src/engine/context-measurement.ts";
+import { parseAgentUpdate } from "../../src/host/agent-update-wire.ts";
 
 const messages: ModelMessage[] = [
     {
@@ -373,7 +374,7 @@ test("turn completion adds the reply to the provider's request count", () => {
     ]);
 });
 
-test("turn completion preserves the local projection and compaction policy", () => {
+test("turn completion appends the reply to an exact request projection", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -411,10 +412,165 @@ test("turn completion preserves the local projection and compaction policy", () 
     });
     protocol({ type: "turn_finished", message });
 
+    expect(updates[1]).toEqual({
+        type: "context",
+        measurement: {
+            tokens: 64_624,
+            capacity: 100_000,
+            estimated: true,
+            projection: {
+                estimatedTokens: 64_624,
+                components: [
+                    ...projection.components,
+                    {
+                        kind: "message",
+                        id: "message:2",
+                        owner: "session",
+                        source: "assistant",
+                        displayName: "assistant message",
+                        count: 1,
+                        estimatedTokens: 124,
+                    },
+                ],
+            },
+            compaction,
+        },
+        seq: 2,
+    });
+    expect(updates.every((update) => parseAgentUpdate(update) !== undefined))
+        .toBe(true);
+});
+
+test("checkpoint replays the completed projection in reconnect history", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+    const projection = {
+        estimatedTokens: 64_500,
+        components: [{
+            kind: "message" as const,
+            id: "message:1",
+            owner: "session",
+            source: "user",
+            displayName: "user message",
+            count: 1,
+            estimatedTokens: 64_500,
+        }],
+    };
+
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: {
+            tokens: 64_500,
+            capacity: 100_000,
+            estimated: true,
+            projection,
+            compaction: { triggerFraction: 0.82 },
+        },
+    });
+    protocol({ type: "turn_finished", message });
+    protocol.checkpoint(messages);
+
+    const history = updates.at(-1);
+    expect(history).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 64_624,
+            capacity: 100_000,
+            estimated: true,
+            compaction: { triggerFraction: 0.82 },
+        },
+    });
+    expect(history?.type === "history" ? history.context?.projection : undefined)
+        .toMatchObject({
+            estimatedTokens: 64_624,
+            components: [
+                projection.components[0],
+                { source: "assistant", estimatedTokens: 124 },
+            ],
+        });
+    expect(history === undefined ? undefined : parseAgentUpdate(history))
+        .toEqual(history);
+});
+
+test("turn completion drops a coincidentally equal stale projection", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: {
+            tokens: 64_624,
+            estimated: true,
+            projection: {
+                estimatedTokens: 64_624,
+                components: [{
+                    kind: "message",
+                    id: "message:1",
+                    owner: "session",
+                    source: "user",
+                    displayName: "user message",
+                    count: 1,
+                    estimatedTokens: 64_624,
+                }],
+            },
+        },
+    });
+    protocol({ type: "turn_finished", message });
+
     expect(updates[1]).toMatchObject({
         type: "context",
-        measurement: { projection, compaction },
+        measurement: { tokens: 64_624 },
     });
+    expect(updates[1]?.type === "context"
+        ? updates[1].measurement.projection
+        : undefined).toBeUndefined();
+});
+
+test("checkpoint strips an internally inconsistent projection", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    protocol.checkpoint([], undefined, {
+        tokens: 20,
+        estimated: true,
+        projection: {
+            estimatedTokens: 20,
+            components: [{
+                kind: "message",
+                id: "message:1",
+                owner: "session",
+                source: "user",
+                displayName: "user message",
+                count: 1,
+                estimatedTokens: 19,
+            }],
+        },
+    });
+
+    expect(updates[0]?.type === "history" ? updates[0].context : undefined)
+        .toEqual({ tokens: 20, estimated: true });
+    expect(updates[0] === undefined ? undefined : parseAgentUpdate(updates[0]))
+        .toEqual(updates[0]);
 });
 
 test("turn completion cannot lower the current context estimate", () => {
