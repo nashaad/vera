@@ -353,6 +353,7 @@ import {
     startTuiModelAssignmentPicker,
     startTuiPoolVerifyScopePicker,
     tuiModelActionOptions,
+    startTuiCatalogRefreshScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
     type TuiSettingsPickerTransition,
@@ -1203,6 +1204,22 @@ export async function startTui(
      */
     /** In-flight catalog refreshes, by request, so the reply can name one. */
     const catalogRefreshes = new Map<string, string>();
+    /**
+     * A refresh of several providers, one at a time. Sequential for the same
+     * reason the probe sweep is: each entry is a live call, and what comes
+     * back is counted against what was there before so the sweep can say what
+     * actually changed.
+     */
+    let catalogRefreshSweep: {
+        readonly queue: readonly string[];
+        index: number;
+        readonly results: {
+            provider: string;
+            before: number;
+            after?: number;
+        }[];
+        requestId?: string;
+    } | undefined;
     let poolVerifySweep: {
         readonly queue: readonly { readonly provider: string; readonly model: string }[];
         readonly total: number;
@@ -6465,6 +6482,15 @@ export async function startTui(
                 if (
                     (update.type === "model_settings"
                         || update.type === "model_settings_rejected")
+                    && catalogRefreshSweepResult(
+                        update.requestId,
+                        update.type === "model_settings",
+                    )
+                ) {
+                    // The sweep owns its own reporting.
+                } else if (
+                    (update.type === "model_settings"
+                        || update.type === "model_settings_rejected")
                     && catalogRefreshes.has(update.requestId)
                 ) {
                     const provider = catalogRefreshes.get(update.requestId)!;
@@ -7839,6 +7865,13 @@ export async function startTui(
             }
         }
         return [...named].toSorted();
+    }
+
+    /** How many models the current snapshot holds for one provider. */
+    function catalogSizeOf(provider: string): number {
+        return (state.modelSettings?.availableModels ?? [])
+            .filter((entry) => entry.provider === provider)
+            .length;
     }
 
     /**
@@ -9266,6 +9299,13 @@ export async function startTui(
             requestCatalogRefresh(transition.refreshCatalog);
             return;
         }
+        if (
+            "refreshCatalogScope" in transition
+            && transition.refreshCatalogScope === true
+        ) {
+            openCatalogRefreshScopePicker();
+            return;
+        }
         if ("poolVerifySweep" in transition && transition.poolVerifySweep === true) {
             openPoolVerifyScopePicker();
             return;
@@ -9508,6 +9548,9 @@ export async function startTui(
                 }
             } else if (selection.kind === "pool_verify_scope") {
                 startPoolVerifySweep(selection.onlyUnverified);
+                return;
+            } else if (selection.kind === "catalog_refresh_scope") {
+                startCatalogRefreshSweep(selection.providers);
                 return;
             } else if (selection.kind === "model_assignment_browse") {
                 // Keeping a model is what makes it available as a default, so
@@ -10143,6 +10186,109 @@ export async function startTui(
             model: entry.model,
             verified: entry.verified === true,
         }));
+    }
+
+    function openCatalogRefreshScopePicker(): void {
+        const providers = refreshableProvidersOf(
+            state.modelSettings?.availableModels,
+        );
+        if (providers.length === 0) {
+            showStatusNotice("no provider here keeps a model list to refresh");
+            return;
+        }
+        settingsPicker = withTuiPickerParent(
+            startTuiCatalogRefreshScopePicker(
+                providers.map((name) => ({
+                    name,
+                    models: catalogSizeOf(name),
+                })),
+            ),
+            settingsPicker?.kind === "model" ? settingsPicker : undefined,
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
+    /** An empty scope names every provider that keeps a list. */
+    function startCatalogRefreshSweep(providers: readonly string[]): void {
+        const queue = providers.length > 0
+            ? providers
+            : refreshableProvidersOf(state.modelSettings?.availableModels);
+        settingsPicker = undefined;
+        composer.blur();
+        if (queue.length === 0) {
+            showStatusNotice("no provider here keeps a model list to refresh");
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        catalogRefreshSweep = { queue, index: 0, results: [] };
+        renderState();
+        focusActiveSurface();
+        advanceCatalogRefreshSweep();
+    }
+
+    function advanceCatalogRefreshSweep(): void {
+        const sweep = catalogRefreshSweep;
+        if (sweep === undefined) return;
+        const next = sweep.queue[sweep.index];
+        if (next === undefined) {
+            catalogRefreshSweep = undefined;
+            showStatusNotice(catalogRefreshSummary(sweep.results));
+            renderState();
+            return;
+        }
+        sweep.results.push({ provider: next, before: catalogSizeOf(next) });
+        showStatusNotice(
+            `asking ${next} (${sweep.index + 1}/${sweep.queue.length})\u2026`,
+        );
+        const requestId = randomUUID();
+        sweep.requestId = requestId;
+        sendCommand({ type: "catalog_refresh", requestId, provider: next });
+        renderState();
+    }
+
+    /** True when the reply belonged to the sweep, which then steps on. */
+    function catalogRefreshSweepResult(
+        requestId: string,
+        refreshed: boolean,
+    ): boolean {
+        const sweep = catalogRefreshSweep;
+        if (sweep === undefined || sweep.requestId !== requestId) return false;
+        const result = sweep.results.at(-1);
+        if (result !== undefined && refreshed) {
+            result.after = catalogSizeOf(result.provider);
+        }
+        sweep.index += 1;
+        advanceCatalogRefreshSweep();
+        return true;
+    }
+
+    /**
+     * What the sweep changed, provider by provider. The delta leads because it
+     * is the reason to have run it; a provider that could not be asked says so
+     * rather than being left out.
+     */
+    function catalogRefreshSummary(
+        results: readonly {
+            readonly provider: string;
+            readonly before: number;
+            readonly after?: number;
+        }[],
+    ): string {
+        return results
+            .map((entry) => {
+                if (entry.after === undefined) {
+                    return `${entry.provider}: could not ask`;
+                }
+                const delta = entry.after - entry.before;
+                return delta === 0
+                    ? `${entry.provider}: ${entry.after}, nothing new`
+                    : `${entry.provider}: ${entry.after}, ${
+                        delta > 0 ? `+${delta} new` : `${-delta} gone`
+                    }`;
+            })
+            .join(" \u00b7 ");
     }
 
     function openPoolVerifyScopePicker(): void {
