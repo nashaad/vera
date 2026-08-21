@@ -8,6 +8,7 @@ import {
     applyWatchConfigOverrides,
     stripWatchConfigOverrides,
 } from "./contributions.ts";
+import { resolveEnvReferences } from "./env-refs.ts";
 import { extensionStorage } from "./storage.ts";
 import type {
     VeraExtensionApi,
@@ -180,13 +181,19 @@ export async function startExtensionRegistry(
                     `Duplicate extension ID: ${manifest.manifest.id}`,
                 );
             }
+            // Resolved before admission, so an unset variable runs no
+            // extension code and leaves the reference in the parsed config.
+            const resolvedConfig = resolveEnvReferences(
+                configured.config,
+                manifest.manifest.id,
+            ) as typeof configured.config;
             // Contributions are admitted before the entrypoint is imported, so a
             // rejected contribution runs no extension code.
             contributions.admit(
                 manifest.manifest.id,
                 applyWatchConfigOverrides(
                     manifest.manifest.contributes,
-                    configured.config,
+                    resolvedConfig,
                     manifest.manifest.id,
                 ),
                 manifest.directory,
@@ -194,7 +201,7 @@ export async function startExtensionRegistry(
             admitted = true;
             extension = await activateExtension(
                 manifest,
-                stripWatchConfigOverrides(configured.config) as typeof configured.config,
+                stripWatchConfigOverrides(resolvedConfig) as typeof configured.config,
                 activationTimeoutMs,
                 handlerTimeoutMs,
                 disposeTimeoutMs,

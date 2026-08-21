@@ -289,9 +289,14 @@ export async function startResidentHost(
         "extension_registry",
         () => startExtensionRegistry({
             extensions: options.config.extensions ?? [],
-            ...(options.onExtensionFailure === undefined
-                ? {}
-                : { onFailure: options.onExtensionFailure }),
+            onFailure: (failure) => {
+                startupLog({
+                    type: "host_startup_extension_failed",
+                    extension_id: failure.extensionId ?? failure.path,
+                    message: failure.message,
+                });
+                options.onExtensionFailure?.(failure);
+            },
             onActivationTiming: (timing) => startupLog({
                 type: "host_startup_extension",
                 extension_id: timing.extensionId,

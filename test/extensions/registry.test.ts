@@ -1432,3 +1432,64 @@ test("an extension gets its own directory in the tier it asks for", async () => 
     rmSync(storage.profile, { recursive: true, force: true });
     rmSync(storage.machine, { recursive: true, force: true });
 });
+
+test("an env reference is resolved before the extension sees its config", async () => {
+    const receivedPath = join(createDirectory(), "received.txt");
+    const extension = createExtension("env.extension", `
+        import { writeFileSync } from "node:fs";
+        export function activate(vera) {
+            writeFileSync(
+                ${JSON.stringify(receivedPath)},
+                JSON.stringify(vera.config),
+            );
+        }
+    `);
+    process.env.VERA_TEST_ENV_REF = "resolved-value";
+
+    let registry;
+    try {
+        registry = await startExtensionRegistry({
+            extensions: [{
+                path: extension,
+                enabled: true,
+                config: { servers: { one: { token: "{env:VERA_TEST_ENV_REF}" } } },
+            }],
+        });
+    } finally {
+        delete process.env.VERA_TEST_ENV_REF;
+    }
+
+    expect(JSON.parse(readFileSync(receivedPath, "utf8"))).toEqual({
+        servers: { one: { token: "resolved-value" } },
+    });
+    await registry.close();
+});
+
+test("an unset env reference disables only the extension that named it", async () => {
+    const missing = createExtension("missing.extension", `
+        export function activate() {}
+    `, ["commands.register"]);
+    const healthy = createExtension(
+        "healthy.extension",
+        commandSource("healthy", "ok"),
+    );
+    const failures: ExtensionRegistryFailure[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [
+            { path: missing, enabled: true, config: { token: "{env:VERA_TEST_ABSENT}" } },
+            configured(healthy),
+        ],
+        onFailure(failure) {
+            failures.push(failure);
+        },
+    });
+
+    expect(registry.commands().map((command) => command.name)).toEqual([
+        "healthy",
+    ]);
+    expect(failures).toHaveLength(1);
+    expect(failures[0]?.extensionId).toBe("missing.extension");
+    expect(failures[0]?.message).toContain("VERA_TEST_ABSENT");
+    await registry.close();
+});
