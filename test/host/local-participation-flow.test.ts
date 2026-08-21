@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
+import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { parsePeerMessage } from "../../src/host/local-participation.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import {
@@ -506,6 +507,64 @@ test("an auto-mode recipient is woken with a notice, never the message", async (
 
         leftAttachment.detach();
         rightAttachment.detach();
+    } finally {
+        await registry.close();
+        inbox.close();
+    }
+});
+
+test("peer messages use inbox admission before waking a recipient", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-local-admission-"));
+    temporaryDirectories.push(root);
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        {
+            admission: new InboxAdmissionPolicy({
+                user: [],
+                userConfigPath: join(root, "user-config.json"),
+            }),
+        },
+    );
+    const scripts: AssistantMessage[][] = [
+        [
+            toolCall("send", "agent_send", { to: "right", text: "secret" }),
+            textResponse("sent"),
+        ],
+        [textResponse("must not run")],
+    ];
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter(scripts.shift() ?? []),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+    try {
+        const left = await registry.create({
+            id: "left",
+            workspace: root,
+            sessionPath: join(root, "left.jsonl"),
+            eventLogPath: join(root, "left-events.jsonl"),
+        });
+        const right = await registry.create({
+            id: "right",
+            workspace: root,
+            sessionPath: join(root, "right.jsonl"),
+            eventLogPath: join(root, "right-events.jsonl"),
+        });
+        const leftAttachment = left.attach();
+        const rightAttachment = right.attach();
+        await leftAttachment.receive();
+        await rightAttachment.receive();
+
+        await runPrompt(leftAttachment, "send the message");
+        await receiveType(rightAttachment, "notice");
+        const question = await receiveType(rightAttachment, "ui_request");
+        expect(question).toMatchObject({
+            request: { type: "user_question", outOfBand: true },
+        });
+        expect(await eventTypes(join(root, "right-events.jsonl")))
+            .not.toContain("delivery_turn_started");
     } finally {
         await registry.close();
         inbox.close();

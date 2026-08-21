@@ -101,6 +101,7 @@ import { skillScriptTool } from "../skills/script.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
 import { InboxDeliveryCoordinator } from "./inbox-delivery.ts";
+import { InboxAdmissionPolicy } from "./inbox-admission.ts";
 import { readArcNodeId, readArcToken } from "./arc-identity.ts";
 import {
     startWatchRuntimeIfEnabled,
@@ -168,6 +169,8 @@ export interface StartResidentHostOptions {
     readonly modelFailureLedgerPath?: string;
     /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
     readonly inboxPath?: string;
+    /** Overrides the user config path used by an always inbox admission. */
+    readonly inboxUserConfigPath?: string;
     /** Overrides `~/.vera/schedules.db`. Unused while the inbox flag is off. */
     readonly schedulePath?: string;
     /** Replaces the built-in connector set, so tests never reach a real arc. */
@@ -326,7 +329,15 @@ export async function startResidentHost(
     const consumers = createConsumerRegistry(inbox);
     const inboxDelivery = consumers === null
         ? undefined
-        : new InboxDeliveryCoordinator(consumers);
+        : new InboxDeliveryCoordinator(consumers, {
+            admissionFor: (projectRoot) => projectRoot === undefined
+                ? undefined
+                : InboxAdmissionPolicy.fromConfig(
+                    options.config,
+                    projectRoot,
+                    options.inboxUserConfigPath,
+                ),
+        });
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
         for (const listener of [...workChangeListeners]) {
