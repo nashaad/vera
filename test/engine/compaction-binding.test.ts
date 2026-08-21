@@ -81,6 +81,25 @@ test("a declared slot with no route binds nothing", () => {
     )).toBeUndefined();
 });
 
+test("a catalog fallback is the model shown for the bound summarizer", () => {
+    const bound = bindCompaction(
+        profile({ slots: {} }),
+        adapter,
+        { provider: "openrouter", model: "session-model" },
+        BUNDLED_COMPACTION_STRATEGIES,
+        [{
+            name: "fallback",
+            provider: "openrouter",
+            model: "fallback-model",
+        }],
+    );
+
+    expect(bound?.diagnostics).toMatchObject({
+        provider: "openrouter",
+        model: "fallback-model",
+    });
+});
+
 test("a profile with no trigger keys binds no trigger, so defaults apply", () => {
     const bound = bindCompaction(
         profile(),

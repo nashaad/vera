@@ -221,6 +221,8 @@ export interface SessionCompactionDiagnostics {
     readonly strategy: string;
     readonly route?: string;
     readonly catalogEntry?: string;
+    readonly provider?: string;
+    readonly model?: string;
 }
 
 export interface AppendCompactionRequest {
@@ -793,9 +795,9 @@ export class SessionStore {
     }
 
     /**
-     * The model context before the disposable tool-result projection is
-     * applied. Compaction measures this durable shape so bounded tool results
-     * cannot hide a growing session from the trigger.
+     * The durable model context before the disposable tool-result projection
+     * is applied. This is useful for diagnostics; compaction triggers from
+     * the model-facing projection so disposable history cannot cause a loop.
      */
     unprojectedModelContext(): readonly ModelMessage[] {
         return this.modelContextEntries().map((entry) => entry.message);

@@ -33,6 +33,10 @@ export interface CompactionProposal {
      * produced it stopped being installed.
      */
     readonly projection: readonly ModelMessage[];
+    /** The model that produced the projection, when the strategy knows it. */
+    readonly model?: string;
+    /** The provider that produced the projection, when known. */
+    readonly provider?: string;
 }
 
 export type CompactionStrategy = (

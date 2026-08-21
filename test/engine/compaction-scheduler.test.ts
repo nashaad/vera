@@ -114,6 +114,53 @@ test("compacting replaces the span and leaves the transcript whole", async () =>
     expect(context[0]).toEqual(summary());
 });
 
+test("boundary budgeting uses the model-facing retained projection", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] }), {
+            targetTokens: 1_000,
+            modelContext: store.modelContext(),
+            projectModelContext: (projection, retained) => [
+                ...projection,
+                ...retained.map(() => summary("aged result")),
+            ],
+        }),
+        { tokens: 5_000, estimated: true },
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+});
+
+test("compaction reports the model that produced the accepted projection", async () => {
+    const store = await session(6);
+    const result = await compactSession(
+        options(store, () => ({
+            projection: [summary()],
+            model: "fallback-model",
+            provider: "fallback-provider",
+        }), {
+            diagnostics: {
+                strategy: "test/fake",
+                model: "first-model",
+                provider: "first-provider",
+            },
+        }),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
+    expect(result).toMatchObject({
+        outcome: "compacted",
+        model: "fallback-model",
+        provider: "fallback-provider",
+    });
+    expect(store.latestCompaction()?.diagnostics).toMatchObject({
+        model: "fallback-model",
+        provider: "fallback-provider",
+    });
+});
+
 test("the last two user turns survive verbatim", async () => {
     const store = await session(6);
     await compactSession(

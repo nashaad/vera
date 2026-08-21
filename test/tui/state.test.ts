@@ -2571,9 +2571,14 @@ test("a running compaction is marked on state and cleared by any finish", () => 
         type: "compaction",
         phase: "started",
         strategy: "vera/full-summary",
+        provider: "openrouter",
+        model: "openai/gpt-5.6-terra",
         seq: 1,
     });
     expect(started.compactingSince).toBeGreaterThan(0);
+    expect(started.compactionStrategy).toBe("vera/full-summary");
+    expect(started.compactionProvider).toBe("openrouter");
+    expect(started.compactionModel).toBe("openai/gpt-5.6-terra");
 
     for (
         const outcome of [

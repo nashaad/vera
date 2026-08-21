@@ -331,6 +331,9 @@ export interface ContextMeasuredEvent {
 export interface CompactionStartedEvent {
     readonly type: "compaction_started";
     readonly strategy: string;
+    /** The first model in the bound summarizer route, when known. */
+    readonly provider?: string;
+    readonly model?: string;
     /** A configuration mismatch that makes this compaction wasteful. */
     readonly warning?: string;
 }
@@ -344,6 +347,8 @@ export interface CompactionStartedEvent {
 export interface CompactionFinishedEvent {
     readonly type: "compaction_finished";
     readonly strategy: string;
+    readonly provider?: string;
+    readonly model?: string;
     readonly outcome:
         | "compacted"
         | "not_needed"

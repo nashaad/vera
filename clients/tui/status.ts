@@ -413,7 +413,14 @@ const COMPACTION_BAR_CELLS = 12;
 const COMPACTION_BAR_HALF_LIFE_MS = 20_000;
 
 /** The status line while compaction runs: a bar filling with elapsed time. */
-export function renderTuiCompactionHint(elapsedMs: number): string {
+export function renderTuiCompactionHint(
+    elapsedMs: number,
+    details: {
+        readonly strategy?: string;
+        readonly provider?: string;
+        readonly model?: string;
+    } = {},
+): string {
     const fraction = Math.max(0, elapsedMs)
         / (Math.max(0, elapsedMs) + COMPACTION_BAR_HALF_LIFE_MS);
     const filled = Math.min(
@@ -424,7 +431,16 @@ export function renderTuiCompactionHint(elapsedMs: number): string {
         "░".repeat(COMPACTION_BAR_CELLS - filled)
     }`;
     const seconds = Math.max(0, Math.floor(elapsedMs / 1000));
-    return `compacting [${bar}] · ${seconds}s`;
+    const model = details.model === undefined
+        ? undefined
+        : details.provider === undefined
+        ? details.model
+        : `${details.provider}/${details.model}`;
+    const label = [details.strategy, model]
+        .filter((part): part is string => part !== undefined)
+        .join(" · ");
+    return `compacting [${bar}]${label.length === 0 ? "" : ` · ${label}`}`
+        + ` · ${seconds}s`;
 }
 
 function compactWorkspace(workspace: string): string {

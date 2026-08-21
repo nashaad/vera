@@ -43,6 +43,12 @@ test("Escape aborts a working TUI turn and passes while idle", () => {
     expect(tuiInterruptAction(key, false, false)).toBe("pass");
 });
 
+test("Escape aborts a manual compaction while no turn is working", () => {
+    const key = { name: "escape", ctrl: false };
+    expect(tuiInterruptAction(key, false, false, true)).toBe("abort");
+    expect(tuiInterruptAction(key, false, true, true)).toBe("consume");
+});
+
 test("OpenTUI reports Escape as a TUI abort", async () => {
     const setup = await createTestRenderer({
         width: 20,

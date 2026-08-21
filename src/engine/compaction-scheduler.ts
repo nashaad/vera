@@ -78,6 +78,8 @@ export type CompactionOutcome =
         readonly outcome: "compacted";
         readonly before: number;
         readonly after: number;
+        readonly model?: string;
+        readonly provider?: string;
     };
 
 /**
@@ -97,6 +99,16 @@ export interface CompactionSchedulerOptions {
     readonly models: Readonly<Record<string, CompleteText>>;
     /** Model whose next request this measurement describes. */
     readonly model?: string;
+    /** The current model-facing context, excluding pending messages. */
+    readonly modelContext?: readonly ModelMessage[];
+    /**
+     * Projects a hypothetical compaction context with the same disposable
+     * history policy the trigger used. Absent for older direct callers.
+     */
+    readonly projectModelContext?: (
+        projection: readonly ModelMessage[],
+        retained: readonly ModelMessage[],
+    ) => readonly ModelMessage[];
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
@@ -267,7 +279,7 @@ export async function compactSession(
     // What the request costs beyond its messages: the system prompt, the tool
     // definitions, the project instructions. Compaction cannot shrink any of
     // it, so it comes off the budget before the strategy is given a number.
-    const modelContext = [
+    const modelContext = options.modelContext ?? [
         ...previousProjection,
         ...active.slice(previousBoundary + 1).map((entry) => entry.message),
     ];
@@ -288,7 +300,10 @@ export async function compactSession(
         sawCandidate = true;
         const kept = active.slice(candidate.boundaryIndex + 1)
             .map((entry) => entry.message);
-        const room = budget - overhead - measureMessages(kept);
+        const keptContext = options.projectModelContext === undefined
+            ? kept
+            : options.projectModelContext(previousProjection, kept);
+        const room = budget - overhead - measureMessages(keptContext);
         if (room < MIN_SUMMARY_TOKENS) {
             continue;
         }
@@ -417,12 +432,16 @@ async function attemptCompaction(
     };
 
     let projection: readonly ModelMessage[];
+    let proposalModel: string | undefined;
+    let proposalProvider: string | undefined;
     try {
         const proposal = await options.strategy.compact(request, signal);
         if (signal.aborted) {
             return { result: { outcome: "cancelled" }, retry: false };
         }
         projection = validateProposal(proposal, request);
+        proposalModel = proposal.model;
+        proposalProvider = proposal.provider;
     } catch (error) {
         if (signal.aborted) {
             return { result: { outcome: "cancelled" }, retry: false };
@@ -452,7 +471,10 @@ async function attemptCompaction(
     // beat what it replaces has cost a model call to change nothing, and
     // accepting it would let the next turn ask again immediately.
     const before = measureMessages(modelContext) + overhead;
-    const after = measureMessages([...projection, ...suffix]) + overhead;
+    const afterContext = options.projectModelContext === undefined
+        ? [...projection, ...suffix]
+        : options.projectModelContext(projection, suffix);
+    const after = measureMessages(afterContext) + overhead;
     if (signal.aborted) {
         return { result: { outcome: "cancelled" }, retry: false };
     }
@@ -482,7 +504,17 @@ async function attemptCompaction(
             },
             ...(options.diagnostics === undefined
                 ? {}
-                : { diagnostics: options.diagnostics }),
+                : {
+                    diagnostics: {
+                        ...options.diagnostics,
+                        ...(proposalModel === undefined
+                            ? {}
+                            : { model: proposalModel }),
+                        ...(proposalProvider === undefined
+                            ? {}
+                            : { provider: proposalProvider }),
+                    },
+                }),
         });
     } catch (error) {
         return {
@@ -493,7 +525,18 @@ async function attemptCompaction(
             retry: false,
         };
     }
-    return { result: { outcome: "compacted", before, after }, retry: false };
+    return {
+        result: {
+            outcome: "compacted",
+            before,
+            after,
+            ...(proposalModel === undefined ? {} : { model: proposalModel }),
+            ...(proposalProvider === undefined
+                ? {}
+                : { provider: proposalProvider }),
+        },
+        retry: false,
+    };
 }
 
 function deepFreeze<T>(value: T): T {
