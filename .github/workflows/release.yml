@@ -55,7 +55,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Pin npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: |
+          npm_prefix="$RUNNER_TEMP/npm-$NPM_VERSION"
+          npm install --global --prefix "$npm_prefix" "npm@$NPM_VERSION"
+          echo "$npm_prefix/bin" >> "$GITHUB_PATH"
+          test "$("$npm_prefix/bin/npm" --version)" = "$NPM_VERSION"
 
       - name: Install development dependencies
         run: bun install --frozen-lockfile
@@ -118,7 +122,11 @@ jobs:
           bun-version: ${{ env.BUN_VERSION }}
 
       - name: Pin npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: |
+          npm_prefix="$RUNNER_TEMP/npm-$NPM_VERSION"
+          npm install --global --prefix "$npm_prefix" "npm@$NPM_VERSION"
+          echo "$npm_prefix/bin" >> "$GITHUB_PATH"
+          test "$("$npm_prefix/bin/npm" --version)" = "$NPM_VERSION"
 
       - name: Download npm tarball
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
@@ -127,16 +135,19 @@ jobs:
           path: dist
 
       - name: Install exact npm tarball
-        run: >-
-          npm install --global --ignore-scripts
-          --registry=https://registry.npmjs.org --
-          "dist/nashaad-vera-$RELEASE_VERSION.tgz"
+        run: |
+          vera_prefix="$RUNNER_TEMP/vera-install"
+          npm install --global --ignore-scripts \
+            --prefix "$vera_prefix" \
+            --registry=https://registry.npmjs.org -- \
+            "dist/nashaad-vera-$RELEASE_VERSION.tgz"
+          echo "$vera_prefix/bin" >> "$GITHUB_PATH"
 
       - name: Run CLI and native dependency smoke tests
         run: |
           test "$(env VERA_RELEASE_VERSION= vera --version)" = "vera $RELEASE_VERSION"
           vera --help | grep -q "Run one bounded turn"
-          package_root="$(npm root --global)/@nashaad/vera"
+          package_root="$RUNNER_TEMP/vera-install/lib/node_modules/@nashaad/vera"
           bun scripts/release-npm-native-smoke.ts "$package_root"
 
   container-smoke:
@@ -191,7 +202,11 @@ jobs:
           registry-url: https://registry.npmjs.org
 
       - name: Pin npm
-        run: npm install --global "npm@$NPM_VERSION"
+        run: |
+          npm_prefix="$RUNNER_TEMP/npm-$NPM_VERSION"
+          npm install --global --prefix "$npm_prefix" "npm@$NPM_VERSION"
+          echo "$npm_prefix/bin" >> "$GITHUB_PATH"
+          test "$("$npm_prefix/bin/npm" --version)" = "$NPM_VERSION"
 
       - name: Validate exact publish payload
         run: |
