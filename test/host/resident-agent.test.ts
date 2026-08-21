@@ -6,7 +6,44 @@ import {
     ResidentAgent,
     ResidentAgentClosedError,
 } from "../../src/host/resident-agent.ts";
+import { EngineEventBus } from "../../src/engine/events.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
+import { createProtocolEncoder } from "../../src/engine/protocol.ts";
 import type { HistoryUpdate } from "../../src/engine/protocol.ts";
+
+test("an out-of-band admission question preserves idle resident state", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(agent.engine));
+    const router = new InboundCommandRouter(agent.engine, events);
+    const attachment = agent.attach();
+
+    try {
+        expect((await attachment.receive()).type).toBe("history");
+        const result = router.requestUserQuestion({
+            question: "Admit this source?",
+            choices: [{ id: "once", label: "Once" }],
+        }, { outOfBand: true });
+        const request = await attachment.receive();
+        expect(request).toMatchObject({
+            type: "ui_request",
+            request: { type: "user_question", outOfBand: true },
+        });
+        if (request.type !== "ui_request") throw new Error("missing question");
+        attachment.send({
+            type: "ui_response",
+            requestId: request.requestId,
+            response: { type: "user_question", outcome: "cancelled" },
+        });
+        await expect(result).resolves.toEqual({ outcome: "cancelled" });
+        expect((await attachment.receive()).type).toBe("ui_request_closed");
+        expect(agent.status).toBe("idle");
+        expect(agent.idleForReplacement()).toBe(true);
+    } finally {
+        attachment.detach();
+        agent.close();
+    }
+});
 
 test("resident agent replays a checkpoint and every later update", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");

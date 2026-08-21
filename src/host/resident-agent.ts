@@ -91,6 +91,9 @@ export class ResidentAgent {
 
     private readonly inbound = new AsyncQueue<QueuedCommand>();
     private readonly attachments = new Map<string, AsyncQueue<AgentUpdate>>();
+    private readonly attachmentListeners = new Set<
+        (attached: boolean) => void
+    >();
     private readonly issuedAttachmentIds = new Set<string>();
     private readonly imageAttachmentTasks = new Map<string, Set<AbortController>>();
     private checkpoint: HistoryUpdate = {
@@ -105,6 +108,7 @@ export class ResidentAgent {
     // an unattended session has none. Both are recomputed from the same
     // updates every client sees, so nothing here can outlive the fact.
     private openRequests = new Map<string, UiRequest>();
+    private readonly outOfBandRequests = new Set<string>();
     private currentTool: string | undefined;
     private lastSequence = 0;
     private terminalFailure: AgentUpdate | undefined;
@@ -181,6 +185,7 @@ export class ResidentAgent {
         let attached = true;
         this.issuedAttachmentIds.add(attachmentId);
         this.attachments.set(attachmentId, outgoing);
+        this.notifyAttachmentChanged(true);
         if (afterSequence === undefined || afterSequence < this.checkpoint.seq) {
             outgoing.push(clone(this.checkpoint));
         }
@@ -268,6 +273,7 @@ export class ResidentAgent {
                 }
                 attached = false;
                 this.attachments.delete(attachmentId);
+                this.notifyAttachmentChanged(this.attachments.size > 0);
                 this.abortImageAttachments(attachmentId);
                 outgoing.fail(new AgentDetachedError(), {
                     discardBuffered: true,
@@ -350,6 +356,14 @@ export class ResidentAgent {
         } catch (error) {
             this.deliveryTurnQueued = false;
             throw error;
+        }
+    }
+
+    /** Called when the engine consumed a queued wake without starting a turn. */
+    deliveryTurnDiscarded(): void {
+        if (this.deliveryTurnStarting) {
+            this.deliveryTurnStarting = false;
+            this.notifyRunStateChanged();
         }
     }
 
@@ -457,6 +471,7 @@ export class ResidentAgent {
             outgoing.fail(error, { discardBuffered });
         }
         this.attachments.clear();
+        this.notifyAttachmentChanged(false);
         for (const ownerId of this.imageAttachmentTasks.keys()) {
             this.abortImageAttachments(ownerId);
         }
@@ -516,10 +531,20 @@ export class ResidentAgent {
             this.startedTurnActive = true;
             this.currentStatus = "working";
         } else if (snapshot.type === "ui_request") {
-            this.currentStatus = "waiting";
+            if (
+                snapshot.request.type === "user_question"
+                && snapshot.request.outOfBand === true
+            ) {
+                this.outOfBandRequests.add(snapshot.requestId);
+            } else {
+                this.currentStatus = "waiting";
+            }
             this.openRequests.set(snapshot.requestId, snapshot.request);
         } else if (snapshot.type === "ui_request_closed") {
-            this.currentStatus = "working";
+            const outOfBand = this.outOfBandRequests.delete(snapshot.requestId);
+            if (!outOfBand) {
+                this.currentStatus = "working";
+            }
             this.openRequests.delete(snapshot.requestId);
         } else if (snapshot.type === "tool_started") {
             this.currentTool = snapshot.tool;
@@ -533,6 +558,7 @@ export class ResidentAgent {
             // without closing its request would otherwise leave the session
             // reading as needing someone for the rest of the host's life.
             this.openRequests.clear();
+            this.outOfBandRequests.clear();
             if (this.startedTurnActive) {
                 this.startedTurnActive = false;
             } else if (this.unstartedPrompts > 0) {
@@ -548,6 +574,7 @@ export class ResidentAgent {
             this.currentStatus = "idle";
             this.currentTool = undefined;
             this.openRequests.clear();
+            this.outOfBandRequests.clear();
             this.unstartedPrompts = 0;
             this.deliveryTurnStarting = false;
             this.startedTurnActive = false;
@@ -605,6 +632,11 @@ export class ResidentAgent {
         return this.attachments.size > 0;
     }
 
+    onAttachmentChanged(listener: (attached: boolean) => void): () => void {
+        this.attachmentListeners.add(listener);
+        return () => this.attachmentListeners.delete(listener);
+    }
+
     idleForShutdown(): boolean {
         return this.idleForReplacement()
             && this.attachments.size === 0;
@@ -618,6 +650,16 @@ export class ResidentAgent {
             && !this.deliveryTurnQueued
             && this.pendingCommandCount === 0
         );
+    }
+
+    private notifyAttachmentChanged(attached: boolean): void {
+        for (const listener of [...this.attachmentListeners]) {
+            try {
+                listener(attached);
+            } catch {
+                // Attachment bookkeeping must not change the session outcome.
+            }
+        }
     }
 }
 

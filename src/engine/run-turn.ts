@@ -330,6 +330,10 @@ export interface RunHeadlessLoopOptions {
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
     readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
+    /** Additional durable work owned by the host, such as the native inbox. */
+    readonly hasPendingDeliveryTurn?: () => boolean;
+    /** Clears the host-side wake when the queued delivery was drained first. */
+    readonly onDeliveryTurnDiscarded?: () => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
@@ -673,7 +677,11 @@ export async function runHeadlessLoop(
         },
         hasPendingDeliveryTurn: () =>
             store.pendingDeliveries().length > 0
-            || store.hasUnansweredDeliveryTurn(),
+            || store.hasUnansweredDeliveryTurn()
+            || options.hasPendingDeliveryTurn?.() === true,
+        ...(options.onDeliveryTurnDiscarded === undefined ? {} : {
+            onDeliveryTurnDiscarded: options.onDeliveryTurnDiscarded,
+        }),
         ...(options.readModelSettings === undefined
             ? {}
             : { readModelSettings: options.readModelSettings }),
