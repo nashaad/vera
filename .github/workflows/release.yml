@@ -1,23 +1,84 @@
 name: Release Vera
+run-name: Release Vera v${{ inputs.version }}
 
 on:
-  push:
-    tags:
-      - "v*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Stable version without the v prefix
+        required: true
+        type: string
 
 concurrency:
-  group: vera-release-${{ github.ref }}
+  group: vera-release-${{ inputs.version }}
   cancel-in-progress: false
 
 permissions:
-  contents: write
+  contents: read
 
 env:
   BUN_VERSION: "1.3.6"
+  NPM_VERSION: "11.6.2"
+  RELEASE_VERSION: ${{ inputs.version }}
 
 jobs:
-  build:
-    name: Build ${{ matrix.platform }}/${{ matrix.arch }}
+  build-package:
+    name: Build npm package
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 0
+
+      - name: Validate release source
+        run: |
+          set -eu
+          [ "$GITHUB_REF" = "refs/heads/main" ] || {
+            echo "release workflow must be dispatched from main" >&2
+            exit 1
+          }
+          printf '%s\n' "$RELEASE_VERSION" \
+            | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          [ "$(git tag --points-at HEAD | grep -Fx "v$RELEASE_VERSION")" = "v$RELEASE_VERSION" ]
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          git merge-base --is-ancestor HEAD origin/main || {
+            echo "release tag is not reachable from origin/main" >&2
+            exit 1
+          }
+
+      - name: Set up Bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Pin npm
+        run: npm install --global "npm@$NPM_VERSION"
+
+      - name: Install development dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run package and installer tests
+        run: bun test test/npm-package.test.ts test/install.test.ts
+
+      - name: Build and validate npm tarball
+        run: |
+          scripts/build-npm-package.ts "$RELEASE_VERSION" dist
+          scripts/validate-npm-package.ts \
+            "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION"
+
+      - name: Upload npm tarball
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: vera-npm-package
+          path: dist/nashaad-vera-*.tgz
+          if-no-files-found: error
+
+  platform-smoke:
+    name: Smoke test npm package on ${{ matrix.platform }}/${{ matrix.arch }}
+    needs: build-package
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -38,129 +99,134 @@ jobs:
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
-          fetch-depth: 0
-
-      - name: Validate stable release tag
-        run: |
-          printf '%s\n' "$GITHUB_REF_NAME" \
-            | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          ref: refs/tags/v${{ inputs.version }}
+          fetch-depth: 1
 
       - name: Set up portable Bun for Linux x64
         if: matrix.platform == 'linux' && matrix.arch == 'x64'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-download-url: >-
             https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-linux-x64-baseline.zip
 
       - name: Set up Bun
         if: matrix.platform != 'linux' || matrix.arch != 'x64'
-        uses: oven-sh/setup-bun@v2
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
+      - name: Pin npm
+        run: npm install --global "npm@$NPM_VERSION"
 
-      - name: Build release archive
-        run: |
-          output_dir="${RUNNER_TEMP}/vera-release"
-          mkdir -p "$output_dir"
-          scripts/build-release.sh "${GITHUB_REF_NAME#v}" \
-            "$output_dir/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
-
-      - name: Upload release archive
-        uses: actions/upload-artifact@v4
+      - name: Download npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: vera-${{ matrix.platform }}-${{ matrix.arch }}
-          path: ${{ runner.temp }}/vera-release/vera-*
-          if-no-files-found: error
+          name: vera-npm-package
+          path: dist
+
+      - name: Install exact npm tarball
+        run: >-
+          npm install --global --ignore-scripts
+          --registry=https://registry.npmjs.org --
+          "dist/nashaad-vera-$RELEASE_VERSION.tgz"
+
+      - name: Run CLI and native dependency smoke tests
+        run: |
+          test "$(env VERA_RELEASE_VERSION= vera --version)" = "vera $RELEASE_VERSION"
+          vera --help | grep -q "Run one bounded turn"
+          package_root="$(npm root --global)/@nashaad/vera"
+          bun scripts/release-npm-native-smoke.ts "$package_root"
 
   container-smoke:
-    name: Smoke test Linux x64 bundle
-    needs: build
+    name: Smoke test curl installer and faux model
+    needs: build-package
     runs-on: ubuntu-24.04
 
     steps:
       - name: Check out tagged source
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: refs/tags/v${{ inputs.version }}
           fetch-depth: 1
 
-      - name: Download Linux x64 archive
-        uses: actions/download-artifact@v4
+      - name: Download npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          name: vera-linux-x64
+          name: vera-npm-package
           path: dist
 
-      - name: Run installed-bundle smoke test
+      - name: Run npm installer container smoke test
         run: |
-          scripts/release-container-smoke.sh \
-            "dist/vera-linux-x64.tar.gz" "${GITHUB_REF_NAME#v}"
+          scripts/release-npm-container-smoke.sh \
+            "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION"
 
   publish:
-    name: Publish GitHub release
-    needs: [build, container-smoke]
+    name: Publish npm package
+    needs: [build-package, platform-smoke, container-smoke]
     runs-on: ubuntu-24.04
-    env:
-      GH_TOKEN: ${{ github.token }}
-      GH_REPO: ${{ github.repository }}
+    environment: npm-release
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
-      - name: Check out tagged source
-        uses: actions/checkout@v4
+      - name: Check out protected release tooling
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: refs/heads/main
           fetch-depth: 1
 
-      - name: Download release archives
-        uses: actions/download-artifact@v4
+      - name: Download verified npm tarball
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
-          pattern: vera-*
-          merge-multiple: true
+          name: vera-npm-package
           path: dist
 
-      - name: Create or resume draft release
+      - name: Set up npm registry authentication
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: "22"
+          registry-url: https://registry.npmjs.org
+
+      - name: Pin npm
+        run: npm install --global "npm@$NPM_VERSION"
+
+      - name: Validate exact publish payload
         run: |
-          release_is_draft=$(gh release view "$GITHUB_REF_NAME" \
-            --json isDraft --jq '.isDraft' 2>/dev/null || true)
-          if [ -z "$release_is_draft" ]; then
-            gh release create "$GITHUB_REF_NAME" \
-              --draft \
-              --generate-notes \
-              --title "$GITHUB_REF_NAME" \
-              --verify-tag
-          elif [ "$release_is_draft" != "true" ]; then
-            echo "refusing to overwrite published release $GITHUB_REF_NAME" >&2
-            exit 1
+          scripts/validate-npm-package.ts \
+            "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION"
+
+      - name: Check registry state and release monotonicity
+        id: registry
+        run: |
+          scripts/check-npm-release.ts prepare \
+            "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION" \
+            >> "$GITHUB_OUTPUT"
+
+      - name: Publish verified npm package
+        if: steps.registry.outputs.publish == 'true'
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: |
+          if [ "${{ github.event.repository.private }}" = "false" ]; then
+            npm publish "dist/nashaad-vera-$RELEASE_VERSION.tgz" \
+              --registry=https://registry.npmjs.org \
+              --access public --tag latest --provenance || true
+          else
+            npm publish "dist/nashaad-vera-$RELEASE_VERSION.tgz" \
+              --registry=https://registry.npmjs.org \
+              --access public --tag latest || true
           fi
 
-      - name: Upload release assets
-        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
-
-      - name: Verify release archives and checksums
+      - name: Verify registry bytes, latest tag, and provenance
         run: |
-          set -eu
-          for archive in dist/vera-*.tar.gz; do
-            checksum="$archive.sha256"
-            [ -f "$checksum" ] || {
-              echo "missing checksum sidecar: $checksum" >&2
-              exit 1
-            }
-            (
-              cd "$(dirname "$archive")"
-              sha256sum -c "$(basename "$checksum")"
-            )
-          done
-
-      - name: Verify every release asset is present
-        run: |
-          for artifact in dist/*; do
-            artifact_name=$(basename "$artifact")
-            gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' \
-              | grep -Fx "$artifact_name" >/dev/null \
-              || { echo "missing release asset: $artifact_name" >&2; exit 1; }
-          done
-
-      - name: Publish verified release
-        run: gh release edit "$GITHUB_REF_NAME" --draft=false
+          if [ "${{ github.event.repository.private }}" = "false" ]; then
+            scripts/check-npm-release.ts verify \
+              "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION" \
+              --require-provenance
+          else
+            scripts/check-npm-release.ts verify \
+              "dist/nashaad-vera-$RELEASE_VERSION.tgz" "$RELEASE_VERSION"
+          fi
