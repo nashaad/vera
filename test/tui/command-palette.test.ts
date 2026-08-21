@@ -62,6 +62,44 @@ test("command palette search accepts spaces between label words", () => {
     ]);
 });
 
+test("command palette finds keyboard help by common wording and key hint", () => {
+    const help = {
+        name: "help",
+        label: "Show keyboard shortcuts",
+        description: "view hotkeys, shortcuts, and keyboard controls, including ctrl+p (control p)",
+        group: "Settings",
+        action: { type: "open_help", tab: "keys" },
+    } as const satisfies TuiPaletteEntry;
+
+    for (const query of [
+        "hotkey",
+        "shortcut",
+        "keyboard",
+        "ctrl+p",
+        "control p",
+    ]) {
+        let state = startTuiCommandPalette([help]);
+        for (const name of query) {
+            state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
+        }
+        expect(state.commands).toEqual([help]);
+    }
+
+    const effort = {
+        name: "effort",
+        label: "Change reasoning effort",
+        description: "how much the model thinks",
+        group: "Settings",
+        keyHint: "ctrl+o reasoning",
+        action: { type: "open_reasoning_picker" },
+    } as const satisfies TuiPaletteEntry;
+    let state = startTuiCommandPalette([effort]);
+    for (const name of "ctrl+o") {
+        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
+    }
+    expect(state.commands).toEqual([effort]);
+});
+
 test("command palette orders entries by group, not registration", () => {
     const state = startTuiCommandPalette([
         commands[1],

@@ -64,6 +64,7 @@ test("no TUI surface matches a chord outside the keymap", async () => {
 const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "interrupt",
     "toggle_thinking",
+    "toggle_session_header",
     "cycle_agent_layout",
     "switch_agent_pane",
     "toggle_tool_details",

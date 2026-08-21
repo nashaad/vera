@@ -236,7 +236,7 @@ function filteredState(
     const commands = allCommands.filter((command) =>
         `${command.label} ${command.description} ${command.group} ${
             command.slashName === undefined ? "" : `/${command.slashName}`
-        }`
+        } ${command.keyHint ?? ""}`
             .toLowerCase()
             .includes(normalized)
     );
