@@ -47,7 +47,15 @@ jobs:
           printf '%s\n' "$GITHUB_REF_NAME" \
             | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
 
+      - name: Set up portable Bun for Linux x64
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-download-url: >-
+            https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-linux-x64-baseline.zip
+
       - name: Set up Bun
+        if: matrix.platform != 'linux' || matrix.arch != 'x64'
         uses: oven-sh/setup-bun@v2
         with:
           bun-version: ${{ env.BUN_VERSION }}
