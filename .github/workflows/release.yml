@@ -3,7 +3,11 @@ name: Release Vera
 on:
   push:
     tags:
-      - "v[0-9]*.[0-9]*.[0-9]*"
+      - "v*"
+
+concurrency:
+  group: vera-release-${{ github.ref }}
+  cancel-in-progress: false
 
 permissions:
   contents: write
@@ -38,6 +42,11 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: Validate stable release tag
+        run: |
+          printf '%s\n' "$GITHUB_REF_NAME" \
+            | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+
       - name: Set up Bun
         uses: oven-sh/setup-bun@v2
         with:
@@ -60,12 +69,41 @@ jobs:
           path: ${{ runner.temp }}/vera-release/vera-*
           if-no-files-found: error
 
-  publish:
-    name: Publish GitHub release
+  container-smoke:
+    name: Smoke test Linux x64 bundle
     needs: build
     runs-on: ubuntu-24.04
 
     steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download Linux x64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: vera-linux-x64
+          path: dist
+
+      - name: Run installed-bundle smoke test
+        run: scripts/release-container-smoke.sh \
+          "dist/vera-linux-x64.tar.gz" "${GITHUB_REF_NAME#v}"
+
+  publish:
+    name: Publish GitHub release
+    needs: [build, container-smoke]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
       - name: Download release archives
         uses: actions/download-artifact@v4
         with:
@@ -74,8 +112,6 @@ jobs:
           path: dist
 
       - name: Create or resume draft release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           release_is_draft=$(gh release view "$GITHUB_REF_NAME" \
             --json isDraft --jq '.isDraft' 2>/dev/null || true)
@@ -91,13 +127,24 @@ jobs:
           fi
 
       - name: Upload release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
 
+      - name: Verify release archives and checksums
+        run: |
+          set -eu
+          for archive in dist/vera-*.tar.gz; do
+            checksum="$archive.sha256"
+            [ -f "$checksum" ] || {
+              echo "missing checksum sidecar: $checksum" >&2
+              exit 1
+            }
+            (
+              cd "$(dirname "$archive")"
+              sha256sum -c "$(basename "$checksum")"
+            )
+          done
+
       - name: Verify every release asset is present
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: |
           for artifact in dist/*; do
             artifact_name=$(basename "$artifact")
@@ -107,6 +154,4 @@ jobs:
           done
 
       - name: Publish verified release
-        env:
-          GH_TOKEN: ${{ github.token }}
         run: gh release edit "$GITHUB_REF_NAME" --draft=false

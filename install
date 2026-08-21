@@ -19,6 +19,7 @@ require_command() {
 
 require_command curl
 require_command tar
+require_command diff
 
 home=${HOME:-}
 [ -n "$home" ] || die "HOME is not set"
@@ -58,6 +59,10 @@ case "$version" in
         case "$version" in
             *[!A-Za-z0-9._+-]*) die "invalid Vera version: $version" ;;
         esac
+        version_without_v=${version#v}
+        printf '%s\n' "$version_without_v" \
+            | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+            || die "invalid stable Vera version: $version"
         ;;
     *) die "invalid Vera version: $version" ;;
 esac
@@ -120,9 +125,15 @@ if ! mkdir "$lock_dir" 2>/dev/null; then
     if kill -0 "$lock_pid" 2>/dev/null; then
         die "another Vera install is already running; remove $lock_dir if stale"
     fi
-    rm -rf "$lock_dir"
-    mkdir "$lock_dir" 2>/dev/null \
-        || die "another Vera install started while clearing stale lock: $lock_dir"
+    stale_lock=$install_root/.install.stale.$$.${RANDOM:-0}
+    if ! mv "$lock_dir" "$stale_lock" 2>/dev/null; then
+        die "another Vera install started while clearing stale lock: $lock_dir"
+    fi
+    if ! mkdir "$lock_dir" 2>/dev/null; then
+        rm -rf "$stale_lock"
+        die "another Vera install started while clearing stale lock: $lock_dir"
+    fi
+    rm -rf "$stale_lock"
 fi
 printf '%s\n' "$$" > "$lock_dir/pid"
 
@@ -225,6 +236,12 @@ tar -xzf "$staging/$archive_name" -C "$archive_root"
     || die "release archive is missing bin/vera"
 [ -x "$archive_root/bin/vera" ] \
     || die "release archive bin/vera is not executable"
+[ -f "$archive_root/runtime/bun" ] \
+    || die "release archive is missing runtime/bun"
+[ -x "$archive_root/runtime/bun" ] \
+    || die "release archive runtime/bun is not executable"
+[ -f "$archive_root/clients/cli/main.ts" ] \
+    || die "release archive is missing clients/cli/main.ts"
 
 # A release bundle is self-contained; symlinks would let an archive escape the
 # version directory after activation.
@@ -242,8 +259,13 @@ esac
 manifest_value() {
     manifest_root=$1
     key=$2
-    sed -n "s/.*\"$key\"[[:space:]]*:[[:space:]]*\"\([^\"]*\)\".*/\1/p" \
-        "$manifest_root/manifest.json" | sed -n '1p'
+    "$manifest_root/runtime/bun" -e '
+        const manifest = await Bun.file(process.argv[1]).json();
+        const key = process.argv[2];
+        const value = manifest[key];
+        if (typeof value !== "string") process.exit(1);
+        process.stdout.write(value);
+    ' "$manifest_root/manifest.json" "$key"
 }
 
 manifest_version=$(manifest_value "$archive_root" version)
@@ -259,6 +281,10 @@ if [ "$platform" = "linux" ]; then
     [ "$(manifest_value "$archive_root" libc)" = "glibc" ] \
         || die "manifest libc does not match the supported Linux target"
 fi
+[ "$(manifest_value "$archive_root" entrypoint)" = "bin/vera" ] \
+    || die "manifest entrypoint does not match the release layout"
+[ "$(manifest_value "$archive_root" runtime)" = "runtime/bun" ] \
+    || die "manifest runtime does not match the release layout"
 
 case "$version" in
     latest) ;;
@@ -301,6 +327,10 @@ elif [ -e "$target" ]; then
         || die "existing Vera version is incomplete: $target"
     [ -s "$target/manifest.json" ] \
         || die "existing Vera version is missing manifest: $target"
+    [ -f "$target/runtime/bun" ] && [ -x "$target/runtime/bun" ] \
+        || die "existing Vera version is missing runtime: $target"
+    [ -f "$target/clients/cli/main.ts" ] \
+        || die "existing Vera version is missing CLI source: $target"
     [ "$(tr -d '\r\n' < "$target/VERSION")" = "$installed_version" ] \
         || die "existing Vera version has the wrong VERSION: $target"
     [ "$(manifest_value "$target" version)" = "$installed_version" ] \
@@ -313,8 +343,15 @@ elif [ -e "$target" ]; then
         [ "$(manifest_value "$target" libc)" = "glibc" ] \
             || die "existing Vera version has the wrong manifest libc: $target"
     fi
+    [ "$(manifest_value "$target" entrypoint)" = "bin/vera" ] \
+        || die "existing Vera version has the wrong manifest entrypoint: $target"
+    [ "$(manifest_value "$target" runtime)" = "runtime/bun" ] \
+        || die "existing Vera version has the wrong manifest runtime: $target"
     if find "$target" -type l -print -quit | grep . >/dev/null 2>&1; then
         die "existing Vera version contains a symlink: $target"
+    fi
+    if ! diff -qr "$archive_root" "$target" >/dev/null 2>&1; then
+        die "existing Vera version differs from the verified release: $target"
     fi
     rm -rf "$archive_root"
 else
