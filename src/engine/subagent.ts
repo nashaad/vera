@@ -50,6 +50,8 @@ import type {
     RegisteredTool,
     ToolEffectContext,
 } from "../tools/types.ts";
+import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
+import type { ToolRuntime } from "../tools/runtime.ts";
 import type { PooledModel } from "../model/catalog-view.ts";
 import {
     modelRef,
@@ -73,6 +75,7 @@ export interface CreateSubagentEffectApplierOptions {
     readonly instructionRoot?: InstructionRoot;
     /** Shared with children: one session, one scratch space. */
     readonly scratchDir?: string;
+    readonly processRegistry?: ManagedProcessRegistry;
     readonly disabledPromptContributions?: readonly string[];
     readonly modelFallback?: ModelFallbackPolicy;
     readonly sessionPathForId?: (sessionId: string) => string;
@@ -358,6 +361,7 @@ export interface RunSubagentOptions {
     /** Inherited from the parent. Absent falls back to the workspace. */
     readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
+    readonly processRegistry?: ManagedProcessRegistry;
     readonly disabledPromptContributions?: readonly string[];
     readonly approvalMode: ApprovalMode;
     readonly reasoningEffort?: ModelReasoningEffort;
@@ -518,6 +522,9 @@ export function createSubagentEffectApplier(
                 ...(options.scratchDir === undefined
                     ? {}
                     : { scratchDir: options.scratchDir }),
+                ...(options.processRegistry === undefined
+                    ? {}
+                    : { processRegistry: options.processRegistry }),
                 ...(disabledPromptContributions === undefined ? {} : {
                     disabledPromptContributions,
                 }),
@@ -576,6 +583,7 @@ export async function runSubagent(
     const channel = createInProcessChannel();
     const childSignal = options.signal ?? new AbortController().signal;
     const onAbort = (): void => channel.client.send({ type: "abort" });
+    let toolRuntime: ToolRuntime | undefined;
     options.signal?.addEventListener("abort", onAbort, { once: true });
 
     try {
@@ -627,15 +635,17 @@ export async function runSubagent(
                     : { log: options.reviewLog }),
             },
         );
+        toolRuntime = newStashingToolRuntime(
+            options.workspace,
+            sessionId,
+            undefined,
+            instructionRoot.path,
+            options.processRegistry,
+        );
         const state: RunTurnState = {
             messages: [],
             store,
-            toolRuntime: newStashingToolRuntime(
-                options.workspace,
-                sessionId,
-                undefined,
-                instructionRoot.path,
-            ),
+            toolRuntime,
             instructionRoot,
             inbound: new InboundCommandRouter(channel.engine, events),
             events,
@@ -713,6 +723,7 @@ export async function runSubagent(
             sessionPath: store.path,
         };
     } finally {
+        await toolRuntime?.close();
         options.signal?.removeEventListener("abort", onAbort);
     }
 }
