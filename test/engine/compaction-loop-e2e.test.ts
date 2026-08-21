@@ -18,6 +18,11 @@ import {
     type SessionCompactionOptions,
 } from "../../src/engine/run-turn.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../../src/model/provider-failure.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 import { assertToolCallsPaired } from "../../src/model/tool-pairing.ts";
 import {
     emptyUsage,
@@ -565,6 +570,159 @@ test("an abort with no compaction running still stops the turn", async () => {
             block.type === "text" && block.text.includes("second round")
         )
     )).toBe(false);
+});
+
+test("a provider refusing the request for size reopens a latched compaction", async () => {
+    // The latch waits for the estimate to grow. A refusal is the provider
+    // saying that estimate was wrong, so waiting for it is waiting on a
+    // number that has already lost its authority, and every later request is
+    // refused for a reason the user cannot connect to anything they did.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-refused", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+
+    const faux = new FauxAdapter([
+        toolCall("refused-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+    ]);
+    // The call after the tool result is refused for size, which is the shape
+    // a cancelled-but-needed compaction leaves behind.
+    let calls = 0;
+    const agent: ModelAdapter = {
+        stream(request: ModelRequest) {
+            calls += 1;
+            if (calls !== 2) {
+                return faux.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "request_too_large",
+                resolution: "user_action",
+                message: "prompt is too long",
+            } as ProviderFailure, undefined);
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...assistantText(""),
+                    stopReason: "error",
+                    errorMessage: error.message,
+                } as AssistantMessage,
+            });
+            return stream;
+        },
+    } as unknown as ModelAdapter;
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction: unavailableCompactionOptions({ tokens: 2_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    await drain(channel);
+    // The summarizer is unreachable, so that attempt latched.
+    expect(started(seen)).toBe(1);
+
+    channel.client.send({ type: "prompt", content: "second" });
+    await drain(channel);
+
+    // Without the refusal the transcript has not grown by the margin the
+    // latch waits for, so this second attempt only happens because the
+    // provider overruled the estimate.
+    expect(started(seen)).toBe(2);
+});
+
+test("a refusal under the trigger compacts anyway, and buys exactly one attempt", async () => {
+    // Nothing is latched here. The estimate is under the trigger and the
+    // provider has refused the request all the same, so the only number that
+    // would ever have started a compaction is the one that just lost its
+    // authority. Without this the session sends refused requests until an
+    // estimate it should not believe finally crosses a line.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-refused-untriggered", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(200));
+
+    const faux = new FauxAdapter([
+        toolCall("under-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+        assistantText("third done"),
+    ]);
+    let calls = 0;
+    const agent: ModelAdapter = {
+        stream(request: ModelRequest) {
+            calls += 1;
+            if (calls !== 2) {
+                return faux.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "request_too_large",
+                resolution: "user_action",
+                message: "prompt is too long",
+            } as ProviderFailure, undefined);
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...assistantText(""),
+                    stopReason: "error",
+                    errorMessage: error.message,
+                } as AssistantMessage,
+            });
+            return stream;
+        },
+    } as unknown as ModelAdapter;
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        // Far above anything this session will reach, so the trigger alone
+        // never fires and every compaction here is the refusal's doing.
+        compaction: compactionOptions({ tokens: 5_000_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 8_000_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    await drain(channel);
+    expect(started(seen)).toBe(0);
+
+    channel.client.send({ type: "prompt", content: "second" });
+    await drain(channel);
+    expect(started(seen)).toBe(1);
+
+    // And the refusal is spent. It bought that attempt; left set it would buy
+    // another one later, against a session nothing has refused since.
+    channel.client.send({ type: "prompt", content: "third" });
+    await drain(channel);
+    expect(started(seen)).toBe(1);
 });
 
 function cancellingCompactionOptions(

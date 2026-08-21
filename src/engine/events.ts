@@ -357,6 +357,12 @@ export interface CompactionFinishedEvent {
         | "unavailable"
         | "cancelled"
         | "busy";
+    /**
+     * A cancellation the compaction caught rather than was given: the turn it
+     * was running inside was stopped, and that turn is still unwinding. A
+     * client showing the user's stop keeps showing it until the turn reports.
+     */
+    readonly stoppedWithTurn?: boolean;
     readonly reason?: string;
     /** Estimated request size before and after, present only on success. */
     readonly before?: number;

@@ -204,6 +204,25 @@ export interface ContextWatch {
      * the part of the reading that stays true.
      */
     messageTokens?: number;
+    /**
+     * Set when a provider refused a request for being too large. The estimate
+     * said there was room and the provider says there is not, so the reading
+     * the compaction latch was holding out for is the wrong reading to trust.
+     */
+    refusedForSize?: boolean;
+}
+
+/**
+ * The turn a compaction is running inside, when it is running inside one.
+ * Without this a compaction cannot tell a stop it was given from a stop it
+ * caught: both arrive as an aborted signal, and only one of them means the
+ * user is still waiting for something to carry on.
+ */
+export interface CompactionTurnLink {
+    /** Registered so an abort command can reach the compaction alone. */
+    readonly controller: AbortController;
+    /** The turn's own signal, aborted only when the turn itself was stopped. */
+    readonly turnSignal: AbortSignal;
 }
 
 /** The model and window a turn's next request will use for compaction. */
@@ -228,7 +247,7 @@ export interface RunTurnState {
         signal: AbortSignal,
         pendingMessages?: readonly ModelMessage[],
         context?: CompactionContext,
-        register?: AbortController,
+        turn?: CompactionTurnLink,
     ) => Promise<void>;
     readonly compactionPolicy?: {
         readonly trigger?: CompactionTrigger;
@@ -966,7 +985,7 @@ export async function runHeadlessLoop(
             force = false,
             pendingMessages: readonly ModelMessage[] = [],
             context?: CompactionContext,
-            register?: AbortController,
+            turn?: CompactionTurnLink,
         ): Promise<void> => {
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
@@ -994,8 +1013,13 @@ export async function runHeadlessLoop(
                 // waits for could never arrive before the window did.
                 const overWindow = measurement.capacity !== undefined
                     && measurement.tokens >= measurement.capacity;
+                // A provider refusal outranks both. The estimate is what the
+                // growth rule reads, and the refusal is the provider saying
+                // that estimate is wrong, so waiting for it to grow waits for
+                // a number that already lost its authority.
                 if (
                     !overWindow
+                    && !contextWatch.refusedForSize
                     && (automaticCompactionBlockedAt === undefined
                         || lastRawEstimate < automaticCompactionBlockedAt
                             + COMPACTION_RETRY_GROWTH_TOKENS)
@@ -1014,9 +1038,22 @@ export async function runHeadlessLoop(
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
-            if (!force && !shouldCompact(measurement, compaction.trigger)) {
+            // The refusal outranks the trigger for the same reason it outranks
+            // the latch: both read the estimate, and the provider has just
+            // said the estimate is wrong. Without this a session under the
+            // trigger keeps sending requests that are refused, with nothing
+            // left to raise the number that would have saved it.
+            if (
+                !force
+                && !contextWatch.refusedForSize
+                && !shouldCompact(measurement, compaction.trigger)
+            ) {
                 return;
             }
+            // Spent here rather than on success: it bought this attempt, and
+            // leaving it set would let it buy another one long afterwards,
+            // against a latch it has nothing to do with.
+            contextWatch.refusedForSize = false;
             events.emit({
                 type: "compaction_started",
                 strategy: compaction.strategy.id,
@@ -1056,8 +1093,8 @@ export async function runHeadlessLoop(
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
             };
-            if (register !== undefined) {
-                inbound.beginAutomaticCompaction(register);
+            if (turn !== undefined) {
+                inbound.beginAutomaticCompaction(turn.controller);
             }
             let result: Awaited<ReturnType<typeof compactSession>>;
             try {
@@ -1072,8 +1109,8 @@ export async function runHeadlessLoop(
                 // abort arriving in that window would cancel a compaction
                 // that never started and leave the client waiting for a
                 // finish that has nobody to send it.
-                if (register !== undefined) {
-                    inbound.endAutomaticCompaction(register);
+                if (turn !== undefined) {
+                    inbound.endAutomaticCompaction(turn.controller);
                 }
             }
             const resultModel = result.outcome === "compacted"
@@ -1091,6 +1128,13 @@ export async function runHeadlessLoop(
                     : { provider: reportedProvider }),
                 model: resultModel ?? summarizerModel,
                 outcome: result.outcome,
+                // A turn-originated abort takes the compaction down with it.
+                // Saying so is what lets a client keep showing the stop it was
+                // asked for until the turn itself reports back.
+                ...(result.outcome === "cancelled"
+                        && turn?.turnSignal.aborted === true
+                    ? { stoppedWithTurn: true }
+                    : {}),
                 ...("reason" in result ? { reason: result.reason } : {}),
                 ...(result.outcome === "compacted"
                     ? { before: result.before, after: result.after }
@@ -1099,10 +1143,13 @@ export async function runHeadlessLoop(
             if (result.outcome === "no_boundary" && hasPendingUserTurn) {
                 automaticCompactionRetryAfterPending = true;
             }
+            const stoppedWithTurn = result.outcome === "cancelled"
+                && turn?.turnSignal.aborted === true;
             if (
                 !force
                 && result.outcome !== "compacted"
                 && result.outcome !== "not_needed"
+                && !stoppedWithTurn
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
                 // Cancelled latches with the failures. The trigger is still
@@ -1173,13 +1220,13 @@ export async function runHeadlessLoop(
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
                     context?: CompactionContext,
-                    register?: AbortController,
+                    turn?: CompactionTurnLink,
                 ) => runCompaction(
                     signal,
                     false,
                     pendingMessages,
                     context,
-                    register,
+                    turn,
                 ),
             }),
         deliveryInbox: store,
@@ -1701,6 +1748,21 @@ export async function runTurn(
                             const cause = event.error.cause instanceof Error
                                 ? event.error.cause
                                 : undefined;
+                            if (
+                                event.error instanceof ProviderFailureError
+                                && event.error.failure.kind
+                                    === "request_too_large"
+                                && state.contextWatch !== undefined
+                            ) {
+                                // Recorded rather than acted on here: this
+                                // request is already lost, and the next one
+                                // is the one that needs the room. Without
+                                // this a compaction the user cancelled stays
+                                // cancelled while every later request is
+                                // refused for a reason nothing connects back
+                                // to the escape they pressed.
+                                state.contextWatch.refusedForSize = true;
+                            }
                             state.events.emit({
                                 type: "model_stream_error",
                                 error: sanitizeDiagnosticText(event.error.message),
@@ -2001,7 +2063,10 @@ async function compactDuringTurn(
         turnSignal.addEventListener("abort", relay, { once: true });
     }
     try {
-        await compact(controller.signal, pendingMessages, context, controller);
+        await compact(controller.signal, pendingMessages, context, {
+            controller,
+            turnSignal,
+        });
     } finally {
         turnSignal.removeEventListener("abort", relay);
     }

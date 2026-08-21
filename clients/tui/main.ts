@@ -6796,6 +6796,11 @@ export async function startTui(
                     update.type === "compaction"
                     && update.phase === "finished"
                     && update.outcome !== "busy"
+                    // The turn that took this compaction down with it is still
+                    // unwinding, and it is the one the user asked to stop.
+                    // Clearing here drops the stop indicator while the thing
+                    // being stopped is still running.
+                    && update.stoppedWithTurn !== true
                 ) {
                     abortRequested = false;
                 }

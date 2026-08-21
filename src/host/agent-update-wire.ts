@@ -82,6 +82,8 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || typeof update.model === "string")
                 && (update.outcome === undefined
                     || isCompactionOutcome(update.outcome))
+                && (update.stoppedWithTurn === undefined
+                    || typeof update.stoppedWithTurn === "boolean")
                 && (update.reason === undefined
                     || typeof update.reason === "string")
                 && (update.warning === undefined

@@ -564,6 +564,8 @@ export interface CompactionUpdate {
         | "unavailable"
         | "cancelled"
         | "busy";
+    /** Set when the compaction was stopped by the turn it ran inside. */
+    readonly stoppedWithTurn?: boolean;
     readonly reason?: string;
     /** Set on the started phase only, for a configuration mismatch. */
     readonly warning?: string;
@@ -1853,6 +1855,9 @@ export function createProtocolEncoder(
                     : { provider: event.provider }),
                 ...(event.model === undefined ? {} : { model: event.model }),
                 outcome: event.outcome,
+                ...(event.stoppedWithTurn === undefined
+                    ? {}
+                    : { stoppedWithTurn: event.stoppedWithTurn }),
                 ...(event.reason === undefined ? {} : { reason: event.reason }),
                 ...(event.before === undefined ? {} : { before: event.before }),
                 ...(event.after === undefined ? {} : { after: event.after }),

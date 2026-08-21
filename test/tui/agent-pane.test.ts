@@ -138,6 +138,33 @@ test("a pane clears its own abort state when its turn finishes", () => {
     expect(pane.state.abortRequested).toBe(false);
 });
 
+test("a compaction the turn took down with it leaves the stop showing", () => {
+    // The turn is the thing the user asked to stop and it is still unwinding.
+    // Clearing here drops the indicator while the work is still running.
+    const pane = new TuiAgentPane({ client: client("side") });
+    pane.state.abortRequested = true;
+    pane.state.apply({
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "cancelled",
+        stoppedWithTurn: true,
+        seq: 1,
+    });
+    expect(pane.state.abortRequested).toBe(true);
+
+    // A compaction stopped on its own account is the whole of what was
+    // stopped, so the indicator goes with it.
+    pane.state.apply({
+        type: "compaction",
+        phase: "finished",
+        strategy: "vera/full-summary",
+        outcome: "cancelled",
+        seq: 2,
+    });
+    expect(pane.state.abortRequested).toBe(false);
+});
+
 test("sidebar image attachment resolves through the pane update pump", async () => {
     const sideClient = client("side");
     const pane = new TuiAgentPane({ client: sideClient });
