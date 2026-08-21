@@ -1,0 +1,166 @@
+name: Release Vera
+
+on:
+  push:
+    tags:
+      - "v*"
+
+concurrency:
+  group: vera-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+env:
+  BUN_VERSION: "1.3.6"
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}/${{ matrix.arch }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14
+            platform: darwin
+            arch: arm64
+          - runner: macos-15-intel
+            platform: darwin
+            arch: x64
+          - runner: ubuntu-24.04
+            platform: linux
+            arch: x64
+          - runner: ubuntu-24.04-arm
+            platform: linux
+            arch: arm64
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Validate stable release tag
+        run: |
+          printf '%s\n' "$GITHUB_REF_NAME" \
+            | grep -Eq '^v(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+
+      - name: Set up portable Bun for Linux x64
+        if: matrix.platform == 'linux' && matrix.arch == 'x64'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-download-url: >-
+            https://github.com/oven-sh/bun/releases/download/bun-v${{ env.BUN_VERSION }}/bun-linux-x64-baseline.zip
+
+      - name: Set up Bun
+        if: matrix.platform != 'linux' || matrix.arch != 'x64'
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: ${{ env.BUN_VERSION }}
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build release archive
+        run: |
+          output_dir="${RUNNER_TEMP}/vera-release"
+          mkdir -p "$output_dir"
+          scripts/build-release.sh "${GITHUB_REF_NAME#v}" \
+            "$output_dir/vera-${{ matrix.platform }}-${{ matrix.arch }}.tar.gz"
+
+      - name: Upload release archive
+        uses: actions/upload-artifact@v4
+        with:
+          name: vera-${{ matrix.platform }}-${{ matrix.arch }}
+          path: ${{ runner.temp }}/vera-release/vera-*
+          if-no-files-found: error
+
+  container-smoke:
+    name: Smoke test Linux x64 bundle
+    needs: build
+    runs-on: ubuntu-24.04
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download Linux x64 archive
+        uses: actions/download-artifact@v4
+        with:
+          name: vera-linux-x64
+          path: dist
+
+      - name: Run installed-bundle smoke test
+        run: |
+          scripts/release-container-smoke.sh \
+            "dist/vera-linux-x64.tar.gz" "${GITHUB_REF_NAME#v}"
+
+  publish:
+    name: Publish GitHub release
+    needs: [build, container-smoke]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+
+    steps:
+      - name: Check out tagged source
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+
+      - name: Download release archives
+        uses: actions/download-artifact@v4
+        with:
+          pattern: vera-*
+          merge-multiple: true
+          path: dist
+
+      - name: Create or resume draft release
+        run: |
+          release_is_draft=$(gh release view "$GITHUB_REF_NAME" \
+            --json isDraft --jq '.isDraft' 2>/dev/null || true)
+          if [ -z "$release_is_draft" ]; then
+            gh release create "$GITHUB_REF_NAME" \
+              --draft \
+              --generate-notes \
+              --title "$GITHUB_REF_NAME" \
+              --verify-tag
+          elif [ "$release_is_draft" != "true" ]; then
+            echo "refusing to overwrite published release $GITHUB_REF_NAME" >&2
+            exit 1
+          fi
+
+      - name: Upload release assets
+        run: gh release upload "$GITHUB_REF_NAME" dist/* --clobber
+
+      - name: Verify release archives and checksums
+        run: |
+          set -eu
+          for archive in dist/vera-*.tar.gz; do
+            checksum="$archive.sha256"
+            [ -f "$checksum" ] || {
+              echo "missing checksum sidecar: $checksum" >&2
+              exit 1
+            }
+            (
+              cd "$(dirname "$archive")"
+              sha256sum -c "$(basename "$checksum")"
+            )
+          done
+
+      - name: Verify every release asset is present
+        run: |
+          for artifact in dist/*; do
+            artifact_name=$(basename "$artifact")
+            gh release view "$GITHUB_REF_NAME" --json assets --jq '.assets[].name' \
+              | grep -Fx "$artifact_name" >/dev/null \
+              || { echo "missing release asset: $artifact_name" >&2; exit 1; }
+          done
+
+      - name: Publish verified release
+        run: gh release edit "$GITHUB_REF_NAME" --draft=false
