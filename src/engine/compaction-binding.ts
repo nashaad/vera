@@ -99,10 +99,13 @@ export function bindCompaction(
         });
     }
     const primary = strategy.models[0];
-    const route = primary === undefined ? undefined : profile.routes[primary];
+    const assigned = slotModels !== undefined && slotModels.length > 0;
+    const route = primary === undefined || assigned
+        ? undefined
+        : profile.routes[primary];
     const firstModel = primary === undefined
         ? undefined
-        : (slotModels?.[0] ?? profile.slots[primary]?.[0]);
+        : (assigned ? slotModels[0] : profile.slots[primary]?.[0]);
     const trigger: CompactionTrigger = {
         ...(profile.trigger_fraction === undefined
             ? {}
