@@ -866,7 +866,7 @@ export async function runHeadlessLoop(
         const capacity = compactionCapacity(context);
         return {
             tokens: measureMessages([
-                ...store.modelContext(agingPolicy(context, pendingMessages)),
+                ...store.unprojectedModelContext(),
                 ...pendingMessages,
             ]) + fixedOverhead(),
             ...(capacity === undefined ? {} : { capacity }),
