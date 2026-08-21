@@ -185,6 +185,25 @@ saved with the session and restored when that session resumes.
 For development without linking the command, run
 `bun run clients/cli/main.ts`.
 
+## Drive Vera from another program
+
+`vera stdio` attaches to the resident host and exchanges one JSON object per
+line. It can create an agent, attach to a live agent, or resume a session:
+
+```sh
+vera stdio
+vera stdio --attach <agent-id>
+vera stdio --resume <session-id|path>
+```
+
+Send a prompt, then answer UI requests without rendering them locally:
+
+```text
+{"type":"prompt","content":"Review this file"}
+{"type":"ui_request",...}
+{"type":"ui_response","requestId":"...","response":{...}}
+```
+
 ## Export a conversation
 
 Export the active conversation branch as Markdown:

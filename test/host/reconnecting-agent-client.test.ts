@@ -16,6 +16,7 @@ import {
     attachReconnectingAgent,
     createReconnectingAgentClient,
 } from "../../src/host/reconnecting-agent-client.ts";
+import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 
 const temporaryDirectories: string[] = [];
@@ -241,6 +242,50 @@ test("a reconnect publishes the replacement background snapshot", async () => {
     client.close();
 });
 
+test("a reconnect publishes a replacement work index already received", async () => {
+    const initialIndex: WorkIndexSnapshot = {
+        rows: [],
+        needs_you: 0,
+        working: 0,
+    };
+    const replacementIndex: WorkIndexSnapshot = {
+        rows: [{
+            id: "agent-2",
+            session_id: "agent-2",
+            session_path: "/sessions/agent-2.jsonl",
+            title: "Review changes",
+            section: "needs_you",
+            reason: "approval",
+            summary: "Approve bash",
+            workspace: "/work/one",
+            updated_at: "2026-08-22T12:00:00.000Z",
+        }],
+        needs_you: 1,
+        working: 0,
+    };
+    const background = {
+        running: 0,
+        children: [] as string[],
+        has_parent: false,
+    };
+    const initial = fakeClient([], 4, true, background, initialIndex);
+    const recovered = fakeClient([
+        { type: "assistant_delta", text: "continued", seq: 5 },
+    ], 4, true, background, replacementIndex);
+    const client = createReconnectingAgentClient(initial, async () => recovered);
+    const snapshots: WorkIndexSnapshot[] = [];
+    client.onWorkIndex(() => {
+        throw new Error("observer failed");
+    });
+    client.onWorkIndex((snapshot) => snapshots.push(snapshot));
+
+    await client.receive();
+
+    expect(client.workIndex).toEqual(replacementIndex);
+    expect(snapshots).toEqual([replacementIndex]);
+    client.close();
+});
+
 test("a second concurrent receive is rejected explicitly", async () => {
     const updates = new AsyncQueue<AgentUpdate>();
     const initial = fakeClientFromQueue(updates);
@@ -299,6 +344,7 @@ function fakeClient(
     initialSequence?: number,
     supportsResume = true,
     backgroundAgents = { running: 0, children: [] as string[], has_parent: false },
+    workIndex?: WorkIndexSnapshot,
 ): AttachedAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
     for (const value of values) updates.push(value);
@@ -308,6 +354,7 @@ function fakeClient(
         initialSequence,
         supportsResume,
         backgroundAgents,
+        workIndex,
     );
 }
 
@@ -316,6 +363,7 @@ function fakeClientFromQueue(
     initialSequence?: number,
     supportsResume = true,
     backgroundAgents = { running: 0, children: [] as string[], has_parent: false },
+    workIndex?: WorkIndexSnapshot,
 ): AttachedAgentClient {
     let lastSequence = initialSequence;
     return {
@@ -329,7 +377,7 @@ function fakeClientFromQueue(
             supportsResume && capability === HOST_CAPABILITY_AGENT_ATTACH_RESUME,
         backgroundAgents,
         onBackgroundAgents: () => () => undefined,
-        workIndex: undefined,
+        workIndex,
         onWorkIndex: () => () => undefined,
         send: async () => undefined,
         async receive(signal) {

@@ -30,7 +30,9 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera host supervise [off|status]", description: "Let launchd restart this profile's resident host when it dies, so schedules keep running with nobody at the keyboard" },
     { usage: "vera rescue", description: "Start Vera under the isolated rescue profile, when the default profile's host is wedged" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },
-    { usage: "vera stdio", description: "Run the NDJSON integration bridge" },
+    { usage: "vera stdio", description: "Create an agent and bridge it as NDJSON" },
+    { usage: "vera stdio --attach <agent-id>", description: "Bridge a live agent as NDJSON" },
+    { usage: "vera stdio --resume <session-id|path>", description: "Resume and bridge a session as NDJSON" },
 ] as const;
 
 export function renderCliHelp(): string {

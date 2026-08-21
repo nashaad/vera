@@ -42,7 +42,11 @@ import {
     superviseHost,
 } from "../../src/host/supervision.ts";
 import { residentHostEntrypoint } from "../host/launch.ts";
-import { runNdjsonProcess } from "../stdio/ndjson-process.ts";
+import {
+    parseStdioArgs,
+    runStdioProcess,
+    type StdioStartTarget,
+} from "../stdio/process.ts";
 import { sourceVersion } from "../../src/build-info.ts";
 import {
     exportSession,
@@ -178,7 +182,7 @@ export interface CliDependencies {
         args: readonly string[],
         output: CliOutput,
     ) => Promise<number | undefined>;
-    readonly runStdio?: () => Promise<void>;
+    readonly runStdio?: (target: StdioStartTarget) => Promise<void>;
     readonly runOnce?: (request: {
         readonly workspace: string;
         readonly prompt: string;
@@ -470,8 +474,13 @@ export async function runCli(
         return 0;
     }
 
-    if (args.length === 1 && args[0] === "stdio") {
-        await (dependencies.runStdio ?? runNdjsonProcess)();
+    if (args[0] === "stdio") {
+        const target = parseStdioArgs(args);
+        if (target === undefined) {
+            errorOutput.write(renderCliUsage());
+            return 1;
+        }
+        await (dependencies.runStdio ?? runStdioProcess)(target);
         return 0;
     }
 

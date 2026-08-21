@@ -44,6 +44,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera shortlist add <provider/model>");
     expect(output).toContain("vera shortlist remove <name|id>");
     expect(output).toContain("vera login");
+    expect(output).toContain("vera stdio");
     expect(output).toContain("-v, --version");
 
     output = "";
@@ -322,17 +323,21 @@ test("vera ls calls a resident but unheld session stopped, not idle", async () =
     expect(output).not.toContain("idle");
 });
 
-test("vera stdio starts the NDJSON bridge", async () => {
-    let started = false;
+test("vera stdio selects create, attach, and resume targets", async () => {
+    const targets: unknown[] = [];
+    const runStdio = async (target: unknown): Promise<void> => {
+        targets.push(target);
+    };
 
-    const exitCode = await runCli(["stdio"], {
-        runStdio: async () => {
-            started = true;
-        },
-    });
+    expect(await runCli(["stdio"], { runStdio })).toBe(0);
+    expect(await runCli(["stdio", "--attach", "agent-1"], { runStdio })).toBe(0);
+    expect(await runCli(["stdio", "--resume", "session-1"], { runStdio })).toBe(0);
 
-    expect(exitCode).toBe(0);
-    expect(started).toBe(true);
+    expect(targets).toEqual([
+        { type: "create" },
+        { type: "attach", agentId: "agent-1" },
+        { type: "resume", selector: "session-1" },
+    ]);
 });
 
 test("vera doctor renders process health and exits nonzero for a finding", async () => {

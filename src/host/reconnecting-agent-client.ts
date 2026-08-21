@@ -8,6 +8,7 @@ import {
     HOST_CAPABILITIES,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
 } from "./capabilities.ts";
+import { sameWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 
 const RECONNECT_DEADLINE_MS = 5_000;
 const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
@@ -64,6 +65,7 @@ export function createReconnectingAgentClient(
     const workIndexListeners = new Set<
         Parameters<AttachedAgentClient["onWorkIndex"]>[0]
     >();
+    let workIndex = current.workIndex;
     let stopWorkIndexUpdates = subscribeToWorkIndexUpdates(current);
 
     const client: AttachedAgentClient = {
@@ -92,7 +94,7 @@ export function createReconnectingAgentClient(
             };
         },
         get workIndex() {
-            return current.workIndex;
+            return workIndex;
         },
         onWorkIndex(listener) {
             workIndexListeners.add(listener);
@@ -164,6 +166,7 @@ export function createReconnectingAgentClient(
             closed = true;
             lifecycle.abort(new Error("Agent attachment is detached"));
             stopBackgroundAgentUpdates();
+            stopWorkIndexUpdates();
             if (!current.closed) await current.detach();
         },
         close(): void {
@@ -171,6 +174,7 @@ export function createReconnectingAgentClient(
             closed = true;
             lifecycle.abort(new Error("Agent attachment is closed"));
             stopBackgroundAgentUpdates();
+            stopWorkIndexUpdates();
             current.close();
         },
         get closed(): boolean {
@@ -183,11 +187,19 @@ export function createReconnectingAgentClient(
     function subscribeToWorkIndexUpdates(
         attached: AttachedAgentClient,
     ): () => void {
-        return attached.onWorkIndex((index) => {
-            for (const listener of workIndexListeners) {
+        return attached.onWorkIndex(publishWorkIndex);
+    }
+
+    function publishWorkIndex(index: WorkIndexSnapshot): void {
+        if (workIndex !== undefined && sameWorkIndex(workIndex, index)) return;
+        workIndex = index;
+        for (const listener of workIndexListeners) {
+            try {
                 listener(index);
+            } catch {
+                // One client-local observer cannot invalidate a reattach.
             }
-        });
+        }
     }
 
     function subscribeToBackgroundAgentUpdates(
@@ -236,9 +248,9 @@ export function createReconnectingAgentClient(
                 stopBackgroundAgentUpdates = subscribeToBackgroundAgentUpdates(next);
                 stopWorkIndexUpdates();
                 stopWorkIndexUpdates = subscribeToWorkIndexUpdates(next);
-                // The reattached host resends the index unprompted, so a stale
-                // one is never replayed here: a reconnect that found different
-                // work reports it, and one that found the same reports nothing.
+                if (next.workIndex !== undefined) {
+                    publishWorkIndex(next.workIndex);
+                }
                 for (const listener of backgroundAgentListeners) {
                     try {
                         listener(next.backgroundAgents);
