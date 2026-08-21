@@ -87,8 +87,9 @@ jobs:
           path: dist
 
       - name: Run installed-bundle smoke test
-        run: scripts/release-container-smoke.sh \
-          "dist/vera-linux-x64.tar.gz" "${GITHUB_REF_NAME#v}"
+        run: |
+          scripts/release-container-smoke.sh \
+            "dist/vera-linux-x64.tar.gz" "${GITHUB_REF_NAME#v}"
 
   publish:
     name: Publish GitHub release
