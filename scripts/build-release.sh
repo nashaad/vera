@@ -23,6 +23,10 @@ case "$version" in
         case "$version" in
             *[!A-Za-z0-9._+-]*) die "invalid release version: $version" ;;
         esac
+        version_without_v=${version#v}
+        printf '%s\n' "$version_without_v" \
+            | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+            || die "invalid stable release version: $version"
         ;;
     *) die "invalid release version: $version" ;;
 esac
@@ -139,9 +143,15 @@ EOF
 rm -f "$output" "$output.sha256"
 tar -czf "$output" -C "$bundle" .
 if command -v shasum >/dev/null 2>&1; then
-    shasum -a 256 "$output" > "$output.sha256"
+    (
+        cd "$output_dir"
+        shasum -a 256 "$(basename "$output")" > "$(basename "$output").sha256"
+    )
 elif command -v sha256sum >/dev/null 2>&1; then
-    sha256sum "$output" > "$output.sha256"
+    (
+        cd "$output_dir"
+        sha256sum "$(basename "$output")" > "$(basename "$output").sha256"
+    )
 else
     die "required command not found: shasum or sha256sum"
 fi

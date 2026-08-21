@@ -35,23 +35,58 @@ function run(
     };
 }
 
+function shellQuote(value: string): string {
+    return "'" + value.replaceAll("'", "'\\''") + "'";
+}
+
+function writeReleasePayload(
+    payload: string,
+    version: string,
+    platform = "darwin",
+    architecture = "arm64",
+    launcher = "#!/bin/sh\necho fixture-vera\n",
+): void {
+    mkdirSync(join(payload, "bin"), { recursive: true });
+    mkdirSync(join(payload, "clients", "cli"), { recursive: true });
+    mkdirSync(join(payload, "runtime"), { recursive: true });
+    const executable = join(payload, "bin", "vera");
+    writeFileSync(executable, launcher);
+    chmodSync(executable, 0o755);
+    const runtime = join(payload, "runtime", "bun");
+    writeFileSync(
+        runtime,
+        "#!/bin/sh\nexec "
+            + shellQuote(process.execPath)
+            + " \"$@\"\n",
+    );
+    chmodSync(runtime, 0o755);
+    writeFileSync(join(payload, "clients", "cli", "main.ts"), "export {};\n");
+    writeFileSync(join(payload, "VERSION"), version + "\n");
+    writeFileSync(
+        join(payload, "manifest.json"),
+        JSON.stringify({
+            version,
+            source_revision: "test",
+            bun_version: "test",
+            platform,
+            architecture,
+            libc: platform === "linux" ? "glibc" : "none",
+            archive: "vera-" + platform + "-" + architecture + ".tar.gz",
+            entrypoint: "bin/vera",
+            runtime: "runtime/bun",
+        }) + "\n",
+    );
+}
+
 test("curl installer verifies, installs, and reuses a release archive", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-install-test-"));
     const payload = join(root, "payload");
     const release = join(root, "release");
     const home = join(root, "home");
-    mkdirSync(join(payload, "bin"), { recursive: true });
     mkdirSync(join(release, "latest", "download"), { recursive: true });
     mkdirSync(home, { recursive: true });
 
-    const executable = join(payload, "bin", "vera");
-    writeFileSync(executable, "#!/bin/sh\necho fixture-vera\n");
-    chmodSync(executable, 0o755);
-    writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(
-        join(payload, "manifest.json"),
-        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
-    );
+    writeReleasePayload(payload, "0.1.0");
 
     const archive = "vera-darwin-arm64.tar.gz";
     const archivePath = join(release, "latest", "download", archive);
@@ -99,14 +134,36 @@ test("curl installer verifies, installs, and reuses a release archive", () => {
             "0.1.0\n",
         );
 
-        const upgradePayload = join(root, "payload-v2");
-        mkdirSync(join(upgradePayload, "bin"), { recursive: true });
-        writeFileSync(join(upgradePayload, "bin", "vera"), "#!/bin/sh\necho fixture-v2\n");
-        chmodSync(join(upgradePayload, "bin", "vera"), 0o755);
-        writeFileSync(join(upgradePayload, "VERSION"), "0.2.0\n");
         writeFileSync(
-            join(upgradePayload, "manifest.json"),
-            '{"version":"0.2.0","platform":"darwin","architecture":"arm64"}\n',
+            join(installRoot, "versions", "0.1.0", "clients", "cli", "main.ts"),
+            "corrupted\n",
+        );
+        const damaged = run(["sh", join(import.meta.dir, "..", "install")], {
+            env: {
+                ...process.env,
+                HOME: home,
+                PATH: process.env.PATH ?? "",
+                VERA_INSTALL_BASE_URL: "file://" + release,
+                VERA_INSTALL_ALLOW_FILE: "1",
+                VERA_INSTALL_VERSION: "0.1.0",
+                VERA_INSTALL_PLATFORM: "darwin",
+                VERA_INSTALL_ARCH: "arm64",
+                VERA_INSTALL_ROOT: installRoot,
+                VERA_INSTALL_BIN_DIR: binDir,
+            },
+        });
+        expect(damaged.exitCode).not.toBe(0);
+        expect(damaged.stderr.toString()).toContain(
+            "existing Vera version differs from the verified release",
+        );
+
+        const upgradePayload = join(root, "payload-v2");
+        writeReleasePayload(
+            upgradePayload,
+            "0.2.0",
+            "darwin",
+            "arm64",
+            "#!/bin/sh\necho fixture-v2\n",
         );
         const upgradeArchivePath = join(release, "latest", "download", archive);
         expect(
@@ -151,18 +208,11 @@ test("curl installer refuses to reuse a symlinked version directory", () => {
     const home = join(root, "home");
     const installRoot = join(home, ".local", "share", "vera");
     const binDir = join(home, ".local", "bin");
-    mkdirSync(join(payload, "bin"), { recursive: true });
     mkdirSync(join(release, "latest", "download"), { recursive: true });
     mkdirSync(join(installRoot, "versions"), { recursive: true });
     mkdirSync(binDir, { recursive: true });
 
-    writeFileSync(join(payload, "bin", "vera"), "#!/bin/sh\n");
-    chmodSync(join(payload, "bin", "vera"), 0o755);
-    writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(
-        join(payload, "manifest.json"),
-        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
-    );
+    writeReleasePayload(payload, "0.1.0");
 
     const archivePath = join(
         release,
@@ -216,17 +266,10 @@ test("curl installer rejects symlink entries before extraction", () => {
     const home = join(root, "home");
     const installRoot = join(home, ".local", "share", "vera");
     const binDir = join(home, ".local", "bin");
-    mkdirSync(join(payload, "bin"), { recursive: true });
     mkdirSync(join(release, "latest", "download"), { recursive: true });
     mkdirSync(home, { recursive: true });
 
-    writeFileSync(join(payload, "bin", "vera"), "#!/bin/sh\n");
-    chmodSync(join(payload, "bin", "vera"), 0o755);
-    writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(
-        join(payload, "manifest.json"),
-        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
-    );
+    writeReleasePayload(payload, "0.1.0");
     const outside = join(root, "outside");
     writeFileSync(outside, "untouched\n");
     symlinkSync(outside, join(payload, "escape"));
@@ -270,16 +313,9 @@ test("curl installer refuses to replace an executable owned by another install",
     const payload = join(root, "payload");
     const release = join(root, "release");
     const home = join(root, "home");
-    mkdirSync(join(payload, "bin"), { recursive: true });
     mkdirSync(join(release, "latest", "download"), { recursive: true });
     mkdirSync(join(home, ".local", "bin"), { recursive: true });
-    writeFileSync(join(payload, "bin", "vera"), "#!/bin/sh\n");
-    chmodSync(join(payload, "bin", "vera"), 0o755);
-    writeFileSync(join(payload, "VERSION"), "0.1.0\n");
-    writeFileSync(
-        join(payload, "manifest.json"),
-        '{"version":"0.1.0","platform":"darwin","architecture":"arm64"}\n',
-    );
+    writeReleasePayload(payload, "0.1.0");
 
     const archivePath = join(release, "latest", "download", "vera-darwin-arm64.tar.gz");
     expect(run(["tar", "-czf", archivePath, "-C", payload, "."]).exitCode).toBe(0);
