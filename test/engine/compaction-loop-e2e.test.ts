@@ -303,6 +303,71 @@ test("aged tool results below the trigger do not trigger compaction from their d
         .toHaveLength(0);
 });
 
+test("the provider's own token count moves the trigger, not just the display", async () => {
+    // Characters over four reads low against real tokenizers, and it does not
+    // see reasoning or images at all. A session that measures itself only that
+    // way passes the window while the trigger still believes there is room.
+    const starts: number[] = [];
+    for (const reported of [0, 20_000]) {
+        const workspace = temporaryDirectory();
+        const store = await SessionStore.create(
+            join(workspace, "session.jsonl"),
+            { sessionId: `loop-scale-${reported}`, cwd: workspace },
+        );
+        writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(1_500));
+
+        const events = new EngineEventBus();
+        const seen: EngineEvent[] = [];
+        events.subscribe((event) => void seen.push(event));
+        const channel = createInProcessChannel();
+        void runHeadlessLoop(
+            channel.engine,
+            new FauxAdapter([
+                reportingUsage(toolCall("scale-call-1", 1), reported),
+                reportingUsage(assistantText("first done"), reported),
+                reportingUsage(assistantText("second done"), reported),
+            ]),
+            "test",
+            undefined,
+            {
+                sessionStore: store,
+                eventBus: events,
+                approvalMode: "auto",
+                compaction: compactionOptions({ tokens: 8_000 }),
+                readModelSettings: () => ({
+                    model: "test",
+                    contextWindow: 400_000,
+                }),
+                updateModelSettings: async () => undefined,
+                readApprovalMode: () => "auto",
+                updateApprovalMode: async () => undefined,
+            },
+        );
+
+        channel.client.send({ type: "prompt", content: "first job" });
+        await drain(channel);
+        channel.client.send({ type: "prompt", content: "second job" });
+        await drain(channel);
+        starts.push(
+            seen.filter((event) => event.type === "compaction_started").length,
+        );
+    }
+
+    // The same transcript against the same trigger. The only difference is
+    // what the provider said the request cost.
+    expect(starts[0]).toBe(0);
+    expect(starts[1]).toBeGreaterThan(0);
+});
+
+/** A scripted answer that reports the request as costing more than the
+ * estimator makes it. */
+function reportingUsage(
+    message: AssistantMessage,
+    inputTokens: number,
+): AssistantMessage {
+    return { ...message, usage: { ...message.usage, inputTokens } };
+}
+
 function compactionOptions(
     trigger?: SessionCompactionOptions["trigger"],
 ): SessionCompactionOptions {
@@ -325,6 +390,85 @@ function compactionOptions(
         },
         ...(trigger === undefined ? {} : { trigger }),
     };
+}
+
+test("a failed automatic compaction is attempted again once the context grows", async () => {
+    // The latch stops the retry loop, and growth is the only thing that opens
+    // it again. A new turn is not enough on its own: a parent waiting on
+    // subagents takes turn after turn that adds nothing, and re-arming on each
+    // one spends a summarizer call per turn to fail the same way. Growth says
+    // the conditions are no longer the ones that failed.
+    const { seen, channel } = await latchSession("loop-latch");
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    // Well past COMPACTION_RETRY_GROWTH_TOKENS, and in a user message, which
+    // tool result aging cannot shrink back down.
+    channel.client.send({ type: "prompt", content: "second job ".repeat(8_000) });
+    await drain(channel);
+
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(started(seen)).toBeGreaterThan(afterFirst);
+});
+
+test("a failed automatic compaction is not retried on a turn that adds nothing", async () => {
+    // The other half of the same rule. Without growth the latch holds, and a
+    // session that cannot compact stops paying for a call that will fail.
+    const { seen, channel } = await latchSession("loop-latch-quiet");
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    channel.client.send({ type: "prompt", content: "ok" });
+    await drain(channel);
+
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(started(seen)).toBe(afterFirst);
+});
+
+function started(seen: readonly EngineEvent[]): number {
+    return seen.filter((event) => event.type === "compaction_started").length;
+}
+
+async function latchSession(sessionId: string): Promise<{
+    seen: EngineEvent[];
+    channel: ReturnType<typeof createInProcessChannel>;
+}> {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId, cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+    const script: AssistantMessage[] = [
+        toolCall("latch-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+    ];
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter(script),
+        "test",
+        undefined,
+        {
+            sessionStore: store,
+            eventBus: events,
+            approvalMode: "auto",
+            compaction: unavailableCompactionOptions({ tokens: 2_000 }),
+            readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+        },
+    );
+    return { seen, channel };
 }
 
 function unavailableCompactionOptions(

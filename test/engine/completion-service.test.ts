@@ -152,6 +152,125 @@ test("cancellation is reported as unavailable, not as an answer", async () => {
     ).rejects.toBeInstanceOf(CompletionUnavailableError);
 });
 
+test("a model whose window cannot hold the request is skipped, and says so", async () => {
+    // Sending it anyway spends a round trip to be told what the catalog
+    // already knows, at the moment the session most needs the answer.
+    const seen: string[] = [];
+    const long = "x".repeat(200_000);
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            seen.push(request.model);
+            return assistant("summary");
+        }),
+        {
+            models: [
+                { model: "small", contextWindow: 8_000 },
+                { model: "large", contextWindow: 200_000 },
+            ],
+            maxOutputTokens: 1_000,
+        },
+    );
+
+    const result = await service({
+        systemPrompt: "s",
+        messages: [{ role: "user", content: [{ type: "text", text: long }] }],
+    }, new AbortController().signal);
+
+    expect(seen).toEqual(["large"]);
+    expect(result.model).toBe("large");
+});
+
+test("a window skip is marked room related so a smaller request can retry", async () => {
+    // The caller's ladder reads this: a shorter request is exactly what makes
+    // the skipped candidate viable, so this failure is not the end of the road.
+    const complete = createRoutedCompletionService(
+        adapter(() => assistant("unused")),
+        { models: [{ model: "small", contextWindow: 10 }] },
+    );
+    const error = await complete(
+        { systemPrompt: "s".repeat(4_000), messages: [] },
+        new AbortController().signal,
+    ).then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompletionUnavailableError);
+    expect((error as CompletionUnavailableError).roomRelated).toBe(true);
+});
+
+test("a failure that is not about room is not marked room related", async () => {
+    const complete = createRoutedCompletionService(
+        adapter(() => {
+            throw new Error("no key");
+        }),
+        { models: [{ model: "plain" }] },
+    );
+    const error = await complete(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    ).then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompletionUnavailableError);
+    expect((error as CompletionUnavailableError).roomRelated).toBe(false);
+});
+
+test("a route of windows that are all too small names the sizes it refused", async () => {
+    const service = createRoutedCompletionService(
+        adapter(() => assistant("should not happen")),
+        { models: [{ model: "small", contextWindow: 10 }] },
+    );
+
+    await expect(service({
+        systemPrompt: "s",
+        messages: [{
+            role: "user",
+            content: [{ type: "text", text: "x".repeat(4_000) }],
+        }],
+    }, new AbortController().signal)).rejects.toThrow(
+        /small skipped: the request is about \d+ tokens .*window is 10/,
+    );
+});
+
+test("a model with no recorded window is tried rather than skipped", async () => {
+    // Undefined is not a small window. A locally served model nobody has an
+    // entry for must still be reachable.
+    const service = createRoutedCompletionService(
+        adapter(() => assistant("summary")),
+        { models: [{ model: "unknown" }] },
+    );
+
+    const result = await service({
+        systemPrompt: "s",
+        messages: [{
+            role: "user",
+            content: [{ type: "text", text: "x".repeat(400_000) }],
+        }],
+    }, new AbortController().signal);
+
+    expect(result.model).toBe("unknown");
+});
+
+test("a deadline is reported as a timeout, not as the model's stop reason", async () => {
+    // An adapter that turns the deadline into an aborted message rather than
+    // a throw would otherwise be reported as "stopped with aborted", which
+    // names the symptom and hides the cause.
+    const service = createRoutedCompletionService(
+        {
+            stream: () => ({
+                [Symbol.asyncIterator]: async function* () {},
+                result: async () => {
+                    await new Promise((resolve) => setTimeout(resolve, 20));
+                    return assistant("", "aborted");
+                },
+            }),
+        } as unknown as ModelAdapter,
+        { models: [{ model: "slow" }], timeoutMs: 1 },
+    );
+
+    await expect(service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    )).rejects.toThrow("slow timed out");
+});
+
 function adapter(
     respond: (request: ModelRequest) => AssistantMessage,
 ): ModelAdapter {

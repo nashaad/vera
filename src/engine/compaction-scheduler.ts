@@ -283,10 +283,12 @@ export async function compactSession(
         ...previousProjection,
         ...active.slice(previousBoundary + 1).map((entry) => entry.message),
     ];
-    const overhead = Math.max(
-        0,
-        measurement.tokens - measureMessages(modelContext),
-    );
+    // Stated by the measurer where it can be, because `measurement.tokens`
+    // may be scaled into the provider's units while `measureMessages` and the
+    // budget below are raw estimator units. Subtracting one from the other
+    // would fold the whole transcript's calibration into the overhead.
+    const overhead = measurement.overheadTokens
+        ?? Math.max(0, measurement.tokens - measureMessages(modelContext));
 
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
     let sawCandidate = false;
@@ -343,7 +345,7 @@ export async function compactSession(
     // summarizer overshot it anyway, which the next turn would reproduce
     // exactly, so the session would never compact again. Dropping to a looser
     // rung costs one more call and is the only thing here that recovers.
-    let rejection: CompactionOutcome | undefined;
+    let retryable: CompactionOutcome | undefined;
     for (const attempt of attempts) {
         if (signal.aborted) {
             return { outcome: "cancelled" };
@@ -361,17 +363,15 @@ export async function compactSession(
             store,
             signal,
         });
-        if (outcome.result.outcome !== "rejected") {
+        // A fault no extra room would change: every further rung would spend a
+        // call to collect the same answer. Success says the same thing for a
+        // happier reason.
+        if (!outcome.retry) {
             return outcome.result;
         }
-        rejection = outcome.result;
-        // A fault no extra room would change: every further rung would spend a
-        // call to collect the same answer.
-        if (!outcome.retry) {
-            return rejection;
-        }
+        retryable = outcome.result;
     }
-    return rejection ?? { outcome: "cancelled" };
+    return retryable ?? { outcome: "cancelled" };
 }
 
 /** How many boundaries one compaction may spend a summarizer call on. */
@@ -435,10 +435,11 @@ async function attemptCompaction(
     let proposalModel: string | undefined;
     let proposalProvider: string | undefined;
     try {
+        // Deliberately not checked for cancellation here. The summarizer has
+        // already answered and been paid for, and the rest of this rung is
+        // local work. Throwing the note away because the cancel landed a
+        // moment late buys nothing and costs the call.
         const proposal = await options.strategy.compact(request, signal);
-        if (signal.aborted) {
-            return { result: { outcome: "cancelled" }, retry: false };
-        }
         projection = validateProposal(proposal, request);
         proposalModel = proposal.model;
         proposalProvider = proposal.provider;
@@ -453,9 +454,12 @@ async function attemptCompaction(
             };
         }
         if (error instanceof CompletionUnavailableError) {
+            // A route that had somewhere to go and could not reach it for want
+            // of room is the case a shorter span fixes, which is what the next
+            // rung is.
             return {
                 result: { outcome: "unavailable", reason: error.message },
-                retry: false,
+                retry: error.roomRelated,
             };
         }
         return {
@@ -475,9 +479,6 @@ async function attemptCompaction(
         ? [...projection, ...suffix]
         : options.projectModelContext(projection, suffix);
     const after = measureMessages(afterContext) + overhead;
-    if (signal.aborted) {
-        return { result: { outcome: "cancelled" }, retry: false };
-    }
     if (after >= before) {
         return {
             result: {

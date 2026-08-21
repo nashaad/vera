@@ -13,6 +13,7 @@ import {
     createRoutedCompletionService,
     type CompleteText,
 } from "./completion-service.ts";
+import { contextWindowForModel } from "./model-settings.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
 
 /**
@@ -86,13 +87,20 @@ export function bindCompaction(
         }
         models[slot] = createRoutedCompletionService(adapter, {
             maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
-            models: route.map((model) => ({
-                provider: model.provider,
-                model: model.model,
-                ...(model.reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: model.reasoning_effort }),
-            })),
+            models: route.map((model) => {
+                const window = contextWindowForModel(
+                    model.provider,
+                    model.model,
+                );
+                return {
+                    provider: model.provider,
+                    model: model.model,
+                    ...(model.reasoning_effort === undefined
+                        ? {}
+                        : { reasoningEffort: model.reasoning_effort }),
+                    ...(window === undefined ? {} : { contextWindow: window }),
+                };
+            }),
             ...(profile.timeout_ms === undefined
                 ? {}
                 : { timeoutMs: profile.timeout_ms }),

@@ -177,8 +177,26 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
  * that has already been compacted must not be judged by the number that
  * triggered the compaction, which is the stale-trigger loop.
  */
+/**
+ * How much a session must grow after a failed automatic compaction before it
+ * is worth attempting again. Small enough that a session recovers within a
+ * few tool boundaries, large enough that an unreachable route is not called
+ * on every one of them.
+ */
+export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
+
+/** The most the estimator is ever corrected by. */
+const MAX_CONTEXT_SCALE = 3;
+
 export interface ContextWatch {
     measurement?: ContextMeasurement;
+    /**
+     * How far the estimator undershoots what the provider counts, from the
+     * last request that reported usage. Never below 1: a provider that bills
+     * cached input separately reports less than the estimate, and believing
+     * that would move the compaction trigger the wrong way.
+     */
+    scale?: number;
     /**
      * The messages' own share of `measurement.tokens`, kept so the fixed
      * overhead (system prompt, tools, instructions) can be read back out as
@@ -839,6 +857,8 @@ export async function runHeadlessLoop(
     // into another request to the same unavailable route. A new user turn
     // resets the latch and gets one fresh attempt.
     let automaticCompactionBlocked = false;
+    /** The context reading when the latch closed, for the growth check. */
+    let automaticCompactionBlockedAt: number | undefined;
     // A prompt can arrive before there is a finished boundary to compact.
     // Permit one retry after that prompt is durable, then latch if the same
     // structural problem remains at a real tool boundary.
@@ -899,11 +919,18 @@ export async function runHeadlessLoop(
         const modelContext = store.modelContext(
             agingPolicy(context, pendingMessages),
         );
+        const overheadTokens = fixedOverhead();
+        const estimate = measureMessages([
+            ...modelContext,
+            ...pendingMessages,
+        ]) + overheadTokens;
         return {
-            tokens: measureMessages([
-                ...modelContext,
-                ...pendingMessages,
-            ]) + fixedOverhead(),
+            overheadTokens,
+            // Scaled into the provider's units. Characters over four is the
+            // only measure available before a request is sent, and it reads
+            // low against real tokenizers, so a session can pass the window
+            // while the trigger still believes there is room.
+            tokens: Math.ceil(estimate * (contextWatch.scale ?? 1)),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -936,13 +963,6 @@ export async function runHeadlessLoop(
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
             );
-            if (!force && hasPendingUserTurn) {
-                automaticCompactionBlocked = false;
-                automaticCompactionRetryAfterPending = false;
-            }
-            if (!force && automaticCompactionBlocked) {
-                return;
-            }
             if (
                 !force
                 && pendingMessages.length === 0
@@ -951,6 +971,23 @@ export async function runHeadlessLoop(
                 automaticCompactionRetryAfterPending = false;
             }
             const measurement = measureContextNow(pendingMessages, context);
+            // A failed automatic compaction stops the retry loop, but it must
+            // not stop compaction for the rest of the session. A turn that
+            // never shows a user prompt, a parent waiting on subagents chief
+            // among them, would otherwise grow past the window in silence.
+            // Growth since the failure is the signal that the conditions are
+            // no longer the ones that failed.
+            if (!force && automaticCompactionBlocked) {
+                if (
+                    automaticCompactionBlockedAt === undefined
+                    || measurement.tokens < automaticCompactionBlockedAt
+                        + COMPACTION_RETRY_GROWTH_TOKENS
+                ) {
+                    return;
+                }
+                automaticCompactionBlocked = false;
+                automaticCompactionBlockedAt = undefined;
+            }
             const compactionModel = context?.model
                 ?? options.readModelSettings?.().model
                 ?? model;
@@ -1032,6 +1069,7 @@ export async function runHeadlessLoop(
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
                 automaticCompactionBlocked = true;
+                automaticCompactionBlockedAt = measurement.tokens;
             }
             if (result.outcome === "compacted") {
                 // The compaction result already measured the next request,
@@ -1039,7 +1077,13 @@ export async function runHeadlessLoop(
                 // client does not keep showing the pre-compaction estimate
                 // until another model request happens.
                 const refreshedMeasurement: ContextMeasurement = {
-                    tokens: result.after,
+                    // `result.after` is raw estimator units, and every other
+                    // reading published here is scaled. Publishing it as it
+                    // stands would show the window dropping further than it
+                    // did and then jumping back on the next measurement.
+                    tokens: Math.ceil(
+                        result.after * (contextWatch.scale ?? 1),
+                    ),
                     ...(measurement.capacity === undefined
                         ? {}
                         : { capacity: measurement.capacity }),
@@ -1092,12 +1136,7 @@ export async function runHeadlessLoop(
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
                     context?: CompactionContext,
-                ) => runCompaction(
-                    signal,
-                    false,
-                    pendingMessages,
-                    context,
-                ),
+                ) => runCompaction(signal, false, pendingMessages, context),
             }),
         deliveryInbox: store,
         toolRuntime: newStashingToolRuntime(
@@ -1767,6 +1806,7 @@ export async function runTurn(
                 assistantMessage = prepared.message;
                 preparedToolCalls = prepared.toolCalls;
             }
+            calibrateContextWatch(state, measurement, assistantMessage);
             await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
@@ -2889,4 +2929,36 @@ function acceptsImageInput(
     }
     return adapter.imageInputSupport?.(model)
         ?? adapter.supportsImageInput !== false;
+}
+
+/**
+ * Teaches the estimator what the provider actually counted.
+ *
+ * The engine measures a request as characters over four, which reads low
+ * against real tokenizers and does not see reasoning blocks or images at all.
+ * The response reports what the request really cost, and the ratio between the
+ * two is the correction the next estimate carries. Only ever upward: a
+ * provider that reports cached input separately reports a number under the
+ * estimate, and taking that for truth would push the compaction trigger the
+ * wrong way.
+ */
+function calibrateContextWatch(
+    state: RunTurnState,
+    measurement: ContextMeasurement,
+    message: ModelMessage,
+): void {
+    const watch = state.contextWatch;
+    if (watch === undefined || message.role !== "assistant") {
+        return;
+    }
+    const reported = message.usage.inputTokens;
+    if (
+        !Number.isSafeInteger(reported)
+        || reported <= 0
+        || measurement.tokens <= 0
+        || reported <= measurement.tokens
+    ) {
+        return;
+    }
+    watch.scale = Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
 }

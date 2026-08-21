@@ -268,7 +268,10 @@ test("a model that cannot answer is reported as unavailable, not as a rejection"
     expect(store.latestCompaction()).toBeUndefined();
 });
 
-test("cancellation appends nothing", async () => {
+test("a summary that arrived before the cancel is kept, not thrown away", async () => {
+    // The summarizer has already answered and already been paid for, and the
+    // rest of the rung is local work. Discarding the note because the cancel
+    // landed a moment later buys nothing and costs the call.
     const store = await session(6);
     const controller = new AbortController();
     const result = await compactSession(
@@ -280,7 +283,26 @@ test("cancellation appends nothing", async () => {
         controller.signal,
     );
 
+    expect(result.outcome).toBe("compacted");
+    expect(store.latestCompaction()).toBeDefined();
+});
+
+test("a cancel before the summarizer is called appends nothing", async () => {
+    const store = await session(6);
+    const controller = new AbortController();
+    controller.abort();
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            return { projection: [summary()] };
+        }),
+        measurement(8_000),
+        controller.signal,
+    );
+
     expect(result).toEqual({ outcome: "cancelled" });
+    expect(calls).toBe(0);
     expect(store.latestCompaction()).toBeUndefined();
 });
 
@@ -806,6 +828,66 @@ function text(message: ModelMessage | undefined): string {
 function measurement(tokens: number): ContextMeasurement {
     return { tokens, capacity: 10_000, estimated: true };
 }
+
+test("a stated overhead is used rather than recovered by subtraction", async () => {
+    // `measurement.tokens` may be scaled into the provider's units while the
+    // budget and the message measurements are raw estimator units. Recovering
+    // the overhead by subtracting one from the other folds the whole
+    // transcript's calibration into it, and every rung then reads as having
+    // no room.
+    const store = await session(6);
+    const scaled = {
+        tokens: 24_000,
+        capacity: 10_000,
+        estimated: true,
+        overheadTokens: 500,
+    };
+    const result = await compactSession(
+        options(store, () => ({ projection: [summary()] })),
+        scaled,
+        new AbortController().signal,
+    );
+
+    expect(result.outcome).toBe("compacted");
+});
+
+test("a route that ran out of room lets the ladder try a shorter span", async () => {
+    // "The request does not fit the summarizer's window" is the most room
+    // related failure there is: the next rung summarizes less. Reporting it as
+    // final kills the ladder on the first and largest rung.
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            if (calls === 1) {
+                throw new CompletionUnavailableError("no room", true);
+            }
+            return { projection: [summary()] };
+        }),
+        pressure(store, 10_000),
+        new AbortController().signal,
+    );
+
+    expect(calls).toBeGreaterThan(1);
+    expect(result.outcome).toBe("compacted");
+});
+
+test("a route that failed for any other reason stops the ladder", async () => {
+    const store = await session(6);
+    let calls = 0;
+    const result = await compactSession(
+        options(store, () => {
+            calls += 1;
+            throw new CompletionUnavailableError("no key");
+        }),
+        measurement(8_000),
+        new AbortController().signal,
+    );
+
+    expect(calls).toBe(1);
+    expect(result.outcome).toBe("unavailable");
+});
 
 test("a known window sizes the target, whatever the configured tokens say", () => {
     expect(compactionTargetBudget(measurement(9_000))).toBe(4_500);

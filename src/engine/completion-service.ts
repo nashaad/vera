@@ -1,4 +1,5 @@
 import { ProviderFailureError } from "../model/provider-failure.ts";
+import { measureMessages } from "./context-measurement.ts";
 import type {
     ModelAdapter,
     ModelMessage,
@@ -38,6 +39,12 @@ export interface CompletionModel {
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    /**
+     * The window this model accepts, when Vera has an entry for it. A route
+     * can mix sizes, and a request built for the session's window is not
+     * automatically one a smaller model in the route can read.
+     */
+    readonly contextWindow?: number;
 }
 
 export interface CompletionServiceSettings {
@@ -54,9 +61,18 @@ export const COMPLETION_MAX_OUTPUT_TOKENS = 8_192;
  * partial answer to work with: the one thing it asked for did not happen.
  */
 export class CompletionUnavailableError extends Error {
-    constructor(reason: string) {
+    /**
+     * True when a smaller request would have had somewhere to go: a candidate
+     * was passed over only because the request did not fit its window. The
+     * compaction ladder reads this to decide whether a shorter span is worth
+     * a second call.
+     */
+    readonly roomRelated: boolean;
+
+    constructor(reason: string, roomRelated = false) {
         super(reason);
         this.name = "CompletionUnavailableError";
+        this.roomRelated = roomRelated;
     }
 }
 
@@ -87,7 +103,25 @@ export function createRoutedCompletionService(
         );
 
         const reasons: string[] = [];
+        let skippedForWindow = false;
+        const requestTokens = measureRequest(request);
         for (const candidate of settings.models) {
+            // Sending a request the model cannot read costs a round trip to
+            // be told so, in a provider's own words, at the moment the window
+            // is already full. Skipping says which model and by how much.
+            if (
+                candidate.contextWindow !== undefined
+                && requestTokens + maxTokens > candidate.contextWindow
+            ) {
+                skippedForWindow = true;
+                reasons.push(
+                    `${candidate.model} skipped: the request is about `
+                        + `${requestTokens} tokens by Vera's own estimate, `
+                        + `which reads low against a real tokenizer, and its `
+                        + `window is ${candidate.contextWindow}`,
+                );
+                continue;
+            }
             const timeout = AbortSignal.timeout(timeoutMs);
             const combined = AbortSignal.any([signal, timeout]);
             let outcome = await attempt(
@@ -127,8 +161,18 @@ export function createRoutedCompletionService(
             reasons.length === 0
                 ? "The model route produced no answer."
                 : `The model route produced no answer (${reasons.join("; ")}).`,
+            skippedForWindow,
         );
     };
+}
+
+/**
+ * The request as the estimator sees it. Coarse on purpose: it decides whether
+ * to spend a call, and the provider remains the authority on the answer.
+ */
+function measureRequest(request: CompletionRequest): number {
+    return measureMessages(request.messages)
+        + Math.ceil(request.systemPrompt.length / 4);
 }
 
 function errorSummary(error: unknown): string {
@@ -170,6 +214,12 @@ async function attempt(
         const message = await stream.result();
         if (signal.aborted) {
             throw new CompletionUnavailableError("Cancelled.");
+        }
+        // An adapter that turns the deadline into an aborted message rather
+        // than a throw would otherwise be reported as the model's own stop
+        // reason, which names the symptom and hides the cause.
+        if (timeout.aborted) {
+            return { kind: "failed", reason: `${candidate.model} timed out` };
         }
         if (message.stopReason !== "stop") {
             // A truncated answer is not a cheaper answer. A summary cut at

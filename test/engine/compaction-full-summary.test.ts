@@ -4,6 +4,7 @@ import {
     FULL_SUMMARY_MODEL_SLOT,
     fullSummaryStrategy,
     MAX_SUMMARY_WORDS,
+    MIN_NOTE_TOKENS,
     summaryWordBudget,
 } from "../../src/engine/compaction-full-summary.ts";
 import { CompactionRejectedError } from "../../src/engine/compaction.ts";
@@ -103,6 +104,27 @@ test("the word budget stays under the token target it will be checked against", 
 
     expect(words).toBeGreaterThan(0);
     expect(words).toBeLessThan(3_000);
+});
+
+test("the heading and the file list come off the target before the note is sized", async () => {
+    // The strategy writes both, and the target has to hold all three. Sizing
+    // the note to the whole target is how a rung that measured as viable
+    // comes back over it.
+    const small = await compact(span(), () => "the note", 900);
+    const large = await compact(span(), () => "the note", 2_000);
+
+    expect(small.words).toBeLessThan(summaryWordBudget(900));
+    expect(large.words).toBeLessThan(summaryWordBudget(2_000));
+});
+
+test("a target too small to hold a note is refused as room related", async () => {
+    // Rejected rather than attempted: a looser rung has the room, and it is
+    // the only thing that recovers.
+    const error = await compact(span(), () => "the note", MIN_NOTE_TOKENS)
+        .then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompactionRejectedError);
+    expect((error as CompactionRejectedError).roomRelated).toBe(true);
 });
 
 async function compact(
