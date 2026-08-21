@@ -99,7 +99,7 @@ test("terminal model errors remain visible after tools and the next turn works",
             "Model error: Model returned no visible response or structured tool call.",
         );
         expect(pane).toMatch(
-            /Read {2}Read package\.json\s+ctrl\+e details/,
+            /Explored {2}Read package\.json\s+ctrl\+e details/,
         );
 
         session.sendText("try again");

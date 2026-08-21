@@ -15,6 +15,7 @@ import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import {
     assembleAgedToolResults,
     type ToolResultAgingPolicy,
+    type ToolResultHistoryEntry,
 } from "../engine/tool-result-history.ts";
 import type { ImageMediaType } from "../attachments/image.ts";
 import {
@@ -792,6 +793,15 @@ export class SessionStore {
     }
 
     /**
+     * The model context before the disposable tool-result projection is
+     * applied. Compaction measures this durable shape so bounded tool results
+     * cannot hide a growing session from the trigger.
+     */
+    unprojectedModelContext(): readonly ModelMessage[] {
+        return this.modelContextEntries().map((entry) => entry.message);
+    }
+
+    /**
      * What the model should be sent: the accepted projection followed by the
      * messages kept verbatim after it. Distinct from `messages()`, which stays
      * the original transcript so clients keep showing what was really said.
@@ -804,18 +814,22 @@ export class SessionStore {
     modelContext(
         aging: ToolResultAgingPolicy = {},
     ): readonly ModelMessage[] {
+        return assembleAgedToolResults(this.modelContextEntries(), aging);
+    }
+
+    private modelContextEntries(): readonly ToolResultHistoryEntry[] {
         const compaction = this.latestCompaction();
         const active = this.activeEntries();
         if (compaction === undefined) {
-            return assembleAgedToolResults(active, aging);
+            return active;
         }
         const boundary = active.findIndex(
             (entry) => entry.id === compaction.boundaryMessageId,
         );
-        return assembleAgedToolResults([
+        return [
             ...compaction.projection.map((message) => ({ message })),
             ...active.slice(boundary + 1),
-        ], aging);
+        ];
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
