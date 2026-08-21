@@ -341,7 +341,10 @@ export interface InboundCommandRouterOptions {
      * session with no strategy bound does nothing rather than reporting a
      * failure the user cannot act on.
      */
-    readonly compactNow?: (turnActive: boolean) => Promise<void>;
+    readonly compactNow?: (
+        turnActive: boolean,
+        signal?: AbortSignal,
+    ) => Promise<void>;
     readonly handleTimelineCommand?: (
         ownerId: string,
         command: TimelineCommand,
@@ -359,6 +362,8 @@ export class InboundCommandRouter {
     private pendingPromptCount = 0;
     private deliveryTurnQueued = false;
     private contextAppend: Promise<void> | undefined;
+    private compactionAbort: AbortController | undefined;
+    private compactionInFlight: Promise<void> | undefined;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, EngineCommand>,
@@ -378,21 +383,32 @@ export class InboundCommandRouter {
         try {
             while (true) {
                 queued = await this.prompts.receive();
-                this.pendingPromptCount -= 1;
-                if (queued.wear !== undefined) {
-                    await this.applyWear(queued.wear);
-                    continue;
-                }
-                if (
-                    queued.triggeredByDelivery !== true
-                    || this.options.hasPendingDeliveryTurn?.() !== false
-                ) {
-                    if (queued.triggeredByDelivery === true) {
-                        this.deliveryTurnQueued = false;
+                // Keep the item counted while it waits for a background
+                // compaction (and while a queued wear is applying). Timeline
+                // commands must see the claimed prompt as in flight until it
+                // is safe to hand the turn to the engine.
+                try {
+                    const compaction = this.compactionInFlight;
+                    if (compaction !== undefined) {
+                        await compaction;
                     }
-                    break;
+                    if (queued.wear !== undefined) {
+                        await this.applyWear(queued.wear);
+                        continue;
+                    }
+                    if (
+                        queued.triggeredByDelivery !== true
+                        || this.options.hasPendingDeliveryTurn?.() !== false
+                    ) {
+                        if (queued.triggeredByDelivery === true) {
+                            this.deliveryTurnQueued = false;
+                        }
+                        break;
+                    }
+                    this.deliveryTurnQueued = false;
+                } finally {
+                    this.pendingPromptCount -= 1;
                 }
-                this.deliveryTurnQueued = false;
             }
         } finally {
             this.waitingForPrompt = false;
@@ -821,18 +837,26 @@ export class InboundCommandRouter {
                     // span it replaces has to be finished and durable. A
                     // queued prompt counts as a turn already underway, since
                     // it can be claimed while the compaction is still running.
-                    // Prompts only enter the queue through this loop, so the
-                    // await below also keeps new ones out until it settles.
-                    await this.options.compactNow?.(
+                    // Start it in the background so an abort command can
+                    // reach the operation while its model call is pending;
+                    // startTurn waits before handing a queued prompt over.
+                    this.startCompaction(
                         this.activeTurn !== undefined
                             || this.pendingPromptCount > 0,
                     );
                     continue;
                 }
 
-                if (command.type === "abort" && this.activeTurn !== undefined) {
-                    this.events.emit({ type: "abort_requested" });
-                    this.activeTurn.abort(new Error("Turn aborted"));
+                if (command.type === "abort") {
+                    if (this.activeTurn !== undefined) {
+                        this.events.emit({ type: "abort_requested" });
+                        this.activeTurn.abort(new Error("Turn aborted"));
+                    } else if (this.compactionAbort !== undefined) {
+                        this.events.emit({ type: "abort_requested" });
+                        this.compactionAbort.abort(
+                            new Error("Compaction aborted"),
+                        );
+                    }
                 }
             }
         } catch (error) {
@@ -845,6 +869,32 @@ export class InboundCommandRouter {
                 this.finishQuestion(requestId, { outcome: "cancelled" });
             }
         }
+    }
+
+    private startCompaction(turnActive: boolean): void {
+        if (
+            this.compactionInFlight !== undefined
+            || this.options.compactNow === undefined
+        ) {
+            return;
+        }
+        const controller = new AbortController();
+        let work: Promise<void>;
+        try {
+            work = this.options.compactNow(turnActive, controller.signal);
+        } catch {
+            return;
+        }
+        const settled = work
+            .catch(() => undefined)
+            .finally(() => {
+                if (this.compactionInFlight === settled) {
+                    this.compactionInFlight = undefined;
+                    this.compactionAbort = undefined;
+                }
+            });
+        this.compactionAbort = controller;
+        this.compactionInFlight = settled;
     }
 
     private sendModelSettings(requestId: string): void {

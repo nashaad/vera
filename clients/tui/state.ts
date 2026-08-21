@@ -205,6 +205,10 @@ export interface TuiState {
      * instead of looking like a hang.
      */
     readonly compactingSince?: number;
+    /** The strategy and first model in the bound summarizer route. */
+    readonly compactionStrategy?: string;
+    readonly compactionProvider?: string;
+    readonly compactionModel?: string;
     /** The agent this session is wearing, as the host last reported it. */
     readonly agent?: {
         readonly name: string;
@@ -415,6 +419,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             working: false,
             modelActivity: undefined,
             compactingSince: undefined,
+            compactionStrategy: undefined,
+            compactionProvider: undefined,
+            compactionModel: undefined,
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
@@ -452,6 +459,9 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             queuedPrompts: [],
             modelActivity: undefined,
             compactingSince: undefined,
+            compactionStrategy: undefined,
+            compactionProvider: undefined,
+            compactionModel: undefined,
         }, "resident_agent_stopped", update.detail);
     }
     if (update.type === "status") {
@@ -780,7 +790,13 @@ function applyCompaction(
     update: CompactionUpdate,
 ): TuiState {
     if (update.phase === "started") {
-        const started = { ...state, compactingSince: Date.now() };
+        const started = {
+            ...state,
+            compactingSince: Date.now(),
+            compactionStrategy: update.strategy,
+            compactionProvider: update.provider,
+            compactionModel: update.model,
+        };
         return update.warning === undefined
             ? started
             : appendTuiNotice(started, update.warning);
@@ -795,7 +811,13 @@ function applyCompaction(
     }
     // Every other finish clears the start mark, whatever the outcome: the
     // status line must never keep filling after the work has stopped.
-    state = { ...state, compactingSince: undefined };
+    state = {
+        ...state,
+        compactingSince: undefined,
+        compactionStrategy: undefined,
+        compactionProvider: undefined,
+        compactionModel: undefined,
+    };
     if (update.outcome === "compacted") {
         return appendTuiNotice(
             state,
@@ -1246,6 +1268,9 @@ export function failTuiConnection(state: TuiState): TuiState {
         working: false,
         queuedPrompts: [],
         compactingSince: undefined,
+        compactionStrategy: undefined,
+        compactionProvider: undefined,
+        compactionModel: undefined,
     };
 }
 

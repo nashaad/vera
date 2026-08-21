@@ -127,6 +127,8 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
                 .replace("{{TRANSCRIPT}}", transcript);
 
         let summary: string;
+        let model: string | undefined;
+        let provider: string | undefined;
         try {
             const result = await complete({
                 systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -136,6 +138,8 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
                 }],
             }, signal);
             summary = result.text.trim();
+            model = result.model;
+            provider = result.provider;
         } catch (error) {
             if (error instanceof CompletionUnavailableError) {
                 throw error;
@@ -149,7 +153,11 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
                 "The summarizer returned an empty note.",
             );
         }
-        return { projection: [summaryMessage(summary, files)] };
+        return {
+            projection: [summaryMessage(summary, files)],
+            model,
+            provider,
+        };
     },
 };
 

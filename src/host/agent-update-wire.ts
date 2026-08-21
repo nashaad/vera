@@ -76,6 +76,10 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     if (update.type === "compaction") {
         return (update.phase === "started" || update.phase === "finished")
                 && typeof update.strategy === "string"
+                && (update.provider === undefined
+                    || typeof update.provider === "string")
+                && (update.model === undefined
+                    || typeof update.model === "string")
                 && (update.outcome === undefined
                     || isCompactionOutcome(update.outcome))
                 && (update.reason === undefined

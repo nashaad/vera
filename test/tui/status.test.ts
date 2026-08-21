@@ -228,6 +228,17 @@ test("the compaction hint fills with time and never completes on its own", () =>
         .toContain("░");
 });
 
+test("the compaction hint names its strategy and summarizer model", () => {
+    expect(renderTuiCompactionHint(2_000, {
+        strategy: "vera/full-summary",
+        provider: "openrouter",
+        model: "openai/gpt-5.6-terra",
+    })).toBe(
+        "compacting [█░░░░░░░░░░░] · vera/full-summary"
+            + " · openrouter/openai/gpt-5.6-terra · 2s",
+    );
+});
+
 test("the status line leads with what needs you, and says nothing when nothing does", () => {
     const line = (needsYou: number): string =>
         renderTuiStatusDetailsLine(

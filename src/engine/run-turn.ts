@@ -97,7 +97,10 @@ import {
     measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
-import type { ToolResultAgingPolicy } from "./tool-result-history.ts";
+import {
+    assembleAgedToolResults,
+    type ToolResultAgingPolicy,
+} from "./tool-result-history.ts";
 import type { CompactionStrategyDefinition } from "./compaction.ts";
 import type { CompleteText } from "./completion-service.ts";
 import {
@@ -643,7 +646,9 @@ export async function runHeadlessLoop(
     // Assigned once the compaction closure exists, further down. Undefined
     // while the session has no strategy bound, which makes an asked-for
     // compaction a no-op rather than an error.
-    let compactOnRequest: ((turnActive: boolean) => Promise<void>) | undefined;
+    let compactOnRequest: (
+        (turnActive: boolean, signal?: AbortSignal) => Promise<void>
+    ) | undefined;
     const timeline = new TimelineController({
         state: { messages, store },
         protocol,
@@ -668,8 +673,8 @@ export async function runHeadlessLoop(
             );
             protocol.checkpoint(messages);
         },
-        compactNow: async (turnActive) => {
-            await compactOnRequest?.(turnActive);
+        compactNow: async (turnActive, signal) => {
+            await compactOnRequest?.(turnActive, signal);
         },
         hasPendingDeliveryTurn: () =>
             store.pendingDeliveries().length > 0
@@ -815,6 +820,14 @@ export async function runHeadlessLoop(
         });
     const contextWatch: ContextWatch = {};
     const compaction = options.compaction;
+    // A failed automatic compaction must not turn every later tool boundary
+    // into another request to the same unavailable route. A new user turn
+    // resets the latch and gets one fresh attempt.
+    let automaticCompactionBlocked = false;
+    // A prompt can arrive before there is a finished boundary to compact.
+    // Permit one retry after that prompt is durable, then latch if the same
+    // structural problem remains at a real tool boundary.
+    let automaticCompactionRetryAfterPending = false;
     // Read at each compaction rather than once: the user can switch models
     // between turns, and the window that matters is the one the next request
     // will be sent into. The settings carry a window the catalog may not
@@ -853,10 +866,14 @@ export async function runHeadlessLoop(
         pendingMessages: readonly ModelMessage[] = [],
     ): ToolResultAgingPolicy => {
         const capacity = compactionCapacity(context);
+        const pendingUserTurns = pendingMessages.filter((message) =>
+            message.role === "user" && message.internal !== true
+        ).length;
         return {
             overheadTokens: fixedOverhead() + measureMessages(pendingMessages),
             spillDirectory,
             ...(capacity === undefined ? {} : { capacity }),
+            ...(pendingUserTurns === 0 ? {} : { pendingUserTurns }),
         };
     };
     const measureContextNow = (
@@ -864,9 +881,12 @@ export async function runHeadlessLoop(
         context?: CompactionContext,
     ): ContextMeasurement => {
         const capacity = compactionCapacity(context);
+        const modelContext = store.modelContext(
+            agingPolicy(context, pendingMessages),
+        );
         return {
             tokens: measureMessages([
-                ...store.unprojectedModelContext(),
+                ...modelContext,
                 ...pendingMessages,
             ]) + fixedOverhead(),
             ...(capacity === undefined ? {} : { capacity }),
@@ -898,10 +918,30 @@ export async function runHeadlessLoop(
             pendingMessages: readonly ModelMessage[] = [],
             context?: CompactionContext,
         ): Promise<void> => {
+            const hasPendingUserTurn = pendingMessages.some((message) =>
+                message.role === "user" && message.internal !== true
+            );
+            if (!force && hasPendingUserTurn) {
+                automaticCompactionBlocked = false;
+                automaticCompactionRetryAfterPending = false;
+            }
+            if (!force && automaticCompactionBlocked) {
+                return;
+            }
+            if (
+                !force
+                && pendingMessages.length === 0
+                && automaticCompactionRetryAfterPending
+            ) {
+                automaticCompactionRetryAfterPending = false;
+            }
             const measurement = measureContextNow(pendingMessages, context);
             const compactionModel = context?.model
                 ?? options.readModelSettings?.().model
                 ?? model;
+            const summarizerModel = compaction.diagnostics?.model
+                ?? compactionModel;
+            const summarizerProvider = compaction.diagnostics?.provider;
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
@@ -911,13 +951,28 @@ export async function runHeadlessLoop(
             events.emit({
                 type: "compaction_started",
                 strategy: compaction.strategy.id,
+                ...(summarizerProvider === undefined
+                    ? {}
+                    : { provider: summarizerProvider }),
+                model: summarizerModel,
                 ...(budgetWarning(measurement, compaction) ?? {}),
             });
+            const modelContext = store.modelContext(
+                agingPolicy(context, pendingMessages),
+            );
             const result = await compactSession({
                 store,
                 strategy: compaction.strategy,
                 models: compaction.models,
                 model: compactionModel,
+                modelContext,
+                projectModelContext: (projection, retained) =>
+                    assembleAgedToolResults(
+                        [...projection, ...retained].map((message) => ({
+                            message,
+                        })),
+                        agingPolicy(context, pendingMessages),
+                    ),
                 ...(compaction.diagnostics === undefined
                     ? {}
                     : { diagnostics: compaction.diagnostics }),
@@ -931,15 +986,38 @@ export async function runHeadlessLoop(
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
             }, measurement, signal);
+            const resultModel = result.outcome === "compacted"
+                ? result.model
+                : undefined;
+            const resultProvider = result.outcome === "compacted"
+                ? result.provider
+                : undefined;
+            const reportedProvider = resultProvider ?? summarizerProvider;
             events.emit({
                 type: "compaction_finished",
                 strategy: compaction.strategy.id,
+                ...(reportedProvider === undefined
+                    ? {}
+                    : { provider: reportedProvider }),
+                model: resultModel ?? summarizerModel,
                 outcome: result.outcome,
                 ...("reason" in result ? { reason: result.reason } : {}),
                 ...(result.outcome === "compacted"
                     ? { before: result.before, after: result.after }
                     : {}),
             });
+            if (result.outcome === "no_boundary" && hasPendingUserTurn) {
+                automaticCompactionRetryAfterPending = true;
+            }
+            if (
+                !force
+                && result.outcome !== "compacted"
+                && result.outcome !== "not_needed"
+                && result.outcome !== "cancelled"
+                && !(result.outcome === "no_boundary" && hasPendingUserTurn)
+            ) {
+                automaticCompactionBlocked = true;
+            }
             if (result.outcome === "compacted") {
                 // The compaction result already measured the next request,
                 // including the fixed prompt overhead. Publish it now so a
@@ -973,7 +1051,7 @@ export async function runHeadlessLoop(
             }
         };
     if (compaction !== undefined && runCompaction !== undefined) {
-        compactOnRequest = async (turnActive) => {
+        compactOnRequest = async (turnActive, signal) => {
             if (turnActive) {
                 events.emit({
                     type: "compaction_finished",
@@ -982,7 +1060,7 @@ export async function runHeadlessLoop(
                 });
                 return;
             }
-            await runCompaction(new AbortController().signal, true);
+            await runCompaction(signal ?? new AbortController().signal, true);
         };
     }
     const state: RunTurnState = {
