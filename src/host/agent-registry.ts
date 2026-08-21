@@ -399,6 +399,7 @@ export interface AgentRegistryOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
+        allowedSkills?: readonly string[],
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
     /** Builds each resident agent's tool hooks; absent means none. */
