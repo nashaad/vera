@@ -85,7 +85,7 @@ export function createRoutedCompletionService(
             Math.min(request.maxTokens ?? ceiling, ceiling),
         );
 
-        let lastReason = "";
+        const reasons: string[] = [];
         for (const candidate of settings.models) {
             const timeout = AbortSignal.timeout(timeoutMs);
             const combined = AbortSignal.any([signal, timeout]);
@@ -113,11 +113,12 @@ export function createRoutedCompletionService(
                     // silently lose whatever came after the cut.
                     // The provider's own message when it left one: "stopped
                     // with error" alone names no cause to act on.
-                    lastReason = `${candidate.model} stopped with `
-                        + `${message.stopReason}`
+                    reasons.push(
+                        `${candidate.model} stopped with ${message.stopReason}`
                         + (message.errorMessage === undefined
                             ? ""
-                            : `: ${message.errorMessage}`);
+                            : `: ${message.errorMessage}`),
+                    );
                     continue;
                 }
                 const text = message.content
@@ -126,7 +127,7 @@ export function createRoutedCompletionService(
                     .join("\n")
                     .trim();
                 if (text.length === 0) {
-                    lastReason = `${candidate.model} returned no text`;
+                    reasons.push(`${candidate.model} returned no text`);
                     continue;
                 }
                 return {
@@ -143,15 +144,15 @@ export function createRoutedCompletionService(
                 if (error instanceof CompletionUnavailableError) {
                     throw error;
                 }
-                lastReason = timeout.aborted
+                reasons.push(timeout.aborted
                     ? `${candidate.model} timed out`
-                    : `${candidate.model} failed: ${errorSummary(error)}`;
+                    : `${candidate.model} failed: ${errorSummary(error)}`);
             }
         }
         throw new CompletionUnavailableError(
-            lastReason.length === 0
+            reasons.length === 0
                 ? "The model route produced no answer."
-                : `The model route produced no answer (${lastReason}).`,
+                : `The model route produced no answer (${reasons.join("; ")}).`,
         );
     };
 }

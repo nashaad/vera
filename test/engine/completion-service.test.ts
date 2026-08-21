@@ -78,6 +78,22 @@ test("the caller cannot ask for more output than the binding allows", async () =
     expect(COMPLETION_MAX_OUTPUT_TOKENS).toBeGreaterThan(0);
 });
 
+test("an exhausted route names every model that failed, not only the last", async () => {
+    const service = createRoutedCompletionService(
+        adapter((request) =>
+            request.model === "first"
+                ? assistant("cut", "length")
+                : assistant("")
+        ),
+        { models: [{ model: "first" }, { model: "second" }] },
+    );
+
+    await expect(service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    )).rejects.toThrow("first stopped with length; second returned no text");
+});
+
 test("an empty route answers nothing rather than reaching for a default model", async () => {
     const service = createRoutedCompletionService(
         adapter(() => assistant("should not happen")),
