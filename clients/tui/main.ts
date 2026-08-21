@@ -1221,6 +1221,10 @@ export async function startTui(
         (settings: NonNullable<typeof state.modelSettings>) => void
     >();
     const extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
+    interface ExtensionComposeTarget {
+        readonly client: TuiAgentClient;
+        readonly generation: number;
+    }
     let clientExtensionRegistry: ClientExtensionRegistry | undefined;
     const keybindingOverlay = loadTuiKeybindingOverlay();
     const announcedKeymapNotices = new Set<string>();
@@ -1515,6 +1519,46 @@ export async function startTui(
                 focusedAgentState().context,
                 focusedAgentState().modelSettings,
             ),
+            compose: {
+                capture(): ExtensionComposeTarget | undefined {
+                    const target = extensionAgentTarget.getStore();
+                    return target === undefined ? undefined : {
+                        client: target,
+                        generation: clientGeneration,
+                    };
+                },
+                insert(_extensionId, opaqueTarget, text) {
+                    const target = opaqueTarget as ExtensionComposeTarget;
+                    if (!isCurrentExtensionComposeTarget(target)) {
+                        return { status: "stale" };
+                    }
+                    composer.insertComposerText(text);
+                    renderCommandSuggestions();
+                    renderState();
+                    return { status: "accepted" };
+                },
+                focus(_extensionId, opaqueTarget) {
+                    const target = opaqueTarget as ExtensionComposeTarget;
+                    if (!isCurrentExtensionComposeTarget(target)) {
+                        return { status: "stale" };
+                    }
+                    if (
+                        !clientSurfaceReady
+                        || !composerBox.visible
+                        || activeOverlayFocus() !== undefined
+                    ) {
+                        return { status: "ineligible" };
+                    }
+                    composer.focus();
+                    flightRecorder?.record({
+                        type: "focus_changed",
+                        surface: sidebar.isFocused()
+                            ? "sidebar_composer"
+                            : "main_composer",
+                    });
+                    return { status: "accepted" };
+                },
+            },
             updateModelSettings: requestExtensionModelSettingsUpdate,
             subscribeModelSettings(listener) {
                 extensionSettingsListeners.add(listener);
@@ -2521,6 +2565,14 @@ export async function startTui(
         return sidebar.isFocused() && hostedSidebar.pane !== undefined
             ? hostedSidebar.pane.client
             : client;
+    }
+
+    function isCurrentExtensionComposeTarget(
+        target: ExtensionComposeTarget,
+    ): boolean {
+        return !sessionSwitchPending
+            && target.generation === clientGeneration
+            && target.client === focusedAgentClient();
     }
 
     function focusedAgentState(): TuiState {
@@ -7383,9 +7435,6 @@ export async function startTui(
         if (dialStrip !== undefined) {
             return () => dialCard.focus();
         }
-        if (experimentalTuiHost.hasModal()) {
-            return () => experimentalTuiHost.focus();
-        }
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
@@ -7398,6 +7447,9 @@ export async function startTui(
             && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
             return () => questionView.focus();
+        }
+        if (experimentalTuiHost.hasModal()) {
+            return () => experimentalTuiHost.focus();
         }
         if (timelinePicker !== undefined) {
             return () => timelinePickerView.box.focus();

@@ -98,6 +98,51 @@ test("real TUI queues a prompt and Escape steers to it", async () => {
     }
 }, 15_000);
 
+test("extension insertion edits the live draft without touching the queue", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-queued-compose-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 31,
+        dependencies: () => ({
+            ...createTuiChildDependencies(),
+            disabledBuiltinExtensions: [
+                "vera.model-presets",
+                "vera.reasoning-cycle",
+            ],
+            clientExtensions: [{
+                path: join(
+                    import.meta.dir,
+                    "../../support/fixtures/compose-write-extension",
+                ),
+                enabled: true,
+                config: {},
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/compose-w");
+        await session.waitForVisiblePane("Insert text into the composer");
+        for (let index = 0; index < "/compose-w".length; index += 1) {
+            session.sendKey("BSpace");
+        }
+        session.sendText("start streaming");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("PARTIAL xxxxx");
+        session.sendText("keep this queued");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("queued · keep this queued");
+
+        session.sendKey("C-k");
+        const pane = await session.waitForVisiblePane("injected while queued");
+        expect(pane).toContain("queued · keep this queued");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("scrolling away from the stream offers a way back to the bottom", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-jump-bottom-"));
     const session = await startTuiTestSession({

@@ -5,6 +5,7 @@ import {
     startClientExtensionRegistry,
     type ClientExtensionAddressingAdapter,
     type ClientExtensionAgentsAdapter,
+    type ClientExtensionComposeAdapter,
     type ClientExtensionConsultAdapter,
     type ClientExtensionContextAdapter,
     type ClientExtensionExperimentalTuiAdapter,
@@ -44,6 +45,7 @@ export interface StartTuiClientExtensionHostOptions {
     readonly extensions: readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
+    readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
     readonly requestPicker: ClientExtensionPickerAdapter["request"];
@@ -77,6 +79,7 @@ export interface TuiClientExtensionHostBindings {
     readonly extensions: () => readonly VeraExtensionConfig[];
     readonly currentModelSettings: ClientExtensionModelSettingsAdapter["current"];
     readonly currentContext?: ClientExtensionContextAdapter["current"];
+    readonly compose: ClientExtensionComposeAdapter;
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
     readonly requestPicker: (
@@ -133,6 +136,7 @@ export function createTuiClientExtensionHostStarter(
             extensions,
             currentModelSettings: options.currentModelSettings,
             currentContext: options.currentContext,
+            compose: options.compose,
             updateModelSettings: options.updateModelSettings,
             subscribeModelSettings: options.subscribeModelSettings,
             requestPicker: (_extensionId, request, requestSignal) =>
@@ -286,6 +290,7 @@ export async function startTuiClientExtensionHost(
             current: options.currentContext
                 ?? (() => ({ availability: "unavailable" } satisfies VeraClientContextSnapshot)),
         },
+        compose: options.compose,
         transcript: {
             append(_extensionId, block) {
                 options.appendTranscript(block);

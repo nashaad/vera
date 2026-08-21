@@ -139,6 +139,28 @@ test("TUI composer edits, pastes, submits, and survives resize", async () => {
     }
 });
 
+test("extension text replaces the selection without clearing attachments", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    let submitted = 0;
+    const composer = createTuiComposer(setup.renderer, () => submitted++);
+
+    try {
+        composer.setComposerText("draft text ");
+        composer.attachImageChip("first");
+        composer.setSelection(0, 5);
+        composer.insertComposerText("revised\r\nline");
+
+        expect(composer.plainText).toBe(
+            "revised\nline text [Image 1] ",
+        );
+        expect(composer.imageChipRequestIds()).toEqual(["first"]);
+        expect(composer.focused).toBe(false);
+        expect(submitted).toBe(0);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("ESC-prefixed Enter inserts a newline instead of submitting", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const submitted: string[] = [];

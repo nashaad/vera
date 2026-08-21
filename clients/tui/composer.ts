@@ -300,6 +300,18 @@ export class TuiComposer extends TextareaRenderable {
         this.setComposerText("");
     }
 
+    /**
+     * Insert extension-produced text as an ordinary edit. Unlike setComposerText,
+     * this respects the cursor or selection and keeps image chips and collapsed
+     * paste state intact.
+     */
+    insertComposerText(text: string): void {
+        this.submittedTextIndex = undefined;
+        this.insertText(normalizeLineEndings(text));
+        this.syncImageChips();
+        this.publishTypedRows();
+    }
+
     rememberSubmittedText(text: string): void {
         if (text.length > 0) {
             this.submittedTexts.push(text);
