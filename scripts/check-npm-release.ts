@@ -7,6 +7,8 @@ import { resolve } from "node:path";
 const PACKAGE_NAME = "@nashaad/vera";
 const REGISTRY = "https://registry.npmjs.org";
 const STABLE_VERSION = /^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$/;
+const VERIFY_ATTEMPTS = 60;
+const VERIFY_DELAY_MS = 10_000;
 
 function fail(message: string): never {
     console.error(`vera npm release: ${message}`);
@@ -90,12 +92,15 @@ const requireProvenance = provenanceFlag === "--require-provenance";
 const integrity = localIntegrity(resolve(archiveArgument));
 
 if (mode === "verify") {
-    for (let attempt = 0; attempt < 12; attempt += 1) {
+    for (let attempt = 0; attempt < VERIFY_ATTEMPTS; attempt += 1) {
         if (assertPublished(version, integrity, requireProvenance, true)) {
             console.log(JSON.stringify({ published: true, version, integrity }));
             process.exit(0);
         }
-        await Bun.sleep(5_000);
+        console.error(
+            `vera npm release: waiting for registry processing (${attempt + 1}/${VERIFY_ATTEMPTS})`,
+        );
+        await Bun.sleep(VERIFY_DELAY_MS);
     }
     fail(`${PACKAGE_NAME}@${version} did not appear in the registry`);
 }
