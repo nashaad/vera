@@ -92,6 +92,36 @@ test("host wire accepts only complete tool presentations", () => {
     })).toBeUndefined();
 });
 
+test("host wire carries managed process identity on Bash completion", () => {
+    const update = {
+        type: "tool_finished" as const,
+        tool: "bash",
+        output: "Process still running",
+        isError: false,
+        processId: "p-1234abcd",
+        seq: 3,
+    };
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, processId: "" })).toBeUndefined();
+
+    const history = {
+        type: "history" as const,
+        entries: [{
+            kind: "tool_result" as const,
+            tool: "bash",
+            output: "Process still running",
+            isError: false,
+            processId: "p-1234abcd",
+        }],
+        seq: 3,
+    };
+    expect(parseAgentUpdate(history)).toEqual(history);
+    expect(parseAgentUpdate({
+        ...history,
+        entries: [{ ...history.entries[0], processId: "" }],
+    })).toBeUndefined();
+});
+
 test("host wire validates context measurements", () => {
     expect(parseAgentUpdate({
         type: "context",

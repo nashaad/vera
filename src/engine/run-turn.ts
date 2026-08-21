@@ -62,6 +62,7 @@ import {
 } from "../tools/execute.ts";
 import { initBashParser } from "../tools/bash-parser.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
+import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import { newStashingToolRuntime } from "./preimage.ts";
 import { resolveFileToolPermissionContext } from "../tools/files.ts";
 import type {
@@ -422,6 +423,8 @@ export interface RunHeadlessLoopOptions {
      * passes them through opaquely.
      */
     readonly toolEnv?: Readonly<Record<string, string>>;
+    /** Host-owned root shared by this resident session and its subagents. */
+    readonly processRegistry?: ManagedProcessRegistry;
     /**
      * The directory this session's project-scoped memory is keyed on,
      * resolved by the owner once per agent. Absent means the workspace.
@@ -569,6 +572,9 @@ export async function runHeadlessLoop(
             : await SessionStore.open(options.resumeSessionPath)
     );
     const sessionId = store.header.id;
+    const processRegistry = options.processRegistry
+        ?? new ManagedProcessRegistry();
+    const ownsProcessRegistry = options.processRegistry === undefined;
     const scratchDir = sessionScratchDir(sessionId);
     if (
         (options.readApprovalMode === undefined)
@@ -759,6 +765,7 @@ export async function runHeadlessLoop(
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir,
+            processRegistry,
             // Settings the host may rewrite while this session runs are read
             // here rather than copied, so a subagent spawned later is given
             // what the settings say now, not what they said at start.
@@ -1012,6 +1019,7 @@ export async function runHeadlessLoop(
             store.header.id,
             options.toolEnv,
             instructionRoot.path,
+            processRegistry,
         ),
         instructionRoot,
         inbound,
@@ -1079,17 +1087,22 @@ export async function runHeadlessLoop(
         ),
     );
 
-    while (true) {
-        const checkpointMessages = [...state.messages];
-        await runTurn(adapter, model, state, reasoningEffort);
-        if (
-            state.messages.length !== checkpointMessages.length
-            || state.messages.some((message, index) =>
-                message !== checkpointMessages[index]
-            )
-        ) {
-            protocol.checkpoint(state.messages, store.activeMessageIds());
+    try {
+        while (true) {
+            const checkpointMessages = [...state.messages];
+            await runTurn(adapter, model, state, reasoningEffort);
+            if (
+                state.messages.length !== checkpointMessages.length
+                || state.messages.some((message, index) =>
+                    message !== checkpointMessages[index]
+                )
+            ) {
+                protocol.checkpoint(state.messages, store.activeMessageIds());
+            }
         }
+    } finally {
+        await state.toolRuntime.close();
+        if (ownsProcessRegistry) await processRegistry.close();
     }
 }
 
@@ -1191,7 +1204,7 @@ export async function runTurn(
         // its scripts can reach.
         const wear = state.readAgentWear?.();
         state.firedNudges?.clear();
-        state.toolRuntime.allowedTools = wear?.tools;
+        state.toolRuntime.allowedTools = turnToolExecutionScope(wear);
         state.toolRuntime.allowedSkills = wear?.skills;
         const offered = state.offerTools === false
             ? []
@@ -1207,7 +1220,7 @@ export async function runTurn(
         // the extraordinary case safe.
         const tools = wear?.tools === undefined
             ? offered
-            : offered.filter((tool) => wear.tools!.includes(tool.name));
+            : offered.filter((tool) => turnAllowsTool(wear, tool.name));
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
             ? undefined
             : {
@@ -1956,6 +1969,26 @@ interface PreparedAssistantToolCalls {
     readonly toolCalls: readonly PreparedToolCall[];
 }
 
+function turnAllowsTool(
+    wear: AgentWearSnapshot | undefined,
+    tool: string,
+): boolean {
+    return agentAllowsTool(wear, tool)
+        // Bash may yield an owned process, so its control plane is part of
+        // the Bash capability rather than a separately optional privilege.
+        || (tool === "process" && wear?.tools?.includes("bash") === true);
+}
+
+function turnToolExecutionScope(
+    wear: AgentWearSnapshot | undefined,
+): readonly string[] | undefined {
+    if (wear?.tools === undefined) return undefined;
+    if (!wear.tools.includes("bash") || wear.tools.includes("process")) {
+        return wear.tools;
+    }
+    return [...wear.tools, "process"];
+}
+
 async function prepareAssistantToolCalls(
     state: RunTurnState,
     message: AssistantMessage,
@@ -1969,7 +2002,7 @@ async function prepareAssistantToolCalls(
         // Gate A, on the name, before anything else touches the call. A
         // pre-tool hook cannot rename a call, so the name checked here is the
         // name that would execute.
-        if (!agentAllowsTool(state.readAgentWear?.(), block.name)) {
+        if (!turnAllowsTool(state.readAgentWear?.(), block.name)) {
             preparedById.set(block.id, {
                 toolCall: block,
                 hookResult: { power: "observe" },
@@ -2384,6 +2417,7 @@ async function finishExecutedTool(
             effective,
             toolResultChanged ? undefined : result.presentation,
             toolResultChanged ? undefined : result.toolResultSource,
+            result.processId,
         );
         if (!sameToolResult(result, finalResult)) {
             state.events.emit({
@@ -2435,6 +2469,9 @@ function withoutPresentation(result: ToolResultMessage): ToolResultMessage {
         toolName: result.toolName,
         content: result.content,
         isError: result.isError,
+        ...(result.processId === undefined
+            ? {}
+            : { processId: result.processId }),
         ...(result.toolResultSource === undefined
             ? {}
             : { toolResultSource: result.toolResultSource }),
@@ -2463,6 +2500,7 @@ function hookResultMessage(
     result: Pick<HookToolResult, "content" | "isError">,
     presentation?: ToolResultMessage["presentation"],
     toolResultSource?: ToolResultMessage["toolResultSource"],
+    processId?: string,
 ): ToolResultMessage {
     return {
         role: "tool_result",
@@ -2470,6 +2508,7 @@ function hookResultMessage(
         toolName: toolCall.name,
         content: result.content,
         isError: result.isError,
+        ...(processId === undefined ? {} : { processId }),
         ...(presentation === undefined ? {} : { presentation }),
         ...(toolResultSource === undefined ? {} : { toolResultSource }),
     };

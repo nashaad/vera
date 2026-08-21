@@ -80,6 +80,7 @@ export interface ToolResultTranscriptEntry {
     readonly tool: string;
     readonly output: string;
     readonly isError: boolean;
+    readonly processId?: string;
 }
 
 export interface ModelSubstitutionTranscriptEntry {
@@ -615,6 +616,7 @@ export interface ToolFinishedUpdate {
     readonly tool: string;
     readonly output?: string;
     readonly isError?: boolean;
+    readonly processId?: string;
     readonly seq: number;
 }
 
@@ -1581,6 +1583,9 @@ export function createProtocolEncoder(
                 tool: event.toolCall.name,
                 output: textContent(event.result.content),
                 isError: event.result.isError,
+                ...(event.result.processId === undefined
+                    ? {}
+                    : { processId: event.result.processId }),
                 seq,
             });
             return;
@@ -2210,6 +2215,9 @@ export function projectTranscript(
                 tool: message.toolName,
                 output: textContent(message.content),
                 isError: message.isError,
+                ...(message.processId === undefined
+                    ? {}
+                    : { processId: message.processId }),
             });
             if (message.presentation !== undefined) {
                 push({

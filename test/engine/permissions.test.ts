@@ -77,6 +77,51 @@ test("reads at every path scope are routine in every profile", () => {
     }
 });
 
+test("owned process reads and termination need no approval", () => {
+    for (const action of ["read", "kill"] as const) {
+        const call = toolCall("process", {
+            action,
+            process_id: "p-test",
+        });
+        expect(extractPermissionActions({
+            toolCall: call,
+            workspace,
+            homeDirectory,
+        })).toEqual([{
+            tool: "process",
+            verb: action === "read" ? "read" : "unknown",
+            operation: `process.${action}`,
+        }]);
+        for (const mode of ["readonly", "ask", "auto", "full_access"] as const) {
+            expect(decideToolPermission(mode, call, workspace, [], {
+                homeDirectory,
+            }).behavior).toBe("allow");
+        }
+    }
+
+    const denyAll = {
+        locked: {
+            name: "locked",
+            rules: [],
+            defaultOutcome: "deny" as const,
+        },
+    };
+    expect(decideToolPermission(
+        "locked",
+        toolCall("process", { action: "kill", process_id: "p-test" }),
+        workspace,
+        [],
+        { homeDirectory, permissionModes: denyAll },
+    ).behavior).toBe("allow");
+    expect(decideToolPermission(
+        "locked",
+        toolCall("process", { action: "read", process_id: "p-test" }),
+        workspace,
+        [],
+        { homeDirectory, permissionModes: denyAll },
+    ).behavior).toBe("deny");
+});
+
 test("exact workspace writes and local commits are routine", () => {
     for (const mode of modes()) {
         expect(decide(mode, toolCall("write", {

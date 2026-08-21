@@ -2459,6 +2459,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
             && typeof message.toolCallId === "string"
             && typeof message.toolName === "string"
             && typeof message.isError === "boolean"
+            && (message.processId === undefined
+                || (typeof message.processId === "string"
+                    && message.processId.length > 0))
             && (message.presentation === undefined
                 || isToolPresentation(message.presentation))
             && (message.toolResultSource === undefined

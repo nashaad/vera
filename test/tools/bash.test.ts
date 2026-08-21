@@ -1,9 +1,17 @@
 import { expect, test } from "bun:test";
-import { mkdir, mkdtemp, rm, stat } from "node:fs/promises";
+import {
+    chmod,
+    mkdir,
+    mkdtemp,
+    rm,
+    stat,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { bashTool, runBash } from "../../src/tools/bash.ts";
+import { processTool } from "../../src/tools/process.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 test("bash runs ordinary recursive deletion after engine permission", async () => {
@@ -55,6 +63,63 @@ test("bash gives commands EOF instead of inheriting terminal input", async () =>
             isError: false,
         });
     } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a blocking Git editor yields as an owned process", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-git-editor-"));
+    const editor = join(workspace, "blocking-editor");
+    const editorCalled = join(workspace, "editor-called");
+    const runtime = new ToolRuntime(
+        workspace,
+        undefined,
+        undefined,
+        { GIT_EDITOR: editor },
+    );
+    try {
+        await writeFile(join(workspace, "seed.txt"), "seed\n");
+        await writeFile(
+            editor,
+            `#!/bin/sh\nprintf called > ${JSON.stringify(editorCalled)}\nsleep 60\n`,
+        );
+        await chmod(editor, 0o755);
+        const setup = await runBash(
+            "git init -q"
+                + " && git add seed.txt"
+                + " && git -c commit.gpgSign=false"
+                + " -c user.name=Nash"
+                + " -c user.email=nash@example.invalid"
+                + " commit -qm seed"
+                + ` && git config core.editor ${JSON.stringify(editor)}`
+                + " && git config tag.gpgSign true",
+            workspace,
+        );
+        expect(setup.isError).toBe(false);
+
+        const result = await bashTool.execute(
+            { command: "git tag archive HEAD", yield_after: 0.05 },
+            runtime,
+            AbortSignal.timeout(2_000),
+        );
+        expect(result).toMatchObject({ kind: "output", isError: false });
+        expect(result.kind).toBe("output");
+        if (result.kind !== "output") throw new Error("expected tool output");
+        expect(result.processId).toBeString();
+        await until(async () => {
+            try {
+                return (await Bun.file(editorCalled).text()) === "called";
+            } catch {
+                return false;
+            }
+        });
+        const killed = await processTool.execute({
+            action: "kill",
+            process_id: result.processId,
+        }, runtime, new AbortController().signal);
+        expect(killed).toMatchObject({ kind: "output", isError: false });
+    } finally {
+        await runtime.close();
         await rm(workspace, { recursive: true, force: true });
     }
 });
@@ -121,7 +186,7 @@ test("a command that writes far past the capture limit still exits", async () =>
         if (result.kind === "output") {
             expect(result.isError).toBe(false);
             expect(result.output.startsWith("0123456789")).toBe(true);
-            expect(result.output).toContain("bytes omitted from the middle of stdout");
+            expect(result.output).toContain("bytes omitted from the middle of process output");
             expect(result.output.trimEnd().endsWith("TAILMARK")).toBe(true);
             expect(result.output.length).toBeLessThan(1024 * 1024);
         }
@@ -150,6 +215,17 @@ test("caller env layers over the inherited environment", async () => {
         await rm(workspace, { recursive: true, force: true });
     }
 });
+
+async function until(
+    predicate: () => Promise<boolean>,
+    timeoutMs = 2_000,
+): Promise<void> {
+    const deadline = Date.now() + timeoutMs;
+    while (!await predicate()) {
+        if (Date.now() > deadline) throw new Error("condition did not hold in time");
+        await Bun.sleep(10);
+    }
+}
 
 test("runtime env does not leak between tool runtimes", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));

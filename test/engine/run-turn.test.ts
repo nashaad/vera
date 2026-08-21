@@ -127,6 +127,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     expect(capturedRequest?.systemPrompt).toContain("## Identity\n");
     expect(capturedRequest?.systemPrompt).toContain("## Tools\n");
     expect(capturedRequest?.systemPrompt).toContain("- bash: ");
+    expect(capturedRequest?.systemPrompt).toContain("- process: ");
     expect(capturedRequest?.systemPrompt).toContain("- read: ");
     expect(capturedRequest?.systemPrompt).toContain("- write: ");
     expect(capturedRequest?.systemPrompt).toContain("- edit: ");
@@ -1973,6 +1974,112 @@ test("a post-tool mutation drops the original edit presentation", async () => {
             : undefined).not.toHaveProperty("presentation");
     } finally {
         rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("a post-tool mutation preserves an owned process id", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPostToolUse(() => ({
+        power: "mutate",
+        patch: { content: [{ type: "text", text: "redacted process output" }] },
+    }));
+    const runtime = new ToolRuntime(process.cwd());
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: runtime,
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "full_access",
+    };
+    const call: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_background",
+            name: "bash",
+            input: { command: "sleep 60", yield_after: 0 },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "start it" });
+        const turn = runTurn(
+            new FauxAdapter([call, assistantText("done")]),
+            "test",
+            state,
+        );
+        await receiveThroughTurnFinished(channel);
+        await turn;
+
+        expect(state.messages[2]).toMatchObject({
+            role: "tool_result",
+            processId: expect.any(String),
+            content: [{ type: "text", text: "redacted process output" }],
+        });
+    } finally {
+        await runtime.close();
+    }
+});
+
+test("an agent scoped to Bash is also offered its process control tool", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const runtime = new ToolRuntime(process.cwd());
+    const requests: ModelRequest[] = [];
+    const scripted = new FauxAdapter([
+        toolResponse("call_process", "process", {
+            action: "read",
+            process_id: "p-from-an-old-host",
+        }),
+        assistantText("done"),
+    ]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return scripted.stream(request);
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: runtime,
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        readAgentWear: () => ({
+            name: "shell",
+            instructions: "",
+            tools: ["bash"],
+        }),
+    };
+
+    try {
+        channel.client.send({ type: "prompt", content: "inspect it" });
+        const turn = runTurn(adapter, "test", state);
+        await receiveThroughTurnFinished(channel);
+        await turn;
+
+        expect(requests[0]?.tools?.map((tool) => tool.name).sort())
+            .toEqual(["bash", "process"]);
+        expect(state.messages[2]).toMatchObject({
+            role: "tool_result",
+            toolName: "process",
+            isError: true,
+        });
+        expect(JSON.stringify(state.messages[2])).not.toContain(
+            "does not offer the process tool",
+        );
+        expect(runtime.allowedTools).toEqual(["bash", "process"]);
+    } finally {
+        await runtime.close();
     }
 });
 

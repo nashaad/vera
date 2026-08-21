@@ -1,7 +1,10 @@
 import {
-    captureBounded,
-    BASH_CAPTURE_LIMIT_BYTES,
-} from "./bounded-capture.ts";
+    DEFAULT_BASH_YIELD_MS,
+    ManagedProcessRegistry,
+    MAX_BASH_YIELD_MS,
+    type ManagedProcessRunResult,
+    type ManagedProcessScope,
+} from "./process-runtime.ts";
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 export const bashTool: RegisteredTool = {
@@ -12,6 +15,13 @@ export const bashTool: RegisteredTool = {
             type: "object",
             properties: {
                 command: { type: "string" },
+                yield_after: {
+                    type: "number",
+                    minimum: 0,
+                    maximum: MAX_BASH_YIELD_MS / 1_000,
+                    description:
+                        "Seconds to wait before returning a process ID. Use 0 to start in the background.",
+                },
             },
             required: ["command"],
             additionalProperties: false,
@@ -22,82 +32,107 @@ export const bashTool: RegisteredTool = {
         if (typeof command !== "string") {
             throw new Error("bash tool requires a string command");
         }
-        return runBash(command, context.workspace, signal, context.env);
+        const yieldAfterMs = parseYieldAfter(input.yield_after);
+        return runBash(command, context.workspace, signal, context.env, {
+            processes: context.processes,
+            yieldAfterMs,
+        });
     },
 };
+
+export interface RunBashOptions {
+    readonly processes?: ManagedProcessScope;
+    /** Undefined preserves the old wait-until-exit behavior for direct callers. */
+    readonly yieldAfterMs?: number;
+}
 
 export async function runBash(
     command: string,
     workspace: string,
     signal?: AbortSignal,
     env?: Readonly<Record<string, string>>,
+    options: RunBashOptions = {},
 ): Promise<ToolOutput> {
     signal?.throwIfAborted();
-    const subprocess = Bun.spawn(["bash", "-lc", command], {
-        cwd: workspace,
-        stdin: "ignore",
-        stdout: "pipe",
-        stderr: "pipe",
-        detached: process.platform !== "win32",
-        ...(env === undefined ? {} : { env: { ...process.env, ...env } }),
-    });
-    const stop = (): void => {
-        try {
-            if (process.platform === "win32") {
-                Bun.spawnSync([
-                    "taskkill",
-                    "/pid",
-                    String(subprocess.pid),
-                    "/t",
-                    "/f",
-                ], {
-                    stdout: "ignore",
-                    stderr: "ignore",
-                });
-            } else {
-                process.kill(-subprocess.pid, "SIGKILL");
-            }
-        } catch {
-            // The process may have exited between the abort and signal delivery.
-        }
-    };
-    signal?.addEventListener("abort", stop, { once: true });
-
-    let stdout: string;
-    let stderr: string;
-    let exitCode: number;
+    const ownedRegistry = options.processes === undefined
+        ? new ManagedProcessRegistry()
+        : undefined;
+    const processes = options.processes
+        ?? ownedRegistry!.scope("direct-bash-call");
+    let result: ManagedProcessRunResult;
     try {
-        // Both streams share the budget, half each, so a command that says
-        // everything on stderr is bounded the same as one that says it on
-        // stdout. Both are read to their end whatever the budget, because a
-        // child blocked on a full pipe never reaches its exit.
-        const [stdoutCapture, stderrCapture, code] = await Promise.all([
-            captureBounded(
-                subprocess.stdout,
-                BASH_CAPTURE_LIMIT_BYTES / 2,
-                "stdout",
-            ),
-            captureBounded(
-                subprocess.stderr,
-                BASH_CAPTURE_LIMIT_BYTES / 2,
-                "stderr",
-            ),
-            subprocess.exited,
-        ]);
-        stdout = stdoutCapture.text;
-        stderr = stderrCapture.text;
-        exitCode = code;
+        result = await processes.run({
+            command,
+            cwd: workspace,
+            env: { ...process.env, ...env },
+            signal,
+            yieldAfterMs: options.processes === undefined
+                ? undefined
+                : options.yieldAfterMs ?? DEFAULT_BASH_YIELD_MS,
+            interactive: false,
+        });
     } finally {
-        signal?.removeEventListener("abort", stop);
+        await ownedRegistry?.close();
     }
-    const output = [stdout, stderr]
-        .filter((text) => text.length > 0)
-        .join("\n")
-        .trim();
+    return bashOutput(result);
+}
 
+function parseYieldAfter(value: unknown): number {
+    if (value === undefined) return DEFAULT_BASH_YIELD_MS;
+    if (
+        typeof value !== "number"
+        || !Number.isFinite(value)
+        || value < 0
+        || value * 1_000 > MAX_BASH_YIELD_MS
+    ) {
+        throw new Error(
+            `bash yield_after must be between 0 and ${MAX_BASH_YIELD_MS / 1_000} seconds`,
+        );
+    }
+    return Math.round(value * 1_000);
+}
+
+function bashOutput(result: ManagedProcessRunResult): ToolOutput {
+    if (result.kind === "rejected") {
+        return { kind: "output", output: result.reason, isError: true };
+    }
+    if (result.kind === "exited") {
+        return {
+            kind: "output",
+            output: result.snapshot.output.trim() || "(no output)",
+            isError: result.snapshot.exitCode !== 0,
+        };
+    }
+    if (result.kind === "aborted") {
+        const snapshot = result.snapshot;
+        const retained = result.terminated
+            ? ""
+            : `\n\n${snapshot.terminationError ?? "Termination could not be confirmed."}`
+                + ` The process remains managed as ${snapshot.processId}; use process kill to retry.`;
+        return {
+            kind: "output",
+            output: (snapshot.output.trim() || "(no output)") + retained,
+            isError: true,
+            ...(result.terminated ? {} : { processId: snapshot.processId }),
+        };
+    }
+    const snapshot = result.snapshot;
+    const output = snapshot.output === "(no output)"
+        ? ""
+        : `\n\nOutput so far:\n${snapshot.output.trim()}`;
     return {
         kind: "output",
-        output: output || "(no output)",
-        isError: exitCode !== 0,
+        output:
+            `Process still running after ${formatElapsed(snapshot.elapsedMs)} `
+            + `(process_id: ${snapshot.processId}, pid: ${snapshot.pid}).\n`
+            + "Use process read to inspect it or process kill to terminate it."
+            + output,
+        isError: false,
+        processId: snapshot.processId,
     };
+}
+
+function formatElapsed(milliseconds: number): string {
+    if (milliseconds < 1_000) return `${Math.max(0, Math.round(milliseconds))}ms`;
+    return `${(milliseconds / 1_000).toFixed(1)}s`;
 }

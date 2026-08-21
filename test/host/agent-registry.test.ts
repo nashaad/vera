@@ -3139,6 +3139,19 @@ async function runPrompt(
     }
 }
 
+async function untilRegistryValue<T>(
+    read: () => T | undefined | Promise<T | undefined>,
+    timeoutMs = 2_000,
+): Promise<T> {
+    const deadline = Date.now() + timeoutMs;
+    while (true) {
+        const value = await read();
+        if (value !== undefined) return value;
+        if (Date.now() > deadline) throw new Error("condition did not hold in time");
+        await Bun.sleep(10);
+    }
+}
+
 async function receiveTurnFinished(
     attachment: AgentAttachment,
 ): Promise<void> {
@@ -3872,6 +3885,77 @@ test("a session's shells carry its minted name as ARC_SESSION", async () => {
             .toBe(registry.arcNameOf(first.id)!);
         expect(await toolResultText(secondSession))
             .toBe(registry.arcNameOf(second.id)!);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing the host registry kills a yielded Bash process tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-process-close-"));
+    const pidFile = join(root, "grandchild-pid");
+    const sessionPath = join(root, "agent.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "background-server",
+                    name: "bash",
+                    input: {
+                        command:
+                            `sleep 60 & echo $! > ${JSON.stringify(pidFile)}; wait`,
+                        yield_after: 0,
+                    },
+                }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+            textResponse("server started"),
+        ]),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath,
+        });
+        await runPrompt(agent.attach(), "start the server");
+        const storedResult = (await SessionStore.open(sessionPath)).messages()
+            .find((message) => message.role === "tool_result");
+        expect(storedResult).toMatchObject({
+            role: "tool_result",
+            toolName: "bash",
+            isError: false,
+        });
+        expect(storedResult?.role === "tool_result"
+            ? storedResult.processId
+            : undefined).toBeString();
+        const grandchild = await untilRegistryValue(async () => {
+            try {
+                return Number((await readFile(pidFile, "utf8")).trim())
+                    || undefined;
+            } catch {
+                return undefined;
+            }
+        });
+        process.kill(grandchild, 0);
+        expect(registry.idleForShutdown()).toBe(false);
+        expect(registry.idleForReplacement()).toBe(false);
+
+        await registry.close();
+        await untilRegistryValue(() => {
+            try {
+                process.kill(grandchild, 0);
+                return undefined;
+            } catch {
+                return true;
+            }
+        });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
