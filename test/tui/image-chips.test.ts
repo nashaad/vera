@@ -4,6 +4,7 @@ import {
     displayOffsetWidth,
     imageChipMarker,
     renumberImageChips,
+    stringIndexAtDisplayOffset,
     stripImageChips,
 } from "../../clients/tui/image-chips.ts";
 
@@ -15,6 +16,16 @@ test("a newline is one offset and a wide character is two", () => {
     expect(displayOffsetWidth("[Image 1]")).toBe(9);
     expect(displayOffsetWidth("a\nb")).toBe(3);
     expect(displayOffsetWidth("漢")).toBe(2);
+});
+
+test("display offsets map back across wide and multi-unit graphemes", () => {
+    const text = "a漢👩‍💻[Image 1]";
+    expect(stringIndexAtDisplayOffset(text, 1)).toBe(1);
+    expect(stringIndexAtDisplayOffset(text, 3)).toBe(2);
+    expect(stringIndexAtDisplayOffset(
+        text,
+        displayOffsetWidth("a漢👩‍💻"),
+    )).toBe("a漢👩‍💻".length);
 });
 
 test("surviving chips are renumbered from one in document order", () => {

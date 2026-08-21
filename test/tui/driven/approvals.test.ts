@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -81,6 +81,48 @@ test("approval actions stay visible above long details", async () => {
         );
         expect(pane).toContain("Allow once");
         expect(pane).not.toContain("$ grep");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("an extension modal cannot intercept a native approval answer", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-approval-priority-"));
+    const mountedPath = join(home, "extension-modal-mounted");
+    const interceptedPath = join(home, "extension-modal-intercepted");
+    const session = await startTuiTestSession({
+        home,
+        width: 80,
+        height: 18,
+        dependencies: () => ({
+            ...createTuiApprovalDependencies(),
+            disabledBuiltinExtensions: [
+                "vera.model-presets",
+                "vera.reasoning-cycle",
+            ],
+            clientExtensions: [{
+                path: join(
+                    import.meta.dir,
+                    "../../support/fixtures/priority-modal-extension",
+                ),
+                enabled: true,
+                config: { mountedPath, interceptedPath },
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Allow once");
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            if (existsSync(mountedPath)) break;
+            await Bun.sleep(10);
+        }
+        expect(readFileSync(mountedPath, "utf8")).toBe("mounted");
+
+        session.sendKey("1");
+        const pane = await session.waitForVisiblePane("RESPONSE AFTER APPROVAL");
+        expect(pane).not.toContain("Permission required");
+        expect(existsSync(interceptedPath)).toBe(false);
     } finally {
         await session.close();
     }

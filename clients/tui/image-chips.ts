@@ -14,6 +14,24 @@ export function displayOffsetWidth(value: string): number {
     return width;
 }
 
+/** Convert an OpenTUI display-column offset to a JavaScript string index. */
+export function stringIndexAtDisplayOffset(
+    value: string,
+    offset: number,
+): number {
+    if (offset <= 0) return 0;
+    let width = 0;
+    for (const part of graphemes.segment(value)) {
+        const next = width + (part.segment === "\n"
+            ? 1
+            : Bun.stringWidth(part.segment));
+        if (next > offset) return part.index;
+        width = next;
+        if (width === offset) return part.index + part.segment.length;
+    }
+    return value.length;
+}
+
 export interface ImageChip {
     /** The `attach_image` request this chip stands for. */
     readonly requestId: string;
