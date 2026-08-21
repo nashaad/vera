@@ -445,8 +445,9 @@ test("effort levels run faster to smarter whatever order they arrive in", () => 
     });
     expect(ordered.slots[0]?.efforts).toEqual(["low", "medium", "high"]);
 
-    // An unrecognised level has no place on the axis, so the declared order
-    // stands rather than being guessed at.
+    // An unrecognised level cannot be ranked, so the list is taken as the
+    // strongest-first one its contract promises and reversed. The unknown
+    // level keeps the neighbours the provider gave it.
     const custom = composeDialStrip({
         current: pair,
         recents: [],
@@ -456,7 +457,20 @@ test("effort levels run faster to smarter whatever order they arrive in", () => 
             levels: ["high", "ludicrous", "low"],
         }],
     });
-    expect(custom.slots[0]?.efforts).toEqual(["high", "ludicrous", "low"]);
+    expect(custom.slots[0]?.efforts).toEqual(["low", "ludicrous", "high"]);
+
+    // A producer that ships an unrankable list the wrong way round is caught
+    // by the levels that can be ranked, so the axis never reads backwards.
+    const broken = composeDialStrip({
+        current: pair,
+        recents: [],
+        pool: [{
+            provider: "openrouter",
+            model: "reversed",
+            levels: ["low", "medium", "high", "ludicrous"],
+        }],
+    });
+    expect(broken.slots[0]?.efforts).toEqual(["low", "medium", "high", "ludicrous"]);
 });
 
 test("recents cap at five and the pool backfills the rest of the HUD", () => {
@@ -697,4 +711,27 @@ test("tab walks the rungs in the order they are drawn", () => {
     const walked = drawn.map((_, step) => moveDialLane(scaleStrip(PLAIN_SOL), step).lane);
     expect(walked).toEqual(drawn);
     expect(drawn).toEqual(["effort", "access", "model", "agent"]);
+});
+
+// The axis is labelled faster on the left and smarter on the right, so the
+// smart end can never be one of the words that means less thinking.
+test("the smarter end of the effort axis is never a weak level", () => {
+    const pair = { provider: "openrouter", model: "m" };
+    const weak = ["off", "none", "minimal", "low"];
+    const lists = [
+        ["high", "medium", "low"],
+        ["low", "medium", "high"],
+        ["max", "xhigh", "high", "medium", "low", "minimal"],
+        ["ultra", "max", "high", "medium", "low"],
+        ["ludicrous", "high", "medium", "low"],
+    ];
+    for (const levels of lists) {
+        const strip = composeDialStrip({
+            current: pair,
+            recents: [],
+            pool: [{ provider: "openrouter", model: "m", levels }],
+        });
+        const efforts = strip.slots[0]?.efforts ?? [];
+        expect(weak).not.toContain(efforts.at(-1) as string);
+    }
 });

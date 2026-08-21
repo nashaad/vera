@@ -191,11 +191,11 @@ function findEntry(
 }
 
 /**
- * Where each known level sits on the faster-to-smarter axis. Providers declare
- * their levels in whatever order they like, and the track reads backwards when
- * that order runs the other way.
+ * Where each ladder level sits on the faster-to-smarter axis, used only to
+ * check that a list arrived the way its contract promises.
  */
 const EFFORT_RANK: Readonly<Record<string, number>> = {
+    off: 0,
     none: 0,
     minimal: 1,
     low: 2,
@@ -205,13 +205,48 @@ const EFFORT_RANK: Readonly<Record<string, number>> = {
     max: 6,
 };
 
-/** Sorted faster first, or left as declared when a level is not a known one. */
+/**
+ * The model's levels, faster first, which is the direction the track is
+ * labelled in.
+ *
+ * Every level named: rank them, which repairs any order they arrive in.
+ *
+ * Otherwise the names cannot decide it, and `CatalogModel.levels` already
+ * requires strongest first of every producer, so reversing that is the answer.
+ * The rank check then acts as a guard rather than as the ordering: if the
+ * levels that can be ranked come out running the wrong way, a producer broke
+ * the contract and the list is flipped back. This keeps the axis honest
+ * without knowing what an unrecognised level means, and leaves such a level
+ * beside the neighbours the provider gave it, which is the only claim anyone
+ * has made about where it belongs. Fewer than two rankable levels, or
+ * rankable levels that do not run cleanly one way, say nothing, so the list
+ * stands.
+ */
 function orderEfforts(levels: readonly string[]): readonly string[] {
-    return levels.every((level) => EFFORT_RANK[level] !== undefined)
-        ? [...levels].sort((a, b) =>
+    if (levels.every((level) => EFFORT_RANK[level] !== undefined)) {
+        return [...levels].sort((a, b) =>
             (EFFORT_RANK[a] ?? 0) - (EFFORT_RANK[b] ?? 0)
-        )
-        : levels;
+        );
+    }
+    const ordered = [...levels].reverse();
+    return runsBackwards(ordered) ? [...ordered].reverse() : ordered;
+}
+
+function runsBackwards(levels: readonly string[]): boolean {
+    const ranks = levels
+        .map((level) => EFFORT_RANK[level])
+        .filter((rank): rank is number => rank !== undefined);
+    if (ranks.length < 2) {
+        return false;
+    }
+    let rising = 0;
+    let falling = 0;
+    for (let index = 1; index < ranks.length; index += 1) {
+        const step = (ranks[index] as number) - (ranks[index - 1] as number);
+        if (step > 0) rising += 1;
+        if (step < 0) falling += 1;
+    }
+    return falling > 0 && rising === 0;
 }
 
 function slotFor(

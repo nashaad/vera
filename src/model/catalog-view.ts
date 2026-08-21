@@ -25,6 +25,7 @@ import {
 } from "./pool-file-loader.ts";
 import {
     IMAGES_LEARNED_KEY,
+    effortLearnedKey,
     isCuratedPoolEntry,
     isVerifiedPoolEntry,
     type PoolFileModel,
@@ -114,11 +115,14 @@ export interface CatalogViewOptions
  */
 export function availableModelsWithLevels(
     models: readonly SuggestedModel[],
-    options: EffectiveCatalogOptions = {},
+    options: CatalogViewOptions = {},
 ): readonly AvailableModel[] {
     const lookup = catalogLookup(options);
+    const file = loadPoolFile(options).merged;
     return models.map((model) => {
         const catalogModel = lookup(model.provider, model.model);
+        const entry = file.models[`${model.provider}/${model.model}`];
+        const levels = admittedLevels(catalogModel?.levels ?? [], entry);
         return {
             provider: model.provider,
             model: model.model,
@@ -130,8 +134,11 @@ export function availableModelsWithLevels(
             ...(model.hiddenByDefault === undefined
                 ? {}
                 : { hiddenByDefault: model.hiddenByDefault }),
-            levels: catalogModel?.levels ?? [],
+            levels,
             ...(catalogModel?.default_level === undefined
+                    || !levels.some(
+                        (level) => level.id === catalogModel.default_level,
+                    )
                 ? {}
                 : { defaultLevel: catalogModel.default_level }),
             ...recommendation(catalogModel),
@@ -223,7 +230,12 @@ export function pooledModels(
  *
  * Two ladder levels can resolve to one wire string, which is one choice for
  * the user however many ladder rungs reach it, so the first wins and the
- * repeat is dropped.
+ * repeat is dropped. Dedupe runs along the ladder, weakest first, so the
+ * cheapest rung that reaches a wire string is the one kept.
+ *
+ * Ordered strongest first, which is what `CatalogModel.levels` requires of
+ * every producer. A caller that wants the other direction reverses; none may
+ * re-derive the order from the level names.
  */
 function resolvedLevels(
     model: CatalogModel,
@@ -242,7 +254,30 @@ function resolvedLevels(
                     ?? { id: wire, label: resolution.level },
             ];
         },
-    );
+    ).reverse();
+}
+
+/**
+ * The catalog's levels minus the ones this key has already been refused.
+ *
+ * A rejection recorded against a level is a fact about this key, and the
+ * catalog does not overrule it: the provider answered 400 for that word. What
+ * the pool entry declares does overrule it, matching `resolveEffort`, so a
+ * user who wrote the level in by hand keeps it.
+ */
+function admittedLevels(
+    levels: readonly ReasoningLevel[],
+    entry: PoolFileModel | undefined,
+): readonly ReasoningLevel[] {
+    if (entry === undefined) {
+        return levels;
+    }
+    return levels.filter((level) => {
+        if (entry.efforts !== undefined && level.id in entry.efforts) {
+            return entry.efforts[level.id] !== null;
+        }
+        return entry.learned?.[effortLearnedKey(level.id)]?.ok !== false;
+    });
 }
 
 /** One catalog read per provider, however many models are looked up. */
