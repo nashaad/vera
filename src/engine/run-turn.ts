@@ -228,6 +228,7 @@ export interface RunTurnState {
         signal: AbortSignal,
         pendingMessages?: readonly ModelMessage[],
         context?: CompactionContext,
+        register?: AbortController,
     ) => Promise<void>;
     readonly compactionPolicy?: {
         readonly trigger?: CompactionTrigger;
@@ -965,6 +966,7 @@ export async function runHeadlessLoop(
             force = false,
             pendingMessages: readonly ModelMessage[] = [],
             context?: CompactionContext,
+            register?: AbortController,
         ): Promise<void> => {
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
@@ -1027,7 +1029,8 @@ export async function runHeadlessLoop(
             const modelContext = store.modelContext(
                 agingPolicy(context, pendingMessages),
             );
-            const result = await compactSession({
+            const compactionRequest:
+                Parameters<typeof compactSession>[0] = {
                 store,
                 strategy: compaction.strategy,
                 models: compaction.models,
@@ -1052,7 +1055,27 @@ export async function runHeadlessLoop(
                 ...(compaction.retainedUserTurns === undefined
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
-            }, measurement, signal);
+            };
+            if (register !== undefined) {
+                inbound.beginAutomaticCompaction(register);
+            }
+            let result: Awaited<ReturnType<typeof compactSession>>;
+            try {
+                result = await compactSession(
+                    compactionRequest,
+                    measurement,
+                    signal,
+                );
+            } finally {
+                // Ended here rather than around the whole call, because the
+                // early returns above leave without emitting anything: an
+                // abort arriving in that window would cancel a compaction
+                // that never started and leave the client waiting for a
+                // finish that has nobody to send it.
+                if (register !== undefined) {
+                    inbound.endAutomaticCompaction(register);
+                }
+            }
             const resultModel = result.outcome === "compacted"
                 ? result.model
                 : undefined;
@@ -1080,9 +1103,14 @@ export async function runHeadlessLoop(
                 !force
                 && result.outcome !== "compacted"
                 && result.outcome !== "not_needed"
-                && result.outcome !== "cancelled"
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
+                // Cancelled latches with the failures. The trigger is still
+                // over its line, so without this the next tool boundary opens
+                // another one and the user is pressing escape every few
+                // seconds against a session that will not stop asking. Growth
+                // reopens it, and the over-window escape above still saves a
+                // session that would otherwise be unable to send anything.
                 automaticCompactionBlocked = true;
                 automaticCompactionBlockedAt = lastRawEstimate;
             }
@@ -1145,7 +1173,14 @@ export async function runHeadlessLoop(
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
                     context?: CompactionContext,
-                ) => runCompaction(signal, false, pendingMessages, context),
+                    register?: AbortController,
+                ) => runCompaction(
+                    signal,
+                    false,
+                    pendingMessages,
+                    context,
+                    register,
+                ),
             }),
         deliveryInbox: store,
         toolRuntime: newStashingToolRuntime(
@@ -1419,13 +1454,12 @@ export async function runTurn(
         // strand a message the user has already sent, and after the deliveries
         // are drained, so nothing pending disappears into a projection that
         // was assembled without it.
-        if (state.compact !== undefined) {
-            await state.compact(
-                turn.signal,
-                userMessage === undefined ? [] : [userMessage],
-                compactionContextForSettings(modelSettings, activeModel),
-            );
-        }
+        await compactDuringTurn(
+            state,
+            turn.signal,
+            userMessage === undefined ? [] : [userMessage],
+            compactionContextForSettings(modelSettings, activeModel),
+        );
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
@@ -1929,7 +1963,7 @@ export async function runTurn(
             // boundary inside a tool turn: compacting any earlier could put a
             // call in the summary while its result was still being produced.
             const capacity = capacityForModel(activeModel);
-            await state.compact?.(turn.signal, [], {
+            await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,
                 ...(capacity === undefined ? {} : { capacity }),
             });
@@ -1940,6 +1974,37 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+/**
+ * Runs the turn's compaction under a signal of its own, linked to the turn's.
+ * Aborting the turn still stops the compaction, but stopping the compaction
+ * leaves the turn alive to carry on with the span it already has.
+ */
+async function compactDuringTurn(
+    state: RunTurnState,
+    turnSignal: AbortSignal,
+    pendingMessages: readonly ModelMessage[],
+    context: CompactionContext,
+): Promise<void> {
+    const compact = state.compact;
+    if (compact === undefined) {
+        return;
+    }
+    const controller = new AbortController();
+    const relay = () => {
+        controller.abort(turnSignal.reason);
+    };
+    if (turnSignal.aborted) {
+        relay();
+    } else {
+        turnSignal.addEventListener("abort", relay, { once: true });
+    }
+    try {
+        await compact(controller.signal, pendingMessages, context, controller);
+    } finally {
+        turnSignal.removeEventListener("abort", relay);
+    }
 }
 
 function requireImageReader(
