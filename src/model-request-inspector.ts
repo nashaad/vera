@@ -202,6 +202,9 @@ function isModelMessage(value: unknown): value is ModelMessage {
         return typeof value.toolCallId === "string"
             && typeof value.toolName === "string"
             && typeof value.isError === "boolean"
+            && (value.processId === undefined
+                || (typeof value.processId === "string"
+                    && value.processId.length > 0))
             && value.content.every(isTextContent);
     }
     if (value.role !== "assistant") {

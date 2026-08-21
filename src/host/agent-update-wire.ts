@@ -118,6 +118,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                     || typeof update.output === "string")
                 && (update.isError === undefined
                     || typeof update.isError === "boolean")
+                && (update.processId === undefined
+                    || (typeof update.processId === "string"
+                        && update.processId.length > 0))
             ? value as AgentUpdate
             : undefined;
     }
@@ -757,7 +760,10 @@ function isTranscriptEntry(value: unknown): value is TranscriptEntry {
     if (entry?.kind === "tool_result") {
         return typeof entry.tool === "string"
             && typeof entry.output === "string"
-            && typeof entry.isError === "boolean";
+            && typeof entry.isError === "boolean"
+            && (entry.processId === undefined
+                || (typeof entry.processId === "string"
+                    && entry.processId.length > 0));
     }
     return entry?.kind === "tool"
         && typeof entry.tool === "string"

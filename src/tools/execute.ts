@@ -6,6 +6,7 @@ import type {
 } from "../model/types.ts";
 import { TOOL_RESULT_VERBATIM_FLOOR_BYTES } from "../model/types.ts";
 import { bashTool } from "./bash.ts";
+import { processTool } from "./process.ts";
 import { editTool } from "./edit.ts";
 import { readTool, writeTool } from "./files.ts";
 import { grepTool } from "./grep.ts";
@@ -39,6 +40,7 @@ import {
 
 const ordinaryTools: readonly RegisteredTool[] = [
     bashTool,
+    processTool,
     readTool,
     writeTool,
     editTool,
@@ -257,6 +259,9 @@ export function toolResultMessage(
         toolName: toolCall.name,
         content: [{ type: "text", text: result.output }],
         isError: result.isError,
+        ...(result.processId === undefined
+            ? {}
+            : { processId: result.processId }),
         ...(result.presentation === undefined
             ? {}
             : { presentation: result.presentation }),

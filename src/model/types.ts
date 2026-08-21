@@ -133,6 +133,8 @@ export interface ToolResultMessage {
     readonly toolName: string;
     readonly content: readonly TextContent[];
     readonly isError: boolean;
+    /** Host-runtime process identity; omitted from provider request projection. */
+    readonly processId?: string;
     readonly presentation?: ToolPresentation;
     /**
      * Durable pointer to the original output. The engine uses it only when
@@ -169,7 +171,7 @@ export type ToolPresentation =
 export type ModelMessage = UserMessage | AssistantMessage | ToolResultMessage;
 
 export type ModelInputToolResultMessage =
-    Omit<ToolResultMessage, "presentation" | "toolResultSource">;
+    Omit<ToolResultMessage, "presentation" | "processId" | "toolResultSource">;
 
 export type ModelInputMessage =
     | ModelInputUserMessage

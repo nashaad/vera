@@ -1,4 +1,5 @@
 import { PreimageStash, sweepStaleStashes } from "../store/preimage-stash.ts";
+import type { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 
 let sweepStarted = false;
@@ -13,6 +14,7 @@ export function newStashingToolRuntime(
     sessionId: string,
     env?: Readonly<Record<string, string>>,
     instructionRoot?: string,
+    processRegistry?: ManagedProcessRegistry,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -25,5 +27,6 @@ export function newStashingToolRuntime(
         stash.directory,
         env,
         instructionRoot,
+        processRegistry?.scope(sessionId),
     );
 }
