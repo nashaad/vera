@@ -20,8 +20,7 @@ import { pastedImagePaths } from "./image-path.ts";
 import {
     displayOffsetWidth,
     imageChipMarker,
-    renumberImageChips,
-    stripImageChips,
+    stringIndexAtDisplayOffset,
     type ImageChip,
 } from "./image-chips.ts";
 import {
@@ -31,6 +30,7 @@ import {
 
 const IMAGE_CHIP_STYLE = "image-chip";
 const IMAGE_CHIP_TYPE = "image-chip";
+const COLLAPSED_PASTE_TYPE = "collapsed-paste";
 
 const PASTE_SUMMARY_LINE_THRESHOLD = 3;
 const PASTE_SUMMARY_CHAR_THRESHOLD = 240;
@@ -38,12 +38,24 @@ export const TUI_COMPOSER_MIN_TEXT_ROWS = 3;
 export const TUI_COMPOSER_MAX_TEXT_ROWS = 8;
 
 interface CollapsedPaste {
+    readonly id: number;
     readonly marker: string;
     readonly text: string;
 }
 
+interface TrackedMarker {
+    readonly kind: "image" | "paste";
+    readonly id: string | number;
+    readonly marker: string;
+    readonly start: number;
+    readonly end: number;
+}
+
 export class TuiComposer extends TextareaRenderable {
     private collapsedPastes: CollapsedPaste[] = [];
+    private collapsedPasteExtmarks = new Map<number, number>();
+    private collapsedPasteTypeId?: number;
+    private nextCollapsedPasteId = 1;
     private submittedTexts: string[] = [];
     private submittedTextIndex?: number;
     private imageChips: ImageChip[] = [];
@@ -67,7 +79,7 @@ export class TuiComposer extends TextareaRenderable {
     attachImageChip(requestId: string): void {
         this.ensureImageChipStyle();
         const marker = imageChipMarker(this.imageChips.length + 1);
-        const start = this.cursorOffset;
+        const start = this.getSelection()?.start ?? this.cursorOffset;
         this.insertText(`${marker} `);
         const id = this.extmarks.create({
             start,
@@ -88,18 +100,8 @@ export class TuiComposer extends TextareaRenderable {
 
     /** Drop a chip the engine refused, without reporting it as user removal. */
     removeImageChip(requestId: string): void {
-        const id = this.imageChipExtmarks.get(requestId);
-        if (id === undefined) return;
-        this.extmarks.delete(id);
-        this.imageChipExtmarks.delete(requestId);
-        const chip = this.imageChips.find((each) => each.requestId === requestId);
-        this.imageChips = this.imageChips.filter(
-            (each) => each.requestId !== requestId,
-        );
-        if (chip !== undefined) {
-            this.setText(stripOneMarker(this.plainText, chip.marker));
-        }
-        this.renumberImageChipText();
+        if (!this.imageChipExtmarks.has(requestId)) return;
+        this.rebuildTrackedMarkers(requestId);
     }
 
     override handleKeyPress(key: Parameters<TextareaRenderable["handleKeyPress"]>[0]): boolean {
@@ -190,13 +192,13 @@ export class TuiComposer extends TextareaRenderable {
      * extmark that is gone is a chip the user deleted.
      */
     private syncImageChips(): void {
+        this.syncCollapsedPastes();
         if (this.imageChips.length === 0) return;
-        const live = new Set(
-            this.extmarks.getAll().map((extmark) => extmark.id),
-        );
         const removed = this.imageChips.filter((chip) => {
             const id = this.imageChipExtmarks.get(chip.requestId);
-            return id === undefined || !live.has(id);
+            return id === undefined
+                || this.trackedMarker(id, chip.marker, "image", chip.requestId)
+                    === undefined;
         });
         if (removed.length === 0) return;
         for (const chip of removed) {
@@ -205,29 +207,143 @@ export class TuiComposer extends TextareaRenderable {
                 (each) => each.requestId !== chip.requestId,
             );
         }
-        this.renumberImageChipText();
+        this.rebuildTrackedMarkers();
         for (const chip of removed) {
             this.onImageChipRemoved?.(chip.requestId);
         }
     }
 
-    /** Rewrite the surviving chips so they read 1, 2, 3 again. */
-    private renumberImageChipText(): void {
-        if (this.imageChips.length === 0) {
-            this.extmarks.clear();
-            this.imageChipExtmarks.clear();
-            return;
+    private syncCollapsedPastes(): void {
+        this.collapsedPastes = this.collapsedPastes.filter((paste) => {
+            const id = this.collapsedPasteExtmarks.get(paste.id);
+            const live = id !== undefined
+                && this.trackedMarker(id, paste.marker, "paste", paste.id)
+                    !== undefined;
+            if (!live) this.collapsedPasteExtmarks.delete(paste.id);
+            return live;
+        });
+    }
+
+    private trackedMarker(
+        extmarkId: number,
+        marker: string,
+        kind: TrackedMarker["kind"],
+        id: TrackedMarker["id"],
+    ): TrackedMarker | undefined {
+        const extmark = this.extmarks.get(extmarkId);
+        if (extmark === null) return undefined;
+        const startIndex = stringIndexAtDisplayOffset(
+            this.plainText,
+            extmark.start,
+        );
+        const endIndex = stringIndexAtDisplayOffset(
+            this.plainText,
+            extmark.end,
+        );
+        if (this.plainText.slice(startIndex, endIndex) !== marker) {
+            return undefined;
         }
+        return { kind, id, marker, start: extmark.start, end: extmark.end };
+    }
+
+    private trackedMarkers(): readonly TrackedMarker[] {
+        return [
+            ...this.imageChips.flatMap((chip) => {
+                const extmarkId = this.imageChipExtmarks.get(chip.requestId);
+                const marker = extmarkId === undefined
+                    ? undefined
+                    : this.trackedMarker(
+                        extmarkId,
+                        chip.marker,
+                        "image",
+                        chip.requestId,
+                    );
+                return marker === undefined ? [] : [marker];
+            }),
+            ...this.collapsedPastes.flatMap((paste) => {
+                const extmarkId = this.collapsedPasteExtmarks.get(paste.id);
+                const marker = extmarkId === undefined
+                    ? undefined
+                    : this.trackedMarker(
+                        extmarkId,
+                        paste.marker,
+                        "paste",
+                        paste.id,
+                    );
+                return marker === undefined ? [] : [marker];
+            }),
+        ].toSorted((left, right) => left.start - right.start);
+    }
+
+    /** Rebuild marker text from extmark identity, never from a text search. */
+    private rebuildTrackedMarkers(omitImageRequestId?: string): void {
         const cursor = this.cursorOffset;
-        const renumbered = renumberImageChips(this.plainText, this.imageChips);
+        const original = this.plainText;
+        const markers = this.trackedMarkers();
+        const images: {
+            readonly requestId: string;
+            readonly marker: string;
+            readonly start: number;
+            readonly end: number;
+        }[] = [];
+        const pastes: {
+            readonly paste: CollapsedPaste;
+            readonly start: number;
+            readonly end: number;
+        }[] = [];
+        let rewritten = "";
+        let restIndex = 0;
+        let imagePosition = 0;
+
+        for (const tracked of markers) {
+            const startIndex = stringIndexAtDisplayOffset(original, tracked.start);
+            let endIndex = stringIndexAtDisplayOffset(original, tracked.end);
+            if (startIndex < restIndex) continue;
+            rewritten += original.slice(restIndex, startIndex);
+            if (
+                tracked.kind === "image"
+                && tracked.id === omitImageRequestId
+            ) {
+                if (original[endIndex] === " ") endIndex += 1;
+            } else if (tracked.kind === "image") {
+                const marker = imageChipMarker(++imagePosition);
+                const start = displayOffsetWidth(rewritten);
+                rewritten += marker;
+                images.push({
+                    requestId: tracked.id as string,
+                    marker,
+                    start,
+                    end: displayOffsetWidth(rewritten),
+                });
+            } else {
+                const paste = this.collapsedPastes.find(
+                    (candidate) => candidate.id === tracked.id,
+                );
+                if (paste !== undefined) {
+                    const start = displayOffsetWidth(rewritten);
+                    rewritten += paste.marker;
+                    pastes.push({
+                        paste,
+                        start,
+                        end: displayOffsetWidth(rewritten),
+                    });
+                }
+            }
+            restIndex = endIndex;
+        }
+        rewritten += original.slice(restIndex);
+
         this.extmarks.clear();
         this.imageChipExtmarks.clear();
-        this.imageChips = renumbered.chips.map((chip) => ({
+        this.collapsedPasteExtmarks.clear();
+        this.imageChips = images.map((chip) => ({
             requestId: chip.requestId,
             marker: chip.marker,
         }));
-        this.setText(renumbered.text);
-        for (const chip of renumbered.chips) {
+        this.collapsedPastes = pastes.map(({ paste }) => paste);
+        this.setText(rewritten);
+        if (images.length > 0) this.ensureImageChipStyle();
+        for (const chip of images) {
             const id = this.extmarks.create({
                 start: chip.start,
                 end: chip.end,
@@ -237,9 +353,18 @@ export class TuiComposer extends TextareaRenderable {
             });
             this.imageChipExtmarks.set(chip.requestId, id);
         }
+        if (pastes.length > 0) this.ensureCollapsedPasteType();
+        for (const { paste, start, end } of pastes) {
+            const id = this.extmarks.create({
+                start,
+                end,
+                typeId: this.collapsedPasteTypeId,
+            });
+            this.collapsedPasteExtmarks.set(paste.id, id);
+        }
         this.cursorOffset = Math.min(
             cursor,
-            displayOffsetWidth(renumbered.text),
+            displayOffsetWidth(rewritten),
         );
     }
 
@@ -251,6 +376,11 @@ export class TuiComposer extends TextareaRenderable {
         this.syntaxStyle = style;
         this.imageChipStyleId = style.getStyleId(IMAGE_CHIP_STYLE) ?? undefined;
         this.imageChipTypeId = this.extmarks.registerType(IMAGE_CHIP_TYPE);
+    }
+
+    private ensureCollapsedPasteType(): void {
+        this.collapsedPasteTypeId ??=
+            this.extmarks.registerType(COLLAPSED_PASTE_TYPE);
     }
 
     override handlePaste(event: PasteEvent): void {
@@ -270,8 +400,17 @@ export class TuiComposer extends TextareaRenderable {
         }
 
         const marker = `[Pasted Content ${text.length} chars]`;
-        this.collapsedPastes.push({ marker, text });
+        const id = this.nextCollapsedPasteId++;
+        const start = this.getSelection()?.start ?? this.cursorOffset;
+        this.ensureCollapsedPasteType();
         this.insertText(marker);
+        const extmarkId = this.extmarks.create({
+            start,
+            end: start + displayOffsetWidth(marker),
+            typeId: this.collapsedPasteTypeId,
+        });
+        this.collapsedPastes.push({ id, marker, text });
+        this.collapsedPasteExtmarks.set(id, extmarkId);
     }
 
     /**
@@ -281,23 +420,47 @@ export class TuiComposer extends TextareaRenderable {
      * prompt, so leaving `[Image 1]` in the text would only label them twice.
      */
     expandedText(): string {
-        let expanded = stripImageChips(this.plainText, this.imageChips);
-        let searchFrom = 0;
-        for (const paste of this.collapsedPastes) {
-            const markerIndex = expanded.indexOf(paste.marker, searchFrom);
-            if (markerIndex === -1) {
-                continue;
+        this.syncImageChips();
+        let expanded = this.plainText;
+        const replacements = this.trackedMarkers().map((tracked) => {
+            const start = stringIndexAtDisplayOffset(this.plainText, tracked.start);
+            let end = stringIndexAtDisplayOffset(this.plainText, tracked.end);
+            if (tracked.kind === "image" && this.plainText[end] === " ") {
+                end += 1;
             }
-            expanded = expanded.slice(0, markerIndex)
-                + paste.text
-                + expanded.slice(markerIndex + paste.marker.length);
-            searchFrom = markerIndex + paste.text.length;
+            const paste = tracked.kind === "paste"
+                ? this.collapsedPastes.find(
+                    (candidate) => candidate.id === tracked.id,
+                )
+                : undefined;
+            return {
+                start,
+                end,
+                text: paste?.text ?? "",
+            };
+        }).toSorted((left, right) => right.start - left.start);
+        for (const replacement of replacements) {
+            expanded = expanded.slice(0, replacement.start)
+                + replacement.text
+                + expanded.slice(replacement.end);
         }
-        return expanded;
+        return expanded.trim();
     }
 
     clearComposer(): void {
         this.setComposerText("");
+    }
+
+    /**
+     * Insert extension-produced text as an ordinary edit. Unlike setComposerText,
+     * this respects the cursor or selection and keeps image chips and collapsed
+     * paste state intact.
+     */
+    insertComposerText(text: string): void {
+        this.submittedTextIndex = undefined;
+        this.insertText(normalizeLineEndings(text));
+        this.syncImageChips();
+        this.publishTypedRows();
     }
 
     rememberSubmittedText(text: string): void {
@@ -314,6 +477,8 @@ export class TuiComposer extends TextareaRenderable {
 
     setComposerText(text: string): void {
         this.collapsedPastes = [];
+        this.collapsedPasteExtmarks.clear();
+        this.nextCollapsedPasteId = 1;
         this.submittedTextIndex = undefined;
         this.imageChips = [];
         this.imageChipExtmarks.clear();
@@ -445,14 +610,6 @@ export function createTuiComposerPanel(
     panel.add(rule);
     panel.add(status);
     return { panel, status, rule };
-}
-
-function stripOneMarker(text: string, marker: string): string {
-    const markerIndex = text.indexOf(marker);
-    if (markerIndex === -1) return text;
-    const after = markerIndex + marker.length;
-    return text.slice(0, markerIndex)
-        + text.slice(text[after] === " " ? after + 1 : after);
 }
 
 function shouldCollapsePaste(text: string): boolean {

@@ -38,6 +38,8 @@ import type {
     VeraClientAgentRef,
     VeraClientVisibleAgent,
     VeraClientExperimentalHostedAgentAddressing,
+    VeraClientComposeFocusResult,
+    VeraClientComposeWriteResult,
     VeraExtensionDisposer,
 } from "../sdk/extensions.ts";
 import type { VeraClientContextSnapshot } from "../sdk/context.ts";
@@ -87,6 +89,7 @@ const CLIENT_THREAD_CAPABILITY = "client.thread.read";
 const CLIENT_SESSIONS_CAPABILITY = "client.sessions.read";
 const CLIENT_TIPS_CAPABILITY = "client.tips.register";
 const CLIENT_COMPOSE_SUGGESTER_CAPABILITY = "client.compose.suggester";
+const CLIENT_COMPOSE_WRITE_CAPABILITY = "client.compose.write";
 const CLIENT_AGENTS_CAPABILITY = "client.agents";
 const CLIENT_EXPERIMENTAL_TUI_CAPABILITY = "client.experimental_tui";
 
@@ -223,6 +226,20 @@ export interface ClientExtensionContextAdapter {
     current(): VeraClientContextSnapshot;
 }
 
+/** Client-owned composer access, bound to one command/keybinding invocation. */
+export interface ClientExtensionComposeAdapter {
+    capture(extensionId: string): object | undefined;
+    insert(
+        extensionId: string,
+        target: object,
+        text: string,
+    ): VeraClientComposeWriteResult;
+    focus(
+        extensionId: string,
+        target: object,
+    ): VeraClientComposeFocusResult;
+}
+
 export interface ClientExtensionSidebarAdapter {
     /** Throws when another extension already holds the sidebar. */
     open(extensionId: string): void;
@@ -321,6 +338,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly consult?: ClientExtensionConsultAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly context?: ClientExtensionContextAdapter;
+    readonly compose?: ClientExtensionComposeAdapter;
     readonly sidebar?: ClientExtensionSidebarAdapter;
     readonly mentions?: ClientExtensionMentionsAdapter;
     readonly addressing?: ClientExtensionAddressingAdapter;
@@ -431,6 +449,11 @@ interface ActiveInvocation {
     readonly completion: Promise<void>;
 }
 
+interface ComposeInvocation {
+    readonly target: object;
+    active: boolean;
+}
+
 interface LoadedClientExtension {
     readonly id: string;
     readonly path: string;
@@ -447,6 +470,7 @@ interface LoadedClientExtension {
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveInvocation>;
     readonly invocationSignal: AsyncLocalStorage<AbortSignal>;
+    readonly composeInvocation: AsyncLocalStorage<ComposeInvocation>;
     readonly markUnavailable: () => void;
     disposing: boolean;
 }
@@ -532,6 +556,7 @@ export async function startClientExtensionRegistry(
                 consult: options.consult,
                 transcript: options.transcript,
                 context: options.context,
+                compose: options.compose,
                 sidebar: options.sidebar,
                 mentions: options.mentions,
                 addressing: options.addressing,
@@ -644,7 +669,8 @@ export async function startClientExtensionRegistry(
             if (imagePaths.length !== imageCount) {
                 throw new Error("Every submitted image must have a readable source path");
             }
-            const body = await invokeTracked(
+            const target = options.compose?.capture(owner.extension.id);
+            const invoke = () => invokeTracked(
                 owner.extension,
                 (operationSignal) => owner.command.run({
                     argumentsText,
@@ -657,6 +683,20 @@ export async function startClientExtensionRegistry(
                 `Client extension ${owner.extension.id}/${name}`,
                 signal,
             );
+            let body: ExtensionCommandBody | void;
+            if (target === undefined) {
+                body = await invoke();
+            } else {
+                const context: ComposeInvocation = { target, active: true };
+                try {
+                    body = await owner.extension.composeInvocation.run(
+                        context,
+                        invoke,
+                    );
+                } finally {
+                    context.active = false;
+                }
+            }
             if (body === undefined) {
                 return undefined;
             }
@@ -680,7 +720,8 @@ export async function startClientExtensionRegistry(
             if (owner === undefined || owner.extension.disposing) {
                 throw new Error(`Client extension keybinding ${id} is unavailable`);
             }
-            await invokeTracked(
+            const target = options.compose?.capture(owner.extension.id);
+            const invoke = () => invokeTracked(
                 owner.extension,
                 (operationSignal) => owner.keybinding.run({
                     workspace,
@@ -690,6 +731,16 @@ export async function startClientExtensionRegistry(
                 `Client extension ${owner.extension.id}/${id}`,
                 signal,
             );
+            if (target === undefined) {
+                await invoke();
+            } else {
+                const context: ComposeInvocation = { target, active: true };
+                try {
+                    await owner.extension.composeInvocation.run(context, invoke);
+                } finally {
+                    context.active = false;
+                }
+            }
         },
         hasMessageInterceptors(): boolean {
             return closing === undefined
@@ -881,6 +932,7 @@ interface ActivateClientExtensionOptions {
     readonly agents: ClientExtensionAgentsAdapter | undefined;
     readonly experimentalTui: ClientExtensionExperimentalTuiAdapter | undefined;
     readonly context: ClientExtensionContextAdapter | undefined;
+    readonly compose: ClientExtensionComposeAdapter | undefined;
     readonly activationTimeoutMs: number;
     readonly signal?: AbortSignal;
 }
@@ -900,6 +952,7 @@ async function activateClientExtension(
     const disposers: VeraExtensionDisposer[] = [];
     const conversationListeners: (() => void)[] = [];
     const invocationSignal = new AsyncLocalStorage<AbortSignal>();
+    const composeInvocation = new AsyncLocalStorage<ComposeInvocation>();
     let statusLine: VeraClientStatusLineRenderer | undefined;
     let messageInterceptor: VeraClientMessageInterceptor | undefined;
     let hostedAgentAddressing:
@@ -986,6 +1039,14 @@ async function activateClientExtension(
         requireAvailable();
         requireCapability(CLIENT_CONTEXT_CAPABILITY);
         return options.context?.current() ?? { availability: "unavailable" };
+    };
+    const requireCompose = (): ClientExtensionComposeAdapter => {
+        requireAvailable();
+        requireCapability(CLIENT_COMPOSE_WRITE_CAPABILITY);
+        if (options.compose === undefined) {
+            throw new Error("This client cannot edit the composer");
+        }
+        return options.compose;
     };
 
     const api: VeraClientExtensionApi = Object.freeze({
@@ -1405,6 +1466,23 @@ async function activateClientExtension(
             },
         }),
         compose: Object.freeze({
+            insert(text: string): VeraClientComposeWriteResult {
+                const adapter = requireCompose();
+                if (typeof text !== "string") {
+                    throw new Error("Composer insertion text must be a string");
+                }
+                const invocation = composeInvocation.getStore();
+                return invocation === undefined || !invocation.active
+                    ? { status: "stale" }
+                    : adapter.insert(options.id, invocation.target, text);
+            },
+            focus(): VeraClientComposeFocusResult {
+                const adapter = requireCompose();
+                const invocation = composeInvocation.getStore();
+                return invocation === undefined || !invocation.active
+                    ? { status: "stale" }
+                    : adapter.focus(options.id, invocation.target);
+            },
             registerSuggester(
                 spec: VeraClientExtensionComposeSuggesterSpec,
             ): void {
@@ -1646,6 +1724,7 @@ async function activateClientExtension(
         conversationListeners,
         activeInvocations: new Set(),
         invocationSignal,
+        composeInvocation,
         markUnavailable: () => {
             phase = "unavailable";
         },

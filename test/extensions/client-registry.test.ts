@@ -640,6 +640,130 @@ test("compose suggesters preserve their current-agent scope", async () => {
     await registry.close();
 });
 
+test("composer writes stay bound to the invoking command and keybinding", async () => {
+    const extension = createExtension(
+        "client.compose-write",
+        [
+            "client.commands.register",
+            "client.keybindings.register",
+            "client.compose.write",
+            "client.ui.notice",
+        ],
+        `
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "compose",
+                    description: "Write into the composer",
+                    usage: "/compose",
+                    async run() {
+                        const inserted = vera.compose.insert("command text");
+                        await Promise.resolve();
+                        const focused = vera.compose.focus();
+                        setTimeout(() => {
+                            vera.ui.notice(JSON.stringify(
+                                vera.compose.insert("too late")
+                            ));
+                        }, 0);
+                        return {
+                            kind: "text",
+                            text: JSON.stringify({ inserted, focused }),
+                        };
+                    },
+                });
+                vera.keybindings.register({
+                    id: "compose-key",
+                    description: "Write from a chord",
+                    keys: ["ctrl+j"],
+                    run() { vera.compose.insert("key text"); },
+                });
+            }
+        `,
+    );
+    const harness = createHarness();
+    const targets = [{ name: "command" }, { name: "key" }];
+    const writes: unknown[] = [];
+    let captures = 0;
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+        compose: {
+            capture(extensionId) {
+                expect(extensionId).toBe("client.compose-write");
+                return targets[captures++];
+            },
+            insert(extensionId, target, text) {
+                writes.push({ extensionId, target, text });
+                return { status: "accepted" };
+            },
+            focus(extensionId, target) {
+                expect({ extensionId, target }).toEqual({
+                    extensionId: "client.compose-write",
+                    target: targets[0]!,
+                });
+                return { status: "ineligible" };
+            },
+        },
+    });
+
+    const result = await registry.invokeCommand("compose", "", "/tmp");
+    expect(JSON.parse((result?.body as { text: string }).text)).toEqual({
+        inserted: { status: "accepted" },
+        focused: { status: "ineligible" },
+    });
+    await registry.invokeKeybinding("compose-key", "/tmp");
+    await waitFor(() => harness.notices.length === 1);
+
+    expect(writes).toEqual([
+        {
+            extensionId: "client.compose-write",
+            target: targets[0],
+            text: "command text",
+        },
+        {
+            extensionId: "client.compose-write",
+            target: targets[1],
+            text: "key text",
+        },
+    ]);
+    expect(harness.notices).toEqual([{
+        extensionId: "client.compose-write",
+        text: JSON.stringify({ status: "stale" }),
+    }]);
+    await registry.close();
+});
+
+test("composer writes require their declared capability", async () => {
+    const extension = createExtension(
+        "client.compose-undeclared",
+        ["client.commands.register"],
+        `
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "compose",
+                    description: "Write into the composer",
+                    usage: "/compose",
+                    run() { vera.compose.insert("no"); },
+                });
+            }
+        `,
+    );
+    const harness = createHarness();
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...harness.adapters,
+        compose: {
+            capture: () => ({}),
+            insert: () => ({ status: "accepted" }),
+            focus: () => ({ status: "accepted" }),
+        },
+    });
+
+    await expect(registry.invokeCommand("compose", "", "/tmp")).rejects.toThrow(
+        "did not declare client.compose.write",
+    );
+    await registry.close();
+});
+
 test("compose suggesters require distinct dismissal identities", async () => {
     const extension = createExtension(
         "client.compose-duplicate",

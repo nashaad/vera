@@ -561,6 +561,36 @@ export interface VeraClientExtensionSidebar {
     close(): void;
 }
 
+/** Narrow, invocation-bound access to the client-owned composer. */
+export interface VeraClientExtensionCompose {
+    registerSuggester(spec: VeraClientExtensionComposeSuggesterSpec): void;
+    /**
+     * Inserts text at the current selection, or at the cursor when there is no
+     * selection. The target is the composer that invoked the current command
+     * or keybinding; changing conversations or panes makes that target stale.
+     * This never focuses or submits the composer.
+     *
+     * Capability: `client.compose.write`.
+     */
+    insert(text: string): VeraClientComposeWriteResult;
+    /**
+     * Focuses the same invocation-bound composer when no higher-priority
+     * surface owns input. It never dismisses or focuses through an overlay.
+     *
+     * Capability: `client.compose.write`.
+     */
+    focus(): VeraClientComposeFocusResult;
+}
+
+export type VeraClientComposeWriteResult =
+    | { readonly status: "accepted" }
+    | { readonly status: "stale" };
+
+export type VeraClientComposeFocusResult =
+    | { readonly status: "accepted" }
+    | { readonly status: "stale" }
+    | { readonly status: "ineligible" };
+
 /**
  * A compose-time offer to wear an agent this extension ships.
  *
@@ -568,10 +598,6 @@ export interface VeraClientExtensionSidebar {
  * exists only inside an extension you installed — installing it is the
  * consent. Accepting goes through the ordinary, loud wear path.
  */
-export interface VeraClientExtensionCompose {
-    registerSuggester(spec: VeraClientExtensionComposeSuggesterSpec): void;
-}
-
 export interface VeraClientExtensionComposeSuggesterSpec {
     /**
      * Stable identity for session dismissal. Omit only when this extension

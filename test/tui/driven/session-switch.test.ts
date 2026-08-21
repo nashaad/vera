@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -61,6 +61,65 @@ test("clear command leaves the current conversation for a fresh one", async () =
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
             "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera",
         );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("a delayed extension insertion goes stale across clear", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-compose-clear-"));
+    const scenario = createTuiNewSessionScenario({ home });
+    const delayedResultPath = join(home, "delayed-compose-result.txt");
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...scenario.dependencies,
+            disabledBuiltinExtensions: [
+                "vera.model-presets",
+                "vera.reasoning-cycle",
+            ],
+            clientExtensions: [{
+                path: join(
+                    import.meta.dir,
+                    "../../support/fixtures/compose-write-extension",
+                ),
+                enabled: true,
+                config: { delayedResultPath },
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/compose-w");
+        await session.waitForVisiblePane("Insert text into the composer");
+        for (let index = 0; index < "/compose-w".length; index += 1) {
+            session.sendKey("BSpace");
+        }
+
+        // The scenario's first creation is deliberately refused. This gets
+        // the next /clear onto the successful replacement path.
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "Could not start a new session: host refused creation",
+        );
+
+        session.sendKey("C-l");
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("fresh-model");
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            if (existsSync(delayedResultPath)) break;
+            await Bun.sleep(20);
+        }
+        expect(readFileSync(delayedResultPath, "utf8")).toBe("stale");
+        const pane = session.captureVisiblePane();
+        expect(pane).not.toContain("stale text must not land");
+
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
     } finally {
         await session.close();
     }

@@ -2,6 +2,7 @@ import { BoxRenderable, type CliRenderer } from "@opentui/core";
 
 import type { TuiTheme } from "./theme.ts";
 import type { VeraExperimentalTuiSlot } from "../../src/sdk/experimental-tui.ts";
+import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 
 export interface TuiExperimentalSlotRegistry {
     readonly transcriptTop: BoxRenderable;
@@ -38,7 +39,8 @@ export function createTuiExperimentalSlotRegistry(
         paddingLeft: 2,
         paddingRight: 2,
         backgroundColor: options.theme.panel,
-        zIndex: 30,
+        // Client-owned approvals and questions must remain above extension UI.
+        zIndex: DIALOG_CARD_Z_INDEX - 1,
         visible: false,
     });
 

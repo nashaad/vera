@@ -139,6 +139,104 @@ test("TUI composer edits, pastes, submits, and survives resize", async () => {
     }
 });
 
+test("extension text replaces the selection without clearing attachments", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    let submitted = 0;
+    const composer = createTuiComposer(setup.renderer, () => submitted++);
+
+    try {
+        composer.setComposerText("draft text ");
+        composer.attachImageChip("first");
+        composer.setSelection(0, 5);
+        composer.insertComposerText("revised\r\nline");
+
+        expect(composer.plainText).toBe(
+            "revised\nline text [Image 1] ",
+        );
+        expect(composer.imageChipRequestIds()).toEqual(["first"]);
+        expect(composer.focused).toBe(false);
+        expect(submitted).toBe(0);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("extension image-marker text cannot impersonate an attachment chip", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+
+    try {
+        composer.attachImageChip("first");
+        composer.cursorOffset = 0;
+        composer.insertComposerText("[Image 1] literal ");
+
+        expect(composer.imageChipRequestIds()).toEqual(["first"]);
+        expect(composer.expandedText()).toBe("[Image 1] literal");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("image renumbering follows extmarks instead of inserted lookalikes", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+
+    try {
+        composer.attachImageChip("first");
+        composer.attachImageChip("second");
+        composer.cursorOffset = 0;
+        composer.insertComposerText("[Image 1] literal ");
+        const firstRealChip = "[Image 1] literal ".length;
+        composer.setSelection(firstRealChip, firstRealChip + "[Image 1]".length);
+        composer.insertComposerText("removed");
+
+        expect(composer.imageChipRequestIds()).toEqual(["second"]);
+        expect(composer.plainText).toContain("[Image 1] literal removed");
+        expect(composer.expandedText()).toContain("[Image 1] literal removed");
+        expect(composer.expandedText()).not.toContain("[Image 2]");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("extension paste-marker text cannot impersonate collapsed content", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const pasted = "x".repeat(300);
+    const marker = `[Pasted Content ${pasted.length} chars]`;
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        await setup.mockInput.pasteBracketedText(pasted);
+        composer.cursorOffset = 0;
+        composer.insertComposerText(`${marker} literal `);
+
+        expect(composer.expandedText()).toBe(`${marker} literal ${pasted}`);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("image removal preserves collapsed-paste identity", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const pasted = "kept ".repeat(60);
+    setup.renderer.root.add(composer);
+    composer.focus();
+
+    try {
+        await setup.mockInput.pasteBracketedText(pasted);
+        composer.attachImageChip("temporary");
+        composer.removeImageChip("temporary");
+
+        expect(composer.imageChipRequestIds()).toEqual([]);
+        expect(composer.expandedText()).toBe(pasted.trim());
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("ESC-prefixed Enter inserts a newline instead of submitting", async () => {
     const setup = await createTestRenderer({ width: 40, height: 8 });
     const submitted: string[] = [];

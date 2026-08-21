@@ -131,6 +131,11 @@ test("the TUI extension host binds a configured extension to client surfaces", a
     const start = createTuiClientExtensionHostStarter({
         extensions: () => extensions,
         currentModelSettings: () => undefined,
+        compose: {
+            capture: () => undefined,
+            insert: () => ({ status: "stale" }),
+            focus: () => ({ status: "stale" }),
+        },
         updateModelSettings: async () => {
             throw new Error("unused");
         },

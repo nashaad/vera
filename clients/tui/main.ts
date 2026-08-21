@@ -180,6 +180,11 @@ import {
     createTuiClientExtensionHostStarter,
 } from "./client-extension-host.ts";
 import {
+    captureTuiExtensionComposeTarget,
+    isCurrentTuiExtensionComposeTarget,
+    type TuiExtensionComposeTarget,
+} from "./client-extension-compose.ts";
+import {
     clientExtensionReloadFailed,
     clientExtensionReloadStarted,
     clientExtensionReloadSucceeded,
@@ -1393,6 +1398,8 @@ export async function startTui(
      * updates into the transcript of the one now on screen.
      */
     let clientGeneration = 0;
+    /** Bumped whenever keyboard ownership moves between agent composers. */
+    let composeSurfaceGeneration = 0;
     let resumeListVersion = 0;
     let promptSubmitting = false;
     let sessionSwitchPending = false;
@@ -1515,6 +1522,48 @@ export async function startTui(
                 focusedAgentState().context,
                 focusedAgentState().modelSettings,
             ),
+            compose: {
+                capture(): TuiExtensionComposeTarget | undefined {
+                    const target = extensionAgentTarget.getStore();
+                    return target === undefined ? undefined
+                        : captureTuiExtensionComposeTarget({
+                            client: target,
+                            clientGeneration,
+                            surfaceGeneration: composeSurfaceGeneration,
+                        });
+                },
+                insert(_extensionId, opaqueTarget, text) {
+                    const target = opaqueTarget as TuiExtensionComposeTarget;
+                    if (!isCurrentExtensionComposeTarget(target)) {
+                        return { status: "stale" };
+                    }
+                    composer.insertComposerText(text);
+                    renderCommandSuggestions();
+                    renderState();
+                    return { status: "accepted" };
+                },
+                focus(_extensionId, opaqueTarget) {
+                    const target = opaqueTarget as TuiExtensionComposeTarget;
+                    if (!isCurrentExtensionComposeTarget(target)) {
+                        return { status: "stale" };
+                    }
+                    if (
+                        !clientSurfaceReady
+                        || !composerBox.visible
+                        || activeOverlayFocus() !== undefined
+                    ) {
+                        return { status: "ineligible" };
+                    }
+                    composer.focus();
+                    flightRecorder?.record({
+                        type: "focus_changed",
+                        surface: sidebar.isFocused()
+                            ? "sidebar_composer"
+                            : "main_composer",
+                    });
+                    return { status: "accepted" };
+                },
+            },
             updateModelSettings: requestExtensionModelSettingsUpdate,
             subscribeModelSettings(listener) {
                 extensionSettingsListeners.add(listener);
@@ -2523,6 +2572,17 @@ export async function startTui(
             : client;
     }
 
+    function isCurrentExtensionComposeTarget(
+        target: TuiExtensionComposeTarget,
+    ): boolean {
+        return isCurrentTuiExtensionComposeTarget(target, {
+            client: focusedAgentClient(),
+            clientGeneration,
+            surfaceGeneration: composeSurfaceGeneration,
+            sessionSwitchPending,
+        });
+    }
+
     function focusedAgentState(): TuiState {
         return sidebar.isFocused() && hostedSidebar.pane !== undefined
             ? hostedSidebar.pane.state.state
@@ -2904,6 +2964,9 @@ export async function startTui(
     }
 
     function setSidebarFocused(focused: boolean): void {
+        if (sidebar.isFocused() !== focused) {
+            composeSurfaceGeneration += 1;
+        }
         sidebar.setFocused(focused);
         flightRecorder?.record({
             type: "focus_changed",
@@ -3859,42 +3922,6 @@ export async function startTui(
             return;
         }
 
-        if (experimentalTuiHost.hasModal()) {
-            key.preventDefault();
-            key.stopPropagation();
-            experimentalTuiHost.handleKey(key);
-            return;
-        }
-        if (experimentalTuiHost.hasFocus()
-            && experimentalTuiHost.handleKey(key)) {
-            key.preventDefault();
-            key.stopPropagation();
-            return;
-        }
-
-        if (
-            !composer.focused
-            && activeOverlayFocus() === undefined
-            && tuiBindingId("unfocused", key) === "focus_composer"
-        ) {
-            key.preventDefault();
-            key.stopPropagation();
-            composer.focus();
-            renderState();
-            return;
-        }
-
-        if (
-            !composer.focused
-            && activeOverlayFocus() === undefined
-            && tuiBindingId("unfocused", key) === "open_help"
-        ) {
-            key.preventDefault();
-            key.stopPropagation();
-            openHelp();
-            return;
-        }
-
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
@@ -3942,6 +3969,45 @@ export async function startTui(
                 renderState();
                 return;
             }
+        }
+
+        // Engine-owned prompts outrank every extension surface in key routing,
+        // matching their focus and z-order priority.
+        if (uiRequest === undefined && experimentalTuiHost.hasModal()) {
+            key.preventDefault();
+            key.stopPropagation();
+            experimentalTuiHost.handleKey(key);
+            return;
+        }
+        if (uiRequest === undefined
+            && experimentalTuiHost.hasFocus()
+            && experimentalTuiHost.handleKey(key)) {
+            key.preventDefault();
+            key.stopPropagation();
+            return;
+        }
+
+        if (
+            !composer.focused
+            && activeOverlayFocus() === undefined
+            && tuiBindingId("unfocused", key) === "focus_composer"
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            composer.focus();
+            renderState();
+            return;
+        }
+
+        if (
+            !composer.focused
+            && activeOverlayFocus() === undefined
+            && tuiBindingId("unfocused", key) === "open_help"
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openHelp();
+            return;
         }
 
         if (sessionTrashCandidate !== undefined) {
@@ -7383,9 +7449,6 @@ export async function startTui(
         if (dialStrip !== undefined) {
             return () => dialCard.focus();
         }
-        if (experimentalTuiHost.hasModal()) {
-            return () => experimentalTuiHost.focus();
-        }
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
@@ -7398,6 +7461,9 @@ export async function startTui(
             && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
             return () => questionView.focus();
+        }
+        if (experimentalTuiHost.hasModal()) {
+            return () => experimentalTuiHost.focus();
         }
         if (timelinePicker !== undefined) {
             return () => timelinePickerView.box.focus();

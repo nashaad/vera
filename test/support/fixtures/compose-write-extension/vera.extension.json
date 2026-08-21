@@ -1,0 +1,12 @@
+{
+  "id": "test.compose-write",
+  "version": "1.0.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "client.commands.register",
+    "client.keybindings.register",
+    "client.compose.write",
+    "client.experimental_tui"
+  ]
+}

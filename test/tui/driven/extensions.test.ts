@@ -99,3 +99,62 @@ test("extension slash commands stay in the TUI and render attributed results", a
         await session.close();
     }
 }, 15_000);
+
+test("a client extension can return text to its invoking composer", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-compose-write-"));
+    const focusResultPath = join(home, "compose-focus-result.txt");
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => ({
+            ...createTuiExtensionCommandDependencies(home),
+            disabledBuiltinExtensions: [
+                "vera.model-presets",
+                "vera.reasoning-cycle",
+            ],
+            clientExtensions: [{
+                path: join(
+                    import.meta.dir,
+                    "../../support/fixtures/compose-write-extension",
+                ),
+                enabled: true,
+                config: { focusResultPath },
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/compose-w");
+        await session.waitForVisiblePane("Insert text into the composer");
+        session.sendKey("Tab");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePaneWhere(
+            (frame) => frame.includes("inserted by extension")
+                && !frame.includes("running /compose-write"),
+            "returned composer text after the extension command settled",
+        );
+
+        // Focus returned explicitly, and the command's Enter was consumed
+        // before the extension ran: this edits the draft instead of submitting.
+        session.sendText("!");
+        pane = await session.waitForVisiblePane("inserted by extension!");
+        expect(pane).toContain("ready");
+
+        clearComposer(session, "inserted by extension!");
+        session.sendText("/compose-focus-g");
+        await session.waitForVisiblePane(
+            "Check composer focus around an extension modal",
+        );
+        session.sendKey("Tab");
+        session.sendKey("Enter");
+        for (let attempt = 0; attempt < 100; attempt += 1) {
+            if (existsSync(focusResultPath)) break;
+            await Bun.sleep(20);
+        }
+        expect(readFileSync(focusResultPath, "utf8")).toBe(
+            "ineligible/accepted",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
