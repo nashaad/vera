@@ -41,6 +41,24 @@ test("bash still runs ordinary commands", async () => {
     }
 });
 
+test("bash gives commands EOF instead of inheriting terminal input", async () => {
+    const workspace = await mkdtemp(join(tmpdir(), "vera-bash-stdin-"));
+    try {
+        const result = await runBash(
+            "if read value; then exit 7; fi",
+            workspace,
+            AbortSignal.timeout(2_000),
+        );
+        expect(result).toEqual({
+            kind: "output",
+            output: "(no output)",
+            isError: false,
+        });
+    } finally {
+        await rm(workspace, { recursive: true, force: true });
+    }
+});
+
 test("bash stops promptly when its turn is aborted", async () => {
     const workspace = await mkdtemp(join(tmpdir(), "vera-bash-"));
     const controller = new AbortController();

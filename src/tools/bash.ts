@@ -35,6 +35,7 @@ export async function runBash(
     signal?.throwIfAborted();
     const subprocess = Bun.spawn(["bash", "-lc", command], {
         cwd: workspace,
+        stdin: "ignore",
         stdout: "pipe",
         stderr: "pipe",
         detached: process.platform !== "win32",
