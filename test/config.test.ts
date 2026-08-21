@@ -622,6 +622,32 @@ test("Vera config rejects a non-boolean experimental inbox flag", () => {
     expect(() => loadVeraConfig({ path })).toThrow();
 });
 
+test("Vera config reads source-family inbox admission", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+        inbox: { admit: [" filesystem ", "arc"] },
+    }));
+
+    expect(loadVeraConfig({ path }).inbox).toEqual({
+        admit: ["filesystem", "arc"],
+    });
+});
+
+test("Vera config rejects wildcard and duplicate inbox admission", () => {
+    for (const admit of [["*"], ["arc", "arc"]]) {
+        const path = temporaryConfigPath();
+        writeFileSync(path, JSON.stringify({
+            schema_version: 1,
+            model: "anthropic/example-model",
+            inbox: { admit },
+        }));
+
+        expect(() => loadVeraConfig({ path })).toThrow();
+    }
+});
+
 test("Vera config reads the event log flag and defaults it on", () => {
     const bare = temporaryConfigPath();
     writeFileSync(bare, JSON.stringify({
