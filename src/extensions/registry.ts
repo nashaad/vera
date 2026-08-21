@@ -4,6 +4,10 @@ import type { VeraExtensionConfig } from "../config.ts";
 import type {
     ToolPresentation,
 } from "../model/types.ts";
+import {
+    applyWatchConfigOverrides,
+    stripWatchConfigOverrides,
+} from "./contributions.ts";
 import { extensionStorage } from "./storage.ts";
 import type {
     VeraExtensionApi,
@@ -180,13 +184,17 @@ export async function startExtensionRegistry(
             // rejected contribution runs no extension code.
             contributions.admit(
                 manifest.manifest.id,
-                manifest.manifest.contributes,
+                applyWatchConfigOverrides(
+                    manifest.manifest.contributes,
+                    configured.config,
+                    manifest.manifest.id,
+                ),
                 manifest.directory,
             );
             admitted = true;
             extension = await activateExtension(
                 manifest,
-                configured.config,
+                stripWatchConfigOverrides(configured.config) as typeof configured.config,
                 activationTimeoutMs,
                 handlerTimeoutMs,
                 disposeTimeoutMs,
