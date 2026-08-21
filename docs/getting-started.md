@@ -238,3 +238,59 @@ List several directories to load several extensions, and pass anything after
 ```sh
 scripts/vera-extensions.sh examples/extensions/btw extensions/quickslot -- --resume
 ```
+
+## Keep secrets out of config
+
+An extension's `config` block in `config.json` can point at an environment
+variable instead of holding the value:
+
+```json
+{
+  "extensions": [
+    {
+      "path": "extensions/mcp",
+      "config": {
+        "servers": {
+          "github": {
+            "command": "github-mcp-server",
+            "env": { "GITHUB_TOKEN": "{env:GITHUB_TOKEN}" }
+          }
+        }
+      }
+    }
+  ]
+}
+```
+
+The value has to be exactly one reference for it to resolve. A reference inside
+a longer string stays literal, so `"Bearer {env:GITHUB_TOKEN}"` is passed to the
+extension as those characters, not as a token. Nothing is ever pasted together
+with a resolved value.
+
+References are resolved from the host process environment, once, just before the
+extension is admitted. The extension receives the resolved value in
+`vera.config` and never sees the reference. Everything else that reads
+config, including diagnostics and anything that prints it, still sees
+`{env:GITHUB_TOKEN}`.
+
+If the variable is unset or empty, that extension does not load. Its
+contributions are withdrawn and its entrypoint is never imported, so no code
+from it runs with a missing credential. The rest of the extensions load
+normally. The reason is written to the profile's `host.jsonl`:
+
+```sh
+grep host_startup_extension_failed ~/.vera/profiles/default/runtime/logs/host.jsonl
+```
+
+The entry, with its timestamp left off here:
+
+```json
+{"type":"host_startup_extension_failed","extension_id":"vera.mcp","message":"Extension vera.mcp references GITHUB_TOKEN at config.servers.github.env.GITHUB_TOKEN, which is not set in the environment"}
+```
+
+The message names the variable and where in the config it was referenced. It
+never carries a resolved value.
+
+Only `{env:NAME}` resolves today, where `NAME` starts with a letter or
+underscore and continues with letters, digits, or underscores. Anything else
+that looks close, like `{env:}` or `{ENV:NAME}`, is left alone as text.
