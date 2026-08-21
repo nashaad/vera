@@ -114,6 +114,7 @@ import type {
     SpawnAsyncSubagentEffect,
     ToolOutput,
 } from "../tools/types.ts";
+import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import {
     defaultSessionPath,
     SessionStore,
@@ -988,6 +989,7 @@ export class AgentRegistry {
     private readonly catalog: EffectiveCatalogOptions;
     private availableModels: readonly SuggestedModel[];
     private readonly rosterListeners = new Set<() => void>();
+    private readonly processRegistry = new ManagedProcessRegistry();
 
     constructor(private readonly options: AgentRegistryOptions) {
         this.reviewerSettings = options.reviewer;
@@ -2985,6 +2987,7 @@ export class AgentRegistry {
     idleForShutdown(): boolean {
         return this.startingIds.size === 0
             && this.deliveryTasks.size === 0
+            && !this.processRegistry.hasLiveProcesses()
             && [...this.agents.values()].every(
                 (entry) => entry.agent.idleForShutdown(),
             );
@@ -2993,6 +2996,7 @@ export class AgentRegistry {
     idleForReplacement(): boolean {
         return this.startingIds.size === 0
             && this.deliveryTasks.size === 0
+            && !this.processRegistry.hasLiveProcesses()
             && [...this.agents.values()].every(
                 (entry) => entry.agent.idleForReplacement(),
             );
@@ -3005,7 +3009,10 @@ export class AgentRegistry {
             entry.inbox?.release();
             entry.agent.close();
         }
-        await Promise.all(entries.map((entry) => entry.run));
+        await Promise.all([
+            this.processRegistry.close(),
+            ...entries.map((entry) => entry.run),
+        ]);
         await Promise.all([...this.deliveryTasks]);
         await Promise.all(entries
             .filter((entry) => entry.ephemeral)
@@ -3171,6 +3178,7 @@ export class AgentRegistry {
             workspace: store.header.cwd,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
+            processRegistry: this.processRegistry,
             get disabledPromptContributions() {
                 return disabledPromptContributions();
             },
@@ -3320,6 +3328,7 @@ export class AgentRegistry {
                 // so arc stamps the session's posts with it and self-echo
                 // suppression matches with no manual export.
                 toolEnv: { ARC_SESSION: entry.arcName },
+                processRegistry: this.processRegistry,
                 instructionRoot,
                 // Read at each turn, not copied for the session: a setting
                 // the user changes has to reach a session already running.

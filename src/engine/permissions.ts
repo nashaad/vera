@@ -240,6 +240,11 @@ const ROUTINE_RULES: readonly PermissionRule[] = [
         then: "allow",
     },
     {
+        name: "routine.process_read",
+        when: { operation: "process.read" },
+        then: "allow",
+    },
+    {
         // Writes only inside Vera's own memory directories, which the tool
         // resolves itself from the scope and the instruction root; no input
         // of the call names a path.
@@ -280,6 +285,11 @@ const READONLY_RULES: readonly PermissionRule[] = [
     {
         name: "readonly.user_interaction",
         when: { tool: "ask_user" },
+        then: "allow",
+    },
+    {
+        name: "readonly.process_read",
+        when: { operation: "process.read" },
         then: "allow",
     },
     {
@@ -451,6 +461,8 @@ export const CORE_PERMISSION_OPERATIONS = new Set([
     "git.push",
     "git.remote_update",
     "memory.write",
+    "process.kill",
+    "process.read",
     "web.fetch",
 ]);
 
@@ -698,6 +710,23 @@ export function extractPermissionActions(
             0,
         );
     }
+    if (toolCall.name === "process") {
+        if (toolCall.input.action === "read") {
+            return [{
+                tool: "process",
+                verb: "read",
+                operation: "process.read",
+            }];
+        }
+        if (toolCall.input.action === "kill") {
+            return [{
+                tool: "process",
+                verb: "unknown",
+                operation: "process.kill",
+            }];
+        }
+        return [{ tool: "process", verb: "unknown" }];
+    }
 
     // Any tool that declared path/URL inputs is gated the same way, whether
     // it is a built-in file tool or a future one. A tool that declared none
@@ -723,6 +752,16 @@ export function evaluateAction(
     grants: readonly PermissionGrant[] = [],
     preferences: readonly PermissionPreference[] = [],
 ): PermissionActionDecision {
+    // Process IDs are session-scoped by the host registry, so this can only
+    // reduce authority the same session already holds. Keep termination
+    // available even when a custom mode would otherwise deny every action.
+    if (action.operation === "process.kill") {
+        return {
+            action,
+            outcome: "allow",
+            rule: "core.process_kill",
+        };
+    }
     for (const rule of mode.rules) {
         if (permissionPredicateMatches(rule.when, action)) {
             return applyPermissionSafetyNets({

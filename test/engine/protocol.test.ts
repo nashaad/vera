@@ -142,6 +142,23 @@ test("durable tool presentations replay after their tool call", () => {
     });
 });
 
+test("durable yielded process identity replays in transcript history", () => {
+    expect(projectTranscript([{
+        role: "tool_result",
+        toolCallId: "call-process",
+        toolName: "bash",
+        content: [{ type: "text", text: "Process still running" }],
+        isError: false,
+        processId: "p-1234abcd",
+    }])).toEqual([{
+        kind: "tool_result",
+        tool: "bash",
+        output: "Process still running",
+        isError: false,
+        processId: "p-1234abcd",
+    }]);
+});
+
 test("attachment IDs remain ordered across commands and transcript projection", () => {
     expect(parseClientCommand({
         type: "prompt",
@@ -692,6 +709,43 @@ test("task notifications share the ordered agent update sequence", () => {
         { type: "status", state: "working", seq: 2 },
         { type: "history", entries: [], seq: 2 },
     ]);
+});
+
+test("a yielded Bash process ID crosses the protocol boundary", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "tool_execution_finished",
+        toolCall: {
+            type: "tool_call",
+            id: "call-process",
+            name: "bash",
+            input: { command: "sleep 60" },
+        },
+        result: {
+            role: "tool_result",
+            toolCallId: "call-process",
+            toolName: "bash",
+            content: [{ type: "text", text: "Process still running" }],
+            isError: false,
+            processId: "p-1234abcd",
+        },
+        durationMs: 10_000,
+    });
+
+    expect(updates).toEqual([{
+        type: "tool_finished",
+        tool: "bash",
+        output: "Process still running",
+        isError: false,
+        processId: "p-1234abcd",
+        seq: 1,
+    }]);
 });
 
 test("task notification kind crosses the protocol boundary", () => {

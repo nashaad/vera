@@ -1,3 +1,10 @@
+import { randomUUID } from "node:crypto";
+
+import {
+    ManagedProcessRegistry,
+    type ManagedProcessScope,
+} from "./process-runtime.ts";
+
 export type PreimageRecorder = (
     path: string,
     content: string,
@@ -18,6 +25,8 @@ export class ToolRuntime {
      * layer only carries them.
      */
     readonly env: Readonly<Record<string, string>> | undefined;
+    /** Live shell processes owned by this session and no other. */
+    readonly processes: ManagedProcessScope;
     /**
      * The skills the worn agent may reach, or `undefined` for all of them.
      *
@@ -30,6 +39,7 @@ export class ToolRuntime {
     allowedTools: readonly string[] | undefined;
     private readonly fileSnapshots = new Map<string, string>();
     private readonly preimageRecorder: PreimageRecorder | undefined;
+    private readonly ownedProcessRegistry: ManagedProcessRegistry | undefined;
     private mutationTail: Promise<void> = Promise.resolve();
 
     constructor(
@@ -38,12 +48,21 @@ export class ToolRuntime {
         stashDirectory?: string,
         env?: Readonly<Record<string, string>>,
         instructionRoot?: string,
+        processes?: ManagedProcessScope,
     ) {
         this.workspace = workspace;
         this.instructionRoot = instructionRoot ?? workspace;
         this.preimageRecorder = preimageRecorder;
         this.stashDirectory = stashDirectory;
         this.env = env;
+        if (processes === undefined) {
+            const registry = new ManagedProcessRegistry();
+            this.ownedProcessRegistry = registry;
+            this.processes = registry.scope(`standalone-${randomUUID()}`);
+        } else {
+            this.ownedProcessRegistry = undefined;
+            this.processes = processes;
+        }
         this.allowedSkills = undefined;
         this.allowedTools = undefined;
     }
@@ -88,5 +107,13 @@ export class ToolRuntime {
             () => undefined,
         );
         return result;
+    }
+
+    async close(): Promise<void> {
+        if (this.ownedProcessRegistry !== undefined) {
+            await this.ownedProcessRegistry.close();
+            return;
+        }
+        await this.processes.close();
     }
 }
