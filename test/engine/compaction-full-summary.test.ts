@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import {
     FULL_SUMMARY_MODEL_SLOT,
     fullSummaryStrategy,
+    MAX_SUMMARY_WORDS,
+    summaryWordBudget,
 } from "../../src/engine/compaction-full-summary.ts";
 import { CompactionRejectedError } from "../../src/engine/compaction.ts";
 import {
@@ -10,6 +12,14 @@ import {
     type CompleteText,
 } from "../../src/engine/completion-service.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
+
+test("the word budget is capped however much room the window has", async () => {
+    const { words } = await compact(span(), () => "the note", 200_000);
+
+    expect(words).toBe(MAX_SUMMARY_WORDS);
+    expect(summaryWordBudget(90_000)).toBe(MAX_SUMMARY_WORDS);
+    expect(summaryWordBudget(2_000)).toBeLessThan(MAX_SUMMARY_WORDS);
+});
 
 test("the projection is one message that says what it is", async () => {
     // Without the label the next turn reads a description of the work as a

@@ -81,6 +81,30 @@ test("a declared slot with no route binds nothing", () => {
     )).toBeUndefined();
 });
 
+test("the compaction assignment outranks a route the profile names for a slot", () => {
+    const bound = bindCompaction(
+        profile({
+            slots: {
+                summarizer: [{
+                    name: "routed",
+                    provider: "openrouter",
+                    model: "routed-model",
+                }],
+            },
+        }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        [{ name: "assigned", provider: "openrouter", model: "assigned-model" }],
+    );
+
+    expect(bound?.diagnostics).toMatchObject({
+        catalogEntry: "assigned",
+        model: "assigned-model",
+    });
+    expect(bound?.diagnostics?.route).toBeUndefined();
+});
+
 test("a catalog fallback is the model shown for the bound summarizer", () => {
     const bound = bindCompaction(
         profile({ slots: {} }),
