@@ -2925,6 +2925,11 @@ export async function startTui(
             : abortRequested;
     }
 
+    function focusedAgentCanAbort(): boolean {
+        const focused = focusedAgentState();
+        return focused.working || focused.compactingSince !== undefined;
+    }
+
     function abortFocusedAgent(): void {
         if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
             hostedSidebar.pane.state.abortRequested = true;
@@ -3781,7 +3786,7 @@ export async function startTui(
                 return;
             }
             if (
-                !focusedAgentState().working
+                !focusedAgentCanAbort()
                 && composer.focused
                 && composer.plainText.length > 0
                 && !anyOverlayOpen()
@@ -3797,6 +3802,7 @@ export async function startTui(
                 key,
                 focusedAgentState().working,
                 focusedAbortRequested(),
+                focusedAgentState().compactingSince !== undefined,
             );
             key.preventDefault();
             key.stopPropagation();
@@ -4742,6 +4748,7 @@ export async function startTui(
             key,
             focusedAgentState().working,
             focusedAbortRequested(),
+            focusedAgentState().compactingSince !== undefined,
         );
         if (action === "pass") {
             return;
@@ -6785,6 +6792,13 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (
+                    update.type === "compaction"
+                    && update.phase === "finished"
+                    && update.outcome !== "busy"
+                ) {
+                    abortRequested = false;
+                }
                 if (
                     update.type === "turn_finished"
                     && update.outcome === "error"
@@ -11423,6 +11437,11 @@ export async function startTui(
         } else if (statusState.compactingSince !== undefined) {
             lifecycleHint = renderTuiCompactionHint(
                 Date.now() - statusState.compactingSince,
+                {
+                    strategy: statusState.compactionStrategy,
+                    provider: statusState.compactionProvider,
+                    model: statusState.compactionModel,
+                },
             );
         } else if (statusState.working) {
             const modelActivity = statusState.modelActivity;

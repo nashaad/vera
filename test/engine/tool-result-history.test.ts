@@ -415,6 +415,25 @@ test("the aging level follows the context cap", () => {
     expect(toolResultAgingLevel(64_000)).toBe("tight");
 });
 
+test("a pending user turn advances tool-result aging", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "vera-tool-pending-turn-"));
+    try {
+        const output = "line\n".repeat(5_000);
+        const spillPath = join(directory, "result.txt");
+        await writeFile(spillPath, output, "utf8");
+        const entries = agedEntries("bash", output, spillPath).slice(0, 3);
+
+        expect(resultTexts(assembleAgedToolResults(entries, PRESSURED))[0])
+            .toBe(output);
+        expect(resultTexts(assembleAgedToolResults(entries, {
+            ...PRESSURED,
+            pendingUserTurns: 1,
+        }))[0]).not.toBe(output);
+    } finally {
+        await rm(directory, { recursive: true, force: true });
+    }
+});
+
 /** Any level's gate is crossed at once, so age lines alone decide. */
 const PRESSURED = { ageAfterTurns: 1, capacity: 1 } as const;
 

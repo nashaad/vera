@@ -67,6 +67,8 @@ export interface ToolResultAgingPolicy {
     readonly spillDirectory?: string;
     /** Overrides the level's own turn line. */
     readonly ageAfterTurns?: number;
+    /** Visible user turns that are accepted but not durable yet. */
+    readonly pendingUserTurns?: number;
     readonly budgetBytes?: number;
 }
 
@@ -111,6 +113,10 @@ export function assembleAgedToolResults(
             }
         }
     }
+    // A pending user prompt is already part of the request whose context is
+    // being measured. Count it for aging even though it is not in the store
+    // until compaction has had its chance to run.
+    turn += Math.max(0, policy.pendingUserTurns ?? 0);
 
     const projected: ModelMessage[] = entries.map((entry) => entry.message);
     let tokens = measureMessages(projected) + (policy.overheadTokens ?? 0);

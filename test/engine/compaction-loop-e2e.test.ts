@@ -12,6 +12,7 @@ import { createRoutedCompletionService } from
 import { EngineEventBus, type EngineEvent } from "../../src/engine/events.ts";
 import { createInProcessChannel } from
     "../../src/engine/message-channel.ts";
+import { measureMessages } from "../../src/engine/context-measurement.ts";
 import {
     runHeadlessLoop,
     type SessionCompactionOptions,
@@ -80,7 +81,7 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
         sessionStore: store,
         eventBus: events,
         approvalMode: "auto",
-        compaction: compactionOptions(),
+        compaction: compactionOptions({ tokens: 24_000 }),
         // Small enough that a few rounds of reading overflow it, but still
         // wide enough that the post-compaction target clears the fixed request
         // overhead of a real system prompt and tool set.
@@ -156,7 +157,155 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
     assertToolCallsPaired(reopened.modelContext(), "The reopened context");
 });
 
-function compactionOptions(): SessionCompactionOptions {
+test("an unavailable automatic compaction is not retried at every tool boundary", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-unavailable", cwd: workspace },
+    );
+
+    const script: AssistantMessage[] = [];
+    for (let round = 1; round <= 3; round += 1) {
+        writeFileSync(
+            join(workspace, `notes-${round}.txt`),
+            `chunk ${round} `.repeat(6_000),
+        );
+        script.push(toolCall(`unavailable-call-${round}`, round));
+    }
+    script.push(assistantText("finished despite the failed compaction"));
+
+    const agent = new FauxAdapter(script);
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction: unavailableCompactionOptions({ tokens: 20_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "do the long job" });
+    await drain(channel);
+
+    const starts = seen.filter((event) => event.type === "compaction_started");
+    expect(starts).toHaveLength(1);
+});
+
+test("a pre-turn no-boundary result gets one retry after the prompt is durable", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-no-boundary", cwd: workspace },
+    );
+    writeFileSync(
+        join(workspace, "notes-1.txt"),
+        "useful output ".repeat(6_000),
+    );
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, new FauxAdapter([
+        toolCall("retry-call", 1),
+        assistantText("finished after the boundary appeared"),
+    ]), "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction: compactionOptions({ tokens: 1 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "create a boundary" });
+    await drain(channel);
+
+    const finished = seen.filter((event) =>
+        event.type === "compaction_finished"
+    );
+    expect(finished.some((event) =>
+        "outcome" in event && event.outcome === "no_boundary"
+    )).toBe(true);
+    expect(finished.some((event) =>
+        "outcome" in event && event.outcome === "compacted"
+    )).toBe(true);
+});
+
+test("aged tool results below the trigger do not trigger compaction from their durable bytes", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-aged-results", cwd: workspace },
+    );
+
+    for (let turn = 1; turn <= 8; turn += 1) {
+        const output = `output ${turn} `.repeat(3_000);
+        const spillPath = join(workspace, `spill-${turn}.txt`);
+        writeFileSync(spillPath, output);
+        const callId = `aged-call-${turn}`;
+        await store.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: `turn ${turn}` }],
+        });
+        await store.appendMessage(toolCall(callId, turn));
+        await store.appendMessage({
+            role: "tool_result",
+            toolCallId: callId,
+            toolName: "read",
+            content: [{ type: "text", text: output }],
+            isError: false,
+            toolResultSource: {
+                originalBytes: Buffer.byteLength(output),
+                spillPath,
+            },
+        });
+    }
+
+    expect(measureMessages(store.unprojectedModelContext()))
+        .toBeGreaterThan(40_000 * 0.82);
+    expect(measureMessages(store.modelContext()))
+        .toBeLessThan(40_000 * 0.82);
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([assistantText("done")]),
+        "test",
+        undefined,
+        {
+            sessionStore: store,
+            eventBus: events,
+            approvalMode: "auto",
+            compaction: compactionOptions(),
+            readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+        },
+    );
+
+    channel.client.send({ type: "prompt", content: "continue" });
+    await drain(channel);
+
+    expect(seen.filter((event) => event.type === "compaction_started"))
+        .toHaveLength(0);
+});
+
+function compactionOptions(
+    trigger?: SessionCompactionOptions["trigger"],
+): SessionCompactionOptions {
     const summarizer: ModelAdapter = {
         stream(request) {
             return new FauxAdapter([
@@ -174,6 +323,26 @@ function compactionOptions(): SessionCompactionOptions {
                 { models: [{ provider: "faux", model: "test" }] },
             ),
         },
+        ...(trigger === undefined ? {} : { trigger }),
+    };
+}
+
+function unavailableCompactionOptions(
+    trigger?: SessionCompactionOptions["trigger"],
+): SessionCompactionOptions {
+    return {
+        strategy: fullSummaryStrategy,
+        models: {
+            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                {
+                    stream() {
+                        throw new Error("summarizer unavailable");
+                    },
+                },
+                { models: [{ provider: "faux", model: "unavailable" }] },
+            ),
+        },
+        ...(trigger === undefined ? {} : { trigger }),
     };
 }
 

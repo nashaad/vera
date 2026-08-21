@@ -31,6 +31,13 @@ export class TuiAgentPaneState {
             update,
         );
         this.state = applyAgentUpdate(this.state, update);
+        if (
+            update.type === "compaction"
+            && update.phase === "finished"
+            && update.outcome !== "busy"
+        ) {
+            this.abortRequested = false;
+        }
         if (update.type === "turn_finished" || update.type === "agent_failed") {
             this.abortRequested = false;
         }
