@@ -322,11 +322,11 @@ test("vera ls calls a resident but unheld session stopped, not idle", async () =
     expect(output).not.toContain("idle");
 });
 
-test("vera rpc starts the NDJSON bridge", async () => {
+test("vera stdio starts the NDJSON bridge", async () => {
     let started = false;
 
-    const exitCode = await runCli(["rpc"], {
-        runRpc: async () => {
+    const exitCode = await runCli(["stdio"], {
+        runStdio: async () => {
             started = true;
         },
     });

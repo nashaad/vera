@@ -17,7 +17,7 @@
  *
  * Runs a scripted multi-turn session with compaction bound, which no shipped
  * entry point does: `vera -p` binds compaction but sends one prompt, and
- * `vera rpc` takes many prompts but binds no compaction. Compaction needs at
+ * `vera stdio` takes many prompts but binds no compaction. Compaction needs at
  * least three prompts to have anything to summarize, since the boundary keeps
  * the last two user turns verbatim.
  *

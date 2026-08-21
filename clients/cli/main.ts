@@ -178,7 +178,7 @@ export interface CliDependencies {
         args: readonly string[],
         output: CliOutput,
     ) => Promise<number | undefined>;
-    readonly runRpc?: () => Promise<void>;
+    readonly runStdio?: () => Promise<void>;
     readonly runOnce?: (request: {
         readonly workspace: string;
         readonly prompt: string;
@@ -470,8 +470,8 @@ export async function runCli(
         return 0;
     }
 
-    if (args.length === 1 && args[0] === "rpc") {
-        await (dependencies.runRpc ?? runNdjsonProcess)();
+    if (args.length === 1 && args[0] === "stdio") {
+        await (dependencies.runStdio ?? runNdjsonProcess)();
         return 0;
     }
 
