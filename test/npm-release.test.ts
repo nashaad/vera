@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import {
     chmodSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
@@ -15,6 +16,75 @@ interface RegistryResponse {
     readonly code?: number;
     readonly value?: unknown;
     readonly stderr?: string;
+}
+
+interface WorkflowInput {
+    readonly default?: string;
+    readonly description?: string;
+    readonly options?: readonly string[];
+}
+
+interface WorkflowStep {
+    readonly name?: string;
+    readonly run?: string;
+}
+
+interface WorkflowJob {
+    readonly if?: string;
+    readonly needs?: string | readonly string[];
+    readonly steps?: readonly WorkflowStep[];
+}
+
+interface ReleaseWorkflow {
+    readonly on: {
+        readonly workflow_dispatch: {
+            readonly inputs: Record<string, WorkflowInput>;
+        };
+    };
+    readonly jobs: Record<string, WorkflowJob>;
+}
+
+interface IntentGuardResult {
+    readonly exitCode: number;
+    readonly stderr: string;
+    readonly summary: string;
+}
+
+const releaseWorkflowPath = resolve(
+    import.meta.dir,
+    "..",
+    ".github",
+    "workflows",
+    "release.yml",
+);
+const releaseWorkflow = Bun.YAML.parse(
+    readFileSync(releaseWorkflowPath, "utf8"),
+) as ReleaseWorkflow;
+
+function runIntentGuard(mode: string, confirmation: string): IntentGuardResult {
+    const root = mkdtempSync(join(tmpdir(), "vera-release-intent-test-"));
+    const summaryPath = join(root, "summary.md");
+    const script = releaseWorkflow.jobs["validate-request"]?.steps?.[0]?.run;
+    if (!script) throw new Error("release intent guard is missing");
+    const result = Bun.spawnSync(["sh", "-c", script], {
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+            ...process.env,
+            GITHUB_STEP_SUMMARY: summaryPath,
+            RELEASE_MODE: mode,
+            PUBLISH_CONFIRMATION: confirmation,
+        },
+    });
+    const summary = Bun.file(summaryPath).size > 0
+        ? readFileSync(summaryPath, "utf8")
+        : "";
+    rmSync(root, { recursive: true, force: true });
+    return {
+        exitCode: result.exitCode,
+        stderr: result.stderr.toString(),
+        summary,
+    };
 }
 
 function runChecker(
@@ -60,6 +130,61 @@ function integrity(): string {
         .update("exact package bytes")
         .digest("base64")}`;
 }
+
+test("release workflow defaults to a test-only rehearsal", () => {
+    const inputs = releaseWorkflow.on.workflow_dispatch.inputs;
+    expect(inputs.release_mode?.default).toBe("test-only");
+    expect(inputs.release_mode?.options).toEqual(["test-only", "publish-public"]);
+    expect(inputs.release_mode?.description).toContain("runtime TypeScript source");
+    expect(inputs.publish_confirmation?.description).toContain(
+        "PUBLISH @nashaad/vera SOURCE PUBLICLY",
+    );
+    expect(releaseWorkflow.jobs["build-package"]?.needs).toBe("validate-request");
+    expect(releaseWorkflow.jobs.publish?.if).toBe(
+        "inputs.release_mode == 'publish-public'",
+    );
+    const releaseTests = releaseWorkflow.jobs["build-package"]?.steps
+        ?.find((step) => step.name === "Run package, installer, and release safety tests")
+        ?.run;
+    expect(releaseTests).toContain("test/npm-release.test.ts");
+});
+
+test("all npm publish commands remain in the explicitly gated step", () => {
+    const publishSteps = Object.entries(releaseWorkflow.jobs).flatMap(
+        ([jobName, job]) => (job.steps ?? [])
+            .filter((step) => step.run?.includes("npm publish"))
+            .map((step) => ({
+                jobName,
+                stepName: step.name,
+                commandCount: step.run?.match(/npm publish/g)?.length ?? 0,
+            })),
+    );
+    expect(publishSteps).toEqual([{
+        jobName: "publish",
+        stepName: "Publish verified npm package",
+        commandCount: 2,
+    }]);
+});
+
+test("test-only release intent does not authorize an upload", () => {
+    const result = runIntentGuard("test-only", "");
+    expect(result.exitCode).toBe(0);
+    expect(result.summary).toContain("It will not upload anything to npm.");
+});
+
+test("public release intent requires the exact source-publication phrase", () => {
+    const rejected = runIntentGuard("publish-public", "publish");
+    expect(rejected.exitCode).not.toBe(0);
+    expect(rejected.stderr).toContain("requires the exact confirmation phrase");
+
+    const accepted = runIntentGuard(
+        "publish-public",
+        "PUBLISH @nashaad/vera SOURCE PUBLICLY",
+    );
+    expect(accepted.exitCode).toBe(0);
+    expect(accepted.summary).toContain("runtime TypeScript source");
+    expect(accepted.summary).toContain("GitHub repository is private");
+});
 
 test("new npm version may advance latest", () => {
     const result = runChecker("prepare", "1.2.3", {
