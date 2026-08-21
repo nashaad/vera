@@ -140,7 +140,7 @@ jobs:
           npm install --global --ignore-scripts \
             --prefix "$vera_prefix" \
             --registry=https://registry.npmjs.org -- \
-            "dist/nashaad-vera-$RELEASE_VERSION.tgz"
+            "$GITHUB_WORKSPACE/dist/nashaad-vera-$RELEASE_VERSION.tgz"
           echo "$vera_prefix/bin" >> "$GITHUB_PATH"
 
       - name: Run CLI and native dependency smoke tests
@@ -226,11 +226,11 @@ jobs:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
         run: |
           if [ "${{ github.event.repository.private }}" = "false" ]; then
-            npm publish "dist/nashaad-vera-$RELEASE_VERSION.tgz" \
+            npm publish "$GITHUB_WORKSPACE/dist/nashaad-vera-$RELEASE_VERSION.tgz" \
               --registry=https://registry.npmjs.org \
               --access public --tag latest --provenance || true
           else
-            npm publish "dist/nashaad-vera-$RELEASE_VERSION.tgz" \
+            npm publish "$GITHUB_WORKSPACE/dist/nashaad-vera-$RELEASE_VERSION.tgz" \
               --registry=https://registry.npmjs.org \
               --access public --tag latest || true
           fi
