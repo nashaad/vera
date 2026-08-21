@@ -23,6 +23,7 @@ import {
     type ExtensionRegistryFailure,
 } from "../../src/extensions/registry.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import type { LiteralSecretFinding } from "../../src/extensions/literal-secret.ts";
 import {
     veraMachineDirectory,
     veraProfileDirectory,
@@ -1491,5 +1492,62 @@ test("an unset env reference disables only the extension that named it", async (
     expect(failures).toHaveLength(1);
     expect(failures[0]?.extensionId).toBe("missing.extension");
     expect(failures[0]?.message).toContain("VERA_TEST_ABSENT");
+    await registry.close();
+});
+
+test("a literal credential in config is reported and the extension still loads", async () => {
+    const extension = createExtension(
+        "secretful.extension",
+        commandSource("secretful", "ok"),
+    );
+    const findings: LiteralSecretFinding[] = [];
+
+    const registry = await startExtensionRegistry({
+        extensions: [{
+            path: extension,
+            enabled: true,
+            config: { servers: { one: { token: "ghp_abcdefghijklmnop" } } },
+        }],
+        onLiteralSecret(finding) {
+            findings.push(finding);
+        },
+    });
+
+    expect(registry.commands().map((command) => command.name)).toEqual([
+        "secretful",
+    ]);
+    expect(findings).toEqual([{
+        extensionId: "secretful.extension",
+        configPath: "servers.one.token",
+        prefix: "ghp_",
+    }]);
+    await registry.close();
+});
+
+test("a resolved env reference is not reported as a literal credential", async () => {
+    const extension = createExtension(
+        "resolved.extension",
+        commandSource("resolved", "ok"),
+    );
+    const findings: LiteralSecretFinding[] = [];
+    process.env.VERA_TEST_SECRET_REF = "ghp_abcdefghijklmnop";
+
+    let registry;
+    try {
+        registry = await startExtensionRegistry({
+            extensions: [{
+                path: extension,
+                enabled: true,
+                config: { token: "{env:VERA_TEST_SECRET_REF}" },
+            }],
+            onLiteralSecret(finding) {
+                findings.push(finding);
+            },
+        });
+    } finally {
+        delete process.env.VERA_TEST_SECRET_REF;
+    }
+
+    expect(findings).toEqual([]);
     await registry.close();
 });

@@ -9,6 +9,10 @@ import {
     stripWatchConfigOverrides,
 } from "./contributions.ts";
 import { resolveEnvReferences } from "./env-refs.ts";
+import {
+    findLiteralSecrets,
+    type LiteralSecretFinding,
+} from "./literal-secret.ts";
 import { extensionStorage } from "./storage.ts";
 import type {
     VeraExtensionApi,
@@ -71,6 +75,8 @@ export interface StartExtensionRegistryOptions {
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
     readonly onFailure?: (failure: ExtensionRegistryFailure) => void;
+    /** Receives a config value that holds a credential literally. */
+    readonly onLiteralSecret?: (finding: LiteralSecretFinding) => void;
     readonly onActivationTiming?: (timing: {
         readonly extensionId: string;
         readonly durationMs: number;
@@ -180,6 +186,14 @@ export async function startExtensionRegistry(
                 throw new Error(
                     `Duplicate extension ID: ${manifest.manifest.id}`,
                 );
+            }
+            // Read from the config as written, before references resolve: a
+            // resolved value is meant to look like a credential.
+            for (const finding of findLiteralSecrets(
+                configured.config,
+                manifest.manifest.id,
+            )) {
+                safelyReportLiteralSecret(options.onLiteralSecret, finding);
             }
             // Resolved before admission, so an unset variable runs no
             // extension code and leaves the reference in the parsed config.
@@ -1096,6 +1110,17 @@ function parseExtensionModule(value: unknown): VeraExtensionModule | undefined {
         return undefined;
     }
     return { activate: value.activate as VeraExtensionModule["activate"] };
+}
+
+function safelyReportLiteralSecret(
+    report: StartExtensionRegistryOptions["onLiteralSecret"],
+    finding: LiteralSecretFinding,
+): void {
+    try {
+        report?.(finding);
+    } catch {
+        // Optional reporting cannot affect registry lifecycle.
+    }
 }
 
 function safelyReportFailure(

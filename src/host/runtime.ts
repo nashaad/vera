@@ -97,6 +97,10 @@ import {
 } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import { loadSkillContribution } from "../skills/contribution.ts";
+import {
+    literalSecretDetail,
+    StartupFindings,
+} from "./startup-findings.ts";
 import { skillScriptTool } from "../skills/script.ts";
 import { inboxEnabled, openInboxIfEnabled } from "../store/inbox.ts";
 import { createConsumerRegistry } from "./consumers.ts";
@@ -190,6 +194,8 @@ export interface StartResidentHostOptions {
     ) => void;
     /** Receives startup diagnostics. Defaults to the resident host log. */
     readonly startupLog?: HostLog;
+    /** Collects what extension startup found; tests read it back. */
+    readonly startupFindings?: StartupFindings;
 }
 
 export interface ResidentHost {
@@ -285,6 +291,9 @@ export async function startResidentHost(
     const permissionPreferences = await timed("permission_preferences", () =>
         PermissionPreferenceStore.open(options.permissionPreferencesPath)
     );
+    // Startup runs before any session exists, so what it finds waits here
+    // until a session's first turn can carry it into the agent's context.
+    const startupFindings = options.startupFindings ?? new StartupFindings();
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
@@ -295,7 +304,20 @@ export async function startResidentHost(
                     extension_id: failure.extensionId ?? failure.path,
                     message: failure.message,
                 });
+                startupFindings.record({
+                    extensionId: failure.extensionId ?? failure.path,
+                    detail: `did not load: ${failure.message}`,
+                });
                 options.onExtensionFailure?.(failure);
+            },
+            onLiteralSecret: (finding) => {
+                startupFindings.record({
+                    extensionId: finding.extensionId,
+                    detail: literalSecretDetail(
+                        finding.configPath,
+                        finding.prefix,
+                    ),
+                });
             },
             onActivationTiming: (timing) => startupLog({
                 type: "host_startup_extension",
@@ -587,7 +609,10 @@ export async function startResidentHost(
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
         registeredAgents: extensions.agents(),
-        loadContextualContributions: loadSkillContribution,
+        loadContextualContributions: async (instructionRoot, allowedSkills) => [
+            ...await loadSkillContribution(instructionRoot, allowedSkills),
+            ...startupFindings.contributions(),
+        ],
         createToolHooks: () => {
             const hooks = new ToolHooks();
             registerConfiguredHooks(hooks, currentConfig());

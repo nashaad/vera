@@ -291,6 +291,20 @@ The entry, with its timestamp left off here:
 The message names the variable and where in the config it was referenced. It
 never carries a resolved value.
 
+The same reason is put in front of the agent: every session started after the
+host came up carries an "Extension startup" note listing what startup found, so
+the agent can tell you why something is missing instead of leaving you to find
+the log. A value that looks like a credential is redacted to its prefix before
+it goes into the note, wherever in the message it appeared.
+
+A config value that holds a credential literally gets a note too. Values are
+judged by shape, not by the key they sit under: anything beginning `gho_`,
+`ghp_`, `github_pat_`, `sk-`, `sk-ant-`, `xoxb-`, or `AKIA` is reported. It is a
+warning, not a refusal, and the extension loads either way. The note names the
+config path and the prefix that matched, never the value, and the check runs on
+the config as written, so a value that arrived through `{env:NAME}` is not
+reported.
+
 Only `{env:NAME}` resolves today, where `NAME` starts with a letter or
 underscore and continues with letters, digits, or underscores. Anything else
 that looks close, like `{env:}` or `{ENV:NAME}`, is left alone as text.
