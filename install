@@ -1,12 +1,7 @@
 #!/bin/sh
-# Install a Vera release archive without requiring a checkout or Bun.
-#
-# The release contract is one archive per platform, named
-# vera-<platform>-<arch>.tar.gz, plus a .sha256 sidecar. The archive contains
-# VERSION, manifest.json, and an executable at bin/vera.
+# Install Vera from npm into a user-owned prefix without mutating a working
+# installation until the replacement has passed its CLI check.
 set -eu
-
-umask 077
 
 die() {
     echo "vera install: $*" >&2
@@ -17,361 +12,211 @@ require_command() {
     command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
-require_command curl
-require_command tar
-require_command diff
+for command in awk bun grep mktemp npm readlink; do
+    require_command "$command"
+done
 
 home=${HOME:-}
 [ -n "$home" ] || die "HOME is not set"
 
-repository=${VERA_INSTALL_REPOSITORY:-nashaad/vera}
+bin_override=${VERA_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-}}
+if [ -n "${VERA_INSTALL_PREFIX:-}" ]; then
+    prefix=$VERA_INSTALL_PREFIX
+elif [ -n "$bin_override" ]; then
+    case "$bin_override" in
+        /*/bin) prefix=${bin_override%/bin} ;;
+        *) die "custom bin directory must end in /bin; set VERA_INSTALL_PREFIX instead" ;;
+    esac
+else
+    prefix=$home/.local
+fi
+case "$prefix" in
+    /*) ;;
+    *) die "install prefix must be an absolute path: $prefix" ;;
+esac
+case "$prefix" in
+    /|/bin|/usr|/usr/local) die "refusing unsafe install prefix: $prefix" ;;
+esac
+
+package=${VERA_NPM_PACKAGE:-@nashaad/vera}
 version=${VERA_INSTALL_VERSION:-latest}
-release_base=${VERA_INSTALL_BASE_URL:-https://github.com/$repository/releases}
-install_root=${VERA_INSTALL_ROOT:-${XDG_DATA_HOME:-$home/.local/share}/vera}
-bin_dir=${VERA_INSTALL_BIN_DIR:-${XDG_BIN_HOME:-$home/.local/bin}}
-
-platform=${VERA_INSTALL_PLATFORM:-}
-if [ -z "$platform" ]; then
-    case "$(uname -s)" in
-        Darwin) platform=darwin ;;
-        Linux) platform=linux ;;
-        *) die "unsupported operating system: $(uname -s)" ;;
-    esac
-fi
-
-arch=${VERA_INSTALL_ARCH:-}
-if [ -z "$arch" ]; then
-    case "$(uname -m)" in
-        arm64|aarch64) arch=arm64 ;;
-        x86_64|amd64) arch=x64 ;;
-        *) die "unsupported architecture: $(uname -m)" ;;
-    esac
-fi
-
-case "$platform/$arch" in
-    darwin/arm64|darwin/x64|linux/arm64|linux/x64) ;;
-    *) die "unsupported Vera release target: $platform/$arch" ;;
+registry=${VERA_NPM_REGISTRY:-https://registry.npmjs.org}
+case "$registry" in
+    https://*) ;;
+    *) die "npm registry must use HTTPS: $registry" ;;
 esac
 
 case "$version" in
     latest) ;;
     v[0-9]*|[0-9]*)
-        case "$version" in
-            *[!A-Za-z0-9._+-]*) die "invalid Vera version: $version" ;;
-        esac
-        version_without_v=${version#v}
-        printf '%s\n' "$version_without_v" \
+        version=${version#v}
+        printf '%s\n' "$version" \
             | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
             || die "invalid stable Vera version: $version"
         ;;
     *) die "invalid Vera version: $version" ;;
 esac
 
-archive_name="vera-$platform-$arch.tar.gz"
-case "$version" in
-    latest) release_asset_path="latest/download" ;;
+case "$package" in
+    @nashaad/vera) package_spec="$package@$version" ;;
     *)
-        release_version=$version
-        case "$release_version" in
-            v*) ;;
-            *) release_version="v$release_version" ;;
-        esac
-        release_asset_path="download/$release_version"
+        [ -n "${VERA_NPM_PACKAGE:-}" ] \
+            || die "custom package sources require VERA_NPM_PACKAGE"
+        package_spec=$package
         ;;
 esac
-archive_url="$release_base/$release_asset_path/$archive_name"
-checksum_url="$archive_url.sha256"
 
-case "$release_base" in
-    https://*) curl_security_args="--proto =https --tlsv1.2" ;;
-    http://*)
-        [ "${VERA_INSTALL_ALLOW_INSECURE_HTTP:-}" = "1" ] \
-            || die "refusing insecure HTTP release URL; use HTTPS"
-        curl_security_args=""
-        ;;
-    file://*)
-        [ "${VERA_INSTALL_ALLOW_FILE:-}" = "1" ] \
-            || die "refusing local file release URL"
-        curl_security_args=""
-        ;;
-    *) die "release URL must use HTTPS" ;;
-esac
+bun_version=$(bun --version 2>/dev/null || true)
+printf '%s\n' "$bun_version" \
+    | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+    || die "could not determine Bun version"
+if ! printf '%s\n' "$bun_version" | awk -F. '
+    $1 > 1 { ok = 1 }
+    $1 == 1 && $2 > 3 { ok = 1 }
+    $1 == 1 && $2 == 3 && $3 >= 6 { ok = 1 }
+    END { exit ok ? 0 : 1 }
+'; then
+    die "Bun 1.3.6 or newer is required; found $bun_version"
+fi
 
-if [ "$platform" = "linux" ]; then
-    libc=${VERA_INSTALL_LIBC:-}
-    if [ -z "$libc" ]; then
-        command -v getconf >/dev/null 2>&1 \
-            || die "Linux releases require glibc; getconf is unavailable"
-        libc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
-    fi
+if [ "$(uname -s)" = "Linux" ]; then
+    libc=$(getconf GNU_LIBC_VERSION 2>/dev/null || true)
     case "$libc" in
         glibc\ *) ;;
-        *) die "this Linux release requires glibc (musl/unknown libc is unsupported)" ;;
+        *) die "Vera's current Linux package requires glibc" ;;
     esac
 fi
 
-mkdir -p "$install_root" "$bin_dir"
-[ -L "$install_root/versions" ] \
-    && die "refusing to use symlinked Vera versions directory: $install_root/versions"
-mkdir -p "$install_root/versions"
-lock_dir="$install_root/.install.lock"
+for path in "$prefix" "$prefix/bin" "$prefix/lib" "$prefix/lib/node_modules"; do
+    [ -L "$path" ] && die "refusing symlinked install path: $path"
+done
+mkdir -p "$prefix/bin" "$prefix/lib/node_modules/@nashaad"
+
+bin_path=$prefix/bin/vera
+package_path=$prefix/lib/node_modules/@nashaad/vera
+expected_npm_link=../lib/node_modules/@nashaad/vera/bin/vera
+legacy_root=${VERA_LEGACY_INSTALL_ROOT:-${XDG_DATA_HOME:-$home/.local/share}/vera}
+
+shadow=$(command -v vera 2>/dev/null || true)
+if [ -n "$shadow" ] && [ "$shadow" != "$bin_path" ]; then
+    die "another Vera command shadows this install: $shadow (target is $bin_path)"
+fi
+
+if [ -e "$bin_path" ] || [ -L "$bin_path" ]; then
+    [ -L "$bin_path" ] || die "refusing to replace existing Vera executable: $bin_path"
+    existing_target=$(readlink "$bin_path")
+    case "$existing_target" in
+        "$legacy_root/current/bin/vera"|\
+        "$expected_npm_link"|\
+        "$package_path/bin/vera") ;;
+        *) die "refusing to replace existing Vera executable: $bin_path" ;;
+    esac
+fi
+
+lock_dir=$prefix/.vera-install.lock
 if ! mkdir "$lock_dir" 2>/dev/null; then
     lock_pid=$(tr -d '\r\n' < "$lock_dir/pid" 2>/dev/null || true)
     case "$lock_pid" in
-        ""|*[!0-9]*)
-            die "another Vera install is already running; remove $lock_dir if stale"
-            ;;
+        ""|*[!0-9]*) die "another Vera install is running; remove $lock_dir if stale" ;;
     esac
     if kill -0 "$lock_pid" 2>/dev/null; then
-        die "another Vera install is already running; remove $lock_dir if stale"
+        die "another Vera install is running; remove $lock_dir if stale"
     fi
-    stale_lock=$install_root/.install.stale.$$.${RANDOM:-0}
-    if ! mv "$lock_dir" "$stale_lock" 2>/dev/null; then
-        die "another Vera install started while clearing stale lock: $lock_dir"
-    fi
-    if ! mkdir "$lock_dir" 2>/dev/null; then
-        rm -rf "$stale_lock"
-        die "another Vera install started while clearing stale lock: $lock_dir"
-    fi
+    stale_lock=$prefix/.vera-install.stale.$$
+    mv "$lock_dir" "$stale_lock" 2>/dev/null \
+        || die "another Vera install started while clearing a stale lock"
+    mkdir "$lock_dir" 2>/dev/null \
+        || die "another Vera install started while clearing a stale lock"
     rm -rf "$stale_lock"
 fi
 printf '%s\n' "$$" > "$lock_dir/pid"
 
-for stale_staging in "$install_root"/.staging.*; do
-    [ -d "$stale_staging" ] || continue
-    stale_name=${stale_staging##*/}
-    stale_pid=${stale_name#.staging.}
-    stale_pid=${stale_pid%%.*}
-    case "$stale_pid" in
-        ""|*[!0-9]*) continue ;;
-    esac
-    if ! kill -0 "$stale_pid" 2>/dev/null; then
-        rm -rf "$stale_staging"
-    fi
-done
+stage=$(mktemp -d "$prefix/.vera-install.XXXXXX")
+package_backup=$prefix/lib/node_modules/@nashaad/.vera.backup.$$
+bin_backup=$prefix/bin/.vera.backup.$$
+package_promoted=0
+bin_promoted=0
+install_succeeded=0
 
-staging="$install_root/.staging.$$.${RANDOM:-0}"
 cleanup() {
-    rm -rf "$staging"
+    if [ "$install_succeeded" -ne 1 ]; then
+        if [ "$bin_promoted" -eq 1 ]; then
+            rm -f "$bin_path"
+            if [ -e "$bin_backup" ] || [ -L "$bin_backup" ]; then
+                mv "$bin_backup" "$bin_path"
+            fi
+        fi
+        if [ "$package_promoted" -eq 1 ]; then
+            rm -rf "$package_path"
+            if [ -d "$package_backup" ]; then
+                mv "$package_backup" "$package_path"
+            fi
+        fi
+    fi
+    rm -rf "$stage"
+    rm -rf "$package_backup"
+    rm -f "$bin_backup"
     rm -rf "$lock_dir"
 }
 trap cleanup EXIT
 trap 'exit 129' HUP
 trap 'exit 130' INT
 trap 'exit 143' TERM
-mkdir "$staging"
 
-download() {
-    url=$1
-    destination=$2
-    # shellcheck disable=SC2086
-    curl $curl_security_args --fail --location --retry 3 \
-        --silent --show-error "$url" -o "$destination"
-}
+echo "Staging Vera $version from npm..."
+npm install --global --ignore-scripts --bin-links=true \
+    --registry "$registry" --prefix "$stage/prefix" -- "$package_spec"
 
-echo "Downloading Vera $version for $platform/$arch..."
-download "$archive_url" "$staging/$archive_name"
-download "$checksum_url" "$staging/$archive_name.sha256"
+staged_package=$stage/prefix/lib/node_modules/@nashaad/vera
+staged_bin=$stage/prefix/bin/vera
+[ -d "$staged_package" ] || die "npm package has the wrong name or layout"
+[ -x "$staged_bin" ] || die "npm did not create the Vera executable"
 
-expected_checksum=$(awk 'NF { print $1; exit }' "$staging/$archive_name.sha256")
-case "$expected_checksum" in
-    ""|*[!0123456789abcdefABCDEF]*)
-        die "invalid SHA-256 sidecar for $archive_name"
-        ;;
-esac
-[ "${#expected_checksum}" -eq 64 ] \
-    || die "invalid SHA-256 length for $archive_name"
-
-if command -v shasum >/dev/null 2>&1; then
-    actual_checksum=$(shasum -a 256 "$staging/$archive_name" | awk '{ print $1 }')
-elif command -v sha256sum >/dev/null 2>&1; then
-    actual_checksum=$(sha256sum "$staging/$archive_name" | awk '{ print $1 }')
-else
-    die "required command not found: shasum or sha256sum"
-fi
-
-[ "$actual_checksum" = "$expected_checksum" ] \
-    || die "SHA-256 verification failed for $archive_name"
-
-archive_root="$staging/unpacked"
-mkdir "$archive_root"
-
-# Reject obvious archive traversal before extraction. Release archives are
-# produced by us, but the installer must not turn a compromised asset into a
-# write outside its staging directory.
-tar -tzf "$staging/$archive_name" > "$staging/archive.list"
-while IFS= read -r member || [ -n "$member" ]; do
-    member=${member#./}
-    case "$member" in
-        "") continue ;;
-        /*|..|../*|*/../*|*/..)
-            die "unsafe path in release archive: $member"
-            ;;
-    esac
-done < "$staging/archive.list"
-
-# Inspect entry types before extraction. A post-extraction symlink check is too
-# late if a platform tar implementation follows a link while unpacking.
-tar -tvzf "$staging/$archive_name" > "$staging/archive.details"
-while IFS= read -r detail || [ -n "$detail" ]; do
-    case "$detail" in
-        "") ;;
-        d*|-*)
-            case "$detail" in
-                *" link to "*)
-                    die "release archive contains a hard link"
-                    ;;
-            esac
-            ;;
-        *) die "release archive contains an unsupported entry type" ;;
-    esac
-done < "$staging/archive.details"
-
-tar -xzf "$staging/$archive_name" -C "$archive_root"
-[ -f "$archive_root/VERSION" ] \
-    || die "release archive is missing VERSION"
-[ -s "$archive_root/manifest.json" ] \
-    || die "release archive is missing manifest.json"
-[ -f "$archive_root/bin/vera" ] \
-    || die "release archive is missing bin/vera"
-[ -x "$archive_root/bin/vera" ] \
-    || die "release archive bin/vera is not executable"
-[ -f "$archive_root/runtime/bun" ] \
-    || die "release archive is missing runtime/bun"
-[ -x "$archive_root/runtime/bun" ] \
-    || die "release archive runtime/bun is not executable"
-[ -f "$archive_root/clients/cli/main.ts" ] \
-    || die "release archive is missing clients/cli/main.ts"
-
-# A release bundle is self-contained; symlinks would let an archive escape the
-# version directory after activation.
-if find "$archive_root" -type l -print -quit | grep . >/dev/null 2>&1; then
-    die "release archive contains a symlink"
-fi
-
-installed_version=$(tr -d '\r\n' < "$archive_root/VERSION")
-case "$installed_version" in
-    ""|.|..|*[!A-Za-z0-9._+-]*|*/*)
-        die "invalid VERSION in release archive: $installed_version"
-        ;;
-esac
-
-manifest_value() {
-    manifest_root=$1
-    key=$2
-    "$manifest_root/runtime/bun" -e '
-        const manifest = await Bun.file(process.argv[1]).json();
-        const key = process.argv[2];
-        const value = manifest[key];
-        if (typeof value !== "string") process.exit(1);
-        process.stdout.write(value);
-    ' "$manifest_root/manifest.json" "$key"
-}
-
-manifest_version=$(manifest_value "$archive_root" version)
-[ "$manifest_version" = "$installed_version" ] \
-    || die "manifest version does not match VERSION"
-manifest_platform=$(manifest_value "$archive_root" platform)
-[ "$manifest_platform" = "$platform" ] \
-    || die "manifest platform does not match installer target"
-manifest_arch=$(manifest_value "$archive_root" architecture)
-[ "$manifest_arch" = "$arch" ] \
-    || die "manifest architecture does not match installer target"
-if [ "$platform" = "linux" ]; then
-    [ "$(manifest_value "$archive_root" libc)" = "glibc" ] \
-        || die "manifest libc does not match the supported Linux target"
-fi
-[ "$(manifest_value "$archive_root" entrypoint)" = "bin/vera" ] \
-    || die "manifest entrypoint does not match the release layout"
-[ "$(manifest_value "$archive_root" runtime)" = "runtime/bun" ] \
-    || die "manifest runtime does not match the release layout"
-
+installed_version=$(
+    HOME="$home" VERA_HOME=${VERA_HOME:-$home/.vera} \
+        VERA_RELEASE_VERSION= "$staged_bin" --version
+) || die "staged Vera executable failed its version check"
 case "$version" in
-    latest) ;;
-    v*) [ "${installed_version#v}" = "${version#v}" ] \
-        || die "release VERSION $installed_version does not match $version" ;;
-    *) [ "$installed_version" = "$version" ] \
-        || die "release VERSION $installed_version does not match $version" ;;
+    latest)
+        printf '%s\n' "$installed_version" \
+            | grep -Eq '^vera (0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$' \
+            || die "staged Vera returned an invalid version: $installed_version"
+        ;;
+    *)
+        [ "$installed_version" = "vera $version" ] \
+            || die "staged Vera version does not match $version: $installed_version"
+        ;;
 esac
 
-current="$install_root/current"
-if [ -e "$current" ] || [ -L "$current" ]; then
-    [ -L "$current" ] || die "refusing to replace non-Vera path: $current"
-    existing_current=$(readlink "$current" || true)
-    case "$existing_current" in
-        versions/*)
-            case "$existing_current" in *..*) die "refusing unsafe current target: $current" ;; esac
-            ;;
-        "$install_root"/versions/*) ;;
-        *) die "refusing to replace current owned by another install: $current" ;;
-    esac
+[ ! -e "$package_backup" ] || die "package backup path already exists"
+if [ -e "$package_path" ]; then
+    [ -d "$package_path" ] && [ ! -L "$package_path" ] \
+        || die "refusing to replace non-package path: $package_path"
+    mv "$package_path" "$package_backup"
 fi
+mv "$staged_package" "$package_path"
+package_promoted=1
 
-bin_path="$bin_dir/vera"
 if [ -e "$bin_path" ] || [ -L "$bin_path" ]; then
-    [ -L "$bin_path" ] || die "refusing to replace existing executable: $bin_path"
-    existing_target=$(readlink "$bin_path" || true)
-    case "$existing_target" in
-        "$install_root/current/bin/vera") ;;
-        *) die "refusing to replace executable owned by another install: $bin_path" ;;
-    esac
+    mv "$bin_path" "$bin_backup"
 fi
-
-target="$install_root/versions/$installed_version"
-if [ -L "$target" ]; then
-    die "refusing to reuse symlinked Vera version: $target"
-elif [ -e "$target" ]; then
-    [ -d "$target" ] \
-        || die "existing Vera version is not a directory: $target"
-    [ -f "$target/VERSION" ] && [ -x "$target/bin/vera" ] \
-        || die "existing Vera version is incomplete: $target"
-    [ -s "$target/manifest.json" ] \
-        || die "existing Vera version is missing manifest: $target"
-    [ -f "$target/runtime/bun" ] && [ -x "$target/runtime/bun" ] \
-        || die "existing Vera version is missing runtime: $target"
-    [ -f "$target/clients/cli/main.ts" ] \
-        || die "existing Vera version is missing CLI source: $target"
-    [ "$(tr -d '\r\n' < "$target/VERSION")" = "$installed_version" ] \
-        || die "existing Vera version has the wrong VERSION: $target"
-    [ "$(manifest_value "$target" version)" = "$installed_version" ] \
-        || die "existing Vera version has the wrong manifest version: $target"
-    [ "$(manifest_value "$target" platform)" = "$platform" ] \
-        || die "existing Vera version has the wrong manifest platform: $target"
-    [ "$(manifest_value "$target" architecture)" = "$arch" ] \
-        || die "existing Vera version has the wrong manifest architecture: $target"
-    if [ "$platform" = "linux" ]; then
-        [ "$(manifest_value "$target" libc)" = "glibc" ] \
-            || die "existing Vera version has the wrong manifest libc: $target"
-    fi
-    [ "$(manifest_value "$target" entrypoint)" = "bin/vera" ] \
-        || die "existing Vera version has the wrong manifest entrypoint: $target"
-    [ "$(manifest_value "$target" runtime)" = "runtime/bun" ] \
-        || die "existing Vera version has the wrong manifest runtime: $target"
-    if find "$target" -type l -print -quit | grep . >/dev/null 2>&1; then
-        die "existing Vera version contains a symlink: $target"
-    fi
-    if ! diff -qr "$archive_root" "$target" >/dev/null 2>&1; then
-        die "existing Vera version differs from the verified release: $target"
-    fi
-    rm -rf "$archive_root"
-else
-    chmod 755 "$archive_root/bin/vera"
-    mv "$archive_root" "$target"
-fi
-
-# `mv` follows a symlink-to-directory on macOS and GNU coreutils, which would
-# put a temporary link inside the old release instead of upgrading current.
-# The install lock prevents concurrent installers while this link is replaced.
-ln -sfn "versions/$installed_version" "$current"
-
-bin_tmp="$bin_dir/.vera.$$.tmp"
+bin_promoted=1
+bin_tmp=$prefix/bin/.vera.$$.tmp
 rm -f "$bin_tmp"
-ln -s "$install_root/current/bin/vera" "$bin_tmp"
+ln -s "$expected_npm_link" "$bin_tmp"
 mv -f "$bin_tmp" "$bin_path"
 
-echo "Installed Vera $installed_version at $target"
+final_version=$(
+    HOME="$home" VERA_HOME=${VERA_HOME:-$home/.vera} \
+        VERA_RELEASE_VERSION= "$bin_path" --version
+) || die "installed Vera executable failed its final version check"
+[ "$final_version" = "$installed_version" ] \
+    || die "installed Vera changed version during activation"
+
+install_succeeded=1
+echo "Installed $final_version"
 echo "Executable: $bin_path"
 case ":${PATH:-}:" in
-    *:"$bin_dir":*) ;;
-    *) echo "Add $bin_dir to PATH to run 'vera' directly." ;;
+    *:"$prefix/bin":*) ;;
+    *) echo "Add $prefix/bin to PATH to run 'vera' directly." ;;
 esac
