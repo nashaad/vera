@@ -111,6 +111,11 @@ export interface OpenCommandPaletteTuiCommandAction {
     readonly type: "open_command_palette";
 }
 
+export interface OpenHelpTuiCommandAction {
+    readonly type: "open_help";
+    readonly tab?: "general" | "keys";
+}
+
 /**
  * Put text in the composer and leave the cursor there. The palette needs this
  * for actions that cannot complete without typing (renaming a conversation has
@@ -242,6 +247,7 @@ export type TuiCommandAction =
     | OpenSettingsMenuTuiCommandAction
     | OpenConfigureTuiCommandAction
     | OpenCommandPaletteTuiCommandAction
+    | OpenHelpTuiCommandAction
     | PrefillComposerTuiCommandAction
     | OpenThemePickerTuiCommandAction
     | OpenResumePickerTuiCommandAction
@@ -303,6 +309,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "open_work_tab":
         case "open_search":
         case "open_command_palette":
+        case "open_help":
         case "prefill_composer":
         case "open_theme_picker":
         case "show_diagnostics":
@@ -361,6 +368,7 @@ export interface TuiCommandDefinition {
         | OpenSettingsMenuTuiCommandAction
         | OpenConfigureTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
+        | OpenHelpTuiCommandAction
         | OpenThemePickerTuiCommandAction
         | OpenResumePickerTuiCommandAction
         | OpenWorkTabTuiCommandAction
@@ -435,7 +443,7 @@ const CONFIGURE_COMMAND = {
 
 const PALETTE_COMMAND = {
     name: "palette",
-    description: "Search every action by name or description",
+    description: "Search actions, commands, and keyboard shortcuts",
     usage: "/palette",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1486,6 +1494,13 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             slashName: "providers",
             action: { type: "open_providers" },
         },
+    });
+    registry.registerPaletteAction({
+        name: "help",
+        label: "Show keyboard shortcuts",
+        description: "view hotkeys, shortcuts, and keyboard controls, including ctrl+p (control p)",
+        group: "Settings",
+        action: { type: "open_help", tab: "keys" },
     });
     // The palette does not list itself: you are already looking at it.
     registry.registerCommand({

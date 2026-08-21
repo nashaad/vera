@@ -93,6 +93,21 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
         pane = await session.waitForVisiblePane("Theme");
         expect(pane).toContain("System");
         expect(pane).not.toContain("/help");
+        session.sendKey("Escape");
+        await session.waitForVisiblePaneWhere(
+            (visible) => visible.includes("Message Vera")
+                && !visible.includes("Theme"),
+            "theme picker to close",
+        );
+        session.sendText("/palette");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("keyboard");
+        pane = await session.waitForVisiblePane("Show keyboard shortcuts");
+        expect(pane).toContain("hotkeys");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("Open the command palette");
+        expect(pane).toContain("Keys");
     } finally {
         await session.close();
     }

@@ -64,6 +64,19 @@ test("shift-tab opens dials for both terminal encodings", () => {
         .toBe("dials.open");
 });
 
+test("ctrl+shift+h toggles the focused session header", () => {
+    expect(tuiBindingId("global", {
+        name: "h",
+        ctrl: true,
+        shift: true,
+    })).toBe("toggle_session_header");
+});
+
+test("question mark opens help only from the unfocused working area", () => {
+    expect(tuiBindingId("unfocused", { name: "?" })).toBe("open_help");
+    expect(tuiBindingId("composer", { name: "?" })).toBeUndefined();
+});
+
 test("Option-delete is not mistaken for Command-delete", () => {
     expect(isTuiComposerClearKey({
         name: "backspace",

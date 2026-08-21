@@ -170,6 +170,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+o reasoning",
     },
     {
+        id: "toggle_session_header",
+        keys: ["ctrl+shift+h"],
+        scope: "global",
+        description: "Show or hide the focused session header",
+        hint: "ctrl+shift+h header",
+    },
+    {
         id: "cycle_agent_layout",
         keys: ["ctrl+\\", "ctrl+/", "ctrl+_"],
         scope: "global",
@@ -310,6 +317,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         keys: ["i", "tab"],
         scope: "unfocused",
         description: "Put the cursor back in the composer",
+    },
+    {
+        id: "open_help",
+        keys: ["?"],
+        scope: "unfocused",
+        description: "Open keyboard shortcuts and controls",
+        hint: "? help",
+        remappable: true,
     },
     {
         id: "half_page_down",

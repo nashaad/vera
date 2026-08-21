@@ -33,6 +33,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "open_settings_menu" },
         { type: "open_configure" },
         { type: "open_command_palette" },
+        { type: "open_help" },
         { type: "prefill_composer", text: "/rename " },
         { type: "open_theme_picker" },
         { type: "open_resume_picker" },
@@ -81,6 +82,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_settings_menu", "focused_agent"],
             ["open_configure", "focused_agent"],
             ["open_command_palette", "application"],
+            ["open_help", "application"],
             ["prefill_composer", "application"],
             ["open_theme_picker", "application"],
             ["open_resume_picker", "focused_agent"],
@@ -156,6 +158,18 @@ test("reload extensions is an application-owned client action", () => {
     const action = registry.dispatch("/reload-extensions");
     expect(action).toEqual({ type: "reload_client_extensions" });
     expect(tuiCommandScope(action!)).toBe("application");
+});
+
+test("the palette exposes the keyboard shortcut guide", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.registeredPaletteActions()).toContainEqual({
+        name: "help",
+        label: "Show keyboard shortcuts",
+        description: "view hotkeys, shortcuts, and keyboard controls, including ctrl+p (control p)",
+        group: "Settings",
+        action: { type: "open_help", tab: "keys" },
+    });
 });
 
 test("extension manager slash commands are application-owned actions", () => {

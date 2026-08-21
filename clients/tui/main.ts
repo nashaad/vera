@@ -1064,7 +1064,9 @@ export async function startTui(
     const copyText = dependencies.copyText
         ?? ((text: string) => copyTuiText(text, renderer));
     let sessionTitle: string | undefined;
+    let mainHeaderVisible = true;
     let sidebarSessionTitle: string | undefined;
+    let sidebarHeaderVisible = true;
     applyTerminalTitle();
     refreshTerminalTitle();
     let themeName = loadTuiThemePreference();
@@ -1181,6 +1183,18 @@ export async function startTui(
             // The title keeps its last value when the host cannot be reached.
         });
     }
+
+    function toggleMainHeader(): void {
+        mainHeaderVisible = !mainHeaderVisible;
+        renderState();
+    }
+
+    function toggleSidebarHeader(): void {
+        if (hostedSidebar.pane === undefined) return;
+        sidebarHeaderVisible = !sidebarHeaderVisible;
+        renderState();
+    }
+
     let pendingUiRequest: UiRequestUpdate | undefined;
     const queuedUiRequests: UiRequestUpdate[] = [];
     let followTranscriptAfterUiRequest = false;
@@ -1515,6 +1529,7 @@ export async function startTui(
             openSidebar(extensionId) {
                 hostedSidebar.claim(extensionId);
                 sidebar.setHeader(undefined);
+                sidebarHeaderVisible = true;
                 sidebar.open();
                 renderState();
             },
@@ -1655,6 +1670,7 @@ export async function startTui(
                 sidebar.clear();
                 sidebarSessionTitle = undefined;
                 sidebar.setHeader(undefined);
+                sidebarHeaderVisible = true;
                 sidebar.close();
             }
             if (clientSurfaceReady) {
@@ -1904,6 +1920,7 @@ export async function startTui(
         clearSidebarEntryNodes();
         sidebar.clear();
         sidebar.setHeader(undefined);
+        sidebarHeaderVisible = true;
         sidebar.close();
         setSidebarFocused(false);
         composer.focus();
@@ -2400,6 +2417,8 @@ export async function startTui(
                 // drag over; the sidebar keeps it for this session.
             }
         },
+        onHeaderClick: toggleSidebarHeader,
+        onMainHeaderClick: toggleMainHeader,
         onPanelRelease: () => {
             if (hostedSidebar.pane === undefined || anyOverlayOpen()) return;
             // Pointer input never chooses the addressed agent; Ctrl+G owns
@@ -2479,6 +2498,7 @@ export async function startTui(
                 clearSidebarEntryNodes();
                 sidebar.clear();
                 sidebar.setHeader(undefined);
+                sidebarHeaderVisible = true;
                 sidebar.open();
                 setSidebarFocused(true);
                 hostedSidebar.start();
@@ -3858,6 +3878,17 @@ export async function startTui(
             return;
         }
 
+        if (
+            !composer.focused
+            && activeOverlayFocus() === undefined
+            && tuiBindingId("unfocused", key) === "open_help"
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openHelp();
+            return;
+        }
+
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
@@ -4560,6 +4591,20 @@ export async function startTui(
                 } else {
                     sidebar.scrollToBottom();
                 }
+            }
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "toggle_session_header"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+                toggleSidebarHeader();
+            } else {
+                toggleMainHeader();
             }
             return;
         }
@@ -5675,6 +5720,11 @@ export async function startTui(
         if (commandAction?.type === "open_command_palette") {
             composer.clearComposer();
             openCommandPalette();
+            return;
+        }
+        if (commandAction?.type === "open_help") {
+            composer.clearComposer();
+            openHelp(commandAction.tab);
             return;
         }
         if (commandAction?.type === "prefill_composer") {
@@ -9227,6 +9277,7 @@ export async function startTui(
             return openPreferencesList();
         }
         if (action.type === "open_settings_menu") return openSettingsMenu();
+        if (action.type === "open_help") return openHelp(action.tab);
         renderState();
         focusActiveSurface();
     }
@@ -9538,6 +9589,14 @@ export async function startTui(
 
     function openCommandPalette(): void {
         commandPalette = startTuiCommandPalette(registeredPaletteEntries());
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openHelp(tab: "general" | "keys" = "general"): void {
+        const nextHelp = startTuiHelp(coreHelpCommands(), hostExtensionCommands);
+        help = tab === "general" ? nextHelp : { ...nextHelp, tab };
         composer.blur();
         renderState();
         focusActiveSurface();
@@ -10155,6 +10214,8 @@ export async function startTui(
         watchBackgroundAgents(next);
         watchWorkIndex(next);
         sessionTitle = undefined;
+        mainHeaderVisible = true;
+        sidebarHeaderVisible = true;
         applyTerminalTitle();
         refreshTerminalTitle();
         clearTranscriptNodes();
@@ -11305,7 +11366,7 @@ export async function startTui(
         // Beside a second pane the row names each one, because the point of the
         // row is telling the two columns apart. Alone it carries the session
         // title, which is the only thing left worth putting there.
-        sidebar.setMainHeader(!paneHeadersVisible
+        sidebar.setMainHeader(!paneHeadersVisible || !mainHeaderVisible
             ? undefined
             : hostedSidebar.pane !== undefined
             ? paneHeaderText(
@@ -11319,6 +11380,7 @@ export async function startTui(
             : undefined);
         sidebar.setHeader(
             paneHeadersVisible
+                && sidebarHeaderVisible
                 && hostedSidebar.pane !== undefined
                 && sideState !== undefined
             ? paneHeaderText(

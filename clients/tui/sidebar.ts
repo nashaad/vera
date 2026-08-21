@@ -20,6 +20,8 @@ export const SIDEBAR_FOCUS_GREEN = "#22c55e";
 export const SIDEBAR_INACTIVE_GRAY = "#4b5563";
 /** The grab strip: one column, so it reads as an edge and not as a bar. */
 const DIVIDER_WIDTH = 1;
+/** One quiet row keeps a pane identity from running into its transcript. */
+const PANE_HEADER_GAP = 1;
 
 /**
  * Under this the split has no room for both halves, so the sidebar steps
@@ -47,6 +49,10 @@ export interface TuiSidebarOptions {
     readonly onPanelRelease?: () => void;
     readonly theme: TuiSidebarTheme;
     readonly syntaxStyle: SyntaxStyle;
+    /** Called when the attached pane's visible identity is clicked. */
+    readonly onHeaderClick?: () => void;
+    /** Called when the primary pane's visible identity is clicked. */
+    readonly onMainHeaderClick?: () => void;
     /** The width to open at, when one was remembered. */
     readonly initialWidth?: number;
     /** Called when a drag settles, so the width outlives the session. */
@@ -241,6 +247,12 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         attributes: TextAttributes.BOLD,
         width: "100%",
         height: 1,
+        marginBottom: PANE_HEADER_GAP,
+        onMouseUp: (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            options.onHeaderClick?.();
+        },
         visible: false,
     });
     const sidebarFocusRail = new TextRenderable(renderer, {
@@ -269,6 +281,12 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         attributes: TextAttributes.BOLD,
         width: "100%",
         height: 1,
+        marginBottom: PANE_HEADER_GAP,
+        onMouseUp: (event: MouseEvent) => {
+            event.preventDefault();
+            event.stopPropagation();
+            options.onMainHeaderClick?.();
+        },
         visible: false,
     });
     const mainFocusRail = new TextRenderable(renderer, {

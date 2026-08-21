@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { BoxRenderable, SyntaxStyle } from "@opentui/core";
+import { BoxRenderable, SyntaxStyle, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -42,6 +42,9 @@ async function openSidebar(
     onPanelClick?: () => void,
     onLayoutChanged?: () => void,
     onPanelRelease?: () => void,
+    transcriptText?: string,
+    onHeaderClick?: () => void,
+    onMainHeaderClick?: () => void,
 ) {
     const setup = await createTestRenderer({ width, height });
     const transcript = new BoxRenderable(setup.renderer, {
@@ -49,6 +52,12 @@ async function openSidebar(
         flexGrow: 1,
         height: "100%",
     });
+    if (transcriptText !== undefined) {
+        transcript.add(new TextRenderable(setup.renderer, {
+            content: transcriptText,
+            height: 1,
+        }));
+    }
     const sidebar = createTuiSidebar({
         renderer: setup.renderer,
         transcript,
@@ -62,6 +71,8 @@ async function openSidebar(
         ...(onPanelClick === undefined ? {} : { onPanelClick }),
         ...(onLayoutChanged === undefined ? {} : { onLayoutChanged }),
         ...(onPanelRelease === undefined ? {} : { onPanelRelease }),
+        ...(onHeaderClick === undefined ? {} : { onHeaderClick }),
+        ...(onMainHeaderClick === undefined ? {} : { onMainHeaderClick }),
     });
     setup.renderer.root.add(sidebar.body);
     sidebar.open();
@@ -215,6 +226,69 @@ test("focus rails sit above transcripts and identity rows stay below", async () 
         const focusRail = lines.findIndex((line) => line.includes("━"));
         expect(focusRail).toBeGreaterThanOrEqual(0);
         expect(focusRail).toBeLessThan(mainHeader);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("pane headers leave a quiet row before the transcript", async () => {
+    const { setup, sidebar } = await openSidebar(
+        120,
+        12,
+        undefined,
+        undefined,
+        undefined,
+        "first transcript line",
+    );
+    try {
+        sidebar.setMainHeader("Session: Planning");
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const header = lines.findIndex((line) =>
+            line.includes("Session: Planning")
+        );
+        const transcript = lines.findIndex((line) =>
+            line.includes("first transcript line")
+        );
+
+        expect(header).toBeGreaterThanOrEqual(0);
+        expect(transcript).toBe(header + 2);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("visible pane headers toggle through their own mouse targets", async () => {
+    let sideClicks = 0;
+    let mainClicks = 0;
+    const { setup, sidebar } = await openSidebar(
+        120,
+        12,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        () => sideClicks++,
+        () => mainClicks++,
+    );
+    try {
+        sidebar.setMainHeader("Session: Planning");
+        sidebar.setHeader("sidekick · readonly");
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const mainHeader = lines.findIndex((line) =>
+            line.includes("Session: Planning")
+        );
+        const sideHeader = lines.findIndex((line) =>
+            line.includes("sidekick · readonly")
+        );
+        expect(mainHeader).toBeGreaterThanOrEqual(0);
+        expect(sideHeader).toBe(mainHeader);
+
+        await setup.mockMouse.click(8, mainHeader);
+        await setup.mockMouse.click(120 - sidebar.width() + 8, sideHeader);
+        expect(mainClicks).toBe(1);
+        expect(sideClicks).toBe(1);
     } finally {
         setup.renderer.destroy();
     }
