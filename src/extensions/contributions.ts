@@ -299,6 +299,85 @@ function parseWatchContribution(
     });
 }
 
+/**
+ * The key inside an extension entry's `config` that addresses its watch
+ * contributions. Reserved: an extension cannot use it for its own config.
+ */
+export const WATCH_CONFIG_OVERRIDE_KEY = "watches";
+
+/**
+ * Applies a user's per-watch config overrides from `~/.vera/config.json` onto
+ * the config each watch declares in its manifest. Top-level keys replace
+ * wholesale, and a key the manifest never declared is added.
+ */
+export function applyWatchConfigOverrides(
+    contributions: ExtensionContributions,
+    extensionConfig: unknown,
+    extensionId: string,
+): ExtensionContributions {
+    if (!isPlainObject(extensionConfig)) {
+        return contributions;
+    }
+    const overrides = extensionConfig[WATCH_CONFIG_OVERRIDE_KEY];
+    if (overrides === undefined) {
+        return contributions;
+    }
+    if (!isPlainObject(overrides)) {
+        throw new ExtensionContributionError(
+            extensionId,
+            `config.${WATCH_CONFIG_OVERRIDE_KEY} must be an object keyed by watch id`,
+        );
+    }
+
+    const declared = new Set(contributions.watches.map((watch) => watch.id));
+    for (const localId of Object.keys(overrides)) {
+        if (!declared.has(localId)) {
+            throw new ExtensionContributionError(
+                extensionId,
+                `config.${WATCH_CONFIG_OVERRIDE_KEY} names watch "${localId}", which the manifest does not declare`,
+            );
+        }
+    }
+
+    return Object.freeze({
+        sidecars: contributions.sidecars,
+        watches: Object.freeze(
+            contributions.watches.map((watch) => {
+                const override = overrides[watch.id];
+                if (override === undefined) {
+                    return watch;
+                }
+                const parsed = asJsonObject(override);
+                if (parsed === undefined) {
+                    throw new ExtensionContributionError(
+                        extensionId,
+                        `config.${WATCH_CONFIG_OVERRIDE_KEY}."${watch.id}" must be an object of inert JSON values`,
+                    );
+                }
+                return Object.freeze({
+                    ...watch,
+                    config: Object.freeze({ ...watch.config, ...parsed }),
+                });
+            }),
+        ) as readonly WatchContribution[],
+    });
+}
+
+/**
+ * Strips the reserved override key so an extension's own `activate` never sees
+ * config addressed to the host.
+ */
+export function stripWatchConfigOverrides(extensionConfig: unknown): unknown {
+    if (
+        !isPlainObject(extensionConfig)
+        || extensionConfig[WATCH_CONFIG_OVERRIDE_KEY] === undefined
+    ) {
+        return extensionConfig;
+    }
+    const { [WATCH_CONFIG_OVERRIDE_KEY]: _removed, ...rest } = extensionConfig;
+    return rest;
+}
+
 /** Shared by every watch that declares no config, so it must not be mutable. */
 const EMPTY_WATCH_CONFIG: JsonObject = Object.freeze({});
 

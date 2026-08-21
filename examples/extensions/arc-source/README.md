@@ -14,16 +14,39 @@ line and sends it as a bearer token. The manifest never carries a credential.
 
 ## Setup
 
-1. Copy this directory into your profile's extensions directory
-   (`~/.vera/profiles/<name>/extensions/arc-source`), or reference it by path.
-2. Edit `config` in `vera.extension.json`:
-   - `server`: your arc server URL.
-   - `topic`: the one topic to watch. Required by convention; without it the
-     watch sees every issue on the server.
-   - `kind`: which events become inbox entries. `publish` and `unblock` are
-     the two that mean "an issue is claimable".
-3. Enable it in `config.json` like any other extension. The inbox is
-   experimental, so `experimental.inbox` must be on.
+Reference this directory by path from `config.json` and set the watch's config
+there. The inbox is experimental, so `experimental.inbox` must be on.
+
+```json
+{
+  "path": "/path/to/vera/examples/extensions/arc-source",
+  "enabled": true,
+  "config": {
+    "watches": {
+      "issues": {
+        "server": "https://arc.your-host.example"
+      }
+    }
+  }
+}
+```
+
+`watches` is reserved: it is keyed by watch id and addresses the watches the
+manifest contributes, so an extension cannot use that key for its own config.
+Each key replaces the one the manifest declares, and a key the manifest never
+declared is added. Naming a watch the manifest does not contribute is an error
+rather than a value that silently does nothing.
+
+The keys this watch reads:
+
+- `server`: your arc server URL.
+- `topic`: the one topic to watch. Required by convention; without it the
+  watch sees every issue on the server.
+- `kind`: which events become inbox entries. `publish` and `unblock` are the
+  two that mean "an issue is claimable".
+
+Copying this directory and editing `vera.extension.json` also works, but then
+the copy stops receiving changes made here.
 
 What happens next is the inbox's business, not this extension's: entries can
 wake a subscribed session, or cold-spawn one if you have separately enabled
