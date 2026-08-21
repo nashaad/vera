@@ -19,6 +19,7 @@ import {
     eventLogEnabled,
     loadOptionalVeraConfig,
     loadOrCreateVeraConfig,
+    developerOverrides,
     loadVeraConfig,
     updateVeraConfigDefaults,
     VeraConfigError,
@@ -1397,4 +1398,27 @@ test("Vera config rejects a catalog max age that is not a count", () => {
 
         expect(() => loadVeraConfig({ path })).toThrow();
     }
+});
+
+test("developer overrides merge field by field and read as off until enabled", () => {
+    const path = temporaryConfigPath();
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        model: "anthropic/example-model",
+    }));
+
+    updateVeraConfigDefaults({ developer: { context_limit: 8_192 } }, { path });
+    const stored = loadVeraConfig({ path });
+    expect(stored.developer).toEqual({ context_limit: 8_192 });
+    // Written but not in force: nothing reads an override while the block is
+    // off, which is what makes turning it off one move rather than four.
+    expect(developerOverrides(stored)).toBeUndefined();
+
+    updateVeraConfigDefaults({ developer: { enabled: true } }, { path });
+    const enabled = loadVeraConfig({ path });
+    expect(developerOverrides(enabled))
+        .toEqual({ context_limit: 8_192, enabled: true });
+
+    updateVeraConfigDefaults({ developer: { context_limit: null } }, { path });
+    expect(loadVeraConfig({ path }).developer).toEqual({ enabled: true });
 });

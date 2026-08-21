@@ -10,6 +10,7 @@ import {
     configuredCompactionModels,
     configuredReviewers,
     defaultVeraConfigPath,
+    developerOverrides,
     eventLogEnabled,
     loadVeraConfig,
     updateVeraConfigDefaults,
@@ -505,7 +506,14 @@ export async function startResidentHost(
                 reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
-        contextLimit: () => currentConfig().context_limit,
+        contextLimit: () => {
+            const config = currentConfig();
+            // The developer value wins outright rather than clamping against
+            // the normal one: it exists to reach windows the normal setting
+            // will not offer, so a minimum taken with it would be it anyway.
+            return developerOverrides(config)?.context_limit
+                ?? config.context_limit;
+        },
         updateContextLimit: (limit) => {
             updateVeraConfigDefaults({ context_limit: limit });
         },
@@ -569,6 +577,77 @@ export async function startResidentHost(
         },
         get compaction() {
             return configuredCompaction(currentConfig());
+        },
+        developerSettings: () => {
+            const developer = currentConfig().developer;
+            return {
+                enabled: developer?.enabled === true,
+                ...(developer?.context_limit === undefined
+                    ? {}
+                    : { contextLimit: developer.context_limit }),
+                ...(developer?.compaction_trigger_fraction === undefined
+                    ? {}
+                    : {
+                        compactionTriggerFraction:
+                            developer.compaction_trigger_fraction,
+                    }),
+                ...(developer?.post_compaction_target_fraction === undefined
+                    ? {}
+                    : {
+                        postCompactionTargetFraction:
+                            developer.post_compaction_target_fraction,
+                    }),
+                ...(developer?.summary_word_cap === undefined
+                    ? {}
+                    : { summaryWordCap: developer.summary_word_cap }),
+            };
+        },
+        updateDeveloperSettings: (patch) => {
+            updateVeraConfigDefaults({
+                developer: {
+                    ...(patch.enabled === undefined
+                        ? {}
+                        : { enabled: patch.enabled }),
+                    ...(patch.contextLimit === undefined
+                        ? {}
+                        : { context_limit: patch.contextLimit }),
+                    ...(patch.compactionTriggerFraction === undefined
+                        ? {}
+                        : {
+                            compaction_trigger_fraction:
+                                patch.compactionTriggerFraction,
+                        }),
+                    ...(patch.postCompactionTargetFraction === undefined
+                        ? {}
+                        : {
+                            post_compaction_target_fraction:
+                                patch.postCompactionTargetFraction,
+                        }),
+                    ...(patch.summaryWordCap === undefined
+                        ? {}
+                        : { summary_word_cap: patch.summaryWordCap }),
+                },
+            });
+        },
+        get compactionOverrides() {
+            const developer = developerOverrides(currentConfig());
+            if (developer === undefined) {
+                return undefined;
+            }
+            return {
+                ...(developer.compaction_trigger_fraction === undefined
+                    ? {}
+                    : { triggerFraction: developer.compaction_trigger_fraction }),
+                ...(developer.post_compaction_target_fraction === undefined
+                    ? {}
+                    : {
+                        postCompactionTargetFraction:
+                            developer.post_compaction_target_fraction,
+                    }),
+                ...(developer.summary_word_cap === undefined
+                    ? {}
+                    : { summaryWordCap: developer.summary_word_cap }),
+            };
         },
         get compactionModels() {
             return configuredCompactionModels(

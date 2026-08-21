@@ -1023,3 +1023,9 @@ test("both budget faults reach the user in one warning", () => {
     expect(warning).toContain("compaction.target_tokens (2000) is ignored");
     expect(warning).toContain("above trigger_tokens");
 });
+
+test("a developer target fraction replaces the built-in share of the window", () => {
+    expect(compactionTargetBudget(measurement(9_000), {
+        postCompactionTargetFraction: 0.2,
+    })).toBe(2_000);
+});

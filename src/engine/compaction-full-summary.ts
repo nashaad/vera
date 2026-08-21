@@ -22,9 +22,9 @@ export const MAX_SUMMARY_WORDS = 3_000;
  * thirds of the target leaves the framing and the estimator's own error inside
  * the budget the engine will check the answer against.
  */
-export function summaryWordBudget(targetTokens: number): number {
+export function summaryWordBudget(targetTokens: number, cap?: number): number {
     return Math.min(
-        MAX_SUMMARY_WORDS,
+        cap ?? MAX_SUMMARY_WORDS,
         Math.max(120, Math.floor((targetTokens * 2) / 3 * 0.75)),
     );
 }
@@ -153,7 +153,7 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
                 true,
             );
         }
-        const words = summaryWordBudget(room);
+        const words = summaryWordBudget(room, request.summaryWordCap);
         const prompt = anchor === undefined
             ? SUMMARY_INSTRUCTION
                 .replace("{{WORDS}}", String(words))

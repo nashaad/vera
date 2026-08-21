@@ -326,6 +326,10 @@ export interface SessionCompactionOptions {
     readonly trigger?: CompactionTrigger;
     /** Token target for a session whose window is unknown. */
     readonly targetTokens?: number;
+    /** Share of the window a compaction aims to land under. */
+    readonly postCompactionTargetFraction?: number;
+    /** Ceiling on the words a strategy asks a summarizer for. */
+    readonly summaryWordCap?: number;
     /** Complete user turns preferred verbatim after compaction. */
     readonly retainedUserTurns?: number;
 }
@@ -1089,6 +1093,15 @@ export async function runHeadlessLoop(
                 ...(compaction.targetTokens === undefined
                     ? {}
                     : { targetTokens: compaction.targetTokens }),
+                ...(compaction.postCompactionTargetFraction === undefined
+                    ? {}
+                    : {
+                        postCompactionTargetFraction:
+                            compaction.postCompactionTargetFraction,
+                    }),
+                ...(compaction.summaryWordCap === undefined
+                    ? {}
+                    : { summaryWordCap: compaction.summaryWordCap }),
                 ...(compaction.retainedUserTurns === undefined
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),

@@ -43,6 +43,8 @@ import {
     isModelReasoningEffort,
     publishedReasoningLevels,
     reasoningEffortForModel,
+    type DeveloperSettings,
+    type DeveloperSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "../engine/model-settings.ts";
@@ -56,6 +58,7 @@ import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
+    type CompactionOverrides,
 } from "../engine/compaction-binding.ts";
 import type {
     ResolvedCompactionProfile,
@@ -324,6 +327,8 @@ export interface AgentRegistryOptions {
     readonly compaction?: ResolvedCompactionProfile;
     /** What a strategy slot the profile did not name falls back to. */
     readonly compactionModels?: readonly VeraCatalogModel[];
+    /** Read per agent, so a change reaches the next session without a restart. */
+    readonly compactionOverrides?: CompactionOverrides;
     /**
      * Durable preferences, deliberately one store shared by every agent:
      * the file is per-user, not per-session, so an allow the user persists
@@ -355,6 +360,9 @@ export interface AgentRegistryOptions {
     /** Read on each snapshot so a TUI change takes effect without restart. */
     readonly contextLimit?: () => number | undefined;
     readonly updateContextLimit?: (limit: number | null) => void;
+    /** Read live, so a change reaches the next snapshot without a restart. */
+    readonly developerSettings?: () => DeveloperSettings;
+    readonly updateDeveloperSettings?: (patch: DeveloperSettingsPatch) => void;
     /**
      * Writes the pool entry for one model, and probes it first when asked.
      * Separate from `readPool` because the two have different lifetimes:
@@ -1709,6 +1717,35 @@ export class AgentRegistry {
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
         }
+        if (patch.developer !== undefined) {
+            if (this.options.updateDeveloperSettings === undefined) {
+                return undefined;
+            }
+            this.options.updateDeveloperSettings(
+                patch.developer === null ? { enabled: false } : patch.developer,
+            );
+        }
+        if (
+            patch.developer !== undefined
+            && patch.contextLimit === undefined
+            && patch.provider === undefined
+            && patch.model === undefined
+            && patch.reasoningEffort === undefined
+            && patch.reviewer === undefined
+        ) {
+            return settingsForClient(
+                entry.modelSettings,
+                entry.modelSettings.provider ?? this.defaultProvider,
+                this.catalog,
+                this.modelsForClient(),
+                this.options.readPool?.(entry.store.header.cwd),
+                this.options.subagentModel,
+                entry.requestedReasoningEffort,
+                this.reviewerDefault(),
+                this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
+            );
+        }
         if (patch.contextLimit !== undefined) {
             if (this.options.updateContextLimit === undefined) return undefined;
             this.options.updateContextLimit(patch.contextLimit);
@@ -1728,6 +1765,7 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
                 );
             }
         }
@@ -1752,6 +1790,7 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
                 );
             }
         }
@@ -1780,6 +1819,7 @@ export class AgentRegistry {
             entry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
         );
     }
 
@@ -1853,6 +1893,7 @@ export class AgentRegistry {
                 entry.requestedReasoningEffort,
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
             ),
             origin,
         };
@@ -2259,6 +2300,7 @@ export class AgentRegistry {
                 agentEntry.requestedReasoningEffort,
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
             ),
         };
     }
@@ -2625,6 +2667,7 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
         );
     }
 
@@ -2655,6 +2698,7 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
         );
     }
 
@@ -2689,6 +2733,7 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
         );
     }
 
@@ -2723,6 +2768,7 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
         );
     }
 
@@ -3264,6 +3310,7 @@ export class AgentRegistry {
             // join this list when activation lands; binding stays agnostic.
             BUNDLED_COMPACTION_STRATEGIES,
             this.options.compactionModels,
+            this.options.compactionOverrides,
         );
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) => {
             if (effect.type === "spawn_async_subagent") {
@@ -3408,6 +3455,7 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
+                this.options.developerSettings?.(),
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -4131,6 +4179,7 @@ function settingsForClient(
     requestedReasoningEffort?: ModelReasoningEffort,
     reviewerDefault?: ReviewerModelDefault,
     contextLimit?: number,
+    developer?: DeveloperSettings,
 ): ModelTurnSettings {
     const modelContextWindow = contextWindowForModel(
         provider,
@@ -4184,6 +4233,7 @@ function settingsForClient(
             ? {}
             : { modelContextWindow }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
+        ...(developer === undefined ? {} : { developer }),
     };
 }
 

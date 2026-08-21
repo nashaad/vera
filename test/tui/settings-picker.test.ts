@@ -12,6 +12,8 @@ import {
     handleTuiSettingsPickerScroll,
     startTuiSettingsMenu,
     startTuiContextLimitPicker,
+    startTuiDeveloperMenu,
+    startTuiDeveloperValuePicker,
     startTuiSettingsPicker,
     switchedModelTab,
     tuiModelActionOptions,
@@ -935,6 +937,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "model",
         "reasoning",
         "context_limit",
+        "developer",
         "permissions",
         "reviewer",
         "theme",
@@ -3080,4 +3083,79 @@ test("the show-or-hide row lands on the list it changed", () => {
         .state as TuiSettingsPickerState;
     expect(revealed.revealAll).toBe(true);
     expect(revealed.tab).toBe("all");
+});
+
+test("the developer pane shows only its toggle until it is on", () => {
+    const off = startTuiDeveloperMenu({ enabled: false });
+
+    expect(off.options.map((option) => option.value))
+        .toEqual(["developer_enabled_on"]);
+    expect(handleTuiSettingsPickerKey(off, { name: "enter" }).selection).toEqual({
+        kind: "developer",
+        patch: { enabled: true },
+    });
+
+    const on = startTuiDeveloperMenu({ enabled: true, contextLimit: 8_192 });
+
+    expect(on.options.map((option) => option.value)).toEqual([
+        "developer_enabled_off",
+        "developer_context_limit",
+        "developer_compaction_trigger",
+        "developer_target_fraction",
+        "developer_summary_words",
+    ]);
+    // The row carries the value in force, so the pane answers "what is it set
+    // to" without a second step.
+    expect(on.options[1]?.description).toContain("8k");
+});
+
+test("the settings menu says so while the developer block is on", () => {
+    const off = startTuiSettingsMenu("settings");
+    const on = startTuiSettingsMenu("settings", { enabled: true });
+    const rowOf = (pane: typeof off) =>
+        pane.options.find((option) => option.value === "developer");
+
+    expect(rowOf(off)?.description).toBe("overrides for testing Vera itself");
+    expect(rowOf(on)?.description).toBe("on: overrides are in force");
+    // Only that row changes.
+    expect(on.options.map((option) => option.value))
+        .toEqual(off.options.map((option) => option.value));
+});
+
+test("turning the developer block on leaves its own rows on screen", () => {
+    const off = startTuiDeveloperMenu({ enabled: false, contextLimit: 8_192 });
+    const next = tuiPickerAfterSelection(
+        { kind: "developer", patch: { enabled: true } },
+        { ...off, parent: startTuiSettingsMenu("settings") },
+    );
+
+    expect(next?.kind).toBe("developer_settings");
+    expect(next?.options.map((option) => option.value)).toEqual([
+        "developer_enabled_off",
+        "developer_context_limit",
+        "developer_compaction_trigger",
+        "developer_target_fraction",
+        "developer_summary_words",
+    ]);
+    // The value the block already held survives the toggle.
+    expect(next?.options[1]?.description).toContain("8k");
+});
+
+test("a developer value pane writes one field, and Off clears it", () => {
+    const pane = startTuiDeveloperValuePicker("developer_context_limit", {
+        enabled: true,
+        contextLimit: 8_192,
+    });
+    if (pane === undefined) throw new Error("no developer value pane");
+
+    expect(pane.options[pane.selectedIndex]?.value).toBe("8192");
+    expect(handleTuiSettingsPickerKey(pane, { name: "enter" }).selection).toEqual({
+        kind: "developer",
+        patch: { contextLimit: 8_192 },
+    });
+    expect(handleTuiSettingsPickerKey({ ...pane, selectedIndex: 0 }, { name: "enter" })
+        .selection).toEqual({
+        kind: "developer",
+        patch: { contextLimit: null },
+    });
 });

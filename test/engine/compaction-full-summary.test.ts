@@ -186,3 +186,11 @@ function text(message: ModelMessage | undefined): string {
     const block = message?.content[0];
     return block !== undefined && block.type === "text" ? block.text : "";
 }
+
+test("a word cap lowers the note budget and never raises it", () => {
+    expect(summaryWordBudget(90_000, 250)).toBe(250);
+    // The cap is a ceiling, not a target: a room-derived budget already under
+    // it stays where it is.
+    expect(summaryWordBudget(2_000, MAX_SUMMARY_WORDS))
+        .toBe(summaryWordBudget(2_000));
+});

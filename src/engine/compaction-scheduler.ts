@@ -90,6 +90,8 @@ export interface CompactionBudget {
     readonly trigger?: CompactionTrigger;
     /** Absolute token target, overriding the one derived from the trigger. */
     readonly targetTokens?: number;
+    /** Replaces `POST_COMPACTION_TARGET_FRACTION` when set. */
+    readonly postCompactionTargetFraction?: number;
 }
 
 export interface CompactionSchedulerOptions {
@@ -112,6 +114,9 @@ export interface CompactionSchedulerOptions {
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
+    readonly postCompactionTargetFraction?: number;
+    /** Ceiling on the words a strategy asks a summarizer for. */
+    readonly summaryWordCap?: number;
     /** Complete user turns preferred verbatim. `RETAINED_USER_TURNS` if unset. */
     readonly retainedUserTurns?: number;
 }
@@ -129,7 +134,9 @@ export function compactionTargetBudget(
 ): number | undefined {
     if (measurement.capacity !== undefined) {
         return Math.floor(
-            measurement.capacity * POST_COMPACTION_TARGET_FRACTION,
+            measurement.capacity
+                * (budget?.postCompactionTargetFraction
+                    ?? POST_COMPACTION_TARGET_FRACTION),
         );
     }
     if (budget?.targetTokens !== undefined) {
@@ -432,6 +439,9 @@ async function attemptCompaction(
         messages: deepFreeze(structuredClone(span) as ModelMessage[]),
         targetTokens,
         models: options.models,
+        ...(options.summaryWordCap === undefined
+            ? {}
+            : { summaryWordCap: options.summaryWordCap }),
     };
 
     let projection: readonly ModelMessage[];
