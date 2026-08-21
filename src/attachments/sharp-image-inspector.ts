@@ -1,14 +1,22 @@
-import sharp from "sharp";
-
 import type {
     ImageValidationLimits,
     InspectedImage,
 } from "./image.ts";
 
+type Sharp = typeof import("sharp").default;
+
+let sharpModule: Promise<Sharp> | undefined;
+
+async function loadSharp(): Promise<Sharp> {
+    sharpModule ??= import("sharp").then((module) => module.default);
+    return sharpModule;
+}
+
 export async function inspectImageWithSharp(
     data: Uint8Array,
     limits: ImageValidationLimits,
 ): Promise<InspectedImage> {
+    const sharp = await loadSharp();
     const input = Buffer.from(data.buffer, data.byteOffset, data.byteLength);
     const metadata = await sharp(input, {
         animated: true,
