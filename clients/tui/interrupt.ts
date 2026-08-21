@@ -41,6 +41,7 @@ export function tuiInterruptAction(
     key: TuiInterruptKey,
     working: boolean,
     abortRequested: boolean,
+    compacting = false,
 ): TuiInterruptAction {
     const ctrlC = parseRawInputEvent(key)?.type === "interrupt";
     const plainEscape = key.name === "escape" &&
@@ -51,7 +52,7 @@ export function tuiInterruptAction(
     if (!ctrlC && !plainEscape) {
         return "pass";
     }
-    if (!working) {
+    if (!working && !compacting) {
         return ctrlC ? "quit" : "pass";
     }
     return abortRequested ? "consume" : "abort";

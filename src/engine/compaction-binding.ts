@@ -91,9 +91,9 @@ export function bindCompaction(
     }
     const primary = strategy.models[0];
     const route = primary === undefined ? undefined : profile.routes[primary];
-    const entry = primary === undefined
+    const firstModel = primary === undefined
         ? undefined
-        : profile.slots[primary]?.[0]?.name;
+        : (profile.slots[primary]?.[0] ?? slotModels?.[0]);
     const trigger: CompactionTrigger = {
         ...(profile.trigger_fraction === undefined
             ? {}
@@ -108,7 +108,11 @@ export function bindCompaction(
         diagnostics: {
             strategy: strategy.id,
             ...(route === undefined ? {} : { route }),
-            ...(entry === undefined ? {} : { catalogEntry: entry }),
+            ...(firstModel === undefined ? {} : {
+                catalogEntry: firstModel.name,
+                provider: firstModel.provider,
+                model: firstModel.model,
+            }),
         },
         ...(Object.keys(trigger).length === 0 ? {} : { trigger }),
         ...(profile.target_tokens === undefined
@@ -146,6 +150,12 @@ function bindDefault(
     return {
         strategy,
         models,
-        diagnostics: { strategy: strategy.id },
+        diagnostics: {
+            strategy: strategy.id,
+            ...(sessionModel.provider === undefined
+                ? {}
+                : { provider: sessionModel.provider }),
+            model: sessionModel.model,
+        },
     };
 }

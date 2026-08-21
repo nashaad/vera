@@ -553,6 +553,8 @@ export interface CompactionUpdate {
     readonly type: "compaction";
     readonly phase: "started" | "finished";
     readonly strategy: string;
+    readonly provider?: string;
+    readonly model?: string;
     readonly outcome?:
         | "compacted"
         | "not_needed"
@@ -1824,6 +1826,10 @@ export function createProtocolEncoder(
                 type: "compaction",
                 phase: "started",
                 strategy: event.strategy,
+                ...(event.provider === undefined
+                    ? {}
+                    : { provider: event.provider }),
+                ...(event.model === undefined ? {} : { model: event.model }),
                 ...(event.warning === undefined
                     ? {}
                     : { warning: event.warning }),
@@ -1837,6 +1843,10 @@ export function createProtocolEncoder(
                 type: "compaction",
                 phase: "finished",
                 strategy: event.strategy,
+                ...(event.provider === undefined
+                    ? {}
+                    : { provider: event.provider }),
+                ...(event.model === undefined ? {} : { model: event.model }),
                 outcome: event.outcome,
                 ...(event.reason === undefined ? {} : { reason: event.reason }),
                 ...(event.before === undefined ? {} : { before: event.before }),
