@@ -5,6 +5,10 @@ import {
     createRoutedCompletionService,
     CompletionUnavailableError,
 } from "../../src/engine/completion-service.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../../src/model/provider-failure.ts";
 import type {
     AssistantMessage,
     ModelAdapter,
@@ -76,6 +80,52 @@ test("the caller cannot ask for more output than the binding allows", async () =
 
     expect(requested).toBe(100);
     expect(COMPLETION_MAX_OUTPUT_TOKENS).toBeGreaterThan(0);
+});
+
+test("an exhausted route names every model that failed, not only the last", async () => {
+    const service = createRoutedCompletionService(
+        adapter((request) =>
+            request.model === "first"
+                ? assistant("cut", "length")
+                : assistant("")
+        ),
+        { models: [{ model: "first" }, { model: "second" }] },
+    );
+
+    await expect(service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    )).rejects.toThrow("first stopped with length; second returned no text");
+});
+
+test("a model that names a smaller output allowance is asked again at that allowance", async () => {
+    const requested: number[] = [];
+    const service = createRoutedCompletionService(
+        adapter((request) => {
+            requested.push(request.maxTokens ?? 0);
+            if (requested.length === 1) {
+                throw new ProviderFailureError({
+                    kind: "invalid_request",
+                    message: "max_tokens too large",
+                    allowance: {
+                        kind: "max_tokens",
+                        requested: 32_768,
+                        available: 8_000,
+                    },
+                } as ProviderFailure, undefined);
+            }
+            return assistant("ok");
+        }),
+        { models: [{ model: "only" }], maxOutputTokens: 32_768 },
+    );
+
+    const result = await service(
+        { systemPrompt: "s", messages: [] },
+        new AbortController().signal,
+    );
+
+    expect(result.text).toBe("ok");
+    expect(requested).toEqual([32_768, 8_000]);
 });
 
 test("an empty route answers nothing rather than reaching for a default model", async () => {

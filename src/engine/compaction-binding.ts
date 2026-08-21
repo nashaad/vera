@@ -23,6 +23,13 @@ import type { SessionCompactionOptions } from "./run-turn.ts";
 export const BUNDLED_COMPACTION_STRATEGIES:
     readonly CompactionStrategyDefinition[] = [fullSummaryStrategy];
 
+/**
+ * Output ceiling for a summarizer call. A note of `MAX_SUMMARY_WORDS` is a few
+ * thousand tokens; the rest is room for reasoning, which providers count
+ * against the same limit.
+ */
+export const COMPACTION_MAX_OUTPUT_TOKENS = 32_768;
+
 /** What an unconfigured session compacts with. */
 export const DEFAULT_COMPACTION_STRATEGY_ID = FULL_SUMMARY_STRATEGY_ID;
 
@@ -41,8 +48,9 @@ export interface SessionModel {
  * Binds a configured profile to the adapter the agent is running on.
  *
  * A strategy may declare several model slots, and a profile need not name a
- * route for each. `slotModels` is what an unnamed one takes, so tuning one
- * strategy slot does not oblige the user to name the rest.
+ * route for each. `slotModels` is the compaction assignment, and it binds every
+ * slot when set; a route the profile names for a slot is only read when no
+ * assignment resolves.
  *
  * Returns undefined rather than a partly bound profile when the strategy is
  * unknown, or a slot it declared has neither a route nor a fallback: a session
@@ -70,13 +78,14 @@ export function bindCompaction(
     const models: Record<string, CompleteText> = {};
     for (const slot of strategy.models) {
         const named = profile.slots[slot];
-        const route = named === undefined || named.length === 0
+        const route = slotModels !== undefined && slotModels.length > 0
             ? slotModels
             : named;
         if (route === undefined || route.length === 0) {
             return undefined;
         }
         models[slot] = createRoutedCompletionService(adapter, {
+            maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
             models: route.map((model) => ({
                 provider: model.provider,
                 model: model.model,
@@ -90,10 +99,13 @@ export function bindCompaction(
         });
     }
     const primary = strategy.models[0];
-    const route = primary === undefined ? undefined : profile.routes[primary];
+    const assigned = slotModels !== undefined && slotModels.length > 0;
+    const route = primary === undefined || assigned
+        ? undefined
+        : profile.routes[primary];
     const firstModel = primary === undefined
         ? undefined
-        : (profile.slots[primary]?.[0] ?? slotModels?.[0]);
+        : (assigned ? slotModels[0] : profile.slots[primary]?.[0]);
     const trigger: CompactionTrigger = {
         ...(profile.trigger_fraction === undefined
             ? {}
@@ -136,6 +148,7 @@ function bindDefault(
         return undefined;
     }
     const complete = createRoutedCompletionService(adapter, {
+        maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
         models: [{
             ...(sessionModel.provider === undefined
                 ? {}
