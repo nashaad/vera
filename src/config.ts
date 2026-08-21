@@ -255,6 +255,12 @@ export interface VeraConfig {
      * fetches now whatever this says.
      */
     readonly model_catalog_max_age_days?: number;
+    /** Source families this user has allowed to start delivery turns. */
+    readonly inbox?: VeraInboxConfig;
+}
+
+export interface VeraInboxConfig {
+    readonly admit?: readonly string[];
 }
 
 /**
@@ -333,6 +339,7 @@ export interface VeraConfigDefaultsPatch {
         readonly id: string;
         readonly url: string | null;
     };
+    readonly inbox?: VeraInboxConfig | null;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -517,6 +524,9 @@ export function updateVeraConfigDefaults(
         ...(patch.provider_endpoint === undefined
             ? {}
             : { provider_endpoints: patchedProviderEndpoints(path, current.provider_endpoints, patch.provider_endpoint) }),
+        ...(patch.inbox === undefined
+            ? {}
+            : { inbox: patch.inbox === null ? undefined : patch.inbox }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -823,6 +833,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         config.disabled_prompt_contributions,
     );
     const experimental = parseExperimental(config.experimental);
+    const inbox = parseInboxConfig(config.inbox);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
@@ -853,6 +864,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledBuiltinExtensions === undefined
         || disabledPromptContributions === undefined
         || experimental === undefined
+        || inbox === undefined
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
@@ -928,6 +940,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
                 disabled_prompt_contributions: disabledPromptContributions,
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
+        ...(config.inbox === undefined ? {} : { inbox }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
@@ -1250,6 +1263,29 @@ function parseExperimental(
         return undefined;
     }
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
+}
+
+function parseInboxConfig(value: unknown): VeraInboxConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (raw.admit === undefined) {
+        return {};
+    }
+    if (!Array.isArray(raw.admit)) {
+        return undefined;
+    }
+    const families = raw.admit.map((item) =>
+        typeof item === "string" ? item.trim() : ""
+    );
+    return families.every((family) => /^[a-z][a-z0-9_-]*$/.test(family))
+            && new Set(families).size === families.length
+        ? { admit: families }
+        : undefined;
 }
 
 function parseEventLog(value: unknown): VeraEventLogConfig | undefined {

@@ -108,6 +108,7 @@ interface PendingApproval {
 
 export interface UserQuestionOptions {
     readonly signal?: AbortSignal;
+    readonly outOfBand?: true;
 }
 
 export interface UserQuestionSelected {
@@ -188,6 +189,8 @@ export interface InboundCommandRouterOptions {
         },
     ) => Promise<void>;
     readonly hasPendingDeliveryTurn?: () => boolean;
+    /** Clears a resident wake that was discarded because its work was drained. */
+    readonly onDeliveryTurnDiscarded?: () => void;
     readonly readModelSettings?: () => ModelTurnSettings;
     readonly updateModelSettings?: (
         patch: ModelSettingsPatch,
@@ -393,6 +396,7 @@ export class InboundCommandRouter {
                     break;
                 }
                 this.deliveryTurnQueued = false;
+                this.options.onDeliveryTurnDiscarded?.();
             }
         } finally {
             this.waitingForPrompt = false;
@@ -543,6 +547,7 @@ export class InboundCommandRouter {
             type: "user_question",
             question: request.question,
             choices: request.choices.map((choice) => ({ ...choice })),
+            ...(options.outOfBand === true ? { outOfBand: true } : {}),
         };
         const requestId = randomUUID();
         const result = new Promise<UserQuestionResult>((resolve) => {

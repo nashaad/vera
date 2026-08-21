@@ -44,6 +44,7 @@ import { SessionStore } from "../../src/store/session-store.ts";
 import { Inbox } from "../../src/store/inbox.ts";
 import { ConsumerRegistry } from "../../src/host/consumers.ts";
 import { InboxDeliveryCoordinator } from "../../src/host/inbox-delivery.ts";
+import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
@@ -3807,6 +3808,58 @@ test("an inbox entry landing mid-turn emits a notice without starting a turn", a
             nodeId: "node-a",
             label: "boundary-agent",
         })).toBe(0);
+    } finally {
+        await registry.close();
+        inbox.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an admitted inbox entry starts a real delivery turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-inbox-delivery-"));
+    const inbox = Inbox.open(":memory:");
+    const coordinator = new InboxDeliveryCoordinator(
+        new ConsumerRegistry(inbox, "node-a"),
+        { admission: new InboxAdmissionPolicy({ user: ["arc"] }) },
+    );
+    const eventLogPath = join(root, "events.jsonl");
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("woke")]),
+        model: "faux/test",
+        approvalMode: "auto",
+        inboxDelivery: coordinator,
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "delivery-agent",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+            eventLogPath,
+        });
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+
+        await coordinator.append({
+            source: "arc",
+            kind: "arc.post",
+            address: agent.id,
+            payload: "{}",
+        });
+        while (true) {
+            const update = await attachment.receive();
+            if (update.type === "turn_finished") break;
+        }
+
+        const events = (await readFile(eventLogPath, "utf8"))
+            .trim()
+            .split("\n")
+            .map((line) => JSON.parse(line) as { type: string });
+        expect(events.map((event) => event.type)).toContain(
+            "delivery_turn_started",
+        );
+        expect(agent.status).toBe("idle");
+        attachment.detach();
     } finally {
         await registry.close();
         inbox.close();

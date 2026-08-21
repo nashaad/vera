@@ -110,6 +110,8 @@ export interface UserQuestionUiRequest {
     readonly type: "user_question";
     readonly question: string;
     readonly choices: readonly UserQuestionChoice[];
+    /** A host question that does not block an in-flight or idle model turn. */
+    readonly outOfBand?: true;
 }
 
 export interface UserQuestionSelectedUiResponse {

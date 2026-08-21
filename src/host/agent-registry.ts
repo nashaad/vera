@@ -155,6 +155,8 @@ import { workspaceKey } from "../workspace-key.ts";
 import type {
     InboxDeliveryCoordinator,
     InboxDeliverySession,
+    InboxAdmissionCandidate,
+    InboxAdmissionDecision,
 } from "./inbox-delivery.ts";
 import {
     ImageAttachmentService,
@@ -2434,11 +2436,15 @@ export class AgentRegistry {
             address: effect.to,
             payload: JSON.stringify(payload),
         });
-        const delivery = await this.wakeForPeerMessage(
-            caller,
-            recipient,
-            stored.seq,
-        );
+        const delivery = inbox.hasAdmissionPath()
+            ? recipient.agent.attached
+                && recipient.inbox.isAdmittedSource("peer")
+                ? { delivered: true as const }
+                : {
+                    delivered: false as const,
+                    reason: "admission" as const,
+                }
+            : await this.wakeForPeerMessage(caller, recipient, stored.seq);
         return {
             kind: "output",
             output: JSON.stringify({
@@ -2475,7 +2481,12 @@ export class AgentRegistry {
         seq: number,
     ): Promise<{
         readonly delivered: boolean;
-        readonly reason?: "approval_mode" | "hop_limit" | "rate_limit" | "unavailable";
+        readonly reason?:
+            | "approval_mode"
+            | "hop_limit"
+            | "rate_limit"
+            | "unavailable"
+            | "admission";
     }> {
         if (
             recipient.approvalMode !== "auto"
@@ -3384,6 +3395,9 @@ export class AgentRegistry {
                 onInboundReady: (inbound) => {
                     entry.inbound = inbound;
                 },
+                hasPendingDeliveryTurn: () =>
+                    entry.inbox?.hasAdmittedPending() === true,
+                onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
@@ -3495,9 +3509,12 @@ export class AgentRegistry {
             }
         });
         if (kind === "interactive" && this.options.inboxDelivery !== undefined) {
-            const inbox = this.options.inboxDelivery.attach({
+            const inboxDelivery = this.options.inboxDelivery;
+            const admissionPath = inboxDelivery.hasAdmissionPath();
+            const inbox = inboxDelivery.attach({
                 label: agent.id,
                 actor: this.options.inboxActorForSession?.(agent.id) ?? null,
+                projectRoot: agent.workspace,
                 // The minted name, not the agent id: arc stamps posts with
                 // the ARC_SESSION the shell carries, which is this name, so
                 // the self-echo pair must hold the same value.
@@ -3511,8 +3528,33 @@ export class AgentRegistry {
                         });
                     }
                 },
+                canStartTurn: () => agent.attached,
+                startTurn: () => agent.triggerDeliveryTurn(),
+                ...(admissionPath ? {
+                    requestAdmission: (candidate: InboxAdmissionCandidate, signal: AbortSignal) =>
+                        this.requestInboxAdmission(entry, candidate, signal),
+                    onAdmissionFailure: (candidate: InboxAdmissionCandidate) => {
+                        if (!agent.closed && !agent.failed && agent.attached) {
+                            events.emit({
+                                type: "task_notification",
+                                deliveryId: `inbox-admission:${candidate.seq}`,
+                                sourceAgentId: agent.id,
+                                content:
+                                    `Could not save admission for ${candidate.sourceFamily}; `
+                                    + "the inbox entry is still held.",
+                                kind: "attention",
+                            });
+                        }
+                    },
+                } : {}),
             });
             entry.inbox = inbox;
+            agent.onAttachmentChanged((attached) => {
+                inbox.clientAttachmentChanged(attached);
+                if (attached) {
+                    this.trackDelivery(inbox.pump());
+                }
+            });
             this.trackDelivery(inbox.pump());
         }
         const pendingDeliveries = store.pendingDeliveries();
@@ -3532,6 +3574,69 @@ export class AgentRegistry {
             agent.triggerDeliveryTurn();
         }
         return agent;
+    }
+
+    private async requestInboxAdmission(
+        entry: RegisteredAgentEntry,
+        candidate: InboxAdmissionCandidate,
+        signal: AbortSignal,
+    ): Promise<InboxAdmissionDecision | undefined> {
+        const inbound = entry.inbound;
+        if (inbound === undefined || !entry.agent.attached) return undefined;
+
+        const result = await inbound.requestUserQuestion({
+            question:
+                `Inbox source ${candidate.sourceFamily}: ${candidate.kind} `
+                + `from ${candidate.source} (${candidate.ts})\n`
+                + "Admit this source?",
+            choices: [
+                {
+                    id: "once",
+                    label: "Once",
+                    description: "Admit this entry and hold future entries.",
+                },
+                {
+                    id: "session",
+                    label: "This session",
+                    description: "Admit this source family until disconnect.",
+                },
+                {
+                    id: "always",
+                    label: "Always",
+                    description: "Remember this source family after choosing a scope.",
+                },
+            ],
+        }, { signal, outOfBand: true });
+        if (result.outcome !== "selected") return undefined;
+        if (result.choice.id === "once") return { mode: "once" };
+        if (result.choice.id === "session") return { mode: "session" };
+        if (result.choice.id !== "always") return undefined;
+
+        const scopeResult = await inbound.requestUserQuestion({
+            question: `Where should ${candidate.sourceFamily} be admitted?`,
+            choices: [
+                {
+                    id: "user",
+                    label: "User",
+                    description: "Apply this admission across your Vera sessions.",
+                },
+                {
+                    id: "project",
+                    label: "Project",
+                    description: "Apply this admission in this workspace.",
+                },
+            ],
+        }, { signal, outOfBand: true });
+        if (scopeResult.outcome !== "selected") return undefined;
+        if (scopeResult.choice.id === "user") {
+            return { mode: "always", scope: "user" };
+        }
+        if (
+            scopeResult.choice.id === "project"
+        ) {
+            return { mode: "always", scope: "project" };
+        }
+        return undefined;
     }
 
     private async spawnAsyncSubagent(
