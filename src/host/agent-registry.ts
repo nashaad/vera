@@ -100,6 +100,7 @@ import type {
 import { emptyUsage } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import {
+    admittedEffortIds,
     availableModelsWithLevels,
     type PooledModel,
 } from "../model/catalog-view.ts";
@@ -1653,12 +1654,25 @@ export class AgentRegistry {
         // Checked against exactly what the picker was served, through the
         // same reader: a level published for this model is always acceptable
         // here, whichever layer published it.
-        const published = publishedReasoningLevels(
+        const scope = {
+            ...this.catalog,
+            projectRoot: entry.store.header.cwd,
+        };
+        const unnarrowed = publishedReasoningLevels(
             provider,
             model,
             this.options.readPool?.(entry.store.header.cwd),
             this.catalog,
         );
+        const published = {
+            ...unnarrowed,
+            efforts: admittedEffortIds(
+                provider,
+                model,
+                unnarrowed.efforts,
+                scope,
+            ),
+        };
         // A level the model does not publish is coerced rather than promoted:
         // the model's own default, else a middle level, never the top. Same
         // rule as request-time resolution, so a switch and a turn place an
@@ -1744,6 +1758,7 @@ export class AgentRegistry {
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+                entry.store.header.cwd,
             );
         }
         if (patch.contextLimit !== undefined) {
@@ -1766,6 +1781,7 @@ export class AgentRegistry {
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+                    entry.store.header.cwd,
                 );
             }
         }
@@ -1791,6 +1807,7 @@ export class AgentRegistry {
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+                    entry.store.header.cwd,
                 );
             }
         }
@@ -1820,6 +1837,7 @@ export class AgentRegistry {
             this.reviewerDefault(),
             this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+            entry.store.header.cwd,
         );
     }
 
@@ -1894,6 +1912,7 @@ export class AgentRegistry {
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+                entry.store.header.cwd,
             ),
             origin,
         };
@@ -2301,6 +2320,7 @@ export class AgentRegistry {
                 this.reviewerDefault(),
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+                agentEntry.store.header.cwd,
             ),
         };
     }
@@ -2668,6 +2688,7 @@ export class AgentRegistry {
             this.reviewerDefault(),
             this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+            agentEntry.store.header.cwd,
         );
     }
 
@@ -2699,6 +2720,7 @@ export class AgentRegistry {
             this.reviewerDefault(),
             this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+            agentEntry.store.header.cwd,
         );
     }
 
@@ -2734,6 +2756,7 @@ export class AgentRegistry {
             this.reviewerDefault(),
             this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+            agentEntry.store.header.cwd,
         );
     }
 
@@ -2769,6 +2792,7 @@ export class AgentRegistry {
             this.reviewerDefault(),
             this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
+            agentEntry.store.header.cwd,
         );
     }
 
@@ -3455,7 +3479,8 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+                    this.options.developerSettings?.(),
+                    store.header.cwd,
                 ),
                 updateModelSettings: (patch) =>
                     this.updateModelSettings(agent.id, patch),
@@ -4180,6 +4205,7 @@ function settingsForClient(
     reviewerDefault?: ReviewerModelDefault,
     contextLimit?: number,
     developer?: DeveloperSettings,
+    projectRoot?: string,
 ): ModelTurnSettings {
     const modelContextWindow = contextWindowForModel(
         provider,
@@ -4200,7 +4226,23 @@ function settingsForClient(
     // model has no levels at all; serving it anyway shows a dial the model
     // cannot have. Same emptiness rule as `reasoningEffortForModel`.
     const { reasoningEffort, ...rest } = settings;
-    const served = efforts.length > 0 && reasoningEffort !== undefined;
+    // The picker and the check a settings change goes through read one
+    // admission rule, so a level cannot be dropped from one and kept by the
+    // other. A pool entry's own list is already narrowed, so this is a no-op
+    // there and only bites the catalog fallback. The stored level rides along
+    // in the same read: it is served when admission has not refused it, which
+    // includes a level config set that was never published.
+    const asked = reasoningEffort !== undefined
+            && !efforts.includes(reasoningEffort)
+        ? [...efforts, reasoningEffort]
+        : efforts;
+    const admittedAsked = admittedEffortIds(provider, settings.model, asked, {
+        ...catalog,
+        ...(projectRoot === undefined ? {} : { projectRoot }),
+    });
+    const admitted = admittedAsked.filter((level) => efforts.includes(level));
+    const served = admitted.length > 0 && reasoningEffort !== undefined
+        && admittedAsked.includes(reasoningEffort);
     return {
         ...rest,
         ...(served ? { reasoningEffort } : {}),
@@ -4212,8 +4254,11 @@ function settingsForClient(
                 && requestedReasoningEffort !== reasoningEffort
             ? { requestedReasoningEffort }
             : {}),
-        availableReasoningEfforts: efforts,
-        availableModels: availableModelsWithLevels(models),
+        availableReasoningEfforts: admitted,
+        availableModels: availableModelsWithLevels(models, {
+            ...catalog,
+            ...(projectRoot === undefined ? {} : { projectRoot }),
+        }),
         pooled,
         subagentDefault: subagentModel === undefined
             ? { mode: "inherit" }

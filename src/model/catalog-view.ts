@@ -258,26 +258,46 @@ function resolvedLevels(
 }
 
 /**
- * The catalog's levels minus the ones this key has already been refused.
+ * Whether this key may still be asked for a level, given what the pool knows.
  *
  * A rejection recorded against a level is a fact about this key, and the
  * catalog does not overrule it: the provider answered 400 for that word. What
  * the pool entry declares does overrule it, matching `resolveEffort`, so a
  * user who wrote the level in by hand keeps it.
  */
+function isAdmitted(level: string, entry: PoolFileModel | undefined): boolean {
+    if (entry === undefined) {
+        return true;
+    }
+    if (entry.efforts !== undefined && level in entry.efforts) {
+        return entry.efforts[level] !== null;
+    }
+    return entry.learned?.[effortLearnedKey(level)]?.ok !== false;
+}
+
 function admittedLevels(
     levels: readonly ReasoningLevel[],
     entry: PoolFileModel | undefined,
 ): readonly ReasoningLevel[] {
+    return levels.filter((level) => isAdmitted(level.id, entry));
+}
+
+/**
+ * The same narrowing over bare level ids, for the published list a settings
+ * change is checked against. Both lists read one rule, so a level cannot be
+ * missing from the picker and still accepted on the way back in.
+ */
+export function admittedEffortIds<T extends string>(
+    provider: string,
+    model: string,
+    levels: readonly T[],
+    options: CatalogViewOptions = {},
+): readonly T[] {
+    const entry = loadPoolFile(options).merged.models[`${provider}/${model}`];
     if (entry === undefined) {
         return levels;
     }
-    return levels.filter((level) => {
-        if (entry.efforts !== undefined && level.id in entry.efforts) {
-            return entry.efforts[level.id] !== null;
-        }
-        return entry.learned?.[effortLearnedKey(level.id)]?.ok !== false;
-    });
+    return levels.filter((level) => isAdmitted(level, entry));
 }
 
 /** One catalog read per provider, however many models are looked up. */
