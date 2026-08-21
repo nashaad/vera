@@ -102,6 +102,7 @@ test("the compaction assignment outranks a route the profile names for a slot", 
         catalogEntry: "assigned",
         model: "assigned-model",
     });
+    expect(bound?.diagnostics?.route).toBeUndefined();
 });
 
 test("a catalog fallback is the model shown for the bound summarizer", () => {

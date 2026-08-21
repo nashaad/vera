@@ -1,3 +1,4 @@
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import type {
     ModelAdapter,
     ModelMessage,
@@ -89,65 +90,38 @@ export function createRoutedCompletionService(
         for (const candidate of settings.models) {
             const timeout = AbortSignal.timeout(timeoutMs);
             const combined = AbortSignal.any([signal, timeout]);
-            try {
-                const stream = adapter.stream({
-                    ...(candidate.provider === undefined
-                        ? {}
-                        : { provider: candidate.provider }),
-                    model: candidate.model,
-                    ...(candidate.reasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: candidate.reasoningEffort }),
-                    maxTokens,
-                    systemPrompt: request.systemPrompt,
-                    messages: request.messages,
-                    signal: combined,
-                });
-                const message = await stream.result();
-                if (signal.aborted) {
-                    throw new CompletionUnavailableError("Cancelled.");
-                }
-                if (message.stopReason !== "stop") {
-                    // A truncated answer is not a cheaper answer. A summary cut
-                    // at the token ceiling would be accepted as a projection and
-                    // silently lose whatever came after the cut.
-                    // The provider's own message when it left one: "stopped
-                    // with error" alone names no cause to act on.
-                    reasons.push(
-                        `${candidate.model} stopped with ${message.stopReason}`
-                        + (message.errorMessage === undefined
-                            ? ""
-                            : `: ${message.errorMessage}`),
-                    );
-                    continue;
-                }
-                const text = message.content
-                    .filter((block) => block.type === "text")
-                    .map((block) => block.text)
-                    .join("\n")
-                    .trim();
-                if (text.length === 0) {
-                    reasons.push(`${candidate.model} returned no text`);
-                    continue;
-                }
-                return {
-                    text,
-                    model: candidate.model,
-                    ...(candidate.provider === undefined
-                        ? {}
-                        : { provider: candidate.provider }),
-                };
-            } catch (error) {
-                if (signal.aborted) {
-                    throw new CompletionUnavailableError("Cancelled.");
-                }
-                if (error instanceof CompletionUnavailableError) {
-                    throw error;
-                }
-                reasons.push(timeout.aborted
-                    ? `${candidate.model} timed out`
-                    : `${candidate.model} failed: ${errorSummary(error)}`);
+            let outcome = await attempt(
+                adapter,
+                candidate,
+                request,
+                maxTokens,
+                signal,
+                combined,
+                timeout,
+            );
+            // A provider that names a smaller output allowance than the one
+            // asked for gets one more call at that allowance. The ceiling
+            // leaves room for reasoning; it is not a claim every model can
+            // fill it.
+            if (
+                outcome.kind === "failed"
+                && outcome.allowance !== undefined
+                && outcome.allowance < maxTokens
+            ) {
+                outcome = await attempt(
+                    adapter,
+                    candidate,
+                    request,
+                    outcome.allowance,
+                    signal,
+                    combined,
+                    timeout,
+                );
             }
+            if (outcome.kind === "answered") {
+                return outcome.result;
+            }
+            reasons.push(outcome.reason);
         }
         throw new CompletionUnavailableError(
             reasons.length === 0
@@ -159,4 +133,96 @@ export function createRoutedCompletionService(
 
 function errorSummary(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
+}
+
+type AttemptOutcome =
+    | { readonly kind: "answered"; readonly result: CompletionResult }
+    | {
+        readonly kind: "failed";
+        readonly reason: string;
+        /** Output tokens the provider said it would accept, when it said. */
+        readonly allowance?: number;
+    };
+
+async function attempt(
+    adapter: ModelAdapter,
+    candidate: CompletionModel,
+    request: CompletionRequest,
+    maxTokens: number,
+    signal: AbortSignal,
+    combined: AbortSignal,
+    timeout: AbortSignal,
+): Promise<AttemptOutcome> {
+    try {
+        const stream = adapter.stream({
+            ...(candidate.provider === undefined
+                ? {}
+                : { provider: candidate.provider }),
+            model: candidate.model,
+            ...(candidate.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: candidate.reasoningEffort }),
+            maxTokens,
+            systemPrompt: request.systemPrompt,
+            messages: request.messages,
+            signal: combined,
+        });
+        const message = await stream.result();
+        if (signal.aborted) {
+            throw new CompletionUnavailableError("Cancelled.");
+        }
+        if (message.stopReason !== "stop") {
+            // A truncated answer is not a cheaper answer. A summary cut at
+            // the token ceiling would be accepted as a projection and silently
+            // lose whatever came after the cut. The provider's own message
+            // when it left one: "stopped with error" alone names no cause.
+            return {
+                kind: "failed",
+                reason: `${candidate.model} stopped with ${message.stopReason}`
+                    + (message.errorMessage === undefined
+                        ? ""
+                        : `: ${message.errorMessage}`),
+            };
+        }
+        const text = message.content
+            .filter((block) => block.type === "text")
+            .map((block) => block.text)
+            .join("\n")
+            .trim();
+        if (text.length === 0) {
+            return { kind: "failed", reason: `${candidate.model} returned no text` };
+        }
+        return {
+            kind: "answered",
+            result: {
+                text,
+                model: candidate.model,
+                ...(candidate.provider === undefined
+                    ? {}
+                    : { provider: candidate.provider }),
+            },
+        };
+    } catch (error) {
+        if (signal.aborted) {
+            throw new CompletionUnavailableError("Cancelled.");
+        }
+        if (error instanceof CompletionUnavailableError) {
+            throw error;
+        }
+        if (timeout.aborted) {
+            return { kind: "failed", reason: `${candidate.model} timed out` };
+        }
+        const allowance = error instanceof ProviderFailureError
+            ? error.failure.allowance
+            : undefined;
+        return {
+            kind: "failed",
+            reason: `${candidate.model} failed: ${errorSummary(error)}`,
+            ...(allowance?.kind === "max_tokens"
+                    && Number.isSafeInteger(allowance.available)
+                    && allowance.available > 0
+                ? { allowance: allowance.available }
+                : {}),
+        };
+    }
 }
