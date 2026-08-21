@@ -196,6 +196,29 @@ test("a window skip is marked room related so a smaller request can retry", asyn
     expect((error as CompletionUnavailableError).roomRelated).toBe(true);
 });
 
+test("a route where only some candidates were skipped is not room related", async () => {
+    // The candidate that was actually tried will fail the same way on a
+    // shorter span, so the ladder has nothing to gain from another rung.
+    const complete = createRoutedCompletionService(
+        adapter((request) => {
+            if (request.model === "big") {
+                throw new Error("no key");
+            }
+            return assistant("unused");
+        }),
+        {
+            models: [{ model: "small", contextWindow: 10 }, { model: "big" }],
+        },
+    );
+    const error = await complete(
+        { systemPrompt: "s".repeat(4_000), messages: [] },
+        new AbortController().signal,
+    ).then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompletionUnavailableError);
+    expect((error as CompletionUnavailableError).roomRelated).toBe(false);
+});
+
 test("a failure that is not about room is not marked room related", async () => {
     const complete = createRoutedCompletionService(
         adapter(() => {

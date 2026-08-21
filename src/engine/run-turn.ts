@@ -911,6 +911,8 @@ export async function runHeadlessLoop(
             ...(pendingUserTurns === 0 ? {} : { pendingUserTurns }),
         };
     };
+    /** The most recent unscaled reading, for comparisons across turns. */
+    let lastRawEstimate = 0;
     const measureContextNow = (
         pendingMessages: readonly ModelMessage[] = [],
         context?: CompactionContext,
@@ -924,6 +926,10 @@ export async function runHeadlessLoop(
             ...modelContext,
             ...pendingMessages,
         ]) + overheadTokens;
+        // Kept unscaled for the retry latch below. `scale` moves in both
+        // directions between turns, so a reading frozen in provider units
+        // would be compared against later ones taken at a different factor.
+        lastRawEstimate = estimate;
         return {
             overheadTokens,
             // Scaled into the provider's units. Characters over four is the
@@ -978,10 +984,19 @@ export async function runHeadlessLoop(
             // Growth since the failure is the signal that the conditions are
             // no longer the ones that failed.
             if (!force && automaticCompactionBlocked) {
+                // Past the window there is nothing left to protect: the
+                // request will be refused whatever happens, so a retry that
+                // might work costs one call against a turn that certainly
+                // fails. This also covers a switch to a model with a smaller
+                // window, and a window small enough that the growth the latch
+                // waits for could never arrive before the window did.
+                const overWindow = measurement.capacity !== undefined
+                    && measurement.tokens >= measurement.capacity;
                 if (
-                    automaticCompactionBlockedAt === undefined
-                    || measurement.tokens < automaticCompactionBlockedAt
-                        + COMPACTION_RETRY_GROWTH_TOKENS
+                    !overWindow
+                    && (automaticCompactionBlockedAt === undefined
+                        || lastRawEstimate < automaticCompactionBlockedAt
+                            + COMPACTION_RETRY_GROWTH_TOKENS)
                 ) {
                     return;
                 }
@@ -1069,7 +1084,7 @@ export async function runHeadlessLoop(
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
                 automaticCompactionBlocked = true;
-                automaticCompactionBlockedAt = measurement.tokens;
+                automaticCompactionBlockedAt = lastRawEstimate;
             }
             if (result.outcome === "compacted") {
                 // The compaction result already measured the next request,
@@ -1077,13 +1092,7 @@ export async function runHeadlessLoop(
                 // client does not keep showing the pre-compaction estimate
                 // until another model request happens.
                 const refreshedMeasurement: ContextMeasurement = {
-                    // `result.after` is raw estimator units, and every other
-                    // reading published here is scaled. Publishing it as it
-                    // stands would show the window dropping further than it
-                    // did and then jumping back on the next measurement.
-                    tokens: Math.ceil(
-                        result.after * (contextWatch.scale ?? 1),
-                    ),
+                    tokens: result.after,
                     ...(measurement.capacity === undefined
                         ? {}
                         : { capacity: measurement.capacity }),

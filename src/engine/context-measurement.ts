@@ -190,6 +190,9 @@ export function isContextMeasurement(
         && (measurement.capacity === undefined
             || (Number.isSafeInteger(measurement.capacity)
                 && (measurement.capacity as number) > 0))
+        && (measurement.overheadTokens === undefined
+            || (Number.isSafeInteger(measurement.overheadTokens)
+                && (measurement.overheadTokens as number) >= 0))
         && typeof measurement.estimated === "boolean"
         && isProjection(projection)
         && (projection === undefined

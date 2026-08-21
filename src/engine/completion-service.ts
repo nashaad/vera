@@ -103,7 +103,7 @@ export function createRoutedCompletionService(
         );
 
         const reasons: string[] = [];
-        let skippedForWindow = false;
+        let skippedForWindow = 0;
         const requestTokens = measureRequest(request);
         for (const candidate of settings.models) {
             // Sending a request the model cannot read costs a round trip to
@@ -113,7 +113,7 @@ export function createRoutedCompletionService(
                 candidate.contextWindow !== undefined
                 && requestTokens + maxTokens > candidate.contextWindow
             ) {
-                skippedForWindow = true;
+                skippedForWindow += 1;
                 reasons.push(
                     `${candidate.model} skipped: the request is about `
                         + `${requestTokens} tokens by Vera's own estimate, `
@@ -161,7 +161,11 @@ export function createRoutedCompletionService(
             reasons.length === 0
                 ? "The model route produced no answer."
                 : `The model route produced no answer (${reasons.join("; ")}).`,
-            skippedForWindow,
+            // Only when room is the whole story. A candidate that was tried
+            // and failed for its own reasons will fail the same way on a
+            // shorter span, and saying otherwise spends the ladder's calls
+            // collecting one answer three times.
+            skippedForWindow > 0 && skippedForWindow === settings.models.length,
         );
     };
 }

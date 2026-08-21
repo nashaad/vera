@@ -287,8 +287,11 @@ export async function compactSession(
     // may be scaled into the provider's units while `measureMessages` and the
     // budget below are raw estimator units. Subtracting one from the other
     // would fold the whole transcript's calibration into the overhead.
-    const overhead = measurement.overheadTokens
-        ?? Math.max(0, measurement.tokens - measureMessages(modelContext));
+    const overhead = Math.max(
+        0,
+        measurement.overheadTokens
+            ?? measurement.tokens - measureMessages(modelContext),
+    );
 
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
     let sawCandidate = false;
@@ -435,11 +438,14 @@ async function attemptCompaction(
     let proposalModel: string | undefined;
     let proposalProvider: string | undefined;
     try {
-        // Deliberately not checked for cancellation here. The summarizer has
-        // already answered and been paid for, and the rest of this rung is
-        // local work. Throwing the note away because the cancel landed a
-        // moment late buys nothing and costs the call.
         const proposal = await options.strategy.compact(request, signal);
+        // Checked here as well as in the catch, for the abort that lands as
+        // the call resolves: a cached or already buffered answer returns
+        // normally rather than throwing, and applying it would rewrite the
+        // context of a session that asked to be left alone.
+        if (signal.aborted) {
+            return { result: { outcome: "cancelled" }, retry: false };
+        }
         projection = validateProposal(proposal, request);
         proposalModel = proposal.model;
         proposalProvider = proposal.provider;

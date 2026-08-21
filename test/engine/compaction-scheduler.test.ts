@@ -268,10 +268,10 @@ test("a model that cannot answer is reported as unavailable, not as a rejection"
     expect(store.latestCompaction()).toBeUndefined();
 });
 
-test("a summary that arrived before the cancel is kept, not thrown away", async () => {
-    // The summarizer has already answered and already been paid for, and the
-    // rest of the rung is local work. Discarding the note because the cancel
-    // landed a moment later buys nothing and costs the call.
+test("a cancel that lands as the summarizer answers still appends nothing", async () => {
+    // Cancel means cancel. The answer arrives normally rather than throwing
+    // when it was cached or already buffered, so the signal is read again
+    // after the call as well as in the catch.
     const store = await session(6);
     const controller = new AbortController();
     const result = await compactSession(
@@ -283,8 +283,8 @@ test("a summary that arrived before the cancel is kept, not thrown away", async 
         controller.signal,
     );
 
-    expect(result.outcome).toBe("compacted");
-    expect(store.latestCompaction()).toBeDefined();
+    expect(result.outcome).toBe("cancelled");
+    expect(store.latestCompaction()).toBeUndefined();
 });
 
 test("a cancel before the summarizer is called appends nothing", async () => {
