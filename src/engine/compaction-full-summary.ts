@@ -8,6 +8,26 @@ import { CompletionUnavailableError } from "./completion-service.ts";
 export const FULL_SUMMARY_STRATEGY_ID = "vera/full-summary";
 export const FULL_SUMMARY_MODEL_SLOT = "summarizer";
 
+/**
+ * The most words a note is ever asked for. The room left in the window after
+ * compaction is not a length the summarizer should fill: a note is read back
+ * as context on every later turn, and it has to fit under the model output
+ * ceiling with reasoning tokens counted against the same limit.
+ */
+export const MAX_SUMMARY_WORDS = 3_000;
+
+/**
+ * Budget in words, because the summarizer cannot count its own tokens. Two
+ * thirds of the target leaves the framing and the estimator's own error inside
+ * the budget the engine will check the answer against.
+ */
+export function summaryWordBudget(targetTokens: number): number {
+    return Math.min(
+        MAX_SUMMARY_WORDS,
+        Math.max(120, Math.floor((targetTokens * 2) / 3 * 0.75)),
+    );
+}
+
 const SUMMARY_SYSTEM_PROMPT =
     `You are writing the handover note that replaces a coding session's earlier
 history. The agent that continues this session will see your note and nothing
@@ -110,13 +130,7 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
             );
         }
         const files = mergeFiles(anchor?.files, filesTouched(span));
-        // Budget in words, because the summarizer cannot count its own tokens.
-        // Two thirds of the target leaves the framing and the estimator's own
-        // error inside the budget the engine will check the answer against.
-        const words = Math.max(
-            120,
-            Math.floor((request.targetTokens * 2) / 3 * 0.75),
-        );
+        const words = summaryWordBudget(request.targetTokens);
         const prompt = anchor === undefined
             ? SUMMARY_INSTRUCTION
                 .replace("{{WORDS}}", String(words))
