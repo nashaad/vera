@@ -18,6 +18,11 @@ import {
     type SessionCompactionOptions,
 } from "../../src/engine/run-turn.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "../../src/model/provider-failure.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 import { assertToolCallsPaired } from "../../src/model/tool-pairing.ts";
 import {
     emptyUsage,
@@ -303,6 +308,71 @@ test("aged tool results below the trigger do not trigger compaction from their d
         .toHaveLength(0);
 });
 
+test("the provider's own token count moves the trigger, not just the display", async () => {
+    // Characters over four reads low against real tokenizers, and it does not
+    // see reasoning or images at all. A session that measures itself only that
+    // way passes the window while the trigger still believes there is room.
+    const starts: number[] = [];
+    for (const reported of [0, 20_000]) {
+        const workspace = temporaryDirectory();
+        const store = await SessionStore.create(
+            join(workspace, "session.jsonl"),
+            { sessionId: `loop-scale-${reported}`, cwd: workspace },
+        );
+        writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(1_500));
+
+        const events = new EngineEventBus();
+        const seen: EngineEvent[] = [];
+        events.subscribe((event) => void seen.push(event));
+        const channel = createInProcessChannel();
+        void runHeadlessLoop(
+            channel.engine,
+            new FauxAdapter([
+                reportingUsage(toolCall("scale-call-1", 1), reported),
+                reportingUsage(assistantText("first done"), reported),
+                reportingUsage(assistantText("second done"), reported),
+            ]),
+            "test",
+            undefined,
+            {
+                sessionStore: store,
+                eventBus: events,
+                approvalMode: "auto",
+                compaction: compactionOptions({ tokens: 8_000 }),
+                readModelSettings: () => ({
+                    model: "test",
+                    contextWindow: 400_000,
+                }),
+                updateModelSettings: async () => undefined,
+                readApprovalMode: () => "auto",
+                updateApprovalMode: async () => undefined,
+            },
+        );
+
+        channel.client.send({ type: "prompt", content: "first job" });
+        await drain(channel);
+        channel.client.send({ type: "prompt", content: "second job" });
+        await drain(channel);
+        starts.push(
+            seen.filter((event) => event.type === "compaction_started").length,
+        );
+    }
+
+    // The same transcript against the same trigger. The only difference is
+    // what the provider said the request cost.
+    expect(starts[0]).toBe(0);
+    expect(starts[1]).toBeGreaterThan(0);
+});
+
+/** A scripted answer that reports the request as costing more than the
+ * estimator makes it. */
+function reportingUsage(
+    message: AssistantMessage,
+    inputTokens: number,
+): AssistantMessage {
+    return { ...message, usage: { ...message.usage, inputTokens } };
+}
+
 function compactionOptions(
     trigger?: SessionCompactionOptions["trigger"],
 ): SessionCompactionOptions {
@@ -325,6 +395,418 @@ function compactionOptions(
         },
         ...(trigger === undefined ? {} : { trigger }),
     };
+}
+
+test("a failed automatic compaction is attempted again once the context grows", async () => {
+    // The latch stops the retry loop, and growth is the only thing that opens
+    // it again. A new turn is not enough on its own: a parent waiting on
+    // subagents takes turn after turn that adds nothing, and re-arming on each
+    // one spends a summarizer call per turn to fail the same way. Growth says
+    // the conditions are no longer the ones that failed.
+    const { seen, channel } = await latchSession("loop-latch");
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    // Well past COMPACTION_RETRY_GROWTH_TOKENS, and in a user message, which
+    // tool result aging cannot shrink back down.
+    channel.client.send({ type: "prompt", content: "second job ".repeat(8_000) });
+    await drain(channel);
+
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(started(seen)).toBeGreaterThan(afterFirst);
+});
+
+test("a failed automatic compaction is not retried on a turn that adds nothing", async () => {
+    // The other half of the same rule. Without growth the latch holds, and a
+    // session that cannot compact stops paying for a call that will fail.
+    const { seen, channel } = await latchSession("loop-latch-quiet");
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    const afterFirst = started(seen);
+
+    channel.client.send({ type: "prompt", content: "ok" });
+    await drain(channel);
+
+    expect(afterFirst).toBeGreaterThan(0);
+    expect(started(seen)).toBe(afterFirst);
+});
+
+test("an abort during an automatic compaction stops the compaction, not the turn", async () => {
+    // The gesture belongs to the thing the user can see running. The turn is
+    // parked on the compaction, so stopping the compaction lets it carry on
+    // with the span it already has rather than losing the work as well.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-cancel", cwd: workspace },
+    );
+
+    const script: AssistantMessage[] = [];
+    for (let round = 1; round <= 3; round += 1) {
+        writeFileSync(
+            join(workspace, `notes-${round}.txt`),
+            `chunk ${round} `.repeat(6_000),
+        );
+        script.push(toolCall(`cancel-call-${round}`, round));
+    }
+    script.push(assistantText("all done"));
+
+    const agent = new FauxAdapter(script);
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+
+    // Sent from inside the summarizer call, so the abort is guaranteed to
+    // arrive while a compaction is actually in flight.
+    const compaction = cancellingCompactionOptions(
+        () => channel.client.send({ type: "abort" }),
+        { tokens: 20_000 },
+    );
+
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction,
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "do the long job" });
+    const updates = await drain(channel);
+
+    // The compaction stopped, and nothing it produced was applied.
+    expect(seen.some((event) =>
+        event.type === "compaction_finished"
+        && "outcome" in event
+        && event.outcome === "cancelled"
+    )).toBe(true);
+    expect(store.latestCompaction()).toBeUndefined();
+
+    // And it stopped once. The context is still over the trigger, so without
+    // the latch the next tool boundary opens another one and the user is
+    // pressing escape every few seconds for the rest of the turn.
+    expect(started(seen)).toBe(1);
+
+    // And the turn it was running inside reached its end.
+    expect(updates.some((update) => update.type === "turn_finished")).toBe(true);
+    expect(store.messages().some((message) =>
+        message.role === "assistant"
+        && message.content.some((block) =>
+            block.type === "text" && block.text.includes("all done")
+        )
+    )).toBe(true);
+});
+
+test("an abort with no compaction running still stops the turn", async () => {
+    // The other half of the same rule: compaction takes the gesture only
+    // while it holds it, and hands it straight back.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-cancel-turn", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "small ".repeat(10));
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+
+    // Aborts from inside the agent's own call, so no compaction is anywhere
+    // near the window when the command lands.
+    let calls = 0;
+    const agent: ModelAdapter = {
+        stream(request: ModelRequest) {
+            calls += 1;
+            const round = calls;
+            if (round === 1) {
+                channel.client.send({ type: "abort" });
+            }
+            return {
+                [Symbol.asyncIterator]: async function* () {},
+                result: async () => {
+                    if (round > 1) {
+                        return assistantText("second round");
+                    }
+                    await waitForAbort(request.signal);
+                    return {
+                        ...assistantText("stopped"),
+                        stopReason: "aborted",
+                    } as AssistantMessage;
+                },
+            };
+        },
+    } as unknown as ModelAdapter;
+
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction: compactionOptions({ tokens: 20_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "start something" });
+    await drain(channel);
+
+    expect(seen.some((event) => event.type === "abort_requested")).toBe(true);
+    expect(started(seen)).toBe(0);
+    // The turn stopped rather than being told to and carrying on: the second
+    // scripted round never ran, so nothing asked the model again.
+    expect(calls).toBe(1);
+    expect(store.messages().some((message) =>
+        message.role === "assistant"
+        && message.content.some((block) =>
+            block.type === "text" && block.text.includes("second round")
+        )
+    )).toBe(false);
+});
+
+test("a provider refusing the request for size reopens a latched compaction", async () => {
+    // The latch waits for the estimate to grow. A refusal is the provider
+    // saying that estimate was wrong, so waiting for it is waiting on a
+    // number that has already lost its authority, and every later request is
+    // refused for a reason the user cannot connect to anything they did.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-refused", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+
+    const faux = new FauxAdapter([
+        toolCall("refused-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+    ]);
+    // The call after the tool result is refused for size, which is the shape
+    // a cancelled-but-needed compaction leaves behind.
+    let calls = 0;
+    const agent: ModelAdapter = {
+        stream(request: ModelRequest) {
+            calls += 1;
+            if (calls !== 2) {
+                return faux.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "request_too_large",
+                resolution: "user_action",
+                message: "prompt is too long",
+            } as ProviderFailure, undefined);
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...assistantText(""),
+                    stopReason: "error",
+                    errorMessage: error.message,
+                } as AssistantMessage,
+            });
+            return stream;
+        },
+    } as unknown as ModelAdapter;
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        compaction: unavailableCompactionOptions({ tokens: 2_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    await drain(channel);
+    // The summarizer is unreachable, so that attempt latched.
+    expect(started(seen)).toBe(1);
+
+    channel.client.send({ type: "prompt", content: "second" });
+    await drain(channel);
+
+    // Without the refusal the transcript has not grown by the margin the
+    // latch waits for, so this second attempt only happens because the
+    // provider overruled the estimate.
+    expect(started(seen)).toBe(2);
+});
+
+test("a refusal under the trigger compacts anyway, and buys exactly one attempt", async () => {
+    // Nothing is latched here. The estimate is under the trigger and the
+    // provider has refused the request all the same, so the only number that
+    // would ever have started a compaction is the one that just lost its
+    // authority. Without this the session sends refused requests until an
+    // estimate it should not believe finally crosses a line.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-refused-untriggered", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(200));
+
+    const faux = new FauxAdapter([
+        toolCall("under-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+        assistantText("third done"),
+    ]);
+    let calls = 0;
+    const agent: ModelAdapter = {
+        stream(request: ModelRequest) {
+            calls += 1;
+            if (calls !== 2) {
+                return faux.stream(request);
+            }
+            const stream = new ModelEventStream();
+            const error = new ProviderFailureError({
+                kind: "request_too_large",
+                resolution: "user_action",
+                message: "prompt is too long",
+            } as ProviderFailure, undefined);
+            stream.push({ type: "start" });
+            stream.push({
+                type: "error",
+                error,
+                message: {
+                    ...assistantText(""),
+                    stopReason: "error",
+                    errorMessage: error.message,
+                } as AssistantMessage,
+            });
+            return stream;
+        },
+    } as unknown as ModelAdapter;
+
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        sessionStore: store,
+        eventBus: events,
+        approvalMode: "auto",
+        // Far above anything this session will reach, so the trigger alone
+        // never fires and every compaction here is the refusal's doing.
+        compaction: compactionOptions({ tokens: 5_000_000 }),
+        readModelSettings: () => ({ model: "test", contextWindow: 8_000_000 }),
+        updateModelSettings: async () => undefined,
+        readApprovalMode: () => "auto",
+        updateApprovalMode: async () => undefined,
+    });
+
+    channel.client.send({ type: "prompt", content: "first" });
+    await drain(channel);
+    expect(started(seen)).toBe(0);
+
+    channel.client.send({ type: "prompt", content: "second" });
+    await drain(channel);
+    expect(started(seen)).toBe(1);
+
+    // And the refusal is spent. It bought that attempt; left set it would buy
+    // another one later, against a session nothing has refused since.
+    channel.client.send({ type: "prompt", content: "third" });
+    await drain(channel);
+    expect(started(seen)).toBe(1);
+});
+
+function cancellingCompactionOptions(
+    onCall: () => void,
+    trigger?: SessionCompactionOptions["trigger"],
+): SessionCompactionOptions {
+    const summarizer: ModelAdapter = {
+        stream(request: ModelRequest) {
+            return {
+                [Symbol.asyncIterator]: async function* () {},
+                result: async () => {
+                    onCall();
+                    await waitForAbort(request.signal);
+                    // Answered anyway, which is the case the check exists
+                    // for: a summary already paid for is still not applied
+                    // to a session that asked to be left alone.
+                    return assistantText(
+                        "# Task\nRun the long job.\n\n# State\nRunning.",
+                    );
+                },
+            };
+        },
+    } as unknown as ModelAdapter;
+    return {
+        strategy: fullSummaryStrategy,
+        models: {
+            [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
+                summarizer,
+                { models: [{ provider: "faux", model: "test" }] },
+            ),
+        },
+        ...(trigger === undefined ? {} : { trigger }),
+    };
+}
+
+async function waitForAbort(signal: AbortSignal | undefined): Promise<void> {
+    if (signal === undefined || signal.aborted) {
+        return;
+    }
+    await new Promise<void>((resolve) => {
+        signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+}
+
+function started(seen: readonly EngineEvent[]): number {
+    return seen.filter((event) => event.type === "compaction_started").length;
+}
+
+async function latchSession(sessionId: string): Promise<{
+    seen: EngineEvent[];
+    channel: ReturnType<typeof createInProcessChannel>;
+}> {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId, cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+    const script: AssistantMessage[] = [
+        toolCall("latch-call-1", 1),
+        assistantText("first done"),
+        assistantText("second done"),
+    ];
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter(script),
+        "test",
+        undefined,
+        {
+            sessionStore: store,
+            eventBus: events,
+            approvalMode: "auto",
+            compaction: unavailableCompactionOptions({ tokens: 2_000 }),
+            readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            updateModelSettings: async () => undefined,
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+        },
+    );
+    return { seen, channel };
 }
 
 function unavailableCompactionOptions(

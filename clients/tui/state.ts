@@ -844,6 +844,14 @@ function applyCompaction(
             }`,
         );
     }
+    if (update.outcome === "cancelled") {
+        // Silence here reads as a compaction that is still running, or one
+        // that quietly failed. It stopped because it was asked to.
+        return appendTuiNotice(
+            state,
+            "Compaction stopped. The earlier messages were left as they were.",
+        );
+    }
     if (update.outcome === "rejected" || update.outcome === "unavailable") {
         return appendTuiNotice(
             state,

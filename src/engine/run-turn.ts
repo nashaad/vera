@@ -177,8 +177,26 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
  * that has already been compacted must not be judged by the number that
  * triggered the compaction, which is the stale-trigger loop.
  */
+/**
+ * How much a session must grow after a failed automatic compaction before it
+ * is worth attempting again. Small enough that a session recovers within a
+ * few tool boundaries, large enough that an unreachable route is not called
+ * on every one of them.
+ */
+export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
+
+/** The most the estimator is ever corrected by. */
+const MAX_CONTEXT_SCALE = 3;
+
 export interface ContextWatch {
     measurement?: ContextMeasurement;
+    /**
+     * How far the estimator undershoots what the provider counts, from the
+     * last request that reported usage. Never below 1: a provider that bills
+     * cached input separately reports less than the estimate, and believing
+     * that would move the compaction trigger the wrong way.
+     */
+    scale?: number;
     /**
      * The messages' own share of `measurement.tokens`, kept so the fixed
      * overhead (system prompt, tools, instructions) can be read back out as
@@ -186,6 +204,25 @@ export interface ContextWatch {
      * the part of the reading that stays true.
      */
     messageTokens?: number;
+    /**
+     * Set when a provider refused a request for being too large. The estimate
+     * said there was room and the provider says there is not, so the reading
+     * the compaction latch was holding out for is the wrong reading to trust.
+     */
+    refusedForSize?: boolean;
+}
+
+/**
+ * The turn a compaction is running inside, when it is running inside one.
+ * Without this a compaction cannot tell a stop it was given from a stop it
+ * caught: both arrive as an aborted signal, and only one of them means the
+ * user is still waiting for something to carry on.
+ */
+export interface CompactionTurnLink {
+    /** Registered so an abort command can reach the compaction alone. */
+    readonly controller: AbortController;
+    /** The turn's own signal, aborted only when the turn itself was stopped. */
+    readonly turnSignal: AbortSignal;
 }
 
 /** The model and window a turn's next request will use for compaction. */
@@ -210,6 +247,7 @@ export interface RunTurnState {
         signal: AbortSignal,
         pendingMessages?: readonly ModelMessage[],
         context?: CompactionContext,
+        turn?: CompactionTurnLink,
     ) => Promise<void>;
     readonly compactionPolicy?: {
         readonly trigger?: CompactionTrigger;
@@ -288,6 +326,10 @@ export interface SessionCompactionOptions {
     readonly trigger?: CompactionTrigger;
     /** Token target for a session whose window is unknown. */
     readonly targetTokens?: number;
+    /** Share of the window a compaction aims to land under. */
+    readonly postCompactionTargetFraction?: number;
+    /** Ceiling on the words a strategy asks a summarizer for. */
+    readonly summaryWordCap?: number;
     /** Complete user turns preferred verbatim after compaction. */
     readonly retainedUserTurns?: number;
 }
@@ -839,6 +881,8 @@ export async function runHeadlessLoop(
     // into another request to the same unavailable route. A new user turn
     // resets the latch and gets one fresh attempt.
     let automaticCompactionBlocked = false;
+    /** The context reading when the latch closed, for the growth check. */
+    let automaticCompactionBlockedAt: number | undefined;
     // A prompt can arrive before there is a finished boundary to compact.
     // Permit one retry after that prompt is durable, then latch if the same
     // structural problem remains at a real tool boundary.
@@ -891,6 +935,8 @@ export async function runHeadlessLoop(
             ...(pendingUserTurns === 0 ? {} : { pendingUserTurns }),
         };
     };
+    /** The most recent unscaled reading, for comparisons across turns. */
+    let lastRawEstimate = 0;
     const measureContextNow = (
         pendingMessages: readonly ModelMessage[] = [],
         context?: CompactionContext,
@@ -899,11 +945,22 @@ export async function runHeadlessLoop(
         const modelContext = store.modelContext(
             agingPolicy(context, pendingMessages),
         );
+        const overheadTokens = fixedOverhead();
+        const estimate = measureMessages([
+            ...modelContext,
+            ...pendingMessages,
+        ]) + overheadTokens;
+        // Kept unscaled for the retry latch below. `scale` moves in both
+        // directions between turns, so a reading frozen in provider units
+        // would be compared against later ones taken at a different factor.
+        lastRawEstimate = estimate;
         return {
-            tokens: measureMessages([
-                ...modelContext,
-                ...pendingMessages,
-            ]) + fixedOverhead(),
+            overheadTokens,
+            // Scaled into the provider's units. Characters over four is the
+            // only measure available before a request is sent, and it reads
+            // low against real tokenizers, so a session can pass the window
+            // while the trigger still believes there is room.
+            tokens: Math.ceil(estimate * (contextWatch.scale ?? 1)),
             ...(capacity === undefined ? {} : { capacity }),
             estimated: true,
         };
@@ -932,17 +989,11 @@ export async function runHeadlessLoop(
             force = false,
             pendingMessages: readonly ModelMessage[] = [],
             context?: CompactionContext,
+            turn?: CompactionTurnLink,
         ): Promise<void> => {
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
             );
-            if (!force && hasPendingUserTurn) {
-                automaticCompactionBlocked = false;
-                automaticCompactionRetryAfterPending = false;
-            }
-            if (!force && automaticCompactionBlocked) {
-                return;
-            }
             if (
                 !force
                 && pendingMessages.length === 0
@@ -951,6 +1002,37 @@ export async function runHeadlessLoop(
                 automaticCompactionRetryAfterPending = false;
             }
             const measurement = measureContextNow(pendingMessages, context);
+            // A failed automatic compaction stops the retry loop, but it must
+            // not stop compaction for the rest of the session. A turn that
+            // never shows a user prompt, a parent waiting on subagents chief
+            // among them, would otherwise grow past the window in silence.
+            // Growth since the failure is the signal that the conditions are
+            // no longer the ones that failed.
+            if (!force && automaticCompactionBlocked) {
+                // Past the window there is nothing left to protect: the
+                // request will be refused whatever happens, so a retry that
+                // might work costs one call against a turn that certainly
+                // fails. This also covers a switch to a model with a smaller
+                // window, and a window small enough that the growth the latch
+                // waits for could never arrive before the window did.
+                const overWindow = measurement.capacity !== undefined
+                    && measurement.tokens >= measurement.capacity;
+                // A provider refusal outranks both. The estimate is what the
+                // growth rule reads, and the refusal is the provider saying
+                // that estimate is wrong, so waiting for it to grow waits for
+                // a number that already lost its authority.
+                if (
+                    !overWindow
+                    && !contextWatch.refusedForSize
+                    && (automaticCompactionBlockedAt === undefined
+                        || lastRawEstimate < automaticCompactionBlockedAt
+                            + COMPACTION_RETRY_GROWTH_TOKENS)
+                ) {
+                    return;
+                }
+                automaticCompactionBlocked = false;
+                automaticCompactionBlockedAt = undefined;
+            }
             const compactionModel = context?.model
                 ?? options.readModelSettings?.().model
                 ?? model;
@@ -960,9 +1042,22 @@ export async function runHeadlessLoop(
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
-            if (!force && !shouldCompact(measurement, compaction.trigger)) {
+            // The refusal outranks the trigger for the same reason it outranks
+            // the latch: both read the estimate, and the provider has just
+            // said the estimate is wrong. Without this a session under the
+            // trigger keeps sending requests that are refused, with nothing
+            // left to raise the number that would have saved it.
+            if (
+                !force
+                && !contextWatch.refusedForSize
+                && !shouldCompact(measurement, compaction.trigger)
+            ) {
                 return;
             }
+            // Spent here rather than on success: it bought this attempt, and
+            // leaving it set would let it buy another one long afterwards,
+            // against a latch it has nothing to do with.
+            contextWatch.refusedForSize = false;
             events.emit({
                 type: "compaction_started",
                 strategy: compaction.strategy.id,
@@ -975,7 +1070,8 @@ export async function runHeadlessLoop(
             const modelContext = store.modelContext(
                 agingPolicy(context, pendingMessages),
             );
-            const result = await compactSession({
+            const compactionRequest:
+                Parameters<typeof compactSession>[0] = {
                 store,
                 strategy: compaction.strategy,
                 models: compaction.models,
@@ -997,10 +1093,39 @@ export async function runHeadlessLoop(
                 ...(compaction.targetTokens === undefined
                     ? {}
                     : { targetTokens: compaction.targetTokens }),
+                ...(compaction.postCompactionTargetFraction === undefined
+                    ? {}
+                    : {
+                        postCompactionTargetFraction:
+                            compaction.postCompactionTargetFraction,
+                    }),
+                ...(compaction.summaryWordCap === undefined
+                    ? {}
+                    : { summaryWordCap: compaction.summaryWordCap }),
                 ...(compaction.retainedUserTurns === undefined
                     ? {}
                     : { retainedUserTurns: compaction.retainedUserTurns }),
-            }, measurement, signal);
+            };
+            if (turn !== undefined) {
+                inbound.beginAutomaticCompaction(turn.controller);
+            }
+            let result: Awaited<ReturnType<typeof compactSession>>;
+            try {
+                result = await compactSession(
+                    compactionRequest,
+                    measurement,
+                    signal,
+                );
+            } finally {
+                // Ended here rather than around the whole call, because the
+                // early returns above leave without emitting anything: an
+                // abort arriving in that window would cancel a compaction
+                // that never started and leave the client waiting for a
+                // finish that has nobody to send it.
+                if (turn !== undefined) {
+                    inbound.endAutomaticCompaction(turn.controller);
+                }
+            }
             const resultModel = result.outcome === "compacted"
                 ? result.model
                 : undefined;
@@ -1016,6 +1141,13 @@ export async function runHeadlessLoop(
                     : { provider: reportedProvider }),
                 model: resultModel ?? summarizerModel,
                 outcome: result.outcome,
+                // A turn-originated abort takes the compaction down with it.
+                // Saying so is what lets a client keep showing the stop it was
+                // asked for until the turn itself reports back.
+                ...(result.outcome === "cancelled"
+                        && turn?.turnSignal.aborted === true
+                    ? { stoppedWithTurn: true }
+                    : {}),
                 ...("reason" in result ? { reason: result.reason } : {}),
                 ...(result.outcome === "compacted"
                     ? { before: result.before, after: result.after }
@@ -1024,14 +1156,23 @@ export async function runHeadlessLoop(
             if (result.outcome === "no_boundary" && hasPendingUserTurn) {
                 automaticCompactionRetryAfterPending = true;
             }
+            const stoppedWithTurn = result.outcome === "cancelled"
+                && turn?.turnSignal.aborted === true;
             if (
                 !force
                 && result.outcome !== "compacted"
                 && result.outcome !== "not_needed"
-                && result.outcome !== "cancelled"
+                && !stoppedWithTurn
                 && !(result.outcome === "no_boundary" && hasPendingUserTurn)
             ) {
+                // Cancelled latches with the failures. The trigger is still
+                // over its line, so without this the next tool boundary opens
+                // another one and the user is pressing escape every few
+                // seconds against a session that will not stop asking. Growth
+                // reopens it, and the over-window escape above still saves a
+                // session that would otherwise be unable to send anything.
                 automaticCompactionBlocked = true;
+                automaticCompactionBlockedAt = lastRawEstimate;
             }
             if (result.outcome === "compacted") {
                 // The compaction result already measured the next request,
@@ -1092,11 +1233,13 @@ export async function runHeadlessLoop(
                     signal: AbortSignal,
                     pendingMessages: readonly ModelMessage[] = [],
                     context?: CompactionContext,
+                    turn?: CompactionTurnLink,
                 ) => runCompaction(
                     signal,
                     false,
                     pendingMessages,
                     context,
+                    turn,
                 ),
             }),
         deliveryInbox: store,
@@ -1371,13 +1514,12 @@ export async function runTurn(
         // strand a message the user has already sent, and after the deliveries
         // are drained, so nothing pending disappears into a projection that
         // was assembled without it.
-        if (state.compact !== undefined) {
-            await state.compact(
-                turn.signal,
-                userMessage === undefined ? [] : [userMessage],
-                compactionContextForSettings(modelSettings, activeModel),
-            );
-        }
+        await compactDuringTurn(
+            state,
+            turn.signal,
+            userMessage === undefined ? [] : [userMessage],
+            compactionContextForSettings(modelSettings, activeModel),
+        );
         if (userMessage === undefined) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
@@ -1619,6 +1761,21 @@ export async function runTurn(
                             const cause = event.error.cause instanceof Error
                                 ? event.error.cause
                                 : undefined;
+                            if (
+                                event.error instanceof ProviderFailureError
+                                && event.error.failure.kind
+                                    === "request_too_large"
+                                && state.contextWatch !== undefined
+                            ) {
+                                // Recorded rather than acted on here: this
+                                // request is already lost, and the next one
+                                // is the one that needs the room. Without
+                                // this a compaction the user cancelled stays
+                                // cancelled while every later request is
+                                // refused for a reason nothing connects back
+                                // to the escape they pressed.
+                                state.contextWatch.refusedForSize = true;
+                            }
                             state.events.emit({
                                 type: "model_stream_error",
                                 error: sanitizeDiagnosticText(event.error.message),
@@ -1767,6 +1924,7 @@ export async function runTurn(
                 assistantMessage = prepared.message;
                 preparedToolCalls = prepared.toolCalls;
             }
+            calibrateContextWatch(state, measurement, assistantMessage);
             await commitMessage(state, assistantMessage);
 
             if (assistantMessage.stopReason === "length") {
@@ -1880,7 +2038,7 @@ export async function runTurn(
             // boundary inside a tool turn: compacting any earlier could put a
             // call in the summary while its result was still being produced.
             const capacity = capacityForModel(activeModel);
-            await state.compact?.(turn.signal, [], {
+            await compactDuringTurn(state, turn.signal, [], {
                 model: activeModel,
                 ...(capacity === undefined ? {} : { capacity }),
             });
@@ -1891,6 +2049,40 @@ export async function runTurn(
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });
     return assistantMessage;
+}
+
+/**
+ * Runs the turn's compaction under a signal of its own, linked to the turn's.
+ * Aborting the turn still stops the compaction, but stopping the compaction
+ * leaves the turn alive to carry on with the span it already has.
+ */
+async function compactDuringTurn(
+    state: RunTurnState,
+    turnSignal: AbortSignal,
+    pendingMessages: readonly ModelMessage[],
+    context: CompactionContext,
+): Promise<void> {
+    const compact = state.compact;
+    if (compact === undefined) {
+        return;
+    }
+    const controller = new AbortController();
+    const relay = () => {
+        controller.abort(turnSignal.reason);
+    };
+    if (turnSignal.aborted) {
+        relay();
+    } else {
+        turnSignal.addEventListener("abort", relay, { once: true });
+    }
+    try {
+        await compact(controller.signal, pendingMessages, context, {
+            controller,
+            turnSignal,
+        });
+    } finally {
+        turnSignal.removeEventListener("abort", relay);
+    }
 }
 
 function requireImageReader(
@@ -2889,4 +3081,36 @@ function acceptsImageInput(
     }
     return adapter.imageInputSupport?.(model)
         ?? adapter.supportsImageInput !== false;
+}
+
+/**
+ * Teaches the estimator what the provider actually counted.
+ *
+ * The engine measures a request as characters over four, which reads low
+ * against real tokenizers and does not see reasoning blocks or images at all.
+ * The response reports what the request really cost, and the ratio between the
+ * two is the correction the next estimate carries. Only ever upward: a
+ * provider that reports cached input separately reports a number under the
+ * estimate, and taking that for truth would push the compaction trigger the
+ * wrong way.
+ */
+function calibrateContextWatch(
+    state: RunTurnState,
+    measurement: ContextMeasurement,
+    message: ModelMessage,
+): void {
+    const watch = state.contextWatch;
+    if (watch === undefined || message.role !== "assistant") {
+        return;
+    }
+    const reported = message.usage.inputTokens;
+    if (
+        !Number.isSafeInteger(reported)
+        || reported <= 0
+        || measurement.tokens <= 0
+        || reported <= measurement.tokens
+    ) {
+        return;
+    }
+    watch.scale = Math.min(MAX_CONTEXT_SCALE, reported / measurement.tokens);
 }

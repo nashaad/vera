@@ -14,12 +14,14 @@ import type {
     ToolPresentation,
 } from "../model/types.ts";
 import type {
+    DeveloperSettingsPatch,
     ModelSettingsPatch,
     ModelTurnSettings,
     ReviewerSettingsPatch,
 } from "./model-settings.ts";
 import {
     contextWindowForModel,
+    isDeveloperSettingsPatch,
     isReviewerSettingsPatch,
 } from "./model-settings.ts";
 import {
@@ -564,6 +566,8 @@ export interface CompactionUpdate {
         | "unavailable"
         | "cancelled"
         | "busy";
+    /** Set when the compaction was stopped by the turn it ran inside. */
+    readonly stoppedWithTurn?: boolean;
     readonly reason?: string;
     /** Set on the started phase only, for a configuration mismatch. */
     readonly warning?: string;
@@ -1403,9 +1407,10 @@ function parseModelSettingsPatch(
     const hasReasoningEffort = Object.hasOwn(source, "reasoningEffort");
     const hasContextLimit = Object.hasOwn(source, "contextLimit");
     const hasReviewer = Object.hasOwn(source, "reviewer");
+    const hasDeveloper = Object.hasOwn(source, "developer");
     if (
         (!hasProvider && !hasModel && !hasReasoningEffort && !hasContextLimit
-            && !hasReviewer)
+            && !hasReviewer && !hasDeveloper)
         || (hasProvider
             && (typeof source.provider !== "string"
                 || source.provider.trim().length === 0))
@@ -1422,6 +1427,9 @@ function parseModelSettingsPatch(
         || (hasReviewer
             && source.reviewer !== null
             && !isReviewerSettingsPatch(source.reviewer))
+        || (hasDeveloper
+            && source.developer !== null
+            && !isDeveloperSettingsPatch(source.developer))
     ) {
         return undefined;
     }
@@ -1438,6 +1446,13 @@ function parseModelSettingsPatch(
         ...(model === undefined ? {} : { model }),
         ...(reasoningEffort === undefined ? {} : { reasoningEffort }),
         ...(contextLimit === undefined ? {} : { contextLimit }),
+        ...(hasDeveloper
+            ? {
+                developer: source.developer as
+                    | DeveloperSettingsPatch
+                    | null,
+            }
+            : {}),
         ...(!hasReviewer ? {} : {
             reviewer: source.reviewer as ReviewerSettingsPatch | null,
         }),
@@ -1853,6 +1868,9 @@ export function createProtocolEncoder(
                     : { provider: event.provider }),
                 ...(event.model === undefined ? {} : { model: event.model }),
                 outcome: event.outcome,
+                ...(event.stoppedWithTurn === undefined
+                    ? {}
+                    : { stoppedWithTurn: event.stoppedWithTurn }),
                 ...(event.reason === undefined ? {} : { reason: event.reason }),
                 ...(event.before === undefined ? {} : { before: event.before }),
                 ...(event.after === undefined ? {} : { after: event.after }),

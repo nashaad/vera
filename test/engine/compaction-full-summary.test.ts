@@ -4,6 +4,7 @@ import {
     FULL_SUMMARY_MODEL_SLOT,
     fullSummaryStrategy,
     MAX_SUMMARY_WORDS,
+    MIN_NOTE_TOKENS,
     summaryWordBudget,
 } from "../../src/engine/compaction-full-summary.ts";
 import { CompactionRejectedError } from "../../src/engine/compaction.ts";
@@ -105,6 +106,27 @@ test("the word budget stays under the token target it will be checked against", 
     expect(words).toBeLessThan(3_000);
 });
 
+test("the heading and the file list come off the target before the note is sized", async () => {
+    // The strategy writes both, and the target has to hold all three. Sizing
+    // the note to the whole target is how a rung that measured as viable
+    // comes back over it.
+    const small = await compact(span(), () => "the note", 900);
+    const large = await compact(span(), () => "the note", 2_000);
+
+    expect(small.words).toBeLessThan(summaryWordBudget(900));
+    expect(large.words).toBeLessThan(summaryWordBudget(2_000));
+});
+
+test("a target too small to hold a note is refused as room related", async () => {
+    // Rejected rather than attempted: a looser rung has the room, and it is
+    // the only thing that recovers.
+    const error = await compact(span(), () => "the note", MIN_NOTE_TOKENS)
+        .then(() => undefined, (thrown: unknown) => thrown);
+
+    expect(error).toBeInstanceOf(CompactionRejectedError);
+    expect((error as CompactionRejectedError).roomRelated).toBe(true);
+});
+
 async function compact(
     messages: readonly ModelMessage[],
     respond: () => string,
@@ -164,3 +186,11 @@ function text(message: ModelMessage | undefined): string {
     const block = message?.content[0];
     return block !== undefined && block.type === "text" ? block.text : "";
 }
+
+test("a word cap lowers the note budget and never raises it", () => {
+    expect(summaryWordBudget(90_000, 250)).toBe(250);
+    // The cap is a ceiling, not a target: a room-derived budget already under
+    // it stays where it is.
+    expect(summaryWordBudget(2_000, MAX_SUMMARY_WORDS))
+        .toBe(summaryWordBudget(2_000));
+});

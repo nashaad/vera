@@ -13,6 +13,7 @@ import {
     createRoutedCompletionService,
     type CompleteText,
 } from "./completion-service.ts";
+import { contextWindowForModel } from "./model-settings.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
 
 /**
@@ -63,11 +64,15 @@ export function bindCompaction(
     sessionModel: SessionModel | undefined,
     strategies: readonly CompactionStrategyDefinition[],
     slotModels?: readonly VeraCatalogModel[],
+    overrides?: CompactionOverrides,
 ): SessionCompactionOptions | undefined {
     if (profile === undefined) {
         return sessionModel === undefined
             ? undefined
-            : bindDefault(adapter, sessionModel, strategies);
+            : withOverrides(
+                bindDefault(adapter, sessionModel, strategies),
+                overrides,
+            );
     }
     const strategy = strategies.find(
         (candidate) => candidate.id === profile.strategy,
@@ -86,13 +91,20 @@ export function bindCompaction(
         }
         models[slot] = createRoutedCompletionService(adapter, {
             maxOutputTokens: COMPACTION_MAX_OUTPUT_TOKENS,
-            models: route.map((model) => ({
-                provider: model.provider,
-                model: model.model,
-                ...(model.reasoning_effort === undefined
-                    ? {}
-                    : { reasoningEffort: model.reasoning_effort }),
-            })),
+            models: route.map((model) => {
+                const window = contextWindowForModel(
+                    model.provider,
+                    model.model,
+                );
+                return {
+                    provider: model.provider,
+                    model: model.model,
+                    ...(model.reasoning_effort === undefined
+                        ? {}
+                        : { reasoningEffort: model.reasoning_effort }),
+                    ...(window === undefined ? {} : { contextWindow: window }),
+                };
+            }),
             ...(profile.timeout_ms === undefined
                 ? {}
                 : { timeoutMs: profile.timeout_ms }),
@@ -114,7 +126,7 @@ export function bindCompaction(
             ? {}
             : { tokens: profile.trigger_tokens }),
     };
-    return {
+    return withOverrides({
         strategy,
         models,
         diagnostics: {
@@ -133,6 +145,44 @@ export function bindCompaction(
         ...(profile.retained_user_turns === undefined
             ? {}
             : { retainedUserTurns: profile.retained_user_turns }),
+    }, overrides);
+}
+
+/**
+ * Values that replace what the profile and the engine's own constants would
+ * have decided. Separate from the profile because they do not come from the
+ * compaction block and are not a user's settings: they are what a developer
+ * turned on to make a compaction happen sooner and smaller than any real
+ * session would.
+ */
+export interface CompactionOverrides {
+    readonly triggerFraction?: number;
+    readonly postCompactionTargetFraction?: number;
+    readonly summaryWordCap?: number;
+}
+
+function withOverrides(
+    bound: SessionCompactionOptions | undefined,
+    overrides: CompactionOverrides | undefined,
+): SessionCompactionOptions | undefined {
+    if (bound === undefined || overrides === undefined) {
+        return bound;
+    }
+    return {
+        ...bound,
+        ...(overrides.triggerFraction === undefined ? {} : {
+            trigger: {
+                ...bound.trigger,
+                fraction: overrides.triggerFraction,
+            },
+        }),
+        ...(overrides.postCompactionTargetFraction === undefined ? {} : {
+            postCompactionTargetFraction:
+                overrides.postCompactionTargetFraction,
+        }),
+        ...(overrides.summaryWordCap === undefined
+            ? {}
+            : { summaryWordCap: overrides.summaryWordCap }),
     };
 }
 

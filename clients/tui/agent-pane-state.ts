@@ -35,6 +35,9 @@ export class TuiAgentPaneState {
             update.type === "compaction"
             && update.phase === "finished"
             && update.outcome !== "busy"
+            // The turn took this compaction down with it and is still
+            // unwinding, so the stop the user asked for has not landed yet.
+            && update.stoppedWithTurn !== true
         ) {
             this.abortRequested = false;
         }

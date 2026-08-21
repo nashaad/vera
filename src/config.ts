@@ -217,6 +217,7 @@ export interface VeraConfig {
     readonly disabled_builtin_extensions?: readonly string[];
     readonly disabled_prompt_contributions?: readonly string[];
     readonly experimental?: VeraExperimentalConfig;
+    readonly developer?: VeraDeveloperConfig;
     readonly event_log?: VeraEventLogConfig;
     readonly tips?: VeraTipsConfig;
     readonly tui?: VeraTuiConfig;
@@ -290,6 +291,36 @@ export interface VeraExperimentalConfig {
     readonly inbox?: boolean;
 }
 
+/**
+ * Overrides for testing Vera itself, kept in one block so that clearing
+ * `enabled` returns every one of them at once. Nothing here is read while
+ * `enabled` is false, and none of these values has a normal-use meaning: the
+ * windows are below what any real session wants, and the compaction numbers
+ * exist so a summary can be provoked in a minute rather than an afternoon.
+ */
+export interface VeraDeveloperConfig {
+    readonly enabled?: boolean;
+    /** Replaces `context_limit`, and reaches below the values it offers. */
+    readonly context_limit?: number;
+    /** Replaces the compaction profile's `trigger_fraction`. */
+    readonly compaction_trigger_fraction?: number;
+    /** Share of the window a compaction aims to land under. */
+    readonly post_compaction_target_fraction?: number;
+    /** Ceiling on the words a summary is asked for. */
+    readonly summary_word_cap?: number;
+}
+
+/**
+ * The developer overrides in force, or undefined when the block is off or
+ * absent. Every reader goes through this, so "off" cannot mean one thing in
+ * one place and another somewhere else.
+ */
+export function developerOverrides(
+    config: VeraConfig,
+): VeraDeveloperConfig | undefined {
+    return config.developer?.enabled === true ? config.developer : undefined;
+}
+
 export interface LoadVeraConfigOptions {
     readonly path?: string;
     readonly extensionDirectory?: string;
@@ -340,6 +371,13 @@ export interface VeraConfigDefaultsPatch {
         readonly url: string | null;
     };
     readonly inbox?: VeraInboxConfig | null;
+    /**
+     * Developer overrides, merged field by field. `null` clears the block.
+     * A field set to `null` clears that field alone.
+     */
+    readonly developer?:
+        | Readonly<Record<string, number | boolean | null | undefined>>
+        | null;
 }
 
 export function defaultVeraConfigPath(): string {
@@ -527,6 +565,13 @@ export function updateVeraConfigDefaults(
         ...(patch.inbox === undefined
             ? {}
             : { inbox: patch.inbox === null ? undefined : patch.inbox }),
+        ...(patch.developer === undefined
+            ? {}
+            : {
+                developer: patch.developer === null
+                    ? undefined
+                    : patchedDeveloper(current.developer, patch.developer),
+            }),
         ...(patch.provider !== undefined && patch.provider !== current.provider
             ? { fallback: undefined }
             : {}),
@@ -834,6 +879,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     );
     const experimental = parseExperimental(config.experimental);
     const inbox = parseInboxConfig(config.inbox);
+    const developer = parseDeveloperConfig(config.developer);
     const eventLog = parseEventLog(config.event_log);
     const tips = parseEventLog(config.tips);
     const tui = parseTuiConfig(config.tui);
@@ -865,6 +911,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
         || disabledPromptContributions === undefined
         || experimental === undefined
         || inbox === undefined
+        || developer === undefined
         || eventLog === undefined
         || tui === undefined
         || (config.model_feed_url !== undefined && modelFeedUrl === undefined)
@@ -941,6 +988,7 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             }),
         ...(config.experimental === undefined ? {} : { experimental }),
         ...(config.inbox === undefined ? {} : { inbox }),
+        ...(config.developer === undefined ? {} : { developer }),
         ...(config.event_log === undefined ? {} : { event_log: eventLog }),
         ...(config.tips === undefined ? {} : { tips }),
         ...(config.tui === undefined ? {} : { tui }),
@@ -1263,6 +1311,62 @@ function parseExperimental(
         return undefined;
     }
     return raw.inbox === undefined ? {} : { inbox: raw.inbox };
+}
+
+const DEVELOPER_NUMBER_KEYS = [
+    "context_limit",
+    "compaction_trigger_fraction",
+    "post_compaction_target_fraction",
+    "summary_word_cap",
+] as const;
+
+function parseDeveloperConfig(
+    value: unknown,
+): VeraDeveloperConfig | undefined {
+    if (value === undefined) {
+        return {};
+    }
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return undefined;
+    }
+    const raw = value as Record<string, unknown>;
+    if (raw.enabled !== undefined && typeof raw.enabled !== "boolean") {
+        return undefined;
+    }
+    const parsed: Record<string, number | boolean> = {};
+    if (raw.enabled !== undefined) {
+        parsed.enabled = raw.enabled;
+    }
+    for (const key of DEVELOPER_NUMBER_KEYS) {
+        const entry = raw[key];
+        if (entry === undefined) {
+            continue;
+        }
+        if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) {
+            return undefined;
+        }
+        parsed[key] = entry;
+    }
+    return parsed as VeraDeveloperConfig;
+}
+
+function patchedDeveloper(
+    current: VeraDeveloperConfig | undefined,
+    patch: Readonly<Record<string, number | boolean | null | undefined>>,
+): VeraDeveloperConfig | undefined {
+    const merged: Record<string, number | boolean> = { ...(current ?? {}) };
+    for (const [key, value] of Object.entries(patch)) {
+        if (value === null) {
+            delete merged[key];
+            continue;
+        }
+        if (value !== undefined) {
+            merged[key] = value;
+        }
+    }
+    return Object.keys(merged).length === 0
+        ? undefined
+        : merged as VeraDeveloperConfig;
 }
 
 function parseInboxConfig(value: unknown): VeraInboxConfig | undefined {

@@ -90,6 +90,8 @@ export interface CompactionBudget {
     readonly trigger?: CompactionTrigger;
     /** Absolute token target, overriding the one derived from the trigger. */
     readonly targetTokens?: number;
+    /** Replaces `POST_COMPACTION_TARGET_FRACTION` when set. */
+    readonly postCompactionTargetFraction?: number;
 }
 
 export interface CompactionSchedulerOptions {
@@ -112,6 +114,9 @@ export interface CompactionSchedulerOptions {
     readonly diagnostics?: SessionCompactionDiagnostics;
     readonly trigger?: CompactionTrigger;
     readonly targetTokens?: number;
+    readonly postCompactionTargetFraction?: number;
+    /** Ceiling on the words a strategy asks a summarizer for. */
+    readonly summaryWordCap?: number;
     /** Complete user turns preferred verbatim. `RETAINED_USER_TURNS` if unset. */
     readonly retainedUserTurns?: number;
 }
@@ -129,7 +134,9 @@ export function compactionTargetBudget(
 ): number | undefined {
     if (measurement.capacity !== undefined) {
         return Math.floor(
-            measurement.capacity * POST_COMPACTION_TARGET_FRACTION,
+            measurement.capacity
+                * (budget?.postCompactionTargetFraction
+                    ?? POST_COMPACTION_TARGET_FRACTION),
         );
     }
     if (budget?.targetTokens !== undefined) {
@@ -283,9 +290,14 @@ export async function compactSession(
         ...previousProjection,
         ...active.slice(previousBoundary + 1).map((entry) => entry.message),
     ];
+    // Stated by the measurer where it can be, because `measurement.tokens`
+    // may be scaled into the provider's units while `measureMessages` and the
+    // budget below are raw estimator units. Subtracting one from the other
+    // would fold the whole transcript's calibration into the overhead.
     const overhead = Math.max(
         0,
-        measurement.tokens - measureMessages(modelContext),
+        measurement.overheadTokens
+            ?? measurement.tokens - measureMessages(modelContext),
     );
 
     const viable: { plan: BoundaryPlan; targetTokens: number }[] = [];
@@ -343,7 +355,7 @@ export async function compactSession(
     // summarizer overshot it anyway, which the next turn would reproduce
     // exactly, so the session would never compact again. Dropping to a looser
     // rung costs one more call and is the only thing here that recovers.
-    let rejection: CompactionOutcome | undefined;
+    let retryable: CompactionOutcome | undefined;
     for (const attempt of attempts) {
         if (signal.aborted) {
             return { outcome: "cancelled" };
@@ -361,17 +373,15 @@ export async function compactSession(
             store,
             signal,
         });
-        if (outcome.result.outcome !== "rejected") {
+        // A fault no extra room would change: every further rung would spend a
+        // call to collect the same answer. Success says the same thing for a
+        // happier reason.
+        if (!outcome.retry) {
             return outcome.result;
         }
-        rejection = outcome.result;
-        // A fault no extra room would change: every further rung would spend a
-        // call to collect the same answer.
-        if (!outcome.retry) {
-            return rejection;
-        }
+        retryable = outcome.result;
     }
-    return rejection ?? { outcome: "cancelled" };
+    return retryable ?? { outcome: "cancelled" };
 }
 
 /** How many boundaries one compaction may spend a summarizer call on. */
@@ -429,6 +439,9 @@ async function attemptCompaction(
         messages: deepFreeze(structuredClone(span) as ModelMessage[]),
         targetTokens,
         models: options.models,
+        ...(options.summaryWordCap === undefined
+            ? {}
+            : { summaryWordCap: options.summaryWordCap }),
     };
 
     let projection: readonly ModelMessage[];
@@ -436,6 +449,10 @@ async function attemptCompaction(
     let proposalProvider: string | undefined;
     try {
         const proposal = await options.strategy.compact(request, signal);
+        // Checked here as well as in the catch, for the abort that lands as
+        // the call resolves: a cached or already buffered answer returns
+        // normally rather than throwing, and applying it would rewrite the
+        // context of a session that asked to be left alone.
         if (signal.aborted) {
             return { result: { outcome: "cancelled" }, retry: false };
         }
@@ -453,9 +470,12 @@ async function attemptCompaction(
             };
         }
         if (error instanceof CompletionUnavailableError) {
+            // A route that had somewhere to go and could not reach it for want
+            // of room is the case a shorter span fixes, which is what the next
+            // rung is.
             return {
                 result: { outcome: "unavailable", reason: error.message },
-                retry: false,
+                retry: error.roomRelated,
             };
         }
         return {
@@ -475,9 +495,6 @@ async function attemptCompaction(
         ? [...projection, ...suffix]
         : options.projectModelContext(projection, suffix);
     const after = measureMessages(afterContext) + overhead;
-    if (signal.aborted) {
-        return { result: { outcome: "cancelled" }, retry: false };
-    }
     if (after >= before) {
         return {
             result: {

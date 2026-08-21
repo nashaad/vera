@@ -367,6 +367,7 @@ export class InboundCommandRouter {
     private contextAppend: Promise<void> | undefined;
     private compactionAbort: AbortController | undefined;
     private compactionInFlight: Promise<void> | undefined;
+    private automaticCompactionAbort: AbortController | undefined;
 
     constructor(
         endpoint: MessageChannel<AgentUpdate, EngineCommand>,
@@ -853,14 +854,18 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "abort") {
-                    if (this.activeTurn !== undefined) {
+                    // A running compaction claims the gesture. The turn it
+                    // sits inside is parked on it and carries on once it
+                    // stops, so the one thing the user can see happening is
+                    // the one thing that stops.
+                    const compaction = this.automaticCompactionAbort
+                        ?? this.compactionAbort;
+                    if (compaction !== undefined) {
+                        this.events.emit({ type: "abort_requested" });
+                        compaction.abort(new Error("Compaction aborted"));
+                    } else if (this.activeTurn !== undefined) {
                         this.events.emit({ type: "abort_requested" });
                         this.activeTurn.abort(new Error("Turn aborted"));
-                    } else if (this.compactionAbort !== undefined) {
-                        this.events.emit({ type: "abort_requested" });
-                        this.compactionAbort.abort(
-                            new Error("Compaction aborted"),
-                        );
                     }
                 }
             }
@@ -873,6 +878,20 @@ export class InboundCommandRouter {
             for (const requestId of this.pendingQuestions.keys()) {
                 this.finishQuestion(requestId, { outcome: "cancelled" });
             }
+        }
+    }
+
+    /**
+     * Registers the controller for a compaction the turn loop started, so an
+     * abort command can reach it without taking the turn down with it.
+     */
+    beginAutomaticCompaction(controller: AbortController): void {
+        this.automaticCompactionAbort = controller;
+    }
+
+    endAutomaticCompaction(controller: AbortController): void {
+        if (this.automaticCompactionAbort === controller) {
+            this.automaticCompactionAbort = undefined;
         }
     }
 

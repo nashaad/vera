@@ -151,3 +151,38 @@ test("configured trigger bounds reach the scheduler", () => {
     expect(bound?.trigger).toEqual({ fraction: 0.2, tokens: 30_000 });
     expect(bound?.targetTokens).toBe(10_000);
 });
+
+test("developer overrides replace the profile's trigger and the engine's own sizing", () => {
+    const bound = bindCompaction(
+        profile({ trigger_fraction: 0.8, trigger_tokens: 90_000 }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+        undefined,
+        {
+            triggerFraction: 0.3,
+            postCompactionTargetFraction: 0.2,
+            summaryWordCap: 250,
+        },
+    );
+
+    // The fraction is replaced and the token bound is left alone: an override
+    // touches what it names, so a configured bound does not disappear because
+    // a developer moved a different one.
+    expect(bound?.trigger).toEqual({ fraction: 0.3, tokens: 90_000 });
+    expect(bound?.postCompactionTargetFraction).toBe(0.2);
+    expect(bound?.summaryWordCap).toBe(250);
+});
+
+test("no developer overrides leaves a bound profile untouched", () => {
+    const plain = bindCompaction(
+        profile({ trigger_fraction: 0.8 }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+
+    expect(plain?.trigger).toEqual({ fraction: 0.8 });
+    expect(plain?.postCompactionTargetFraction).toBeUndefined();
+    expect(plain?.summaryWordCap).toBeUndefined();
+});

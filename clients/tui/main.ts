@@ -60,6 +60,7 @@ import {
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import type {
+    DeveloperSettingsPatch,
     ModelSettingsPatch,
     ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
@@ -372,6 +373,8 @@ import {
     startTuiReviewerPicker,
     startTuiSettingsMenu,
     startTuiContextLimitPicker,
+    startTuiDeveloperMenu,
+    startTuiDeveloperValuePicker,
     startTuiSettingsPicker,
     switchedModelTab,
     syncTuiModelPicker,
@@ -6862,6 +6865,11 @@ export async function startTui(
                     update.type === "compaction"
                     && update.phase === "finished"
                     && update.outcome !== "busy"
+                    // The turn that took this compaction down with it is still
+                    // unwinding, and it is the one the user asked to stop.
+                    // Clearing here drops the stop indicator while the thing
+                    // being stopped is still running.
+                    && update.stoppedWithTurn !== true
                 ) {
                     abortRequested = false;
                 }
@@ -9271,7 +9279,10 @@ export async function startTui(
 
     function openSettingsMenu(): void {
         settingsPickerAgent = focusedAgentClient();
-        settingsPicker = startTuiSettingsMenu("settings");
+        settingsPicker = startTuiSettingsMenu(
+            "settings",
+            focusedAgentState()?.modelSettings?.developer,
+        );
         composer.blur();
         renderState();
         focusActiveSurface();
@@ -9292,6 +9303,27 @@ export async function startTui(
             renderState();
             focusActiveSurface();
             return;
+        }
+        if (target === "developer") {
+            settingsPicker = withTuiPickerParent(
+                startTuiDeveloperMenu(state.modelSettings?.developer),
+                parent,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (target.startsWith("developer_")) {
+            const pane = startTuiDeveloperValuePicker(
+                target,
+                state.modelSettings?.developer,
+            );
+            if (pane !== undefined) {
+                settingsPicker = withTuiPickerParent(pane, parent);
+                renderState();
+                focusActiveSurface();
+                return;
+            }
         }
         if (target === "permission_mode") return openPermissionsPicker(parent);
         if (target === "granted_permissions") return openPreferencesList(parent);
@@ -10043,6 +10075,13 @@ export async function startTui(
                     { contextLimit: selection.limit },
                     `context limit → ${label}`,
                     `context limit to ${label}`,
+                    settingsPickerAgent,
+                );
+            } else if (selection.kind === "developer") {
+                requestModelSettingsChange(
+                    { developer: selection.patch },
+                    developerChangeLabel(selection.patch),
+                    developerChangeLabel(selection.patch),
                     settingsPickerAgent,
                 );
             } else if (selection.kind === "menu") {
@@ -12053,6 +12092,29 @@ function describeModelPatch(patch: ModelSettingsPatch): string {
             : model === undefined ? effort : `at ${effort}`,
     ];
     return parts.filter((part) => part !== undefined).join(" ");
+}
+
+const DEVELOPER_FIELD_NAMES: Readonly<Record<string, string>> = {
+    contextLimit: "developer context limit",
+    compactionTriggerFraction: "developer compaction trigger",
+    postCompactionTargetFraction: "developer post-compaction target",
+    summaryWordCap: "developer summary word cap",
+};
+
+/** What one developer row changed, in the words the row used. */
+function developerChangeLabel(patch: DeveloperSettingsPatch): string {
+    if (patch.enabled !== undefined) {
+        return patch.enabled
+            ? "developer overrides on"
+            : "developer overrides off";
+    }
+    const [field, value] = Object.entries(patch)[0] ?? [];
+    const name = field === undefined
+        ? "developer settings"
+        : DEVELOPER_FIELD_NAMES[field] ?? "developer settings";
+    return value === null || value === undefined
+        ? `${name} off`
+        : `${name} to ${value}`;
 }
 
 function modelPatchSubject(patch: ModelSettingsPatch): string {

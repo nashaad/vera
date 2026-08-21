@@ -28,6 +28,13 @@ export interface ContextMeasurement {
      * reports one.
      */
     readonly estimated: boolean;
+    /**
+     * What the request costs beyond its messages: the system prompt, the tool
+     * definitions, the project instructions. Stated rather than recovered by
+     * subtracting a message count from `tokens`, because `tokens` may carry a
+     * calibration factor that the subtraction would silently absorb.
+     */
+    readonly overheadTokens?: number;
     /** Optional safe facts about the exact request that was measured. */
     readonly projection?: ContextProjectionMeasurement;
     /** The effective runtime policy that is active for this request. */
@@ -183,6 +190,9 @@ export function isContextMeasurement(
         && (measurement.capacity === undefined
             || (Number.isSafeInteger(measurement.capacity)
                 && (measurement.capacity as number) > 0))
+        && (measurement.overheadTokens === undefined
+            || (Number.isSafeInteger(measurement.overheadTokens)
+                && (measurement.overheadTokens as number) >= 0))
         && typeof measurement.estimated === "boolean"
         && isProjection(projection)
         && (projection === undefined

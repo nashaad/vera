@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -232,3 +232,146 @@ async function receiveModelSettings(
         }
     }
 }
+
+/**
+ * A model the pool never admitted is answered by the catalog, and the catalog
+ * does not know what this key was refused. The refusal is a fact about the key,
+ * so both lists drop the level rather than one offering what the other rejects.
+ */
+test("a level the project pool refuses is neither served nor accepted", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-refused-"));
+    const cacheDir = await mkdtemp(join(tmpdir(), "vera-effort-refused-cache-"));
+    await mkdir(join(root, ".vera"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "pool.json"),
+        JSON.stringify({
+            models: {
+                [`openrouter/${GLM}`]: {
+                    learned: {
+                        "efforts.max": {
+                            ok: false,
+                            seen: "2026-08-21T00:00:00Z",
+                            error: "Invalid value: 'max'",
+                        },
+                    },
+                },
+            },
+        }),
+    );
+    await writeFile(
+        join(cacheDir, "openrouter.json"),
+        JSON.stringify({
+            schema_version: 2,
+            provider: "openrouter",
+            models: [{
+                id: GLM,
+                label: "GLM 5.2",
+                levels: [
+                    { id: "max", label: "Max" },
+                    { id: "high", label: "High" },
+                    { id: "medium", label: "Medium" },
+                ],
+            }],
+        }),
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: GLM,
+        reasoningEffort: "high",
+        approvalMode: "auto",
+        cacheDir,
+        // No pool entry for this model, so the catalog answers.
+        readPool: () => [],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        attachment.send({ type: "get_model_settings", requestId: "settings" });
+        const served = await receiveModelSettings(attachment);
+        expect(served.settings.availableReasoningEfforts)
+            .toEqual(["high", "medium"]);
+        // Asking for it anyway coerces, exactly as an unpublished level does.
+        expect(await registry.updateModelSettings(agent.id, {
+            reasoningEffort: "max",
+        })).toMatchObject({ reasoningEffort: "medium" });
+
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(cacheDir, { recursive: true, force: true });
+    }
+});
+
+/**
+ * The looser case cuts the other way too. A stored level the catalog never
+ * published is served as it always was, unless admission is on record refusing
+ * it, in which case serving it would name an effort the next turn cannot send.
+ */
+test("a refused level is not served even when it was never published", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-effort-unpublished-"));
+    const cacheDir = await mkdtemp(join(tmpdir(), "vera-effort-unpub-cache-"));
+    await mkdir(join(root, ".vera"), { recursive: true });
+    await writeFile(
+        join(root, ".vera", "pool.json"),
+        JSON.stringify({
+            models: {
+                [`openrouter/${GLM}`]: {
+                    learned: {
+                        "efforts.max": {
+                            ok: false,
+                            seen: "2026-08-21T00:00:00Z",
+                            error: "Invalid value: 'max'",
+                        },
+                    },
+                },
+            },
+        }),
+    );
+    await writeFile(
+        join(cacheDir, "openrouter.json"),
+        JSON.stringify({
+            schema_version: 2,
+            provider: "openrouter",
+            models: [{
+                id: GLM,
+                label: "GLM 5.2",
+                levels: [
+                    { id: "high", label: "High" },
+                    { id: "medium", label: "Medium" },
+                ],
+            }],
+        }),
+    );
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "openrouter",
+        model: GLM,
+        // Neither published by the catalog nor admitted by the pool.
+        reasoningEffort: "max",
+        approvalMode: "auto",
+        cacheDir,
+        readPool: () => [],
+    });
+
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const attachment = agent.attach();
+        attachment.send({ type: "get_model_settings", requestId: "settings" });
+        const served = await receiveModelSettings(attachment);
+        expect(served.settings.availableReasoningEfforts)
+            .toEqual(["high", "medium"]);
+        expect(served.settings.reasoningEffort).toBeUndefined();
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+        await rm(cacheDir, { recursive: true, force: true });
+    }
+});

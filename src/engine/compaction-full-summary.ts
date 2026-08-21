@@ -1,4 +1,5 @@
 import type { ModelMessage } from "../model/types.ts";
+import { measureMessages } from "./context-measurement.ts";
 import {
     CompactionRejectedError,
     type CompactionStrategyDefinition,
@@ -21,12 +22,19 @@ export const MAX_SUMMARY_WORDS = 3_000;
  * thirds of the target leaves the framing and the estimator's own error inside
  * the budget the engine will check the answer against.
  */
-export function summaryWordBudget(targetTokens: number): number {
+export function summaryWordBudget(targetTokens: number, cap?: number): number {
     return Math.min(
-        MAX_SUMMARY_WORDS,
+        cap ?? MAX_SUMMARY_WORDS,
         Math.max(120, Math.floor((targetTokens * 2) / 3 * 0.75)),
     );
 }
+
+/**
+ * Below this there is no note worth a model call: the summarizer would be
+ * asked for a couple of sentences to stand for the whole session. A rung with
+ * more room is the answer, which is why this rejection is room related.
+ */
+export const MIN_NOTE_TOKENS = 200;
 
 const SUMMARY_SYSTEM_PROMPT =
     `You are writing the handover note that replaces a coding session's earlier
@@ -130,7 +138,22 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
             );
         }
         const files = mergeFiles(anchor?.files, filesTouched(span));
-        const words = summaryWordBudget(request.targetTokens);
+        // The heading and the file list are written by this strategy, not by
+        // the summarizer, and the target has to hold all three. Asking for a
+        // note the size of the whole target and then adding them is how a
+        // rung that measured as viable comes back over it.
+        const fixed = measureMessages([summaryMessage("", files)]);
+        const room = request.targetTokens - fixed;
+        if (room < MIN_NOTE_TOKENS) {
+            throw new CompactionRejectedError(
+                `The ${request.targetTokens} token target leaves ${room} `
+                    + `tokens for the note after the heading and the file `
+                    + `list, which is under the ${MIN_NOTE_TOKENS} a usable `
+                    + `note needs.`,
+                true,
+            );
+        }
+        const words = summaryWordBudget(room, request.summaryWordCap);
         const prompt = anchor === undefined
             ? SUMMARY_INSTRUCTION
                 .replace("{{WORDS}}", String(words))

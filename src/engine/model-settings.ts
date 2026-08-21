@@ -57,6 +57,62 @@ export interface ModelTurnSettings {
      * model choice, so it is reported here and stored in the config file.
      */
     readonly reviewerDefault?: ReviewerModelDefault;
+    /**
+     * Developer overrides in force, reported so a client can show what they
+     * have been moved to. Runtime inspection data like `reviewerDefault`:
+     * these are user-level settings, not part of the session's model choice.
+     */
+    readonly developer?: DeveloperSettings;
+}
+
+/**
+ * What a developer has turned on to test Vera itself. Absent values mean the
+ * normal behaviour, and `enabled: false` means every one of them is ignored.
+ */
+export interface DeveloperSettings {
+    readonly enabled: boolean;
+    readonly contextLimit?: number;
+    readonly compactionTriggerFraction?: number;
+    readonly postCompactionTargetFraction?: number;
+    readonly summaryWordCap?: number;
+}
+
+/** One developer field written at a time. `null` clears that field. */
+export interface DeveloperSettingsPatch {
+    readonly enabled?: boolean;
+    readonly contextLimit?: number | null;
+    readonly compactionTriggerFraction?: number | null;
+    readonly postCompactionTargetFraction?: number | null;
+    readonly summaryWordCap?: number | null;
+}
+
+const DEVELOPER_NUMBER_FIELDS = [
+    "contextLimit",
+    "compactionTriggerFraction",
+    "postCompactionTargetFraction",
+    "summaryWordCap",
+] as const;
+
+export function isDeveloperSettingsPatch(
+    value: unknown,
+): value is DeveloperSettingsPatch {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const patch = value as Record<string, unknown>;
+    if (patch.enabled !== undefined && typeof patch.enabled !== "boolean") {
+        return false;
+    }
+    for (const field of DEVELOPER_NUMBER_FIELDS) {
+        const entry = patch[field];
+        if (entry === undefined || entry === null) {
+            continue;
+        }
+        if (typeof entry !== "number" || !Number.isFinite(entry) || entry <= 0) {
+            return false;
+        }
+    }
+    return true;
 }
 
 export interface ReviewerModelSelection {
@@ -91,6 +147,8 @@ export interface ModelSettingsPatch {
      * the other slot is empty. `null` clears the reviewer.
      */
     readonly reviewer?: ReviewerSettingsPatch | null;
+    /** Developer overrides, merged field by field. `null` clears the block. */
+    readonly developer?: DeveloperSettingsPatch | null;
 }
 
 export interface ReviewerSettingsPatch {

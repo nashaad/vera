@@ -107,8 +107,8 @@ test("a level nothing has an opinion on still comes from the catalog", () => {
 
     expect(pooledModels([suggested("test", "with-levels")], options)[0]?.levels)
         .toEqual([
-            { id: "low", label: "Low" },
             { id: "high", label: "High", description: "slow" },
+            { id: "low", label: "Low" },
         ]);
 });
 
@@ -139,8 +139,8 @@ test("an unprobed entry the provider lists is available but unverified", () => {
         contextWindow: 200_000,
         imageSupport: true,
         levels: [
-            { id: "low", label: "Low" },
             { id: "high", label: "High", description: "slow" },
+            { id: "low", label: "Low" },
         ],
         defaultLevel: "high",
     }]);
@@ -259,8 +259,8 @@ test("two ladder levels reaching one wire string list that level once", () => {
 
     expect(pooledModels([suggested("test", "with-levels")], options)[0]?.levels)
         .toEqual([
-            { id: "low", label: "Low" },
             { id: "high", label: "High", description: "slow" },
+            { id: "low", label: "Low" },
         ]);
 });
 
@@ -454,4 +454,47 @@ test("an unavailable pool entry steps aside for the catalog", () => {
 test("nothing anywhere is an empty list, not a guess", () => {
     expect(levelsForModel("openrouter", "nobody/knows-me", [], []).levels)
         .toEqual([]);
+});
+
+// The catalog answers for a model the pool never admitted, and it still knows
+// which levels this key was refused: the provider answered 400 for one of them.
+test("a level the provider refused is not offered by the catalog projection", () => {
+    const options = fixture();
+    recordLearned("test/with-levels", {
+        "efforts.high": {
+            ok: false,
+            seen: SEEN,
+            error: "Invalid value: 'high'",
+        },
+    }, { path: options.userPath });
+
+    const available = availableModelsWithLevels(
+        [suggested("test", "with-levels")],
+        options,
+    );
+    expect(available[0]?.levels).toEqual([{ id: "low", label: "Low" }]);
+
+    // The catalog's default level pointed at the refused rung, so it goes too
+    // rather than naming a level the picker cannot show.
+    expect(available[0]?.defaultLevel).toBeUndefined();
+});
+
+// A level the user wrote into the entry by hand outranks a past refusal, which
+// is the precedence `resolveEffort` already applies.
+test("a declared level survives a recorded refusal", () => {
+    const options = fixture();
+    addPoolModel("test/with-levels", { efforts: { high: "high" } }, {
+        path: options.userPath,
+    });
+    recordLearned("test/with-levels", {
+        "efforts.high": { ok: false, seen: SEEN, error: "refused once" },
+    }, { path: options.userPath });
+
+    expect(
+        availableModelsWithLevels([suggested("test", "with-levels")], options)
+            .at(0)?.levels,
+    ).toEqual([
+        { id: "low", label: "Low" },
+        { id: "high", label: "High", description: "slow" },
+    ]);
 });

@@ -24,6 +24,12 @@ export interface CompactionRequest {
     readonly targetTokens: number;
     /** The models the strategy declared, bound by name to a resolved route. */
     readonly models: Readonly<Record<string, CompleteText>>;
+    /**
+     * A lower ceiling on the length asked for, when the caller set one. A
+     * strategy that sizes its own request reads this in place of whatever
+     * ceiling it ships with.
+     */
+    readonly summaryWordCap?: number;
 }
 
 export interface CompactionProposal {

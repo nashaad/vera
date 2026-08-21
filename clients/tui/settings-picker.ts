@@ -35,6 +35,8 @@ import {
     type VeraProviderProtocol,
 } from "../../src/config.ts";
 import type {
+    DeveloperSettings,
+    DeveloperSettingsPatch,
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
@@ -90,6 +92,8 @@ export type TuiSettingsPickerKind =
     | "permissions"
     | "theme"
     | "context_limit"
+    | "developer_settings"
+    | "developer_value"
     | "session"
     | "settings"
     | "permission_settings"
@@ -110,6 +114,11 @@ export type TuiSettingsMenuTarget =
     | "permissions"
     | "theme"
     | "context_limit"
+    | "developer"
+    | "developer_context_limit"
+    | "developer_compaction_trigger"
+    | "developer_target_fraction"
+    | "developer_summary_words"
     | "permission_mode"
     | "granted_permissions"
     | "reviewer"
@@ -120,6 +129,13 @@ export type TuiSettingsMenuKind = Extract<
     TuiSettingsPickerKind,
     "settings" | "permission_settings" | "reviewer_settings"
 >;
+
+/** Which developer override a value pane is choosing. */
+export type TuiDeveloperKey =
+    | "contextLimit"
+    | "compactionTriggerFraction"
+    | "postCompactionTargetFraction"
+    | "summaryWordCap";
 
 /** Which reviewer a pane is choosing for. */
 export type TuiReviewerSlot = "primary" | "fallback";
@@ -341,6 +357,10 @@ export interface TuiSettingsPickerState {
     readonly pendingModel?: TuiPendingModelChoice;
     /** Set only on a reviewer pane: which slot the chosen row fills. */
     readonly reviewerSlot?: TuiReviewerSlot;
+    /** Set only on a developer value pane: which override the row writes. */
+    readonly developerKey?: TuiDeveloperKey;
+    /** The snapshot a developer pane was built from, so it can rebuild. */
+    readonly developerSettings?: DeveloperSettings;
     /** Set only on an assignment pane: which assignment the chosen row binds. */
     readonly modelAssignment?: ModelAssignmentId;
     /**
@@ -401,6 +421,10 @@ export type TuiSettingsPickerSelection =
     | { readonly kind: "permissions"; readonly mode: ApprovalMode }
     | { readonly kind: "theme"; readonly theme: TuiThemeName }
     | { readonly kind: "context_limit"; readonly limit: number | null }
+    | {
+        readonly kind: "developer";
+        readonly patch: DeveloperSettingsPatch;
+    }
     | {
         readonly kind: "session";
         readonly sessionPath: string;
@@ -836,6 +860,12 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
         searchText: "tokens window memory cap",
     },
     {
+        value: "developer",
+        label: "Developer",
+        description: "overrides for testing Vera itself",
+        searchText: "debug override compaction window",
+    },
+    {
         value: "permissions",
         label: "Permissions",
         description: "what Vera may run, and what you have approved",
@@ -872,6 +902,140 @@ export function startTuiContextLimitPicker(
             ),
         ),
         query: "",
+    };
+}
+
+interface DeveloperValueRow {
+    readonly key: TuiDeveloperKey;
+    readonly target: TuiSettingsMenuTarget;
+    readonly label: string;
+    readonly description: string;
+    readonly options: readonly TuiSettingsPickerOption[];
+    readonly format: (value: number) => string;
+}
+
+const DEVELOPER_VALUE_ROWS: readonly DeveloperValueRow[] = [
+    {
+        key: "contextLimit",
+        target: "developer_context_limit",
+        label: "Context limit",
+        description: "windows below what the normal setting offers",
+        format: (value) => `${Math.round(value / 1_024)}k`,
+        options: [
+            { value: "default", label: "Off", description: "use the normal context limit" },
+            { value: "8192", label: "8k", description: "compacts within a few turns" },
+            { value: "16384", label: "16k", description: "compacts within a short session" },
+            { value: "32768", label: "32k", description: "compacts after real work" },
+            { value: "65536", label: "64k", description: "smallest window a model is happy in" },
+        ],
+    },
+    {
+        key: "compactionTriggerFraction",
+        target: "developer_compaction_trigger",
+        label: "Compaction trigger",
+        description: "share of the window that fires a compaction",
+        format: (value) => value.toFixed(2),
+        options: [
+            { value: "default", label: "Off", description: "use the configured trigger" },
+            { value: "0.3", label: "0.30", description: "fires early" },
+            { value: "0.5", label: "0.50", description: "fires at half" },
+            { value: "0.7", label: "0.70", description: "fires late" },
+        ],
+    },
+    {
+        key: "postCompactionTargetFraction",
+        target: "developer_target_fraction",
+        label: "Post-compaction target",
+        description: "share of the window a summary lands under",
+        format: (value) => value.toFixed(2),
+        options: [
+            { value: "default", label: "Off", description: "use the built-in 0.45" },
+            { value: "0.2", label: "0.20", description: "a much smaller note" },
+            { value: "0.45", label: "0.45", description: "what Vera ships with" },
+            { value: "0.6", label: "0.60", description: "a longer note" },
+        ],
+    },
+    {
+        key: "summaryWordCap",
+        target: "developer_summary_words",
+        label: "Summary word cap",
+        description: "the most words a note is asked for",
+        format: (value) => String(value),
+        options: [
+            { value: "default", label: "Off", description: "use the built-in 3000" },
+            { value: "250", label: "250", description: "short enough to read whole" },
+            { value: "750", label: "750" , description: "a page" },
+            { value: "3000", label: "3000", description: "what Vera ships with" },
+        ],
+    },
+];
+
+/**
+ * The developer pane. The toggle is the only row while the block is off: the
+ * overrides are not shown as things to set and then ignored, because a row
+ * that reads as a setting and changes nothing is worse than an absent one.
+ */
+export function startTuiDeveloperMenu(
+    developer: DeveloperSettings | undefined,
+): TuiSettingsPickerState {
+    const enabled = developer?.enabled === true;
+    const options: TuiSettingsPickerOption[] = [{
+        value: enabled ? "developer_enabled_off" : "developer_enabled_on",
+        label: enabled ? "Turn off" : "Turn on",
+        description: enabled
+            ? "restore every normal setting at once"
+            : "let the overrides below take effect",
+    }];
+    if (enabled) {
+        for (const row of DEVELOPER_VALUE_ROWS) {
+            const current = developer?.[row.key];
+            options.push({
+                value: row.target,
+                label: row.label,
+                description: current === undefined
+                    ? row.description
+                    : `${row.format(current)} · ${row.description}`,
+            });
+        }
+    }
+    return {
+        kind: "developer_settings",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        title: "Developer",
+        subtitle: enabled
+            ? "overrides are in force"
+            : "off: nothing here is read",
+        ...(developer === undefined ? {} : { developerSettings: developer }),
+    };
+}
+
+/** The value pane for one developer override. */
+export function startTuiDeveloperValuePicker(
+    target: TuiSettingsMenuTarget,
+    developer: DeveloperSettings | undefined,
+): TuiSettingsPickerState | undefined {
+    const row = DEVELOPER_VALUE_ROWS.find(
+        (candidate) => candidate.target === target,
+    );
+    if (row === undefined) {
+        return undefined;
+    }
+    const current = developer?.[row.key];
+    const value = current === undefined ? "default" : String(current);
+    return {
+        kind: "developer_value",
+        allOptions: row.options,
+        options: row.options,
+        selectedIndex: Math.max(
+            0,
+            row.options.findIndex((option) => option.value === value),
+        ),
+        query: "",
+        title: row.label,
+        developerKey: row.key,
     };
 }
 
@@ -995,6 +1159,7 @@ export function tuiPickerMenuAncestor(
             current.kind === "settings"
             || current.kind === "permission_settings"
             || current.kind === "reviewer_settings"
+            || current.kind === "developer_settings"
         ) {
             return current;
         }
@@ -1020,6 +1185,19 @@ export function tuiPickerAfterSelection(
 ): TuiSettingsPickerState | undefined {
     if (selection.kind === "model" || previous === undefined) {
         return undefined;
+    }
+    // Turning the developer block on is answered by the rows it reveals, so
+    // the pane that asked stays put rather than stepping back to `/settings`
+    // and leaving the keypress looking like it did nothing.
+    if (
+        selection.kind === "developer"
+        && previous.kind === "developer_settings"
+        && selection.patch.enabled !== undefined
+    ) {
+        return startTuiDeveloperMenu({
+            ...previous.developerSettings,
+            enabled: selection.patch.enabled,
+        });
     }
     return tuiPickerMenuAncestor(previous);
 }
@@ -1523,11 +1701,30 @@ function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
         : "uses this session's model";
 }
 
+/**
+ * The menu, with the developer row saying so while the block is on. An
+ * override that changes what the whole session does must be visible from the
+ * menu, not only from inside the pane that set it.
+ */
+function settingsMenuOptions(
+    developer: DeveloperSettings | undefined,
+): readonly TuiSettingsPickerOption[] {
+    if (developer?.enabled !== true) {
+        return SETTINGS_MENU_OPTIONS;
+    }
+    return SETTINGS_MENU_OPTIONS.map((option) =>
+        option.value === "developer"
+            ? { ...option, description: "on: overrides are in force" }
+            : option
+    );
+}
+
 export function startTuiSettingsMenu(
     kind: TuiSettingsMenuKind,
+    developer?: DeveloperSettings,
 ): TuiSettingsPickerState {
     const options = kind === "settings"
-        ? SETTINGS_MENU_OPTIONS
+        ? settingsMenuOptions(developer)
         : PERMISSION_SETTINGS_OPTIONS;
     return {
         kind,
@@ -4560,6 +4757,25 @@ function pickerSelection(
             kind,
             limit: value === "auto" ? null : Number(value),
         };
+    }
+    if (kind === "developer_value") {
+        const key = state.developerKey;
+        if (key === undefined) {
+            throw new Error("developer value pane has no key");
+        }
+        return {
+            kind: "developer",
+            patch: { [key]: value === "default" ? null : Number(value) },
+        };
+    }
+    if (kind === "developer_settings") {
+        if (value === "developer_enabled_on" || value === "developer_enabled_off") {
+            return {
+                kind: "developer",
+                patch: { enabled: value === "developer_enabled_on" },
+            };
+        }
+        return { kind: "menu", target: value as TuiSettingsMenuTarget };
     }
     if (kind === "session") {
         // The id rides along with the path because the caller has to recognise
