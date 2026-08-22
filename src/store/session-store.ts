@@ -1397,278 +1397,72 @@ function completeSessionSource(path: string, source: string): string {
     return source.slice(0, finalNewline + 1);
 }
 
-function parseSessionFile(path: string, source: string): LoadedSessionFile {
-    const lines = source.slice(0, -1).split("\n");
-    const header = parseHeader(path, lines[0]);
-    const messageEntries: SessionMessageEntry[] = [];
-    const deliveryEntries: SessionDeliveryEntry[] = [];
-    const deliveryReceipts = new Set<string>();
-    const legacyDeliveryMessageIds = new Map<string, string>();
-    const modelSettingsEntries: SessionModelSettingsEntry[] = [];
-    const agentWearEntries: SessionAgentWearEntry[] = [];
-    const permissionsEntries: SessionPermissionsEntry[] = [];
-    const harnessMessageEntries: SessionHarnessMessageEntry[] = [];
-    const nameEntries: SessionNameEntry[] = [];
-    const permissionGrantEntries: SessionPermissionGrantsEntry[] = [];
-    const permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[] = [];
-    const attachmentEntries: SessionAttachmentEntry[] = [];
-    const compactionEntries: SessionCompactionEntry[] = [];
-    let agentFailure: SessionAgentFailureEntry | undefined;
-    const knownMessageIds = new Set<string>();
-    const knownDeliveryIds = new Set<string>();
-    const knownAttachmentIds = new Set<string>();
-    let leafId: string | null = null;
+/**
+ * Accumulated projection state for one session file, less the header.
+ *
+ * Every cross-record check in `ingestSessionRecord` reads from here rather than
+ * from a closure, so the same function can fold a whole file or absorb one
+ * record at a time.
+ */
+interface SessionProjectionState {
+    readonly messageEntries: SessionMessageEntry[];
+    readonly deliveryEntries: SessionDeliveryEntry[];
+    readonly deliveryReceipts: Set<string>;
+    readonly legacyDeliveryMessageIds: Map<string, string>;
+    readonly modelSettingsEntries: SessionModelSettingsEntry[];
+    readonly agentWearEntries: SessionAgentWearEntry[];
+    readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly harnessMessageEntries: SessionHarnessMessageEntry[];
+    readonly nameEntries: SessionNameEntry[];
+    readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
+    readonly permissionGrantRevocationEntries:
+        SessionPermissionGrantRevocationEntry[];
+    readonly attachmentEntries: SessionAttachmentEntry[];
+    readonly compactionEntries: SessionCompactionEntry[];
+    readonly knownMessageIds: Set<string>;
+    readonly knownDeliveryIds: Set<string>;
+    readonly knownAttachmentIds: Set<string>;
+    agentFailure: SessionAgentFailureEntry | undefined;
+    leafId: string | null;
+}
 
-    for (let index = 1; index < lines.length; index += 1) {
-        const lineNumber = index + 1;
-        const value = parseJsonObject(path, lineNumber, lines[index]);
-        if (agentFailure !== undefined) {
-            if (value.type === "agent_failure") {
-                const duplicate = parseAgentFailureEntry(
-                    path,
-                    lineNumber,
-                    value,
-                );
-                if (
-                    duplicate.id === agentFailure.id
-                    && duplicate.detail === agentFailure.detail
-                ) {
-                    continue;
-                }
-            }
-            throw invalidSession(
-                path,
-                `line ${lineNumber} follows the terminal agent failure`,
-            );
-        }
-        if (value.type === "message") {
-            const entry = parseMessageEntry(path, lineNumber, value);
-            for (const attachmentId of messageAttachmentIds(entry.message)) {
-                if (!knownAttachmentIds.has(attachmentId)) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} references missing attachment ${attachmentId}`,
-                    );
-                }
-            }
-            if (knownMessageIds.has(entry.id)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats entry ID ${entry.id}`,
-                );
-            }
-            if (
-                entry.parentId !== null
-                && !knownMessageIds.has(entry.parentId)
-            ) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} references missing parent ${entry.parentId}`,
-                );
-            }
-            if (entry.parentId !== leafId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} does not extend the active head`,
-                );
-            }
-            if (entry.deliveryId !== undefined) {
-                if (!knownDeliveryIds.has(entry.deliveryId)) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} references missing delivery ${entry.deliveryId}`,
-                    );
-                }
-                if (
-                    entry.message.role !== "user"
-                    || entry.message.internal !== true
-                ) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} has a non-internal delivery message`,
-                    );
-                }
-                if (
-                    activeBranchEntries(messageEntries, leafId).some(
-                        (candidate) =>
-                            candidate.deliveryId === entry.deliveryId,
-                    )
-                ) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
-                    );
-                }
-            }
-            knownMessageIds.add(entry.id);
-            messageEntries.push(entry);
-            leafId = entry.id;
-            continue;
-        }
-        if (value.type === "delivery") {
-            const entry = parseDeliveryEntry(path, lineNumber, value);
-            if (knownDeliveryIds.has(entry.id)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats delivery ID ${entry.id}`,
-                );
-            }
-            knownDeliveryIds.add(entry.id);
-            deliveryEntries.push(entry);
-            continue;
-        }
-        if (value.type === "delivery_receipt") {
-            const receipt = parseDeliveryReceipt(path, lineNumber, value);
-            if (!knownDeliveryIds.has(receipt.deliveryId)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} references missing delivery ${receipt.deliveryId}`,
-                );
-            }
-            if (deliveryReceipts.has(receipt.deliveryId)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats delivery receipt ${receipt.deliveryId}`,
-                );
-            }
-            deliveryReceipts.add(receipt.deliveryId);
-            const activeHead = leafId === null
-                ? undefined
-                : messageEntries.find((entry) => entry.id === leafId);
-            if (
-                activeHead !== undefined
-                && activeHead.deliveryId === undefined
-                && activeHead.message.role === "user"
-                && activeHead.message.internal === true
-            ) {
-                legacyDeliveryMessageIds.set(
-                    receipt.deliveryId,
-                    activeHead.id,
-                );
-            }
-            continue;
-        }
-        if (value.type === "model_settings") {
-            modelSettingsEntries.push(
-                parseModelSettingsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "agent_wear") {
-            agentWearEntries.push(
-                parseAgentWearEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "permissions") {
-            permissionsEntries.push(
-                parsePermissionsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "harness_message") {
-            harnessMessageEntries.push(
-                parseHarnessMessageEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "session_name") {
-            nameEntries.push(
-                parseSessionNameEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "command_prefix") {
-            parseLegacyCommandPrefixEntry(path, lineNumber, value);
-            continue;
-        }
-        if (value.type === "permission_grants") {
-            permissionGrantEntries.push(
-                parsePermissionGrantsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "permission_grant_revocation") {
-            permissionGrantRevocationEntries.push(
-                parsePermissionGrantRevocationEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "attachment") {
-            const entry = parseAttachmentEntry(path, lineNumber, value);
-            if (knownAttachmentIds.has(entry.attachment.id)) {
-                const existing = attachmentEntries.find(
-                    (candidate) => candidate.attachment.id === entry.attachment.id,
-                );
-                if (
-                    existing !== undefined
-                    && sameAttachmentContent(existing.attachment, entry.attachment)
-                ) {
-                    continue;
-                }
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
-                );
-            }
-            knownAttachmentIds.add(entry.attachment.id);
-            attachmentEntries.push(entry);
-            continue;
-        }
-        if (value.type === "agent_failure") {
-            agentFailure = parseAgentFailureEntry(path, lineNumber, value);
-            continue;
-        }
-        if (value.type === "rewind") {
-            const rewind = parseRewindEntry(path, lineNumber, value);
-            if (rewind.previousHeadId !== leafId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
-                );
-            }
-            const boundary: SessionMessageEntry | undefined =
-                activeBranchEntries(messageEntries, leafId).find(
-                    (entry) => entry.id === rewind.userMessageId,
-                );
-            if (
-                boundary === undefined
-                || boundary.message.role !== "user"
-                || boundary.message.internal === true
-            ) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`,
-                );
-            }
-            if (rewind.headId !== boundary.parentId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} has the wrong rewind target`,
-                );
-            }
-            leafId = rewind.headId;
-            continue;
-        }
-        if (value.type === "compaction") {
-            compactionEntries.push(
-                parseCompactionEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "checkpoint") {
-            parseRemovedFileCheckpointEntry(path, lineNumber, value);
-            continue;
-        }
-        throw invalidSession(
-            path,
-            `line ${lineNumber} is not a valid session entry`,
-        );
-    }
-
+function createSessionProjectionState(): SessionProjectionState {
     return {
-        header,
+        messageEntries: [],
+        deliveryEntries: [],
+        deliveryReceipts: new Set(),
+        legacyDeliveryMessageIds: new Map(),
+        modelSettingsEntries: [],
+        agentWearEntries: [],
+        permissionsEntries: [],
+        harnessMessageEntries: [],
+        nameEntries: [],
+        permissionGrantEntries: [],
+        permissionGrantRevocationEntries: [],
+        attachmentEntries: [],
+        compactionEntries: [],
+        knownMessageIds: new Set(),
+        knownDeliveryIds: new Set(),
+        knownAttachmentIds: new Set(),
+        agentFailure: undefined,
+        leafId: null,
+    };
+}
+
+/**
+ * Folds one already-parsed JSON record into `state`.
+ *
+ * `path` and `lineNumber` only name the record in rejection messages; a record
+ * that does not belong in the file throws rather than being skipped, so a
+ * caller that survives the call has a state matching every record so far.
+ */
+function ingestSessionRecord(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+    state: SessionProjectionState,
+): void {
+    const {
         messageEntries,
         deliveryEntries,
         deliveryReceipts,
@@ -1682,9 +1476,294 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         permissionGrantRevocationEntries,
         attachmentEntries,
         compactionEntries,
-        agentFailure,
-        leafId,
+        knownMessageIds,
+        knownDeliveryIds,
+        knownAttachmentIds,
+    } = state;
+    if (state.agentFailure !== undefined) {
+        if (value.type === "agent_failure") {
+            const duplicate = parseAgentFailureEntry(
+                path,
+                lineNumber,
+                value,
+            );
+            if (
+                duplicate.id === state.agentFailure.id
+                && duplicate.detail === state.agentFailure.detail
+            ) {
+                return;
+            }
+        }
+        throw invalidSession(
+            path,
+            `line ${lineNumber} follows the terminal agent failure`,
+        );
+    }
+    if (value.type === "message") {
+        const entry = parseMessageEntry(path, lineNumber, value);
+        for (const attachmentId of messageAttachmentIds(entry.message)) {
+            if (!knownAttachmentIds.has(attachmentId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing attachment ${attachmentId}`,
+                );
+            }
+        }
+        if (knownMessageIds.has(entry.id)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats entry ID ${entry.id}`,
+            );
+        }
+        if (
+            entry.parentId !== null
+            && !knownMessageIds.has(entry.parentId)
+        ) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} references missing parent ${entry.parentId}`,
+            );
+        }
+        if (entry.parentId !== state.leafId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} does not extend the active head`,
+            );
+        }
+        if (entry.deliveryId !== undefined) {
+            if (!knownDeliveryIds.has(entry.deliveryId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing delivery ${entry.deliveryId}`,
+                );
+            }
+            if (
+                entry.message.role !== "user"
+                || entry.message.internal !== true
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} has a non-internal delivery message`,
+                );
+            }
+            if (
+                activeBranchEntries(messageEntries, state.leafId).some(
+                    (candidate) =>
+                        candidate.deliveryId === entry.deliveryId,
+                )
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
+                );
+            }
+        }
+        knownMessageIds.add(entry.id);
+        messageEntries.push(entry);
+        state.leafId = entry.id;
+        return;
+    }
+    if (value.type === "delivery") {
+        const entry = parseDeliveryEntry(path, lineNumber, value);
+        if (knownDeliveryIds.has(entry.id)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats delivery ID ${entry.id}`,
+            );
+        }
+        knownDeliveryIds.add(entry.id);
+        deliveryEntries.push(entry);
+        return;
+    }
+    if (value.type === "delivery_receipt") {
+        const receipt = parseDeliveryReceipt(path, lineNumber, value);
+        if (!knownDeliveryIds.has(receipt.deliveryId)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} references missing delivery ${receipt.deliveryId}`,
+            );
+        }
+        if (deliveryReceipts.has(receipt.deliveryId)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats delivery receipt ${receipt.deliveryId}`,
+            );
+        }
+        deliveryReceipts.add(receipt.deliveryId);
+        const activeHead = state.leafId === null
+            ? undefined
+            : messageEntries.find((entry) => entry.id === state.leafId);
+        if (
+            activeHead !== undefined
+            && activeHead.deliveryId === undefined
+            && activeHead.message.role === "user"
+            && activeHead.message.internal === true
+        ) {
+            legacyDeliveryMessageIds.set(
+                receipt.deliveryId,
+                activeHead.id,
+            );
+        }
+        return;
+    }
+    if (value.type === "model_settings") {
+        modelSettingsEntries.push(
+            parseModelSettingsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "agent_wear") {
+        agentWearEntries.push(
+            parseAgentWearEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "permissions") {
+        permissionsEntries.push(
+            parsePermissionsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "harness_message") {
+        harnessMessageEntries.push(
+            parseHarnessMessageEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "session_name") {
+        nameEntries.push(
+            parseSessionNameEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "command_prefix") {
+        parseLegacyCommandPrefixEntry(path, lineNumber, value);
+        return;
+    }
+    if (value.type === "permission_grants") {
+        permissionGrantEntries.push(
+            parsePermissionGrantsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "permission_grant_revocation") {
+        permissionGrantRevocationEntries.push(
+            parsePermissionGrantRevocationEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "attachment") {
+        const entry = parseAttachmentEntry(path, lineNumber, value);
+        if (knownAttachmentIds.has(entry.attachment.id)) {
+            const existing = attachmentEntries.find(
+                (candidate) => candidate.attachment.id === entry.attachment.id,
+            );
+            if (
+                existing !== undefined
+                && sameAttachmentContent(existing.attachment, entry.attachment)
+            ) {
+                return;
+            }
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
+            );
+        }
+        knownAttachmentIds.add(entry.attachment.id);
+        attachmentEntries.push(entry);
+        return;
+    }
+    if (value.type === "agent_failure") {
+        state.agentFailure = parseAgentFailureEntry(path, lineNumber, value);
+        return;
+    }
+    if (value.type === "rewind") {
+        const rewind = parseRewindEntry(path, lineNumber, value);
+        if (rewind.previousHeadId !== state.leafId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
+            );
+        }
+        const boundary: SessionMessageEntry | undefined =
+            activeBranchEntries(messageEntries, state.leafId).find(
+                (entry) => entry.id === rewind.userMessageId,
+            );
+        if (
+            boundary === undefined
+            || boundary.message.role !== "user"
+            || boundary.message.internal === true
+        ) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`,
+            );
+        }
+        if (rewind.headId !== boundary.parentId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} has the wrong rewind target`,
+            );
+        }
+        state.leafId = rewind.headId;
+        return;
+    }
+    if (value.type === "compaction") {
+        compactionEntries.push(
+            parseCompactionEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "checkpoint") {
+        parseRemovedFileCheckpointEntry(path, lineNumber, value);
+        return;
+    }
+    throw invalidSession(
+        path,
+        `line ${lineNumber} is not a valid session entry`,
+    );
+}
+
+function sessionProjectionResult(
+    header: SessionHeader,
+    state: SessionProjectionState,
+): LoadedSessionFile {
+    return {
+        header,
+        messageEntries: state.messageEntries,
+        deliveryEntries: state.deliveryEntries,
+        deliveryReceipts: state.deliveryReceipts,
+        legacyDeliveryMessageIds: state.legacyDeliveryMessageIds,
+        modelSettingsEntries: state.modelSettingsEntries,
+        agentWearEntries: state.agentWearEntries,
+        permissionsEntries: state.permissionsEntries,
+        harnessMessageEntries: state.harnessMessageEntries,
+        nameEntries: state.nameEntries,
+        permissionGrantEntries: state.permissionGrantEntries,
+        permissionGrantRevocationEntries: state.permissionGrantRevocationEntries,
+        attachmentEntries: state.attachmentEntries,
+        compactionEntries: state.compactionEntries,
+        agentFailure: state.agentFailure,
+        leafId: state.leafId,
     };
+}
+
+function parseSessionFile(path: string, source: string): LoadedSessionFile {
+    const lines = source.slice(0, -1).split("\n");
+    const header = parseHeader(path, lines[0]);
+    const state = createSessionProjectionState();
+
+    for (let index = 1; index < lines.length; index += 1) {
+        const lineNumber = index + 1;
+        ingestSessionRecord(
+            path,
+            lineNumber,
+            parseJsonObject(path, lineNumber, lines[index]),
+            state,
+        );
+    }
+
+    return sessionProjectionResult(header, state);
 }
 
 function parseHarnessMessageEntry(
