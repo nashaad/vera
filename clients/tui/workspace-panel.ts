@@ -53,7 +53,7 @@ export const PINNED_GROUP = "pinned";
  * Column one, as text. Colour may ride on top of it and may never replace it:
  * every state has to survive a monochrome render.
  */
-export type WorkspaceRowMarker = "!" | "*" | "." | " ";
+export type WorkspaceRowMarker = "!" | "?" | "*" | "+" | "-" | ".";
 
 export type WorkspaceSessionStatus = VeraClientSession["status"];
 
@@ -69,12 +69,21 @@ export interface WorkspaceSession extends VeraClientSession {
     readonly ephemeral?: boolean;
 }
 
+/**
+ * One character per status, all six distinct and none of them blank.
+ *
+ * Colour rides on top of this and may never replace it, so two statuses that
+ * share a marker are indistinguishable to a reader whose terminal is not
+ * showing colour.
+ */
 export function workspaceStatusMarker(
     status: WorkspaceSessionStatus,
 ): WorkspaceRowMarker {
-    if (status === "waiting" || status === "failed") return "!";
+    if (status === "failed") return "!";
+    if (status === "waiting") return "?";
     if (status === "working") return "*";
-    if (status === "closed") return " ";
+    if (status === "completed") return "+";
+    if (status === "closed") return "-";
     return ".";
 }
 
@@ -123,6 +132,13 @@ export interface WorkspacePanelInput {
     readonly selectedId?: string;
     /** Session ids the reader pinned. Client state; never sent anywhere. */
     readonly pinnedIds?: readonly string[];
+    /**
+     * The listing order the selection was last made against.
+     *
+     * When the selected session leaves the listing, selection lands on its
+     * nearest surviving neighbour in this order rather than at the top.
+     */
+    readonly previousSelectable?: readonly string[];
 }
 
 /**
@@ -156,7 +172,11 @@ export function layoutWorkspacePanel(
     const selectable = groups.flatMap((group) =>
         group.sessions.map((session) => session.id)
     );
-    const selectedId = resolveSelection(selectable, input.selectedId);
+    const selectedId = resolveSelection(
+        selectable,
+        input.selectedId,
+        input.previousSelectable ?? [],
+    );
     const rows: WorkspaceRow[] = [];
     for (const group of groups) {
         rows.push(groupRow(group, width));
@@ -234,8 +254,7 @@ function groupSessions(
         if (right.group === PINNED_GROUP) return 1;
         if (left.group === BACKGROUND_GROUP) return 1;
         if (right.group === BACKGROUND_GROUP) return -1;
-        const recency = byRecency(left.sessions[0]!, right.sessions[0]!);
-        return recency === 0 ? left.group.localeCompare(right.group) : recency;
+        return byRecency(left.sessions[0]!, right.sessions[0]!);
     });
     return groups;
 }
@@ -251,15 +270,46 @@ function timestamp(value: string | undefined): number {
     return Number.isFinite(parsed) ? parsed : 0;
 }
 
+/**
+ * The session the selection lands on for this listing.
+ *
+ * A listing with nothing in it hands the selection back untouched: a roster
+ * that arrives empty for one frame is a listing that has not loaded, not a
+ * session that has gone away.
+ */
 function resolveSelection(
     selectable: readonly string[],
     selectedId: string | undefined,
+    previousSelectable: readonly string[],
 ): string | undefined {
-    if (selectable.length === 0) return undefined;
+    if (selectable.length === 0) return selectedId;
     if (selectedId !== undefined && selectable.includes(selectedId)) {
         return selectedId;
     }
-    return selectable[0];
+    return nearestSurvivor(selectable, selectedId, previousSelectable)
+        ?? selectable[0];
+}
+
+/**
+ * The listed session closest to where the lost one sat, searching outward from
+ * its old position and preferring the row below it.
+ */
+function nearestSurvivor(
+    selectable: readonly string[],
+    selectedId: string | undefined,
+    previousSelectable: readonly string[],
+): string | undefined {
+    if (selectedId === undefined) return undefined;
+    const at = previousSelectable.indexOf(selectedId);
+    if (at < 0) return undefined;
+    const listed = new Set(selectable);
+    for (let step = 1; step < previousSelectable.length; step += 1) {
+        const below = previousSelectable[at + step];
+        if (below !== undefined && listed.has(below)) return below;
+        const above = at - step < 0 ? undefined : previousSelectable[at - step];
+        if (above !== undefined && listed.has(above)) return above;
+    }
+    return undefined;
 }
 
 function groupRow(

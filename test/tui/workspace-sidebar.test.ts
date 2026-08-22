@@ -274,7 +274,7 @@ describe("status from the pushed work index", () => {
             ]),
         );
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain("! needs you");
+        expect(text).toContain("? needs you");
         expect(text).toContain("* running");
     });
 });

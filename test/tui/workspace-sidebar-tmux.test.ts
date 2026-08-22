@@ -142,9 +142,9 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
         pane.split("\n").find((line) => line.includes(title)) ?? "";
     // Waiting and working come from the pushed work index, idle from the
     // roster. Each is a character, never only a colour.
-    expect(row("auth-race")).toContain("! auth-race");
+    expect(row("auth-race")).toContain("? auth-race");
     expect(row("relay-gui")).toContain("* relay-gui");
-    expect(row("auth-refactor")).toContain(". auth-refactor");
+    expect(row("auth-refactor")).toContain("+ auth-refactor");
     // Where you already are, said in words.
     expect(row("this one")).toContain("(here)");
     expect(pane).toContain("background");

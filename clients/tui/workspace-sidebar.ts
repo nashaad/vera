@@ -104,7 +104,10 @@ export function workIndexStatus(
     if (row.reason === "failure") return "failed";
     if (row.section === "needs_you") return "waiting";
     if (row.section === "working") return "working";
+    // Both of the finished sections read as completed: the work in them is
+    // over, and what separates them is whether anyone has looked yet.
     if (row.section === "done_recently") return "completed";
+    if (row.section === "ready_to_review") return "completed";
     return "idle";
 }
 
