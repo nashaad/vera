@@ -288,6 +288,18 @@ const LATER: WorkIndexSnapshot = buildWorkIndex([
 
 if (process.env.VERA_TEST_PUSH_WORK_AFTER_MS !== undefined) {
     setTimeout(() => {
+        // The session is registered before the index that mentions it is
+        // pushed, as a host registers one before it announces its work.
+        ROSTER.push({
+            id: "late-arrival",
+            session_path: "/sessions/late-arrival.jsonl",
+            title: "late-arrival",
+            workspace: "/work/one",
+            kind: "interactive" as const,
+            status: "waiting" as const,
+            live: true,
+            updated_at: minutesAgo(0),
+        });
         for (const listener of workIndexListeners) listener(LATER);
     }, Number(process.env.VERA_TEST_PUSH_WORK_AFTER_MS));
 }

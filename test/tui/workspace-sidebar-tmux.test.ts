@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { cursorRow } from "../support/tui-cursor-row.ts";
+import { workspaceRailColumns } from "../../clients/tui/workspace-sidebar.ts";
 
 /**
  * The workspace side bar driven through a real terminal.
@@ -45,7 +46,8 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("relay-gui");
     expect(pane).toContain("background");
     expect(pane).toContain("provider-fallback");
-    expect(pane).toContain("↑↓ browse · enter open · 1-9 jump · p pin · esc close");
+    // The rail is as narrow as its rows, so it takes the short hint.
+    expect(pane).toContain("↑↓ enter 1-9 p esc");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the arrows move the cursor and enter opens the row", async () => {
@@ -149,6 +151,81 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     expect(row("this one")).toContain("(here)");
     expect(pane).toContain("background");
 }, 60_000);
+
+test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in it", async () => {
+    const { before, after } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const before = await tui.paneWhere((value) =>
+            value.includes("Workspace ·")
+        );
+        // The host registers the session and pushes the index that mentions
+        // it. Nothing here reopens the pane.
+        const after = await tui.paneWhere((value) =>
+            value.includes("late-arrival")
+        );
+        return { before, after };
+    }, 120, 34, { VERA_TEST_PUSH_WORK_AFTER_MS: "1500" });
+
+    expect(before).not.toContain("late-arrival");
+    expect(after).toContain("Workspace · 6");
+    // Listed with the status the same push carried, not as an idle row.
+    expect(after.split("\n").find((line) => line.includes("late-arrival")))
+        .toContain("? late-arrival");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside the transcript", async () => {
+    const { open, closed } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.text("hello");
+        tui.key("Enter");
+        await tui.paneWhere((value) => value.includes("\u203a hello"));
+        tui.bytes(CTRL_E);
+        const open = await tui.paneWhere((value) => value.includes("Workspace \u00b7"));
+        tui.bytes(CTRL_E);
+        const closed = await tui.paneWhere((value) =>
+            !value.includes("Workspace \u00b7")
+        );
+        return { open, closed };
+    }, 120, 34);
+
+    // The columns the rail draws its rows in. What is drawn to the right of
+    // them is the transcript, still on screen beside the listing.
+    const rail = workspaceRailColumns(120)!;
+    for (const title of ["auth-race", "relay-gui", "provider-fallback"]) {
+        expect(column(open, title)).toBeGreaterThanOrEqual(0);
+        expect(column(open, title)).toBeLessThan(rail);
+    }
+    // The transcript is beside the rail and still readable, which is the whole
+    // difference between a rail and a card, and it reflowed to make room.
+    expect(column(open, "\u203a hello")).toBeGreaterThanOrEqual(rail);
+    // The listing and the conversation are on screen at the same time.
+    expect(open.split("\n").some((line) =>
+        line.includes("this one") && line.includes("hello")
+    )).toBe(true);
+    // Closing gives the columns back.
+    expect(column(closed, "\u203a hello")).toBeLessThan(rail);
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the transcript", async () => {
+    const open = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        return await tui.paneWhere((value) => value.includes("Workspace \u00b7"));
+    }, 70, 34);
+
+    expect(open).toContain("auth-race");
+    expect(workspaceRailColumns(70)).toBeUndefined();
+    // Held off the left edge, which is what a centred card looks like and what
+    // a rail never does.
+    expect(column(open, "Workspace \u00b7")).toBeGreaterThan(2);
+}, 60_000);
+
+/** The column the text starts in, or -1 when the pane does not show it. */
+function column(pane: string, text: string): number {
+    const line = pane.split("\n").find((candidate) => candidate.includes(text));
+    return line === undefined ? -1 : line.indexOf(text);
+}
 
 interface DrivenTui {
     pane(): string;
