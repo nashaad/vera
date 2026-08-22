@@ -246,6 +246,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {
+        // A pin is a sort key, not a mode, and it is client state: it orders
+        // one person's own list and never reaches the host.
+        id: "toggle_workspace_pin",
+        keys: ["p"],
+        scope: "workspace",
+        description: "Pin or unpin the selected session",
+    },
+    {
         id: "toggle_tool_details",
         keys: ["ctrl+t"],
         scope: "conversation",

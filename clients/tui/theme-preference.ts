@@ -34,6 +34,10 @@ interface TuiClientPreferences {
     readonly animation_width?: number;
     readonly sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
+    // Session ids the reader pinned to the top of the workspace side bar. A
+    // pin is one person's opinion about their own list, so it stays here and
+    // never reaches the host.
+    readonly pinned_session_ids?: readonly string[];
     readonly persisted_agent_panes?: readonly DiskPersistedAgentPane[];
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
@@ -168,6 +172,25 @@ export function saveTuiSharedSessionGroups(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         shared_session_groups: groups,
+    }, path);
+}
+
+export function loadTuiPinnedSessionIds(
+    path = tuiThemePreferencePath(),
+): readonly string[] {
+    return loadTuiClientPreferences(path).pinned_session_ids ?? [];
+}
+
+export function saveTuiPinnedSessionIds(
+    ids: readonly string[],
+    path = tuiThemePreferencePath(),
+): void {
+    const { pinned_session_ids: _previous, ...rest } = loadTuiClientPreferences(
+        path,
+    );
+    saveTuiClientPreferences({
+        ...rest,
+        ...(ids.length === 0 ? {} : { pinned_session_ids: ids }),
     }, path);
 }
 
@@ -446,6 +469,13 @@ export function deleteTuiExtensionPreference(
     }, path);
 }
 
+function parsePinnedSessionIds(value: unknown): readonly string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry): entry is string =>
+        typeof entry === "string" && entry.length > 0
+    );
+}
+
 function loadTuiClientPreferences(path: string): TuiClientPreferences {
     try {
         const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -491,6 +521,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const persistedAgentPanes = parsePersistedAgentPanes(
                 Reflect.get(value, "persisted_agent_panes"),
             );
+            const pinnedSessionIds = parsePinnedSessionIds(
+                Reflect.get(value, "pinned_session_ids"),
+            );
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -529,6 +562,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(persistedAgentPanes.length === 0
                     ? {}
                     : { persisted_agent_panes: persistedAgentPanes }),
+                ...(pinnedSessionIds.length === 0
+                    ? {}
+                    : { pinned_session_ids: pinnedSessionIds }),
             };
         }
     } catch {

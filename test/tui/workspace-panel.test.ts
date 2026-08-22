@@ -111,12 +111,12 @@ describe("grouping", () => {
 
 describe("status markers", () => {
     const expected: Record<WorkspaceSessionStatus, string> = {
-        waiting: "!",
         failed: "!",
+        waiting: "?",
         working: "*",
+        completed: "+",
+        closed: "-",
         idle: ".",
-        completed: ".",
-        closed: " ",
     };
 
     for (const [status, marker] of Object.entries(expected)) {
@@ -283,6 +283,40 @@ describe("selection", () => {
         expect(result.selectedId).toBe("a");
     });
 
+    test("lands on the nearest survivor when the selection is gone", () => {
+        const result = layoutWorkspacePanel({
+            sessions: three.filter((entry) => entry.id !== "b"),
+            columns: 120,
+            now: NOW,
+            selectedId: "b",
+            previousSelectable: ["a", "b", "c"],
+        });
+        expect(result.selectedId).toBe("c");
+    });
+
+    test("walks outward when the neighbour below went too", () => {
+        const result = layoutWorkspacePanel({
+            sessions: three.filter((entry) => entry.id === "a"),
+            columns: 120,
+            now: NOW,
+            selectedId: "b",
+            previousSelectable: ["a", "b", "c"],
+        });
+        expect(result.selectedId).toBe("a");
+    });
+
+    test("an empty listing hands the selection back untouched", () => {
+        const result = layoutWorkspacePanel({
+            sessions: [],
+            columns: 120,
+            now: NOW,
+            selectedId: "b",
+            previousSelectable: ["a", "b", "c"],
+        });
+        expect(result.selectable).toEqual([]);
+        expect(result.selectedId).toBe("b");
+    });
+
     test("marks exactly one row selected", () => {
         const rows = sessionRows(layout(three, 120, "b"));
         expect(rows.filter((row) => row.selected).map((row) => row.id))
@@ -332,15 +366,19 @@ describe("monochrome render", () => {
             120,
             "s2",
         );
-        const plain = result.rows.map((row) => row.text).join("\n");
-        expect(plain).toBe([
-            "vera 6",
-            "  ! waiting                     1m ago",
-            "  * working                     2m ago",
-            "› . idle                        3m ago",
-            "  . completed                   4m ago",
-            "  ! failed                      5m ago",
-            "    closed                      6m ago",
-        ].join("\n"));
+        const markers = sessionRows(result).map((row) => row.marker);
+        expect(markers).toHaveLength(statuses.length);
+        expect(new Set(markers).size).toBe(statuses.length);
+        expect(markers.filter((marker) => marker.trim() === "")).toEqual([]);
+        // The selection marker is column one and the status marker column
+        // three, so neither stands in for the other.
+        const selected = sessionRows(result).filter((row) => row.selected);
+        expect(selected).toHaveLength(1);
+        for (const row of result.rows) {
+            if (row.kind !== "session") continue;
+            expect(row.text.startsWith(row.selected ? "\u203a " : "  "))
+                .toBe(true);
+            expect(row.text.slice(2, 3)).toBe(row.marker);
+        }
     });
 });

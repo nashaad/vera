@@ -333,6 +333,17 @@ import {
     type WorkTabState,
 } from "./work-tab.ts";
 import {
+    applyWorkspaceWorkIndex,
+    handleWorkspaceSidebarKey,
+    openWorkspaceSelection,
+    startWorkspaceSidebar,
+    workspaceSidebarLayout,
+    workspaceSidebarSessions,
+    workspaceSidebarViewState,
+    type WorkspaceSidebarAction,
+    type WorkspaceSidebarState,
+} from "./workspace-sidebar.ts";
+import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
@@ -563,8 +574,10 @@ import {
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
     loadTuiKeybindingOverlay,
+    loadTuiPinnedSessionIds,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
+    saveTuiPinnedSessionIds,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
 } from "./theme-preference.ts";
@@ -1262,6 +1275,16 @@ export async function startTui(
     let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let workTab: WorkTabState | undefined;
+    /**
+     * The workspace side bar, open or not.
+     *
+     * A pane rather than an overlay: it takes focus and claims bare keys, and
+     * every chord passes through it, which is what lets ctrl+e close what
+     * ctrl+e opened.
+     */
+    let workspaceSidebar: WorkspaceSidebarState | undefined;
+    /** Client state. A pin orders one person's list and never reaches a host. */
+    let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
     /**
      * The last index the host sent, held whether or not the tab is open: the
@@ -2278,6 +2301,10 @@ export async function startTui(
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const workTabView = createTuiLinesView(renderer, "work-tab");
+    const workspaceSidebarView = createTuiLinesView(
+        renderer,
+        "workspace-sidebar",
+    );
     const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
@@ -2983,9 +3010,11 @@ export async function startTui(
         commandPalette = undefined;
         help = undefined;
         workTab = undefined;
+        workspaceSidebar = undefined;
         searchOverlay = undefined;
         queuedSearch = undefined;
         workTabView.surface.visible = false;
+        workspaceSidebarView.surface.visible = false;
         searchOverlayView.surface.visible = false;
         doctorDialog = undefined;
         diagnosticsDialog = undefined;
@@ -3524,6 +3553,24 @@ export async function startTui(
             if (action !== undefined) runWorkTabAction(open, action);
         },
     };
+    // Hover moves the cursor and a click activates the row it landed on, the
+    // same as every other list: a row the arrows can reach is a row the mouse
+    // can reach.
+    workspaceSidebarView.pointer = {
+        hover: (rowId) => {
+            if (workspaceSidebar === undefined) return;
+            if (workspaceSidebar.selectedId === rowId) return;
+            workspaceSidebar = { ...workspaceSidebar, selectedId: rowId };
+            renderState();
+        },
+        activate: (rowId) => {
+            if (workspaceSidebar === undefined) return;
+            const open = { ...workspaceSidebar, selectedId: rowId };
+            workspaceSidebar = open;
+            const action = openWorkspaceSelection(open, rowId);
+            if (action !== undefined) runWorkspaceSidebarAction(action);
+        },
+    };
     searchOverlayView.pointer = {
         hover: (rowId) => {
             const selected = searchSelectionOf(rowId);
@@ -3553,6 +3600,22 @@ export async function startTui(
         workTab = { ...workTab, selectedId };
         renderState();
     };
+    workspaceSidebarView.box.onMouseScroll = (event) => {
+        if (workspaceSidebar === undefined || event.scroll === undefined) return;
+        const open = workspaceSidebar;
+        const rows = workspaceSidebarLayout(open, {
+            columns: workspaceSidebarView.contentWidth(),
+            now: new Date(),
+        }).selectable;
+        const at = rows.indexOf(open.selectedId ?? "");
+        const next = wheelCursor(Math.max(0, at), rows.length, event.scroll);
+        const selectedId = next === undefined ? undefined : rows[next];
+        if (selectedId === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        workspaceSidebar = { ...open, selectedId };
+        renderState();
+    };
     searchOverlayView.box.onMouseScroll = (event) => {
         if (searchOverlay === undefined || event.scroll === undefined) return;
         const selections = searchSelections(searchOverlay);
@@ -3572,6 +3635,7 @@ export async function startTui(
         renderState();
     };
     app.add(workTabView.surface);
+    app.add(workspaceSidebarView.surface);
     app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
@@ -4303,6 +4367,28 @@ export async function startTui(
             }
         }
 
+        if (workspaceSidebar !== undefined) {
+            const open = workspaceSidebar;
+            const transition = handleWorkspaceSidebarKey(
+                open,
+                key,
+                new Date(),
+                workspaceSidebarView.contentWidth(),
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                workspaceSidebar = transition.state;
+                if (transition.action !== undefined) {
+                    runWorkspaceSidebarAction(transition.action);
+                } else {
+                    renderState();
+                    focusActiveSurface();
+                }
+                return;
+            }
+        }
+
         if (workTab !== undefined) {
             const open = workTab;
             const transition = handleWorkTabKey(open, key);
@@ -4730,6 +4816,24 @@ export async function startTui(
                 // cursor or change focus.
                 key.preventDefault();
                 key.stopPropagation();
+                return;
+            }
+        }
+
+        // The toggle is one chord in both directions, so the close arm runs
+        // before the open arm and before the overlay guard: the pane is not an
+        // overlay, and the chord that opened it has to reach back through it.
+        if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
+            if (workspaceSidebar !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                closeWorkspaceSidebar();
+                return;
+            }
+            if (!anyOverlayOpen()) {
+                key.preventDefault();
+                key.stopPropagation();
+                openWorkspaceSidebar();
                 return;
             }
         }
@@ -7576,6 +7680,9 @@ export async function startTui(
         if (workTab !== undefined) {
             return () => workTabView.box.focus();
         }
+        if (workspaceSidebar !== undefined) {
+            return () => workspaceSidebarView.box.focus();
+        }
         if (searchOverlay !== undefined) {
             return () => searchOverlayView.box.focus();
         }
@@ -8601,6 +8708,14 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
+        workspaceSidebarView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && settingsPicker === undefined
+            && commandPalette === undefined
+            && workTab === undefined
+            && workspaceSidebar !== undefined;
         searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -8679,6 +8794,7 @@ export async function startTui(
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
             || workTabView.surface.visible
+            || workspaceSidebarView.surface.visible
             || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
@@ -8750,6 +8866,12 @@ export async function startTui(
             workTabView.update(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
+        }
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebarView.update(workspaceSidebarViewState(
+                workspaceSidebar,
+                workspaceSidebarView.contentWidth(),
+            ));
         }
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
@@ -8841,6 +8963,12 @@ export async function startTui(
             workTabView.update(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
+        }
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebarView.update(workspaceSidebarViewState(
+                workspaceSidebar,
+                workspaceSidebarView.contentWidth(),
+            ));
         }
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
@@ -10198,6 +10326,77 @@ export async function startTui(
         composer.blur();
         renderState();
         focusActiveSurface();
+    }
+
+    /**
+     * Open the side bar on the session already on screen.
+     *
+     * The roster is read once here. Status after that arrives on the work
+     * index the host pushes on every roster transition, so nothing polls.
+     */
+    function openWorkspaceSidebar(): void {
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(
+                state,
+                "This host does not list sessions; reconnect to switch",
+            );
+            renderState();
+            composer.focus();
+            return;
+        }
+        const generation = clientGeneration;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || generation !== clientGeneration) return;
+            const sessions = workspaceSidebarSessions(agents);
+            const opened = startWorkspaceSidebar(
+                sessions,
+                workspacePinnedIds,
+                client.agentId,
+            );
+            workspaceSidebar = workIndex === undefined
+                ? opened
+                : applyWorkspaceWorkIndex(opened, workIndex);
+            composer.blur();
+            renderState();
+            focusActiveSurface();
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not list sessions: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    function closeWorkspaceSidebar(): void {
+        workspaceSidebar = undefined;
+        workspaceSidebarView.surface.visible = false;
+        composer.focus();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function runWorkspaceSidebarAction(action: WorkspaceSidebarAction): void {
+        if (action.kind === "close") {
+            closeWorkspaceSidebar();
+            return;
+        }
+        if (action.kind === "pin") {
+            workspacePinnedIds = action.pinnedIds;
+            try {
+                saveTuiPinnedSessionIds(action.pinnedIds);
+            } catch {
+                // A preference write cannot stop the list from reordering.
+            }
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        closeWorkspaceSidebar();
+        beginSessionResume(action.session_path, action.session_id);
     }
 
     function closeWorkSurfaces(): void {
@@ -12526,6 +12725,9 @@ export async function startTui(
         workIndex = index;
         if (workTab !== undefined) {
             workTab = applyWorkIndex(workTab, index);
+        }
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebar = applyWorkspaceWorkIndex(workspaceSidebar, index);
         }
         if (announce) {
             const notice = attentionNotice(
