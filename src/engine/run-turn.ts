@@ -20,8 +20,6 @@ import {
     agentAllowsTool,
     type AgentWearSnapshot,
 } from "../agents/wear.ts";
-import type { SessionModelSettingsResult } from "./inbound-command-router.ts";
-import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { sanitizeDiagnosticText } from "../model/diagnostic-text.ts";
 import {
@@ -36,11 +34,7 @@ import type {
     PreToolUseHookResult,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
-import type {
-    AgentUpdate,
-    SessionNameReplyUpdate,
-    TimelineReplyUpdate,
-} from "./protocol.ts";
+import type { AgentUpdate } from "./protocol.ts";
 import { createProtocolEncoder } from "./protocol.ts";
 import {
     TimelineController,
@@ -50,7 +44,6 @@ import {
     EngineEventBus,
     createJsonlEventLogger,
 } from "./events.ts";
-import type { PoolAdmissionVerdict } from "./events.ts";
 import { createModelFailureRecorder } from "./model-failure-recorder.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import type { ReviewLog } from "./review-log.ts";
@@ -119,7 +112,11 @@ import {
 } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
-import type { InboundCommandRouterOptions } from "./inbound-command-router.ts";
+import type {
+    LoopPolicy,
+    RunHeadlessLoopData,
+    RunHeadlessLoopServices,
+} from "./loop-services.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
@@ -130,7 +127,6 @@ import {
     type PermissionGrant,
     type PermissionGrantProposal,
     type PermissionMode,
-    type PermissionPredicate,
     type PermissionPreference,
     type ToolPermissionDecision,
 } from "./permissions.ts";
@@ -163,7 +159,6 @@ import {
 } from "../store/session-store.ts";
 import {
     reasoningEffortForModel,
-    type ModelSettingsPatch,
     type ModelTurnSettings,
 } from "./model-settings.ts";
 
@@ -334,153 +329,6 @@ export interface SessionCompactionOptions {
     readonly retainedUserTurns?: number;
 }
 
-export interface RunHeadlessLoopOptions {
-    /** Overrides the model the automatic approval reviewer runs on. */
-    readonly reviewer?: ToolReviewerSettings;
-    readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
-    readonly reviewLog?: ReviewLog;
-    /**
-     * The reviewer route as it stands now, read at each review. A reviewer
-     * chosen mid-session has to reach the session that chose it, so the
-     * option below is only the starting point.
-     */
-    readonly readReviewer?: () => ToolReviewerSettings | undefined;
-    readonly sessionStore?: SessionStore;
-    readonly sessionId?: string;
-    readonly sessionPath?: string;
-    readonly resumeSessionPath?: string;
-    readonly eventLogPath?: string;
-    /**
-     * Owner-supplied, like the event log path: a caller that names no ledger
-     * records nothing, so the engine cannot reach the home directory by
-     * omission.
-     */
-    readonly modelFailureLedger?: ModelFailureLedger;
-    readonly eventBus?: EngineEventBus;
-    readonly approvalMode?: ApprovalMode;
-    readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    readonly modelFallback?: ModelFallbackPolicy;
-    /** Owner-supplied; the engine never opens the pool file itself. */
-    readonly effortPool?: EffortPool;
-    /**
-     * Strategy and bound models. Absent means the session never compacts and
-     * always sends its whole transcript, which is what every session did
-     * before compaction existed.
-     */
-    readonly compaction?: SessionCompactionOptions;
-    readonly applyToolEffect?: ApplyToolEffect;
-    readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
-    readonly enabledToolEffects?: readonly ToolEffect["type"][];
-    readonly enableUserInteraction?: boolean;
-    readonly extensionTools?: readonly RegisteredTool[];
-    readonly offerTools?: boolean;
-    readonly loadOptionalContext?: boolean;
-    readonly onInboundReady?: (inbound: InboundCommandRouter) => void;
-    /** Additional durable work owned by the host, such as the native inbox. */
-    readonly hasPendingDeliveryTurn?: () => boolean;
-    /** Clears the host-side wake when the queued delivery was drained first. */
-    readonly onDeliveryTurnDiscarded?: () => void;
-    readonly readModelSettings?: () => ModelTurnSettings;
-    readonly updateModelSettings?: (
-        patch: ModelSettingsPatch,
-    ) => Promise<ModelTurnSettings | undefined>;
-    readonly updateSessionModelSettings?: (
-        patch: ModelSettingsPatch,
-    ) => Promise<SessionModelSettingsResult | undefined>;
-    readonly readSessionModelSettingsHistory?: () => readonly {
-        readonly settings: ModelTurnSettings;
-        readonly origin: SessionSettingOrigin;
-        readonly timestamp: string;
-    }[];
-    readonly updateSessionPermissionMode?: (
-        mode: ApprovalMode,
-    ) => Promise<ApprovalMode | undefined>;
-    readonly wearAgent?: InboundCommandRouterOptions["wearAgent"];
-    readonly listAgents?: InboundCommandRouterOptions["listAgents"];
-    readonly updateAgentDefaultPair?:
-        InboundCommandRouterOptions["updateAgentDefaultPair"];
-    readonly readAgentWear?: () => AgentWearSnapshot | undefined;
-    readonly poolAdd?: (
-        entry: { readonly provider: string; readonly model: string },
-        onStep: (step: {
-            readonly step: string;
-            readonly label: string;
-            readonly status: "running" | "passed" | "failed" | "skipped";
-            readonly detail?: string;
-        }) => void,
-        options?: { readonly verify?: boolean },
-    ) => Promise<{
-        readonly verdict: PoolAdmissionVerdict;
-        readonly reason?: string;
-        readonly statusCode?: number;
-        readonly settings?: ModelTurnSettings;
-    }>;
-    readonly poolRemove?: (
-        entry: { readonly provider: string; readonly model: string },
-    ) => Promise<ModelTurnSettings | undefined>;
-    readonly refreshCatalog?: (
-        provider: string,
-    ) => Promise<ModelTurnSettings | undefined>;
-    readonly poolName?: (
-        entry: { readonly provider: string; readonly model: string },
-        name: string | null,
-    ) => Promise<ModelTurnSettings | undefined>;
-    readonly poolMove?: (
-        entry: { readonly provider: string; readonly model: string },
-        delta: number,
-    ) => Promise<ModelTurnSettings | undefined>;
-    readonly readApprovalMode?: () => ApprovalMode;
-    readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;
-    readonly updateApprovalMode?: (
-        mode: ApprovalMode,
-    ) => Promise<ApprovalMode | undefined>;
-    /**
-     * Durable preferences, read on every decision rather than captured once,
-     * so an add/remove through the router takes effect on the next tool call
-     * without restarting the loop.
-     */
-    readonly readPermissionPreferences?: () => readonly PermissionPreference[];
-    readonly addPermissionPreference?: (
-        when: PermissionPredicate,
-    ) => Promise<PermissionPreference | undefined>;
-    readonly removePermissionPreference?: (id: string) => Promise<boolean>;
-    readonly updateSessionName?: (
-        name: string | null,
-    ) => Promise<string | null | undefined>;
-    readonly sendTimelineReply?: (
-        ownerId: string,
-        reply: TimelineReplyUpdate,
-    ) => void;
-    readonly sendSessionNameReply?: (
-        ownerId: string,
-        reply: SessionNameReplyUpdate,
-    ) => void;
-    readonly consult?: InboundCommandRouterOptions["consult"];
-    readonly sendConsultReply?: InboundCommandRouterOptions["sendConsultReply"];
-    readonly reviewToolCall?: ReviewToolCall;
-    readonly disabledPromptContributions?: readonly string[];
-    readonly loadContextualContributions?: (
-        instructionRoot: InstructionRoot,
-        /** The skills the worn agent may see. Absent means all of them. */
-        allowedSkills?: readonly string[],
-    ) => Promise<readonly PromptContribution[]>;
-    /** Hooks for the session's turns; absent means none registered. */
-    readonly hooks?: ToolHooks;
-    /**
-     * Variables layered over the inherited environment in the shells this
-     * session's tools spawn. The owner chooses the variables; the engine
-     * passes them through opaquely.
-     */
-    readonly toolEnv?: Readonly<Record<string, string>>;
-    /** Host-owned root shared by this resident session and its subagents. */
-    readonly processRegistry?: ManagedProcessRegistry;
-    /**
-     * The directory this session's project-scoped memory is keyed on,
-     * resolved by the owner once per agent. Absent means the workspace.
-     */
-    readonly instructionRoot?: InstructionRoot;
-}
-
 /**
  * Creates the session's scratch directory and returns its canonical path.
  * Canonical because permission checks compare realpath-resolved tool paths
@@ -589,14 +437,19 @@ export async function runHeadlessLoop(
     adapter: ModelAdapter,
     model: string,
     reasoningEffort?: ModelReasoningEffort,
-    options: RunHeadlessLoopOptions = {},
+    data: RunHeadlessLoopData = {},
+    services: RunHeadlessLoopServices = {},
 ): Promise<void> {
+    const router = services.router ?? {};
+    // Read at each use rather than captured: an owner may change any of these
+    // while the loop runs, and the change has to reach the next turn.
+    const policy = (): LoopPolicy => services.readPolicy?.() ?? {};
     if (
-        options.sessionStore !== undefined
+        services.sessionStore !== undefined
         && (
-            options.sessionId !== undefined
-            || options.sessionPath !== undefined
-            || options.resumeSessionPath !== undefined
+            data.sessionId !== undefined
+            || data.sessionPath !== undefined
+            || data.resumeSessionPath !== undefined
         )
     ) {
         throw new Error(
@@ -604,41 +457,41 @@ export async function runHeadlessLoop(
         );
     }
     if (
-        options.resumeSessionPath !== undefined
-        && (options.sessionId !== undefined || options.sessionPath !== undefined)
+        data.resumeSessionPath !== undefined
+        && (data.sessionId !== undefined || data.sessionPath !== undefined)
     ) {
         throw new Error(
             "A resumed session cannot also specify a new session ID or path",
         );
     }
-    const newSessionId = options.sessionId ?? randomUUID();
-    const store = options.sessionStore ?? (
-        options.resumeSessionPath === undefined
+    const newSessionId = data.sessionId ?? randomUUID();
+    const store = services.sessionStore ?? (
+        data.resumeSessionPath === undefined
             ? await SessionStore.create(
-                options.sessionPath ?? defaultSessionPath(newSessionId),
+                data.sessionPath ?? defaultSessionPath(newSessionId),
                 { sessionId: newSessionId, cwd: process.cwd() },
             )
-            : await SessionStore.open(options.resumeSessionPath)
+            : await SessionStore.open(data.resumeSessionPath)
     );
     const sessionId = store.header.id;
-    const processRegistry = options.processRegistry
+    const processRegistry = services.processRegistry
         ?? new ManagedProcessRegistry();
-    const ownsProcessRegistry = options.processRegistry === undefined;
+    const ownsProcessRegistry = services.processRegistry === undefined;
     const scratchDir = sessionScratchDir(sessionId);
     if (
-        (options.readApprovalMode === undefined)
-        !== (options.updateApprovalMode === undefined)
+        (services.readApprovalMode === undefined)
+        !== (services.updateApprovalMode === undefined)
     ) {
         throw new Error(
             "Approval mode reads and updates must use the same owner",
         );
     }
     let localApprovalMode = store.approvalMode()
-        ?? options.approvalMode
+        ?? data.approvalMode
         ?? "auto";
-    const readApprovalMode = options.readApprovalMode
+    const readApprovalMode = services.readApprovalMode
         ?? (() => localApprovalMode);
-    const updateApprovalMode = options.updateApprovalMode
+    const updateApprovalMode = services.updateApprovalMode
         ?? (async (mode: ApprovalMode): Promise<ApprovalMode> => {
             await store.appendApprovalMode(mode);
             localApprovalMode = mode;
@@ -646,11 +499,11 @@ export async function runHeadlessLoop(
         });
     const readPermissionGrants = () => store.permissionGrants();
     const readPermissionPreferences = () =>
-        options.readPermissionPreferences?.() ?? [];
+        services.readPermissionPreferences?.() ?? [];
     const readPermissionInspection = () =>
         inspectPermissions(
             readApprovalMode(),
-            options.permissionModes,
+            policy().permissionModes,
             readPermissionGrants(),
             readPermissionPreferences(),
         );
@@ -661,13 +514,13 @@ export async function runHeadlessLoop(
     };
     const removePermissionGrant = (id: string): Promise<boolean> =>
         store.revokePermissionGrant(id);
-    const events = options.eventBus ?? new EngineEventBus();
+    const events = services.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(
         endpoint,
         sessionAttachmentName(store),
         () => store.projectedHarnessMessages(),
         (provider, replayModel) => {
-            const settings = options.readModelSettings?.();
+            const settings = services.readModelSettings?.();
             const declared = settings?.provider === provider
                     && settings.model === replayModel
                 ? settings.contextWindow
@@ -677,9 +530,9 @@ export async function runHeadlessLoop(
     );
     // Before the wire encoder: the ledger writes synchronously, so a client
     // reading it when the failure reaches the screen already sees this turn.
-    if (options.modelFailureLedger !== undefined) {
+    if (services.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({
-            ledger: options.modelFailureLedger,
+            ledger: services.modelFailureLedger,
             sessionId,
         }));
     }
@@ -687,9 +540,9 @@ export async function runHeadlessLoop(
     // A caller that names no path gets no log. The host names one for every
     // agent it starts, so only direct engine callers opt out, and they cannot
     // reach the home directory by omission.
-    if (options.eventLogPath !== undefined) {
+    if (data.eventLogPath !== undefined) {
         events.subscribe(createJsonlEventLogger({
-            path: options.eventLogPath,
+            path: data.eventLogPath,
             sessionId,
         }));
     }
@@ -705,7 +558,7 @@ export async function runHeadlessLoop(
         state: { messages, store },
         protocol,
         isBlocked: () => inbound.timelineBlocked(),
-        sendReply: options.sendTimelineReply
+        sendReply: router.sendTimelineReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
     });
     inbound = new InboundCommandRouter(endpoint, events, {
@@ -731,90 +584,90 @@ export async function runHeadlessLoop(
         hasPendingDeliveryTurn: () =>
             store.pendingDeliveries().length > 0
             || store.hasUnansweredDeliveryTurn()
-            || options.hasPendingDeliveryTurn?.() === true,
-        ...(options.onDeliveryTurnDiscarded === undefined ? {} : {
-            onDeliveryTurnDiscarded: options.onDeliveryTurnDiscarded,
+            || router.hasPendingDeliveryTurn?.() === true,
+        ...(router.onDeliveryTurnDiscarded === undefined ? {} : {
+            onDeliveryTurnDiscarded: router.onDeliveryTurnDiscarded,
         }),
-        ...(options.readModelSettings === undefined
+        ...(services.readModelSettings === undefined
             ? {}
-            : { readModelSettings: options.readModelSettings }),
-        ...(options.updateModelSettings === undefined
+            : { readModelSettings: services.readModelSettings }),
+        ...(router.updateModelSettings === undefined
             ? {}
-            : { updateModelSettings: options.updateModelSettings }),
-        ...(options.updateSessionModelSettings === undefined
+            : { updateModelSettings: router.updateModelSettings }),
+        ...(router.updateSessionModelSettings === undefined
             ? {}
             : {
-                updateSessionModelSettings: options.updateSessionModelSettings,
+                updateSessionModelSettings: router.updateSessionModelSettings,
             }),
-        ...(options.readSessionModelSettingsHistory === undefined
+        ...(router.readSessionModelSettingsHistory === undefined
             ? {}
             : {
                 readSessionModelSettingsHistory:
-                    options.readSessionModelSettingsHistory,
+                    router.readSessionModelSettingsHistory,
             }),
-        ...(options.updateSessionPermissionMode === undefined
+        ...(router.updateSessionPermissionMode === undefined
             ? {}
             : {
                 updateSessionPermissionMode:
-                    options.updateSessionPermissionMode,
+                    router.updateSessionPermissionMode,
             }),
-        ...(options.wearAgent === undefined
+        ...(router.wearAgent === undefined
             ? {}
-            : { wearAgent: options.wearAgent }),
-        ...(options.listAgents === undefined
+            : { wearAgent: router.wearAgent }),
+        ...(router.listAgents === undefined
             ? {}
-            : { listAgents: options.listAgents }),
-        ...(options.updateAgentDefaultPair === undefined
+            : { listAgents: router.listAgents }),
+        ...(router.updateAgentDefaultPair === undefined
             ? {}
-            : { updateAgentDefaultPair: options.updateAgentDefaultPair }),
-        ...(options.readApprovalModeOrigin === undefined
+            : { updateAgentDefaultPair: router.updateAgentDefaultPair }),
+        ...(router.readApprovalModeOrigin === undefined
             ? {}
-            : { readApprovalModeOrigin: options.readApprovalModeOrigin }),
-        ...(options.poolAdd === undefined
+            : { readApprovalModeOrigin: router.readApprovalModeOrigin }),
+        ...(router.poolAdd === undefined
             ? {}
-            : { poolAdd: options.poolAdd }),
-        ...(options.poolRemove === undefined
+            : { poolAdd: router.poolAdd }),
+        ...(router.poolRemove === undefined
             ? {}
-            : { poolRemove: options.poolRemove }),
-        ...(options.refreshCatalog === undefined
+            : { poolRemove: router.poolRemove }),
+        ...(router.refreshCatalog === undefined
             ? {}
-            : { refreshCatalog: options.refreshCatalog }),
-        ...(options.poolName === undefined
+            : { refreshCatalog: router.refreshCatalog }),
+        ...(router.poolName === undefined
             ? {}
-            : { poolName: options.poolName }),
-        ...(options.poolMove === undefined
+            : { poolName: router.poolName }),
+        ...(router.poolMove === undefined
             ? {}
-            : { poolMove: options.poolMove }),
+            : { poolMove: router.poolMove }),
         readApprovalMode,
         readPermissionInspection,
         updateApprovalMode,
-        ...(options.addPermissionPreference === undefined
+        ...(router.addPermissionPreference === undefined
             ? {}
-            : { addPermissionPreference: options.addPermissionPreference }),
-        ...(options.removePermissionPreference === undefined
+            : { addPermissionPreference: router.addPermissionPreference }),
+        ...(router.removePermissionPreference === undefined
             ? {}
             : {
-                removePermissionPreference: options.removePermissionPreference,
+                removePermissionPreference: router.removePermissionPreference,
             }),
-        ...(options.updateSessionName === undefined
+        ...(router.updateSessionName === undefined
             ? {}
-            : { updateSessionName: options.updateSessionName }),
-        sendSessionNameReply: options.sendSessionNameReply
+            : { updateSessionName: router.updateSessionName }),
+        sendSessionNameReply: router.sendSessionNameReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
-        ...(options.consult === undefined ? {} : { consult: options.consult }),
-        ...(options.sendConsultReply === undefined
+        ...(router.consult === undefined ? {} : { consult: router.consult }),
+        ...(router.sendConsultReply === undefined
             ? {}
-            : { sendConsultReply: options.sendConsultReply }),
+            : { sendConsultReply: router.sendConsultReply }),
         addPermissionGrants,
         removePermissionGrant,
         handleTimelineCommand: (ownerId, command) =>
             timeline.handle(ownerId, command),
         detachTimelineOwner: (ownerId) => timeline.detachOwner(ownerId),
     });
-    options.onInboundReady?.(inbound);
-    const instructionRoot: InstructionRoot = options.instructionRoot
+    router.onInboundReady?.(inbound);
+    const instructionRoot: InstructionRoot = data.instructionRoot
         ?? { path: store.header.cwd, source: "workspace" };
-    const applyToolEffect = options.applyToolEffect
+    const applyToolEffect = services.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
@@ -825,12 +678,12 @@ export async function runHeadlessLoop(
             // here rather than copied, so a subagent spawned later is given
             // what the settings say now, not what they said at start.
             get disabledPromptContributions() {
-                return options.disabledPromptContributions;
+                return policy().disabledPromptContributions;
             },
-            get modelFallback() { return options.modelFallback; },
-            get reviewer() { return options.reviewer; },
-            get reviewers() { return options.reviewers; },
-            get permissionModes() { return options.permissionModes; },
+            get modelFallback() { return policy().modelFallback; },
+            get reviewer() { return policy().reviewer; },
+            get reviewers() { return policy().reviewers; },
+            get permissionModes() { return policy().permissionModes; },
         });
     // A configured reviewer wins, because the point of configuring one is to
     // pay for a cheaper model than the agent. Without it the reviewer reads the
@@ -843,10 +696,10 @@ export async function runHeadlessLoop(
     // the model that answered it, so changed settings start a new one rather
     // than continuing someone else's session.
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
-    const reviewToolCall: ReviewToolCall = options.reviewToolCall
+    const reviewToolCall: ReviewToolCall = services.reviewToolCall
         ?? ((request, signal) => {
-            const configured = options.readReviewer?.() ?? options.reviewer;
-            const current = options.readModelSettings?.()
+            const configured = services.readReviewer?.() ?? policy().reviewer;
+            const current = services.readModelSettings?.()
                 ?? {
                     model,
                     ...(reasoningEffort === undefined
@@ -867,16 +720,16 @@ export async function runHeadlessLoop(
                     review: createRoutedToolReviewer(adapter, {
                         ...configured,
                         models,
-                        ...(options.reviewLog === undefined
+                        ...(services.reviewLog === undefined
                             ? {}
-                            : { log: options.reviewLog }),
+                            : { log: services.reviewLog }),
                     }),
                 };
             }
             return activeReviewer.review(request, signal);
         });
     const contextWatch: ContextWatch = {};
-    const compaction = options.compaction;
+    const compaction = services.compaction;
     // A failed automatic compaction must not turn every later tool boundary
     // into another request to the same unavailable route. A new user turn
     // resets the latch and gets one fresh attempt.
@@ -897,7 +750,7 @@ export async function runHeadlessLoop(
         if (context?.capacity !== undefined) {
             return context.capacity;
         }
-        const settings = options.readModelSettings?.();
+        const settings = services.readModelSettings?.();
         return settings?.contextWindow
             ?? contextWindowForModel(
                 settings?.provider,
@@ -1034,7 +887,7 @@ export async function runHeadlessLoop(
                 automaticCompactionBlockedAt = undefined;
             }
             const compactionModel = context?.model
-                ?? options.readModelSettings?.().model
+                ?? services.readModelSettings?.().model
                 ?? model;
             const summarizerModel = compaction.diagnostics?.model
                 ?? compactionModel;
@@ -1246,49 +1099,49 @@ export async function runHeadlessLoop(
         toolRuntime: newStashingToolRuntime(
             store.header.cwd,
             store.header.id,
-            options.toolEnv,
+            data.toolEnv,
             instructionRoot.path,
             processRegistry,
         ),
         instructionRoot,
         inbound,
         events,
-        hooks: options.hooks ?? new ToolHooks(),
+        hooks: services.hooks ?? new ToolHooks(),
         approvalMode: localApprovalMode,
         applyToolEffect,
-        ...(options.applyCommittedToolEffect === undefined
+        ...(services.applyCommittedToolEffect === undefined
             ? {}
-            : { applyCommittedToolEffect: options.applyCommittedToolEffect }),
-        enabledToolEffects: options.enabledToolEffects ?? ["spawn_subagent"],
-        enableUserInteraction: options.enableUserInteraction ?? true,
-        extensionTools: options.extensionTools ?? [],
-        offerTools: options.offerTools ?? true,
-        loadOptionalContext: options.loadOptionalContext ?? true,
+            : { applyCommittedToolEffect: services.applyCommittedToolEffect }),
+        enabledToolEffects: data.enabledToolEffects ?? ["spawn_subagent"],
+        enableUserInteraction: data.enableUserInteraction ?? true,
+        extensionTools: services.extensionTools ?? [],
+        offerTools: data.offerTools ?? true,
+        loadOptionalContext: data.loadOptionalContext ?? true,
         // Asked at each turn, not captured for the session: a setting the
         // user changes mid-session reaches the next turn with no restart.
-        get modelFallback() { return options.modelFallback; },
-        ...(options.effortPool === undefined
+        get modelFallback() { return policy().modelFallback; },
+        ...(services.effortPool === undefined
             ? {}
-            : { effortPool: options.effortPool }),
-        ...(options.readModelSettings === undefined
+            : { effortPool: services.effortPool }),
+        ...(services.readModelSettings === undefined
             ? {}
-            : { readModelSettings: options.readModelSettings }),
+            : { readModelSettings: services.readModelSettings }),
         // Read rather than captured: a wear applied between turns has to
         // reach the next turn without rebuilding the loop.
-        ...(options.readAgentWear === undefined
+        ...(services.readAgentWear === undefined
             ? {}
-            : { readAgentWear: options.readAgentWear }),
+            : { readAgentWear: services.readAgentWear }),
         firedNudges: new Set<string>(),
         readApprovalMode,
         readPermissionGrants,
         readPermissionPreferences,
-        get permissionModes() { return options.permissionModes; },
+        get permissionModes() { return policy().permissionModes; },
         reviewToolCall,
         reviewToolCallForProfile: createReviewerProfileRouter(
             reviewToolCall,
             adapter,
-            () => options.reviewers,
-            options.reviewLog,
+            () => policy().reviewers,
+            services.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
@@ -1296,13 +1149,13 @@ export async function runHeadlessLoop(
         scratchDir,
         toolResultSpill: createToolResultSpill(scratchDir),
         get disabledPromptContributions() {
-            return options.disabledPromptContributions;
+            return policy().disabledPromptContributions;
         },
-        ...(options.loadContextualContributions === undefined ? {} : {
-            loadContextualContributions: options.loadContextualContributions,
+        ...(services.loadContextualContributions === undefined ? {} : {
+            loadContextualContributions: services.loadContextualContributions,
         }),
     };
-    const startupSettings = options.readModelSettings?.();
+    const startupSettings = services.readModelSettings?.();
     const startupContext = startupSettings === undefined
         ? { model }
         : compactionContextForSettings(startupSettings);

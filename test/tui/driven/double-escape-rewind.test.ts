@@ -167,13 +167,17 @@ function slowRewindDependencies(): TuiDependencies {
         "high",
         {
             approvalMode: "auto",
+        },
+        {
             readModelSettings: () => ({
                 model: "test",
                 reasoningEffort: "high",
             }),
-            updateModelSettings: async () => undefined,
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
+            router: {
+                updateModelSettings: async () => undefined,
+            },
         },
     );
 

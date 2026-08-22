@@ -55,6 +55,7 @@ export function createTuiTerminalErrorDependencies(): TuiDependencies {
         "test",
         "off",
         { approvalMode: "auto" },
+        {},
     );
     const client: TuiAgentClient = {
         async send(command): Promise<void> {

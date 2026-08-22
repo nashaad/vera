@@ -3400,47 +3400,13 @@ export class AgentRegistry {
             this.defaultModel,
             this.defaultReasoningEffort,
             {
-                sessionStore: store,
                 eventLogPath,
-                ...(this.options.modelFailureLedger === undefined
-                    ? {}
-                    : { modelFailureLedger: this.options.modelFailureLedger }),
-                eventBus: events,
                 approvalMode: entry.approvalMode,
                 // Every shell this session spawns carries its identity name,
                 // so arc stamps the session's posts with it and self-echo
                 // suppression matches with no manual export.
                 toolEnv: { ARC_SESSION: entry.arcName },
-                processRegistry: this.processRegistry,
                 instructionRoot,
-                // Read at each turn, not copied for the session: a setting
-                // the user changes has to reach a session already running.
-                get modelFallback() {
-                    return registry.options.modelFallback;
-                },
-                ...(this.options.createEffortPool === undefined
-                    ? {}
-                    : {
-                        effortPool: this.options.createEffortPool(
-                            store.header.cwd,
-                        ),
-                    }),
-                ...(this.options.reviewer === undefined
-                    ? {}
-                    : { reviewer: this.options.reviewer }),
-                readReviewer: () => this.readReviewer(),
-                get reviewers() {
-                    return registry.options.reviewers;
-                },
-                ...(this.options.reviewLog === undefined
-                    ? {}
-                    : { reviewLog: this.options.reviewLog }),
-                get permissionModes() {
-                    return registry.options.permissionModes;
-                },
-                ...(compaction === undefined ? {} : { compaction }),
-                applyToolEffect,
-                applyCommittedToolEffect,
                 enabledToolEffects: kind === "interactive"
                     ? [
                         "spawn_subagent",
@@ -3454,6 +3420,30 @@ export class AgentRegistry {
                     ]
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
+                offerTools: startupProfile !== "prompt_only",
+                loadOptionalContext: startupProfile === "default",
+            },
+            {
+                sessionStore: store,
+                ...(this.options.modelFailureLedger === undefined
+                    ? {}
+                    : { modelFailureLedger: this.options.modelFailureLedger }),
+                eventBus: events,
+                processRegistry: this.processRegistry,
+                ...(this.options.createEffortPool === undefined
+                    ? {}
+                    : {
+                        effortPool: this.options.createEffortPool(
+                            store.header.cwd,
+                        ),
+                    }),
+                readReviewer: () => this.readReviewer(),
+                ...(this.options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: this.options.reviewLog }),
+                ...(compaction === undefined ? {} : { compaction }),
+                applyToolEffect,
+                applyCommittedToolEffect,
                 extensionTools,
                 ...(startupProfile !== "default"
                     || this.options.loadContextualContributions === undefined
@@ -3462,14 +3452,23 @@ export class AgentRegistry {
                         loadContextualContributions:
                             this.options.loadContextualContributions,
                     }),
-                offerTools: startupProfile !== "prompt_only",
-                loadOptionalContext: startupProfile === "default",
-                onInboundReady: (inbound) => {
-                    entry.inbound = inbound;
-                },
-                hasPendingDeliveryTurn: () =>
-                    entry.inbox?.hasAdmittedPending() === true,
-                onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
+                // Read at each use, not copied for the session: a setting the
+                // user changes has to reach a session already running.
+                readPolicy: () => ({
+                    ...(registry.options.modelFallback === undefined ? {} : {
+                        modelFallback: registry.options.modelFallback,
+                    }),
+                    ...(registry.options.permissionModes === undefined ? {} : {
+                        permissionModes: registry.options.permissionModes,
+                    }),
+                    ...(registry.options.reviewer === undefined ? {} : {
+                        reviewer: registry.options.reviewer,
+                    }),
+                    ...(registry.options.reviewers === undefined ? {} : {
+                        reviewers: registry.options.reviewers,
+                    }),
+                    disabledPromptContributions: disabledPromptContributions(),
+                }),
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
@@ -3483,89 +3482,105 @@ export class AgentRegistry {
                     this.options.developerSettings?.(),
                     store.header.cwd,
                 ),
-                updateModelSettings: (patch) =>
-                    this.updateModelSettings(agent.id, patch),
-                updateSessionModelSettings: (patch) =>
-                    this.updateSessionModelSettings(agent.id, patch),
-                readSessionModelSettingsHistory: () =>
-                    this.sessionModelSettingsHistory(agent.id),
-                updateSessionPermissionMode: (mode) =>
-                    this.updateSessionPermissionMode(agent.id, mode),
-                wearAgent: (name) => this.wearAgentFor(agent.id, name),
-                listAgents: () => this.listAgentsFor(agent.id),
-                updateAgentDefaultPair: (name, pair) =>
-                    this.updateAgentDefaultPairFor(agent.id, name, pair),
                 readAgentWear: () => entry.agentWear,
-                poolAdd: (entry, onStep, options) =>
-                    this.poolAdd(agent.id, entry, onStep, options),
-                poolRemove: (entry) =>
-                    this.poolRemove(agent.id, entry),
-                refreshCatalog: (provider) =>
-                    this.refreshCatalog(agent.id, provider),
-                poolName: (entry, name) =>
-                    this.poolName(agent.id, entry, name),
-                poolMove: (entry, delta) =>
-                    this.poolMove(agent.id, entry, delta),
-                ...(adapter === undefined ? {} : {
-                    consult: (request, signal) => {
-                        // One candidate, so the route cannot fall back: the
-                        // caller named a model and gets that model or an error.
-                        const complete = createRoutedCompletionService(adapter, {
-                            models: [{
-                                model: request.model,
-                                ...(request.provider === undefined
-                                    ? {}
-                                    : { provider: request.provider }),
-                                ...(request.reasoningEffort === undefined
-                                    ? {}
-                                    : isModelReasoningEffort(
-                                            request.reasoningEffort,
-                                        )
-                                    ? {
-                                        reasoningEffort:
-                                            request.reasoningEffort,
-                                    }
-                                    : {}),
-                            }],
-                        });
-                        return complete({
-                            systemPrompt: request.systemPrompt ?? "",
-                            messages: request.messages.map((message) =>
-                                consultModelMessage(message)
-                            ),
-                            ...(request.maxTokens === undefined
-                                ? {}
-                                : { maxTokens: request.maxTokens }),
-                        }, signal);
-                    },
-                }),
-                sendConsultReply: (ownerId, reply) =>
-                    agent.sendConsultReply(ownerId, reply),
                 readApprovalMode: () => entry.approvalMode,
-                readApprovalModeOrigin: () => entry.store.approvalModeOrigin(),
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
                 ...(this.options.permissionPreferences === undefined ? {} : {
                     readPermissionPreferences: () =>
                         this.options.permissionPreferences!.list(),
-                    addPermissionPreference: (when) =>
-                        this.options.permissionPreferences!.add(when),
-                    removePermissionPreference: (id) =>
-                        this.options.permissionPreferences!.remove(id),
                 }),
-                updateSessionName: (name) =>
-                    this.updateSessionName(agent.id, name),
-                sendTimelineReply: (ownerId, reply) =>
-                    agent.sendTimelineReply(ownerId, reply),
-                sendSessionNameReply: (ownerId, reply) =>
-                    agent.sendSessionNameReply(ownerId, reply),
-                get disabledPromptContributions() {
-                    return disabledPromptContributions();
-                },
                 ...(startupProfile !== "default"
                         || this.options.createToolHooks === undefined
                     ? {}
                     : { hooks: this.options.createToolHooks() }),
+                router: {
+                    onInboundReady: (inbound) => {
+                        entry.inbound = inbound;
+                    },
+                    hasPendingDeliveryTurn: () =>
+                        entry.inbox?.hasAdmittedPending() === true,
+                    onDeliveryTurnDiscarded: () =>
+                        agent.deliveryTurnDiscarded(),
+                    updateModelSettings: (patch) =>
+                        this.updateModelSettings(agent.id, patch),
+                    updateSessionModelSettings: (patch) =>
+                        this.updateSessionModelSettings(agent.id, patch),
+                    readSessionModelSettingsHistory: () =>
+                        this.sessionModelSettingsHistory(agent.id),
+                    updateSessionPermissionMode: (mode) =>
+                        this.updateSessionPermissionMode(agent.id, mode),
+                    wearAgent: (name) => this.wearAgentFor(agent.id, name),
+                    listAgents: () => this.listAgentsFor(agent.id),
+                    updateAgentDefaultPair: (name, pair) =>
+                        this.updateAgentDefaultPairFor(agent.id, name, pair),
+                    poolAdd: (poolEntry, onStep, poolOptions) =>
+                        this.poolAdd(agent.id, poolEntry, onStep, poolOptions),
+                    poolRemove: (poolEntry) =>
+                        this.poolRemove(agent.id, poolEntry),
+                    refreshCatalog: (provider) =>
+                        this.refreshCatalog(agent.id, provider),
+                    poolName: (poolEntry, name) =>
+                        this.poolName(agent.id, poolEntry, name),
+                    poolMove: (poolEntry, delta) =>
+                        this.poolMove(agent.id, poolEntry, delta),
+                    ...(adapter === undefined ? {} : {
+                        consult: (request, signal) => {
+                            // One candidate, so the route cannot fall back:
+                            // the caller named a model and gets that model or
+                            // an error.
+                            const complete = createRoutedCompletionService(
+                                adapter,
+                                {
+                                    models: [{
+                                        model: request.model,
+                                        ...(request.provider === undefined
+                                            ? {}
+                                            : { provider: request.provider }),
+                                        ...(request.reasoningEffort
+                                                === undefined
+                                            ? {}
+                                            : isModelReasoningEffort(
+                                                    request.reasoningEffort,
+                                                )
+                                            ? {
+                                                reasoningEffort:
+                                                    request.reasoningEffort,
+                                            }
+                                            : {}),
+                                    }],
+                                },
+                            );
+                            return complete({
+                                systemPrompt: request.systemPrompt ?? "",
+                                messages: request.messages.map((message) =>
+                                    consultModelMessage(message)
+                                ),
+                                ...(request.maxTokens === undefined
+                                    ? {}
+                                    : { maxTokens: request.maxTokens }),
+                            }, signal);
+                        },
+                    }),
+                    sendConsultReply: (ownerId, reply) =>
+                        agent.sendConsultReply(ownerId, reply),
+                    readApprovalModeOrigin: () =>
+                        entry.store.approvalModeOrigin(),
+                    ...(this.options.permissionPreferences === undefined
+                        ? {}
+                        : {
+                            addPermissionPreference: (when) =>
+                                this.options.permissionPreferences!.add(when),
+                            removePermissionPreference: (id) =>
+                                this.options.permissionPreferences!.remove(id),
+                        }),
+                    updateSessionName: (name) =>
+                        this.updateSessionName(agent.id, name),
+                    sendTimelineReply: (ownerId, reply) =>
+                        agent.sendTimelineReply(ownerId, reply),
+                    sendSessionNameReply: (ownerId, reply) =>
+                        agent.sendSessionNameReply(ownerId, reply),
+                },
             },
         ).catch(async (error: unknown) => {
             entry.inbox?.release();
