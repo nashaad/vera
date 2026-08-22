@@ -29,6 +29,8 @@ export interface ToolReviewDecision {
     readonly reason: string;
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
+    /** False when the compact low-risk response omitted this assessment. */
+    readonly userAuthorizationAssessed?: boolean;
     readonly escalated?: boolean;
 }
 
@@ -406,6 +408,12 @@ export function createToolReviewer(
             decisionReason: decision.reason,
             riskLevel: decision.riskLevel,
             userAuthorization: decision.userAuthorization,
+            ...(decision.userAuthorizationAssessed === undefined
+                ? {}
+                : {
+                    userAuthorizationAssessed:
+                        decision.userAuthorizationAssessed,
+                }),
             latencyMs: Date.now() - started,
             ...(trace.error === undefined ? {} : { error: trace.error }),
         });
@@ -442,6 +450,7 @@ export function parseReviewDecision(
     // Missing grades default asymmetrically, mirroring codex: the fast-path
     // reply `{"outcome":"allow"}` reads as a low-risk allow, while a deny
     // that skipped its grades is presumed high-risk.
+    const userAuthorization = parseUserAuthorization(value.user_authorization);
     return {
         decision,
         reason: rationale.length > 0
@@ -451,8 +460,10 @@ export function parseReviewDecision(
                 : "Auto-review returned a deny decision without a rationale.",
         riskLevel: parseRiskLevel(value.risk_level)
             ?? (decision === "allow" ? "low" : "high"),
-        userAuthorization: parseUserAuthorization(value.user_authorization)
-            ?? "unknown",
+        userAuthorization: userAuthorization ?? "unknown",
+        ...(userAuthorization === undefined
+            ? { userAuthorizationAssessed: false }
+            : {}),
     };
 }
 

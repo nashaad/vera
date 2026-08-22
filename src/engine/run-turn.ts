@@ -2505,6 +2505,12 @@ async function executePreparedTool(
                 reason: review.reason,
                 riskLevel: review.riskLevel,
                 userAuthorization: review.userAuthorization,
+                ...(review.userAuthorizationAssessed === undefined
+                    ? {}
+                    : {
+                        userAuthorizationAssessed:
+                            review.userAuthorizationAssessed,
+                    }),
             });
             if (review.decision === "deny") {
                 const interrupt = breaker.record("deny");

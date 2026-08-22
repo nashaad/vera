@@ -379,11 +379,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "tool_review") {
         if (update.decision === "allow") {
+            const authorization = update.userAuthorizationAssessed === false
+                ? "not assessed"
+                : update.userAuthorization;
             return appendEntry(state, {
                 kind: "review",
                 text: `Auto review approved ${update.tool}`
                     + ` (risk: ${update.riskLevel},`
-                    + ` authorization: ${update.userAuthorization}):`
+                    + ` authorization: ${authorization}):`
                     + ` ${update.reason}`,
             });
         }
@@ -1530,7 +1533,7 @@ interface TuiReviewHighlightMatch {
     readonly text: string;
 }
 
-/** Routine approval is quiet; only its decision and unresolved authorization stand out. */
+/** Routine approval is quiet; only its decision stands out. */
 function renderTuiReview(text: string): TextChunk[] {
     const chunks: TextChunk[] = [];
     const approvalPrefix = "Auto review ";
@@ -1568,22 +1571,12 @@ function renderTuiReview(text: string): TextChunk[] {
 
     const authorizationTextStart = authorizationIndex
         + authorizationTextPrefix.length;
-    const authorizationValueStart = authorizationIndex
-        + authorizationMarker.length;
     chunks.push(fg(TUI_MUTED)(remaining.slice(0, authorizationTextStart)));
-    const authorizationValue = remaining.slice(
-        authorizationValueStart,
-        headerEndIndex,
-    );
     const authorizationText = remaining.slice(
         authorizationTextStart,
         headerEndIndex,
     );
-    chunks.push(
-        fg(authorizationValue === "unknown" ? TUI_NOTICE : TUI_MUTED)(
-            authorizationText,
-        ),
-    );
+    chunks.push(fg(TUI_MUTED)(authorizationText));
     const reasonStart = headerEndIndex + headerEnd.length;
     chunks.push(fg(TUI_MUTED)(remaining.slice(headerEndIndex, reasonStart)));
     appendTuiReviewReason(chunks, remaining.slice(reasonStart));

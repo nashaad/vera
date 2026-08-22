@@ -711,6 +711,40 @@ test("task notifications share the ordered agent update sequence", () => {
     ]);
 });
 
+test("review updates preserve an omitted authorization assessment", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+
+    protocol({
+        type: "tool_review_decided",
+        toolCall: {
+            id: "call-review",
+            name: "bash",
+            input: { command: "pwd" },
+        },
+        decision: "allow",
+        reason: "Auto-review returned an allow decision.",
+        riskLevel: "low",
+        userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
+    });
+
+    expect(updates).toEqual([{
+        type: "tool_review",
+        tool: "bash",
+        decision: "allow",
+        reason: "Auto-review returned an allow decision.",
+        riskLevel: "low",
+        userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
+        seq: 1,
+    }]);
+});
+
 test("a yielded Bash process ID crosses the protocol boundary", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({

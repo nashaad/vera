@@ -654,6 +654,8 @@ test("host wire validates reviewer decisions", () => {
     };
 
     expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, userAuthorizationAssessed: false }))
+        .toEqual({ ...update, userAuthorizationAssessed: false });
     expect(parseAgentUpdate({ ...update, decision: "deny" }))
         .toEqual({ ...update, decision: "deny" });
     expect(parseAgentUpdate({ ...update, decision: "maybe" })).toBeUndefined();
@@ -661,6 +663,8 @@ test("host wire validates reviewer decisions", () => {
     expect(parseAgentUpdate({ ...update, tool: undefined })).toBeUndefined();
     expect(parseAgentUpdate({ ...update, riskLevel: "spicy" })).toBeUndefined();
     expect(parseAgentUpdate({ ...update, userAuthorization: undefined }))
+        .toBeUndefined();
+    expect(parseAgentUpdate({ ...update, userAuthorizationAssessed: "no" }))
         .toBeUndefined();
 });
 

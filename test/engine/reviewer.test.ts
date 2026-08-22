@@ -571,6 +571,7 @@ test("a fenced assessment object is accepted", async () => {
         reason: "Deletes a home directory.",
         riskLevel: "critical",
         userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
     });
 });
 
@@ -583,6 +584,7 @@ test("an assessment wrapped in prose is still read", () => {
         reason: "Bounded edit.",
         riskLevel: "medium",
         userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
     });
 });
 
@@ -618,18 +620,20 @@ test("a decision that quotes an outcome inside its rationale is still read", () 
     )?.decision).toBe("deny");
 });
 
-test("missing scoring fields default from the outcome", () => {
+test("missing scoring fields preserve that authorization was not assessed", () => {
     expect(parseReviewDecision('{"outcome":"allow"}')).toEqual({
         decision: "allow",
         reason: "Auto-review returned an allow decision.",
         riskLevel: "low",
         userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
     });
     expect(parseReviewDecision('{"outcome":"deny"}')).toEqual({
         decision: "deny",
         reason: "Auto-review returned a deny decision without a rationale.",
         riskLevel: "high",
         userAuthorization: "unknown",
+        userAuthorizationAssessed: false,
     });
     // An out-of-taxonomy value is not trusted as scoring.
     expect(parseReviewDecision('{"outcome":"allow","risk_level":"spicy"}')

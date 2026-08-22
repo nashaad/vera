@@ -38,6 +38,7 @@ export interface ReviewLogEntry {
     readonly decisionReason?: string;
     readonly riskLevel?: string;
     readonly userAuthorization?: string;
+    readonly userAuthorizationAssessed?: boolean;
     readonly latencyMs: number;
     readonly error?: string;
 }
