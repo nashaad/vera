@@ -1,5 +1,11 @@
 import { writeSync } from "node:fs";
 
+interface TerminalLifetimeStream {
+    readonly isTTY?: boolean;
+    on(event: string, listener: (...args: unknown[]) => void): unknown;
+    off(event: string, listener: (...args: unknown[]) => void): unknown;
+}
+
 /**
  * Undoes every terminal mode the renderer switches on: alternate screen,
  * hidden cursor, mouse tracking, bracketed paste, kitty keyboard flags, and
@@ -13,6 +19,57 @@ export const TERMINAL_RESTORE_SEQUENCE = "\x1b[?1049l" // main screen
     + "\x1b[0m"; // reset colors and attributes
 
 let installed = false;
+
+/**
+ * Destroys a live TUI when the terminal underneath it disappears without a
+ * usable SIGHUP. This happens when an enclosing terminal process is killed:
+ * launchd adopts the Bun process, while its old character devices become
+ * closed or revoked and can no longer carry input or output.
+ *
+ * Only terminal streams participate. A piped stdin reaching EOF is normal and
+ * must not close a TUI whose output terminal is still usable.
+ */
+export function watchTerminalLoss(
+    onLost: () => void,
+    stdin: TerminalLifetimeStream = process.stdin,
+    stdout: TerminalLifetimeStream = process.stdout,
+): () => void {
+    const subscriptions: Array<{
+        readonly stream: TerminalLifetimeStream;
+        readonly event: string;
+    }> = [];
+    if (stdin.isTTY === true) {
+        subscriptions.push(
+            { stream: stdin, event: "end" },
+            { stream: stdin, event: "close" },
+            { stream: stdin, event: "error" },
+        );
+    }
+    if (stdout.isTTY === true) {
+        subscriptions.push(
+            { stream: stdout, event: "close" },
+            { stream: stdout, event: "error" },
+        );
+    }
+
+    let active = subscriptions.length > 0;
+    const dispose = (): void => {
+        if (!active) return;
+        active = false;
+        for (const subscription of subscriptions) {
+            subscription.stream.off(subscription.event, lost);
+        }
+    };
+    const lost = (): void => {
+        if (!active) return;
+        dispose();
+        onLost();
+    };
+    for (const subscription of subscriptions) {
+        subscription.stream.on(subscription.event, lost);
+    }
+    return dispose;
+}
 
 /**
  * Restores the terminal on process exit without going through the renderer,

@@ -36,7 +36,10 @@ import {
     createTuiFlightRecorder,
     type TuiFlightRecorder,
 } from "./flight-recorder.ts";
-import { installTerminalRestoreOnExit } from "./terminal-restore.ts";
+import {
+    installTerminalRestoreOnExit,
+    watchTerminalLoss,
+} from "./terminal-restore.ts";
 import { readLatestHostStartupTiming } from "./host-startup-diagnostics.ts";
 
 import {
@@ -3550,7 +3553,10 @@ export async function startTui(
     };
     process.stdin.on("data", watchTerminalFocus);
 
+    const stopWatchingTerminal = watchTerminalLoss(() => renderer.destroy());
+
     renderer.on(CliRenderEvents.DESTROY, () => {
+        stopWatchingTerminal();
         flightRecorder?.record({ type: "renderer_destroyed" });
         shuttingDown = true;
         renderCoalescer.stop();

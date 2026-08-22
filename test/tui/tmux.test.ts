@@ -21,12 +21,24 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import {
+    ownTmuxServer,
+    ownUatProcess,
+    ownVeraHostLock,
+} from "../support/uat-process-owner.ts";
+
 function profileDirectory(home: string): string {
     return join(home, ".vera", "profiles", "default");
 }
 
 function runtimeDirectory(home: string): string {
     return join(profileDirectory(home), "runtime");
+}
+
+function createTuiHome(prefix: string): string {
+    const home = mkdtempSync(join(tmpdir(), prefix));
+    ownVeraHostLock(join(runtimeDirectory(home), "host.json"));
+    return home;
 }
 
 const tmuxAvailable = canRunTmux();
@@ -36,7 +48,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-sidebar-${process.pid}-${randomUUID()}`;
         const session = "sidebar";
-        const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-"));
+        const home = createTuiHome("vera-tui-sidebar-");
         let pane = "";
 
         try {
@@ -132,7 +144,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-trash-${process.pid}-${randomUUID()}`;
         const session = "trash";
-        const home = mkdtempSync(join(tmpdir(), "vera-tui-trash-"));
+        const home = createTuiHome("vera-tui-trash-");
         let pane = "";
 
         try {
@@ -233,7 +245,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-resident-flow-${process.pid}-${randomUUID()}`;
         const session = "tui";
-        const home = mkdtempSync(join(tmpdir(), "vera-resident-flow-"));
+        const home = createTuiHome("vera-resident-flow-");
         const readyPath = join(home, "host-ready");
         let pane = "";
         const hostProcess = Bun.spawn([
@@ -251,6 +263,7 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
+        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -293,7 +306,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-roster-${process.pid}-${randomUUID()}`;
         const session = "tui";
-        const home = mkdtempSync(join(tmpdir(), "vera-roster-"));
+        const home = createTuiHome("vera-roster-");
         const readyPath = join(home, "host-ready");
         const manifestPath = join(home, "roster-manifest.json");
         let pane = "";
@@ -313,6 +326,7 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
+        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -388,7 +402,7 @@ test.skipIf(!tmuxAvailable)(
         const session = "participants";
         const leftPane = `${session}:0.0`;
         const rightPane = `${session}:0.1`;
-        const home = mkdtempSync(join(tmpdir(), "vera-local-loop-"));
+        const home = createTuiHome("vera-local-loop-");
         const readyPath = join(home, "host-ready");
         let panes = "";
         const hostProcess = Bun.spawn([
@@ -406,6 +420,7 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
+        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -485,7 +500,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-resident-rewind-${process.pid}-${randomUUID()}`;
         const session = "tui";
-        const home = mkdtempSync(join(tmpdir(), "vera-resident-rewind-"));
+        const home = createTuiHome("vera-resident-rewind-");
         let pane = "";
         mkdirSync(profileDirectory(home), { recursive: true });
         writeFileSync(join(profileDirectory(home), "config.json"), `${JSON.stringify({
@@ -542,7 +557,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-btw-controls-${process.pid}-${randomUUID()}`;
         const session = "btw-controls";
-        const home = mkdtempSync(join(tmpdir(), "vera-btw-controls-"));
+        const home = createTuiHome("vera-btw-controls-");
         let pane = "";
 
         const greenRail = /\x1b\[(?:38;2;34;197;94|38;5;41)m(?:\x1b\[[\d;]+m)*━+/;
@@ -689,7 +704,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-btw-hosted-${process.pid}-${randomUUID()}`;
         const session = "btw-hosted";
-        const home = mkdtempSync(join(tmpdir(), "vera-btw-hosted-"));
+        const home = createTuiHome("vera-btw-hosted-");
         let pane = "";
 
         try {
@@ -889,7 +904,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-btw-image-${process.pid}-${randomUUID()}`;
         const session = "btw-image";
-        const home = mkdtempSync(join(tmpdir(), "vera-btw-image-"));
+        const home = createTuiHome("vera-btw-image-");
         let pane = "";
 
         try {
@@ -963,7 +978,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-pair-hosted-${process.pid}-${randomUUID()}`;
         const session = "pair-hosted";
-        const home = mkdtempSync(join(tmpdir(), "vera-pair-hosted-"));
+        const home = createTuiHome("vera-pair-hosted-");
         let pane = "";
 
         try {
@@ -1042,7 +1057,7 @@ test.skip(
     async () => {
         const socket = `vera-advisor-${process.pid}-${randomUUID()}`;
         const session = "advisor";
-        const home = mkdtempSync(join(tmpdir(), "vera-advisor-"));
+        const home = createTuiHome("vera-advisor-");
         let pane = "";
 
         try {
@@ -1099,7 +1114,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-btw-context-${process.pid}-${randomUUID()}`;
         const session = "btw-context";
-        const home = mkdtempSync(join(tmpdir(), "vera-btw-context-"));
+        const home = createTuiHome("vera-btw-context-");
         const readyPath = join(home, "host-ready");
         let pane = "";
         mkdirSync(profileDirectory(home), { recursive: true });
@@ -1127,6 +1142,7 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
+        ownUatProcess(hostProcess.pid);
 
         const attach = (): void => {
             runTmux(socket, [
@@ -1218,7 +1234,7 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-pair-persist-${process.pid}-${randomUUID()}`;
         const session = "pair-persist";
-        const home = mkdtempSync(join(tmpdir(), "vera-pair-persist-"));
+        const home = createTuiHome("vera-pair-persist-");
         const readyPath = join(home, "host-ready");
         const preferencePath = join(profileDirectory(home), "tui.json");
         let pane = "";
@@ -1247,6 +1263,7 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
+        ownUatProcess(hostProcess.pid);
 
         const attach = (): void => {
             runTmux(socket, [
@@ -1321,7 +1338,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-clear-${process.pid}-${randomUUID()}`;
         const session = "seat-clear";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-clear-"));
+        const home = createTuiHome("vera-seat-clear-");
         let pane = "";
 
         try {
@@ -1375,7 +1392,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-all-${process.pid}-${randomUUID()}`;
         const session = "seat-all";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-all-"));
+        const home = createTuiHome("vera-seat-all-");
         let pane = "";
 
         try {
@@ -1419,7 +1436,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-remove-${process.pid}-${randomUUID()}`;
         const session = "seat-remove";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-remove-"));
+        const home = createTuiHome("vera-seat-remove-");
         let pane = "";
 
         try {
@@ -1493,7 +1510,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-left-${process.pid}-${randomUUID()}`;
         const session = "seat-left";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-left-"));
+        const home = createTuiHome("vera-seat-left-");
         let pane = "";
 
         try {
@@ -1541,7 +1558,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-quote-${process.pid}-${randomUUID()}`;
         const session = "seat-quote";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-quote-"));
+        const home = createTuiHome("vera-seat-quote-");
         let pane = "";
 
         try {
@@ -1601,7 +1618,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-held-${process.pid}-${randomUUID()}`;
         const session = "seat-held";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-held-"));
+        const home = createTuiHome("vera-seat-held-");
         let pane = "";
 
         try {
@@ -1652,7 +1669,7 @@ test.skip(
     async () => {
         const socket = `vera-seat-failure-${process.pid}-${randomUUID()}`;
         const session = "seat-failure";
-        const home = mkdtempSync(join(tmpdir(), "vera-seat-failure-"));
+        const home = createTuiHome("vera-seat-failure-");
         let pane = "";
 
         try {
@@ -1966,6 +1983,7 @@ function captureVisiblePaneWithStyles(
 }
 
 function runTmux(socket: string, args: readonly string[]): string {
+    if (args.includes("new-session")) ownTmuxServer(socket);
     const result = Bun.spawnSync(["tmux", "-L", socket, ...args], {
         stdout: "pipe",
         stderr: "pipe",

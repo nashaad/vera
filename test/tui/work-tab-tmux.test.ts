@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { ownTmuxServer } from "../support/uat-process-owner.ts";
+
 /**
  * The Work tab and the search overlay driven through a real terminal.
  *
@@ -467,6 +469,7 @@ function runTmux(
     args: readonly string[],
     tolerant = false,
 ): { readonly ok: boolean; readonly output: string } {
+    if (args.includes("new-session")) ownTmuxServer(socket);
     const result = Bun.spawnSync(["tmux", "-L", socket, ...args], {
         stdout: "pipe",
         stderr: "pipe",
