@@ -1,5 +1,11 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import {
+    existsSync,
+    mkdtempSync,
+    readFileSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
@@ -12,77 +18,162 @@ const tmuxAvailable = Bun.spawnSync(["tmux", "-V"], {
 }).exitCode === 0;
 
 test.skipIf(!tmuxAvailable)(
-    "owned UAT processes die when their controller is SIGKILLed",
+    "owned UAT resources die when their controller is SIGKILLed",
     async () => {
-        const root = mkdtempSync(join(tmpdir(), "vera-uat-owner-test-"));
-        const readyPath = join(root, "ready.json");
-        const socket = `vera-owner-test-${process.pid}-${randomUUID()}`;
-        const sentinel = Bun.spawn([
-            process.execPath,
-            "-e",
-            "await Bun.sleep(300000)",
-        ], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
-        const controller = Bun.spawn([
-            process.execPath,
-            "run",
-            join(import.meta.dir, "support", "uat-process-owner-controller.ts"),
-            socket,
-            readyPath,
-            String(sentinel.pid),
-        ], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
-        let ownedPid: number | undefined;
-        let hostPid: number | undefined;
-        let watchdogPid: number | undefined;
-
+        const fixture = await startFixture("death");
         try {
-            const ready = await waitForReady(readyPath, controller);
-            ownedPid = ready.ownedPid;
-            hostPid = ready.hostPid;
-            watchdogPid = ready.watchdogPid;
-            expect(controller.exitCode).toBeNull();
-            expect(processIsAlive(watchdogPid)).toBe(true);
-            expect(hasTmuxSession(socket)).toBe(true);
-            expect(processIsAlive(ownedPid)).toBe(true);
-            expect(processIsAlive(hostPid)).toBe(true);
-            expect(processIsAlive(sentinel.pid)).toBe(true);
+            expect(processIsAlive(fixture.ready.watchdogPid)).toBe(true);
+            expect(hasTmuxSession(fixture.socket)).toBe(true);
+            expect(processIsAlive(fixture.ready.hostPid)).toBe(true);
+            expect(processIsAlive(fixture.sentinel.pid)).toBe(true);
 
-            controller.kill("SIGKILL");
-            await controller.exited;
+            await Bun.sleep(500);
+            expect(processIsAlive(fixture.ready.watchdogPid)).toBe(true);
+            expect(hasTmuxSession(fixture.socket)).toBe(true);
 
-            await waitFor(() => !hasTmuxSession(socket), "tmux server to exit");
-            await waitFor(() => !processIsAlive(ownedPid!), "owned child to exit");
-            await waitFor(() => !processIsAlive(hostPid!), "temporary host to exit");
+            fixture.controller.kill("SIGKILL");
+            await fixture.controller.exited;
+
             await waitFor(
-                () => !processIsAlive(watchdogPid!),
+                () => !hasTmuxSession(fixture.socket),
+                "tmux server to exit",
+            );
+            await waitFor(
+                () => !processIsAlive(fixture.ready.hostPid),
+                "temporary host to exit",
+            );
+            await waitFor(
+                () => !processIsAlive(fixture.ready.watchdogPid),
                 "owner watchdog to exit",
             );
-            expect(processIsAlive(sentinel.pid)).toBe(true);
+            expect(processIsAlive(fixture.sentinel.pid)).toBe(true);
         } finally {
-            if (controller.exitCode === null) controller.kill("SIGKILL");
-            if (processIsAlive(sentinel.pid)) sentinel.kill("SIGKILL");
-            if (ownedPid !== undefined && processIsAlive(ownedPid)) {
-                process.kill(ownedPid, "SIGKILL");
-            }
-            if (hostPid !== undefined && processIsAlive(hostPid)) {
-                process.kill(hostPid, "SIGKILL");
-            }
-            if (watchdogPid !== undefined && processIsAlive(watchdogPid)) {
-                process.kill(watchdogPid, "SIGKILL");
-            }
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
-            rmSync(root, { recursive: true, force: true });
+            cleanFixture(fixture);
         }
     },
     15_000,
 );
 
+test.skipIf(!tmuxAvailable)(
+    "lease expiry reaps a host published after its controller wedges",
+    async () => {
+        const fixture = await startFixture("wedge");
+        try {
+            expect(processIsAlive(fixture.controller.pid)).toBe(true);
+            expect(processIsAlive(fixture.ready.hostPid)).toBe(true);
+            expect(existsSync(fixture.ready.hostLockPath)).toBe(false);
+
+            // The controller remains alive but Atomics.wait prevents its
+            // heartbeat timer from renewing the 200ms lease.
+            await waitFor(
+                () => !hasTmuxSession(fixture.socket),
+                "lease expiry to close the tmux server",
+            );
+            await waitFor(
+                () => !processIsAlive(fixture.controller.pid),
+                "expired controller to exit",
+            );
+
+            // Publish only after cleanup has begun. The pre-registered lock
+            // path lets a later cleanup attempt discover and stop the host.
+            writeFileSync(fixture.ready.publishHostPath, "publish\n");
+            await waitFor(
+                () => existsSync(fixture.ready.hostLockPath),
+                "temporary host to publish its lock",
+            );
+            await waitFor(
+                () => !processIsAlive(fixture.ready.hostPid),
+                "late-published temporary host to exit",
+            );
+            await waitFor(
+                () => !processIsAlive(fixture.ready.watchdogPid),
+                "expired owner watchdog to exit",
+            );
+            expect(processIsAlive(fixture.sentinel.pid)).toBe(true);
+        } finally {
+            cleanFixture(fixture);
+        }
+    },
+    15_000,
+);
+
+type ControllerMode = "death" | "wedge";
+
 interface ReadyRecord {
-    readonly ownedPid: number;
     readonly hostPid: number;
     readonly watchdogPid: number;
+    readonly hostLockPath: string;
+    readonly publishHostPath: string;
+}
+
+interface OwnerFixture {
+    readonly root: string;
+    readonly socket: string;
+    readonly sentinel: Bun.Subprocess<"ignore", "ignore", "ignore">;
+    readonly controller: Bun.Subprocess<"ignore", "ignore", "pipe">;
+    readonly ready: ReadyRecord;
+}
+
+async function startFixture(mode: ControllerMode): Promise<OwnerFixture> {
+    const root = mkdtempSync(join(tmpdir(), "vera-uat-owner-test-"));
+    const readyPath = join(root, "ready.json");
+    const socket = `vera-owner-test-${process.pid}-${randomUUID()}`;
+    const sentinel = Bun.spawn([
+        process.execPath,
+        "-e",
+        "await Bun.sleep(300000)",
+    ], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+    const controller = Bun.spawn([
+        process.execPath,
+        "run",
+        join(import.meta.dir, "support", "uat-process-owner-controller.ts"),
+        mode,
+        socket,
+        readyPath,
+        String(sentinel.pid),
+    ], { stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+    try {
+        const ready = await waitForReady(readyPath, controller);
+        return { root, socket, sentinel, controller, ready };
+    } catch (error) {
+        cleanFixture({
+            root,
+            socket,
+            sentinel,
+            controller,
+            ready: {
+                hostPid: -1,
+                watchdogPid: -1,
+                hostLockPath: join(root, "host.json"),
+                publishHostPath: join(root, "publish-host"),
+            },
+        });
+        throw error;
+    }
+}
+
+function cleanFixture(fixture: OwnerFixture): void {
+    if (processIsAlive(fixture.controller.pid)) {
+        fixture.controller.kill("SIGKILL");
+    }
+    if (processIsAlive(fixture.sentinel.pid)) fixture.sentinel.kill("SIGKILL");
+    if (
+        fixture.ready.hostPid > 0
+        && processIsAlive(fixture.ready.hostPid)
+    ) {
+        process.kill(fixture.ready.hostPid, "SIGKILL");
+    }
+    if (
+        fixture.ready.watchdogPid > 0
+        && processIsAlive(fixture.ready.watchdogPid)
+    ) {
+        process.kill(fixture.ready.watchdogPid, "SIGKILL");
+    }
+    Bun.spawnSync(["tmux", "-L", fixture.socket, "kill-server"], {
+        stdout: "ignore",
+        stderr: "ignore",
+    });
+    rmSync(fixture.root, { recursive: true, force: true });
 }
 
 async function waitForReady(
@@ -94,9 +185,12 @@ async function waitForReady(
         try {
             const value = JSON.parse(readFileSync(path, "utf8")) as ReadyRecord;
             if (
-                Number.isInteger(value.ownedPid)
-                && Number.isInteger(value.hostPid)
+                Number.isInteger(value.hostPid)
+                && value.hostPid > 0
                 && Number.isInteger(value.watchdogPid)
+                && value.watchdogPid > 0
+                && typeof value.hostLockPath === "string"
+                && typeof value.publishHostPath === "string"
             ) return value;
         } catch {
             // The controller has not published its complete ready record yet.

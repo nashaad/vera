@@ -20,12 +20,9 @@ if (import.meta.main) {
     const first = readManifest(manifestPath);
     if (first === undefined) process.exit(2);
 
-    // The controller owns the write end of this pipe. Kernel EOF is the lease:
-    // it arrives on clean exit, crash, or SIGKILL and cannot be skipped like a
-    // JavaScript `finally` block.
-    for await (const _chunk of Bun.stdin.stream()) {
-        // The pipe carries no messages; only its lifetime matters.
-    }
+    // EOF catches exit, crash, and SIGKILL. Heartbeat expiry catches a live
+    // controller whose event loop wedged and can no longer renew its lease.
+    const leaseEnd = await waitForLeaseEnd(first.heartbeat_timeout_ms);
 
     const signaledAt = new Map<string, number>();
     let previousAttempt = 0;
@@ -35,6 +32,9 @@ if (import.meta.main) {
         const manifest = readManifest(manifestPath) ?? first;
         for (const resource of manifest.resources) {
             cleanResource(resource, signaledAt, Date.now());
+        }
+        if (leaseEnd === "expired") {
+            stopProcess(manifest.owner, signaledAt, Date.now());
         }
     }
     rmSync(dirname(manifestPath), { recursive: true, force: true });
@@ -52,12 +52,42 @@ function cleanResource(
         });
         return;
     }
-    if (resource.kind === "host_lock") {
-        const record = readHostRecord(resource.path);
-        if (record !== undefined) stopProcess(record, signaledAt, now);
-        return;
+    const record = readHostRecord(resource.path);
+    if (record !== undefined) stopProcess(record, signaledAt, now);
+}
+
+async function waitForLeaseEnd(
+    timeoutMs: number,
+): Promise<"closed" | "expired"> {
+    const reader = Bun.stdin.stream().getReader();
+    while (true) {
+        const outcome = await readLeaseChunk(reader, timeoutMs);
+        if (outcome === "heartbeat") continue;
+        if (outcome === "expired") await reader.cancel().catch(() => undefined);
+        return outcome;
     }
-    stopProcess(resource, signaledAt, now);
+}
+
+async function readLeaseChunk(
+    reader: {
+        read(): Promise<{ readonly done: boolean }>;
+    },
+    timeoutMs: number,
+): Promise<"heartbeat" | "closed" | "expired"> {
+    return await new Promise((resolve) => {
+        let settled = false;
+        const finish = (outcome: "heartbeat" | "closed" | "expired"): void => {
+            if (settled) return;
+            settled = true;
+            clearTimeout(timeout);
+            resolve(outcome);
+        };
+        const timeout = setTimeout(() => finish("expired"), timeoutMs);
+        void reader.read().then(
+            (result) => finish(result.done ? "closed" : "heartbeat"),
+            () => finish("closed"),
+        );
+    });
 }
 
 function stopProcess(
@@ -65,7 +95,9 @@ function stopProcess(
     signaledAt: Map<string, number>,
     now: number,
 ): void {
-    if (!processIsAlive(record.pid) || !recordMatchesRunningProcess(record)) {
+    const alive = processIsAlive(record.pid);
+    const matches = recordMatchesRunningProcess(record);
+    if (!alive || !matches) {
         return;
     }
     const key = `${record.pid}:${record.started_at}`;
@@ -94,6 +126,7 @@ function readManifest(path: string): UatOwnerManifest | undefined {
     const manifest = value as Record<string, unknown>;
     if (
         manifest.schema_version !== UAT_OWNER_SCHEMA_VERSION
+        || !positiveInteger(manifest.heartbeat_timeout_ms)
         || !validIdentity(manifest.owner)
         || !Array.isArray(manifest.resources)
         || !manifest.resources.every(validResource)
@@ -134,8 +167,11 @@ function validResource(value: unknown): value is OwnedUatResource {
     if (resource.kind === "tmux_name") {
         return typeof resource.name === "string" && resource.name.length > 0;
     }
-    if (resource.kind === "host_lock") {
-        return typeof resource.path === "string" && resource.path.length > 0;
-    }
-    return resource.kind === "process" && validIdentity(resource);
+    return resource.kind === "host_lock"
+        && typeof resource.path === "string"
+        && resource.path.length > 0;
+}
+
+function positiveInteger(value: unknown): value is number {
+    return Number.isInteger(value) && (value as number) > 0;
 }

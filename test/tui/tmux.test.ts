@@ -23,7 +23,6 @@ import { randomUUID } from "node:crypto";
 
 import {
     ownTmuxServer,
-    ownUatProcess,
     ownVeraHostLock,
 } from "../support/uat-process-owner.ts";
 
@@ -263,7 +262,6 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
-        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -326,7 +324,6 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
-        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -420,7 +417,6 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
-        ownUatProcess(hostProcess.pid);
 
         try {
             await waitForFile(readyPath, hostProcess);
@@ -1142,7 +1138,6 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
-        ownUatProcess(hostProcess.pid);
 
         const attach = (): void => {
             runTmux(socket, [
@@ -1263,7 +1258,6 @@ test.skipIf(!tmuxAvailable)(
             stdout: "ignore",
             stderr: "pipe",
         });
-        ownUatProcess(hostProcess.pid);
 
         const attach = (): void => {
             runTmux(socket, [
