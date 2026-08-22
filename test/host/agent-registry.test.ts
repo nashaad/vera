@@ -696,6 +696,75 @@ test("closing a tree is idempotent and leaves unrelated agents alone", async () 
     }
 });
 
+test("closing a tree closes a real background child and spares a bystander", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-child-"));
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "start-background",
+                            name: "async_subagent",
+                            input: { description: "Run the integration tests" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I started the background work."),
+                ]);
+            }
+            // Long enough that the child is still working when the walk
+            // reaches it, which is the state the ordering has to survive.
+            return new FauxAdapter(
+                [textResponse("still running")],
+                { chunkSize: 1, delayMs: 40 },
+            );
+        },
+        model: "faux/test",
+        approvalMode: "full_access",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+            startupProfile: "bare",
+        });
+        await registry.create({
+            id: "bystander",
+            workspace: root,
+            sessionPath: join(root, "bystander.jsonl"),
+        });
+        await runPrompt(parent.attach(), "Run tests in the background");
+
+        const child = registry.list().find((agent) =>
+            agent.parent_id === "parent"
+        );
+        expect(child).toMatchObject({ kind: "background", parent_id: "parent" });
+
+        expect(await registry.closeAgentTree("parent")).toBe("closed");
+        expect(registry.find("parent")).toBeUndefined();
+        expect(registry.find(child!.id)).toBeUndefined();
+        expect(registry.list().map((agent) => agent.id)).toEqual(["bystander"]);
+        expect(await registry.closeAgentTree("parent")).toBe("not_found");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("session rename reaches a session nobody is attached to", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-rename-"));
     const registry = new AgentRegistry({

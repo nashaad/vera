@@ -1170,12 +1170,7 @@ export class AgentRegistry {
         }
         entry.agent.close();
         await entry.run;
-        entry.inbox?.release();
-        this.agents.delete(id);
-        this.spawnNotices.delete(id);
-        if (entry.ephemeral) {
-            await rm(dirname(entry.store.path), { recursive: true, force: true });
-        }
+        await this.reapClosedAgent(id, entry);
         this.notifyRosterChanged();
         return "closed";
     }
@@ -1183,19 +1178,60 @@ export class AgentRegistry {
     /**
      * Close one agent and every live agent descended from it.
      *
-     * Descendants go first, so a parent cannot be acknowledged as quiesced
-     * while a child it spawned is still free to make a provider call. Each
-     * agent still goes through `closeAgent`, which is the only path that ends
-     * a live instance. Idempotent for the same reason `closeAgent` is: a
-     * second call finds nothing left to close and says so.
+     * Fence first, quiesce second. `agent.close()` is synchronous and shuts
+     * admission, so every member of the subtree is fenced in one pass before
+     * anything is awaited; awaiting a child first would leave the parent live
+     * for the seconds that child takes to exit, long enough to spawn a
+     * subagent nothing is walking any more. Fencing is then repeated to a
+     * fixpoint, because a spawn can still have raced the very first pass.
+     * Roster entries are removed only at the end, so the parent links the
+     * walk follows are still intact while the subtree is being quiesced.
+     * Idempotent for the same reason `closeAgent` is: a second call finds
+     * nothing left to close and says so.
      */
     async closeAgentTree(id: string): Promise<"closed" | "not_found"> {
         const present = this.agents.has(id);
-        for (const childId of this.liveDescendantsOf(id)) {
-            await this.closeAgent(childId);
+        const quiesced = new Map<string, RegisteredAgentEntry>();
+        while (true) {
+            const members = [id, ...this.liveDescendantsOf(id)]
+                .filter((memberId) =>
+                    this.agents.has(memberId) && !quiesced.has(memberId)
+                );
+            if (members.length === 0) {
+                break;
+            }
+            for (const memberId of members) {
+                this.agents.get(memberId)?.agent.close();
+            }
+            for (const memberId of members) {
+                const entry = this.agents.get(memberId);
+                if (entry === undefined) {
+                    continue;
+                }
+                await entry.run;
+                quiesced.set(memberId, entry);
+            }
         }
-        const outcome = await this.closeAgent(id);
-        return present ? "closed" : outcome;
+        for (const [memberId, entry] of quiesced) {
+            await this.reapClosedAgent(memberId, entry);
+        }
+        if (quiesced.size > 0) {
+            this.notifyRosterChanged();
+        }
+        return present || quiesced.size > 0 ? "closed" : "not_found";
+    }
+
+    /** Release what a quiesced entry still holds and take it off the roster. */
+    private async reapClosedAgent(
+        id: string,
+        entry: RegisteredAgentEntry,
+    ): Promise<void> {
+        entry.inbox?.release();
+        this.agents.delete(id);
+        this.spawnNotices.delete(id);
+        if (entry.ephemeral) {
+            await rm(dirname(entry.store.path), { recursive: true, force: true });
+        }
     }
 
     /** Depth-first, deepest first, so a child is closed before its parent. */

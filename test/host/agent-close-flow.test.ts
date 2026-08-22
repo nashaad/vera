@@ -12,7 +12,13 @@ import {
 } from "../../src/host/attached-client.ts";
 import { requestHostIdentity } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
-import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 const config = {
@@ -317,12 +323,12 @@ async function waitForAgent(
     throw new Error("Timed out waiting for a background agent");
 }
 
-function backgroundToolResponse(): AssistantMessage {
+function backgroundToolResponse(id = "background-1"): AssistantMessage {
     return {
         role: "assistant",
         content: [{
             type: "tool_call",
-            id: "background-1",
+            id,
             name: "async_subagent",
             input: { description: "Review the change" },
         }],
@@ -528,4 +534,172 @@ function textResponse(text: string): AssistantMessage {
         usage: emptyUsage(),
         stopReason: "stop",
     };
+}
+
+/**
+ * The regression: the close walk snapshotted the subtree, then awaited each
+ * child before touching the parent. A child takes seconds to exit, and for all
+ * of them the parent was still admitting work, so a subagent it spawned in that
+ * window was never in the snapshot and outlived the acknowledgement.
+ *
+ * The interleaving is driven by the abort signals rather than by sleeps: the
+ * first child's fence is what releases the parent's pending model request, so
+ * the second spawn lands inside the window on any machine. The parent can only
+ * reach that request if the walk left it unfenced.
+ */
+flowTest(
+    "a subagent spawned while the close walks the tree is closed too",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-close-spawn-race-"));
+        const paths = hostPaths(root);
+        const firstChildFenced = deferred();
+        const parentFenced = deferred();
+        const secondChildRequested = deferred();
+        let adapterNumber = 0;
+        const host = await startResidentHost({
+            config,
+            createAdapter() {
+                adapterNumber += 1;
+                if (adapterNumber === 1) {
+                    return new GatedAdapter(
+                        [
+                            backgroundToolResponse("background-1"),
+                            backgroundToolResponse("background-2"),
+                            textResponse("parent done"),
+                        ],
+                        async (call, signal) => {
+                            signal?.addEventListener(
+                                "abort",
+                                () => parentFenced.resolve(),
+                            );
+                            if (call === 1) {
+                                await firstChildFenced.promise;
+                            }
+                        },
+                    );
+                }
+                if (adapterNumber === 2) {
+                    return new GatedAdapter(
+                        [textResponse("first child done")],
+                        async (_call, signal) => {
+                            await onceAborted(signal);
+                            firstChildFenced.resolve();
+                            // Hold the first child inside the close walk until
+                            // the parent has had its chance to spawn again.
+                            // The timeout is only a deadlock guard.
+                            await Promise.race([
+                                secondChildRequested.promise,
+                                parentFenced.promise,
+                                Bun.sleep(2000),
+                            ]);
+                        },
+                    );
+                }
+                secondChildRequested.resolve();
+                // Held open so a second child that survives the walk is still
+                // on the roster when the assertions run.
+                return new GatedAdapter(
+                    [textResponse("second child done")],
+                    (_call, signal) => onceAborted(signal),
+                );
+            },
+            ...paths,
+        });
+        try {
+            await host.registry.create({ id: "parent", workspace: root });
+            const parent = await attachAgent({
+                socketPath: paths.socketPath,
+                agentId: "parent",
+            });
+            expect((await parent.receive()).type).toBe("history");
+            await parent.send({
+                type: "prompt",
+                content: "run the review in the background",
+            });
+            const firstChild = await waitForAgent(
+                paths.socketPath,
+                (agent) => agent.kind === "background",
+            );
+            // The parent must be inside its second model request, which is the
+            // request the first child's fence releases.
+            await waitFor(async () => adapterNumber >= 2);
+            await parent.detach();
+
+            expect(await closeAgentThroughHost(paths.socketPath, "parent"))
+                .toEqual({ status: "closed" });
+
+            expect(host.registry.find("parent")).toBeUndefined();
+            expect(host.registry.find(firstChild)).toBeUndefined();
+            expect(host.registry.list().filter((agent) => agent.live))
+                .toEqual([]);
+            // A third adapter only ever exists because a second subagent got
+            // far enough to ask a provider for something.
+            const adaptersAtAcknowledgement = adapterNumber;
+            await Bun.sleep(400);
+            expect(adapterNumber).toBe(adaptersAtAcknowledgement);
+            expect(adapterNumber).toBe(2);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+    20_000,
+);
+
+interface Deferred {
+    readonly promise: Promise<void>;
+    readonly resolve: () => void;
+}
+
+function deferred(): Deferred {
+    let resolve: () => void = () => undefined;
+    const promise = new Promise<void>((settle) => {
+        resolve = () => settle();
+    });
+    return { promise, resolve: () => resolve() };
+}
+
+function onceAborted(signal: AbortSignal | undefined): Promise<void> {
+    if (signal === undefined) {
+        return new Promise(() => undefined);
+    }
+    if (signal.aborted) {
+        return Promise.resolve();
+    }
+    return new Promise((resolve) => {
+        signal.addEventListener("abort", () => resolve());
+    });
+}
+
+/**
+ * A scripted adapter whose every request can be held open by the test, so an
+ * interleaving is decided by what has happened rather than by how long it took.
+ */
+class GatedAdapter implements ModelAdapter {
+    private calls = 0;
+
+    constructor(
+        private readonly responses: readonly AssistantMessage[],
+        private readonly gate: (
+            call: number,
+            signal: AbortSignal | undefined,
+        ) => Promise<void>,
+    ) {}
+
+    stream(request: ModelRequest): ModelEventStream {
+        const call = this.calls;
+        this.calls += 1;
+        const scripted = this.responses[call];
+        const inner = new FauxAdapter(
+            scripted === undefined ? [] : [scripted],
+        );
+        const stream = new ModelEventStream();
+        void (async () => {
+            await this.gate(call, request.signal);
+            for await (const event of inner.stream(request)) {
+                stream.push(event);
+            }
+        })();
+        return stream;
+    }
 }
