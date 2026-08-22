@@ -31,7 +31,6 @@ import {
     tuiToolRowText,
     TUI_MUTED,
     TUI_ACCENT,
-    TUI_NOTICE,
     TUI_SUCCESS,
     type TuiState,
     type TuiTranscriptEntry,
@@ -2085,7 +2084,7 @@ test("auto-review approval uses semantic status colors", () => {
         .toBe(text);
     expect(chunkFor("approved")?.fg).toEqual(parseColor(TUI_SUCCESS));
     expect(chunkFor("authorization: unknown")?.fg)
-        .toEqual(parseColor(TUI_NOTICE));
+        .toEqual(parseColor(TUI_MUTED));
     expect(chunkFor("allow")?.fg).toEqual(parseColor(TUI_SUCCESS));
     expect(chunkFor(" decision; the sandbox does not allow"
         + " network access and matches an allow-list entry.")?.fg)
@@ -2095,14 +2094,19 @@ test("auto-review approval uses semantic status colors", () => {
         .toEqual(parseColor(TUI_MUTED));
 });
 
-test("authorization other than unknown stays muted", () => {
-    const entry = autoReviewEntry("high", "Auto-review returned an allow decision.");
-    const rendered = renderTuiEntry(entry);
-    const authorization = rendered.chunks.find((chunk) =>
-        chunk.text.toString() === "authorization: high"
-    );
+test("authorization grades stay muted", () => {
+    for (const grade of ["unknown", "high"] as const) {
+        const entry = autoReviewEntry(
+            grade,
+            "Auto-review returned an allow decision.",
+        );
+        const rendered = renderTuiEntry(entry);
+        const authorization = rendered.chunks.find((chunk) =>
+            chunk.text.toString() === `authorization: ${grade}`
+        );
 
-    expect(authorization?.fg).toEqual(parseColor(TUI_MUTED));
+        expect(authorization?.fg).toEqual(parseColor(TUI_MUTED));
+    }
 });
 
 test("auto-review approval resolves colors from the current theme", () => {
@@ -2126,7 +2130,7 @@ test("auto-review approval resolves colors from the current theme", () => {
         expect(chunkFor("approved")?.fg)
             .toEqual(parseColor(theme.success));
         expect(chunkFor("authorization: unknown")?.fg)
-            .toEqual(parseColor(theme.notice));
+            .toEqual(parseColor(theme.muted));
         expect(chunkFor("allow")?.fg)
             .toEqual(parseColor(theme.success));
     } finally {
