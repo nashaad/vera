@@ -397,6 +397,19 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             message,
         );
     }
+    if (update.type === "tool_breaker_tripped") {
+        // The wording is this client's; the wire carries only the tool, the
+        // count, and which of the two things happened.
+        return appendEntry(state, {
+            kind: "notice",
+            text: update.action === "withheld"
+                ? `[breaker] ${update.tool} withheld for the rest of this turn`
+                    + ` after ${update.denials} refusals in a row`
+                : `[breaker] turn ended: ${update.tool} was refused`
+                    + ` ${update.denials} times in a row after another tool`
+                    + " was already withheld",
+        });
+    }
     if (update.type === "tool_finished") {
         return {
             ...state,

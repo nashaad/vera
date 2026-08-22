@@ -408,6 +408,83 @@ test("stdio drives a real resident host turn and leaves the agent running", asyn
     }
 });
 
+test("stdio carries a breaker trip out of a real resident host turn", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-stdio-breaker-"));
+    const workspace = await realpath(root);
+    const socketPath = join(root, "host.sock");
+    const host = await startResidentHost({
+        config: {
+            schema_version: 1,
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+            approval_mode: "readonly",
+        },
+        createAdapter: () =>
+            new FauxAdapter([
+                toolCallResponse("b1", "bash", { command: "echo one" }),
+                toolCallResponse("b2", "bash", { command: "echo two" }),
+                toolCallResponse("b3", "bash", { command: "echo three" }),
+                textResponse("stopped"),
+            ]),
+        socketPath,
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+
+    try {
+        const created = await createAgentThroughHost(socketPath, workspace);
+        const client = await attachReconnectingAgent({
+            socketPath: () => socketPath,
+            agentId: created.id,
+        });
+        try {
+            const input = new Readable({ read() {} });
+            const frames: Record<string, unknown>[] = [];
+            let resolveTurn: (() => void) | undefined;
+            const turnFinished = new Promise<void>((resolve) => {
+                resolveTurn = resolve;
+            });
+            const run = runAttachedStdioBridge(
+                input,
+                {
+                    write: (text) => {
+                        for (const line of text.split("\n")) {
+                            if (line.trim().length === 0) continue;
+                            const frame = JSON.parse(line) as Record<string, unknown>;
+                            frames.push(frame);
+                            if (frame.type === "turn_finished") resolveTurn?.();
+                        }
+                    },
+                },
+                client,
+            );
+
+            input.push('{"type":"prompt","content":"run the script"}\n');
+            await turnFinished;
+            input.push(null);
+            await run;
+
+            const trips = frames.filter(
+                (frame) => frame.type === "tool_breaker_tripped",
+            );
+            expect(trips).toHaveLength(1);
+            expect(trips[0]).toMatchObject({
+                type: "tool_breaker_tripped",
+                tool: "bash",
+                denials: 3,
+                action: "withheld",
+            });
+            expect(typeof trips[0]!.seq).toBe("number");
+        } finally {
+            if (!client.closed) client.close();
+        }
+    } finally {
+        await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("vera stdio creates, attaches, and resumes through a temporary host", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-stdio-cli-"));
     const runtime = join(root, "runtime");
@@ -664,6 +741,20 @@ function textResponse(text: string): AssistantMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+function toolCallResponse(
+    id: string,
+    name: string,
+    input: Record<string, unknown>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "tool_call", id, name, input }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
     };
 }
 
