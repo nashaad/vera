@@ -52,3 +52,29 @@ test("a finished turn still clears working after a replayed prompt", () => {
 
     expect(settled.working).toBe(false);
 });
+
+test("a replayed checkpoint carrying a status leaves the client working", () => {
+    const state = applyAgentUpdate(createTuiState(), {
+        type: "history",
+        entries: [{ kind: "user", text: "run it" }],
+        seq: 1,
+        status: "working",
+    });
+
+    expect(state.working).toBe(true);
+});
+
+test("a checkpoint with no status leaves working where it was", () => {
+    const working = applyAgentUpdate(createTuiState(), {
+        type: "status",
+        state: "working",
+        seq: 1,
+    });
+    const rebuilt = applyAgentUpdate(working, {
+        type: "history",
+        entries: [{ kind: "user", text: "run it" }],
+        seq: 1,
+    });
+
+    expect(rebuilt.working).toBe(true);
+});

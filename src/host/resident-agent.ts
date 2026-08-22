@@ -187,7 +187,14 @@ export class ResidentAgent {
         this.attachments.set(attachmentId, outgoing);
         this.notifyAttachmentChanged(true);
         if (afterSequence === undefined || afterSequence < this.checkpoint.seq) {
-            outgoing.push(clone(this.checkpoint));
+            // A checkpoint clears the buffer behind it, including the update
+            // that said the agent started working. The status rides along so a
+            // replay tells an attachment what it is joining rather than
+            // leaving a running turn to read as ready.
+            const replayed = clone(this.checkpoint);
+            outgoing.push(this.currentStatus === "idle"
+                ? replayed
+                : { ...replayed, status: this.currentStatus });
         }
         for (const update of this.updatesAfterCheckpoint) {
             if (afterSequence === undefined

@@ -478,6 +478,12 @@ export interface HistoryUpdate {
     readonly type: "history";
     readonly entries: readonly TranscriptEntry[];
     readonly seq: number;
+    /**
+     * Set on a replayed checkpoint when the agent is not idle. The engine
+     * never sets it: a live checkpoint is always preceded by the updates that
+     * carry the status, and only a replay loses them.
+     */
+    readonly status?: AgentStatus;
     readonly context?: ContextMeasurement;
     readonly usage?: SessionModelUsage;
 }

@@ -1,4 +1,5 @@
 import type {
+    AgentStatus,
     AgentUpdate,
     TranscriptEntry,
 } from "../engine/protocol.ts";
@@ -51,6 +52,7 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.context === undefined
                 || isContextMeasurement(update.context))
             && (update.usage === undefined || isSessionModelUsage(update.usage))
+            && (update.status === undefined || isAgentStatus(update.status))
             ? value as AgentUpdate
             : undefined;
     }
@@ -910,4 +912,8 @@ function isUserAuthorization(value: unknown): boolean {
 
 function isModelReasoningEffort(value: unknown): boolean {
     return typeof value === "string" && value.length > 0;
+}
+
+function isAgentStatus(value: unknown): value is AgentStatus {
+    return value === "idle" || value === "working" || value === "waiting";
 }

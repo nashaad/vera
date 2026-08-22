@@ -529,6 +529,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
+            // Only a replayed checkpoint carries a status, and it carries one
+            // only when the turn it is joining is still running.
+            ...(update.status === undefined
+                ? {}
+                : { working: update.status !== "idle" }),
         });
     }
     if (update.type === "context") {
