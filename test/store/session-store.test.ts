@@ -2049,6 +2049,171 @@ test("aged tool results are an assembly overlay that survives reopen and rewind"
     expect(store.messages()).toContainEqual(result);
 });
 
+test("a message is rejected when its parent has not been seen yet", async () => {
+    const path = sessionFile([
+        message("message-2", "message-1", userMessage("out of order")),
+        message("message-1", null, userMessage("first")),
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 2 references missing parent message-1",
+    );
+});
+
+test("a repeated message ID is rejected", async () => {
+    const path = sessionFile([
+        message("message-1", null, userMessage("first")),
+        message("message-1", "message-1", assistantMessage("answer")),
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 3 repeats entry ID message-1",
+    );
+});
+
+test("a malformed record part way through the file is rejected", async () => {
+    const path = sessionFile([
+        message("message-1", null, userMessage("first")),
+        { type: "message" },
+        message("message-2", "message-1", assistantMessage("answer")),
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 3 is not a valid message entry",
+    );
+});
+
+test("an unknown record type is rejected", async () => {
+    const path = sessionFile([{ type: "not_a_real_record" }]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 2 is not a valid session entry",
+    );
+});
+
+test("a record after the terminal agent failure is rejected", async () => {
+    const path = sessionFile([
+        message("message-1", null, userMessage("first")),
+        agentFailure("boom"),
+        message("message-2", "message-1", assistantMessage("answer")),
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 4 follows the terminal agent failure",
+    );
+});
+
+test("an identical repeat of the terminal agent failure is tolerated", async () => {
+    const path = sessionFile([
+        message("message-1", null, userMessage("first")),
+        agentFailure("boom"),
+        agentFailure("boom"),
+    ]);
+
+    const store = await SessionStore.open(path);
+    expect(store.agentFailure()?.detail).toBe("boom");
+});
+
+test("a differing repeat of the terminal agent failure is rejected", async () => {
+    const path = sessionFile([
+        message("message-1", null, userMessage("first")),
+        agentFailure("boom"),
+        agentFailure("different"),
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 4 follows the terminal agent failure",
+    );
+});
+
+test("a message referencing an attachment recorded later is rejected", async () => {
+    const attachment = imageAttachment();
+    const path = sessionFile([
+        message("message-1", null, {
+            role: "user",
+            content: [{ type: "image_attachment", attachmentId: attachment.id }],
+        }),
+        { type: "attachment", timestamp: TIMESTAMP, attachment },
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        `line 2 references missing attachment ${attachment.id}`,
+    );
+});
+
+test("a repeated attachment ID with different content is rejected", async () => {
+    const attachment = imageAttachment();
+    const path = sessionFile([
+        { type: "attachment", timestamp: TIMESTAMP, attachment },
+        {
+            type: "attachment",
+            timestamp: TIMESTAMP,
+            attachment: { ...attachment, bytes: 456 },
+        },
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        `line 3 repeats attachment ID ${attachment.id}`,
+    );
+});
+
+test("a repeated attachment ID with identical content is tolerated", async () => {
+    const attachment = imageAttachment();
+    const path = sessionFile([
+        { type: "attachment", timestamp: TIMESTAMP, attachment },
+        { type: "attachment", timestamp: TIMESTAMP, attachment },
+    ]);
+
+    const store = await SessionStore.open(path);
+    expect(store.attachmentRecords()).toEqual([attachment]);
+});
+
+test("a delivery receipt for an unseen delivery is rejected", async () => {
+    const path = sessionFile([
+        { type: "delivery_receipt", timestamp: TIMESTAMP, deliveryId: "d1" },
+    ]);
+
+    await expect(SessionStore.open(path)).rejects.toThrow(
+        "line 2 references missing delivery d1",
+    );
+});
+
+const TIMESTAMP = "2026-07-19T12:00:01.000Z";
+
+function sessionFile(records: readonly object[]): string {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const header = {
+        type: "session",
+        version: SESSION_FORMAT_VERSION,
+        id: "session-1",
+        timestamp: "2026-07-19T12:00:00.000Z",
+        cwd: directory,
+    };
+    writeFileSync(
+        path,
+        [header, ...records].map((record) => JSON.stringify(record)).join("\n")
+            + "\n",
+    );
+    return path;
+}
+
+function message(
+    id: string,
+    parentId: string | null,
+    body: ModelMessage,
+): object {
+    return { type: "message", id, parentId, timestamp: TIMESTAMP, message: body };
+}
+
+function agentFailure(detail: string): object {
+    return {
+        type: "agent_failure",
+        id: "failure-1",
+        timestamp: TIMESTAMP,
+        detail,
+    };
+}
 
 /** Every aging level's gate sits below this context, so age alone decides. */
 const PRESSURED = { capacity: 1 } as const;
