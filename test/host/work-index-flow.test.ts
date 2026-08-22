@@ -92,6 +92,64 @@ socketTest("a real pending approval reaches a real client's work index", async (
     }
 }, 15_000);
 
+socketTest("the index costs the same however many clients watch", async () => {
+    // Run the identical transition twice, once watched by one client and once
+    // by three. The claim is that deriving the index is a property of the
+    // roster changing, not of how many people happen to be looking at it, so
+    // the two counts have to match.
+    const alone = await derivationsForWatchers(1);
+    const crowd = await derivationsForWatchers(3);
+    expect(alone).toBeGreaterThan(0);
+    expect(crowd).toBe(alone);
+});
+
+async function derivationsForWatchers(watchers: number): Promise<number> {
+    const root = await realpath(
+        await mkdtemp(join(tmpdir(), "vera-work-share-")),
+    );
+    const socketPath = join(root, "host.sock");
+    const host = await startResidentHost({
+        config,
+        createAdapter: () => new FauxAdapter([textResponse("finished")]),
+        socketPath,
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "events"),
+    });
+    await host.registry.create({ id: "agent-1", workspace: root });
+    const clients: Awaited<ReturnType<typeof attachAgent>>[] = [];
+    try {
+        for (let index = 0; index < watchers; index += 1) {
+            clients.push(await attachAgent({
+                socketPath,
+                agentId: "agent-1",
+                requestedCapabilities: [HOST_CAPABILITY_WORK_INDEX],
+            }));
+        }
+        await settle();
+        // Counted on the registry rather than on the snapshot: deriving the
+        // facts stats each session and scans its stash, and that is the half
+        // worth doing once.
+        const registry = host.registry as unknown as {
+            workFacts: () => readonly unknown[];
+        };
+        const real = registry.workFacts.bind(registry);
+        let derivations = 0;
+        registry.workFacts = (): readonly unknown[] => {
+            derivations += 1;
+            return real();
+        };
+        await clients[0]!.send({ type: "prompt", content: "run it" });
+        await settle();
+        registry.workFacts = real;
+        return derivations;
+    } finally {
+        for (const client of clients) client.close();
+        await host.close();
+        await rm(root, { recursive: true, force: true });
+    }
+}
+
 /**
  * The request id, read off the agent's own update stream.
  *

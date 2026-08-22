@@ -137,7 +137,7 @@ import {
     type ExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
-import { buildWorkIndex } from "./work-index.ts";
+import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 import { searchSessions } from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
 import {
@@ -366,6 +366,17 @@ export async function startResidentHost(
                     options.inboxUserConfigPath,
                 ),
         });
+    /**
+     * The index derived for the fan-out currently running, held only until the
+     * event loop turns.
+     *
+     * Every client asks for the index on the same transition and the answer is
+     * the same for all of them, but deriving it stats each session and scans
+     * its stash, so the unshared version cost that once per client. Dropping
+     * it on the next microtask keeps it from outliving the fan-out that built
+     * it, so nothing can read a roster that has since changed.
+     */
+    let workIndexThisTurn: WorkIndexSnapshot | undefined;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
         for (const listener of [...workChangeListeners]) {
@@ -886,11 +897,18 @@ export async function startResidentHost(
             // roster change, and a schedule database that cannot be read is
             // no reason to lose the sessions beside it.
             readWorkIndex: () => {
+                if (workIndexThisTurn !== undefined) {
+                    return workIndexThisTurn;
+                }
                 const agents = registry.workFacts();
-                return buildWorkIndex(
+                workIndexThisTurn = buildWorkIndex(
                     agents,
                     registry.scheduleWorkFacts(recentScheduleRuns(), agents),
                 );
+                queueMicrotask(() => {
+                    workIndexThisTurn = undefined;
+                });
+                return workIndexThisTurn;
             },
             searchSessions: (query) => searchSessions(sessionDirectory, query),
             ...(scheduler === null ? {} : {
