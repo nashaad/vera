@@ -1146,7 +1146,7 @@ export class SessionStore {
         return true;
     }
 
-    private async appendRecord(record: object): Promise<void> {
+    protected async appendRecord(record: object): Promise<void> {
         if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
@@ -1159,7 +1159,7 @@ export class SessionStore {
         }
     }
 
-    private requireActive(): void {
+    protected requireActive(): void {
         if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
@@ -1358,7 +1358,7 @@ function completeSessionSource(path: string, source: string): string {
  * from a closure, so the same function can fold a whole file or absorb one
  * record at a time.
  */
-interface SessionProjectionState {
+export interface SessionProjectionState {
     readonly messageEntries: SessionMessageEntry[];
     readonly deliveryEntries: SessionDeliveryEntry[];
     readonly deliveryReceipts: Set<string>;
@@ -1380,7 +1380,7 @@ interface SessionProjectionState {
     leafId: string | null;
 }
 
-function createSessionProjectionState(): SessionProjectionState {
+export function createSessionProjectionState(): SessionProjectionState {
     return {
         messageEntries: [],
         deliveryEntries: [],
@@ -1410,7 +1410,7 @@ function createSessionProjectionState(): SessionProjectionState {
  * that does not belong in the file throws rather than being skipped, so a
  * caller that survives the call has a state matching every record so far.
  */
-function ingestSessionRecord(
+export function ingestSessionRecord(
     path: string,
     lineNumber: number,
     value: Record<string, unknown>,
@@ -1828,7 +1828,13 @@ function sameAttachmentContent(
 }
 
 function parseHeader(path: string, line: string | undefined): SessionHeader {
-    const value = parseJsonObject(path, 1, line);
+    return parseHeaderRecord(path, parseJsonObject(path, 1, line));
+}
+
+export function parseHeaderRecord(
+    path: string,
+    value: Record<string, unknown>,
+): SessionHeader {
     if (
         value.type !== "session"
         || value.version !== SESSION_FORMAT_VERSION
