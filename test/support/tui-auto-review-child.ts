@@ -53,8 +53,7 @@ export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
                     decision: "allow",
                     reason: "Routine command requested by the user.",
                     riskLevel: "low",
-                    userAuthorization: "unknown",
-                    userAuthorizationAssessed: false,
+                    userAuthorization: "high",
                 };
             },
         },

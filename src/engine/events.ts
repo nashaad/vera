@@ -493,8 +493,6 @@ export interface ToolReviewDecidedEvent {
      */
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
-    /** False when the reviewer omitted the authorization assessment. */
-    readonly userAuthorizationAssessed?: boolean;
 }
 
 export interface ToolExecutionFinishedEvent {

@@ -379,14 +379,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "tool_review") {
         if (update.decision === "allow") {
-            const authorization = update.userAuthorizationAssessed === false
-                ? "not assessed"
-                : update.userAuthorization;
             return appendEntry(state, {
                 kind: "review",
                 text: `Auto review approved ${update.tool}`
                     + ` (risk: ${update.riskLevel},`
-                    + ` authorization: ${authorization}):`
+                    + ` authorization: ${update.userAuthorization}):`
                     + ` ${update.reason}`,
             });
         }

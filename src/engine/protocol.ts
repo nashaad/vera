@@ -614,8 +614,6 @@ export interface ToolReviewUpdate {
     /** The reviewer's own scoring, so clients can show what drove the call. */
     readonly riskLevel: ToolReviewRiskLevel;
     readonly userAuthorization: ToolReviewUserAuthorization;
-    /** False when the reviewer omitted the authorization assessment. */
-    readonly userAuthorizationAssessed?: boolean;
     readonly seq: number;
 }
 
@@ -1590,12 +1588,6 @@ export function createProtocolEncoder(
                 reason: event.reason,
                 riskLevel: event.riskLevel,
                 userAuthorization: event.userAuthorization,
-                ...(event.userAuthorizationAssessed === undefined
-                    ? {}
-                    : {
-                        userAuthorizationAssessed:
-                            event.userAuthorizationAssessed,
-                    }),
                 seq,
             });
             return;

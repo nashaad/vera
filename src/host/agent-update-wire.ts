@@ -115,8 +115,6 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
                 && typeof update.reason === "string"
                 && isRiskLevel(update.riskLevel)
                 && isUserAuthorization(update.userAuthorization)
-                && (update.userAuthorizationAssessed === undefined
-                    || typeof update.userAuthorizationAssessed === "boolean")
             ? value as AgentUpdate
             : undefined;
     }

@@ -34,7 +34,7 @@ test("auto reviews a boundary crossing without asking the user", async () => {
         expect(readFileSync(join(home, "auto-review-invoked"), "utf8"))
             .toBe("allowed\n");
         expect(pane).toContain(
-            "Auto review approved bash (risk: low, authorization: not assessed):",
+            "Auto review approved bash (risk: low, authorization: high):",
         );
         expect(pane.replace(/\s+/g, " ")).toContain(
             "Routine command requested by the user.",

@@ -2050,7 +2050,6 @@ test("reviewer decisions remain visible with their risk and authorization", () =
 function autoReviewEntry(
     userAuthorization: "unknown" | "low" | "medium" | "high",
     reason: string,
-    userAuthorizationAssessed?: boolean,
 ): TuiTranscriptEntry {
     const state = applyAgentUpdate(createTuiState(), {
         type: "tool_review",
@@ -2059,9 +2058,6 @@ function autoReviewEntry(
         reason,
         riskLevel: "low",
         userAuthorization,
-        ...(userAuthorizationAssessed === undefined
-            ? {}
-            : { userAuthorizationAssessed }),
         seq: 1,
     });
     const entry = state.entries.at(-1);
@@ -2076,7 +2072,6 @@ test("auto-review approval uses semantic status colors", () => {
         "unknown",
         "Auto-review returned an allow decision; the sandbox does not allow"
             + " network access and matches an allow-list entry.",
-        false,
     );
     const text = entry.text;
     const rendered = renderTuiEntry(entry);
@@ -2088,7 +2083,7 @@ test("auto-review approval uses semantic status colors", () => {
     expect(chunks.map((chunk) => chunk.text.toString()).join(""))
         .toBe(text);
     expect(chunkFor("approved")?.fg).toEqual(parseColor(TUI_SUCCESS));
-    expect(chunkFor("authorization: not assessed")?.fg)
+    expect(chunkFor("authorization: unknown")?.fg)
         .toEqual(parseColor(TUI_MUTED));
     expect(chunkFor("allow")?.fg).toEqual(parseColor(TUI_SUCCESS));
     expect(chunkFor(" decision; the sandbox does not allow"
@@ -2099,7 +2094,7 @@ test("auto-review approval uses semantic status colors", () => {
         .toEqual(parseColor(TUI_MUTED));
 });
 
-test("reported authorization grades stay muted", () => {
+test("authorization grades stay muted", () => {
     for (const grade of ["unknown", "high"] as const) {
         const entry = autoReviewEntry(
             grade,
@@ -2124,11 +2119,7 @@ test("auto-review approval resolves colors from the current theme", () => {
     applyTuiTheme(theme);
     try {
         const rendered = renderTuiEntry(
-            autoReviewEntry(
-                "unknown",
-                "Auto-review returned an allow decision.",
-                false,
-            ),
+            autoReviewEntry("unknown", "Auto-review returned an allow decision."),
         );
         const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
             chunk.text.toString() === text
@@ -2138,7 +2129,7 @@ test("auto-review approval resolves colors from the current theme", () => {
             .toEqual(parseColor(theme.muted));
         expect(chunkFor("approved")?.fg)
             .toEqual(parseColor(theme.success));
-        expect(chunkFor("authorization: not assessed")?.fg)
+        expect(chunkFor("authorization: unknown")?.fg)
             .toEqual(parseColor(theme.muted));
         expect(chunkFor("allow")?.fg)
             .toEqual(parseColor(theme.success));
