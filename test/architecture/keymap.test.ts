@@ -3,12 +3,18 @@ import { basename } from "node:path";
 
 import {
     TUI_KEYMAP,
+    TUI_KEY_SCOPES,
     isTuiComposerClearKey,
     tuiBindingId,
     tuiChordOwner,
     tuiKeyHint,
     tuiKeymapConflicts,
+    WORKSPACE_JUMP_IDS,
 } from "../../clients/tui/keymap.ts";
+import type { TuiKeyScope } from "../../clients/tui/keymap.ts";
+
+/** `dials` is a scope the table uses but `TUI_KEY_SCOPES` does not list. */
+const EVERY_SCOPE: readonly TuiKeyScope[] = [...TUI_KEY_SCOPES, "dials"];
 
 /** Files allowed to name a chord, because they are where the table lives. */
 const KEYMAP_OWNERS = new Set(["keymap.ts"]);
@@ -66,7 +72,9 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "toggle_thinking",
     "toggle_session_header",
     "cycle_agent_layout",
-    "switch_agent_pane",
+    "switch_pane",
+    "toggle_workspace_sidebar",
+    ...WORKSPACE_JUMP_IDS,
     "toggle_tool_details",
     "scroll_line_up",
     "scroll_line_down",
@@ -215,6 +223,96 @@ test("ctrl backslash and ctrl slash cycle the attached-agent layout", () => {
     expect(tuiBindingId("global", { name: "/", ctrl: true }))
         .toBe("cycle_agent_layout");
     // Terminals commonly encode Ctrl+/ as the same control byte as Ctrl+_.
+    expect(tuiBindingId("global", { name: "_", ctrl: true }))
+        .toBe("cycle_agent_layout");
+});
+
+test("every binding id appears exactly once", () => {
+    const seen = new Set<string>();
+    const repeated: string[] = [];
+    for (const binding of TUI_KEYMAP) {
+        if (seen.has(binding.id)) {
+            repeated.push(binding.id);
+        }
+        seen.add(binding.id);
+    }
+    expect(repeated).toEqual([]);
+});
+
+test("no binding claims the tmux prefix", () => {
+    const offenders = TUI_KEYMAP
+        .filter((binding) => binding.keys.includes("ctrl+b"))
+        .map((binding) => binding.id);
+    expect(offenders).toEqual([]);
+});
+
+/** The bindings the workspace side bar adds. */
+const WORKSPACE_BINDINGS = [
+    "switch_pane",
+    "toggle_workspace_sidebar",
+    ...WORKSPACE_JUMP_IDS,
+];
+
+test("a workspace chord is free in every scope it can be reached from", () => {
+    const collisions: string[] = [];
+    for (const id of WORKSPACE_BINDINGS) {
+        const binding = TUI_KEYMAP.find((row) => row.id === id);
+        expect(binding).toBeDefined();
+        for (const chord of binding?.keys ?? []) {
+            for (const scope of EVERY_SCOPE) {
+                const owner = tuiChordOwner(chord, scope)?.id;
+                if (owner !== undefined && owner !== id) {
+                    collisions.push(`${chord} in ${scope}: ${owner} not ${id}`);
+                }
+            }
+        }
+    }
+    expect(collisions).toEqual([]);
+});
+
+test("the workspace chords resolve to their own bindings", () => {
+    expect(tuiBindingId("global", { name: "g", ctrl: true }))
+        .toBe("switch_pane");
+    expect(tuiBindingId("global", { name: "e", ctrl: true, shift: true }))
+        .toBe("toggle_workspace_sidebar");
+    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+        expect(tuiBindingId("global", { name: digit, ctrl: true }))
+            .toBe(`workspace_jump_${digit}`);
+    }
+    expect(WORKSPACE_JUMP_IDS).toHaveLength(9);
+    // A bare digit is text in the composer, not a jump.
+    expect(tuiBindingId("composer", { name: "1" })).toBeUndefined();
+});
+
+test("the side bar toggle leaves plain ctrl+e where it was", () => {
+    expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
+        .toBe("toggle_tool_details");
+    expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
+        .toBe("open_providers");
+});
+
+/**
+ * What a terminal outside the kitty keyboard protocol reports when ctrl is
+ * held with a digit. Each of these keeps the meaning it already had.
+ */
+const CTRL_DIGIT_FALLBACKS: readonly { name: string; ctrl?: boolean }[] = [
+    { name: "space", ctrl: true },
+    { name: "escape" },
+    { name: "\\", ctrl: true },
+    { name: "]", ctrl: true },
+    { name: "^", ctrl: true },
+    { name: "_", ctrl: true },
+    { name: "backspace" },
+];
+
+test("a ctrl digit that arrives as another key does not reach the jump", () => {
+    for (const key of CTRL_DIGIT_FALLBACKS) {
+        const id = tuiBindingId("global", key);
+        expect(id === undefined || !WORKSPACE_JUMP_IDS.includes(id)).toBe(true);
+    }
+    // ctrl+4 and ctrl+7 arrive as the two chords the layout cycle owns.
+    expect(tuiBindingId("global", { name: "\\", ctrl: true }))
+        .toBe("cycle_agent_layout");
     expect(tuiBindingId("global", { name: "_", ctrl: true }))
         .toBe("cycle_agent_layout");
 });

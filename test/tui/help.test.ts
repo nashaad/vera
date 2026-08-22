@@ -90,8 +90,10 @@ test("help renders general guidance and extension attribution", async () => {
         frame = setup.captureCharFrame();
         expect(frame).toContain("ctrl+p");
         expect(frame).toContain("Open the command palette");
-        expect(frame).toContain("ctrl+end");
-        expect(frame).toContain("Transcript");
+        // A chord a terminal only reports under the kitty keyboard protocol
+        // is labelled as such, rather than looking simply broken.
+        expect(frame).toContain("ctrl+shift+m");
+        expect(frame).toContain("Anywhere · kitty");
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;

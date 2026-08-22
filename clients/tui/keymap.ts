@@ -144,6 +144,38 @@ export interface TuiKeymapConflict {
     readonly right: string;
 }
 
+/**
+ * One binding per row of the workspace list, rather than one binding holding
+ * nine chords.
+ *
+ * A single row would be written into the help card as its nine chords joined
+ * together, which is wider than the card's key column and pushes the
+ * description off the line.
+ *
+ * A terminal reports ctrl+<digit> only under the kitty keyboard protocol or
+ * modifyOtherKeys. Elsewhere it sends a control byte that names a different
+ * key: ctrl+2 is ctrl+space, ctrl+3 is escape, ctrl+4 is ctrl+\, ctrl+5 is
+ * ctrl+], ctrl+6 is ctrl+^, ctrl+7 is ctrl+_, ctrl+8 is backspace, and ctrl+1
+ * and ctrl+9 arrive as the bare digit. Each of those keeps the meaning it
+ * already has, so the jump is unreachable there rather than ambiguous.
+ */
+const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
+    { length: 9 },
+    (_unused, index): TuiBinding => {
+        const position = index + 1;
+        return {
+            id: `workspace_jump_${position}`,
+            keys: [`ctrl+${position}`],
+            scope: "global",
+            description: `Jump to session ${position} in the workspace list`,
+        };
+    },
+);
+
+/** Every id `WORKSPACE_JUMP_BINDINGS` declares, in list order. */
+export const WORKSPACE_JUMP_IDS: readonly string[] = WORKSPACE_JUMP_BINDINGS
+    .map((binding) => binding.id);
+
 export const TUI_KEYMAP: readonly TuiBinding[] = [
     {
         id: "open_palette",
@@ -184,12 +216,28 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "cycle-agent-layout",
     },
     {
-        id: "switch_agent_pane",
+        // Cycles panes rather than agents, so a side bar joins this cycle
+        // instead of claiming a key of its own. Two stops with one column
+        // open, three with both.
+        id: "switch_pane",
         keys: ["ctrl+g"],
         scope: "global",
-        description: "Switch focus between visible agents",
+        description: "Cycle focus between the visible panes",
+        hint: "ctrl+g pane",
         extensionId: "switch-agent-pane",
     },
+    {
+        // Only the kitty-protocol encoding of ctrl+shift+e is bound, the same
+        // caveat the half-page chords below carry. Elsewhere the shift is
+        // dropped and it arrives as plain ctrl+e, which the conversation scope
+        // binds to `toggle_tool_details`.
+        id: "toggle_workspace_sidebar",
+        keys: ["ctrl+shift+e"],
+        scope: "global",
+        description: "Show or hide the workspace side bar",
+        hint: "ctrl+shift+e workspace",
+    },
+    ...WORKSPACE_JUMP_BINDINGS,
     {
         id: "toggle_tool_details",
         keys: ["ctrl+e"],
