@@ -442,7 +442,7 @@ test("vera close ends a live agent and names how to get the session back", async
     const exitCode = await runCli(["close", "agent-1"], {
         closeAgent: async (agentId) => {
             closed.push(agentId);
-            return { status: "closed" };
+            return { status: "closed", sessionRetained: true };
         },
         stdout: { write: (text) => output += text },
     });
@@ -471,6 +471,19 @@ test("vera close reports a rejection as an error with a next action", async () =
     expect(error).toContain("vera ls --all");
 });
 
+test("vera close does not offer a resume for a session it deleted", async () => {
+    let output = "";
+
+    const exitCode = await runCli(["close", "temp-1"], {
+        closeAgent: async () => ({ status: "closed", sessionRetained: false }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("its session is gone");
+    expect(output).not.toContain("vera resume");
+});
+
 test("vera close accepts the identifier vera ls prints", async () => {
     const closed: string[] = [];
     let output = "";
@@ -479,7 +492,7 @@ test("vera close accepts the identifier vera ls prints", async () => {
         listAgents: async () => [closeableAgent("uuid-aaaa-1111", "amber-ember:333d")],
         closeAgent: async (agentId) => {
             closed.push(agentId);
-            return { status: "closed" };
+            return { status: "closed", sessionRetained: true };
         },
         stdout: { write: (text) => output += text },
     });
@@ -500,7 +513,7 @@ test("vera close accepts an unambiguous id prefix", async () => {
         ],
         closeAgent: async (agentId) => {
             closed.push(agentId);
-            return { status: "closed" };
+            return { status: "closed", sessionRetained: true };
         },
         stdout: { write: () => undefined },
     });
@@ -520,7 +533,7 @@ test("vera close refuses an ambiguous prefix and names the candidates", async ()
         ],
         closeAgent: async (agentId) => {
             closed.push(agentId);
-            return { status: "closed" };
+            return { status: "closed", sessionRetained: true };
         },
         stderr: { write: (text) => error += text },
     });

@@ -474,6 +474,16 @@ export interface AgentRegistryOptions {
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
+export interface CloseAgentTreeResult {
+    readonly status: "closed" | "not_found";
+    /**
+     * Whether the durable transcript is still on disk afterwards. False for an
+     * ephemeral agent, whose session directory is removed with it, so a client
+     * never offers a resume that cannot work.
+     */
+    readonly sessionRetained: boolean;
+}
+
 export interface CreateRegisteredAgentOptions {
     readonly id?: string;
     readonly workspace: string;
@@ -1189,8 +1199,11 @@ export class AgentRegistry {
      * Idempotent for the same reason `closeAgent` is: a second call finds
      * nothing left to close and says so.
      */
-    async closeAgentTree(id: string): Promise<"closed" | "not_found"> {
+    async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
         const present = this.agents.has(id);
+        // Read before the walk: an ephemeral entry is gone from the roster by
+        // the time anyone could ask, and its transcript goes with it.
+        const sessionRetained = this.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
         while (true) {
             const members = [id, ...this.liveDescendantsOf(id)]
@@ -1218,7 +1231,10 @@ export class AgentRegistry {
         if (quiesced.size > 0) {
             this.notifyRosterChanged();
         }
-        return present || quiesced.size > 0 ? "closed" : "not_found";
+        return {
+            status: present || quiesced.size > 0 ? "closed" : "not_found",
+            sessionRetained,
+        };
     }
 
     /** Release what a quiesced entry still holds and take it off the roster. */
@@ -1234,7 +1250,7 @@ export class AgentRegistry {
         }
     }
 
-    /** Depth-first, deepest first, so a child is closed before its parent. */
+    /** Every live agent under `id`, deepest first. */
     private liveDescendantsOf(id: string): readonly string[] {
         const ordered: string[] = [];
         // A corrupt header could name a parent cycle; without this the walk

@@ -80,7 +80,7 @@ flowTest(
             );
 
             expect(await closeAgentThroughHost(paths.socketPath, "runaway"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
 
             const eventLog = join(paths.eventLogDirectory, "runaway.jsonl");
             const atAcknowledgement = await countEvents(
@@ -137,11 +137,11 @@ flowTest(
             await host.registry.create({ id: "sibling", workspace: root });
 
             expect(await closeAgentThroughHost(paths.socketPath, "target"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
             // Repeating a terminal operation asks for a state that already
             // holds, so it acknowledges rather than rejecting.
             expect(await closeAgentThroughHost(paths.socketPath, "target"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
 
             expect(await promptAttachedAgent(
                 paths.socketPath,
@@ -195,7 +195,7 @@ flowTest(
             const enqueued = client
                 .send({ type: "prompt", content: "sneak past the fence" })
                 .then(() => undefined, () => undefined);
-            expect(await closed).toEqual({ status: "closed" });
+            expect(await closed).toEqual({ status: "closed", sessionRetained: true });
             await enqueued;
 
             const eventLog = join(paths.eventLogDirectory, "racer.jsonl");
@@ -230,7 +230,7 @@ flowTest(
         try {
             await host.registry.create({ id: "idle", workspace: root });
             expect(await closeAgentThroughHost(paths.socketPath, "idle"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
             expect(await closeAgentThroughHost(paths.socketPath, "nobody"))
                 .toEqual({ status: "rejected", reason: "not_found" });
         } finally {
@@ -287,7 +287,7 @@ flowTest(
             );
             expect(host.registry.find(child)).toBeDefined();
             expect(await closeAgentThroughHost(paths.socketPath, "parent"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
 
             const childLog = join(paths.eventLogDirectory, `${child}.jsonl`);
             const atAcknowledgement = await countEvents(
@@ -362,7 +362,7 @@ flowTest(
             await waitUntilUpdate(client, "ui_request");
 
             expect(await closeAgentThroughHost(paths.socketPath, "waiting"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
 
             const eventLog = join(paths.eventLogDirectory, "waiting.jsonl");
             const atAcknowledgement = await countEvents(
@@ -410,7 +410,7 @@ flowTest(
             );
 
             expect(await closeAgentThroughHost(paths.socketPath, "toolbound"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
             const atAcknowledgement = await countEvents(
                 eventLog,
                 "model_request",
@@ -626,7 +626,7 @@ flowTest(
             await parent.detach();
 
             expect(await closeAgentThroughHost(paths.socketPath, "parent"))
-                .toEqual({ status: "closed" });
+                .toEqual({ status: "closed", sessionRetained: true });
 
             expect(host.registry.find("parent")).toBeUndefined();
             expect(host.registry.find(firstChild)).toBeUndefined();

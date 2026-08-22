@@ -501,10 +501,11 @@ export async function runCli(
             target.id,
         );
         if (result.status === "closed") {
-            output.write(
-                `Closed ${target.label}. Its session is kept; `
-                + `resume it with 'vera resume ${target.id}'.\n`,
-            );
+            output.write(result.sessionRetained
+                ? `Closed ${target.label}. Its session is kept; `
+                    + `resume it with 'vera resume ${target.id}'.\n`
+                : `Closed ${target.label}. It was a temporary agent, so its `
+                    + `session is gone and there is nothing to resume.\n`);
             return 0;
         }
         errorOutput.write(

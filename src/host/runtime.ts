@@ -982,8 +982,11 @@ export async function startResidentHost(
             trashSession: (targetId) => registry.trashSession(targetId),
             closeAgent: async (targetId) => {
                 const outcome = await registry.closeAgentTree(targetId);
-                if (outcome === "closed") {
-                    return "closed";
+                if (outcome.status === "closed") {
+                    return {
+                        status: "closed",
+                        sessionRetained: outcome.sessionRetained,
+                    };
                 }
                 // Nothing live under that id. Closing something already closed
                 // is the state the caller asked for, so a durable session on
@@ -993,8 +996,8 @@ export async function startResidentHost(
                     sessionDirectory,
                     storedSessionIndex,
                 )
-                    ? "closed"
-                    : "not_found";
+                    ? { status: "closed", sessionRetained: true }
+                    : { status: "not_found" };
             },
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),

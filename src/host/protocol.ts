@@ -206,6 +206,12 @@ export interface CloseAgentRequest {
 export interface AgentClosedResponse {
     readonly type: "agent_closed";
     readonly agent_id: string;
+    /**
+     * Whether the durable transcript survived the close. An ephemeral agent's
+     * session is deleted with it, so a client that offers `vera resume` on the
+     * strength of the acknowledgement alone would be naming a dead id.
+     */
+    readonly session_retained: boolean;
 }
 
 export interface AgentCloseRejectedResponse {

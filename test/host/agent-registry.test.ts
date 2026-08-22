@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import type {
     AgentUpdate,
@@ -683,13 +684,42 @@ test("closing a tree is idempotent and leaves unrelated agents alone", async () 
             sessionPath: join(root, "bystander.jsonl"),
         });
 
-        expect(await registry.closeAgentTree("target")).toBe("closed");
+        expect(await registry.closeAgentTree("target"))
+            .toEqual({ status: "closed", sessionRetained: true });
         expect(registry.find("target")).toBeUndefined();
-        expect(await registry.closeAgentTree("target")).toBe("not_found");
+        expect(await registry.closeAgentTree("target"))
+            .toMatchObject({ status: "not_found" });
         expect(await registry.closeAgentTree("never-existed"))
-            .toBe("not_found");
+            .toMatchObject({ status: "not_found" });
         expect(registry.list().map((agent) => agent.id))
             .toEqual(["bystander"]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing an ephemeral agent reports that its session did not survive", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-ephemeral-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "temporary",
+            workspace: root,
+            sessionPath: join(root, "temporary", "session.jsonl"),
+            ephemeral: true,
+        });
+
+        expect(await registry.closeAgentTree("temporary"))
+            .toEqual({ status: "closed", sessionRetained: false });
+        // Nothing to resume, which is the fact the acknowledgement carries.
+        expect(existsSync(join(root, "temporary", "session.jsonl")))
+            .toBe(false);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -754,11 +784,13 @@ test("closing a tree closes a real background child and spares a bystander", asy
         );
         expect(child).toMatchObject({ kind: "background", parent_id: "parent" });
 
-        expect(await registry.closeAgentTree("parent")).toBe("closed");
+        expect(await registry.closeAgentTree("parent"))
+            .toEqual({ status: "closed", sessionRetained: true });
         expect(registry.find("parent")).toBeUndefined();
         expect(registry.find(child!.id)).toBeUndefined();
         expect(registry.list().map((agent) => agent.id)).toEqual(["bystander"]);
-        expect(await registry.closeAgentTree("parent")).toBe("not_found");
+        expect(await registry.closeAgentTree("parent"))
+            .toMatchObject({ status: "not_found" });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
