@@ -80,7 +80,9 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         // the frame has to be the finished one: the footer is drawn last, and
         // a row read from a half-painted pane clicks the wrong session.
         const open = await tui.paneWhere((value) =>
-            value.includes("relay-gui") && value.includes("esc close")
+            value.includes("relay-gui") && /\besc\b/.test(value.slice(
+                value.lastIndexOf("provider-fallback"),
+            ))
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
