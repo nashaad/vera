@@ -1181,6 +1181,44 @@ export class AgentRegistry {
     }
 
     /**
+     * Close one agent and every live agent descended from it.
+     *
+     * Descendants go first, so a parent cannot be acknowledged as quiesced
+     * while a child it spawned is still free to make a provider call. Each
+     * agent still goes through `closeAgent`, which is the only path that ends
+     * a live instance. Idempotent for the same reason `closeAgent` is: a
+     * second call finds nothing left to close and says so.
+     */
+    async closeAgentTree(id: string): Promise<"closed" | "not_found"> {
+        const present = this.agents.has(id);
+        for (const childId of this.liveDescendantsOf(id)) {
+            await this.closeAgent(childId);
+        }
+        const outcome = await this.closeAgent(id);
+        return present ? "closed" : outcome;
+    }
+
+    /** Depth-first, deepest first, so a child is closed before its parent. */
+    private liveDescendantsOf(id: string): readonly string[] {
+        const ordered: string[] = [];
+        // A corrupt header could name a parent cycle; without this the walk
+        // would never return.
+        const seen = new Set<string>([id]);
+        const visit = (parentId: string): void => {
+            for (const [childId, entry] of this.agents) {
+                if (entry.parentId !== parentId || seen.has(childId)) {
+                    continue;
+                }
+                seen.add(childId);
+                visit(childId);
+                ordered.push(childId);
+            }
+        };
+        visit(id);
+        return ordered;
+    }
+
+    /**
      * The answer a run with nobody watching gives to a question it cannot ask.
      *
      * Always denial, even when a client happens to be attached: a bounded run

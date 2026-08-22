@@ -175,6 +175,9 @@ export interface StartHostServerOptions {
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
+    readonly closeAgent?: (
+        targetAgentId: string,
+    ) => Promise<"closed" | "not_found" | "not_owned" | "failed">;
     readonly renameSession?: (
         targetAgentId: string,
         name: string | null,
@@ -377,6 +380,7 @@ export async function startHostServer(
                 turns: 0,
             })),
             options.trashSession ?? (() => Promise.resolve("not_found")),
+            options.closeAgent ?? (() => Promise.resolve("not_found")),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
             options.runOnce ?? (() => Promise.reject(
@@ -488,6 +492,9 @@ function receiveConnection(
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
+    closeAgent: (
+        targetAgentId: string,
+    ) => Promise<"closed" | "not_found" | "not_owned" | "failed">,
     renameSession: (
         targetAgentId: string,
         name: string | null,
@@ -1120,6 +1127,32 @@ function receiveConnection(
                     }),
                 () => send({
                     type: "session_trash_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "close_agent") {
+            clearDeadline();
+            finished = true;
+            // The acknowledgement is a quiescence boundary, so it is only sent
+            // after the close has reached its terminal state, never before.
+            void closeAgent(
+                request.target_agent_id,
+            ).then(
+                (result) => result === "closed"
+                    ? send({
+                        type: "agent_closed",
+                        agent_id: request.target_agent_id,
+                    })
+                    : send({
+                        type: "agent_close_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result,
+                    }),
+                () => send({
+                    type: "agent_close_rejected",
                     agent_id: request.target_agent_id,
                     reason: "failed",
                 }),

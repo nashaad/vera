@@ -21,6 +21,10 @@ import {
     type VeraConfig,
 } from "../../src/config.ts";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
+import {
+    closeAgentThroughHost,
+    type CloseAgentResult,
+} from "../../src/host/agent-close-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
@@ -163,6 +167,7 @@ interface CliOutput {
 
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
+    readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     readonly scheduleOperation?: (
         operation: ScheduleOperation,
@@ -472,6 +477,28 @@ export async function runCli(
         await (dependencies.abortAgent ?? abortLiveAgent)(args[1]);
         output.write(`Abort requested for ${args[1]}.\n`);
         return 0;
+    }
+
+    if (
+        args.length === 2
+        && args[0] === "close"
+        && typeof args[1] === "string"
+        && args[1].length > 0
+    ) {
+        const result = await (dependencies.closeAgent ?? closeLiveAgent)(
+            args[1],
+        );
+        if (result.status === "closed") {
+            output.write(
+                `Closed ${args[1]}. Its session is kept; `
+                + `resume it with 'vera resume ${args[1]}'.\n`,
+            );
+            return 0;
+        }
+        errorOutput.write(
+            `Could not close ${args[1]}: ${closeRejectionText(result.reason)}\n`,
+        );
+        return 1;
     }
 
     if (args[0] === "stdio") {
@@ -958,6 +985,26 @@ async function abortLiveAgent(agentId: string): Promise<void> {
         throw new Error("No live Vera host");
     }
     await abortAgentThroughHost(host.socket_path, agentId);
+}
+
+async function closeLiveAgent(agentId: string): Promise<CloseAgentResult> {
+    const host = await createHostLockfile().read();
+    if (host === undefined) {
+        throw new Error("No live Vera host");
+    }
+    return closeAgentThroughHost(host.socket_path, agentId);
+}
+
+function closeRejectionText(
+    reason: "not_found" | "not_owned" | "failed",
+): string {
+    if (reason === "not_found") {
+        return "no agent or session has that id. Run 'vera ls --all' to see them.";
+    }
+    if (reason === "not_owned") {
+        return "that agent belongs to someone else.";
+    }
+    return "the host could not complete the close.";
 }
 
 async function listPool(workspace: string): Promise<string> {

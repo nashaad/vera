@@ -980,6 +980,16 @@ export async function startResidentHost(
             commitBranch: (agentId) => registry.commitBranch(agentId),
             syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
             trashSession: (targetId) => registry.trashSession(targetId),
+            closeAgent: async (targetId) => {
+                const outcome = await registry.closeAgentTree(targetId);
+                if (outcome === "closed") {
+                    return "closed";
+                }
+                // Nothing live under that id. Closing something already closed
+                // is the state the caller asked for, so a durable session on
+                // disk is acknowledged; an id nobody has ever seen is not.
+                return storedSessionIndex.has(targetId) ? "closed" : "not_found";
+            },
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
             runOnce: async (runOptions) => {
