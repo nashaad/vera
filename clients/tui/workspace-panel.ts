@@ -41,6 +41,15 @@ const UNSELECTED_MARKER = " ";
 export const BACKGROUND_GROUP = "background";
 
 /**
+ * The group pinned sessions collect under, kept first in the listing.
+ *
+ * A pin is one person's opinion about their own list, so it never reaches the
+ * host. It is a sort key and a heading, not a mode: a pinned session is an
+ * ordinary row that happens to be listed first.
+ */
+export const PINNED_GROUP = "pinned";
+
+/**
  * Column one, as text. Colour may ride on top of it and may never replace it:
  * every state has to survive a monochrome render.
  */
@@ -112,6 +121,8 @@ export interface WorkspacePanelInput {
     readonly now: Date;
     /** Kept when it still names a listed session, replaced when it does not. */
     readonly selectedId?: string;
+    /** Session ids the reader pinned. Client state; never sent anywhere. */
+    readonly pinnedIds?: readonly string[];
 }
 
 /**
@@ -141,7 +152,7 @@ export function layoutWorkspacePanel(
 ): WorkspacePanelLayout {
     const width = workspacePanelWidth(input.columns);
     const listed = input.sessions.filter(isSwitchableSession);
-    const groups = groupSessions(listed);
+    const groups = groupSessions(listed, new Set(input.pinnedIds ?? []));
     const selectable = groups.flatMap((group) =>
         group.sessions.map((session) => session.id)
     );
@@ -200,12 +211,15 @@ interface SessionGroup {
  */
 function groupSessions(
     sessions: readonly WorkspaceSession[],
+    pinned: ReadonlySet<string>,
 ): readonly SessionGroup[] {
     const byGroup = new Map<string, WorkspaceSession[]>();
     for (const session of sessions) {
-        const group = session.kind === "background"
-            ? BACKGROUND_GROUP
-            : session.workspace;
+        const group = pinned.has(session.id)
+            ? PINNED_GROUP
+            : session.kind === "background"
+                ? BACKGROUND_GROUP
+                : session.workspace;
         const existing = byGroup.get(group);
         if (existing === undefined) byGroup.set(group, [session]);
         else existing.push(session);
@@ -216,6 +230,8 @@ function groupSessions(
         groups.push({ group, sessions: members });
     }
     groups.sort((left, right) => {
+        if (left.group === PINNED_GROUP) return -1;
+        if (right.group === PINNED_GROUP) return 1;
         if (left.group === BACKGROUND_GROUP) return 1;
         if (right.group === BACKGROUND_GROUP) return -1;
         const recency = byRecency(left.sessions[0]!, right.sessions[0]!);
@@ -251,7 +267,8 @@ function groupRow(
     width: WorkspacePanelWidth,
 ): WorkspaceGroupRow {
     const label = group.group === BACKGROUND_GROUP
-        ? BACKGROUND_GROUP
+            || group.group === PINNED_GROUP
+        ? group.group
         : basename(group.group);
     const count = `${group.sessions.length}`;
     const room = CONTENT_COLUMNS[width] - count.length - 1;

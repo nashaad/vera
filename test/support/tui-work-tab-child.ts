@@ -183,6 +183,65 @@ const HISTORY = Array.from({ length: 60 }, (_, index) => ({
         : `filler line ${index}`,
 }));
 
+/**
+ * The roster the workspace side bar lists, separate from the work index.
+ *
+ * The index only carries sessions with work in them; the side bar lists every
+ * session there is, and takes its status from the index on top of this.
+ */
+const ROSTER = [
+    {
+        id: "work-tab-child",
+        session_path: "/sessions/work-tab-child.jsonl",
+        title: "this one",
+        workspace: "/work/one",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        live: true,
+        updated_at: minutesAgo(1),
+    },
+    {
+        id: "auth-race",
+        session_path: "/sessions/auth-race.jsonl",
+        title: "auth-race",
+        workspace: "/work/one",
+        kind: "interactive" as const,
+        status: "waiting" as const,
+        live: true,
+        updated_at: minutesAgo(2),
+    },
+    {
+        id: "relay-gui",
+        session_path: "/sessions/relay-gui.jsonl",
+        title: "relay-gui",
+        workspace: "/work/one",
+        kind: "interactive" as const,
+        status: "working" as const,
+        live: true,
+        updated_at: minutesAgo(9),
+    },
+    {
+        id: "auth-refactor",
+        session_path: "/sessions/auth-refactor.jsonl",
+        title: "auth-refactor",
+        workspace: "/work/two",
+        kind: "interactive" as const,
+        status: "completed" as const,
+        live: false,
+        updated_at: minutesAgo(11),
+    },
+    {
+        id: "provider-fallback",
+        session_path: "/sessions/provider-fallback.jsonl",
+        title: "provider-fallback",
+        workspace: "/work/one",
+        kind: "background" as const,
+        status: "completed" as const,
+        live: false,
+        updated_at: minutesAgo(14),
+    },
+];
+
 const channel = createInProcessChannel();
 void runHeadlessLoop(
     channel.engine,
@@ -272,6 +331,7 @@ await startTui({
             throw new Error(`OPENED ${sessionPath}`);
         },
     }),
+    listAgents: async () => ROSTER,
     searchSessions: async (query) =>
         query.kind === "files"
             ? { results: [], truncated: false }

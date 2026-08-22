@@ -11,6 +11,7 @@ import {
     loadTuiRecentSessionId,
     loadTuiSharedSessionGroups,
     loadTuiPersistedAgentPane,
+    loadTuiPinnedSessionIds,
     loadTuiExtensionPreference,
     loadTuiThemePreference,
     saveTuiActivityAnimationPreference,
@@ -18,6 +19,7 @@ import {
     saveTuiRecentSessionId,
     saveTuiSharedSessionGroups,
     saveTuiPersistedAgentPane,
+    saveTuiPinnedSessionIds,
     saveTuiExtensionPreference,
     deleteTuiExtensionPreference,
     saveTuiThemePreference,
@@ -272,4 +274,28 @@ test("extension preferences are isolated and share the atomic client file", () =
         "slots",
         path,
     )).toEqual(["other"]);
+});
+
+test("pinned sessions persist beside the rest of the client preferences", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-pins-"));
+    const path = join(directory, "tui.json");
+
+    expect(loadTuiPinnedSessionIds(path)).toEqual([]);
+    saveTuiThemePreference("nightowl", path);
+    saveTuiPinnedSessionIds(["one", "two"], path);
+
+    expect(loadTuiPinnedSessionIds(path)).toEqual(["one", "two"]);
+    expect(loadTuiThemePreference(path)).toBe("nightowl");
+
+    saveTuiPinnedSessionIds([], path);
+    expect(loadTuiPinnedSessionIds(path)).toEqual([]);
+    expect(JSON.parse(readFileSync(path, "utf8")))
+        .not.toHaveProperty("pinned_session_ids");
+});
+
+test("a malformed pin list is read as no pins", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-tui-pins-bad-"));
+    const path = join(directory, "tui.json");
+    writeFileSync(path, JSON.stringify({ pinned_session_ids: [1, "", "ok"] }));
+    expect(loadTuiPinnedSessionIds(path)).toEqual(["ok"]);
 });

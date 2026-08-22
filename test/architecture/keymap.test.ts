@@ -74,6 +74,9 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "cycle_agent_layout",
     "switch_pane",
     "toggle_workspace_sidebar",
+    // Not blind: the row moves under the pinned heading as the key is pressed,
+    // and the side bar showing it is already on screen.
+    "toggle_workspace_pin",
     ...WORKSPACE_JUMP_IDS,
     "toggle_tool_details",
     "scroll_line_up",
@@ -251,6 +254,9 @@ test("no binding claims the tmux prefix", () => {
 const WORKSPACE_BINDINGS = [
     "switch_pane",
     "toggle_workspace_sidebar",
+    // Not blind: the row moves under the pinned heading as the key is pressed,
+    // and the side bar showing it is already on screen.
+    "toggle_workspace_pin",
     ...WORKSPACE_JUMP_IDS,
 ];
 
