@@ -43,6 +43,7 @@ import {
 import {
     EngineEventBus,
     createJsonlEventLogger,
+    type ToolDenialClass,
 } from "./events.ts";
 import { createModelFailureRecorder } from "./model-failure-recorder.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
@@ -140,6 +141,12 @@ import {
     createReviewCircuitBreaker,
     type ReviewCircuitBreaker,
 } from "./review-circuit-breaker.ts";
+import {
+    createToolDenialBreaker,
+    toolDenialBreakerInterrupt,
+    withheldToolReason,
+    type ToolDenialBreaker,
+} from "./tool-denial-breaker.ts";
 import {
     DEFAULT_MODEL_MAX_TOKENS,
     nextLengthContinuation,
@@ -1281,6 +1288,9 @@ export async function runTurn(
         let maxTokens = DEFAULT_MODEL_MAX_TOKENS;
         let lengthContinuations = 0;
         const reviewBreaker = createReviewCircuitBreaker();
+        // A safety property, so it is constructed here with the turn and has
+        // no configuration seam: no agent, extension, or wear can lift it.
+        const denialBreaker = createToolDenialBreaker();
         // Fixed here, with the rest of the agent's snapshot, so the turn runs
         // under exactly one agent from the tools it is offered to the skills
         // its scripts can reach.
@@ -1300,7 +1310,7 @@ export async function runTurn(
         // A tool the agent does not offer is not described to the model, so
         // the ordinary case is that it is never called. Gate A is what makes
         // the extraordinary case safe.
-        const tools = wear?.tools === undefined
+        const scopedTools = wear?.tools === undefined
             ? offered
             : offered.filter((tool) => turnAllowsTool(wear, tool.name));
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
@@ -1476,6 +1486,9 @@ export async function runTurn(
                             },
                         state.readAgentWear?.()?.skills,
                     );
+            // Recomputed each request: a tool the breaker withheld earlier in
+            // this turn simply stops being described to the model.
+            const tools = denialBreaker.filterOffered(scopedTools);
             const projection = projectModelRequest({
                 ...(modelSettings.provider === undefined
                     ? {}
@@ -1833,6 +1846,7 @@ export async function runTurn(
                                     }),
                             },
                             reviewBreaker,
+                            denialBreaker,
                         ),
                     ]);
                     if (interrupt !== undefined) {
@@ -1869,6 +1883,7 @@ export async function runTurn(
                                     }),
                             },
                             reviewBreaker,
+                            denialBreaker,
                         )
                     ),
                 );
@@ -2216,19 +2231,48 @@ async function executePreparedTool(
     signal: AbortSignal,
     modelSettings: ModelTurnSettings,
     breaker: ReviewCircuitBreaker,
+    denialBreaker: ToolDenialBreaker,
 ): Promise<CompletedToolCall> {
     const toolCall = prepared.toolCall;
     const hookCall = hookToolCall(toolCall);
+    // Only the harness's own refusals are counted. A denial the user typed is
+    // deliberately not routed through here: saying no twice in a row is
+    // ordinary interactive use, not the unattended loop this bounds.
+    const autoDenial = (
+        reason: string,
+        note: string | undefined,
+        denialClass: ToolDenialClass,
+    ): CompletedToolCall => {
+        const result = deniedByPolicy(
+            state,
+            toolCall,
+            reason,
+            note,
+            denialClass,
+        );
+        const trip = denialBreaker.recordDenial(toolCall.name);
+        if (trip === undefined) {
+            return { result };
+        }
+        state.events.emit({
+            type: "tool_breaker_tripped",
+            tool: trip.tool,
+            denials: trip.denials,
+            action: trip.action,
+        });
+        return trip.action === "withheld"
+            ? { result }
+            : { result, interrupt: toolDenialBreakerInterrupt(trip) };
+    };
+    if (denialBreaker.isWithheld(toolCall.name)) {
+        return autoDenial(
+            withheldToolReason(toolCall.name),
+            undefined,
+            "denial-breaker",
+        );
+    }
     if (prepared.scopeDenial !== undefined) {
-        return {
-            result: deniedByPolicy(
-                state,
-                toolCall,
-                prepared.scopeDenial,
-                undefined,
-                "agent-scope",
-            ),
-        };
+        return autoDenial(prepared.scopeDenial, undefined, "agent-scope");
     }
     if (prepared.hookResult.power === "block") {
         return {
@@ -2294,15 +2338,7 @@ async function executePreparedTool(
             state.scratchDir,
         );
         if (permission.behavior === "deny") {
-            return {
-                result: deniedByPolicy(
-                    state,
-                    toolCall,
-                    permission.reason,
-                    scratchNote,
-                    "permission-mode",
-                ),
-            };
+            return autoDenial(permission.reason, scratchNote, "permission-mode");
         }
         const grantProposals = permissionGrantProposals(permission);
         if (permission.behavior === "review") {
@@ -2415,6 +2451,10 @@ async function executePreparedTool(
         break permissionCheck;
     }
 
+    // The run of denials is broken by this tool being allowed to run, not by
+    // some other tool succeeding: the incident shape is one tool refused while
+    // hundreds of calls to other tools succeed around it.
+    denialBreaker.recordAllowed(toolCall.name);
     state.events.emit({ type: "tool_execution_started", toolCall });
     const startedAt = performance.now();
     const execution = await executeToolHandler(
@@ -2811,7 +2851,7 @@ function deniedByPolicy(
     toolCall: ToolCallContent,
     reason: string,
     note: string | undefined,
-    denialClass: "agent-scope" | "permission-mode" | "reviewer",
+    denialClass: ToolDenialClass,
 ): ToolResultMessage {
     state.events.emit({
         type: "tool_denied",
