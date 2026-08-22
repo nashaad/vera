@@ -74,7 +74,12 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
     const opened = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("relay-gui"));
+        // The click coordinate comes from one frame and is never retried, so
+        // the frame has to be the finished one: the footer is drawn last, and
+        // a row read from a half-painted pane clicks the wrong session.
+        const open = await tui.paneWhere((value) =>
+            value.includes("relay-gui") && value.includes("esc close")
+        );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
         tui.click(20, row + 1);
