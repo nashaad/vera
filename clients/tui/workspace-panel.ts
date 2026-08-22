@@ -60,8 +60,8 @@ export type WorkspaceSessionStatus = VeraClientSession["status"];
 /**
  * A listed session, as this view needs it.
  *
- * `VeraClientSession` plus the one fact that separates a durable peer from an
- * ephemeral sidekick. The host knows it (`RegisteredAgentEntry.ephemeral`) and
+ * `VeraClientSession` plus the one fact that separates a durable session from
+ * an ephemeral one. The host knows it (`RegisteredAgentEntry.ephemeral`) and
  * neither `RegisteredAgentSummary` nor the extension projection carries it
  * yet, so the field is optional and an absent one means durable.
  */
@@ -144,10 +144,10 @@ export interface WorkspacePanelInput {
 /**
  * Whether a session is one a person can switch to.
  *
- * A `/pair` peer is an ordinary session and belongs in the list. A `/btw`
- * sidekick is ephemeral: its transcript lives in a temporary directory that is
- * removed when the pane closes, so it is derived from the conversation already
- * on screen and has no life of its own to switch to.
+ * A durable session is an ordinary one and belongs in the list. An ephemeral
+ * session keeps its transcript in a temporary directory that is removed when
+ * the pane closes, so it is derived from the conversation already on screen
+ * and has no life of its own to switch to.
  *
  * The test is what the session is, never a flag the caller chose to pass. A
  * session that does not say it is ephemeral is listed.
