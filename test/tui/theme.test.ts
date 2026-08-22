@@ -163,7 +163,7 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
 
     expect(theme).toEqual({
         accent: "#4C9BCF",
-        text: "#3284B8",
+        text: "#02A2FF",
         muted: "#175B8B",
         notice: "#FEFC59",
         danger: "#FF6B6B",
