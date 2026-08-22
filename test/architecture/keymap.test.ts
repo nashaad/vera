@@ -3,12 +3,18 @@ import { basename } from "node:path";
 
 import {
     TUI_KEYMAP,
+    TUI_KEY_SCOPES,
     isTuiComposerClearKey,
     tuiBindingId,
     tuiChordOwner,
     tuiKeyHint,
     tuiKeymapConflicts,
+    WORKSPACE_JUMP_IDS,
 } from "../../clients/tui/keymap.ts";
+import type { TuiKeyScope } from "../../clients/tui/keymap.ts";
+
+/** `dials` is a scope the table uses but `TUI_KEY_SCOPES` does not list. */
+const EVERY_SCOPE: readonly TuiKeyScope[] = [...TUI_KEY_SCOPES, "dials"];
 
 /** Files allowed to name a chord, because they are where the table lives. */
 const KEYMAP_OWNERS = new Set(["keymap.ts"]);
@@ -66,7 +72,9 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "toggle_thinking",
     "toggle_session_header",
     "cycle_agent_layout",
-    "switch_agent_pane",
+    "switch_pane",
+    "toggle_workspace_sidebar",
+    ...WORKSPACE_JUMP_IDS,
     "toggle_tool_details",
     "scroll_line_up",
     "scroll_line_down",
@@ -150,9 +158,10 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
     // And a pane's own chord does not leak into a pane that never claimed it.
     expect(tuiBindingId("session_picker", { name: "s", ctrl: true }))
         .toBeUndefined();
-    // Ctrl+E belongs to transcript detail on the conversation surface and to
-    // provider connections inside the model picker; those surfaces never overlap.
-    expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
+    // Ctrl+T belongs to transcript detail on the conversation surface, and
+    // ctrl+E to provider connections inside the model picker; those surfaces
+    // never overlap.
+    expect(tuiBindingId("conversation", { name: "t", ctrl: true }))
         .toBe("toggle_tool_details");
     expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
         .toBe("open_providers");
@@ -189,7 +198,7 @@ test("an extension chord that a built-in owns is reported, not silently lost", (
     expect(tuiChordOwner("ctrl+j")).toBeUndefined();
     // The two bundled extensions are in the table, so they are answerable as
     // "what is this key" without being reported against themselves.
-    expect(tuiChordOwner("ctrl+t")?.extensionId).toBe("cycle-reasoning");
+    expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
 });
 
 test("every hint belongs to a binding that exists", () => {
@@ -217,4 +226,91 @@ test("ctrl backslash and ctrl slash cycle the attached-agent layout", () => {
     // Terminals commonly encode Ctrl+/ as the same control byte as Ctrl+_.
     expect(tuiBindingId("global", { name: "_", ctrl: true }))
         .toBe("cycle_agent_layout");
+});
+
+test("every binding id appears exactly once", () => {
+    const seen = new Set<string>();
+    const repeated: string[] = [];
+    for (const binding of TUI_KEYMAP) {
+        if (seen.has(binding.id)) {
+            repeated.push(binding.id);
+        }
+        seen.add(binding.id);
+    }
+    expect(repeated).toEqual([]);
+});
+
+test("no binding claims the tmux prefix", () => {
+    const offenders = TUI_KEYMAP
+        .filter((binding) => binding.keys.includes("ctrl+b"))
+        .map((binding) => binding.id);
+    expect(offenders).toEqual([]);
+});
+
+/** The bindings the workspace side bar adds. */
+const WORKSPACE_BINDINGS = [
+    "switch_pane",
+    "toggle_workspace_sidebar",
+    ...WORKSPACE_JUMP_IDS,
+];
+
+test("a workspace chord is free in every scope it can be reached from", () => {
+    const collisions: string[] = [];
+    for (const id of WORKSPACE_BINDINGS) {
+        const binding = TUI_KEYMAP.find((row) => row.id === id);
+        expect(binding).toBeDefined();
+        for (const chord of binding?.keys ?? []) {
+            for (const scope of EVERY_SCOPE) {
+                const owner = tuiChordOwner(chord, scope)?.id;
+                if (owner !== undefined && owner !== id) {
+                    collisions.push(`${chord} in ${scope}: ${owner} not ${id}`);
+                }
+            }
+        }
+    }
+    expect(collisions).toEqual([]);
+});
+
+test("the workspace chords resolve to their own bindings", () => {
+    expect(tuiBindingId("global", { name: "g", ctrl: true }))
+        .toBe("switch_pane");
+    expect(tuiBindingId("global", { name: "e", ctrl: true }))
+        .toBe("toggle_workspace_sidebar");
+    expect(WORKSPACE_JUMP_IDS).toHaveLength(9);
+});
+
+test("a digit jumps only while the side bar holds focus", () => {
+    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+        expect(tuiBindingId("workspace", { name: digit }))
+            .toBe(`workspace_jump_${digit}`);
+        // The composer types the digit. Nothing else in the TUI claims it.
+        expect(tuiBindingId("composer", { name: digit })).toBeUndefined();
+        expect(tuiBindingId("conversation", { name: digit })).toBeUndefined();
+        expect(tuiBindingId("global", { name: digit })).toBeUndefined();
+        // A ctrl digit is what the old shape bound, and no terminal reports it
+        // outside the kitty keyboard protocol.
+        expect(tuiBindingId("workspace", { name: digit, ctrl: true }))
+            .toBeUndefined();
+    }
+});
+
+test("the moved chords take nothing that already resolved", () => {
+    // ctrl+e opens the side bar everywhere except inside the model picker,
+    // which owns the chord for as long as it is open.
+    expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
+        .toBe("toggle_workspace_sidebar");
+    expect(tuiBindingId("composer", { name: "e", ctrl: true }))
+        .toBe("toggle_workspace_sidebar");
+    expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
+        .toBe("open_providers");
+    // ctrl+t reads tool details in the transcript, where nothing else answered.
+    expect(tuiBindingId("conversation", { name: "t", ctrl: true }))
+        .toBe("toggle_tool_details");
+    expect(tuiBindingId("global", { name: "t", ctrl: true })).toBeUndefined();
+    // ctrl+y is the reasoning cycle, and was free before this.
+    expect(tuiBindingId("global", { name: "y", ctrl: true }))
+        .toBe("cycle-reasoning");
+    expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
+    // ctrl+shift+e is no longer bound anywhere.
+    expect(tuiChordOwner("ctrl+shift+e")).toBeUndefined();
 });

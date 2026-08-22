@@ -8,7 +8,7 @@ import {
 } from "../../support/tui-tool-details-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
-test("long tool output folds and Ctrl-E reveals it", async () => {
+test("long tool output folds and Ctrl-T reveals it", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-tool-details-"));
     const session = await startTuiTestSession({
         home,
@@ -32,12 +32,12 @@ test("long tool output folds and Ctrl-E reveals it", async () => {
         expect(pane).toMatch(/^ {3}Tip /m);
         expect(pane).toMatch(/^ {2}╭─{20}/m);
 
-        session.sendKey("C-e");
+        session.sendKey("C-t");
         pane = await session.waitForVisiblePane("TOOL_DETAIL_09");
-        expect(pane).toMatch(/▾ Ran\s+ctrl\+e details/);
+        expect(pane).toMatch(/▾ Ran\s+ctrl\+t details/);
         expect(pane).toContain("TOOL DETAILS COMPLETED");
 
-        session.sendKey("C-e");
+        session.sendKey("C-t");
         pane = await session.waitForVisiblePane("Ran  printf");
 
         session.sendText("run one short action");
@@ -46,7 +46,7 @@ test("long tool output folds and Ctrl-E reveals it", async () => {
         expect(pane).toMatch(/Ran {2}printf 'SHORT_DETAIL/);
         expect(pane.match(/SHORT_DETAIL/g)).toHaveLength(2);
 
-        session.sendKey("C-e");
+        session.sendKey("C-t");
         pane = await session.waitForVisiblePane("└ SHORT_DETAIL");
         // Expanded details deliberately show both what ran and its short
         // result; this command prints the same sentinel in each.

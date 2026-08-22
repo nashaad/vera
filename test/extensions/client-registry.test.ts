@@ -888,7 +888,7 @@ test("bundled reasoning cycle uses the same public seams as a user extension", a
 
     expect(registry.keybindings()).toEqual([expect.objectContaining({
         id: "cycle-reasoning",
-        keys: ["ctrl+t"],
+        keys: ["ctrl+y"],
     })]);
 
     // Each press asks for more thinking, not less.
