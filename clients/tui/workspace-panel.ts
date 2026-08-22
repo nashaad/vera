@@ -34,6 +34,21 @@ const CONTENT_COLUMNS: Record<WorkspacePanelWidth, number> = {
 /** Columns the age reads in, right aligned, on the widths that show it. */
 const AGE_COLUMNS = 8;
 
+/** The selection marker, the status marker, and the space after each. */
+const ROW_MARKER_COLUMNS = 4;
+
+/**
+ * Columns the longest row takes at this width, markers included.
+ *
+ * The widths that show an age take the age out of the title's budget rather
+ * than adding to it, so every width is its content budget plus its markers,
+ * and a surface that draws the listing in a column of its own can size that
+ * column without laying the rows out first.
+ */
+export function workspaceRowColumns(width: WorkspacePanelWidth): number {
+    return CONTENT_COLUMNS[width] + ROW_MARKER_COLUMNS;
+}
+
 const SELECTED_MARKER = "›";
 const UNSELECTED_MARKER = " ";
 
@@ -363,7 +378,7 @@ function sessionRow(
     const head = `${selectionMarker} ${marker} ${shown}`;
     const text = age.length === 0
         ? head
-        : `${pad(head, 4 + room)} ${age.padStart(AGE_COLUMNS)}`;
+        : `${pad(head, ROW_MARKER_COLUMNS + room)} ${age.padStart(AGE_COLUMNS)}`;
     return {
         kind: "session",
         id: session.id,

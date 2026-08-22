@@ -3,7 +3,9 @@ import {
     applyWorkspaceWorkIndex,
     handleWorkspaceSidebarKey,
     openWorkspaceSelection,
+    refreshWorkspaceSidebarSessions,
     startWorkspaceSidebar,
+    workspaceRailColumns,
     toggleWorkspacePin,
     workIndexStatus,
     workspaceJumpTarget,
@@ -106,6 +108,64 @@ describe("the registry listing", () => {
             title: "one",
             updatedAt: "2026-08-22T11:00:00.000Z",
         }]);
+    });
+});
+
+describe("the roster read again", () => {
+    test("lists a session that arrived while the pane was open", () => {
+        const state = open([session("a")], [], "a");
+        const refreshed = refreshWorkspaceSidebarSessions(
+            state,
+            [session("a"), session("b")],
+        );
+        expect(workspaceSidebarText(refreshed, COLUMNS, NOW))
+            .toContain("session b");
+    });
+
+    test("keeps the cursor, the pins and the session on screen", () => {
+        const state = press(
+            open([session("a"), session("b")], ["b"], "a"),
+            "down",
+        ).state!;
+        const refreshed = refreshWorkspaceSidebarSessions(
+            state,
+            [session("a"), session("b"), session("c")],
+        );
+        expect(refreshed.selectedId).toBe(state.selectedId);
+        expect(refreshed.pinnedIds).toEqual(["b"]);
+        expect(refreshed.currentId).toBe("a");
+    });
+
+    test("a cursor whose session has gone lands on a listed one", () => {
+        const state = open([session("a"), session("b")], [], "a");
+        const refreshed = refreshWorkspaceSidebarSessions(state, [session("b")]);
+        expect(workspaceSidebarLayout(refreshed, { columns: COLUMNS, now: NOW })
+            .selectedId).toBe("b");
+    });
+});
+
+describe("the rail", () => {
+    test("is as wide as the longest row it can draw", () => {
+        for (const columns of [120, 90]) {
+            const rail = workspaceRailColumns(columns)!;
+            const drawn = workspaceSidebarText(
+                open([session("a"), session("b")], [], "a"),
+                columns,
+                NOW,
+            ).split("\n");
+            for (const line of drawn) {
+                expect(line.length).toBeLessThanOrEqual(rail);
+            }
+        }
+    });
+
+    test("is narrower at the medium width than at the wide one", () => {
+        expect(workspaceRailColumns(90)!)
+            .toBeLessThan(workspaceRailColumns(120)!);
+    });
+
+    test("there is no rail where there is no room for two columns", () => {
+        expect(workspaceRailColumns(60)).toBeUndefined();
     });
 });
 
@@ -306,14 +366,25 @@ describe("the drawn card", () => {
     });
 
     test("carries its own footer hint, in the pickers' shape", () => {
+        // Measured against what is drawn: the card at this width is most of
+        // the terminal, so it has room for the words.
+        const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
+        expect(view.footer)
+            .toBe("↑↓ browse · enter open · 1-9 jump · p pin · esc close");
+        expect(view.title).toBe("Workspace · 1");
+    });
+
+    test("the rail takes the short hint, wide as the terminal is", () => {
         const view = workspaceSidebarViewState(
             open([session("a")]),
             COLUMNS,
             NOW,
         );
-        expect(view.footer)
-            .toBe("↑↓ browse · enter open · 1-9 jump · p pin · esc close");
-        expect(view.title).toBe("Workspace · 1");
+        // A rail is as narrow as its rows whatever the terminal is, so the
+        // hint is measured against the column and not against the screen.
+        expect(view.footer).toBe("↑↓ enter 1-9 p esc");
+        expect(view.footer.length)
+            .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
     });
 
     test("an empty listing says so rather than drawing nothing", () => {

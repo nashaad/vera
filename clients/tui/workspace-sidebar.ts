@@ -2,6 +2,8 @@ import type { LinesViewState } from "./lines-view.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
+    workspacePanelWidth,
+    workspaceRowColumns,
     type WorkspacePanelLayout,
     type WorkspaceSession,
     type WorkspaceSessionStatus,
@@ -22,6 +24,25 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 export const WORKSPACE_JUMP_ROWS = 9;
 
 const NARROW_WIDTH = 64;
+
+/** Said in words on the row of the session already on screen. */
+const HERE_SUFFIX = " (here)";
+/** The digit and the space after it, drawn before every row. */
+const DIGIT_COLUMNS = 2;
+
+/**
+ * The columns a row needs when the listing is drawn beside the transcript, or
+ * nothing at the width where there is no room for two columns.
+ *
+ * Wide enough for the longest row the listing can draw, so the answer is the
+ * same for every listing and the transcript beside it does not reflow as
+ * sessions come and go. The surface adds its own padding to this.
+ */
+export function workspaceRailColumns(columns: number): number | undefined {
+    const width = workspacePanelWidth(columns);
+    if (width === "narrow") return undefined;
+    return DIGIT_COLUMNS + workspaceRowColumns(width) + HERE_SUFFIX.length;
+}
 
 /**
  * A listed session plus where its transcript lives.
@@ -109,6 +130,23 @@ export function workIndexStatus(
     if (row.section === "done_recently") return "completed";
     if (row.section === "ready_to_review") return "completed";
     return "idle";
+}
+
+/**
+ * A re-read roster, folded onto the pane already open.
+ *
+ * The listing is read again on the same push that carries status, because that
+ * push fires on the transition that changes the roster: a session created while
+ * the pane is open is in the new listing and was not in the old one. Selection
+ * and pins are the reader's and survive the re-read; a selected session that
+ * has gone away is resolved by the layout, on the same rule as any other row
+ * that leaves the listing.
+ */
+export function refreshWorkspaceSidebarSessions(
+    state: WorkspaceSidebarState,
+    sessions: readonly WorkspaceSidebarSession[],
+): WorkspaceSidebarState {
+    return { ...state, sessions };
 }
 
 /** A fresh index from the host, folded onto the rows already listed. */
@@ -273,13 +311,20 @@ export function workspaceSidebarFooter(width: number): string {
         : "↑↓ browse · enter open · 1-9 jump · p pin · esc close";
 }
 
-/** The side bar as the shared card draws it. */
+/**
+ * The side bar as the shared card draws it.
+ *
+ * `columns` is the terminal's width, not the surface's: it decides whether the
+ * listing is a rail or a card, and the rail is narrower than the terminal that
+ * earns it. The footer is measured against whichever of the two is drawn.
+ */
 export function workspaceSidebarViewState(
     state: WorkspaceSidebarState,
-    width: number,
+    columns: number,
     now: Date = new Date(),
 ): LinesViewState {
-    const layout = workspaceSidebarLayout(state, { columns: width, now });
+    const layout = workspaceSidebarLayout(state, { columns, now });
+    const width = workspaceRailColumns(columns) ?? columns;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = layout.rows.map((row) => {
         if (row.kind === "group") {
@@ -292,7 +337,7 @@ export function workspaceSidebarViewState(
         const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
         // Text, never colour alone: the row on screen says so in words, so a
         // monochrome render still tells you where you are.
-        const here = row.id === state.currentId ? " (here)" : "";
+        const here = row.id === state.currentId ? HERE_SUFFIX : "";
         return {
             text: `${digit} ${row.text}${here}`,
             tone: "text" as const,
