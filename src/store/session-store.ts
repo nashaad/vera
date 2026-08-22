@@ -282,24 +282,10 @@ export interface SessionDeliveryInbox {
     ): Promise<SessionMessageEntry>;
 }
 
-interface LoadedSessionFile {
+/** A parsed session file: the header, plus the fold of every record after it. */
+interface ParsedSessionFile {
     readonly header: SessionHeader;
-    readonly messageEntries: SessionMessageEntry[];
-    readonly deliveryEntries: SessionDeliveryEntry[];
-    readonly deliveryReceipts: Set<string>;
-    readonly legacyDeliveryMessageIds: Map<string, string>;
-    readonly modelSettingsEntries: SessionModelSettingsEntry[];
-    readonly agentWearEntries: SessionAgentWearEntry[];
-    readonly permissionsEntries: SessionPermissionsEntry[];
-    readonly harnessMessageEntries: SessionHarnessMessageEntry[];
-    readonly nameEntries: SessionNameEntry[];
-    readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
-    readonly permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[];
-    readonly attachmentEntries: SessionAttachmentEntry[];
-    readonly compactionEntries: SessionCompactionEntry[];
-    readonly agentFailure?: SessionAgentFailureEntry;
-    readonly leafId: string | null;
+    readonly state: SessionProjectionState;
 }
 
 export class SessionStore {
@@ -308,47 +294,24 @@ export class SessionStore {
 
     private readonly now: () => Date;
     private readonly createId: () => string;
-    private readonly storedEntries: SessionMessageEntry[];
-    private readonly deliveryEntries: SessionDeliveryEntry[];
-    private readonly deliveryReceipts: Set<string>;
-    private readonly legacyDeliveryMessageIds: Map<string, string>;
-    private readonly modelSettingsEntries: SessionModelSettingsEntry[];
-    private readonly agentWearEntries: SessionAgentWearEntry[];
-    private readonly permissionsEntries: SessionPermissionsEntry[];
-    private readonly harnessMessageEntries: SessionHarnessMessageEntry[];
-    private readonly nameEntries: SessionNameEntry[];
-    private readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
-    private readonly permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[];
-    private readonly attachmentEntries: SessionAttachmentEntry[];
-    private readonly compactionEntries: SessionCompactionEntry[];
-    private agentFailureEntry: SessionAgentFailureEntry | undefined;
-    private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
 
-    private constructor(
+    /**
+     * The same accumulated state a parse folds records into. The store reads
+     * from it and its commits push into it, so one description of a session's
+     * shape serves both a file being parsed and a store answering questions.
+     */
+    protected readonly projection: SessionProjectionState;
+
+    protected constructor(
         path: string,
-        loaded: LoadedSessionFile,
+        header: SessionHeader,
+        state: SessionProjectionState,
         options: OpenSessionStoreOptions,
     ) {
         this.path = path;
-        this.header = loaded.header;
-        this.storedEntries = loaded.messageEntries;
-        this.deliveryEntries = loaded.deliveryEntries;
-        this.deliveryReceipts = loaded.deliveryReceipts;
-        this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
-        this.modelSettingsEntries = loaded.modelSettingsEntries;
-        this.agentWearEntries = loaded.agentWearEntries;
-        this.permissionsEntries = loaded.permissionsEntries;
-        this.harnessMessageEntries = loaded.harnessMessageEntries;
-        this.nameEntries = loaded.nameEntries;
-        this.permissionGrantEntries = loaded.permissionGrantEntries;
-        this.permissionGrantRevocationEntries =
-            loaded.permissionGrantRevocationEntries;
-        this.attachmentEntries = loaded.attachmentEntries;
-        this.compactionEntries = loaded.compactionEntries;
-        this.agentFailureEntry = loaded.agentFailure;
-        this.leafId = loaded.leafId;
+        this.header = header;
+        this.projection = state;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
     }
@@ -399,24 +362,8 @@ export class SessionStore {
 
         return new SessionStore(
             path,
-            {
-                header,
-                messageEntries: [],
-                deliveryEntries: [],
-                deliveryReceipts: new Set(),
-                legacyDeliveryMessageIds: new Map(),
-                modelSettingsEntries: [],
-                agentWearEntries: [],
-                permissionsEntries: [],
-                harnessMessageEntries: [],
-                nameEntries: [],
-                permissionGrantEntries: [],
-                permissionGrantRevocationEntries: [],
-                attachmentEntries: [],
-                compactionEntries: [],
-                agentFailure: undefined,
-                leafId: null,
-            },
+            header,
+            createSessionProjectionState(),
             {
                 now,
                 ...(options.createId === undefined
@@ -434,15 +381,15 @@ export class SessionStore {
         const completeSource = await removeUnterminatedTail(path, source);
         const loaded = parseSessionFile(path, completeSource);
         await chmod(path, 0o600);
-        return new SessionStore(path, loaded, options);
+        return new SessionStore(path, loaded.header, loaded.state, options);
     }
 
     entries(): readonly SessionMessageEntry[] {
-        return this.storedEntries.slice();
+        return this.projection.messageEntries.slice();
     }
 
     activeEntries(): readonly SessionMessageEntry[] {
-        return activeBranchEntries(this.storedEntries, this.leafId);
+        return activeBranchEntries(this.projection.messageEntries, this.projection.leafId);
     }
 
     messages(): readonly ModelMessage[] {
@@ -462,7 +409,7 @@ export class SessionStore {
     }
 
     activeHeadId(): string | null {
-        return this.leafId;
+        return this.projection.leafId;
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
@@ -475,12 +422,12 @@ export class SessionStore {
                 entry.deliveryId === undefined ? [] : [entry.deliveryId]
             ),
         );
-        return this.deliveryEntries.filter(
+        return this.projection.deliveryEntries.filter(
             (delivery) => {
-                const legacyMessageId = this.legacyDeliveryMessageIds.get(
+                const legacyMessageId = this.projection.legacyDeliveryMessageIds.get(
                     delivery.id,
                 );
-                const legacyReceiptIsActive = this.deliveryReceipts.has(
+                const legacyReceiptIsActive = this.projection.deliveryReceipts.has(
                     delivery.id,
                 ) && (
                     legacyMessageId === undefined
@@ -506,7 +453,7 @@ export class SessionStore {
     }
 
     modelSettings(): ModelTurnSettings | undefined {
-        const settings = this.modelSettingsEntries.at(-1)?.settings;
+        const settings = this.projection.modelSettingsEntries.at(-1)?.settings;
         return settings === undefined ? undefined : { ...settings };
     }
 
@@ -519,7 +466,7 @@ export class SessionStore {
      * leaving the override marker off.
      */
     modelSettingsOrigin(): SessionSettingOrigin | undefined {
-        const entry = this.modelSettingsEntries.at(-1);
+        const entry = this.projection.modelSettingsEntries.at(-1);
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
@@ -531,7 +478,7 @@ export class SessionStore {
      * beside it, so they cannot drift from it.
      */
     modelSettingsHistory(): readonly SessionModelSettingsEntry[] {
-        return this.modelSettingsEntries.map((entry) => ({
+        return this.projection.modelSettingsEntries.map((entry) => ({
             ...entry,
             settings: { ...entry.settings },
             origin: entry.origin ?? "user",
@@ -540,7 +487,7 @@ export class SessionStore {
 
     /** The agent in force, or nothing when this session has never worn one. */
     agentWear(): SessionAgentWearEntry | undefined {
-        const entry = this.agentWearEntries.at(-1);
+        const entry = this.projection.agentWearEntries.at(-1);
         return entry === undefined ? undefined : structuredClone(entry);
     }
 
@@ -573,28 +520,28 @@ export class SessionStore {
             snapshot: structuredClone(snapshot),
         };
         await this.appendRecord(entry);
-        this.agentWearEntries.push(entry);
+        this.projection.agentWearEntries.push(entry);
         return entry;
     }
 
     approvalMode(): ApprovalMode | undefined {
-        return this.permissionsEntries.at(-1)?.mode;
+        return this.projection.permissionsEntries.at(-1)?.mode;
     }
 
     approvalModeOrigin(): SessionSettingOrigin | undefined {
-        const entry = this.permissionsEntries.at(-1);
+        const entry = this.projection.permissionsEntries.at(-1);
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
     name(): string | undefined {
-        return this.nameEntries.at(-1)?.name ?? undefined;
+        return this.projection.nameEntries.at(-1)?.name ?? undefined;
     }
 
     permissionGrants(): readonly PermissionGrant[] {
         const revoked = new Set(
-            this.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
+            this.projection.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
         );
-        return this.permissionGrantEntries.flatMap((entry) =>
+        return this.projection.permissionGrantEntries.flatMap((entry) =>
             entry.grants
                 .filter((grant) => !revoked.has(grant.id))
                 .map(copyPermissionGrant)
@@ -602,13 +549,13 @@ export class SessionStore {
     }
 
     attachmentRecords(): readonly SessionImageAttachmentMetadata[] {
-        return this.attachmentEntries.map((entry) => ({ ...entry.attachment }));
+        return this.projection.attachmentEntries.map((entry) => ({ ...entry.attachment }));
     }
 
     agentFailure(): SessionAgentFailureEntry | undefined {
-        return this.agentFailureEntry === undefined
+        return this.projection.agentFailure === undefined
             ? undefined
-            : { ...this.agentFailureEntry };
+            : { ...this.projection.agentFailure };
     }
 
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
@@ -689,7 +636,7 @@ export class SessionStore {
         readonly tone: "primary" | "soft" | "error";
     }[] {
         const active = this.activeEntries();
-        return projectHarnessMessages(this.harnessMessageEntries, active);
+        return projectHarnessMessages(this.projection.harnessMessageEntries, active);
     }
 
     appendName(name: string | null): Promise<SessionNameEntry> {
@@ -789,7 +736,7 @@ export class SessionStore {
      */
     latestCompaction(): SessionCompactionEntry | undefined {
         const active = this.activeEntries();
-        return this.compactionEntries.findLast(
+        return this.projection.compactionEntries.findLast(
             (entry) => compactionApplies(entry, active),
         );
     }
@@ -867,7 +814,7 @@ export class SessionStore {
             throw new Error("Cannot append an invalid model message");
         }
         for (const attachmentId of messageAttachmentIds(snapshot)) {
-            if (!this.attachmentEntries.some(
+            if (!this.projection.attachmentEntries.some(
                 (entry) => entry.attachment.id === attachmentId
             )) {
                 throw new Error(
@@ -878,19 +825,20 @@ export class SessionStore {
         const entry: SessionMessageEntry = {
             type: "message",
             id: nonEmpty(this.createId(), "message entry ID"),
-            parentId: this.leafId,
+            parentId: this.projection.leafId,
             timestamp: this.now().toISOString(),
             ...(deliveryId === undefined ? {} : { deliveryId }),
             message: snapshot,
         };
-        if (this.storedEntries.some((candidate) => candidate.id === entry.id)) {
+        if (this.projection.messageEntries.some((candidate) => candidate.id === entry.id)) {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
         await this.appendRecord(entry);
 
-        this.storedEntries.push(entry);
-        this.leafId = entry.id;
+        this.projection.messageEntries.push(entry);
+        this.projection.knownMessageIds.add(entry.id);
+        this.projection.leafId = entry.id;
         return entry;
     }
 
@@ -937,7 +885,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.modelSettingsEntries.push(entry);
+        this.projection.modelSettingsEntries.push(entry);
         return entry;
     }
 
@@ -952,12 +900,12 @@ export class SessionStore {
         const entry: SessionHarnessMessageEntry = {
             type: "harness_message",
             timestamp: this.now().toISOString(),
-            afterMessageId: this.leafId,
+            afterMessageId: this.projection.leafId,
             text,
             tone,
         };
         await this.appendRecord(entry);
-        this.harnessMessageEntries.push(entry);
+        this.projection.harnessMessageEntries.push(entry);
         return entry;
     }
 
@@ -975,7 +923,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.permissionsEntries.push(entry);
+        this.projection.permissionsEntries.push(entry);
         return entry;
     }
 
@@ -991,7 +939,7 @@ export class SessionStore {
             name,
         };
         await this.appendRecord(entry);
-        this.nameEntries.push(entry);
+        this.projection.nameEntries.push(entry);
         return entry;
     }
 
@@ -1015,7 +963,7 @@ export class SessionStore {
             })),
         };
         await this.appendRecord(entry);
-        this.permissionGrantEntries.push(entry);
+        this.projection.permissionGrantEntries.push(entry);
         return entry;
     }
 
@@ -1032,7 +980,7 @@ export class SessionStore {
             ids: [id],
         };
         await this.appendRecord(entry);
-        this.permissionGrantRevocationEntries.push(entry);
+        this.projection.permissionGrantRevocationEntries.push(entry);
         return true;
     }
 
@@ -1040,7 +988,7 @@ export class SessionStore {
         attachment: SessionImageAttachmentMetadata,
     ): Promise<SessionImageAttachmentMetadata> {
         const stored = attachment;
-        const existing = this.attachmentEntries.find(
+        const existing = this.projection.attachmentEntries.find(
             (entry) => entry.attachment.id === stored.id,
         );
         if (existing !== undefined) {
@@ -1064,13 +1012,15 @@ export class SessionStore {
             ) {
                 throw error;
             }
-            this.attachmentEntries.push({
+            this.projection.attachmentEntries.push({
                 ...entry,
                 attachment: durable,
             });
+            this.projection.knownAttachmentIds.add(durable.id);
             return { ...durable };
         }
-        this.attachmentEntries.push(entry);
+        this.projection.attachmentEntries.push(entry);
+        this.projection.knownAttachmentIds.add(entry.attachment.id);
         return { ...stored };
     }
 
@@ -1080,7 +1030,7 @@ export class SessionStore {
     ): Promise<SessionAgentFailureEntry> {
         const id = nonEmpty(requestedId, "agent failure ID");
         const detail = nonEmpty(requestedDetail, "agent failure detail");
-        const existing = this.agentFailureEntry;
+        const existing = this.projection.agentFailure;
         if (existing !== undefined) {
             if (existing.id !== id || existing.detail !== detail) {
                 throw new Error("Session already has a different agent failure");
@@ -1094,7 +1044,7 @@ export class SessionStore {
             detail,
         };
         await this.appendRecord(entry);
-        this.agentFailureEntry = entry;
+        this.projection.agentFailure = entry;
         return { ...entry };
     }
 
@@ -1103,7 +1053,7 @@ export class SessionStore {
     ): Promise<SessionCompactionEntry> {
         for (const message of request.projection) {
             for (const attachmentId of messageAttachmentIds(message)) {
-                if (!this.attachmentEntries.some(
+                if (!this.projection.attachmentEntries.some(
                     (entry) => entry.attachment.id === attachmentId,
                 )) {
                     throw new Error(
@@ -1120,7 +1070,7 @@ export class SessionStore {
             ...validateCompaction(request, this.activeEntries()),
         };
         await this.appendRecord(entry);
-        this.compactionEntries.push(entry);
+        this.projection.compactionEntries.push(entry);
         return entry;
     }
 
@@ -1143,18 +1093,18 @@ export class SessionStore {
                 `Rewind boundary ${userMessageId} is not an active user message`,
             );
         }
-        if (this.leafId === null) {
+        if (this.projection.leafId === null) {
             throw new Error("Cannot rewind an empty session");
         }
         const entry: SessionRewindEntry = {
             type: "rewind",
             timestamp: this.now().toISOString(),
             userMessageId,
-            previousHeadId: this.leafId,
+            previousHeadId: this.projection.leafId,
             headId: boundary.parentId,
         };
         await this.appendRecord(entry);
-        this.leafId = entry.headId;
+        this.projection.leafId = entry.headId;
         return entry;
     }
 
@@ -1171,7 +1121,7 @@ export class SessionStore {
             delivery.sourceAgentId,
             "delivery source agent ID",
         );
-        const existing = this.deliveryEntries.find((entry) => entry.id === id);
+        const existing = this.projection.deliveryEntries.find((entry) => entry.id === id);
         if (existing !== undefined) {
             if (
                 existing.sourceAgentId !== sourceAgentId
@@ -1191,12 +1141,13 @@ export class SessionStore {
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
-        this.deliveryEntries.push(entry);
+        this.projection.deliveryEntries.push(entry);
+        this.projection.knownDeliveryIds.add(entry.id);
         return true;
     }
 
     private async appendRecord(record: object): Promise<void> {
-        if (this.agentFailureEntry !== undefined) {
+        if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
         const file = await open(this.path, "a", 0o600);
@@ -1209,7 +1160,7 @@ export class SessionStore {
     }
 
     private requireActive(): void {
-        if (this.agentFailureEntry !== undefined) {
+        if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
     }
@@ -1301,7 +1252,7 @@ async function readDurableAttachment(
     try {
         const source = await readFile(path, "utf8");
         const complete = completeSessionSource(path, source);
-        return parseSessionFile(path, complete).attachmentEntries.find(
+        return parseSessionFile(path, complete).state.attachmentEntries.find(
             (entry) => entry.attachment.id === id,
         )?.attachment;
     } catch {
@@ -1322,18 +1273,21 @@ export async function readSessionSnapshot(
 ): Promise<ReadonlySessionSnapshot> {
     const source = await readFile(path, "utf8");
     const loaded = parseSessionFile(path, completeSessionSource(path, source));
-    const active = activeBranchEntries(loaded.messageEntries, loaded.leafId);
+    const active = activeBranchEntries(
+        loaded.state.messageEntries,
+        loaded.state.leafId,
+    );
     return {
         header: loaded.header,
         messages: active.map((entry) => entry.message),
         messageIds: new Map(active.map((entry) => [entry.message, entry.id])),
         harnessMessages: projectHarnessMessages(
-            loaded.harnessMessageEntries,
+            loaded.state.harnessMessageEntries,
             active,
         ),
-        ...(loaded.agentFailure === undefined
+        ...(loaded.state.agentFailure === undefined
             ? {}
-            : { agentFailure: { ...loaded.agentFailure } }),
+            : { agentFailure: { ...loaded.state.agentFailure } }),
     };
 }
 
@@ -1724,31 +1678,7 @@ function ingestSessionRecord(
     );
 }
 
-function sessionProjectionResult(
-    header: SessionHeader,
-    state: SessionProjectionState,
-): LoadedSessionFile {
-    return {
-        header,
-        messageEntries: state.messageEntries,
-        deliveryEntries: state.deliveryEntries,
-        deliveryReceipts: state.deliveryReceipts,
-        legacyDeliveryMessageIds: state.legacyDeliveryMessageIds,
-        modelSettingsEntries: state.modelSettingsEntries,
-        agentWearEntries: state.agentWearEntries,
-        permissionsEntries: state.permissionsEntries,
-        harnessMessageEntries: state.harnessMessageEntries,
-        nameEntries: state.nameEntries,
-        permissionGrantEntries: state.permissionGrantEntries,
-        permissionGrantRevocationEntries: state.permissionGrantRevocationEntries,
-        attachmentEntries: state.attachmentEntries,
-        compactionEntries: state.compactionEntries,
-        agentFailure: state.agentFailure,
-        leafId: state.leafId,
-    };
-}
-
-function parseSessionFile(path: string, source: string): LoadedSessionFile {
+function parseSessionFile(path: string, source: string): ParsedSessionFile {
     const lines = source.slice(0, -1).split("\n");
     const header = parseHeader(path, lines[0]);
     const state = createSessionProjectionState();
@@ -1763,7 +1693,7 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         );
     }
 
-    return sessionProjectionResult(header, state);
+    return { header, state };
 }
 
 function parseHarnessMessageEntry(
