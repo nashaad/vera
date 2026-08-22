@@ -208,6 +208,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         target_agent_id: "saved",
     });
     expect(parseHostRequest(JSON.stringify({
+        type: "close_agent",
+        target_agent_id: "runaway",
+    }))).toEqual({
+        type: "close_agent",
+        target_agent_id: "runaway",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "close_agent",
+        target_agent_id: "",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
         type: "commit_agent_branch",
         agent_id: "branch",
     }))).toEqual({ type: "commit_agent_branch", agent_id: "branch" });

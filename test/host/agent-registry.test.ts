@@ -663,6 +663,39 @@ test("session trash accepts only idle unattached non-current sessions", async ()
     }
 });
 
+test("closing a tree is idempotent and leaves unrelated agents alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-tree-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "target",
+            workspace: root,
+            sessionPath: join(root, "target.jsonl"),
+        });
+        await registry.create({
+            id: "bystander",
+            workspace: root,
+            sessionPath: join(root, "bystander.jsonl"),
+        });
+
+        expect(await registry.closeAgentTree("target")).toBe("closed");
+        expect(registry.find("target")).toBeUndefined();
+        expect(await registry.closeAgentTree("target")).toBe("not_found");
+        expect(await registry.closeAgentTree("never-existed"))
+            .toBe("not_found");
+        expect(registry.list().map((agent) => agent.id))
+            .toEqual(["bystander"]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("session rename reaches a session nobody is attached to", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-rename-"));
     const registry = new AgentRegistry({

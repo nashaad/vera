@@ -988,7 +988,13 @@ export async function startResidentHost(
                 // Nothing live under that id. Closing something already closed
                 // is the state the caller asked for, so a durable session on
                 // disk is acknowledged; an id nobody has ever seen is not.
-                return storedSessionIndex.has(targetId) ? "closed" : "not_found";
+                return await storedSessionExists(
+                    targetId,
+                    sessionDirectory,
+                    storedSessionIndex,
+                )
+                    ? "closed"
+                    : "not_found";
             },
             renameSession: (targetId, name) =>
                 registry.renameSession(targetId, name),
@@ -2060,6 +2066,30 @@ async function findOrRestoreAgent(
     }
     const indexed = (await storedSessions).get(agentId);
     return indexed === undefined ? undefined : resume(indexed.session_path);
+}
+
+/**
+ * The index is built once at startup, so a session written since then is only
+ * visible on disk. Both are checked before an id is called unknown.
+ */
+async function storedSessionExists(
+    agentId: string,
+    sessionDirectory: string,
+    index: ReadonlyMap<string, RegisteredAgentSummary>,
+): Promise<boolean> {
+    if (index.has(agentId)) {
+        return true;
+    }
+    if (!/^[A-Za-z0-9_-]+$/.test(agentId)) {
+        return false;
+    }
+    try {
+        return (await stat(
+            join(sessionDirectory, `${agentId}.jsonl`),
+        )).isFile();
+    } catch {
+        return false;
+    }
 }
 
 async function indexStoredSessions(

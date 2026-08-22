@@ -19,6 +19,7 @@ import {
 } from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
+import { renderCliHelp } from "../clients/cli/help.ts";
 
 test("vera help and version are available without starting a client", async () => {
     let output = "";
@@ -432,6 +433,50 @@ test("vera abort requests cancellation through a resident agent", async () => {
     expect(exitCode).toBe(0);
     expect(aborted).toEqual(["agent-1"]);
     expect(output).toBe("Abort requested for agent-1.\n");
+});
+
+test("vera close ends a live agent and names how to get the session back", async () => {
+    const closed: string[] = [];
+    let output = "";
+
+    const exitCode = await runCli(["close", "agent-1"], {
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "closed" };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(closed).toEqual(["agent-1"]);
+    expect(output).toBe(
+        "Closed agent-1. Its session is kept; "
+        + "resume it with 'vera resume agent-1'.\n",
+    );
+});
+
+test("vera close reports a rejection as an error with a next action", async () => {
+    let error = "";
+
+    const exitCode = await runCli(["close", "ghost"], {
+        closeAgent: async () => ({
+            status: "rejected",
+            reason: "not_found",
+        }),
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(error).toContain("Could not close ghost");
+    expect(error).toContain("vera ls --all");
+});
+
+test("vera help separates stopping a turn from closing an agent", () => {
+    const help = renderCliHelp();
+    expect(help).toContain("vera abort <agent-id>");
+    expect(help).toContain("vera close <agent-id>");
+    expect(help).toContain("the agent stays live and keeps its queued prompts");
+    expect(help).toContain("the session is kept and can be resumed");
 });
 
 test("vera shortlist list renders stable model rows from the pool file", async () => {
