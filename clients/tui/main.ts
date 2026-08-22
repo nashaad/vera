@@ -336,7 +336,9 @@ import {
     applyWorkspaceWorkIndex,
     handleWorkspaceSidebarKey,
     openWorkspaceSelection,
+    refreshWorkspaceSidebarSessions,
     startWorkspaceSidebar,
+    workspaceRailColumns,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
     workspaceSidebarViewState,
@@ -1283,6 +1285,12 @@ export async function startTui(
      * ctrl+e opened.
      */
     let workspaceSidebar: WorkspaceSidebarState | undefined;
+    /**
+     * The row columns the side bar is currently drawn as a rail in, or nothing
+     * while it is closed or drawn as a card. Held so the transcript beside it
+     * is only reflowed when the layout actually changes.
+     */
+    let workspaceRail: number | undefined;
     /** Client state. A pin orders one person's list and never reaches a host. */
     let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
@@ -3604,7 +3612,7 @@ export async function startTui(
         if (workspaceSidebar === undefined || event.scroll === undefined) return;
         const open = workspaceSidebar;
         const rows = workspaceSidebarLayout(open, {
-            columns: workspaceSidebarView.contentWidth(),
+            columns: renderer.width,
             now: new Date(),
         }).selectable;
         const at = rows.indexOf(open.selectedId ?? "");
@@ -4373,7 +4381,7 @@ export async function startTui(
                 open,
                 key,
                 new Date(),
-                workspaceSidebarView.contentWidth(),
+                renderer.width,
             );
             if (transition.handled) {
                 key.preventDefault();
@@ -8708,6 +8716,7 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
+        applyWorkspaceRail();
         workspaceSidebarView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -8794,7 +8803,10 @@ export async function startTui(
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
             || workTabView.surface.visible
-            || workspaceSidebarView.surface.visible
+            // A rail stands beside the transcript rather than over it, so the
+            // scrim that dims the screen behind a card would be dimming the
+            // half of it the reader is still reading.
+            || (workspaceSidebarView.surface.visible && workspaceRail === undefined)
             || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
@@ -8870,7 +8882,7 @@ export async function startTui(
         if (workspaceSidebar !== undefined) {
             workspaceSidebarView.update(workspaceSidebarViewState(
                 workspaceSidebar,
-                workspaceSidebarView.contentWidth(),
+                renderer.width,
             ));
         }
         if (searchOverlay !== undefined) {
@@ -8964,10 +8976,11 @@ export async function startTui(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
         }
+        applyWorkspaceRail();
         if (workspaceSidebar !== undefined) {
             workspaceSidebarView.update(workspaceSidebarViewState(
                 workspaceSidebar,
-                workspaceSidebarView.contentWidth(),
+                renderer.width,
             ));
         }
         if (searchOverlay !== undefined) {
@@ -10369,6 +10382,60 @@ export async function startTui(
             );
             renderState();
         });
+    }
+
+    /**
+     * The roster read again, on the push that already says the roster moved.
+     *
+     * The pane keeps the rows it has until the new listing arrives, so a
+     * refresh that is slow or fails leaves the reader looking at the last good
+     * listing rather than at nothing.
+     */
+    function refreshWorkspaceSidebarRoster(): void {
+        if (dependencies.listAgents === undefined) return;
+        const generation = clientGeneration;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || generation !== clientGeneration) return;
+            const open = workspaceSidebar;
+            if (open === undefined) return;
+            const listed = refreshWorkspaceSidebarSessions(
+                open,
+                workspaceSidebarSessions(agents),
+            );
+            workspaceSidebar = workIndex === undefined
+                ? listed
+                : applyWorkspaceWorkIndex(listed, workIndex);
+            renderState();
+        }).catch(() => {
+            // Nothing to say: the rows already listed are still the best
+            // answer, and the next push asks again.
+        });
+    }
+
+    /**
+     * Where the listing is drawn: a column down the left edge with the
+     * transcript beside it, or a card over the transcript when the terminal is
+     * too narrow to hold both.
+     *
+     * The transcript reflows into what the rail leaves it, so the rows it had
+     * are not the rows it has. The reader's place is captured before the width
+     * changes and restored after it, which is what a resize does for the same
+     * reason.
+     */
+    function applyWorkspaceRail(): void {
+        const columns = workspaceSidebar === undefined
+            ? undefined
+            : workspaceRailColumns(renderer.width);
+        if (columns === workspaceRail) return;
+        workspaceRail = columns;
+        if (transcriptFollowsBottom()) {
+            pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+        } else {
+            captureTranscriptScrollAnchor();
+        }
+        workspaceSidebarView.setRail(columns);
+        sidebar.body.paddingLeft = workspaceSidebarView.railColumns() ?? 0;
+        sidebar.refit();
     }
 
     function closeWorkspaceSidebar(): void {
@@ -12728,6 +12795,10 @@ export async function startTui(
         }
         if (workspaceSidebar !== undefined) {
             workspaceSidebar = applyWorkspaceWorkIndex(workspaceSidebar, index);
+            // The same push carries the sessions that have gone and the ones
+            // that have arrived, so the listing is read again here rather than
+            // only when the pane is opened.
+            refreshWorkspaceSidebarRoster();
         }
         if (announce) {
             const notice = attentionNotice(

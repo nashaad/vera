@@ -77,6 +77,22 @@ export interface LinesView {
      * every row it draws.
      */
     contentWidth(): number;
+    /**
+     * Draws the card as a column down the left edge wide enough for `columns`
+     * of row, or centres it again when given nothing.
+     *
+     * The rows are unchanged: a rail is where the same lines are drawn, not a
+     * second list.
+     */
+    setRail(columns: number | undefined): void;
+    /**
+     * The screen columns the rail occupies, padding included, or nothing while
+     * the surface is a centred card.
+     *
+     * What stands beside the rail is held off by this much, so the two never
+     * overlap and neither has to know the other's padding.
+     */
+    railColumns(): number | undefined;
     update(state: LinesViewState): void;
 }
 
@@ -103,6 +119,18 @@ const COMPOSER_RESERVE = 9;
  * for a search field these cards do not have.
  */
 const CARD_CHROME_HEIGHT = 7;
+
+/**
+ * How far a rail holds its rows off its own edges.
+ *
+ * A rail is as narrow as its widest row, so the four columns a centred card
+ * spends on each side would come straight out of the titles.
+ */
+const RAIL_PADDING = 1;
+/** The rail's own equivalent of `CARD_CHROME_HEIGHT`, one row less padding. */
+const RAIL_CHROME_HEIGHT = 6;
+/** The row a rail starts on: the blank one the screen keeps above everything. */
+const RAIL_TOP_MARGIN = 1;
 
 /**
  * Read per draw, never captured: the theme constants are rebound when the
@@ -133,16 +161,48 @@ export function createTuiLinesView(
     });
     const surface = centeredDialogSurface(renderer, `${id}-surface`, box);
     surface.paddingBottom = COMPOSER_RESERVE;
+    let rail: number | undefined;
 
     const view: LinesView = {
         box,
         surface,
         contentWidth(): number {
+            if (rail !== undefined) return rail;
             return Math.max(
                 20,
                 Math.floor(renderer.width * CARD_WIDTH_FRACTION)
                     - DIALOG_CARD_PADDING * 2,
             );
+        },
+        railColumns(): number | undefined {
+            return rail === undefined ? undefined : rail + RAIL_PADDING * 2;
+        },
+        setRail(columns): void {
+            if (rail === columns) return;
+            rail = columns;
+            if (columns === undefined) {
+                surface.width = "100%";
+                surface.alignItems = "center";
+                surface.justifyContent = "center";
+                box.width = `${CARD_WIDTH_FRACTION * 100}%`;
+                box.height = "auto";
+                box.paddingLeft = DIALOG_CARD_PADDING;
+                box.paddingRight = DIALOG_CARD_PADDING;
+                box.paddingTop = 2;
+                return;
+            }
+            // The surface stops at the rail's own right edge rather than
+            // covering the screen: what stands beside a rail is still readable
+            // and still takes the mouse, which is the difference between a rail
+            // and a card.
+            surface.width = columns + RAIL_PADDING * 2;
+            surface.alignItems = "stretch";
+            surface.justifyContent = "flex-start";
+            box.width = "100%";
+            box.height = "100%";
+            box.paddingLeft = RAIL_PADDING;
+            box.paddingRight = RAIL_PADDING;
+            box.paddingTop = 1;
         },
         update(state): void {
             for (const node of nodes) node.destroyRecursively();
@@ -165,8 +225,11 @@ export function createTuiLinesView(
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
             const room = listWindowRows(
-                dialogBoxHeight(renderer, CARD_TOP_MARGIN) - COMPOSER_RESERVE,
-                CARD_CHROME_HEIGHT,
+                dialogBoxHeight(
+                    renderer,
+                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
+                ) - COMPOSER_RESERVE,
+                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
             );
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
