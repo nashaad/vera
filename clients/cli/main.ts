@@ -20,6 +20,7 @@ import {
     VeraConfigError,
     type VeraConfig,
 } from "../../src/config.ts";
+import { resolveAgentIdentifier } from "./agent-id.ts";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import {
     closeAgentThroughHost,
@@ -485,18 +486,30 @@ export async function runCli(
         && typeof args[1] === "string"
         && args[1].length > 0
     ) {
-        const result = await (dependencies.closeAgent ?? closeLiveAgent)(
+        const target = resolveAgentIdentifier(
             args[1],
+            await (dependencies.listAgents ?? listLiveAgents)(),
+        );
+        if (target.status === "ambiguous") {
+            errorOutput.write(
+                `Could not close ${args[1]}: more than one agent matches. `
+                + `Name one of ${target.candidates.join(", ")}.\n`,
+            );
+            return 1;
+        }
+        const result = await (dependencies.closeAgent ?? closeLiveAgent)(
+            target.id,
         );
         if (result.status === "closed") {
             output.write(
-                `Closed ${args[1]}. Its session is kept; `
-                + `resume it with 'vera resume ${args[1]}'.\n`,
+                `Closed ${target.label}. Its session is kept; `
+                + `resume it with 'vera resume ${target.id}'.\n`,
             );
             return 0;
         }
         errorOutput.write(
-            `Could not close ${args[1]}: ${closeRejectionText(result.reason)}\n`,
+            `Could not close ${target.label}: `
+            + `${closeRejectionText(result.reason)}\n`,
         );
         return 1;
     }
