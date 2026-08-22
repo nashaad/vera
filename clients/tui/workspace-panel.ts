@@ -254,7 +254,13 @@ function groupSessions(
         if (right.group === PINNED_GROUP) return 1;
         if (left.group === BACKGROUND_GROUP) return 1;
         if (right.group === BACKGROUND_GROUP) return -1;
-        return byRecency(left.sessions[0]!, right.sessions[0]!);
+        // Compared on the timestamps alone rather than through `byRecency`,
+        // whose id fallback would decide ties by uuid. Two workspaces touched
+        // in the same minute read in name order instead, which is stable to
+        // look at across redraws.
+        const recency = timestamp(right.sessions[0]!.updatedAt)
+            - timestamp(left.sessions[0]!.updatedAt);
+        return recency === 0 ? left.group.localeCompare(right.group) : recency;
     });
     return groups;
 }

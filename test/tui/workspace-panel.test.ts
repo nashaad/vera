@@ -55,6 +55,20 @@ describe("width breakpoints", () => {
 });
 
 describe("grouping", () => {
+    test("orders workspaces touched at the same time by name", () => {
+        const result = layout([
+            session({ id: "z", workspace: "/w/zeta" }),
+            session({ id: "a", workspace: "/w/alpha" }),
+        ]);
+        const headings = result.rows
+            .filter((row) => row.kind === "group")
+            .map((row) => row.text.trim());
+        expect(headings.map((text) => text.split(" ")[0])).toEqual([
+            "alpha",
+            "zeta",
+        ]);
+    });
+
     test("groups interactive sessions by workspace", () => {
         const result = layout([
             session({ id: "a", workspace: "/w/one", title: "one a" }),
