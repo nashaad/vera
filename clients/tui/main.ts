@@ -169,6 +169,11 @@ import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { tuiTranscriptAtBottom } from "./transcript-scroll.ts";
 import {
+    TUI_TRANSCRIPT_INITIAL_WINDOW,
+    TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+    TUI_TRANSCRIPT_MATERIALIZE_BUFFER,
+    tuiTranscriptEntryIsVisible,
+    tuiTranscriptEvictableRows,
     tuiTranscriptNeedsEarlierEntries,
     tuiTranscriptPrependRange,
     tuiTranscriptTailRange,
@@ -1953,7 +1958,15 @@ export async function startTui(
         height: 0,
         flexShrink: 0,
     });
+    const transcriptWindowBottomSpacer = new BoxRenderable(renderer, {
+        id: "transcript-window-bottom-spacer",
+        width: "100%",
+        height: 0,
+        visible: false,
+        flexShrink: 0,
+    });
     transcriptEntryWindow.add(transcriptWindowTopSpacer);
+    transcriptEntryWindow.add(transcriptWindowBottomSpacer);
     transcript.add(transcriptEntryWindow);
 
     // Parallel sparse arrays: both use the reduced transcript index as their
@@ -1963,15 +1976,33 @@ export async function startTui(
     const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
     let materializedEntryStart = 0;
     let materializedEntryEnd = 0;
-    let pendingTranscriptScrollCorrection: {
-        readonly start: number;
-        readonly end: number;
-        readonly estimatedRows: number;
-        readonly preservePosition: boolean;
-    } | undefined;
+    /**
+     * The rows an entry occupied while it was materialized.
+     *
+     * The spacer stands in for released entries, so a released entry's height
+     * has to come back the same or the rows below it shift under the reader.
+     * A measurement is exact where the estimate is not, which is what keeps
+     * releasing and rebuilding a batch free of any scroll correction. Width
+     * changes what an entry measures, so the whole cache is dropped on resize.
+     */
+    const measuredEntryRows: number[] = [];
+    let measuredEntryRowsWidth = 0;
     let pendingTranscriptScrollRestore: {
         readonly scrollTop: number;
         readonly atBottom: boolean;
+    } | undefined;
+    /**
+     * The entry the reader was reading and where it sat in the viewport, to be
+     * put back once the layout it is waiting on has run.
+     *
+     * Anything that changes what stands above the viewport moves every row
+     * below it: a width change, and materializing entries the spacer was
+     * standing in for. A laid-out node says exactly how far, where the row
+     * estimate the spacer was built from only guesses.
+     */
+    let pendingTranscriptScrollAnchor: {
+        readonly index: number;
+        readonly offset: number;
     } | undefined;
     const sidebarEntryNodes: (
         TextRenderable | MarkdownRenderable | BoxRenderable
@@ -3185,7 +3216,7 @@ export async function startTui(
         entries.forEach((entry, index) => {
             const wrapper = sidebarEntryNodes[index];
             if (wrapper !== undefined) {
-                wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
+                wrapper.visible = tuiTranscriptEntryIsVisible(entry);
                 const existing = tuiGutterContent(wrapper);
                 if (
                     existing instanceof MarkdownRenderable
@@ -3631,12 +3662,30 @@ export async function startTui(
 
     renderer.on(CliRenderEvents.FRAME, () => {
         settleTranscriptScrollState();
-        const materialized = maybeMaterializeEarlierTranscriptEntries();
-        if (materialized) {
-            renderState();
-        } else {
-            showSearchTarget();
+        measureMaterializedTranscriptEntries();
+        // Materializing and releasing both write the nodes and the spacers
+        // they touch, so neither needs a repaint of the rest of the screen.
+        // At most one runs per frame: releasing what was just built would
+        // rebuild it on the next frame.
+        // A pending search target owns the window until its row is on screen.
+        // Moving it in the same frame would release the row the scroll is
+        // about to reach.
+        if (
+            pendingSearchTarget === undefined
+            && !maybeSnapTranscriptWindowToTail()
+            && !maybeMaterializeEarlierTranscriptEntries()
+            && !maybeMaterializeLaterTranscriptEntries()
+        ) {
+            maybeEvictTranscriptEntries();
         }
+        if (pendingTranscriptScrollAnchor !== undefined) {
+            // The rows that just arrived have no position until a layout runs,
+            // and the frame about to be painted is the one that would show
+            // them in the wrong place.
+            renderer.root.calculateLayout();
+            applyTranscriptScrollAnchor();
+        }
+        showSearchTarget();
     });
 
     const statusTimer = setInterval(() => {
@@ -3675,6 +3724,11 @@ export async function startTui(
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
         transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
+        if (transcriptFollowsBottom()) {
+            pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+        } else {
+            captureTranscriptScrollAnchor();
+        }
         resizeComposer(requestedComposerTextRows);
         renderState();
     });
@@ -7861,12 +7915,60 @@ export async function startTui(
         }, 0);
     }
 
+    function invalidateMeasuredEntryRows(): void {
+        const width = mainTranscriptWidth();
+        if (width === measuredEntryRowsWidth) return;
+        measuredEntryRowsWidth = width;
+        measuredEntryRows.length = 0;
+    }
+
+    function measureTranscriptEntryNode(index: number): void {
+        const node = entryNodes[index];
+        if (node === undefined) return;
+        const margin = node.marginTop;
+        const rows = node.height + (typeof margin === "number" ? margin : 0);
+        if (rows > 0) measuredEntryRows[index] = rows;
+    }
+
+    /**
+     * Records what every materialized entry currently occupies.
+     *
+     * A laid-out node is the only exact answer: the estimate is a character
+     * count over the width and knows nothing of the borders and gutters the
+     * boxed kinds draw. Measuring the window on every frame keeps the estimate
+     * to entries that have never been on screen.
+     */
+    function measureMaterializedTranscriptEntries(): void {
+        invalidateMeasuredEntryRows();
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            measureTranscriptEntryNode(index);
+        }
+    }
+
+    function transcriptEntryRows(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): number {
+        if (!tuiTranscriptEntryIsVisible(entries[index])) return 0;
+        return measuredEntryRows[index] ?? estimateTranscriptEntryRows(
+            entries,
+            index,
+        );
+    }
+
     function estimateTranscriptEntryRows(
         entries: readonly TuiTranscriptEntry[],
         index: number,
     ): number {
         const entry = entries[index];
         if (entry === undefined) return 0;
+        // A folded tool row is not laid out, so it occupies no rows the spacer
+        // has to stand in for.
+        if (!tuiTranscriptEntryIsVisible(entry)) return 0;
         const width = Math.max(
             8,
             mainTranscriptWidth()
@@ -7891,9 +7993,10 @@ export async function startTui(
         start: number,
         end: number,
     ): number {
+        invalidateMeasuredEntryRows();
         let rows = 0;
         for (let index = Math.max(0, start); index < end; index += 1) {
-            rows += estimateTranscriptEntryRows(entries, index);
+            rows += transcriptEntryRows(entries, index);
         }
         return rows;
     }
@@ -7961,11 +8064,119 @@ export async function startTui(
         delete entryNodeKinds[index];
     }
 
+    /** Children run [top spacer, materialized entries…, bottom spacer]. */
+    function transcriptWindowChildIndex(index: number): number {
+        return 1 + index - materializedEntryStart;
+    }
+
+    function addTranscriptEntryNode(
+        node: TextRenderable | MarkdownRenderable | BoxRenderable,
+        index: number,
+    ): void {
+        transcriptEntryWindow.add(node, transcriptWindowChildIndex(index));
+    }
+
+    function updateTranscriptSpacers(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        // A box holds a row even at height 0, which at the ends of the window
+        // is a blank band above the first entry or below the last. Hiding an
+        // empty spacer is what keeps those ends flush.
+        const above = estimatedTranscriptRows(entries, 0, materializedEntryStart);
+        const below = estimatedTranscriptRows(
+            entries,
+            materializedEntryEnd,
+            entries.length,
+        );
+        transcriptWindowTopSpacer.height = above;
+        transcriptWindowTopSpacer.visible = above > 0;
+        transcriptWindowBottomSpacer.height = below;
+        transcriptWindowBottomSpacer.visible = below > 0;
+    }
+
+    /** The first materialized entry with any row inside the viewport. */
+    function topmostVisibleTranscriptEntry(): number | undefined {
+        const top = transcript.viewport.screenY;
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            const node = entryNodes[index];
+            if (node === undefined || !node.visible) continue;
+            if (node.screenY + node.height > top) return index;
+        }
+        return undefined;
+    }
+
+    /**
+     * Puts the anchored entry back where it sat, once a layout has run.
+     *
+     * The correction is the difference between two laid-out positions, so it
+     * carries no estimate of its own.
+     */
+    function applyTranscriptScrollAnchor(): void {
+        const anchor = pendingTranscriptScrollAnchor;
+        if (anchor === undefined) return;
+        pendingTranscriptScrollAnchor = undefined;
+        const node = entryNodes[anchor.index];
+        if (node === undefined) return;
+        const offset = node.screenY - transcript.viewport.screenY;
+        if (offset === anchor.offset) return;
+        transcript.scrollTo(transcript.scrollTop + offset - anchor.offset);
+    }
+
+    function captureTranscriptScrollAnchor(): void {
+        pendingTranscriptScrollAnchor = undefined;
+        const index = topmostVisibleTranscriptEntry();
+        if (index === undefined) return;
+        const node = entryNodes[index];
+        if (node === undefined) return;
+        pendingTranscriptScrollAnchor = {
+            index,
+            offset: node.screenY - transcript.viewport.screenY,
+        };
+    }
+
+    function transcriptFollowsBottom(): boolean {
+        return tuiTranscriptAtBottom(
+            transcript.scrollTop,
+            transcript.scrollHeight,
+            transcript.viewport.height,
+        );
+    }
+
+    /**
+     * Releases nodes for entries that no longer exist.
+     *
+     * The entry list shrinks whenever a turn ends and its thinking row is
+     * dropped. A node past the end of the list is outside every index the
+     * update pass walks, so nothing else would ever destroy it.
+     */
+    function trimTranscriptWindow(length: number): void {
+        for (let index = length; index < entryNodes.length; index += 1) {
+            destroyTranscriptEntryNode(index);
+        }
+        entryNodes.length = Math.min(entryNodes.length, length);
+        entryNodeKinds.length = entryNodes.length;
+        measuredEntryRows.length = Math.min(measuredEntryRows.length, length);
+        materializedEntryEnd = Math.min(materializedEntryEnd, length);
+        materializedEntryStart = Math.min(
+            materializedEntryStart,
+            materializedEntryEnd,
+        );
+    }
+
     function renderTranscriptEntries(
         entries: readonly TuiTranscriptEntry[],
     ): void {
+        trimTranscriptWindow(entries.length);
+
         if (entries.length === 0) {
             transcriptWindowTopSpacer.height = 0;
+            transcriptWindowTopSpacer.visible = false;
+            transcriptWindowBottomSpacer.height = 0;
+            transcriptWindowBottomSpacer.visible = false;
             return;
         }
 
@@ -7975,11 +8186,19 @@ export async function startTui(
             materializedEntryEnd = initial.start;
         }
 
+        // Entries appended while the reader is scrolled away stay behind the
+        // bottom spacer until they scroll into reach, so a long session does
+        // not rebuild its whole tail on every arriving row.
+        let materializeTo = transcriptFollowsBottom()
+            ? entries.length
+            : Math.min(materializedEntryEnd, entries.length);
+
         const changedKindAt = entries.findIndex((entry, index) =>
             entryNodes[index] !== undefined
             && entryNodeKinds[index] !== entry.kind
         );
         if (changedKindAt !== -1) {
+            materializeTo = Math.max(materializeTo, materializedEntryEnd);
             pendingTranscriptScrollRestore = {
                 scrollTop: transcript.scrollTop,
                 atBottom: tuiTranscriptAtBottom(
@@ -8010,16 +8229,14 @@ export async function startTui(
             }
         }
 
-        for (let index = materializedEntryEnd; index < entries.length; index += 1) {
-            const node = createTranscriptEntryNode(entries, index);
-            transcriptEntryWindow.add(node);
+        for (let index = materializedEntryEnd; index < materializeTo; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
         }
-        materializedEntryEnd = entries.length;
-        transcriptWindowTopSpacer.height = estimatedTranscriptRows(
-            entries,
-            0,
-            materializedEntryStart,
-        );
+        materializedEntryEnd = Math.max(materializedEntryEnd, materializeTo);
+        updateTranscriptSpacers(entries);
     }
 
     function materializeEarlierTranscriptEntries(
@@ -8027,60 +8244,204 @@ export async function startTui(
     ): boolean {
         const range = tuiTranscriptPrependRange(materializedEntryStart);
         if (range.start === range.end) return false;
-        const estimatedRows = estimatedTranscriptRows(
-            entries,
-            range.start,
-            range.end,
-        );
-        const previousScrollTop = transcript.scrollTop;
-        for (let index = range.start; index < range.end; index += 1) {
-            const node = createTranscriptEntryNode(entries, index);
-            transcriptEntryWindow.add(node, 1 + index - range.start);
-        }
+        captureTranscriptScrollAnchor();
         materializedEntryStart = range.start;
-        transcriptWindowTopSpacer.height = estimatedTranscriptRows(
-            entries,
-            0,
-            materializedEntryStart,
-        );
-        pendingTranscriptScrollCorrection = {
-            start: range.start,
-            end: range.end,
-            estimatedRows,
-            preservePosition: previousScrollTop > 0,
-        };
+        for (let index = range.start; index < range.end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        updateTranscriptSpacers(entries);
         return true;
     }
 
-    function actualTranscriptRows(start: number, end: number): number {
-        let rows = 0;
-        for (let index = start; index < end; index += 1) {
-            const node = entryNodes[index];
-            if (node === undefined) continue;
-            const margin = node.marginTop;
-            rows += node.height + (typeof margin === "number" ? margin : 0);
+    function materializeLaterTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): boolean {
+        const end = Math.min(
+            entries.length,
+            materializedEntryEnd + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+        );
+        if (end <= materializedEntryEnd) return false;
+        for (let index = materializedEntryEnd; index < end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
         }
-        return rows;
+        materializedEntryEnd = end;
+        // Nothing above the viewport changed, so the reader's position holds
+        // on its own; only the spacer standing in for the rest shrinks.
+        updateTranscriptSpacers(entries);
+        return true;
+    }
+
+    function nodeTranscriptRows(index: number): number | undefined {
+        const node = entryNodes[index];
+        if (node === undefined) return undefined;
+        const margin = node.marginTop;
+        return node.height + (typeof margin === "number" ? margin : 0);
+    }
+
+    /**
+     * Releases entries that have moved far enough outside the viewport.
+     *
+     * Without this the window only ever grows, so reaching the top of a long
+     * session materializes all of it and holds it for the rest of the run.
+     * Each released entry's measured height goes into the spacer that replaces
+     * it, so releasing moves nothing the reader can see.
+     */
+    function evictTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): boolean {
+        const materializedAbove = Math.max(
+            0,
+            transcript.scrollTop - transcriptWindowTopSpacer.height,
+        );
+        const materializedBelow = Math.max(
+            0,
+            transcript.scrollHeight
+                - transcriptWindowBottomSpacer.height
+                - transcript.scrollTop
+                - transcript.viewport.height,
+        );
+        const headroom = materializedEntryEnd
+            - materializedEntryStart
+            - TUI_TRANSCRIPT_INITIAL_WINDOW;
+        if (headroom <= 0) return false;
+
+        const aboveBudget = tuiTranscriptEvictableRows({
+            scrollTop: transcript.scrollTop,
+            viewportHeight: transcript.viewport.height,
+            spacerHeight: transcriptWindowTopSpacer.height,
+        });
+        if (aboveBudget > 0 && materializedAbove > 0) {
+            const limit = Math.min(
+                materializedEntryStart + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+                materializedEntryStart + headroom,
+            );
+            let released = 0;
+            let index = materializedEntryStart;
+            while (index < limit) {
+                const rows = nodeTranscriptRows(index);
+                if (rows === undefined || released + rows > aboveBudget) break;
+                measureTranscriptEntryNode(index);
+                released += rows;
+                index += 1;
+            }
+            if (index > materializedEntryStart) {
+                for (let drop = materializedEntryStart; drop < index; drop += 1) {
+                    destroyTranscriptEntryNode(drop);
+                }
+                materializedEntryStart = index;
+                updateTranscriptSpacers(entries);
+                return true;
+            }
+        }
+
+        const belowBudget = tuiTranscriptEvictableRows({
+            scrollTop: materializedBelow,
+            viewportHeight: transcript.viewport.height,
+            spacerHeight: 0,
+        });
+        if (belowBudget <= 0) return false;
+        const floor = Math.max(
+            materializedEntryStart,
+            materializedEntryEnd - TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+            materializedEntryEnd - headroom,
+        );
+        let released = 0;
+        let index = materializedEntryEnd;
+        while (index > floor) {
+            const rows = nodeTranscriptRows(index - 1);
+            if (rows === undefined || released + rows > belowBudget) break;
+            measureTranscriptEntryNode(index - 1);
+            released += rows;
+            index -= 1;
+        }
+        if (index === materializedEntryEnd) return false;
+        for (let drop = index; drop < materializedEntryEnd; drop += 1) {
+            destroyTranscriptEntryNode(drop);
+        }
+        materializedEntryEnd = index;
+        updateTranscriptSpacers(entries);
+        return true;
+    }
+
+    function maybeEvictTranscriptEntries(): boolean {
+        if (state.entries.length === 0) return false;
+        return evictTranscriptEntries(state.entries);
+    }
+
+    /**
+     * Rebuilds the window as the tail, for a reader who jumped to the bottom.
+     *
+     * Walking the window down a batch a frame would take hundreds of frames
+     * from the top of a long session, and every batch would move the bottom
+     * the reader asked to land on.
+     */
+    function setTranscriptWindow(
+        entries: readonly TuiTranscriptEntry[],
+        start: number,
+        end: number,
+    ): void {
+        for (let index = materializedEntryStart; index < materializedEntryEnd; index += 1) {
+            measureTranscriptEntryNode(index);
+            destroyTranscriptEntryNode(index);
+        }
+        materializedEntryStart = start;
+        materializedEntryEnd = start;
+        for (let index = start; index < end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        materializedEntryEnd = end;
+        updateTranscriptSpacers(entries);
+        pendingTranscriptScrollAnchor = undefined;
+    }
+
+    function snapTranscriptWindowToTail(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        const tail = tuiTranscriptTailRange(entries.length);
+        setTranscriptWindow(entries, tail.start, tail.end);
+        transcript.scrollTo(transcript.scrollHeight);
+        // The rebuilt rows have no measured height until the next layout, so
+        // the bottom is claimed again once they do.
+        pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+    }
+
+    function setTranscriptWindowAround(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): void {
+        const start = Math.max(
+            0,
+            Math.min(
+                index - Math.floor(TUI_TRANSCRIPT_INITIAL_WINDOW / 2),
+                entries.length - TUI_TRANSCRIPT_INITIAL_WINDOW,
+            ),
+        );
+        setTranscriptWindow(
+            entries,
+            start,
+            Math.min(entries.length, start + TUI_TRANSCRIPT_INITIAL_WINDOW),
+        );
     }
 
     function settleTranscriptScrollState(): void {
         const restore = pendingTranscriptScrollRestore;
         if (restore !== undefined) {
             pendingTranscriptScrollRestore = undefined;
+            pendingTranscriptScrollAnchor = undefined;
             transcript.scrollTo(
                 restore.atBottom ? transcript.scrollHeight : restore.scrollTop,
             );
         }
-        const correction = pendingTranscriptScrollCorrection;
-        if (correction === undefined) return;
-        pendingTranscriptScrollCorrection = undefined;
-        if (!correction.preservePosition) return;
-        const actualRows = actualTranscriptRows(
-            correction.start,
-            correction.end,
-        );
-        if (actualRows === 0) return;
-        transcript.scrollBy(actualRows - correction.estimatedRows);
+        applyTranscriptScrollAnchor();
     }
 
     function maybeMaterializeEarlierTranscriptEntries(): boolean {
@@ -8097,6 +8458,29 @@ export async function startTui(
             return false;
         }
         return materializeEarlierTranscriptEntries(state.entries);
+    }
+
+    function maybeMaterializeLaterTranscriptEntries(): boolean {
+        if (materializedEntryEnd >= state.entries.length) return false;
+        const buffer = Math.max(1, transcript.viewport.height)
+            * TUI_TRANSCRIPT_MATERIALIZE_BUFFER;
+        const materializedEdge = transcript.scrollHeight
+            - transcriptWindowBottomSpacer.height;
+        if (
+            transcript.scrollTop + transcript.viewport.height + buffer
+                < materializedEdge
+        ) {
+            return false;
+        }
+        return materializeLaterTranscriptEntries(state.entries);
+    }
+
+    function maybeSnapTranscriptWindowToTail(): boolean {
+        if (state.entries.length === 0) return false;
+        if (materializedEntryEnd >= state.entries.length) return false;
+        if (!transcriptFollowsBottom()) return false;
+        snapTranscriptWindowToTail(state.entries);
+        return true;
     }
 
     function renderState(): void {
@@ -8422,13 +8806,12 @@ export async function startTui(
             return;
         }
         if (entryNodes[index] === undefined) {
-            if (index < materializedEntryStart) {
-                while (materializedEntryStart > index) {
-                    if (!materializeEarlierTranscriptEntries(state.entries)) {
-                        break;
-                    }
-                }
-            }
+            // Built in one step rather than a batch a frame: the target stays
+            // outside the window until the scroll reaches it, and the window
+            // would release each batch again before the next one arrived.
+            setTranscriptWindowAround(state.entries, index);
+            // The rows have no measured height until the next layout, so the
+            // scroll waits a frame for one.
             return;
         }
         pendingSearchTarget = undefined;
@@ -8508,10 +8891,14 @@ export async function startTui(
         }
         entryNodes.length = 0;
         entryNodeKinds.length = 0;
+        measuredEntryRows.length = 0;
         materializedEntryStart = 0;
         materializedEntryEnd = 0;
-        pendingTranscriptScrollCorrection = undefined;
+        pendingTranscriptScrollAnchor = undefined;
         transcriptWindowTopSpacer.height = 0;
+        transcriptWindowTopSpacer.visible = false;
+        transcriptWindowBottomSpacer.height = 0;
+        transcriptWindowBottomSpacer.visible = false;
     }
 
     // The surface openers below are shared by three callers: a slash command, a

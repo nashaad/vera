@@ -1,6 +1,10 @@
 import { expect, test } from "bun:test";
 
 import {
+    TUI_TRANSCRIPT_EVICT_BUFFER,
+    TUI_TRANSCRIPT_MATERIALIZE_BUFFER,
+    tuiTranscriptEntryIsVisible,
+    tuiTranscriptEvictableRows,
     tuiTranscriptNeedsEarlierEntries,
     tuiTranscriptPrependRange,
     tuiTranscriptTailRange,
@@ -52,4 +56,51 @@ test("the earlier window is requested at the top or near its spacer edge", () =>
         spacerTop: 1,
         spacerHeight: 500,
     })).toBe(false);
+});
+
+test("nothing is released while the window sits within the buffer", () => {
+    expect(tuiTranscriptEvictableRows({
+        scrollTop: 100,
+        viewportHeight: 20,
+        spacerHeight: 0,
+    })).toBe(0);
+    expect(tuiTranscriptEvictableRows({
+        scrollTop: 1000,
+        viewportHeight: 20,
+        spacerHeight: 950,
+    })).toBe(0);
+});
+
+test("rows past the buffer are released, and the spacer does not count", () => {
+    // 400 rows above the viewport, 6 viewports of 20 rows kept.
+    expect(tuiTranscriptEvictableRows({
+        scrollTop: 400,
+        viewportHeight: 20,
+        spacerHeight: 0,
+    })).toBe(280);
+    expect(tuiTranscriptEvictableRows({
+        scrollTop: 700,
+        viewportHeight: 20,
+        spacerHeight: 300,
+    })).toBe(280);
+});
+
+test("the release buffer clears the materialize buffer by a wide margin", () => {
+    expect(TUI_TRANSCRIPT_EVICT_BUFFER)
+        .toBeGreaterThan(TUI_TRANSCRIPT_MATERIALIZE_BUFFER * 2);
+});
+
+test("a folded tool row occupies nothing for a spacer to stand in for", () => {
+    expect(tuiTranscriptEntryIsVisible({
+        kind: "tool",
+        text: "read /work/file.ts",
+        hidden: true,
+    })).toBe(false);
+    expect(tuiTranscriptEntryIsVisible({
+        kind: "tool",
+        text: "read /work/file.ts",
+    })).toBe(true);
+    expect(tuiTranscriptEntryIsVisible({ kind: "user", text: "hello" }))
+        .toBe(true);
+    expect(tuiTranscriptEntryIsVisible(undefined)).toBe(false);
 });
