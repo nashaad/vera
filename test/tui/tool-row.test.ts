@@ -61,7 +61,7 @@ test("a short result stays inline while the detail hint remains visible", async 
         const rows = setup.captureCharFrame().split("\n");
         expect(rows[0]).toContain("  Ran  test -f");
         expect(rows[0]).toContain("└ config-ok");
-        expect(rows[0]).toContain("ctrl+e details");
+        expect(rows[0]).toContain("ctrl+t details");
         expect(rows[1]?.trim()).toBe("");
     } finally {
         setup.renderer.destroy();

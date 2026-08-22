@@ -94,6 +94,12 @@ test("help renders general guidance and extension attribution", async () => {
         // is labelled as such, rather than looking simply broken.
         expect(frame).toContain("ctrl+shift+m");
         expect(frame).toContain("Anywhere · kitty");
+        // The Transcript scope stays on the first page: a scope that only
+        // exists while one pane holds focus is not listed here, so the global
+        // block does not grow past the fold.
+        expect(frame).toContain("ctrl+end");
+        expect(frame).toContain("Transcript");
+        expect(frame).not.toContain("workspace list");
 
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
         state = handleTuiHelpKey(state, { name: "right" }).state ?? state;

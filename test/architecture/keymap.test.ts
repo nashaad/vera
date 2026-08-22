@@ -158,9 +158,10 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
     // And a pane's own chord does not leak into a pane that never claimed it.
     expect(tuiBindingId("session_picker", { name: "s", ctrl: true }))
         .toBeUndefined();
-    // Ctrl+E belongs to transcript detail on the conversation surface and to
-    // provider connections inside the model picker; those surfaces never overlap.
-    expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
+    // Ctrl+T belongs to transcript detail on the conversation surface, and
+    // ctrl+E to provider connections inside the model picker; those surfaces
+    // never overlap.
+    expect(tuiBindingId("conversation", { name: "t", ctrl: true }))
         .toBe("toggle_tool_details");
     expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
         .toBe("open_providers");
@@ -197,7 +198,7 @@ test("an extension chord that a built-in owns is reported, not silently lost", (
     expect(tuiChordOwner("ctrl+j")).toBeUndefined();
     // The two bundled extensions are in the table, so they are answerable as
     // "what is this key" without being reported against themselves.
-    expect(tuiChordOwner("ctrl+t")?.extensionId).toBe("cycle-reasoning");
+    expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
 });
 
 test("every hint belongs to a binding that exists", () => {
@@ -273,46 +274,43 @@ test("a workspace chord is free in every scope it can be reached from", () => {
 test("the workspace chords resolve to their own bindings", () => {
     expect(tuiBindingId("global", { name: "g", ctrl: true }))
         .toBe("switch_pane");
-    expect(tuiBindingId("global", { name: "e", ctrl: true, shift: true }))
+    expect(tuiBindingId("global", { name: "e", ctrl: true }))
         .toBe("toggle_workspace_sidebar");
-    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
-        expect(tuiBindingId("global", { name: digit, ctrl: true }))
-            .toBe(`workspace_jump_${digit}`);
-    }
     expect(WORKSPACE_JUMP_IDS).toHaveLength(9);
-    // A bare digit is text in the composer, not a jump.
-    expect(tuiBindingId("composer", { name: "1" })).toBeUndefined();
 });
 
-test("the side bar toggle leaves plain ctrl+e where it was", () => {
+test("a digit jumps only while the side bar holds focus", () => {
+    for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
+        expect(tuiBindingId("workspace", { name: digit }))
+            .toBe(`workspace_jump_${digit}`);
+        // The composer types the digit. Nothing else in the TUI claims it.
+        expect(tuiBindingId("composer", { name: digit })).toBeUndefined();
+        expect(tuiBindingId("conversation", { name: digit })).toBeUndefined();
+        expect(tuiBindingId("global", { name: digit })).toBeUndefined();
+        // A ctrl digit is what the old shape bound, and no terminal reports it
+        // outside the kitty keyboard protocol.
+        expect(tuiBindingId("workspace", { name: digit, ctrl: true }))
+            .toBeUndefined();
+    }
+});
+
+test("the moved chords take nothing that already resolved", () => {
+    // ctrl+e opens the side bar everywhere except inside the model picker,
+    // which owns the chord for as long as it is open.
     expect(tuiBindingId("conversation", { name: "e", ctrl: true }))
-        .toBe("toggle_tool_details");
+        .toBe("toggle_workspace_sidebar");
+    expect(tuiBindingId("composer", { name: "e", ctrl: true }))
+        .toBe("toggle_workspace_sidebar");
     expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
         .toBe("open_providers");
-});
-
-/**
- * What a terminal outside the kitty keyboard protocol reports when ctrl is
- * held with a digit. Each of these keeps the meaning it already had.
- */
-const CTRL_DIGIT_FALLBACKS: readonly { name: string; ctrl?: boolean }[] = [
-    { name: "space", ctrl: true },
-    { name: "escape" },
-    { name: "\\", ctrl: true },
-    { name: "]", ctrl: true },
-    { name: "^", ctrl: true },
-    { name: "_", ctrl: true },
-    { name: "backspace" },
-];
-
-test("a ctrl digit that arrives as another key does not reach the jump", () => {
-    for (const key of CTRL_DIGIT_FALLBACKS) {
-        const id = tuiBindingId("global", key);
-        expect(id === undefined || !WORKSPACE_JUMP_IDS.includes(id)).toBe(true);
-    }
-    // ctrl+4 and ctrl+7 arrive as the two chords the layout cycle owns.
-    expect(tuiBindingId("global", { name: "\\", ctrl: true }))
-        .toBe("cycle_agent_layout");
-    expect(tuiBindingId("global", { name: "_", ctrl: true }))
-        .toBe("cycle_agent_layout");
+    // ctrl+t reads tool details in the transcript, where nothing else answered.
+    expect(tuiBindingId("conversation", { name: "t", ctrl: true }))
+        .toBe("toggle_tool_details");
+    expect(tuiBindingId("global", { name: "t", ctrl: true })).toBeUndefined();
+    // ctrl+y is the reasoning cycle, and was free before this.
+    expect(tuiBindingId("global", { name: "y", ctrl: true }))
+        .toBe("cycle-reasoning");
+    expect(tuiChordOwner("ctrl+y")?.extensionId).toBe("cycle-reasoning");
+    // ctrl+shift+e is no longer bound anywhere.
+    expect(tuiChordOwner("ctrl+shift+e")).toBeUndefined();
 });

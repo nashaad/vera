@@ -24,12 +24,17 @@
  *
  * `unfocused` is the state where no overlay is open and the composer does not
  * hold focus, so its keys cannot collide with the composer's own.
+ *
+ * `workspace` is live only while the side bar holds focus. It is a pane rather
+ * than an overlay, so global chords still reach through it, which is what lets
+ * the same key that opened the side bar close it.
  */
 export type TuiKeyScope =
     | "global"
     | "conversation"
     | "composer"
     | "unfocused"
+    | "workspace"
     | "picker"
     | "model_picker"
     | "session_picker"
@@ -49,6 +54,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "conversation",
     "composer",
     "unfocused",
+    "workspace",
     "picker",
     "model_picker",
     "session_picker",
@@ -145,19 +151,20 @@ export interface TuiKeymapConflict {
 }
 
 /**
- * One binding per row of the workspace list, rather than one binding holding
- * nine chords.
+ * A bare digit, and only while the side bar holds focus.
  *
- * A single row would be written into the help card as its nine chords joined
- * together, which is wider than the card's key column and pushes the
- * description off the line.
+ * A terminal reports ctrl+<digit> as a distinct chord only under the kitty
+ * keyboard protocol or modifyOtherKeys. Elsewhere it sends a byte that names a
+ * different key: ctrl+3 arrives as escape, ctrl+8 as backspace, ctrl+1 as the
+ * bare digit. A bare digit is reported the same way everywhere, and scoping it
+ * to the side bar is what keeps it text in the composer.
  *
- * A terminal reports ctrl+<digit> only under the kitty keyboard protocol or
- * modifyOtherKeys. Elsewhere it sends a control byte that names a different
- * key: ctrl+2 is ctrl+space, ctrl+3 is escape, ctrl+4 is ctrl+\, ctrl+5 is
- * ctrl+], ctrl+6 is ctrl+^, ctrl+7 is ctrl+_, ctrl+8 is backspace, and ctrl+1
- * and ctrl+9 arrive as the bare digit. Each of those keeps the meaning it
- * already has, so the jump is unreachable there rather than ambiguous.
+ * The numbers are positional. They address the top nine visible rows and churn
+ * as the list reorders; arrow keys and the mouse are how a row is picked.
+ *
+ * One binding per row rather than one binding holding nine chords: a single row
+ * would be written into the help card as its nine chords joined together, which
+ * is wider than the card's key column.
  */
 const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
     { length: 9 },
@@ -165,9 +172,9 @@ const WORKSPACE_JUMP_BINDINGS: readonly TuiBinding[] = Array.from(
         const position = index + 1;
         return {
             id: `workspace_jump_${position}`,
-            keys: [`ctrl+${position}`],
-            scope: "global",
-            description: `Jump to session ${position} in the workspace list`,
+            keys: [`${position}`],
+            scope: "workspace",
+            description: `Jump to row ${position} of the workspace list`,
         };
     },
 );
@@ -227,23 +234,23 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         extensionId: "switch-agent-pane",
     },
     {
-        // Only the kitty-protocol encoding of ctrl+shift+e is bound, the same
-        // caveat the half-page chords below carry. Elsewhere the shift is
-        // dropped and it arrives as plain ctrl+e, which the conversation scope
-        // binds to `toggle_tool_details`.
+        // Every terminal reports ctrl+e, so the side bar is reachable without
+        // the kitty keyboard protocol. `open_providers` also names ctrl+e, in
+        // the model picker's scope, which is live only while that overlay owns
+        // the screen.
         id: "toggle_workspace_sidebar",
-        keys: ["ctrl+shift+e"],
+        keys: ["ctrl+e"],
         scope: "global",
         description: "Show or hide the workspace side bar",
-        hint: "ctrl+shift+e workspace",
+        hint: "ctrl+e workspace",
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {
         id: "toggle_tool_details",
-        keys: ["ctrl+e"],
+        keys: ["ctrl+t"],
         scope: "conversation",
         description: "Show or hide tool details",
-        hint: "ctrl+e details",
+        hint: "ctrl+t details",
     },
     {
         id: "scroll_line_up",
@@ -307,10 +314,10 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "cycle-reasoning",
-        keys: ["ctrl+t"],
+        keys: ["ctrl+y"],
         scope: "global",
         description: "Cycle the current model's reasoning level",
-        hint: "ctrl+t",
+        hint: "ctrl+y",
         extensionId: "cycle-reasoning",
     },
     {
@@ -454,6 +461,9 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Connect or disconnect a provider",
         hint: "^e providers",
+        // The picker owns ctrl+e for as long as it is open, so the side bar
+        // toggle is out of reach rather than ambiguous.
+        overrides: ["toggle_workspace_sidebar"],
     },
     {
         // Connect-pane only, like `forget_provider`. `ctrl+n` already names a

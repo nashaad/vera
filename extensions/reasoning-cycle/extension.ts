@@ -13,7 +13,7 @@ export function activateClient(vera: any): void {
     vera.keybindings.register({
         id: "cycle-reasoning",
         description: "Cycle the current model's reasoning level",
-        keys: ["ctrl+t"],
+        keys: ["ctrl+y"],
         async run() {
             const levels = vera.modelSettings.currentLevels();
             if (levels.length === 0) {

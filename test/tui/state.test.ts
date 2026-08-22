@@ -1314,7 +1314,7 @@ test("a long completed tool group folds and the detail toggle reopens it", () =>
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
         .toBe([
-            "  Explored  List /workspace  ctrl+e details",
+            "  Explored  List /workspace  ctrl+t details",
             "  └ file-0",
         ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
@@ -1439,7 +1439,7 @@ test("a short completed tool group uses the same compact header", () => {
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("  Edited  Edit /workspace/note.txt  └ ok  ctrl+e details");
+        .toBe("  Edited  Edit /workspace/note.txt  └ ok  ctrl+t details");
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
@@ -1453,7 +1453,7 @@ test("a folded tool header reserves a blank marker and an expanded one uses a ch
         detailLines: 9,
         expanded: false,
         hint: true,
-    }))).toBe("  Ran  pwd  ctrl+e details");
+    }))).toBe("  Ran  pwd  ctrl+t details");
     expect(plainText(renderTuiEntry({
         kind: "tool_header",
         text: "- Ran",
@@ -1461,7 +1461,7 @@ test("a folded tool header reserves a blank marker and an expanded one uses a ch
         detailLines: 9,
         expanded: true,
         hint: true,
-    }))).toBe("▾ Ran  pwd  ctrl+e details");
+    }))).toBe("▾ Ran  pwd  ctrl+t details");
 });
 
 test("the first detail toggle hides completed activity that is currently visible", () => {
