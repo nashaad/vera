@@ -7527,24 +7527,31 @@ export async function startTui(
         return undefined;
     }
 
+    let recordedFocusSurface: string | undefined;
+
     function focusActiveSurface(): void {
-        composer.blur();
         const overlay = activeOverlayFocus();
+        const surface = overlay !== undefined
+            ? "overlay"
+            : sidebar.isFocused()
+            ? "sidebar_composer"
+            : "main_composer";
+        if (
+            overlay === undefined
+            && composer.focused
+            && recordedFocusSurface === surface
+        ) {
+            return;
+        }
+        composer.blur();
+        recordedFocusSurface = surface;
         if (overlay !== undefined) {
             overlay();
-            flightRecorder?.record({
-                type: "focus_changed",
-                surface: "overlay",
-            });
+            flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
         composer.focus();
-        flightRecorder?.record({
-            type: "focus_changed",
-            surface: sidebar.isFocused()
-                ? "sidebar_composer"
-                : "main_composer",
-        });
+        flightRecorder?.record({ type: "focus_changed", surface });
     }
 
     function activeFlightSurface(): string {

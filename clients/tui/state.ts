@@ -535,7 +535,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, context: update.measurement };
     }
     if (update.type === "user_prompt") {
-        const nextState = { ...state, modelActivity: undefined };
+        // A prompt means the session is working. The engine only sends a
+        // status update for delivery turns, so a client that did not send this
+        // prompt itself has nothing else to learn it from: a second attachment
+        // or a replay would otherwise read as ready while the turn runs.
+        const nextState = { ...state, working: true, modelActivity: undefined };
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
             return nextState;
         }
