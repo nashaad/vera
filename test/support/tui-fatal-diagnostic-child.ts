@@ -6,7 +6,9 @@ import {
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
 
-export function createTuiFatalDiagnosticDependencies(): TuiDependencies {
+export function createTuiFatalDiagnosticDependencies(
+    options: { readonly disconnectAfterFailure?: boolean } = {},
+): TuiDependencies {
     const updates = new AsyncQueue<AgentUpdate>();
     updates.push({
         type: "history",
@@ -32,6 +34,9 @@ export function createTuiFatalDiagnosticDependencies(): TuiDependencies {
         detail: "Resident agent stopped unexpectedly",
         seq: 2,
     });
+    if (options.disconnectAfterFailure === true) {
+        updates.fail(new Error("host connection closed"));
+    }
 
     const client: TuiAgentClient = {
         agentId: "agent-1",

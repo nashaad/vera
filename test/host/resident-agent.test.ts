@@ -322,6 +322,19 @@ test("failing a resident agent drains one typed terminal update", async () => {
     expect(agent.closed).toBeTrue();
 });
 
+test("failing an idle resident agent reports its terminal state", () => {
+    const changes: string[] = [];
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        onRunStateChanged: () => changes.push(
+            agent.failed ? "failed" : agent.status,
+        ),
+    });
+
+    agent.fail("failure-1", "Resident agent stopped unexpectedly");
+
+    expect(changes).toEqual(["failed"]);
+});
+
 test("resident agent snapshots commands and isolates attached clients", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one");
     const first = agent.attach();

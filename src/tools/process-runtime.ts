@@ -68,6 +68,10 @@ export interface ManagedProcessRegistryOptions {
     readonly signalProcessTree?: (pid: number) => string | undefined;
     /** Test seam for process-group lifetime checks. */
     readonly processGroupAlive?: (pid: number) => boolean;
+    /** Reports a new process-group leader to an external owner. */
+    readonly onProcessStarted?: (pid: number) => void;
+    /** Reports that the process group no longer exists. */
+    readonly onProcessSettled?: (pid: number) => void;
 }
 
 interface OutputChunk {
@@ -125,6 +129,8 @@ export class ManagedProcessRegistry {
     private readonly groupPollMs: number;
     private readonly signalTree: (pid: number) => string | undefined;
     private readonly groupAlive: (pid: number) => boolean;
+    private readonly onProcessStarted: (pid: number) => void;
+    private readonly onProcessSettled: (pid: number) => void;
     private idSequence = 0;
     private closed = false;
 
@@ -161,6 +167,8 @@ export class ManagedProcessRegistry {
             ?? (() => `p-${generation}-${(++this.idSequence).toString(36)}`);
         this.signalTree = options.signalProcessTree ?? stopProcessTree;
         this.groupAlive = options.processGroupAlive ?? processGroupAlive;
+        this.onProcessStarted = options.onProcessStarted ?? (() => {});
+        this.onProcessSettled = options.onProcessSettled ?? (() => {});
     }
 
     scope(ownerId: string): ManagedProcessScope {
@@ -241,6 +249,7 @@ export class ManagedProcessRegistry {
             capturesDrained: false,
         };
         this.records.set(record.processId, record);
+        this.onProcessStarted(record.subprocess.pid);
         void Promise.all(captures.map((stream) => stream.completion)).then(() => {
             record.capturesDrained = true;
             this.finishIfSettled(record);
@@ -541,6 +550,7 @@ export class ManagedProcessRegistry {
         record.exitDrainTimer = undefined;
         record.terminationError = undefined;
         record.finishedAt = this.clock();
+        this.onProcessSettled(record.subprocess.pid);
         record.resolveCompletion();
         if (record.visible) this.retainExited(record);
     }

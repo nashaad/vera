@@ -92,6 +92,8 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
             || agent.status === "failed"
         )
         && typeof agent.live === "boolean"
+        && isOptionalPid(agent.worker_pid)
+        && isOptionalPid(agent.supervisor_pid)
         && (agent.title === undefined || typeof agent.title === "string")
         && (agent.has_user_content === undefined
             || typeof agent.has_user_content === "boolean")
@@ -122,6 +124,11 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         // Facts are opaque to the listing contract: an older client that never
         // asked for them must not reject a row that carries them.
         && (agent.facts === undefined || asRecord(agent.facts) !== undefined);
+}
+
+function isOptionalPid(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "number" && Number.isSafeInteger(value) && value > 0);
 }
 
 function isOptionalTimestamp(value: unknown): boolean {

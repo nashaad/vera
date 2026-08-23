@@ -9,6 +9,7 @@ import {
     renderTuiCommandSuggestions,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
+    tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
     tuiCommandSuggestionsText,
@@ -263,6 +264,11 @@ test("the unfiltered slash list names each group once, in a left column", () => 
     expect(flat.startsWith("/rewind")).toBe(true);
     expect(flat).not.toContain("built in");
     expect(tuiSuggestionGaps(commands, false)).toBe(0);
+});
+
+test("the slash list measures the chat left beside a workspace rail", () => {
+    expect(tuiCommandSuggestionWidth(147, 8, 37)).toBe(102);
+    expect(tuiCommandSuggestionWidth(40, 8, 37)).toBe(1);
 });
 
 test("typing slash exposes the built-in rewind command", () => {

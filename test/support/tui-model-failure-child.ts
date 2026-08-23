@@ -37,6 +37,8 @@ export function createTuiModelFailureDependencies(): TuiDependencies {
         "off",
         {
             approvalMode: "auto",
+        },
+        {
             modelFailureLedger: new ModelFailureLedger(
                 defaultModelFailureLedgerPath(),
             ),

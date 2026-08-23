@@ -623,6 +623,23 @@ export interface ToolReviewUpdate {
     readonly seq: number;
 }
 
+/**
+ * The consecutive-denial breaker acted on a tool.
+ *
+ * Carries what happened and nothing about how to say it: which tool, how many
+ * automatic denials in a row, and whether the tool was withheld for the rest
+ * of the turn or the turn was ended. A client that shows nothing is still
+ * correct; without this the reason a tool stopped being offered is recoverable
+ * only from the session's event log.
+ */
+export interface ToolBreakerTrippedUpdate {
+    readonly type: "tool_breaker_tripped";
+    readonly tool: string;
+    readonly denials: number;
+    readonly action: "withheld" | "ended-turn";
+    readonly seq: number;
+}
+
 export interface ToolFinishedUpdate {
     readonly type: "tool_finished";
     readonly tool: string;
@@ -965,6 +982,7 @@ export type AgentUpdate =
     | AssistantThinkingUpdate
     | ToolStartedUpdate
     | ToolReviewUpdate
+    | ToolBreakerTrippedUpdate
     | ToolFinishedUpdate
     | ToolPresentationUpdate
     | TurnFinishedUpdate
@@ -1594,6 +1612,18 @@ export function createProtocolEncoder(
                 reason: event.reason,
                 riskLevel: event.riskLevel,
                 userAuthorization: event.userAuthorization,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "tool_breaker_tripped") {
+            seq += 1;
+            sender.send({
+                type: "tool_breaker_tripped",
+                tool: event.tool,
+                denials: event.denials,
+                action: event.action,
                 seq,
             });
             return;

@@ -44,6 +44,8 @@ export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
         "off",
         {
             approvalMode: "auto",
+        },
+        {
             reviewToolCall: async () => {
                 writeFileSync(
                     join(home, "auto-review-invoked"),

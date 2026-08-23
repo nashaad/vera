@@ -750,6 +750,22 @@ test("a history entry carrying an ID survives a client that predates it", () => 
     expect(parseAgentUpdate(update)).toEqual(update);
 });
 
+test("a breaker trip decodes, and a malformed one does not", () => {
+    const update = {
+        type: "tool_breaker_tripped",
+        tool: "bash",
+        denials: 3,
+        action: "withheld",
+        seq: 7,
+    } as const;
+
+    expect(parseAgentUpdate(update)).toEqual(update);
+    expect(parseAgentUpdate({ ...update, action: "shrugged" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, denials: 0 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, tool: "" })).toBeUndefined();
+    expect(parseAgentUpdate({ ...update, seq: undefined })).toBeUndefined();
+});
+
 test("a history entry without an ID still decodes", () => {
     const update = {
         type: "history",

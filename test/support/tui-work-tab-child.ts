@@ -250,14 +250,18 @@ void runHeadlessLoop(
     "high",
     {
         approvalMode: "auto",
+    },
+    {
         readModelSettings: () => ({
             model: "test",
             reasoningEffort: "high",
             contextWindow: 100,
         }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     },
 );
 

@@ -33,6 +33,10 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly sidebar_width?: number;
+    /** Whether the workspace navigator stays docked beside the conversation. */
+    readonly workspace_sidebar_docked?: boolean;
+    /** Width of the persistent workspace navigator, in terminal columns. */
+    readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
     // Session ids the reader pinned to the top of the workspace side bar. A
     // pin is one person's opinion about their own list, so it stays here and
@@ -156,6 +160,40 @@ export function saveTuiSidebarWidth(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         sidebar_width: columns,
+    }, path);
+}
+
+export function loadTuiWorkspaceSidebarDocked(
+    path = tuiThemePreferencePath(),
+): boolean {
+    return loadTuiClientPreferences(path).workspace_sidebar_docked === true;
+}
+
+export function saveTuiWorkspaceSidebarDocked(
+    docked: boolean,
+    path = tuiThemePreferencePath(),
+): void {
+    const { workspace_sidebar_docked: _previous, ...rest } =
+        loadTuiClientPreferences(path);
+    saveTuiClientPreferences({
+        ...rest,
+        ...(docked ? { workspace_sidebar_docked: true } : {}),
+    }, path);
+}
+
+export function loadTuiWorkspaceSidebarWidth(
+    path = tuiThemePreferencePath(),
+): number | undefined {
+    return loadTuiClientPreferences(path).workspace_sidebar_width;
+}
+
+export function saveTuiWorkspaceSidebarWidth(
+    columns: number,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        workspace_sidebar_width: columns,
     }, path);
 }
 
@@ -501,6 +539,15 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 20,
                 400,
             );
+            const workspaceSidebarDocked = Reflect.get(
+                value,
+                "workspace_sidebar_docked",
+            ) === true;
+            const workspaceSidebarWidth = boundedInteger(
+                Reflect.get(value, "workspace_sidebar_width"),
+                20,
+                400,
+            );
             const quickslots = Reflect.get(value, "model_presets");
             const favoritePairs = parseFavoritePairs(
                 Reflect.get(value, "favorite_pairs"),
@@ -540,6 +587,12 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(sidebarWidth === undefined
                     ? {}
                     : { sidebar_width: sidebarWidth }),
+                ...(workspaceSidebarDocked
+                    ? { workspace_sidebar_docked: true }
+                    : {}),
+                ...(workspaceSidebarWidth === undefined
+                    ? {}
+                    : { workspace_sidebar_width: workspaceSidebarWidth }),
                 ...(Array.isArray(quickslots)
                     ? {
                         model_presets: quickslotsForDisk(

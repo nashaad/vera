@@ -2782,3 +2782,34 @@ test("blank lines do not spend the live reasoning window", () => {
         "closing",
     ]);
 });
+
+test("a breaker trip reads as text, with no colour carrying the state", () => {
+    const withheld = applyAgentUpdate(createTuiState(), {
+        type: "tool_breaker_tripped",
+        tool: "bash",
+        denials: 3,
+        action: "withheld",
+        seq: 1,
+    });
+    const ended = applyAgentUpdate(withheld, {
+        type: "tool_breaker_tripped",
+        tool: "write",
+        denials: 3,
+        action: "ended-turn",
+        seq: 2,
+    });
+
+    const texts = ended.entries.map((entry) =>
+        entry.kind === "diff" ? "" : entry.text
+    );
+    expect(texts).toEqual([
+        "[breaker] bash withheld for the rest of this turn after 3 refusals"
+            + " in a row",
+        "[breaker] turn ended: write was refused 3 times in a row after"
+            + " another tool was already withheld",
+    ]);
+    for (const entry of ended.entries) {
+        expect(entry.kind).toBe("notice");
+        expect((entry as { tone?: string }).tone).toBeUndefined();
+    }
+});

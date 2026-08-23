@@ -110,26 +110,30 @@ function session(
     };
     void runHeadlessLoop(channel.engine, adapter, "test", "high", {
         approvalMode,
+    },
+    {
         readModelSettings: () => modelSettings,
-        updateModelSettings: async (patch) => {
-            modelSettings = {
-                ...modelSettings,
-                ...(patch.model === undefined ? {} : { model: patch.model }),
-                ...(patch.provider === undefined
-                    ? {}
-                    : { provider: patch.provider }),
-                ...(patch.reasoningEffort === undefined
-                    ? {}
-                    : patch.reasoningEffort === null
-                    ? { reasoningEffort: undefined }
-                    : { reasoningEffort: patch.reasoningEffort }),
-            };
-            return modelSettings;
-        },
         readApprovalMode: () => approvalMode,
         updateApprovalMode: async (mode) => {
             approvalMode = mode;
             return approvalMode;
+        },
+        router: {
+            updateModelSettings: async (patch) => {
+                modelSettings = {
+                    ...modelSettings,
+                    ...(patch.model === undefined ? {} : { model: patch.model }),
+                    ...(patch.provider === undefined
+                        ? {}
+                        : { provider: patch.provider }),
+                    ...(patch.reasoningEffort === undefined
+                        ? {}
+                        : patch.reasoningEffort === null
+                        ? { reasoningEffort: undefined }
+                        : { reasoningEffort: patch.reasoningEffort }),
+                };
+                return modelSettings;
+            },
         },
     });
     const client: TuiAgentClient = {

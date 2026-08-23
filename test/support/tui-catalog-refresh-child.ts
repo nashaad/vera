@@ -38,25 +38,29 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
         undefined,
         {
             approvalMode: "auto",
+        },
+        {
             readModelSettings: settings,
-            updateModelSettings: async () => settings(),
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => "auto",
-            refreshCatalog: async (provider) => {
-                if (provider !== PROVIDER) {
-                    return undefined;
-                }
-                availableModels = [
-                    ...availableModels,
-                    {
-                        provider: PROVIDER,
-                        model: "two/model",
-                        label: "Two",
-                        description: "arrived with the refresh",
-                        levels: [],
-                    },
-                ];
-                return settings();
+            router: {
+                updateModelSettings: async () => settings(),
+                refreshCatalog: async (provider) => {
+                    if (provider !== PROVIDER) {
+                        return undefined;
+                    }
+                    availableModels = [
+                        ...availableModels,
+                        {
+                            provider: PROVIDER,
+                            model: "two/model",
+                            label: "Two",
+                            description: "arrived with the refresh",
+                            levels: [],
+                        },
+                    ];
+                    return settings();
+                },
             },
         },
     );

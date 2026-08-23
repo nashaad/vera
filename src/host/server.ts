@@ -1284,6 +1284,7 @@ function receiveConnection(
             type: "attached",
             agent_id: attachedId,
             workspace: agent.workspace,
+            ...(agent.failed ? { failed: true as const } : {}),
             background_agents: sentBackgroundAgents,
             capabilities: negotiated,
         }).then(
@@ -1293,7 +1294,7 @@ function receiveConnection(
                 // change. Ordered by the same write queue, so it can never
                 // overtake the reply that announced the capability.
                 if (wantsWorkIndex) sendWorkIndex();
-                return forwardAgentUpdates(attached);
+                return forwardAgentUpdates(agent, attached);
             },
             () => socket.destroy(),
         );
@@ -1438,6 +1439,7 @@ function receiveConnection(
     }
 
     async function forwardAgentUpdates(
+        agent: ResidentAgent,
         attached: AgentAttachment,
     ): Promise<void> {
         try {
@@ -1446,7 +1448,10 @@ function receiveConnection(
                 await send(update);
             }
         } catch {
-            if (attachment === attached) {
+            // A failed resident has no more agent updates, but the attachment
+            // still owns host-level requests and a clean detach. Keep that
+            // control channel alive while its terminal transcript is viewed.
+            if (attachment === attached && !agent.failed) {
                 socket.destroy();
             }
         }

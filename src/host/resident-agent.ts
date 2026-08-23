@@ -437,6 +437,7 @@ export class ResidentAgent {
         } as const;
         this.broadcast(failure);
         this.terminalFailure = failure;
+        this.notifyRunStateChanged();
         const error = new ResidentAgentClosedError();
         this.pendingCommandCount = 0;
         this.inbound.fail(error, { discardBuffered: true });
@@ -595,7 +596,10 @@ export class ResidentAgent {
         for (const outgoing of this.attachments.values()) {
             outgoing.push(clone(snapshot));
         }
-        if (this.currentStatus !== previousStatus) {
+        if (
+            this.currentStatus !== previousStatus
+            && snapshot.type !== "agent_failed"
+        ) {
             this.notifyRunStateChanged();
         }
     }

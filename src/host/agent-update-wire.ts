@@ -109,6 +109,16 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "tool_breaker_tripped") {
+        return typeof update.tool === "string"
+                && update.tool.length > 0
+                && Number.isSafeInteger(update.denials)
+                && (update.denials as number) > 0
+                && (update.action === "withheld"
+                    || update.action === "ended-turn")
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "tool_review") {
         return typeof update.tool === "string"
                 && (update.decision === "allow"

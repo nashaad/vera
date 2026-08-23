@@ -223,6 +223,7 @@ const DIAGNOSTIC_SECTIONS = new Set([
     "## Build",
     "## Startup",
     "## Session usage",
+    "## Processes",
     "## Startup extensions",
     "## Extensions",
     "## Runtime",

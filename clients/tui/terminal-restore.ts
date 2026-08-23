@@ -14,6 +14,23 @@ export const TERMINAL_RESTORE_SEQUENCE = "\x1b[?1049l" // main screen
 
 let installed = false;
 
+/** Restore terminal modes immediately, including from an external watchdog. */
+export function restoreTerminalNow(
+    tty: { readonly fd: number } = process.stdout,
+    stdin: NodeJS.ReadStream = process.stdin,
+): void {
+    try {
+        if (stdin.isTTY) stdin.setRawMode(false);
+    } catch {
+        // A closed stdin must not stop the screen restore below.
+    }
+    try {
+        writeSync(tty.fd, TERMINAL_RESTORE_SEQUENCE);
+    } catch {
+        // The tty may already be gone; there is nothing left to restore.
+    }
+}
+
 /**
  * Restores the terminal on process exit without going through the renderer,
  * which may be the thing that crashed. The "exit" event fires on clean
@@ -30,18 +47,7 @@ export function installTerminalRestoreOnExit(
     // the restore even though stdout is a pipe.
     if (installed || (tty.isTTY !== true && stdin.isTTY !== true)) return;
     installed = true;
-    const restore = (): void => {
-        try {
-            if (stdin.isTTY) stdin.setRawMode(false);
-        } catch {
-            // A closed stdin must not stop the screen restore below.
-        }
-        try {
-            writeSync(tty.fd, TERMINAL_RESTORE_SEQUENCE);
-        } catch {
-            // The tty may already be gone; there is nothing left to restore.
-        }
-    };
+    const restore = (): void => restoreTerminalNow(tty, stdin);
     process.on("exit", restore);
     // A signal with its default disposition ends the process without an "exit"
     // event, so closing the terminal or killing the TUI would otherwise leave

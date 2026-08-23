@@ -82,6 +82,26 @@ test("resident agent death renders as a separated fatal diagnostic", async () =>
     }
 }, 15_000);
 
+test("host shutdown after agent death becomes recoverable disconnection", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-failed-host-stop-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiFatalDiagnosticDependencies({
+            disconnectAfterFailure: true,
+        }),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane(
+            "disconnected: host connection closed",
+        );
+        expect(pane).toContain("Resident agent stopped unexpectedly");
+        expect(pane).toContain("· /reconnect · ctrl+c quit");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("terminal model errors remain visible after tools and the next turn works", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-terminal-error-"));
     const session = await startTuiTestSession({

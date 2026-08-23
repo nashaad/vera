@@ -241,6 +241,11 @@ export interface CreateSessionStoreOptions {
     readonly startupProfile?: Exclude<StartupProfile, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
+    /** See `OpenSessionStoreOptions`. */
+    readonly onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 }
 
 export interface SessionCreationMetadata {
@@ -250,6 +255,16 @@ export interface SessionCreationMetadata {
 export interface OpenSessionStoreOptions {
     readonly now?: () => Date;
     readonly createId?: () => string;
+    /**
+     * Called after each record this store wrote, with the line it landed on.
+     * A process holding a projection of this file rather than the file itself
+     * advances on this stream. Records written through `appendForeignRecord`
+     * do not appear here, because their author already folded them in.
+     */
+    readonly onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 }
 
 /** The stored identity and retained snapshot reported by an append. */
@@ -282,24 +297,12 @@ export interface SessionDeliveryInbox {
     ): Promise<SessionMessageEntry>;
 }
 
-interface LoadedSessionFile {
+/** A parsed session file: the header, plus the fold of every record after it. */
+interface ParsedSessionFile {
     readonly header: SessionHeader;
-    readonly messageEntries: SessionMessageEntry[];
-    readonly deliveryEntries: SessionDeliveryEntry[];
-    readonly deliveryReceipts: Set<string>;
-    readonly legacyDeliveryMessageIds: Map<string, string>;
-    readonly modelSettingsEntries: SessionModelSettingsEntry[];
-    readonly agentWearEntries: SessionAgentWearEntry[];
-    readonly permissionsEntries: SessionPermissionsEntry[];
-    readonly harnessMessageEntries: SessionHarnessMessageEntry[];
-    readonly nameEntries: SessionNameEntry[];
-    readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
-    readonly permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[];
-    readonly attachmentEntries: SessionAttachmentEntry[];
-    readonly compactionEntries: SessionCompactionEntry[];
-    readonly agentFailure?: SessionAgentFailureEntry;
-    readonly leafId: string | null;
+    readonly state: SessionProjectionState;
+    /** The file's line count, header included. */
+    readonly lineCount: number;
 }
 
 export class SessionStore {
@@ -308,49 +311,37 @@ export class SessionStore {
 
     private readonly now: () => Date;
     private readonly createId: () => string;
-    private readonly storedEntries: SessionMessageEntry[];
-    private readonly deliveryEntries: SessionDeliveryEntry[];
-    private readonly deliveryReceipts: Set<string>;
-    private readonly legacyDeliveryMessageIds: Map<string, string>;
-    private readonly modelSettingsEntries: SessionModelSettingsEntry[];
-    private readonly agentWearEntries: SessionAgentWearEntry[];
-    private readonly permissionsEntries: SessionPermissionsEntry[];
-    private readonly harnessMessageEntries: SessionHarnessMessageEntry[];
-    private readonly nameEntries: SessionNameEntry[];
-    private readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
-    private readonly permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[];
-    private readonly attachmentEntries: SessionAttachmentEntry[];
-    private readonly compactionEntries: SessionCompactionEntry[];
-    private agentFailureEntry: SessionAgentFailureEntry | undefined;
-    private leafId: string | null;
     private pendingAppend: Promise<void> = Promise.resolve();
+    /** The file's line count, header included. Line 1 is the header. */
+    private lineCount: number;
+    private onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 
-    private constructor(
+    /**
+     * The same accumulated state a parse folds records into. The store reads
+     * from it and its commits push into it, so one description of a session's
+     * shape serves both a file being parsed and a store answering questions.
+     */
+    protected readonly projection: SessionProjectionState;
+
+    protected constructor(
         path: string,
-        loaded: LoadedSessionFile,
+        header: SessionHeader,
+        state: SessionProjectionState,
         options: OpenSessionStoreOptions,
+        lineCount = 1,
     ) {
         this.path = path;
-        this.header = loaded.header;
-        this.storedEntries = loaded.messageEntries;
-        this.deliveryEntries = loaded.deliveryEntries;
-        this.deliveryReceipts = loaded.deliveryReceipts;
-        this.legacyDeliveryMessageIds = loaded.legacyDeliveryMessageIds;
-        this.modelSettingsEntries = loaded.modelSettingsEntries;
-        this.agentWearEntries = loaded.agentWearEntries;
-        this.permissionsEntries = loaded.permissionsEntries;
-        this.harnessMessageEntries = loaded.harnessMessageEntries;
-        this.nameEntries = loaded.nameEntries;
-        this.permissionGrantEntries = loaded.permissionGrantEntries;
-        this.permissionGrantRevocationEntries =
-            loaded.permissionGrantRevocationEntries;
-        this.attachmentEntries = loaded.attachmentEntries;
-        this.compactionEntries = loaded.compactionEntries;
-        this.agentFailureEntry = loaded.agentFailure;
-        this.leafId = loaded.leafId;
+        this.header = header;
+        this.projection = state;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
+        this.lineCount = lineCount;
+        if (options.onRecordAppended !== undefined) {
+            this.onRecordAppended = options.onRecordAppended;
+        }
     }
 
     static async create(
@@ -399,29 +390,16 @@ export class SessionStore {
 
         return new SessionStore(
             path,
-            {
-                header,
-                messageEntries: [],
-                deliveryEntries: [],
-                deliveryReceipts: new Set(),
-                legacyDeliveryMessageIds: new Map(),
-                modelSettingsEntries: [],
-                agentWearEntries: [],
-                permissionsEntries: [],
-                harnessMessageEntries: [],
-                nameEntries: [],
-                permissionGrantEntries: [],
-                permissionGrantRevocationEntries: [],
-                attachmentEntries: [],
-                compactionEntries: [],
-                agentFailure: undefined,
-                leafId: null,
-            },
+            header,
+            createSessionProjectionState(),
             {
                 now,
                 ...(options.createId === undefined
                     ? {}
                     : { createId: options.createId }),
+                ...(options.onRecordAppended === undefined
+                    ? {}
+                    : { onRecordAppended: options.onRecordAppended }),
             },
         );
     }
@@ -434,15 +412,21 @@ export class SessionStore {
         const completeSource = await removeUnterminatedTail(path, source);
         const loaded = parseSessionFile(path, completeSource);
         await chmod(path, 0o600);
-        return new SessionStore(path, loaded, options);
+        return new SessionStore(
+            path,
+            loaded.header,
+            loaded.state,
+            options,
+            loaded.lineCount,
+        );
     }
 
     entries(): readonly SessionMessageEntry[] {
-        return this.storedEntries.slice();
+        return this.projection.messageEntries.slice();
     }
 
     activeEntries(): readonly SessionMessageEntry[] {
-        return activeBranchEntries(this.storedEntries, this.leafId);
+        return activeBranchEntries(this.projection.messageEntries, this.projection.leafId);
     }
 
     messages(): readonly ModelMessage[] {
@@ -462,7 +446,7 @@ export class SessionStore {
     }
 
     activeHeadId(): string | null {
-        return this.leafId;
+        return this.projection.leafId;
     }
 
     pendingDeliveries(): readonly SessionDeliveryEntry[] {
@@ -475,12 +459,12 @@ export class SessionStore {
                 entry.deliveryId === undefined ? [] : [entry.deliveryId]
             ),
         );
-        return this.deliveryEntries.filter(
+        return this.projection.deliveryEntries.filter(
             (delivery) => {
-                const legacyMessageId = this.legacyDeliveryMessageIds.get(
+                const legacyMessageId = this.projection.legacyDeliveryMessageIds.get(
                     delivery.id,
                 );
-                const legacyReceiptIsActive = this.deliveryReceipts.has(
+                const legacyReceiptIsActive = this.projection.deliveryReceipts.has(
                     delivery.id,
                 ) && (
                     legacyMessageId === undefined
@@ -506,7 +490,7 @@ export class SessionStore {
     }
 
     modelSettings(): ModelTurnSettings | undefined {
-        const settings = this.modelSettingsEntries.at(-1)?.settings;
+        const settings = this.projection.modelSettingsEntries.at(-1)?.settings;
         return settings === undefined ? undefined : { ...settings };
     }
 
@@ -519,7 +503,7 @@ export class SessionStore {
      * leaving the override marker off.
      */
     modelSettingsOrigin(): SessionSettingOrigin | undefined {
-        const entry = this.modelSettingsEntries.at(-1);
+        const entry = this.projection.modelSettingsEntries.at(-1);
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
@@ -531,7 +515,7 @@ export class SessionStore {
      * beside it, so they cannot drift from it.
      */
     modelSettingsHistory(): readonly SessionModelSettingsEntry[] {
-        return this.modelSettingsEntries.map((entry) => ({
+        return this.projection.modelSettingsEntries.map((entry) => ({
             ...entry,
             settings: { ...entry.settings },
             origin: entry.origin ?? "user",
@@ -540,7 +524,7 @@ export class SessionStore {
 
     /** The agent in force, or nothing when this session has never worn one. */
     agentWear(): SessionAgentWearEntry | undefined {
-        const entry = this.agentWearEntries.at(-1);
+        const entry = this.projection.agentWearEntries.at(-1);
         return entry === undefined ? undefined : structuredClone(entry);
     }
 
@@ -573,28 +557,28 @@ export class SessionStore {
             snapshot: structuredClone(snapshot),
         };
         await this.appendRecord(entry);
-        this.agentWearEntries.push(entry);
+        this.projection.agentWearEntries.push(entry);
         return entry;
     }
 
     approvalMode(): ApprovalMode | undefined {
-        return this.permissionsEntries.at(-1)?.mode;
+        return this.projection.permissionsEntries.at(-1)?.mode;
     }
 
     approvalModeOrigin(): SessionSettingOrigin | undefined {
-        const entry = this.permissionsEntries.at(-1);
+        const entry = this.projection.permissionsEntries.at(-1);
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
     name(): string | undefined {
-        return this.nameEntries.at(-1)?.name ?? undefined;
+        return this.projection.nameEntries.at(-1)?.name ?? undefined;
     }
 
     permissionGrants(): readonly PermissionGrant[] {
         const revoked = new Set(
-            this.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
+            this.projection.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
         );
-        return this.permissionGrantEntries.flatMap((entry) =>
+        return this.projection.permissionGrantEntries.flatMap((entry) =>
             entry.grants
                 .filter((grant) => !revoked.has(grant.id))
                 .map(copyPermissionGrant)
@@ -602,13 +586,13 @@ export class SessionStore {
     }
 
     attachmentRecords(): readonly SessionImageAttachmentMetadata[] {
-        return this.attachmentEntries.map((entry) => ({ ...entry.attachment }));
+        return this.projection.attachmentEntries.map((entry) => ({ ...entry.attachment }));
     }
 
     agentFailure(): SessionAgentFailureEntry | undefined {
-        return this.agentFailureEntry === undefined
+        return this.projection.agentFailure === undefined
             ? undefined
-            : { ...this.agentFailureEntry };
+            : { ...this.projection.agentFailure };
     }
 
     appendMessage(message: ModelMessage): Promise<SessionMessageEntry> {
@@ -689,7 +673,7 @@ export class SessionStore {
         readonly tone: "primary" | "soft" | "error";
     }[] {
         const active = this.activeEntries();
-        return projectHarnessMessages(this.harnessMessageEntries, active);
+        return projectHarnessMessages(this.projection.harnessMessageEntries, active);
     }
 
     appendName(name: string | null): Promise<SessionNameEntry> {
@@ -789,7 +773,7 @@ export class SessionStore {
      */
     latestCompaction(): SessionCompactionEntry | undefined {
         const active = this.activeEntries();
-        return this.compactionEntries.findLast(
+        return this.projection.compactionEntries.findLast(
             (entry) => compactionApplies(entry, active),
         );
     }
@@ -867,7 +851,7 @@ export class SessionStore {
             throw new Error("Cannot append an invalid model message");
         }
         for (const attachmentId of messageAttachmentIds(snapshot)) {
-            if (!this.attachmentEntries.some(
+            if (!this.projection.attachmentEntries.some(
                 (entry) => entry.attachment.id === attachmentId
             )) {
                 throw new Error(
@@ -878,19 +862,20 @@ export class SessionStore {
         const entry: SessionMessageEntry = {
             type: "message",
             id: nonEmpty(this.createId(), "message entry ID"),
-            parentId: this.leafId,
+            parentId: this.projection.leafId,
             timestamp: this.now().toISOString(),
             ...(deliveryId === undefined ? {} : { deliveryId }),
             message: snapshot,
         };
-        if (this.storedEntries.some((candidate) => candidate.id === entry.id)) {
+        if (this.projection.messageEntries.some((candidate) => candidate.id === entry.id)) {
             throw new Error(`Session entry ID ${entry.id} already exists`);
         }
 
         await this.appendRecord(entry);
 
-        this.storedEntries.push(entry);
-        this.leafId = entry.id;
+        this.projection.messageEntries.push(entry);
+        this.projection.knownMessageIds.add(entry.id);
+        this.projection.leafId = entry.id;
         return entry;
     }
 
@@ -937,7 +922,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.modelSettingsEntries.push(entry);
+        this.projection.modelSettingsEntries.push(entry);
         return entry;
     }
 
@@ -952,12 +937,12 @@ export class SessionStore {
         const entry: SessionHarnessMessageEntry = {
             type: "harness_message",
             timestamp: this.now().toISOString(),
-            afterMessageId: this.leafId,
+            afterMessageId: this.projection.leafId,
             text,
             tone,
         };
         await this.appendRecord(entry);
-        this.harnessMessageEntries.push(entry);
+        this.projection.harnessMessageEntries.push(entry);
         return entry;
     }
 
@@ -975,7 +960,7 @@ export class SessionStore {
             ...(origin === undefined ? {} : { origin }),
         };
         await this.appendRecord(entry);
-        this.permissionsEntries.push(entry);
+        this.projection.permissionsEntries.push(entry);
         return entry;
     }
 
@@ -991,7 +976,7 @@ export class SessionStore {
             name,
         };
         await this.appendRecord(entry);
-        this.nameEntries.push(entry);
+        this.projection.nameEntries.push(entry);
         return entry;
     }
 
@@ -1015,7 +1000,7 @@ export class SessionStore {
             })),
         };
         await this.appendRecord(entry);
-        this.permissionGrantEntries.push(entry);
+        this.projection.permissionGrantEntries.push(entry);
         return entry;
     }
 
@@ -1032,7 +1017,7 @@ export class SessionStore {
             ids: [id],
         };
         await this.appendRecord(entry);
-        this.permissionGrantRevocationEntries.push(entry);
+        this.projection.permissionGrantRevocationEntries.push(entry);
         return true;
     }
 
@@ -1040,7 +1025,7 @@ export class SessionStore {
         attachment: SessionImageAttachmentMetadata,
     ): Promise<SessionImageAttachmentMetadata> {
         const stored = attachment;
-        const existing = this.attachmentEntries.find(
+        const existing = this.projection.attachmentEntries.find(
             (entry) => entry.attachment.id === stored.id,
         );
         if (existing !== undefined) {
@@ -1064,13 +1049,15 @@ export class SessionStore {
             ) {
                 throw error;
             }
-            this.attachmentEntries.push({
+            this.projection.attachmentEntries.push({
                 ...entry,
                 attachment: durable,
             });
+            this.projection.knownAttachmentIds.add(durable.id);
             return { ...durable };
         }
-        this.attachmentEntries.push(entry);
+        this.projection.attachmentEntries.push(entry);
+        this.projection.knownAttachmentIds.add(entry.attachment.id);
         return { ...stored };
     }
 
@@ -1080,7 +1067,7 @@ export class SessionStore {
     ): Promise<SessionAgentFailureEntry> {
         const id = nonEmpty(requestedId, "agent failure ID");
         const detail = nonEmpty(requestedDetail, "agent failure detail");
-        const existing = this.agentFailureEntry;
+        const existing = this.projection.agentFailure;
         if (existing !== undefined) {
             if (existing.id !== id || existing.detail !== detail) {
                 throw new Error("Session already has a different agent failure");
@@ -1094,7 +1081,7 @@ export class SessionStore {
             detail,
         };
         await this.appendRecord(entry);
-        this.agentFailureEntry = entry;
+        this.projection.agentFailure = entry;
         return { ...entry };
     }
 
@@ -1103,7 +1090,7 @@ export class SessionStore {
     ): Promise<SessionCompactionEntry> {
         for (const message of request.projection) {
             for (const attachmentId of messageAttachmentIds(message)) {
-                if (!this.attachmentEntries.some(
+                if (!this.projection.attachmentEntries.some(
                     (entry) => entry.attachment.id === attachmentId,
                 )) {
                     throw new Error(
@@ -1120,7 +1107,7 @@ export class SessionStore {
             ...validateCompaction(request, this.activeEntries()),
         };
         await this.appendRecord(entry);
-        this.compactionEntries.push(entry);
+        this.projection.compactionEntries.push(entry);
         return entry;
     }
 
@@ -1143,18 +1130,18 @@ export class SessionStore {
                 `Rewind boundary ${userMessageId} is not an active user message`,
             );
         }
-        if (this.leafId === null) {
+        if (this.projection.leafId === null) {
             throw new Error("Cannot rewind an empty session");
         }
         const entry: SessionRewindEntry = {
             type: "rewind",
             timestamp: this.now().toISOString(),
             userMessageId,
-            previousHeadId: this.leafId,
+            previousHeadId: this.projection.leafId,
             headId: boundary.parentId,
         };
         await this.appendRecord(entry);
-        this.leafId = entry.headId;
+        this.projection.leafId = entry.headId;
         return entry;
     }
 
@@ -1171,7 +1158,7 @@ export class SessionStore {
             delivery.sourceAgentId,
             "delivery source agent ID",
         );
-        const existing = this.deliveryEntries.find((entry) => entry.id === id);
+        const existing = this.projection.deliveryEntries.find((entry) => entry.id === id);
         if (existing !== undefined) {
             if (
                 existing.sourceAgentId !== sourceAgentId
@@ -1191,14 +1178,67 @@ export class SessionStore {
             timestamp: this.now().toISOString(),
         };
         await this.appendRecord(entry);
-        this.deliveryEntries.push(entry);
+        this.projection.deliveryEntries.push(entry);
+        this.projection.knownDeliveryIds.add(entry.id);
         return true;
     }
 
-    private async appendRecord(record: object): Promise<void> {
-        if (this.agentFailureEntry !== undefined) {
+    protected async appendRecord(record: object): Promise<void> {
+        if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
+        const lineNumber = await this.writeRecordLine(record);
+        this.onRecordAppended?.(
+            lineNumber,
+            record as Record<string, unknown>,
+        );
+    }
+
+    /**
+     * Sets the listener a store opened without one, for a reader that arrives
+     * later. See `onRecordAppended` on `OpenSessionStoreOptions`.
+     */
+    watchRecords(
+        listener: (
+            lineNumber: number,
+            record: Record<string, unknown>,
+        ) => void,
+    ): void {
+        this.onRecordAppended = listener;
+    }
+
+    /** The file's line count, header included. */
+    appendedLineCount(): number {
+        return this.lineCount;
+    }
+
+    /**
+     * Writes a record another process produced, and folds it in here.
+     *
+     * The author already holds it, so it is not reported back through
+     * `onRecordAppended`. Validation is the parse's own, so a record this
+     * store would reject on a later open is rejected before it reaches disk.
+     */
+    appendForeignRecord(
+        record: Record<string, unknown>,
+    ): Promise<number> {
+        // Queued behind this store's own appends, so one sequence of line
+        // numbers describes the file whichever process produced the record.
+        const result = this.pendingAppend.then(async () => {
+            if (this.projection.agentFailure !== undefined) {
+                throw new Error(
+                    "Cannot append after the terminal agent failure",
+                );
+            }
+            const lineNumber = await this.writeRecordLine(record);
+            ingestSessionRecord(this.path, lineNumber, record, this.projection);
+            return lineNumber;
+        });
+        this.pendingAppend = result.then(() => {}, () => {});
+        return result;
+    }
+
+    private async writeRecordLine(record: object): Promise<number> {
         const file = await open(this.path, "a", 0o600);
         try {
             await file.writeFile(jsonLine(record), "utf8");
@@ -1206,10 +1246,12 @@ export class SessionStore {
         } finally {
             await file.close();
         }
+        this.lineCount += 1;
+        return this.lineCount;
     }
 
-    private requireActive(): void {
-        if (this.agentFailureEntry !== undefined) {
+    protected requireActive(): void {
+        if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
     }
@@ -1301,7 +1343,7 @@ async function readDurableAttachment(
     try {
         const source = await readFile(path, "utf8");
         const complete = completeSessionSource(path, source);
-        return parseSessionFile(path, complete).attachmentEntries.find(
+        return parseSessionFile(path, complete).state.attachmentEntries.find(
             (entry) => entry.attachment.id === id,
         )?.attachment;
     } catch {
@@ -1322,18 +1364,21 @@ export async function readSessionSnapshot(
 ): Promise<ReadonlySessionSnapshot> {
     const source = await readFile(path, "utf8");
     const loaded = parseSessionFile(path, completeSessionSource(path, source));
-    const active = activeBranchEntries(loaded.messageEntries, loaded.leafId);
+    const active = activeBranchEntries(
+        loaded.state.messageEntries,
+        loaded.state.leafId,
+    );
     return {
         header: loaded.header,
         messages: active.map((entry) => entry.message),
         messageIds: new Map(active.map((entry) => [entry.message, entry.id])),
         harnessMessages: projectHarnessMessages(
-            loaded.harnessMessageEntries,
+            loaded.state.harnessMessageEntries,
             active,
         ),
-        ...(loaded.agentFailure === undefined
+        ...(loaded.state.agentFailure === undefined
             ? {}
-            : { agentFailure: { ...loaded.agentFailure } }),
+            : { agentFailure: { ...loaded.state.agentFailure } }),
     };
 }
 
@@ -1397,278 +1442,72 @@ function completeSessionSource(path: string, source: string): string {
     return source.slice(0, finalNewline + 1);
 }
 
-function parseSessionFile(path: string, source: string): LoadedSessionFile {
-    const lines = source.slice(0, -1).split("\n");
-    const header = parseHeader(path, lines[0]);
-    const messageEntries: SessionMessageEntry[] = [];
-    const deliveryEntries: SessionDeliveryEntry[] = [];
-    const deliveryReceipts = new Set<string>();
-    const legacyDeliveryMessageIds = new Map<string, string>();
-    const modelSettingsEntries: SessionModelSettingsEntry[] = [];
-    const agentWearEntries: SessionAgentWearEntry[] = [];
-    const permissionsEntries: SessionPermissionsEntry[] = [];
-    const harnessMessageEntries: SessionHarnessMessageEntry[] = [];
-    const nameEntries: SessionNameEntry[] = [];
-    const permissionGrantEntries: SessionPermissionGrantsEntry[] = [];
-    const permissionGrantRevocationEntries:
-        SessionPermissionGrantRevocationEntry[] = [];
-    const attachmentEntries: SessionAttachmentEntry[] = [];
-    const compactionEntries: SessionCompactionEntry[] = [];
-    let agentFailure: SessionAgentFailureEntry | undefined;
-    const knownMessageIds = new Set<string>();
-    const knownDeliveryIds = new Set<string>();
-    const knownAttachmentIds = new Set<string>();
-    let leafId: string | null = null;
+/**
+ * Accumulated projection state for one session file, less the header.
+ *
+ * Every cross-record check in `ingestSessionRecord` reads from here rather than
+ * from a closure, so the same function can fold a whole file or absorb one
+ * record at a time.
+ */
+export interface SessionProjectionState {
+    readonly messageEntries: SessionMessageEntry[];
+    readonly deliveryEntries: SessionDeliveryEntry[];
+    readonly deliveryReceipts: Set<string>;
+    readonly legacyDeliveryMessageIds: Map<string, string>;
+    readonly modelSettingsEntries: SessionModelSettingsEntry[];
+    readonly agentWearEntries: SessionAgentWearEntry[];
+    readonly permissionsEntries: SessionPermissionsEntry[];
+    readonly harnessMessageEntries: SessionHarnessMessageEntry[];
+    readonly nameEntries: SessionNameEntry[];
+    readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
+    readonly permissionGrantRevocationEntries:
+        SessionPermissionGrantRevocationEntry[];
+    readonly attachmentEntries: SessionAttachmentEntry[];
+    readonly compactionEntries: SessionCompactionEntry[];
+    readonly knownMessageIds: Set<string>;
+    readonly knownDeliveryIds: Set<string>;
+    readonly knownAttachmentIds: Set<string>;
+    agentFailure: SessionAgentFailureEntry | undefined;
+    leafId: string | null;
+}
 
-    for (let index = 1; index < lines.length; index += 1) {
-        const lineNumber = index + 1;
-        const value = parseJsonObject(path, lineNumber, lines[index]);
-        if (agentFailure !== undefined) {
-            if (value.type === "agent_failure") {
-                const duplicate = parseAgentFailureEntry(
-                    path,
-                    lineNumber,
-                    value,
-                );
-                if (
-                    duplicate.id === agentFailure.id
-                    && duplicate.detail === agentFailure.detail
-                ) {
-                    continue;
-                }
-            }
-            throw invalidSession(
-                path,
-                `line ${lineNumber} follows the terminal agent failure`,
-            );
-        }
-        if (value.type === "message") {
-            const entry = parseMessageEntry(path, lineNumber, value);
-            for (const attachmentId of messageAttachmentIds(entry.message)) {
-                if (!knownAttachmentIds.has(attachmentId)) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} references missing attachment ${attachmentId}`,
-                    );
-                }
-            }
-            if (knownMessageIds.has(entry.id)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats entry ID ${entry.id}`,
-                );
-            }
-            if (
-                entry.parentId !== null
-                && !knownMessageIds.has(entry.parentId)
-            ) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} references missing parent ${entry.parentId}`,
-                );
-            }
-            if (entry.parentId !== leafId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} does not extend the active head`,
-                );
-            }
-            if (entry.deliveryId !== undefined) {
-                if (!knownDeliveryIds.has(entry.deliveryId)) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} references missing delivery ${entry.deliveryId}`,
-                    );
-                }
-                if (
-                    entry.message.role !== "user"
-                    || entry.message.internal !== true
-                ) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} has a non-internal delivery message`,
-                    );
-                }
-                if (
-                    activeBranchEntries(messageEntries, leafId).some(
-                        (candidate) =>
-                            candidate.deliveryId === entry.deliveryId,
-                    )
-                ) {
-                    throw invalidSession(
-                        path,
-                        `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
-                    );
-                }
-            }
-            knownMessageIds.add(entry.id);
-            messageEntries.push(entry);
-            leafId = entry.id;
-            continue;
-        }
-        if (value.type === "delivery") {
-            const entry = parseDeliveryEntry(path, lineNumber, value);
-            if (knownDeliveryIds.has(entry.id)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats delivery ID ${entry.id}`,
-                );
-            }
-            knownDeliveryIds.add(entry.id);
-            deliveryEntries.push(entry);
-            continue;
-        }
-        if (value.type === "delivery_receipt") {
-            const receipt = parseDeliveryReceipt(path, lineNumber, value);
-            if (!knownDeliveryIds.has(receipt.deliveryId)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} references missing delivery ${receipt.deliveryId}`,
-                );
-            }
-            if (deliveryReceipts.has(receipt.deliveryId)) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats delivery receipt ${receipt.deliveryId}`,
-                );
-            }
-            deliveryReceipts.add(receipt.deliveryId);
-            const activeHead = leafId === null
-                ? undefined
-                : messageEntries.find((entry) => entry.id === leafId);
-            if (
-                activeHead !== undefined
-                && activeHead.deliveryId === undefined
-                && activeHead.message.role === "user"
-                && activeHead.message.internal === true
-            ) {
-                legacyDeliveryMessageIds.set(
-                    receipt.deliveryId,
-                    activeHead.id,
-                );
-            }
-            continue;
-        }
-        if (value.type === "model_settings") {
-            modelSettingsEntries.push(
-                parseModelSettingsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "agent_wear") {
-            agentWearEntries.push(
-                parseAgentWearEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "permissions") {
-            permissionsEntries.push(
-                parsePermissionsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "harness_message") {
-            harnessMessageEntries.push(
-                parseHarnessMessageEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "session_name") {
-            nameEntries.push(
-                parseSessionNameEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "command_prefix") {
-            parseLegacyCommandPrefixEntry(path, lineNumber, value);
-            continue;
-        }
-        if (value.type === "permission_grants") {
-            permissionGrantEntries.push(
-                parsePermissionGrantsEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "permission_grant_revocation") {
-            permissionGrantRevocationEntries.push(
-                parsePermissionGrantRevocationEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "attachment") {
-            const entry = parseAttachmentEntry(path, lineNumber, value);
-            if (knownAttachmentIds.has(entry.attachment.id)) {
-                const existing = attachmentEntries.find(
-                    (candidate) => candidate.attachment.id === entry.attachment.id,
-                );
-                if (
-                    existing !== undefined
-                    && sameAttachmentContent(existing.attachment, entry.attachment)
-                ) {
-                    continue;
-                }
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
-                );
-            }
-            knownAttachmentIds.add(entry.attachment.id);
-            attachmentEntries.push(entry);
-            continue;
-        }
-        if (value.type === "agent_failure") {
-            agentFailure = parseAgentFailureEntry(path, lineNumber, value);
-            continue;
-        }
-        if (value.type === "rewind") {
-            const rewind = parseRewindEntry(path, lineNumber, value);
-            if (rewind.previousHeadId !== leafId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
-                );
-            }
-            const boundary: SessionMessageEntry | undefined =
-                activeBranchEntries(messageEntries, leafId).find(
-                    (entry) => entry.id === rewind.userMessageId,
-                );
-            if (
-                boundary === undefined
-                || boundary.message.role !== "user"
-                || boundary.message.internal === true
-            ) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`,
-                );
-            }
-            if (rewind.headId !== boundary.parentId) {
-                throw invalidSession(
-                    path,
-                    `line ${lineNumber} has the wrong rewind target`,
-                );
-            }
-            leafId = rewind.headId;
-            continue;
-        }
-        if (value.type === "compaction") {
-            compactionEntries.push(
-                parseCompactionEntry(path, lineNumber, value),
-            );
-            continue;
-        }
-        if (value.type === "checkpoint") {
-            parseRemovedFileCheckpointEntry(path, lineNumber, value);
-            continue;
-        }
-        throw invalidSession(
-            path,
-            `line ${lineNumber} is not a valid session entry`,
-        );
-    }
-
+export function createSessionProjectionState(): SessionProjectionState {
     return {
-        header,
+        messageEntries: [],
+        deliveryEntries: [],
+        deliveryReceipts: new Set(),
+        legacyDeliveryMessageIds: new Map(),
+        modelSettingsEntries: [],
+        agentWearEntries: [],
+        permissionsEntries: [],
+        harnessMessageEntries: [],
+        nameEntries: [],
+        permissionGrantEntries: [],
+        permissionGrantRevocationEntries: [],
+        attachmentEntries: [],
+        compactionEntries: [],
+        knownMessageIds: new Set(),
+        knownDeliveryIds: new Set(),
+        knownAttachmentIds: new Set(),
+        agentFailure: undefined,
+        leafId: null,
+    };
+}
+
+/**
+ * Folds one already-parsed JSON record into `state`.
+ *
+ * `path` and `lineNumber` only name the record in rejection messages; a record
+ * that does not belong in the file throws rather than being skipped, so a
+ * caller that survives the call has a state matching every record so far.
+ */
+export function ingestSessionRecord(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+    state: SessionProjectionState,
+): void {
+    const {
         messageEntries,
         deliveryEntries,
         deliveryReceipts,
@@ -1682,9 +1521,270 @@ function parseSessionFile(path: string, source: string): LoadedSessionFile {
         permissionGrantRevocationEntries,
         attachmentEntries,
         compactionEntries,
-        agentFailure,
-        leafId,
-    };
+        knownMessageIds,
+        knownDeliveryIds,
+        knownAttachmentIds,
+    } = state;
+    if (state.agentFailure !== undefined) {
+        if (value.type === "agent_failure") {
+            const duplicate = parseAgentFailureEntry(
+                path,
+                lineNumber,
+                value,
+            );
+            if (
+                duplicate.id === state.agentFailure.id
+                && duplicate.detail === state.agentFailure.detail
+            ) {
+                return;
+            }
+        }
+        throw invalidSession(
+            path,
+            `line ${lineNumber} follows the terminal agent failure`,
+        );
+    }
+    if (value.type === "message") {
+        const entry = parseMessageEntry(path, lineNumber, value);
+        for (const attachmentId of messageAttachmentIds(entry.message)) {
+            if (!knownAttachmentIds.has(attachmentId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing attachment ${attachmentId}`,
+                );
+            }
+        }
+        if (knownMessageIds.has(entry.id)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats entry ID ${entry.id}`,
+            );
+        }
+        if (
+            entry.parentId !== null
+            && !knownMessageIds.has(entry.parentId)
+        ) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} references missing parent ${entry.parentId}`,
+            );
+        }
+        if (entry.parentId !== state.leafId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} does not extend the active head`,
+            );
+        }
+        if (entry.deliveryId !== undefined) {
+            if (!knownDeliveryIds.has(entry.deliveryId)) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} references missing delivery ${entry.deliveryId}`,
+                );
+            }
+            if (
+                entry.message.role !== "user"
+                || entry.message.internal !== true
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} has a non-internal delivery message`,
+                );
+            }
+            if (
+                activeBranchEntries(messageEntries, state.leafId).some(
+                    (candidate) =>
+                        candidate.deliveryId === entry.deliveryId,
+                )
+            ) {
+                throw invalidSession(
+                    path,
+                    `line ${lineNumber} repeats active delivery ${entry.deliveryId}`,
+                );
+            }
+        }
+        knownMessageIds.add(entry.id);
+        messageEntries.push(entry);
+        state.leafId = entry.id;
+        return;
+    }
+    if (value.type === "delivery") {
+        const entry = parseDeliveryEntry(path, lineNumber, value);
+        if (knownDeliveryIds.has(entry.id)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats delivery ID ${entry.id}`,
+            );
+        }
+        knownDeliveryIds.add(entry.id);
+        deliveryEntries.push(entry);
+        return;
+    }
+    if (value.type === "delivery_receipt") {
+        const receipt = parseDeliveryReceipt(path, lineNumber, value);
+        if (!knownDeliveryIds.has(receipt.deliveryId)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} references missing delivery ${receipt.deliveryId}`,
+            );
+        }
+        if (deliveryReceipts.has(receipt.deliveryId)) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats delivery receipt ${receipt.deliveryId}`,
+            );
+        }
+        deliveryReceipts.add(receipt.deliveryId);
+        const activeHead = state.leafId === null
+            ? undefined
+            : messageEntries.find((entry) => entry.id === state.leafId);
+        if (
+            activeHead !== undefined
+            && activeHead.deliveryId === undefined
+            && activeHead.message.role === "user"
+            && activeHead.message.internal === true
+        ) {
+            legacyDeliveryMessageIds.set(
+                receipt.deliveryId,
+                activeHead.id,
+            );
+        }
+        return;
+    }
+    if (value.type === "model_settings") {
+        modelSettingsEntries.push(
+            parseModelSettingsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "agent_wear") {
+        agentWearEntries.push(
+            parseAgentWearEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "permissions") {
+        permissionsEntries.push(
+            parsePermissionsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "harness_message") {
+        harnessMessageEntries.push(
+            parseHarnessMessageEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "session_name") {
+        nameEntries.push(
+            parseSessionNameEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "command_prefix") {
+        parseLegacyCommandPrefixEntry(path, lineNumber, value);
+        return;
+    }
+    if (value.type === "permission_grants") {
+        permissionGrantEntries.push(
+            parsePermissionGrantsEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "permission_grant_revocation") {
+        permissionGrantRevocationEntries.push(
+            parsePermissionGrantRevocationEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "attachment") {
+        const entry = parseAttachmentEntry(path, lineNumber, value);
+        if (knownAttachmentIds.has(entry.attachment.id)) {
+            const existing = attachmentEntries.find(
+                (candidate) => candidate.attachment.id === entry.attachment.id,
+            );
+            if (
+                existing !== undefined
+                && sameAttachmentContent(existing.attachment, entry.attachment)
+            ) {
+                return;
+            }
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats attachment ID ${entry.attachment.id}`,
+            );
+        }
+        knownAttachmentIds.add(entry.attachment.id);
+        attachmentEntries.push(entry);
+        return;
+    }
+    if (value.type === "agent_failure") {
+        state.agentFailure = parseAgentFailureEntry(path, lineNumber, value);
+        return;
+    }
+    if (value.type === "rewind") {
+        const rewind = parseRewindEntry(path, lineNumber, value);
+        if (rewind.previousHeadId !== state.leafId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} rewinds from inactive head ${rewind.previousHeadId}`,
+            );
+        }
+        const boundary: SessionMessageEntry | undefined =
+            activeBranchEntries(messageEntries, state.leafId).find(
+                (entry) => entry.id === rewind.userMessageId,
+            );
+        if (
+            boundary === undefined
+            || boundary.message.role !== "user"
+            || boundary.message.internal === true
+        ) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} does not reference an active user message ${rewind.userMessageId}`,
+            );
+        }
+        if (rewind.headId !== boundary.parentId) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} has the wrong rewind target`,
+            );
+        }
+        state.leafId = rewind.headId;
+        return;
+    }
+    if (value.type === "compaction") {
+        compactionEntries.push(
+            parseCompactionEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "checkpoint") {
+        parseRemovedFileCheckpointEntry(path, lineNumber, value);
+        return;
+    }
+    throw invalidSession(
+        path,
+        `line ${lineNumber} is not a valid session entry`,
+    );
+}
+
+function parseSessionFile(path: string, source: string): ParsedSessionFile {
+    const lines = source.slice(0, -1).split("\n");
+    const header = parseHeader(path, lines[0]);
+    const state = createSessionProjectionState();
+
+    for (let index = 1; index < lines.length; index += 1) {
+        const lineNumber = index + 1;
+        ingestSessionRecord(
+            path,
+            lineNumber,
+            parseJsonObject(path, lineNumber, lines[index]),
+            state,
+        );
+    }
+
+    return { header, state, lineCount: lines.length };
 }
 
 function parseHarnessMessageEntry(
@@ -1819,7 +1919,13 @@ function sameAttachmentContent(
 }
 
 function parseHeader(path: string, line: string | undefined): SessionHeader {
-    const value = parseJsonObject(path, 1, line);
+    return parseHeaderRecord(path, parseJsonObject(path, 1, line));
+}
+
+export function parseHeaderRecord(
+    path: string,
+    value: Record<string, unknown>,
+): SessionHeader {
     if (
         value.type !== "session"
         || value.version !== SESSION_FORMAT_VERSION

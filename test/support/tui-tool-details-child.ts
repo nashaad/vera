@@ -66,6 +66,7 @@ export function createTuiToolDetailsDependencies(): TuiDependencies {
         "test",
         "off",
         { approvalMode: "ask" },
+        {},
     );
     const client: TuiAgentClient = {
         async send(command): Promise<void> {

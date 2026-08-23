@@ -15,6 +15,7 @@ import {
     type CliRenderer,
     type Renderable,
     type Selection,
+    type MouseEvent,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
@@ -221,6 +222,7 @@ import {
     type TuiDiagnosticsScope,
     type TuiDiagnosticsSnapshot,
 } from "./diagnostics.ts";
+import { readProcessMemory } from "./process-memory.ts";
 import {
     createTuiDiagnosticsDialogView,
     handleTuiDiagnosticsDialogKey,
@@ -274,6 +276,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
     tuiArgumentCompletion,
@@ -334,6 +337,7 @@ import {
 } from "./work-tab.ts";
 import {
     applyWorkspaceWorkIndex,
+    clampWorkspaceRailColumns,
     handleWorkspaceSidebarKey,
     openWorkspaceSelection,
     refreshWorkspaceSidebarSessions,
@@ -579,9 +583,13 @@ import {
     loadTuiPinnedSessionIds,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
+    loadTuiWorkspaceSidebarDocked,
+    loadTuiWorkspaceSidebarWidth,
     saveTuiPinnedSessionIds,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
+    saveTuiWorkspaceSidebarDocked,
+    saveTuiWorkspaceSidebarWidth,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
@@ -1278,19 +1286,24 @@ export async function startTui(
     let commandPalette: TuiCommandPaletteState | undefined;
     let workTab: WorkTabState | undefined;
     /**
-     * The workspace side bar, open or not.
+     * The workspace side bar, mounted or not.
      *
-     * A pane rather than an overlay: it takes focus and claims bare keys, and
-     * every chord passes through it, which is what lets ctrl+e close what
-     * ctrl+e opened.
+     * A dock rather than an overlay: it remains beside the conversation while
+     * the composer is active. Only its focused state claims bare keys; chords
+     * pass through so ctrl+e can focus or remove the dock.
      */
     let workspaceSidebar: WorkspaceSidebarState | undefined;
+    /** A dock can remain visible while typing; only focused docks claim keys. */
+    let workspaceSidebarFocused = false;
+    let workspaceSidebarDocked = loadTuiWorkspaceSidebarDocked();
+    let workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
     /**
      * The row columns the side bar is currently drawn as a rail in, or nothing
      * while it is closed or drawn as a card. Held so the transcript beside it
      * is only reflowed when the layout actually changes.
      */
     let workspaceRail: number | undefined;
+    let workspaceRailDragging = false;
     /** Client state. A pin orders one person's list and never reaches a host. */
     let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
@@ -1335,6 +1348,9 @@ export async function startTui(
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let diagnosticsScope: TuiDiagnosticsScope = "session";
     let diagnosticsSessionPath: string | undefined;
+    let diagnosticsWorkerPid: number | undefined;
+    let diagnosticsSupervisorPid: number | undefined;
+    let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
     let diagnosticsSessionPathResolved = false;
     let diagnosticsGeneration = 0;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
@@ -1462,7 +1478,8 @@ export async function startTui(
     let extensionCommandActivity: string | undefined;
     let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
-        dependencies.client.listExtensionCommands !== undefined;
+        dependencies.client.listExtensionCommands !== undefined
+        && dependencies.client.failed !== true;
     let runningBackgroundAgents = 0;
     let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
@@ -2312,6 +2329,7 @@ export async function startTui(
     const workspaceSidebarView = createTuiLinesView(
         renderer,
         "workspace-sidebar",
+        { panelBackground: false, railDivider: true },
     );
     const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
@@ -2438,6 +2456,7 @@ export async function startTui(
     function setComposerMargin(rows: number): void {
         composerMarginRows = rows;
         composerBox.marginBottom = rows;
+        workspaceSidebarView.setBottomInset(composerBox.height + rows);
         positionCommandSuggestions();
     }
 
@@ -2492,6 +2511,9 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
+    workspaceSidebarView.setBottomInset(
+        composerBox.height + composerMarginRows,
+    );
     // The attention chip at the head of the status row is a click target,
     // and it does what its label says: the hint reads /work, so the click
     // opens the work tab. Width zero means no chip is on screen.
@@ -2518,6 +2540,9 @@ export async function startTui(
         composerTextRows = nextRows;
         composer.height = nextRows;
         composerBox.height = tuiComposerPanelRows(nextRows);
+        workspaceSidebarView.setBottomInset(
+            composerBox.height + composerMarginRows,
+        );
         positionCommandSuggestions();
         renderer.requestRender();
     }
@@ -2543,9 +2568,28 @@ export async function startTui(
         backgroundColor: theme.background,
         paddingTop: APP_PADDING_TOP,
         paddingBottom: APP_PADDING_BOTTOM,
-        onMouseDrag: () => bodyFocus.noteDrag(),
+        onMouseDrag: (event: MouseEvent) => {
+            bodyFocus.noteDrag();
+            if (!workspaceRailDragging) return;
+            event.preventDefault();
+            event.stopPropagation();
+            resizeWorkspaceRailAt(event.x);
+        },
         onMouseDragEnd: () => bodyFocus.noteDrag(),
-        onMouseUp: () => {
+        onMouseUp: (event: MouseEvent) => {
+            if (workspaceRailDragging) {
+                workspaceRailDragging = false;
+                workspaceSidebarView.box.borderColor = theme.element;
+                event.stopPropagation();
+                if (workspaceRailPreferred !== undefined) {
+                    try {
+                        saveTuiWorkspaceSidebarWidth(workspaceRailPreferred);
+                    } catch {
+                        // The rail keeps the width reached in this session.
+                    }
+                }
+                return;
+            }
             if (bodyFocus.release(anyOverlayOpen())) {
                 composer.focus();
             }
@@ -3579,6 +3623,17 @@ export async function startTui(
             if (action !== undefined) runWorkspaceSidebarAction(action);
         },
     };
+    workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
+        const occupied = workspaceSidebarView.railColumns();
+        if (
+            occupied === undefined
+            || event.x !== occupied - 1
+        ) return;
+        event.preventDefault();
+        event.stopPropagation();
+        workspaceRailDragging = true;
+        workspaceSidebarView.box.borderColor = theme.accent;
+    };
     searchOverlayView.pointer = {
         hover: (rowId) => {
             const selected = searchSelectionOf(rowId);
@@ -4375,7 +4430,7 @@ export async function startTui(
             }
         }
 
-        if (workspaceSidebar !== undefined) {
+        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
             const open = workspaceSidebar;
             const transition = handleWorkspaceSidebarKey(
                 open,
@@ -4386,7 +4441,7 @@ export async function startTui(
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                workspaceSidebar = transition.state;
+                workspaceSidebar = transition.state ?? open;
                 if (transition.action !== undefined) {
                     runWorkspaceSidebarAction(transition.action);
                 } else {
@@ -4835,7 +4890,14 @@ export async function startTui(
             if (workspaceSidebar !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
-                closeWorkspaceSidebar();
+                if (workspaceSidebarFocused) {
+                    closeWorkspaceSidebar();
+                } else {
+                    workspaceSidebarFocused = true;
+                    composer.blur();
+                    renderState();
+                    focusActiveSurface();
+                }
                 return;
             }
             if (!anyOverlayOpen()) {
@@ -5123,9 +5185,14 @@ export async function startTui(
     }
 
     void receiveAgentUpdates();
-    void loadExtensionCommands();
-    requestSessionSettings();
+    if (client.failed !== true) {
+        void loadExtensionCommands();
+        requestSessionSettings();
+    }
     void restorePersistedAgentPane();
+    if (workspaceSidebarDocked) {
+        openWorkspaceSidebar({ focus: false, persist: false });
+    }
 
     async function restorePersistedAgentPane(): Promise<void> {
         const mainAgentId = client.agentId;
@@ -5176,6 +5243,23 @@ export async function startTui(
             sessionId: client.agentId,
             workspace: client.workspace ?? process.cwd(),
             runningBackgroundAgents,
+            processes: [
+                { role: "client" as const, pid: process.pid },
+                ...(dependencies.build?.hostPid === undefined
+                    ? []
+                    : [{ role: "host" as const, pid: dependencies.build.hostPid }]),
+                ...(diagnosticsWorkerPid === undefined
+                    ? []
+                    : [{ role: "worker" as const, pid: diagnosticsWorkerPid }]),
+                ...(diagnosticsSupervisorPid === undefined
+                    ? []
+                    : [{ role: "supervisor" as const, pid: diagnosticsSupervisorPid }]),
+            ].map((entry) => ({
+                ...entry,
+                ...(diagnosticsProcessMemory.get(entry.pid) === undefined
+                    ? {}
+                    : { rssBytes: diagnosticsProcessMemory.get(entry.pid) }),
+            })),
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
             modelFailures: summariseModelFailures(readModelFailures()),
@@ -5561,6 +5645,9 @@ export async function startTui(
             renderCommandSuggestions();
             diagnosticsScope = "session";
             diagnosticsSessionPath = undefined;
+            diagnosticsWorkerPid = undefined;
+            diagnosticsSupervisorPid = undefined;
+            diagnosticsProcessMemory = new Map();
             const generation = ++diagnosticsGeneration;
             const agentId = client.agentId;
             const resolvingSessionPath = agentId !== undefined
@@ -5576,19 +5663,33 @@ export async function startTui(
             renderState();
             focusActiveSurface();
             if (agentId !== undefined && dependencies.listAgents !== undefined) {
-                void dependencies.listAgents().then((agents) => {
-                    const sessionPath = agents.find((agent) =>
-                        agent.id === agentId
-                    )?.session_path;
+                void dependencies.listAgents().then(async (agents) => {
+                    const listed = agents.find((agent) => agent.id === agentId);
+                    const sessionPath = listed?.session_path;
                     if (
                         diagnosticsDialog === undefined
                         || diagnosticsGeneration !== generation
                         || client.agentId !== agentId
                     ) return;
                     diagnosticsSessionPathResolved = true;
+                    diagnosticsWorkerPid = listed?.worker_pid;
+                    diagnosticsSupervisorPid = listed?.supervisor_pid;
+                    const processPids = [
+                        process.pid,
+                        dependencies.build?.hostPid,
+                        diagnosticsWorkerPid,
+                        diagnosticsSupervisorPid,
+                    ].filter((pid): pid is number => pid !== undefined);
+                    diagnosticsProcessMemory = await readProcessMemory(processPids);
+                    if (
+                        diagnosticsDialog === undefined
+                        || diagnosticsGeneration !== generation
+                        || client.agentId !== agentId
+                    ) return;
                     if (sessionPath === undefined) {
                         diagnosticsDialog = {
-                            ...diagnosticsDialog,
+                            text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                            scope: diagnosticsScope,
                             copyReady: true,
                         };
                         renderState();
@@ -7320,7 +7421,10 @@ export async function startTui(
                         new Error(update.detail),
                     );
                     focusActiveSurface();
-                    return;
+                    // The agent stream is terminal, but the attachment also
+                    // carries host lifecycle. Keep listening so `host stop`
+                    // becomes the ordinary recoverable disconnected state.
+                    continue;
                 }
 
                 if (
@@ -7634,7 +7738,7 @@ export async function startTui(
             renderCommandSuggestions();
             renderState();
         } catch (error) {
-            if (shuttingDown) {
+            if (shuttingDown || generation !== extensionCommandsGeneration) {
                 return;
             }
             const message = error instanceof Error
@@ -7688,7 +7792,7 @@ export async function startTui(
         if (workTab !== undefined) {
             return () => workTabView.box.focus();
         }
-        if (workspaceSidebar !== undefined) {
+        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
             return () => workspaceSidebarView.box.focus();
         }
         if (searchOverlay !== undefined) {
@@ -8721,10 +8825,14 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && settingsPicker === undefined
+            && (
+                settingsPicker === undefined
+                || workspaceStaysBesideSettingsPicker(settingsPicker)
+            )
             && commandPalette === undefined
             && workTab === undefined
-            && workspaceSidebar !== undefined;
+            && workspaceSidebar !== undefined
+            && (workspaceRail !== undefined || workspaceSidebarFocused);
         searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -8858,6 +8966,7 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+            fitSettingsPickerBesideWorkspace(settingsPicker);
         }
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
@@ -8883,6 +8992,10 @@ export async function startTui(
             workspaceSidebarView.update(workspaceSidebarViewState(
                 workspaceSidebar,
                 renderer.width,
+                new Date(),
+                workspaceRail,
+                workspaceSidebarFocused,
+                activityFrame(),
             ));
         }
         if (searchOverlay !== undefined) {
@@ -8981,6 +9094,10 @@ export async function startTui(
             workspaceSidebarView.update(workspaceSidebarViewState(
                 workspaceSidebar,
                 renderer.width,
+                new Date(),
+                workspaceRail,
+                workspaceSidebarFocused,
+                activityFrame(),
             ));
         }
         if (searchOverlay !== undefined) {
@@ -10347,7 +10464,9 @@ export async function startTui(
      * The roster is read once here. Status after that arrives on the work
      * index the host pushes on every roster transition, so nothing polls.
      */
-    function openWorkspaceSidebar(): void {
+    function openWorkspaceSidebar(
+        options: { readonly focus?: boolean; readonly persist?: boolean } = {},
+    ): void {
         if (dependencies.listAgents === undefined) {
             state = appendTuiError(
                 state,
@@ -10358,6 +10477,15 @@ export async function startTui(
             return;
         }
         const generation = clientGeneration;
+        const focus = options.focus !== false;
+        if (options.persist !== false) {
+            workspaceSidebarDocked = true;
+            try {
+                saveTuiWorkspaceSidebarDocked(true);
+            } catch {
+                // A preference write cannot stop the rail opening now.
+            }
+        }
         void dependencies.listAgents().then((agents) => {
             if (shuttingDown || generation !== clientGeneration) return;
             const sessions = workspaceSidebarSessions(agents);
@@ -10369,7 +10497,8 @@ export async function startTui(
             workspaceSidebar = workIndex === undefined
                 ? opened
                 : applyWorkspaceWorkIndex(opened, workIndex);
-            composer.blur();
+            workspaceSidebarFocused = focus;
+            if (focus) composer.blur();
             renderState();
             focusActiveSurface();
         }).catch((error) => {
@@ -10413,9 +10542,9 @@ export async function startTui(
     }
 
     /**
-     * Where the listing is drawn: a column down the left edge with the
-     * transcript beside it, or a card over the transcript when the terminal is
-     * too narrow to hold both.
+     * Where the listing is drawn: a full-height column down the left edge with
+     * the whole chat surface beside it, or a card when the terminal is too
+     * narrow to hold both.
      *
      * The transcript reflows into what the rail leaves it, so the rows it had
      * are not the rows it has. The reader's place is captured before the width
@@ -10425,21 +10554,89 @@ export async function startTui(
     function applyWorkspaceRail(): void {
         const columns = workspaceSidebar === undefined
             ? undefined
-            : workspaceRailColumns(renderer.width);
-        if (columns === workspaceRail) return;
-        workspaceRail = columns;
-        if (transcriptFollowsBottom()) {
-            pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
-        } else {
-            captureTranscriptScrollAnchor();
+            : workspaceRailColumns(renderer.width, workspaceRailPreferred);
+        if (columns !== workspaceRail) {
+            workspaceRail = columns;
+            if (transcriptFollowsBottom()) {
+                pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+            } else {
+                captureTranscriptScrollAnchor();
+            }
+            workspaceSidebarView.setRail(columns);
         }
-        workspaceSidebarView.setRail(columns);
-        sidebar.body.paddingLeft = workspaceSidebarView.railColumns() ?? 0;
+        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        // The navigator owns a full-height column like an editor sidebar.
+        // Reserving that width on the app moves the transcript, composer,
+        // status rows and dialogs together; nothing from the chat can run
+        // underneath the dock.
+        app.paddingLeft = occupied;
+        workspaceSidebarView.surface.left = 0;
+        const pickerBesideRail = columns !== undefined
+            && settingsPicker !== undefined
+            && workspaceStaysBesideSettingsPicker(settingsPicker);
+        overlayScrim.left = pickerBesideRail ? occupied : 0;
+        overlayScrim.width = pickerBesideRail
+            ? Math.max(0, renderer.width - occupied)
+            : renderer.width;
+        statusBand.left = occupied;
+        statusBand.width = Math.max(0, renderer.width - occupied);
+        commandSuggestionsBox.left = occupied;
+        jumpMenuBox.left = occupied
+            + tuiComposerOverlayInset(appearance).paddingLeft;
+        sidebar.body.paddingLeft = 0;
         sidebar.refit();
+    }
+
+    function resizeWorkspaceRailAt(pointerColumn: number): void {
+        if (workspaceRail === undefined) return;
+        const occupied = workspaceSidebarView.railColumns();
+        if (occupied === undefined) return;
+        const inset = occupied - workspaceRail;
+        const next = clampWorkspaceRailColumns(
+            pointerColumn + 1 - inset,
+            renderer.width,
+        );
+        if (next === undefined || next === workspaceRail) return;
+        workspaceRailPreferred = next;
+        renderState();
+    }
+
+    function workspaceStaysBesideSettingsPicker(
+        picker: TuiAnySettingsPickerState,
+    ): boolean {
+        if (picker.kind === "extension") return false;
+        return picker.kind === "model"
+            || picker.parent?.kind === "model"
+            || picker.pendingModel !== undefined;
+    }
+
+    function fitSettingsPickerBesideWorkspace(
+        picker: TuiAnySettingsPickerState,
+    ): void {
+        if (
+            workspaceRail === undefined
+            || !workspaceStaysBesideSettingsPicker(picker)
+        ) return;
+        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        const chatColumns = Math.max(0, renderer.width - occupied);
+        settingsPickerView.box.left = occupied + Math.floor(chatColumns * 0.1);
+        settingsPickerView.box.width = Math.max(
+            20,
+            Math.floor(chatColumns * 0.8),
+        );
     }
 
     function closeWorkspaceSidebar(): void {
         workspaceSidebar = undefined;
+        workspaceSidebarFocused = false;
+        workspaceSidebarDocked = false;
+        workspaceRailDragging = false;
+        workspaceSidebarView.box.borderColor = theme.element;
+        try {
+            saveTuiWorkspaceSidebarDocked(false);
+        } catch {
+            // The current layout still closes when persistence cannot update.
+        }
         workspaceSidebarView.surface.visible = false;
         composer.focus();
         renderState();
@@ -10448,7 +10645,10 @@ export async function startTui(
 
     function runWorkspaceSidebarAction(action: WorkspaceSidebarAction): void {
         if (action.kind === "close") {
-            closeWorkspaceSidebar();
+            workspaceSidebarFocused = false;
+            composer.focus();
+            renderState();
+            focusActiveSurface();
             return;
         }
         if (action.kind === "pin") {
@@ -10462,7 +10662,9 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        closeWorkspaceSidebar();
+        workspaceSidebarFocused = false;
+        composer.focus();
+        renderState();
         beginSessionResume(action.session_path, action.session_id);
     }
 
@@ -11165,6 +11367,14 @@ export async function startTui(
             new Error("The conversation changed"),
         );
         client = next;
+        if (workspaceSidebar !== undefined && next.agentId !== undefined) {
+            workspaceSidebar = {
+                ...workspaceSidebar,
+                currentId: next.agentId,
+                selectedId: next.agentId,
+            };
+            refreshWorkspaceSidebarRoster();
+        }
         if (next.agentId !== undefined) {
             flightRecorder?.sessionEntered(next.agentId);
         }
@@ -11237,7 +11447,8 @@ export async function startTui(
         disposeHostExtensionCommands();
         disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
-        extensionCommandsLoading = next.listExtensionCommands !== undefined;
+        extensionCommandsLoading = next.listExtensionCommands !== undefined
+            && next.failed !== true;
         watchBackgroundAgents(next);
         watchWorkIndex(next);
         sessionTitle = undefined;
@@ -11259,9 +11470,11 @@ export async function startTui(
         focusActiveSurface();
         renderCommandSuggestions();
         renderState();
-        void loadExtensionCommands();
         void receiveAgentUpdates();
-        requestSessionSettings();
+        if (next.failed !== true) {
+            void loadExtensionCommands();
+            requestSessionSettings();
+        }
     }
 
     /**
@@ -11939,6 +12152,8 @@ export async function startTui(
         composerStatusText.fg = theme.muted;
         composerRule.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
+        workspaceSidebarView.box.borderColor = theme.element;
+        workspaceSidebarView.box.focusedBorderColor = theme.element;
         composer.backgroundColor = theme.input ?? theme.background;
         composer.focusedBackgroundColor = theme.input ?? theme.background;
         composer.textColor = theme.text;
@@ -12120,10 +12335,14 @@ export async function startTui(
             visible,
             selected < 0 ? -1 : selected - window.start,
             // Less the box's own margin and padding, or the last word of a
-            // just-too-long row wraps anyway.
-            renderer.width > composerHorizontalInset
-                ? renderer.width - composerHorizontalInset
-                : undefined,
+            // just-too-long row wraps anyway. The renderer reports the whole
+            // terminal even when the workspace rail has reserved its left
+            // side, so the rail has to come out of the same budget.
+            tuiCommandSuggestionWidth(
+                renderer.width,
+                composerHorizontalInset,
+                workspaceSidebarView.railColumns() ?? 0,
+            ),
             window.hidden,
             grouped,
         );

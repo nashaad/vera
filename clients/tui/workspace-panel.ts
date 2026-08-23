@@ -143,6 +143,10 @@ export interface WorkspacePanelInput {
     readonly sessions: readonly WorkspaceSession[];
     readonly columns: number;
     readonly now: Date;
+    /** Override the row's content budget for a user-resized rail. */
+    readonly contentColumns?: number;
+    /** Override the breakpoint's age policy for a user-resized rail. */
+    readonly showAge?: boolean;
     /** Kept when it still names a listed session, replaced when it does not. */
     readonly selectedId?: string;
     /** Session ids the reader pinned. Client state; never sent anywhere. */
@@ -182,6 +186,8 @@ export function layoutWorkspacePanel(
     input: WorkspacePanelInput,
 ): WorkspacePanelLayout {
     const width = workspacePanelWidth(input.columns);
+    const contentColumns = input.contentColumns ?? CONTENT_COLUMNS[width];
+    const showAge = input.showAge ?? width !== "medium";
     const listed = input.sessions.filter(isSwitchableSession);
     const groups = groupSessions(listed, new Set(input.pinnedIds ?? []));
     const selectable = groups.flatMap((group) =>
@@ -194,10 +200,11 @@ export function layoutWorkspacePanel(
     );
     const rows: WorkspaceRow[] = [];
     for (const group of groups) {
-        rows.push(groupRow(group, width));
+        rows.push(groupRow(group, contentColumns));
         for (const session of group.sessions) {
             rows.push(sessionRow(session, group.group, {
-                width,
+                contentColumns,
+                showAge,
                 now: input.now,
                 selected: session.id === selectedId,
             }));
@@ -335,14 +342,14 @@ function nearestSurvivor(
 
 function groupRow(
     group: SessionGroup,
-    width: WorkspacePanelWidth,
+    contentColumns: number,
 ): WorkspaceGroupRow {
     const label = group.group === BACKGROUND_GROUP
             || group.group === PINNED_GROUP
         ? group.group
         : basename(group.group);
     const count = `${group.sessions.length}`;
-    const room = CONTENT_COLUMNS[width] - count.length - 1;
+    const room = contentColumns - count.length - 1;
     return {
         kind: "group",
         group: group.group,
@@ -352,7 +359,8 @@ function groupRow(
 }
 
 interface RowContext {
-    readonly width: WorkspacePanelWidth;
+    readonly contentColumns: number;
+    readonly showAge: boolean;
     readonly now: Date;
     readonly selected: boolean;
 }
@@ -364,12 +372,10 @@ function sessionRow(
 ): WorkspaceSessionRow {
     const marker = workspaceStatusMarker(session.status);
     const title = session.title ?? session.id;
-    // Medium drops the age rather than shortening the title further: an age
-    // beside a two-word title says less than the title it displaced.
-    const age = context.width === "medium"
-        ? ""
-        : relativeTime(session.updatedAt, context.now, "");
-    const room = CONTENT_COLUMNS[context.width]
+    const age = context.showAge
+        ? relativeTime(session.updatedAt, context.now, "")
+        : "";
+    const room = context.contentColumns
         - (age.length === 0 ? 0 : AGE_COLUMNS + 1);
     const shown = clip(title, Math.max(1, room));
     const selectionMarker = context.selected

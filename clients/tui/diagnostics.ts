@@ -8,6 +8,12 @@ import type {
 
 export type TuiDiagnosticsScope = "session" | "vera";
 
+export interface TuiDiagnosticProcess {
+    readonly role: "client" | "host" | "worker" | "supervisor";
+    readonly pid: number;
+    readonly rssBytes?: number;
+}
+
 export interface TuiDiagnosticsSnapshot {
     readonly state: TuiState;
     readonly activity: string;
@@ -17,6 +23,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly sessionPath?: string;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
+    readonly processes?: readonly TuiDiagnosticProcess[];
     readonly stash?: StashSummary;
     readonly stashRoot?: string;
     readonly modelFailures?: ModelFailureSummary;
@@ -60,6 +67,9 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
         `  file         ${snapshot.sessionPath ?? "unavailable"}`,
         `  workspace    ${snapshot.workspace}`,
         `  background   ${snapshot.runningBackgroundAgents} running`,
+        "",
+        "## Processes",
+        ...processLines(snapshot.processes),
         "",
         "## Session usage",
         ...sessionUsageLines(state.sessionUsage),
@@ -133,6 +143,28 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
         lines.push("  context      unavailable");
     }
     return lines.join("\n");
+}
+
+function processLines(
+    processes: readonly TuiDiagnosticProcess[] | undefined,
+): string[] {
+    if (processes === undefined || processes.length === 0) {
+        return ["  unavailable"];
+    }
+    return processes.map((process) =>
+        `  ${process.role.padEnd(10)} PID ${process.pid}`
+        + ` · ${process.rssBytes === undefined
+            ? "memory unavailable"
+            : formatMemory(process.rssBytes)}`
+    );
+}
+
+function formatMemory(bytes: number): string {
+    if (bytes < 1024 * 1024) return `${Math.round(bytes / 1024)} KiB`;
+    if (bytes < 1024 * 1024 * 1024) {
+        return `${(bytes / (1024 * 1024)).toFixed(1)} MiB`;
+    }
+    return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
 }
 
 function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {

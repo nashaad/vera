@@ -75,6 +75,9 @@ export function createReconnectingAgentClient(
         get workspace(): string {
             return current.workspace;
         },
+        get failed(): boolean {
+            return current.failed === true;
+        },
         get lastSequence(): number | undefined {
             return current.lastSequence;
         },

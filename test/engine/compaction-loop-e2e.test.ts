@@ -83,17 +83,21 @@ test("a long tool turn compacts mid-turn and keeps running", async () => {
     const channel = createInProcessChannel();
     // The loop runs until the process ends, so it is started, not awaited.
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction: compactionOptions({ tokens: 24_000 }),
         // Small enough that a few rounds of reading overflow it, but still
         // wide enough that the post-compaction target clears the fixed request
         // overhead of a real system prompt and tool set.
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "do the long job" });
@@ -185,14 +189,18 @@ test("an unavailable automatic compaction is not retried at every tool boundary"
     events.subscribe((event) => void seen.push(event));
     const channel = createInProcessChannel();
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction: unavailableCompactionOptions({ tokens: 20_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "do the long job" });
@@ -221,14 +229,18 @@ test("a pre-turn no-boundary result gets one retry after the prompt is durable",
         toolCall("retry-call", 1),
         assistantText("finished after the boundary appeared"),
     ]), "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction: compactionOptions({ tokens: 1 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "create a boundary" });
@@ -290,14 +302,18 @@ test("aged tool results below the trigger do not trigger compaction from their d
         "test",
         undefined,
         {
+            approvalMode: "auto",
+        },
+        {
             sessionStore: store,
             eventBus: events,
-            approvalMode: "auto",
             compaction: compactionOptions(),
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-            updateModelSettings: async () => undefined,
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
+            router: {
+                updateModelSettings: async () => undefined,
+            },
         },
     );
 
@@ -335,17 +351,21 @@ test("the provider's own token count moves the trigger, not just the display", a
             "test",
             undefined,
             {
+                approvalMode: "auto",
+            },
+            {
                 sessionStore: store,
                 eventBus: events,
-                approvalMode: "auto",
                 compaction: compactionOptions({ tokens: 8_000 }),
                 readModelSettings: () => ({
                     model: "test",
                     contextWindow: 400_000,
                 }),
-                updateModelSettings: async () => undefined,
                 readApprovalMode: () => "auto",
                 updateApprovalMode: async () => undefined,
+                router: {
+                    updateModelSettings: async () => undefined,
+                },
             },
         );
 
@@ -468,14 +488,18 @@ test("an abort during an automatic compaction stops the compaction, not the turn
     );
 
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction,
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "do the long job" });
@@ -546,14 +570,18 @@ test("an abort with no compaction running still stops the turn", async () => {
     } as unknown as ModelAdapter;
 
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction: compactionOptions({ tokens: 20_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "start something" });
@@ -623,14 +651,18 @@ test("a provider refusing the request for size reopens a latched compaction", as
     events.subscribe((event) => void seen.push(event));
     const channel = createInProcessChannel();
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         compaction: unavailableCompactionOptions({ tokens: 2_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "first" });
@@ -698,16 +730,20 @@ test("a refusal under the trigger compacts anyway, and buys exactly one attempt"
     events.subscribe((event) => void seen.push(event));
     const channel = createInProcessChannel();
     void runHeadlessLoop(channel.engine, agent, "test", undefined, {
+        approvalMode: "auto",
+    },
+    {
         sessionStore: store,
         eventBus: events,
-        approvalMode: "auto",
         // Far above anything this session will reach, so the trigger alone
         // never fires and every compaction here is the refusal's doing.
         compaction: compactionOptions({ tokens: 5_000_000 }),
         readModelSettings: () => ({ model: "test", contextWindow: 8_000_000 }),
-        updateModelSettings: async () => undefined,
         readApprovalMode: () => "auto",
         updateApprovalMode: async () => undefined,
+        router: {
+            updateModelSettings: async () => undefined,
+        },
     });
 
     channel.client.send({ type: "prompt", content: "first" });
@@ -796,14 +832,18 @@ async function latchSession(sessionId: string): Promise<{
         "test",
         undefined,
         {
+            approvalMode: "auto",
+        },
+        {
             sessionStore: store,
             eventBus: events,
-            approvalMode: "auto",
             compaction: unavailableCompactionOptions({ tokens: 2_000 }),
             readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
-            updateModelSettings: async () => undefined,
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
+            router: {
+                updateModelSettings: async () => undefined,
+            },
         },
     );
     return { seen, channel };

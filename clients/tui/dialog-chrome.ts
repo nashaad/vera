@@ -99,8 +99,9 @@ export function centeredDialogSurface(
     renderer: RenderContext,
     id: string,
     card: BoxRenderable,
+    options: { readonly registerCard?: boolean } = {},
 ): BoxRenderable {
-    registerDialogCard(card);
+    if (options.registerCard !== false) registerDialogCard(card);
     const surface = new BoxRenderable(renderer, {
         id,
         border: false,

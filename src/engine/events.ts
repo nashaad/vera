@@ -240,11 +240,31 @@ export interface PermissionsChangedEvent {
  * could plausibly explain, and stays quiet on the ones somebody else already
  * explained. Without a class every denial would look the same from here.
  */
+export type ToolDenialClass =
+    | "agent-scope"
+    | "permission-mode"
+    | "reviewer"
+    | "denial-breaker";
+
 export interface ToolDeniedEvent {
     readonly type: "tool_denied";
     readonly toolCall: HookToolCall;
-    readonly denialClass: "agent-scope" | "permission-mode" | "reviewer";
+    readonly denialClass: ToolDenialClass;
     readonly reason: string;
+}
+
+/**
+ * The consecutive-denial breaker acted on a tool.
+ *
+ * Recorded so the reason a turn stopped offering a tool, or stopped entirely,
+ * is recoverable from the event log after the fact and not only from the
+ * transcript in the moment.
+ */
+export interface ToolBreakerTrippedEvent {
+    readonly type: "tool_breaker_tripped";
+    readonly tool: string;
+    readonly denials: number;
+    readonly action: "withheld" | "ended-turn";
 }
 
 /** The agent now in force, in the shape the wire update carries. */
@@ -533,6 +553,7 @@ export type EngineEvent =
     | ModelSettingsChangedEvent
     | SessionModelSettingsHistoryEvent
     | ToolDeniedEvent
+    | ToolBreakerTrippedEvent
     | AgentWornEvent
     | AgentCatalogEvent
     | AgentRejectedEvent
@@ -691,6 +712,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     prompt_queued: "info",
     session_model_settings_history: "debug",
     task_notification: "info",
+    tool_breaker_tripped: "warn",
     tool_denied: "warn",
     tool_execution_finished: "info",
     tool_execution_replaced: "info",

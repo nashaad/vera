@@ -117,7 +117,7 @@ export function createTuiFlightRecorder(
             heartbeatPath,
             logPath,
             instanceId,
-        ], { stdin: "ignore", stdout: "ignore", stderr: "ignore" });
+        ], { stdin: "inherit", stdout: "inherit", stderr: "ignore" });
     watchdog?.unref();
 
     const onUncaught = (error: Error): void => {

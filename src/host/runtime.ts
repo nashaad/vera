@@ -1,4 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -422,6 +423,22 @@ export async function startResidentHost(
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
         createAdapter,
+        // Offered only when this host's adapter is the configured one and
+        // nothing live wraps it. An injected factory and a model-request hook
+        // are both functions, and a function does not cross to a worker.
+        ...(options.createAdapter !== undefined || hasModelRequestHooks
+            ? {}
+            : {
+                workerAdapterSpec: (context: {
+                    readonly provider: string;
+                    readonly projectRoot: string;
+                    readonly sessionId: string;
+                }) => ({
+                    module: WORKER_ADAPTER_MODULE,
+                    export: "createWorkerAdapter",
+                    options: { ...context, config: currentConfig() },
+                }),
+            }),
         provider: options.config.provider,
         customProviderIds: () => Object.keys(currentConfig().providers ?? {}),
         model: options.config.model,
@@ -1771,13 +1788,16 @@ async function resumeOrFind(
     inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
 ): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
-    const existing = registry.list().find(
-        (agent) => agent.session_path === canonicalPath,
-    );
-    if (existing !== undefined) {
-        const agent = registry.find(existing.id);
-        if (agent !== undefined) {
-            return agent;
+    for (const summary of registry.list()) {
+        let existingPath = summary.session_path;
+        if (existingPath !== canonicalPath) {
+            existingPath = await realpath(existingPath).catch(() => existingPath);
+        }
+        if (existingPath === canonicalPath) {
+            const agent = registry.find(summary.id);
+            if (agent !== undefined) {
+                return agent;
+            }
         }
     }
     const restoring = inFlight.get(canonicalPath);
@@ -1971,3 +1991,8 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
         }
     }
 }
+
+/** Imported by the worker, which builds the adapter for itself. */
+const WORKER_ADAPTER_MODULE = fileURLToPath(
+    new URL("./worker/adapter.ts", import.meta.url),
+);

@@ -1,11 +1,13 @@
 import {
     BoxRenderable,
+    TextAttributes,
     TextRenderable,
     type Renderable,
     type RenderContext,
 } from "@opentui/core";
 
 import {
+    attachRowPointer,
     centeredDialogSurface,
     DIALOG_CARD_PADDING,
     dialogFooterNode,
@@ -14,7 +16,13 @@ import {
     dialogOptionRow,
 } from "./dialog-chrome.ts";
 import { dialogBoxHeight, listWindowRows, listWindowSlice } from "./list-window.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import {
+    TUI_ACCENT,
+    TUI_ELEMENT,
+    TUI_MUTED,
+    TUI_PANEL,
+    TUI_TEXT,
+} from "./state.ts";
 
 /**
  * A card that draws a header, a block of already-laid-out lines, and a footer.
@@ -93,7 +101,20 @@ export interface LinesView {
      * overlap and neither has to know the other's padding.
      */
     railColumns(): number | undefined;
+    /**
+     * Keeps the surface above bottom chrome whose height changes at runtime.
+     * The composer grows with both typed text and the status rows below it, so
+     * a fixed reservation eventually paints a rail across the input frame.
+     */
+    setBottomInset(rows: number): void;
     update(state: LinesViewState): void;
+}
+
+export interface LinesViewOptions {
+    /** False for a rail that lives directly on the app's shared ground. */
+    readonly panelBackground?: boolean;
+    /** A single edge separating a rail from the content beside it. */
+    readonly railDivider?: boolean;
 }
 
 export interface LinesViewPointer {
@@ -145,12 +166,19 @@ function toneColor(tone: LinesViewTone | undefined): string {
 export function createTuiLinesView(
     renderer: RenderContext,
     id: string,
+    options: LinesViewOptions = {},
 ): LinesView {
     let nodes: Renderable[] = [];
+    let bottomInset = COMPOSER_RESERVE;
+    let rail: number | undefined;
     const box = new BoxRenderable(renderer, {
         id,
         border: false,
-        backgroundColor: TUI_PANEL,
+        borderColor: TUI_ELEMENT,
+        focusedBorderColor: TUI_ELEMENT,
+        ...(options.panelBackground === false
+            ? {}
+            : { backgroundColor: TUI_PANEL }),
         width: `${CARD_WIDTH_FRACTION * 100}%`,
         height: "auto",
         paddingLeft: DIALOG_CARD_PADDING,
@@ -159,9 +187,15 @@ export function createTuiLinesView(
         paddingBottom: 1,
         focusable: true,
     });
-    const surface = centeredDialogSurface(renderer, `${id}-surface`, box);
+    const surface = centeredDialogSurface(renderer, `${id}-surface`, box, {
+        registerCard: options.railDivider !== true,
+    });
     surface.paddingBottom = COMPOSER_RESERVE;
-    let rail: number | undefined;
+    const applyBottomInset = (): void => {
+        // A dock owns the full height beside the chat column. A centred card
+        // still clears the composer because it floats over that column.
+        surface.paddingBottom = rail === undefined ? bottomInset : 0;
+    };
 
     const view: LinesView = {
         box,
@@ -177,10 +211,16 @@ export function createTuiLinesView(
         railColumns(): number | undefined {
             return rail === undefined ? undefined : rail + RAIL_PADDING * 2;
         },
+        setBottomInset(rows): void {
+            bottomInset = Math.max(0, rows);
+            applyBottomInset();
+        },
         setRail(columns): void {
             if (rail === columns) return;
             rail = columns;
+            applyBottomInset();
             if (columns === undefined) {
+                box.border = false;
                 surface.width = "100%";
                 surface.alignItems = "center";
                 surface.justifyContent = "center";
@@ -196,6 +236,7 @@ export function createTuiLinesView(
             // and still takes the mouse, which is the difference between a rail
             // and a card.
             surface.width = columns + RAIL_PADDING * 2;
+            box.border = options.railDivider === true ? ["right"] : false;
             surface.alignItems = "stretch";
             surface.justifyContent = "flex-start";
             box.width = "100%";
@@ -219,7 +260,13 @@ export function createTuiLinesView(
                     height: 1,
                 }));
             };
-            add(dialogHeaderNode(renderer, state.title, state.hint ?? "esc"));
+            add(options.panelBackground === false
+                ? groundHeaderNode(
+                    renderer,
+                    state.title,
+                    state.hint ?? "esc",
+                )
+                : dialogHeaderNode(renderer, state.title, state.hint ?? "esc"));
             muted("");
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
@@ -228,7 +275,7 @@ export function createTuiLinesView(
                 dialogBoxHeight(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - COMPOSER_RESERVE,
+                ) - bottomInset,
                 rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
             );
             const above = state.lines.length > room
@@ -244,7 +291,12 @@ export function createTuiLinesView(
             );
             if (above > 0) muted(`… ${above} above`);
             for (const line of visible) {
-                add(lineNode(renderer, view, line));
+                add(lineNode(
+                    renderer,
+                    view,
+                    line,
+                    options.panelBackground === false,
+                ));
             }
             const below = state.lines.length - above - visible.length;
             if (below > 0) muted(`… ${below} below`);
@@ -262,6 +314,7 @@ function lineNode(
     renderer: RenderContext,
     view: LinesView,
     line: LinesViewLine,
+    transparent: boolean,
 ): Renderable {
     if (line.rowId === undefined) {
         return line.tone === "accent" && line.text.length > 0
@@ -274,14 +327,55 @@ function lineNode(
             });
     }
     const rowId = line.rowId;
-    return dialogOptionRow(renderer, {
-        label: line.text,
-        active: line.selected === true,
+    const pointer = {
         ...(view.pointer?.hover === undefined ? {} : {
             onHover: () => view.pointer?.hover?.(rowId),
         }),
         ...(view.pointer?.activate === undefined ? {} : {
             onSelect: () => view.pointer?.activate?.(rowId),
         }),
+    };
+    if (transparent && line.selected !== true) {
+        const row = new BoxRenderable(renderer, {
+            width: "100%",
+            height: 1,
+        });
+        attachRowPointer(row, pointer);
+        row.add(new TextRenderable(renderer, {
+            content: line.text,
+            fg: toneColor(line.tone),
+            width: "100%",
+            height: 1,
+        }));
+        return row;
+    }
+    return dialogOptionRow(renderer, {
+        label: line.text,
+        active: line.selected === true,
+        ...pointer,
     });
+}
+
+/** Header chrome on the app ground: structure without a filled panel band. */
+function groundHeaderNode(
+    renderer: RenderContext,
+    title: string,
+    hint: string,
+): BoxRenderable {
+    const header = new BoxRenderable(renderer, {
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+        justifyContent: "space-between",
+    });
+    header.add(new TextRenderable(renderer, {
+        content: title,
+        fg: TUI_TEXT,
+        attributes: TextAttributes.BOLD,
+    }));
+    header.add(new TextRenderable(renderer, {
+        content: hint,
+        fg: TUI_MUTED,
+    }));
+    return header;
 }

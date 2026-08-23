@@ -4,6 +4,7 @@ import type { StyledText } from "@opentui/core";
 import {
     renderTuiActivityAnimation,
     renderTuiActivityPulse,
+    renderTuiFocusCaret,
 } from "../../clients/tui/activity-pulse.ts";
 
 const colors = {
@@ -140,6 +141,11 @@ test("TUI activity animation accepts a numeric width", () => {
         colors,
         5,
     ))).toBe("▒▓█▓▒ working");
+});
+
+test("TUI focus caret blinks without changing its width", () => {
+    expect([0, 3, 6].map(renderTuiFocusCaret))
+        .toEqual(["[ > ]", "[   ]", "[ > ]"]);
 });
 
 function plainText(styled: StyledText): string {

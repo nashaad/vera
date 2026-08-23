@@ -1,4 +1,5 @@
 import type { LinesViewState } from "./lines-view.ts";
+import { renderTuiFocusCaret } from "./activity-pulse.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
@@ -29,6 +30,18 @@ const NARROW_WIDTH = 64;
 const HERE_SUFFIX = " (here)";
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
+/** Selection/status markers that precede the title inside a panel row. */
+const ROW_MARKER_COLUMNS = 4;
+/** The divider occupies the rail's final rendered cell. */
+const RAIL_DIVIDER_COLUMNS = 1;
+/** Eight age columns plus the space before them. */
+const AGE_WITH_GAP_COLUMNS = 9;
+/** Keep a readable title before preserving age in a squeezed rail. */
+const MIN_TITLE_WITH_AGE_COLUMNS = 8;
+/** Narrowest useful rail; titles truncate after their markers when narrower. */
+const MIN_RAIL_COLUMNS = 26;
+/** The conversation stays useful while the explorer is resized. */
+const MIN_CHAT_COLUMNS = 35;
 
 /**
  * The columns a row needs when the listing is drawn beside the transcript, or
@@ -38,10 +51,25 @@ const DIGIT_COLUMNS = 2;
  * same for every listing and the transcript beside it does not reflow as
  * sessions come and go. The surface adds its own padding to this.
  */
-export function workspaceRailColumns(columns: number): number | undefined {
+export function workspaceRailColumns(
+    columns: number,
+    preferred?: number,
+): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    return DIGIT_COLUMNS + workspaceRowColumns(width) + HERE_SUFFIX.length;
+    const natural = DIGIT_COLUMNS
+        + workspaceRowColumns(width) + HERE_SUFFIX.length;
+    return clampWorkspaceRailColumns(preferred ?? natural, columns);
+}
+
+/** A dragged rail cannot consume the conversation or become unreadable. */
+export function clampWorkspaceRailColumns(
+    requested: number,
+    columns: number,
+): number | undefined {
+    if (workspacePanelWidth(columns) === "narrow") return undefined;
+    const maximum = Math.max(MIN_RAIL_COLUMNS, columns - MIN_CHAT_COLUMNS - 2);
+    return Math.min(Math.max(Math.round(requested), MIN_RAIL_COLUMNS), maximum);
 }
 
 /**
@@ -157,7 +185,14 @@ export function applyWorkspaceWorkIndex(
     return {
         ...state,
         sessions: state.sessions.map((session) => {
-            const status = workIndexStatus(index, session.id);
+            // The roster owns terminal lifecycle. The work index calls a
+            // non-actionable failure a completed item because its job is to
+            // organize attention; that must not repaint a failed session as
+            // successful in the workspace navigator.
+            const status = session.status === "failed"
+                    || session.status === "closed"
+                ? session.status
+                : workIndexStatus(index, session.id);
             const row = index.rows.find(
                 (candidate) => candidate.session_id === session.id,
             );
@@ -174,6 +209,8 @@ export function applyWorkspaceWorkIndex(
 export interface WorkspaceSidebarLayoutInput {
     readonly columns: number;
     readonly now: Date;
+    readonly contentColumns?: number;
+    readonly showAge?: boolean;
 }
 
 export function workspaceSidebarLayout(
@@ -184,6 +221,10 @@ export function workspaceSidebarLayout(
         sessions: state.sessions,
         columns: input.columns,
         now: input.now,
+        ...(input.contentColumns === undefined
+            ? {}
+            : { contentColumns: input.contentColumns }),
+        ...(input.showAge === undefined ? {} : { showAge: input.showAge }),
         pinnedIds: state.pinnedIds,
         ...(state.selectedId === undefined
             ? {}
@@ -218,7 +259,8 @@ export interface WorkspaceSidebarKey {
 }
 
 /**
- * Arrows move, enter opens, escape closes, digits address the top nine rows.
+ * Arrows or j/k move, enter opens, i or escape returns to chat, and digits
+ * address rows.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
  * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
@@ -231,13 +273,16 @@ export function handleWorkspaceSidebarKey(
 ): WorkspaceSidebarTransition {
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
-    if (key.name === "escape") {
+    if (key.name === "escape" || key.name === "i") {
         return { action: { kind: "close" }, handled: true };
     }
-    if (key.name === "up" || key.name === "down") {
+    if (
+        key.name === "up" || key.name === "down"
+        || key.name === "j" || key.name === "k"
+    ) {
         const selectedId = moveWorkspaceSelection(
             layout,
-            key.name === "up" ? -1 : 1,
+            key.name === "up" || key.name === "k" ? -1 : 1,
         );
         return {
             state: selectedId === undefined ? state : { ...state, selectedId },
@@ -307,8 +352,8 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  */
 export function workspaceSidebarFooter(width: number): string {
     return width < NARROW_WIDTH
-        ? "↑↓ enter 1-9 p esc"
-        : "↑↓ browse · enter open · 1-9 jump · p pin · esc close";
+        ? "↑↓/jk enter 1-9 p i/esc"
+        : "↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat";
 }
 
 /**
@@ -322,9 +367,29 @@ export function workspaceSidebarViewState(
     state: WorkspaceSidebarState,
     columns: number,
     now: Date = new Date(),
+    railColumns = workspaceRailColumns(columns),
+    focused = false,
+    animationFrame = 0,
 ): LinesViewState {
-    const layout = workspaceSidebarLayout(state, { columns, now });
-    const width = workspaceRailColumns(columns) ?? columns;
+    const railContentColumns = railColumns === undefined
+        ? undefined
+        : Math.max(
+            1,
+            railColumns - DIGIT_COLUMNS - HERE_SUFFIX.length
+                - ROW_MARKER_COLUMNS - RAIL_DIVIDER_COLUMNS,
+        );
+    const layout = workspaceSidebarLayout(state, {
+        columns,
+        now,
+        ...(railContentColumns === undefined
+            ? {}
+            : {
+                contentColumns: railContentColumns,
+                showAge: railContentColumns
+                    >= AGE_WITH_GAP_COLUMNS + MIN_TITLE_WITH_AGE_COLUMNS,
+            }),
+    });
+    const width = railColumns ?? columns;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = layout.rows.map((row) => {
         if (row.kind === "group") {
@@ -347,7 +412,11 @@ export function workspaceSidebarViewState(
     });
     const cursorLine = lines.findIndex((line) => line.selected === true);
     return {
-        title: workspaceSidebarHeader(state),
+        // Keep a fixed leading slot so focus can blink without moving the
+        // title. Chat focus clears the whole marker, not only its caret.
+        title: `${focused ? renderTuiFocusCaret(animationFrame) : "     "} ${
+            workspaceSidebarHeader(state)
+        }`,
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.length === 0
             ? [{ text: "No other sessions.", tone: "muted" as const }]

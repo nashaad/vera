@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
     applyWorkspaceWorkIndex,
+    clampWorkspaceRailColumns,
     handleWorkspaceSidebarKey,
     openWorkspaceSelection,
     refreshWorkspaceSidebarSessions,
@@ -167,6 +168,44 @@ describe("the rail", () => {
     test("there is no rail where there is no room for two columns", () => {
         expect(workspaceRailColumns(60)).toBeUndefined();
     });
+
+    test("a preferred width is clamped before either column becomes unusable", () => {
+        expect(workspaceRailColumns(120, 20)).toBe(26);
+        expect(workspaceRailColumns(120, 500)).toBe(83);
+        expect(clampWorkspaceRailColumns(58.4, 120)).toBe(58);
+        expect(workspaceRailColumns(60, 40)).toBeUndefined();
+    });
+
+    test("keeps age while squeezing, then gives its space to the title", () => {
+        const state = open([session("a", {
+            title: "a useful descriptive session name",
+            updatedAt: "2026-08-22T11:56:00.000Z",
+        })], [], "a");
+        const withAge = workspaceSidebarViewState(state, 120, NOW, 37)
+            .lines.find((line) => line.rowId === "a")?.text;
+        const titleOnly = workspaceSidebarViewState(state, 120, NOW, 26)
+            .lines.find((line) => line.rowId === "a")?.text;
+
+        expect(withAge).toContain("4m ago (here)");
+        expect(titleOnly).not.toContain("ago");
+        expect(titleOnly).toContain("a useful de… (here)");
+    });
+
+    test("marks when the explorer owns keyboard focus", () => {
+        const state = open([session("a")], [], "a");
+
+        const focused = workspaceSidebarViewState(
+            state,
+            120,
+            NOW,
+            37,
+            true,
+            4,
+        );
+        expect(focused.title).toBe("[   ] Workspace · 1");
+        const chat = workspaceSidebarViewState(state, 120, NOW, 37, false, 4);
+        expect(chat.title).toBe("      Workspace · 1");
+    });
 });
 
 describe("the cursor", () => {
@@ -188,6 +227,14 @@ describe("the cursor", () => {
         expect(state.selectedId).toBe("a");
     });
 
+    test("j and k move it like down and up", () => {
+        let state = open([session("a"), session("b")], [], "a");
+        state = press(state, "j").state!;
+        expect(state.selectedId).toBe("b");
+        state = press(state, "k").state!;
+        expect(state.selectedId).toBe("a");
+    });
+
     test("enter opens the session under the cursor", () => {
         const state = open([session("a"), session("b")], [], "a");
         const moved = press(state, "down").state!;
@@ -198,8 +245,13 @@ describe("the cursor", () => {
         });
     });
 
-    test("escape closes", () => {
+    test("escape returns to chat", () => {
         expect(press(open([session("a")]), "escape").action)
+            .toEqual({ kind: "close" });
+    });
+
+    test("i returns to chat", () => {
+        expect(press(open([session("a")]), "i").action)
             .toEqual({ kind: "close" });
     });
 
@@ -322,6 +374,22 @@ describe("status from the pushed work index", () => {
         expect(next.sessions[1]?.status).toBe("idle");
     });
 
+    test("attention completion cannot overwrite a terminal roster status", () => {
+        const state = open([
+            session("failed", { status: "failed" }),
+            session("closed", { status: "closed" }),
+        ]);
+        const next = applyWorkspaceWorkIndex(
+            state,
+            index([
+                workRow({ session_id: "failed", section: "done_recently" }),
+                workRow({ session_id: "closed", section: "done_recently" }),
+            ]),
+        );
+        expect(next.sessions.map((entry) => entry.status))
+            .toEqual(["failed", "closed"]);
+    });
+
     test("the marker survives a monochrome render", () => {
         const state = applyWorkspaceWorkIndex(
             open([
@@ -370,8 +438,8 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer)
-            .toBe("↑↓ browse · enter open · 1-9 jump · p pin · esc close");
-        expect(view.title).toBe("Workspace · 1");
+            .toBe("↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat");
+        expect(view.title).toBe("      Workspace · 1");
     });
 
     test("the rail takes the short hint, wide as the terminal is", () => {
@@ -382,7 +450,7 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓ enter 1-9 p esc");
+        expect(view.footer).toBe("↑↓/jk enter 1-9 p i/esc");
         expect(view.footer.length)
             .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
     });

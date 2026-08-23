@@ -6,6 +6,7 @@ import {
     readFile,
     realpath,
     rm,
+    symlink,
     writeFile,
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -40,6 +41,46 @@ import {
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "resume finds a live agent through a symlinked session directory",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-resume-alias-"));
+        const realSessions = join(root, "real-sessions");
+        const sessionDirectory = join(root, "sessions");
+        await mkdir(realSessions);
+        await symlink(realSessions, sessionDirectory, "dir");
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+        try {
+            const created = await createAgentThroughHost(socketPath, root);
+            const summary = host.registry.list().find((agent) =>
+                agent.id === created.id
+            );
+            expect(summary?.session_path.startsWith(sessionDirectory)).toBeTrue();
+            expect(
+                await resumeAgentThroughHost(
+                    socketPath,
+                    summary?.session_path as string,
+                ),
+            ).toEqual(created);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resident host reports startup phase timings through readiness",
