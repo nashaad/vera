@@ -118,6 +118,10 @@ import type {
     RunHeadlessLoopData,
     RunHeadlessLoopServices,
 } from "./loop-services.ts";
+import {
+    createLocalHostBoundary,
+    type HostBoundary,
+} from "./host-boundary.ts";
 import { createSubagentEffectApplier } from "./subagent.ts";
 import {
     decideToolPermission,
@@ -447,12 +451,38 @@ export async function runHeadlessLoop(
     data: RunHeadlessLoopData = {},
     services: RunHeadlessLoopServices = {},
 ): Promise<void> {
-    const router = services.router ?? {};
+    // The one seam to the owner. `createLocalHostBoundary` is the in-process
+    // implementation and the default; a pipe implementation carrying
+    // `host-protocol.ts` messages is the other, and the loop cannot tell them
+    // apart.
+    const boundary: HostBoundary = createLocalHostBoundary(services);
+    const owned = boundary.owned;
+    const router = owned.router;
     // Read at each use rather than captured: an owner may change any of these
     // while the loop runs, and the change has to reach the next turn.
-    const policy = (): LoopPolicy => services.readPolicy?.() ?? {};
+    const policy = (): LoopPolicy => boundary.readState().policy;
+    // Undefined when the owner offers no settings at all, which the loop and
+    // the router both treat differently from an owner that offers them.
+    const readModelSettings: (() => ModelTurnSettings) | undefined =
+        boundary.offers.modelSettings
+            ? (): ModelTurnSettings => {
+                const settings = boundary.readState().modelSettings;
+                if (settings === undefined) {
+                    throw new Error(
+                        "An owner offering model settings returned none",
+                    );
+                }
+                return settings;
+            }
+            : undefined;
+    const readAgentWear:
+        (() => AgentWearSnapshot | undefined) | undefined =
+            boundary.offers.agentWear
+                ? (): AgentWearSnapshot | undefined =>
+                    boundary.readState().agentWear
+                : undefined;
     if (
-        services.sessionStore !== undefined
+        owned.sessionStore !== undefined
         && (
             data.sessionId !== undefined
             || data.sessionPath !== undefined
@@ -472,7 +502,7 @@ export async function runHeadlessLoop(
         );
     }
     const newSessionId = data.sessionId ?? randomUUID();
-    const store = services.sessionStore ?? (
+    const store = owned.sessionStore ?? (
         data.resumeSessionPath === undefined
             ? await SessionStore.create(
                 data.sessionPath ?? defaultSessionPath(newSessionId),
@@ -481,13 +511,13 @@ export async function runHeadlessLoop(
             : await SessionStore.open(data.resumeSessionPath)
     );
     const sessionId = store.header.id;
-    const processRegistry = services.processRegistry
+    const processRegistry = owned.processRegistry
         ?? new ManagedProcessRegistry();
-    const ownsProcessRegistry = services.processRegistry === undefined;
+    const ownsProcessRegistry = owned.processRegistry === undefined;
     const scratchDir = sessionScratchDir(sessionId);
     if (
-        (services.readApprovalMode === undefined)
-        !== (services.updateApprovalMode === undefined)
+        boundary.offers.approvalModeRead
+        !== (boundary.updateApprovalMode !== undefined)
     ) {
         throw new Error(
             "Approval mode reads and updates must use the same owner",
@@ -496,9 +526,11 @@ export async function runHeadlessLoop(
     let localApprovalMode = store.approvalMode()
         ?? data.approvalMode
         ?? "auto";
-    const readApprovalMode = services.readApprovalMode
-        ?? (() => localApprovalMode);
-    const updateApprovalMode = services.updateApprovalMode
+    const readApprovalMode = boundary.offers.approvalModeRead
+        ? (): ApprovalMode =>
+            boundary.readState().approvalMode ?? localApprovalMode
+        : (): ApprovalMode => localApprovalMode;
+    const updateApprovalMode = boundary.updateApprovalMode
         ?? (async (mode: ApprovalMode): Promise<ApprovalMode> => {
             await store.appendApprovalMode(mode);
             localApprovalMode = mode;
@@ -506,7 +538,7 @@ export async function runHeadlessLoop(
         });
     const readPermissionGrants = () => store.permissionGrants();
     const readPermissionPreferences = () =>
-        services.readPermissionPreferences?.() ?? [];
+        boundary.readState().permissionPreferences ?? [];
     const readPermissionInspection = () =>
         inspectPermissions(
             readApprovalMode(),
@@ -521,13 +553,13 @@ export async function runHeadlessLoop(
     };
     const removePermissionGrant = (id: string): Promise<boolean> =>
         store.revokePermissionGrant(id);
-    const events = services.eventBus ?? new EngineEventBus();
+    const events = owned.eventBus ?? new EngineEventBus();
     const protocol = createProtocolEncoder(
         endpoint,
         sessionAttachmentName(store),
         () => store.projectedHarnessMessages(),
         (provider, replayModel) => {
-            const settings = services.readModelSettings?.();
+            const settings = readModelSettings?.();
             const declared = settings?.provider === provider
                     && settings.model === replayModel
                 ? settings.contextWindow
@@ -537,9 +569,9 @@ export async function runHeadlessLoop(
     );
     // Before the wire encoder: the ledger writes synchronously, so a client
     // reading it when the failure reaches the screen already sees this turn.
-    if (services.modelFailureLedger !== undefined) {
+    if (owned.modelFailureLedger !== undefined) {
         events.subscribe(createModelFailureRecorder({
-            ledger: services.modelFailureLedger,
+            ledger: owned.modelFailureLedger,
             sessionId,
         }));
     }
@@ -595,9 +627,9 @@ export async function runHeadlessLoop(
         ...(router.onDeliveryTurnDiscarded === undefined ? {} : {
             onDeliveryTurnDiscarded: router.onDeliveryTurnDiscarded,
         }),
-        ...(services.readModelSettings === undefined
+        ...(readModelSettings === undefined
             ? {}
-            : { readModelSettings: services.readModelSettings }),
+            : { readModelSettings }),
         ...(router.updateModelSettings === undefined
             ? {}
             : { updateModelSettings: router.updateModelSettings }),
@@ -674,7 +706,7 @@ export async function runHeadlessLoop(
     router.onInboundReady?.(inbound);
     const instructionRoot: InstructionRoot = data.instructionRoot
         ?? { path: store.header.cwd, source: "workspace" };
-    const applyToolEffect = services.applyToolEffect
+    const applyToolEffect = boundary.applyToolEffect
         ?? createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
@@ -703,10 +735,10 @@ export async function runHeadlessLoop(
     // the model that answered it, so changed settings start a new one rather
     // than continuing someone else's session.
     let activeReviewer: { key: string; review: ReviewToolCall } | undefined;
-    const reviewToolCall: ReviewToolCall = services.reviewToolCall
+    const reviewToolCall: ReviewToolCall = boundary.reviewToolCall
         ?? ((request, signal) => {
-            const configured = services.readReviewer?.() ?? policy().reviewer;
-            const current = services.readModelSettings?.()
+            const configured = boundary.readState().reviewer;
+            const current = readModelSettings?.()
                 ?? {
                     model,
                     ...(reasoningEffort === undefined
@@ -727,16 +759,16 @@ export async function runHeadlessLoop(
                     review: createRoutedToolReviewer(adapter, {
                         ...configured,
                         models,
-                        ...(services.reviewLog === undefined
+                        ...(owned.reviewLog === undefined
                             ? {}
-                            : { log: services.reviewLog }),
+                            : { log: owned.reviewLog }),
                     }),
                 };
             }
             return activeReviewer.review(request, signal);
         });
     const contextWatch: ContextWatch = {};
-    const compaction = services.compaction;
+    const compaction = owned.compaction;
     // A failed automatic compaction must not turn every later tool boundary
     // into another request to the same unavailable route. A new user turn
     // resets the latch and gets one fresh attempt.
@@ -757,7 +789,7 @@ export async function runHeadlessLoop(
         if (context?.capacity !== undefined) {
             return context.capacity;
         }
-        const settings = services.readModelSettings?.();
+        const settings = readModelSettings?.();
         return settings?.contextWindow
             ?? contextWindowForModel(
                 settings?.provider,
@@ -894,7 +926,7 @@ export async function runHeadlessLoop(
                 automaticCompactionBlockedAt = undefined;
             }
             const compactionModel = context?.model
-                ?? services.readModelSettings?.().model
+                ?? readModelSettings?.().model
                 ?? model;
             const summarizerModel = compaction.diagnostics?.model
                 ?? compactionModel;
@@ -1113,31 +1145,27 @@ export async function runHeadlessLoop(
         instructionRoot,
         inbound,
         events,
-        hooks: services.hooks ?? new ToolHooks(),
+        hooks: owned.hooks ?? new ToolHooks(),
         approvalMode: localApprovalMode,
         applyToolEffect,
-        ...(services.applyCommittedToolEffect === undefined
-            ? {}
-            : { applyCommittedToolEffect: services.applyCommittedToolEffect }),
+        ...(boundary.applyCommittedToolEffect === undefined ? {} : {
+            applyCommittedToolEffect: boundary.applyCommittedToolEffect,
+        }),
         enabledToolEffects: data.enabledToolEffects ?? ["spawn_subagent"],
         enableUserInteraction: data.enableUserInteraction ?? true,
-        extensionTools: services.extensionTools ?? [],
+        extensionTools: owned.extensionTools ?? [],
         offerTools: data.offerTools ?? true,
         loadOptionalContext: data.loadOptionalContext ?? true,
         // Asked at each turn, not captured for the session: a setting the
         // user changes mid-session reaches the next turn with no restart.
         get modelFallback() { return policy().modelFallback; },
-        ...(services.effortPool === undefined
+        ...(owned.effortPool === undefined
             ? {}
-            : { effortPool: services.effortPool }),
-        ...(services.readModelSettings === undefined
-            ? {}
-            : { readModelSettings: services.readModelSettings }),
+            : { effortPool: owned.effortPool }),
+        ...(readModelSettings === undefined ? {} : { readModelSettings }),
         // Read rather than captured: a wear applied between turns has to
         // reach the next turn without rebuilding the loop.
-        ...(services.readAgentWear === undefined
-            ? {}
-            : { readAgentWear: services.readAgentWear }),
+        ...(readAgentWear === undefined ? {} : { readAgentWear }),
         firedNudges: new Set<string>(),
         readApprovalMode,
         readPermissionGrants,
@@ -1148,7 +1176,7 @@ export async function runHeadlessLoop(
             reviewToolCall,
             adapter,
             () => policy().reviewers,
-            services.reviewLog,
+            owned.reviewLog,
         ),
         promptPrefixTracker: new PromptPrefixTracker(),
         readImageContent: (attachmentId) =>
@@ -1158,11 +1186,11 @@ export async function runHeadlessLoop(
         get disabledPromptContributions() {
             return policy().disabledPromptContributions;
         },
-        ...(services.loadContextualContributions === undefined ? {} : {
-            loadContextualContributions: services.loadContextualContributions,
+        ...(boundary.loadContextualContributions === undefined ? {} : {
+            loadContextualContributions: boundary.loadContextualContributions,
         }),
     };
-    const startupSettings = services.readModelSettings?.();
+    const startupSettings = readModelSettings?.();
     const startupContext = startupSettings === undefined
         ? { model }
         : compactionContextForSettings(startupSettings);
