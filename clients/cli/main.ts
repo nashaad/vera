@@ -686,6 +686,14 @@ export async function runCli(
         return runLogin(output);
     }
 
+    if (args[0] === "abort" || args[0] === "close") {
+        errorOutput.write(
+            `${args[0]} needs the id of a live agent. `
+            + `Run 'vera ls' to see them, then 'vera ${args[0]} <agent-id>'.\n`,
+        );
+        return 1;
+    }
+
     errorOutput.write(renderCliUsage());
     return 1;
 }

@@ -471,6 +471,31 @@ test("vera close reports a rejection as an error with a next action", async () =
     expect(error).toContain("vera ls --all");
 });
 
+test("vera close with no agent id names the id and how to find one", async () => {
+    let error = "";
+
+    const exitCode = await runCli(["close"], {
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(error).toContain("close needs the id of a live agent");
+    expect(error).toContain("vera ls");
+    expect(error).toContain("vera close <agent-id>");
+});
+
+test("vera abort with no agent id names the id and how to find one", async () => {
+    let error = "";
+
+    const exitCode = await runCli(["abort"], {
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(error).toContain("abort needs the id of a live agent");
+    expect(error).toContain("vera abort <agent-id>");
+});
+
 test("vera close does not offer a resume for a session it deleted", async () => {
     let output = "";
 
