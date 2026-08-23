@@ -374,7 +374,13 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "tool_started") {
         return {
             ...state,
-            entries: withToolEntry(state.entries, update.tool, update.args, true),
+            // Folded as it starts, not only once it finishes: a group that
+            // folded only on completion spent its whole run at full height
+            // and dropped to one row at the end, moving everything above it.
+            entries: applyToolDetailPreference(
+                withToolEntry(state.entries, update.tool, update.args, true),
+                state.toolDetailsExpanded,
+            ),
         };
     }
     if (update.type === "tool_review") {
@@ -1494,7 +1500,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             : new StyledText([summary, hint]);
     }
     if (entry.kind === "thinking") {
-        return new StyledText([fg(TUI_MUTED)(liveThinkingTail(entry.text))]);
+        const tail = liveThinkingTail(entry.text);
+        return new StyledText([
+            fg(TUI_MUTED)(
+                tail.length === 0
+                    ? LIVE_THINKING_ELLIPSIS
+                    : `${LIVE_THINKING_ELLIPSIS} ${tail}`,
+            ),
+        ]);
     }
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
@@ -1502,18 +1515,21 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
 /**
  * How many rows the reasoning still arriving is allowed to occupy.
  *
- * Enough to see what the agent is chewing on, few enough that a model which
- * thinks at length cannot push the work above it off the screen.
+ * One, because this row is inside a transcript pinned to its bottom: every row
+ * it takes is a row the settled summary gives back when the phase ends, and
+ * that difference moves the whole scrollback. A window that grew to eight and
+ * collapsed to one pumped the view by nine rows on every phase of every turn.
+ * The reasoning is not lost — the settled summary expands to all of it.
  */
-export const LIVE_THINKING_ROWS = 8;
+export const LIVE_THINKING_ROWS = 1;
 
 /**
- * Both ends of the window reasoning arrives into.
+ * The mark that opens the live reasoning row.
  *
- * The window is marked at its ends rather than down its side: what the reader
- * needs is where the region starts and stops, and an ellipsis says the same
- * thing a scrollbar would, that there is more either way. The renderer centres
- * these, so they are drawn as rows of their own and not as part of the text.
+ * It rides the row itself rather than sitting above and below it: as rows of
+ * their own the two marks cost two more rows that the settled summary would
+ * hand back, which is the pumping this row exists to avoid. Inline it still
+ * says the same thing, that what follows is the tail of something longer.
  */
 export const LIVE_THINKING_ELLIPSIS = "···";
 
@@ -2235,12 +2251,23 @@ function applyToolDetailPreference(
         const detailLines = rows.reduce((total, entry) =>
             total + entry.text.split("\n").length, 0
         );
-        const foldable = !active
-            && detailLines > 0
-            && (hasResult || preference !== undefined);
+        // A running group folds too, to the one row it will still be once it
+        // settles. Its calls would otherwise arrive as rows of their own and
+        // go behind the header together when the last one lands, and in a
+        // transcript pinned to its bottom that pumps the whole scrollback by
+        // the size of the batch, once per batch, for the length of the turn.
+        const foldable = detailLines > 0
+            && (active || hasResult || preference !== undefined);
         const expanded = preference === true;
-        const calls = toolCallLines(rows);
-        const summary = compactToolSummary(rows, calls);
+        const calls = active ? liveToolCallLines(rows) : toolCallLines(rows);
+        const summary = active
+            ? liveToolSummary(calls)
+            : compactToolSummary(rows, calls);
+        // One rule for both states: a preview that rode the header while the
+        // group ran and took a row of its own once it settled would move the
+        // view by that row at the moment of settling.
+        const inlinePreview = summary !== undefined
+            && inlineToolPreview(summary, rows, calls);
         const base = header.header ?? header.text.replace(/^[+-] /, "");
         const {
             detailLines: _detailLines,
@@ -2257,7 +2284,10 @@ function applyToolDetailPreference(
         next[headerIndex] = foldable
             ? {
                 ...plainHeader,
-                text: `${expanded ? "-" : "+"} ${base}`,
+                // A running group keeps its plain verb: the marker offers a
+                // choice about details that have settled, and a group still
+                // working has none to settle on yet.
+                text: active ? base : `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
                 ...(!expanded && calls.length === 1 && calls[0] !== undefined
                     ? { command: compactToolLine(calls[0]) }
@@ -2266,9 +2296,7 @@ function applyToolDetailPreference(
                     ? {}
                     : {
                         detailPreview: summary,
-                        ...(inlineToolPreview(summary, rows, calls)
-                            ? { inlineDetailPreview: true }
-                            : {}),
+                        ...(inlinePreview ? { inlineDetailPreview: true } : {}),
                     }),
                 ...(hinted ? { hint: true } : {}),
                 expanded,
@@ -2302,6 +2330,34 @@ function toolCallLines(
         // the whole call is flattened and then cut to the line budget.
         .map((row) => tuiToolRowText(row).replace(/\s+/g, " ").trim())
         .filter((line) => line.length > 0);
+}
+
+/**
+ * The calls a running group has made, whether or not their results have
+ * landed. The settled form reads results off the rows that carry them; a
+ * group still working has calls with nothing under them yet, and those are
+ * exactly what its one row is about.
+ */
+function liveToolCallLines(
+    rows: readonly TuiTextTranscriptEntry[],
+): readonly string[] {
+    return rows
+        .filter((row) => row.result !== true)
+        .map((row) => tuiToolRowText(row).replace(/\s+/g, " ").trim())
+        .filter((line) => line.length > 0);
+}
+
+/**
+ * The one line a running group shows: what it is working on, newest last.
+ *
+ * Built exactly as the settled form builds its own, so the two lay out the
+ * same way: a live line cut to a different width than the settled line that
+ * replaces it would take a row the settled one gives back, which is the
+ * pumping the fold is here to stop.
+ */
+function liveToolSummary(calls: readonly string[]): string | undefined {
+    if (calls.length === 0) return undefined;
+    return `  └ ${compactToolLine(compactFoldedCalls([...calls]).join(", "))}`;
 }
 
 /**

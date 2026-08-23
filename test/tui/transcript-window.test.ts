@@ -9,6 +9,145 @@ import {
     tuiTranscriptPrependRange,
     tuiTranscriptTailRange,
 } from "../../clients/tui/transcript-window.ts";
+import {
+    appendTuiThought,
+    applyAgentUpdate,
+    createTuiState,
+    LIVE_THINKING_ROWS,
+    renderTuiEntry,
+    type TuiState,
+    type TuiTranscriptEntry,
+} from "../../clients/tui/state.ts";
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
+
+/**
+ * An update as a caller writes it, before the sequence number the transport
+ * stamps on. Distributive on purpose: `AgentUpdate` is a discriminated union,
+ * and omitting a key across it as a whole would keep only the shared ones.
+ */
+type UnsequencedUpdate = AgentUpdate extends infer U
+    ? U extends AgentUpdate ? Omit<U, "seq"> : never
+    : never;
+
+/**
+ * What a working turn does to the height of the transcript it is being drawn
+ * into. The view is pinned to the bottom while a turn runs, so a stretch that
+ * grows and then gives the rows back moves everything above it by that much,
+ * twice, every time it happens.
+ */
+function liveTranscriptRows(state: TuiState): number {
+    return state.entries.filter(tuiTranscriptEntryIsVisible).reduce(
+        (rows, entry: TuiTranscriptEntry) => {
+            // A header draws its folded preview beside or beneath itself, so
+            // the rendered form is what the viewport actually gets — the
+            // stored text alone would miss a preview that took its own row.
+            if (entry.kind === "thinking") return rows + LIVE_THINKING_ROWS;
+            const drawn = renderTuiEntry(entry).chunks
+                .map((chunk) => chunk.text)
+                .join("");
+            return rows + drawn.split("\n").length;
+        },
+        0,
+    );
+}
+
+/** Replays a turn and reports the largest drop in height it caused. */
+function worstMidTurnShrink(updates: readonly UnsequencedUpdate[]): number {
+    let state = createTuiState();
+    let previous = liveTranscriptRows(state);
+    let worst = 0;
+    let seq = 0;
+    for (const update of updates) {
+        state = applyAgentUpdate(state, {
+            ...update,
+            seq: (seq += 1),
+        } as AgentUpdate);
+        const rows = liveTranscriptRows(state);
+        worst = Math.max(worst, previous - rows);
+        previous = rows;
+    }
+    return worst;
+}
+
+test("a batch of tool calls never gives back the rows it took", () => {
+    const updates: UnsequencedUpdate[] = [
+        { type: "user_prompt", content: "go" },
+    ];
+    // Three fan-outs of six calls each: every batch used to appear as a row
+    // per call and go behind its header together when the last one landed.
+    for (let round = 0; round < 3; round += 1) {
+        for (let call = 0; call < 6; call += 1) {
+            updates.push({
+                type: "tool_started",
+                tool: "read",
+                args: { path: `/work/r${round}-f${call}.ts` },
+            });
+        }
+        for (let call = 0; call < 6; call += 1) {
+            updates.push({
+                type: "tool_finished",
+                tool: "read",
+                output: `contents of r${round}-f${call}`,
+            });
+        }
+    }
+
+    expect(worstMidTurnShrink(updates)).toBe(0);
+});
+
+test("reasoning that settles into its summary costs the view no height", () => {
+    let state = createTuiState();
+    let seq = 0;
+    const apply = (update: UnsequencedUpdate) => {
+        state = applyAgentUpdate(state, {
+            ...update,
+            seq: (seq += 1),
+        } as AgentUpdate);
+    };
+
+    apply({ type: "user_prompt", content: "go" });
+    let previous = liveTranscriptRows(state);
+    let worst = 0;
+    const measure = () => {
+        const rows = liveTranscriptRows(state);
+        worst = Math.max(worst, previous - rows);
+        previous = rows;
+    };
+
+    // Reasoning, then a call, three times over. The live row used to grow to
+    // its window and hand every row of it back the moment the phase ended.
+    for (let round = 0; round < 3; round += 1) {
+        for (let line = 0; line < 12; line += 1) {
+            apply({
+                type: "assistant_thinking",
+                text: `reasoning ${round} line ${line}\n`,
+            });
+            measure();
+        }
+        // The turn loop ends the phase when the next call starts, which is
+        // what replaces the live row with its one-row summary.
+        state = appendTuiThought(state, 11.3);
+        measure();
+        apply({
+            type: "tool_started",
+            tool: "read",
+            args: { path: `/work/f${round}.ts` },
+        });
+        measure();
+        apply({
+            type: "tool_finished",
+            tool: "read",
+            output: "line one\nline two\nline three",
+        });
+        measure();
+    }
+
+    // One row, and only because consecutive stretches deliberately report as
+    // one summary above the calls they precede: the live row at the bottom
+    // goes away into a row that already exists further up. That is a single
+    // row settling, not a window of them being handed back.
+    expect(worst).toBeLessThanOrEqual(1);
+});
 
 test("the initial range keeps only the transcript tail", () => {
     expect(tuiTranscriptTailRange(12, 48)).toEqual({ start: 0, end: 12 });
