@@ -8,6 +8,7 @@ import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import type { AvailableModel } from "../../src/model/catalog-view.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 const PROVIDER = "openrouter";
 
@@ -80,6 +81,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiCatalogRefreshDependencies());
 }
 

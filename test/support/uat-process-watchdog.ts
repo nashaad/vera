@@ -10,6 +10,7 @@ import {
     UAT_OWNER_SCHEMA_VERSION,
     type UatOwnerManifest,
 } from "./uat-process-owner.ts";
+import { killTmuxServer } from "./kill-tmux-server.ts";
 
 const CLEANUP_ATTEMPTS_MS = [0, 100, 500, 1_500, 3_000] as const;
 const FORCE_AFTER_MS = 500;
@@ -46,10 +47,7 @@ function cleanResource(
     now: number,
 ): void {
     if (resource.kind === "tmux_name") {
-        Bun.spawnSync(["tmux", "-L", resource.name, "kill-server"], {
-            stdout: "ignore",
-            stderr: "ignore",
-        });
+        killTmuxServer(resource.name);
         return;
     }
     const record = readHostRecord(resource.path);

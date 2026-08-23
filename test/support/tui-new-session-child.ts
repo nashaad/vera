@@ -6,6 +6,7 @@ import {
     type TuiExit,
 } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiNewSessionScenario {
     readonly dependencies: TuiDependencies;
@@ -76,6 +77,7 @@ export function createTuiNewSessionScenario(options: {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const scenario = createTuiNewSessionScenario({
         home: process.env.HOME ?? ".",
         createTimeout: process.env.CREATE_TIMEOUT === "1",

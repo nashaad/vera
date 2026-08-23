@@ -6,6 +6,7 @@ import {
     type TuiExit,
 } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiForkSessionScenario {
     readonly dependencies: TuiDependencies;
@@ -94,6 +95,7 @@ export function createTuiForkSessionScenario(options: {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const scenario = createTuiForkSessionScenario({
         home: process.env.HOME ?? ".",
         ...(process.env.FORK_TIMEOUT === "1"

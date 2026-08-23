@@ -20,6 +20,9 @@ import {
     type AssistantMessage,
     type ModelAdapter,
 } from "../../src/model/types.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
+
+installTestProcessGuard();
 
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 const sessions = new Map<string, TuiAgentClient>();

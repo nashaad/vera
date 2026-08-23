@@ -1,5 +1,6 @@
 import { startTui, type TuiDependencies } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiSettingsRejectionDependencies(): TuiDependencies {
     let seq = 1_000;
@@ -35,5 +36,6 @@ export function createTuiSettingsRejectionDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiSettingsRejectionDependencies());
 }

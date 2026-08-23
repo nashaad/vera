@@ -11,11 +11,12 @@ const DEFAULT_SAMPLE_INTERVAL_MS = 750;
 const DEFAULT_HIGH_CPU_PERCENT = 50;
 const MAX_QUIET_UNRECOGNIZED_HOSTS = 5;
 
-export type VeraProcessKind = "host" | "client";
+export type VeraProcessKind = "host" | "client" | "worker" | "test_fixture";
 
 export interface VeraProcessSample {
     readonly pid: number;
     readonly ppid: number;
+    readonly pgid: number;
     readonly elapsed: string;
     readonly cpuPercent: number;
     readonly startedAt: string;
@@ -27,6 +28,12 @@ export interface DiagnosedVeraProcess extends VeraProcessSample {
     readonly currentHost: boolean;
     readonly knownProfileHost: boolean;
     readonly sustainedHighCpu: boolean;
+    /**
+     * Orphaned and safe to stop without asking what it was for: a worker,
+     * supervisor, or test fixture with no live parent to reclaim it, or a
+     * host with neither a matching lock nor a parent shell of its own.
+     */
+    readonly stray: boolean;
 }
 
 export interface VeraDoctorReport {
@@ -77,21 +84,33 @@ export async function diagnoseVeraProcesses(
     );
     const processes = secondSample
         .filter((sample) => sample.pid !== doctorPid)
-        .map((sample): DiagnosedVeraProcess => ({
-            ...sample,
-            currentHost: sample.kind === "host"
-                && sample.pid === currentHostPid,
-            knownProfileHost: sample.kind === "host"
+        .map((sample): DiagnosedVeraProcess => {
+            const currentHost = sample.kind === "host"
+                && sample.pid === currentHostPid;
+            const knownProfileHost = sample.kind === "host"
                 && sample.pid !== currentHostPid
-                && knownProfileHostPids.has(sample.pid),
-            sustainedHighCpu:
-                sample.cpuPercent >= highCpuPercent
-                && sameProcessStayedAbove(
-                    firstByPid.get(sample.pid),
-                    sample,
-                    highCpuPercent,
-                ),
-        }))
+                && knownProfileHostPids.has(sample.pid);
+            // Reparented to init: whatever spawned it, host or test harness,
+            // is definitively gone. A parent absent from this table proves
+            // nothing on its own -- tmux and shells are never Vera processes,
+            // so a live test fixture's own parent would look "missing" too.
+            const orphaned = sample.ppid === 1;
+            return {
+                ...sample,
+                currentHost,
+                knownProfileHost,
+                sustainedHighCpu:
+                    sample.cpuPercent >= highCpuPercent
+                    && sameProcessStayedAbove(
+                        firstByPid.get(sample.pid),
+                        sample,
+                        highCpuPercent,
+                    ),
+                stray: orphaned
+                    && ((sample.kind === "worker" || sample.kind === "test_fixture")
+                        || (sample.kind === "host" && !currentHost && !knownProfileHost)),
+            };
+        })
         .sort(compareProcesses);
     const currentHostMissing = currentHostPid !== undefined
         && !processes.some((sample) =>
@@ -104,7 +123,8 @@ export async function diagnoseVeraProcesses(
     );
     return {
         healthy: !currentHostMissing
-            && unrecognizedHosts.length === 0,
+            && unrecognizedHosts.length === 0
+            && !processes.some((sample) => sample.stray),
         ...(currentHostPid === undefined ? {} : { currentHostPid }),
         currentHostMissing,
         processes,
@@ -117,6 +137,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     const clients = report.processes.filter((process) =>
         process.kind === "client"
     );
+    const strays = report.processes.filter((process) => process.stray);
     const extraHosts = hosts.filter((process) => !process.currentHost);
     const knownProfileHosts = extraHosts.filter((process) =>
         process.knownProfileHost
@@ -157,6 +178,16 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         }
         renderProcessRows(lines, shownIssues);
     }
+    // Stray hosts are already listed under Issues as unrecognized hosts;
+    // workers and test fixtures have no other section, so they go here.
+    const nonHostStrays = strays.filter((process) => process.kind !== "host");
+    if (nonHostStrays.length > 0) {
+        lines.push(
+            "",
+            `Stray processes: ${nonHostStrays.length} orphaned (reparented, no host or terminal left to reclaim them)`,
+        );
+        renderProcessRows(lines, nonHostStrays);
+    }
     const hiddenQuietHosts = Math.max(
         0,
         quietUnrecognizedHosts.length - MAX_QUIET_UNRECOGNIZED_HOSTS,
@@ -187,26 +218,64 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         );
     }
     lines.push(report.healthy ? "Result: healthy" : "Result: issues found");
-    lines.push("No processes were stopped.");
+    lines.push(
+        strays.length > 0
+            ? `${strays.length} stray process${strays.length === 1 ? "" : "es"} can be stopped safely.`
+            : "No stray processes found.",
+    );
     return `${lines.join("\n")}\n`;
+}
+
+/**
+ * SIGKILLs each stray's process group (falling back to the bare pid), for
+ * the caller to run only once the user has agreed to it.
+ */
+export function stopStrayVeraProcesses(
+    strays: readonly DiagnosedVeraProcess[],
+): number {
+    let stopped = 0;
+    for (const stray of strays) {
+        if (killProcessAndGroup(stray.pid, stray.pgid)) stopped += 1;
+    }
+    return stopped;
+}
+
+function killProcessAndGroup(pid: number, pgid: number): boolean {
+    let signaled = false;
+    if (pgid === pid) {
+        try {
+            process.kill(-pgid, "SIGKILL");
+            signaled = true;
+        } catch {
+            // Not a group leader after all, or already gone.
+        }
+    }
+    try {
+        process.kill(pid, "SIGKILL");
+        signaled = true;
+    } catch {
+        // Already gone, which still counts if the group signal above landed.
+    }
+    return signaled;
 }
 
 export function parseVeraProcessList(source: string): VeraProcessSample[] {
     const samples: VeraProcessSample[] = [];
     for (const line of source.split("\n")) {
         const match = line.match(
-            /^\s*(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/,
+            /^\s*(\d+)\s+(\d+)\s+(\d+)\s+(\S+)\s+([\d.]+)\s+(\S{3}\s+\S{3}\s+\d{1,2}\s+\d{2}:\d{2}:\d{2}\s+\d{4})\s+(.+)$/,
         );
         if (match === null) continue;
-        const command = match[6] ?? "";
+        const command = match[7] ?? "";
         const kind = classifyVeraProcess(command);
         if (kind === undefined) continue;
         samples.push({
             pid: Number(match[1]),
             ppid: Number(match[2]),
-            elapsed: match[3] ?? "unknown",
-            cpuPercent: Number(match[4]),
-            startedAt: match[5] ?? "unknown",
+            pgid: Number(match[3]),
+            elapsed: match[4] ?? "unknown",
+            cpuPercent: Number(match[5]),
+            startedAt: match[6] ?? "unknown",
             command,
             kind,
         });
@@ -218,7 +287,7 @@ async function sampleVeraProcesses(): Promise<readonly VeraProcessSample[]> {
     const child = Bun.spawn([
         "ps",
         "-axo",
-        "pid=,ppid=,etime=,%cpu=,lstart=,command=",
+        "pid=,ppid=,pgid=,etime=,%cpu=,lstart=,command=",
     ], {
         stdout: "pipe",
         stderr: "pipe",
@@ -335,6 +404,20 @@ function classifyVeraProcess(command: string): VeraProcessKind | undefined {
     ) {
         return "client";
     }
+    if (
+        /(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)
+        || /(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
+            command,
+        )
+    ) {
+        return "worker";
+    }
+    if (
+        /(?:^|\s)(?:\S*\/)?test\/support\/\S+-(?:child|resident-host)\.ts(?:\s|$)/
+            .test(command)
+    ) {
+        return "test_fixture";
+    }
     return undefined;
 }
 
@@ -396,14 +479,20 @@ function renderProcessRows(
                 ? process.knownProfileHost
                     ? "other profile host"
                     : "unrecognized host"
-                : process.kind,
+                : kindLabel(process.kind),
             ...(process.sustainedHighCpu ? ["sustained high CPU"] : []),
+            ...(process.stray ? ["stray, safe to stop"] : []),
         ];
         lines.push(
             `  PID ${process.pid}  ${process.cpuPercent.toFixed(1)}% CPU  age ${process.elapsed}  ${labels.join(", ")}`,
             `    ${processLocation(process)}`,
         );
     }
+}
+
+function kindLabel(kind: VeraProcessKind): string {
+    if (kind === "test_fixture") return "test fixture";
+    return kind;
 }
 
 function isMissingFileError(error: unknown): boolean {

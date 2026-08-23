@@ -11,6 +11,7 @@ import {
     type ModelReasoningEffort,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiSettingsDependencies(): TuiDependencies {
     let reasoningEffort: ModelReasoningEffort = "high";
@@ -81,6 +82,7 @@ export function createTuiSettingsDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiSettingsDependencies());
 }
 

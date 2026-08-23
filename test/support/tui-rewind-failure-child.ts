@@ -8,6 +8,7 @@ import type {
     AgentUpdate,
     ClientCommand,
 } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiRewindFailureDependencies(): TuiDependencies {
     const updates = new AsyncQueue<AgentUpdate>();
@@ -30,5 +31,6 @@ export function createTuiRewindFailureDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiRewindFailureDependencies());
 }

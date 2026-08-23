@@ -12,6 +12,7 @@ import {
 import { writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
     const source = { provider: "faux", api: "scripted", model: "test" } as const;
@@ -75,5 +76,6 @@ export function createTuiAutoReviewDependencies(home: string): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiAutoReviewDependencies(process.env.HOME ?? "."));
 }

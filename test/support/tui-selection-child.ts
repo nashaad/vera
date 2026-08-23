@@ -10,6 +10,7 @@ import type {
     AgentUpdate,
     ClientCommand,
 } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiSelectionDependencies(
     copiedTextPath: string,
@@ -42,6 +43,7 @@ export function createTuiSelectionDependencies(
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const copiedTextPath = process.env.VERA_TEST_COPIED_TEXT_PATH;
     if (copiedTextPath === undefined) {
         throw new Error("VERA_TEST_COPIED_TEXT_PATH is required");

@@ -158,7 +158,7 @@ test("doctor opens the read-only process report inside the TUI", async () => {
         expect(pane).toContain("Process summary");
         expect(pane).toContain("Resident hosts: 1 (1 unrecognized");
         expect(pane).toContain("PID 4242");
-        expect(pane).toContain("No processes were stopped.");
+        expect(pane).toContain("1 stray process can be stopped safely.");
         await session.settle(400);
         pane = session.captureVisiblePane();
         expect(pane).toContain("PID 4242");

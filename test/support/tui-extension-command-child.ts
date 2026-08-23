@@ -9,6 +9,7 @@ import {
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiExtensionCommandDependencies(
     home: string,
@@ -79,6 +80,7 @@ export function createTuiExtensionCommandDependencies(
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(
         createTuiExtensionCommandDependencies(process.env.HOME ?? ""),
     );

@@ -6,6 +6,7 @@ import {
     type TuiDependencies,
     type TuiExit,
 } from "../../clients/tui/main.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiTrashSessionScenario {
     readonly dependencies: TuiDependencies;
@@ -67,6 +68,7 @@ export function createTuiTrashSessionScenario(options: {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const scenario = createTuiTrashSessionScenario({
         home: process.env.HOME ?? ".",
         trashBusy: process.env.TRASH_BUSY === "1",
