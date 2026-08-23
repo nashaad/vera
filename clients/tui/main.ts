@@ -12744,7 +12744,7 @@ export async function startTui(
             : renderDialStrip(
                 dialStrip,
                 [
-                    "tab/shift+tab lane",
+                    "↑/↓ lane",
                     `${tuiKeyChord("dials.pair.prev")}/${
                         tuiKeyChord("dials.pair.next")
                     } change`,

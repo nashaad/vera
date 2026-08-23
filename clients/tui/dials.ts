@@ -600,7 +600,7 @@ export function renderDialStrip(
             state.lane === "effort"
                 ? Number.isFinite(width) && width < 42
                     ? "←/→"
-                    : "←/→ effort · tab lane"
+                    : "←/→ effort · ↑/↓ lane"
                 : state.lane === "model"
                 ? Number.isFinite(width) && width < 42
                     ? "↑/↓ · ←/→"
@@ -964,19 +964,24 @@ export function handleDialStripKey(
             return { kind: "state", state: moveChoice(state, -1) };
         case "dials.pair.next":
             return { kind: "state", state: moveChoice(state, 1) };
+        // Inside the model lane, up/down walks its own list, the way left/
+        // right walks the current lane's own choices everywhere else. On
+        // every other lane there is no vertical list to walk, so up/down
+        // does what tab does instead: move to the next rung. Tab still
+        // works everywhere, including out of the model lane's list.
         case "dials.effort.up":
             return {
                 kind: "state",
                 state: state.lane === "model"
                     ? moveDialStrip(state, -1)
-                    : state,
+                    : moveDialLane(state, -1),
             };
         case "dials.effort.down":
             return {
                 kind: "state",
                 state: state.lane === "model"
                     ? moveDialStrip(state, 1)
-                    : state,
+                    : moveDialLane(state, 1),
             };
     }
     if (key.ctrl === true) {

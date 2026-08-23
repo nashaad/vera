@@ -275,6 +275,47 @@ test("tab changes HUD lanes and horizontal arrows change that lane", () => {
     expect(accessAgain.kind === "state" && accessAgain.state.lane).toBe("access");
 });
 
+test("up and down also walk the HUD's rungs, off the model lane", () => {
+    // Every rung but model has no vertical list of its own, so up/down does
+    // what tab does there: move to the next rung. Getting from effort to
+    // model used to need tab; this is the more discoverable way in.
+    const composition = composeDialStrip({
+        current: SOL,
+        recents: [],
+        pool: POOL,
+    });
+    const state = openDialStrip(composition, SOL);
+    expect(state.lane).toBe("effort");
+
+    const toAccess = handleDialStripKey(
+        state,
+        { name: "down" },
+        "dials.effort.down",
+    );
+    expect(toAccess.kind === "state" && toAccess.state.lane).toBe("access");
+    if (toAccess.kind !== "state") return;
+
+    const toModel = handleDialStripKey(
+        toAccess.state,
+        { name: "down" },
+        "dials.effort.down",
+    );
+    expect(toModel.kind === "state" && toModel.state.lane).toBe("model");
+    if (toModel.kind !== "state") return;
+
+    // Wrapping backward from effort reaches the last rung, same as tab does.
+    const wrappedUp = handleDialStripKey(
+        state,
+        { name: "up" },
+        "dials.effort.up",
+    );
+    expect(wrappedUp.kind === "state" && wrappedUp.state.lane).toBe("agent");
+
+    // Vim keys (j/k) reach the same bindings when nothing remapped them.
+    const viaJ = handleDialStripKey(state, { name: "j" }, undefined);
+    expect(viaJ.kind === "state" && viaJ.state.lane).toBe("access");
+});
+
 test("up and down move the vertical model list", () => {
     const composition = composeDialStrip({
         current: SOL,
@@ -631,7 +672,7 @@ test("the effort lane on default reads exactly this", () => {
         "            ↺   2 luna                                luna",
         "  AGENT         [default] reviewer",
         "",
-        "←/→ effort · tab lane                                                  esc close",
+        "←/→ effort · ↑/↓ lane                                                  esc close",
     ]);
 });
 
@@ -646,7 +687,7 @@ test("the effort lane on a level reads exactly this", () => {
             "            ↺   2 luna                                luna",
             "  AGENT         [default] reviewer",
             "",
-            "←/→ effort · tab lane                                                  esc close",
+            "←/→ effort · ↑/↓ lane                                                  esc close",
         ]);
 });
 
@@ -686,7 +727,7 @@ test("a narrow terminal drops the scale and reads exactly this", () => {
         "            ↺   2 luna  ",
         "  AGENT         [default] reviewer",
         "",
-        "←/→ effort · tab lane                    esc close",
+        "←/→ effort · ↑/↓ lane                    esc close",
     ]);
 });
 
@@ -697,7 +738,7 @@ test("a model with no effort dial reads exactly this", () => {
         "  MODEL     ● [ 1 qwen3:32b  ollama ]",
         "  AGENT         [default] reviewer",
         "",
-        "←/→ effort · tab lane                                                  esc close",
+        "←/→ effort · ↑/↓ lane                                                  esc close",
     ]);
 });
 
