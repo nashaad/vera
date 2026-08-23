@@ -5,7 +5,10 @@ import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
-import { AgentRegistry } from "../../src/host/agent-registry.ts";
+import {
+    AgentRegistry,
+    defaultConcurrentWorkerCap,
+} from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
@@ -217,6 +220,78 @@ test("a worker returns timeline replies only to their attachment", async () => {
             }
         }
         expect(peerSawReply).toBe(false);
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("the default worker cap scales with memory and stays inside its bounds", () => {
+    const gb = 1024 * 1024 * 1024;
+    expect(defaultConcurrentWorkerCap(1 * gb)).toBe(2);
+    expect(defaultConcurrentWorkerCap(16 * gb)).toBe(12);
+    expect(defaultConcurrentWorkerCap(1024 * gb)).toBe(16);
+});
+
+test("a session past the worker cap fails with the way to free a slot", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-cap-"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [toolCall("hold", "sleep 60"), text("never reached")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+        maxConcurrentWorkers: 1,
+    });
+
+    try {
+        const first = await registry.create({
+            id: "first",
+            workspace: root,
+            sessionPath: join(root, "first.jsonl"),
+        });
+        const firstClient = first.attach();
+        expect((await firstClient.receive()).type).toBe("history");
+        firstClient.send({ type: "prompt", content: "hold the slot" });
+        await receiveUntil(
+            firstClient,
+            (update) => update.type === "tool_started",
+        );
+        await waitForFile(join(root, "first.pid"));
+
+        const second = await registry.create({
+            id: "second",
+            workspace: root,
+            sessionPath: join(root, "second.jsonl"),
+        });
+        const secondClient = second.attach();
+        expect((await secondClient.receive()).type).toBe("history");
+        secondClient.send({ type: "prompt", content: "should not start" });
+        const failure = await receiveUntil(
+            secondClient,
+            (update) => update.type === "agent_failed",
+        );
+
+        expect(failure).toMatchObject({ type: "agent_failed" });
+        if (failure.type === "agent_failed") {
+            expect(failure.detail).toContain("1 isolated sessions");
+            expect(failure.detail).toContain("vera close");
+        }
+        expect(
+            registry.list().find((entry) => entry.id === "second")?.worker_pid,
+        ).toBeUndefined();
     } finally {
         await registry.close();
         if (previousWorkerMode === undefined) {
