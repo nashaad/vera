@@ -82,6 +82,7 @@ import {
     type OpenRouterCatalogRefreshOptions,
 } from "../model/openrouter-catalog.ts";
 import {
+    apiKey,
     createAuthStorage,
     credentialFingerprint,
     type AuthStorage,
@@ -448,9 +449,7 @@ export async function startResidentHost(
                             ...(config.provider_endpoints?.omlx === undefined
                                 ? {}
                                 : { baseUrl: config.provider_endpoints.omlx }),
-                            ...(process.env.OMLX_API_KEY === undefined
-                                ? {}
-                                : { apiKey: process.env.OMLX_API_KEY }),
+                            ...omlxDiscoveryAuth(authStorage),
                         });
                     if (!discovered.available) {
                         return undefined;
@@ -1128,9 +1127,7 @@ export async function refreshProviderCatalogs(
             ...(config.provider_endpoints?.omlx === undefined
                 ? {}
                 : { baseUrl: config.provider_endpoints.omlx }),
-            ...(process.env.OMLX_API_KEY === undefined
-                ? {}
-                : { apiKey: process.env.OMLX_API_KEY }),
+            ...omlxDiscoveryAuth(authStorage),
         }),
         hasOpenRouterCredential(config)
             ? discoveredOpenRouterModels(config, {
@@ -1233,9 +1230,7 @@ async function discoverAvailableModels(
             ...(config.provider_endpoints?.omlx === undefined
                 ? {}
                 : { baseUrl: config.provider_endpoints.omlx }),
-            ...(process.env.OMLX_API_KEY === undefined
-                ? {}
-                : { apiKey: process.env.OMLX_API_KEY }),
+            ...omlxDiscoveryAuth(authStorage),
         }),
         discoveredOpenRouterModels(config, { maxAgeMs }),
         discoveredCerebrasModels(config, { authStorage, maxAgeMs }),
@@ -1700,6 +1695,16 @@ export interface OmlxDiscoveryResult {
 }
 
 const DEFAULT_OMLX_BASE_URL = "http://127.0.0.1:8000/v1";
+
+function omlxDiscoveryAuth(
+    authStorage: Pick<AuthStorage, "getCredential">,
+): { apiKey?: string } {
+    const stored = apiKey(authStorage, "omlx");
+    const value = stored !== undefined && stored.length > 0
+        ? stored
+        : process.env.OMLX_API_KEY;
+    return value === undefined ? {} : { apiKey: value };
+}
 
 export async function discoveredOmlxModels(
     options: OmlxDiscoveryOptions = {},

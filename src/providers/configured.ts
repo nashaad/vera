@@ -99,9 +99,7 @@ const ADAPTERS: Readonly<Record<
     omlx: (options, baseUrl) => createCustomOpenAIAdapter({
         provider: "omlx",
         baseUrl: baseUrl ?? "http://127.0.0.1:8000/v1",
-        ...((options.env ?? process.env).OMLX_API_KEY === undefined
-            ? {}
-            : { apiKey: (options.env ?? process.env).OMLX_API_KEY }),
+        ...optionalApiKey("omlx", options),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
     }),
@@ -141,6 +139,23 @@ function capture(
     return options.captureFailedRequest === undefined
         ? {}
         : { captureFailedRequest: options.captureFailedRequest };
+}
+
+function optionalApiKey(
+    providerId: string,
+    options: ConfiguredProviderOptions,
+): { apiKey?: string } {
+    const stored = options.authStorage === undefined
+        ? undefined
+        : apiKey(options.authStorage, providerId);
+    const envVar = findProvider(providerId)?.envVar;
+    const fromEnv = envVar === undefined
+        ? undefined
+        : (options.env ?? process.env)[envVar];
+    const value = stored !== undefined && stored.length > 0
+        ? stored
+        : fromEnv;
+    return value === undefined ? {} : { apiKey: value };
 }
 
 export function createConfiguredModelAdapter(

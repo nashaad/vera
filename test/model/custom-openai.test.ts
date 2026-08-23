@@ -98,7 +98,15 @@ test("the built-in oMLX provider uses its local OpenAI endpoint", async () => {
         model: "Qwen3-Coder-Next-8bit",
         approval_mode: "ask",
     }, {
-        env: { OMLX_API_KEY: "omlx-secret" },
+        authStorage: {
+            getCredential: () => ({
+                type: "api_key" as const,
+                key: "stored-omlx-secret",
+            }),
+            setCredential: () => {},
+            deleteCredential: () => {},
+        },
+        env: { OMLX_API_KEY: "env-omlx-secret" },
         fetch: async (input, init) => {
             request = new Request(String(input), init);
             return new Response(
@@ -114,5 +122,7 @@ test("the built-in oMLX provider uses its local OpenAI endpoint", async () => {
     expect(request?.url).toBe(
         "http://127.0.0.1:8000/v1/chat/completions",
     );
-    expect(request?.headers.get("authorization")).toBe("Bearer omlx-secret");
+    expect(request?.headers.get("authorization")).toBe(
+        "Bearer stored-omlx-secret",
+    );
 });
