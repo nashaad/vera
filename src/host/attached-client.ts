@@ -39,6 +39,8 @@ export interface AttachAgentOptions {
 export interface AttachedAgentClient {
     readonly agentId: string;
     readonly workspace: string;
+    /** True once the attached resident has reached terminal failure. */
+    readonly failed?: boolean;
     /** Last sequenced update delivered to the caller. */
     readonly lastSequence: number | undefined;
     readonly capabilities: readonly string[];
@@ -171,6 +173,7 @@ export async function attachAgent(
             connection,
             response.agent_id,
             response.workspace,
+            response.failed === true,
             backgroundAgents,
             capabilities,
             maxPendingUpdates,
@@ -186,6 +189,7 @@ function createAttachedClient(
     connection: HostConnection,
     agentId: string,
     workspace: string,
+    initiallyFailed: boolean,
     initialBackgroundAgents: BackgroundAgentsSnapshot,
     negotiatedCapabilities: readonly string[],
     maxPendingUpdates: number,
@@ -199,6 +203,7 @@ function createAttachedClient(
     let workIndex: WorkIndexSnapshot | undefined;
     const workIndexListeners = new Set<(index: WorkIndexSnapshot) => void>();
     let isClosed = false;
+    let failed = initiallyFailed;
     let isDetaching = false;
     let detachPromise: Promise<void> | undefined;
     let resolveDetached: (() => void) | undefined;
@@ -228,6 +233,9 @@ function createAttachedClient(
     return {
         agentId,
         workspace,
+        get failed(): boolean {
+            return failed;
+        },
         get lastSequence(): number | undefined {
             return lastDeliveredSequence;
         },
@@ -368,6 +376,9 @@ function createAttachedClient(
                     throw new Error(
                         "Agent updates exceeded the client buffer while an extension request was pending",
                     );
+                }
+                if (update.type === "agent_failed") {
+                    failed = true;
                 }
                 if ("seq" in update) {
                     if (lastReadSequence === undefined) {
@@ -562,6 +573,7 @@ function isAttached(
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    readonly failed?: unknown;
     readonly background_agents: unknown;
     readonly capabilities?: unknown;
 } {
@@ -569,7 +581,8 @@ function isAttached(
     return response?.type === "attached"
         && response.agent_id === expectedAgentId
         && typeof response.workspace === "string"
-        && response.workspace.length > 0;
+        && response.workspace.length > 0
+        && (response.failed === undefined || response.failed === true);
 }
 
 /**

@@ -21,6 +21,12 @@ test("the shipped recommendations parse and every entry is whole", () => {
     }
 });
 
+test("a new config starts on a provider authenticated by API key", () => {
+    const first = loadRecommendedModels()[0]!;
+
+    expect(first.provider).toBe("openrouter");
+});
+
 test("the shipped recommendations name each model at most once", () => {
     const keys = loadRecommendedModels().map((entry) =>
         `${entry.provider}/${entry.model}`

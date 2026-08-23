@@ -1,4 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -137,7 +138,7 @@ import {
     type ExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
-import { buildWorkIndex } from "./work-index.ts";
+import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 import { searchSessions } from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
 import {
@@ -366,6 +367,17 @@ export async function startResidentHost(
                     options.inboxUserConfigPath,
                 ),
         });
+    /**
+     * The index derived for the fan-out currently running, held only until the
+     * event loop turns.
+     *
+     * Every client asks for the index on the same transition and the answer is
+     * the same for all of them, but deriving it stats each session and scans
+     * its stash, so the unshared version cost that once per client. Dropping
+     * it on the next microtask keeps it from outliving the fan-out that built
+     * it, so nothing can read a roster that has since changed.
+     */
+    let workIndexThisTurn: WorkIndexSnapshot | undefined;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
         for (const listener of [...workChangeListeners]) {
@@ -411,6 +423,22 @@ export async function startResidentHost(
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
         createAdapter,
+        // Offered only when this host's adapter is the configured one and
+        // nothing live wraps it. An injected factory and a model-request hook
+        // are both functions, and a function does not cross to a worker.
+        ...(options.createAdapter !== undefined || hasModelRequestHooks
+            ? {}
+            : {
+                workerAdapterSpec: (context: {
+                    readonly provider: string;
+                    readonly projectRoot: string;
+                    readonly sessionId: string;
+                }) => ({
+                    module: WORKER_ADAPTER_MODULE,
+                    export: "createWorkerAdapter",
+                    options: { ...context, config: currentConfig() },
+                }),
+            }),
         provider: options.config.provider,
         customProviderIds: () => Object.keys(currentConfig().providers ?? {}),
         model: options.config.model,
@@ -886,11 +914,18 @@ export async function startResidentHost(
             // roster change, and a schedule database that cannot be read is
             // no reason to lose the sessions beside it.
             readWorkIndex: () => {
+                if (workIndexThisTurn !== undefined) {
+                    return workIndexThisTurn;
+                }
                 const agents = registry.workFacts();
-                return buildWorkIndex(
+                workIndexThisTurn = buildWorkIndex(
                     agents,
                     registry.scheduleWorkFacts(recentScheduleRuns(), agents),
                 );
+                queueMicrotask(() => {
+                    workIndexThisTurn = undefined;
+                });
+                return workIndexThisTurn;
             },
             searchSessions: (query) => searchSessions(sessionDirectory, query),
             ...(scheduler === null ? {} : {
@@ -1753,13 +1788,16 @@ async function resumeOrFind(
     inFlight: Map<string, Promise<ResidentAgent>> = new Map(),
 ): Promise<ResidentAgent> {
     const canonicalPath = await realpath(sessionPath);
-    const existing = registry.list().find(
-        (agent) => agent.session_path === canonicalPath,
-    );
-    if (existing !== undefined) {
-        const agent = registry.find(existing.id);
-        if (agent !== undefined) {
-            return agent;
+    for (const summary of registry.list()) {
+        let existingPath = summary.session_path;
+        if (existingPath !== canonicalPath) {
+            existingPath = await realpath(existingPath).catch(() => existingPath);
+        }
+        if (existingPath === canonicalPath) {
+            const agent = registry.find(summary.id);
+            if (agent !== undefined) {
+                return agent;
+            }
         }
     }
     const restoring = inFlight.get(canonicalPath);
@@ -1953,3 +1991,8 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
         }
     }
 }
+
+/** Imported by the worker, which builds the adapter for itself. */
+const WORKER_ADAPTER_MODULE = fileURLToPath(
+    new URL("./worker/adapter.ts", import.meta.url),
+);

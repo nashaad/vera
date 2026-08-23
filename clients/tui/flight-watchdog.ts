@@ -1,4 +1,5 @@
 import { appendFileSync, readFileSync } from "node:fs";
+import { restoreTerminalNow } from "./terminal-restore.ts";
 
 const STALL_AFTER_MS = 5_000;
 const CHECK_INTERVAL_MS = 1_000;
@@ -27,6 +28,7 @@ if (import.meta.main) {
     setInterval(() => {
         if (!processExists(pid)) {
             append(logPath, { type: "client_process_lost", instanceId, pid });
+            restoreTerminalNow();
             process.exit(0);
         }
         const ageMs = readHeartbeatAge(heartbeatPath);

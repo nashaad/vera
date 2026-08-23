@@ -761,6 +761,51 @@ afterEach(() => {
 );
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a failed resident keeps its host control channel until detach",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        agent.fail("worker-killed", "Resident agent stopped unexpectedly");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            listExtensionCommands: () => [{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello",
+                source: "test.extension",
+            }],
+        });
+        const client = await attachAgent({ socketPath, agentId: agent.id });
+        try {
+            expect(client.failed).toBeTrue();
+            expect(await client.receive()).toMatchObject({
+                type: "history",
+                entries: [],
+            });
+            expect(await client.receive()).toMatchObject({
+                type: "agent_failed",
+                failureId: "worker-killed",
+            });
+            expect(await client.listExtensionCommands()).toEqual([{
+                name: "hello",
+                description: "Say hello",
+                usage: "/hello",
+                source: "test.extension",
+            }]);
+            await client.detach();
+            expect(client.closed).toBeTrue();
+        } finally {
+            client.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "host keeps an attachment usable when extension discovery fails",
     async () => {
         const directory = temporaryHostDirectory();

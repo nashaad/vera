@@ -257,6 +257,8 @@ export interface AttachedResponse {
     readonly type: "attached";
     readonly agent_id: string;
     readonly workspace: string;
+    /** Present when this attachment can only replay a terminal failure. */
+    readonly failed?: true;
     /**
      * The background-agent facts as of the attach, so a client has a correct
      * count to draw before anything changes rather than after the first change.

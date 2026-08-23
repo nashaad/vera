@@ -15,6 +15,7 @@ import {
     type CliRenderer,
     type Renderable,
     type Selection,
+    type MouseEvent,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
@@ -171,6 +172,16 @@ import {
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 import { createTuiSidebar } from "./sidebar.ts";
 import { tuiTranscriptAtBottom } from "./transcript-scroll.ts";
+import {
+    TUI_TRANSCRIPT_INITIAL_WINDOW,
+    TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+    TUI_TRANSCRIPT_MATERIALIZE_BUFFER,
+    tuiTranscriptEntryIsVisible,
+    tuiTranscriptEvictableRows,
+    tuiTranscriptNeedsEarlierEntries,
+    tuiTranscriptPrependRange,
+    tuiTranscriptTailRange,
+} from "./transcript-window.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
@@ -214,6 +225,7 @@ import {
     type TuiDiagnosticsScope,
     type TuiDiagnosticsSnapshot,
 } from "./diagnostics.ts";
+import { readProcessMemory } from "./process-memory.ts";
 import {
     createTuiDiagnosticsDialogView,
     handleTuiDiagnosticsDialogKey,
@@ -267,6 +279,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
     tuiArgumentCompletion,
@@ -325,6 +338,20 @@ import {
     workTabViewState,
     type WorkTabState,
 } from "./work-tab.ts";
+import {
+    applyWorkspaceWorkIndex,
+    clampWorkspaceRailColumns,
+    handleWorkspaceSidebarKey,
+    openWorkspaceSelection,
+    refreshWorkspaceSidebarSessions,
+    startWorkspaceSidebar,
+    workspaceRailColumns,
+    workspaceSidebarLayout,
+    workspaceSidebarSessions,
+    workspaceSidebarViewState,
+    type WorkspaceSidebarAction,
+    type WorkspaceSidebarState,
+} from "./workspace-sidebar.ts";
 import {
     applySearchFailure,
     applySearchResults,
@@ -556,10 +583,16 @@ import {
     loadTuiSidebarWidth,
     saveTuiSidebarWidth,
     loadTuiKeybindingOverlay,
+    loadTuiPinnedSessionIds,
     loadTuiRecentSessionId,
     loadTuiThemePreference,
+    loadTuiWorkspaceSidebarDocked,
+    loadTuiWorkspaceSidebarWidth,
+    saveTuiPinnedSessionIds,
     saveTuiRecentSessionId,
     saveTuiThemePreference,
+    saveTuiWorkspaceSidebarDocked,
+    saveTuiWorkspaceSidebarWidth,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
@@ -1255,6 +1288,27 @@ export async function startTui(
     let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
     let workTab: WorkTabState | undefined;
+    /**
+     * The workspace side bar, mounted or not.
+     *
+     * A dock rather than an overlay: it remains beside the conversation while
+     * the composer is active. Only its focused state claims bare keys; chords
+     * pass through so ctrl+e can focus or remove the dock.
+     */
+    let workspaceSidebar: WorkspaceSidebarState | undefined;
+    /** A dock can remain visible while typing; only focused docks claim keys. */
+    let workspaceSidebarFocused = false;
+    let workspaceSidebarDocked = loadTuiWorkspaceSidebarDocked();
+    let workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
+    /**
+     * The row columns the side bar is currently drawn as a rail in, or nothing
+     * while it is closed or drawn as a card. Held so the transcript beside it
+     * is only reflowed when the layout actually changes.
+     */
+    let workspaceRail: number | undefined;
+    let workspaceRailDragging = false;
+    /** Client state. A pin orders one person's list and never reaches a host. */
+    let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
     /**
      * The last index the host sent, held whether or not the tab is open: the
@@ -1297,6 +1351,9 @@ export async function startTui(
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let diagnosticsScope: TuiDiagnosticsScope = "session";
     let diagnosticsSessionPath: string | undefined;
+    let diagnosticsWorkerPid: number | undefined;
+    let diagnosticsSupervisorPid: number | undefined;
+    let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
     let diagnosticsSessionPathResolved = false;
     let diagnosticsGeneration = 0;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
@@ -1424,7 +1481,8 @@ export async function startTui(
     let extensionCommandActivity: string | undefined;
     let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
-        dependencies.client.listExtensionCommands !== undefined;
+        dependencies.client.listExtensionCommands !== undefined
+        && dependencies.client.failed !== true;
     let runningBackgroundAgents = 0;
     let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
@@ -1939,13 +1997,64 @@ export async function startTui(
     });
     transcript.add(placeholder);
 
-    // Parallel arrays: every push/pop on one must pair with the other. If they
-    // drift, the kind-churn check in renderState compares against stale kinds
-    // and tears down and rebuilds the transcript tail on every repaint, which
-    // shows up as whole markdown blocks blanking for a frame while streaming
-    // (recreated blocks paint nothing until the tree-sitter worker returns).
+    const transcriptEntryWindow = new BoxRenderable(renderer, {
+        id: "transcript-entry-window",
+        width: "100%",
+        flexDirection: "column",
+        flexShrink: 0,
+    });
+    const transcriptWindowTopSpacer = new BoxRenderable(renderer, {
+        id: "transcript-window-top-spacer",
+        width: "100%",
+        height: 0,
+        flexShrink: 0,
+    });
+    const transcriptWindowBottomSpacer = new BoxRenderable(renderer, {
+        id: "transcript-window-bottom-spacer",
+        width: "100%",
+        height: 0,
+        visible: false,
+        flexShrink: 0,
+    });
+    transcriptEntryWindow.add(transcriptWindowTopSpacer);
+    transcriptEntryWindow.add(transcriptWindowBottomSpacer);
+    transcript.add(transcriptEntryWindow);
+
+    // Parallel sparse arrays: both use the reduced transcript index as their
+    // contract. A missing slot means that entry has not been materialized,
+    // while a present node and kind must be assigned or deleted together.
     const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
     const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
+    let materializedEntryStart = 0;
+    let materializedEntryEnd = 0;
+    /**
+     * The rows an entry occupied while it was materialized.
+     *
+     * The spacer stands in for released entries, so a released entry's height
+     * has to come back the same or the rows below it shift under the reader.
+     * A measurement is exact where the estimate is not, which is what keeps
+     * releasing and rebuilding a batch free of any scroll correction. Width
+     * changes what an entry measures, so the whole cache is dropped on resize.
+     */
+    const measuredEntryRows: number[] = [];
+    let measuredEntryRowsWidth = 0;
+    let pendingTranscriptScrollRestore: {
+        readonly scrollTop: number;
+        readonly atBottom: boolean;
+    } | undefined;
+    /**
+     * The entry the reader was reading and where it sat in the viewport, to be
+     * put back once the layout it is waiting on has run.
+     *
+     * Anything that changes what stands above the viewport moves every row
+     * below it: a width change, and materializing entries the spacer was
+     * standing in for. A laid-out node says exactly how far, where the row
+     * estimate the spacer was built from only guesses.
+     */
+    let pendingTranscriptScrollAnchor: {
+        readonly index: number;
+        readonly offset: number;
+    } | undefined;
     const sidebarEntryNodes: (
         TextRenderable | MarkdownRenderable | BoxRenderable
     )[] = [];
@@ -2220,6 +2329,11 @@ export async function startTui(
     const preferencesListView = createTuiPreferencesListView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const workTabView = createTuiLinesView(renderer, "work-tab");
+    const workspaceSidebarView = createTuiLinesView(
+        renderer,
+        "workspace-sidebar",
+        { panelBackground: false, railDivider: true },
+    );
     const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
@@ -2345,6 +2459,7 @@ export async function startTui(
     function setComposerMargin(rows: number): void {
         composerMarginRows = rows;
         composerBox.marginBottom = rows;
+        workspaceSidebarView.setBottomInset(composerBox.height + rows);
         positionCommandSuggestions();
     }
 
@@ -2399,6 +2514,9 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
+    workspaceSidebarView.setBottomInset(
+        composerBox.height + composerMarginRows,
+    );
     // The attention chip at the head of the status row is a click target,
     // and it does what its label says: the hint reads /work, so the click
     // opens the work tab. Width zero means no chip is on screen.
@@ -2425,6 +2543,9 @@ export async function startTui(
         composerTextRows = nextRows;
         composer.height = nextRows;
         composerBox.height = tuiComposerPanelRows(nextRows);
+        workspaceSidebarView.setBottomInset(
+            composerBox.height + composerMarginRows,
+        );
         positionCommandSuggestions();
         renderer.requestRender();
     }
@@ -2450,9 +2571,28 @@ export async function startTui(
         backgroundColor: theme.background,
         paddingTop: APP_PADDING_TOP,
         paddingBottom: APP_PADDING_BOTTOM,
-        onMouseDrag: () => bodyFocus.noteDrag(),
+        onMouseDrag: (event: MouseEvent) => {
+            bodyFocus.noteDrag();
+            if (!workspaceRailDragging) return;
+            event.preventDefault();
+            event.stopPropagation();
+            resizeWorkspaceRailAt(event.x);
+        },
         onMouseDragEnd: () => bodyFocus.noteDrag(),
-        onMouseUp: () => {
+        onMouseUp: (event: MouseEvent) => {
+            if (workspaceRailDragging) {
+                workspaceRailDragging = false;
+                workspaceSidebarView.box.borderColor = theme.element;
+                event.stopPropagation();
+                if (workspaceRailPreferred !== undefined) {
+                    try {
+                        saveTuiWorkspaceSidebarWidth(workspaceRailPreferred);
+                    } catch {
+                        // The rail keeps the width reached in this session.
+                    }
+                }
+                return;
+            }
             if (bodyFocus.release(anyOverlayOpen())) {
                 composer.focus();
             }
@@ -2925,9 +3065,11 @@ export async function startTui(
         commandPalette = undefined;
         help = undefined;
         workTab = undefined;
+        workspaceSidebar = undefined;
         searchOverlay = undefined;
         queuedSearch = undefined;
         workTabView.surface.visible = false;
+        workspaceSidebarView.surface.visible = false;
         searchOverlayView.surface.visible = false;
         doctorDialog = undefined;
         diagnosticsDialog = undefined;
@@ -3158,7 +3300,7 @@ export async function startTui(
         entries.forEach((entry, index) => {
             const wrapper = sidebarEntryNodes[index];
             if (wrapper !== undefined) {
-                wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
+                wrapper.visible = tuiTranscriptEntryIsVisible(entry);
                 const existing = tuiGutterContent(wrapper);
                 if (
                     existing instanceof MarkdownRenderable
@@ -3466,6 +3608,35 @@ export async function startTui(
             if (action !== undefined) runWorkTabAction(open, action);
         },
     };
+    // Hover moves the cursor and a click activates the row it landed on, the
+    // same as every other list: a row the arrows can reach is a row the mouse
+    // can reach.
+    workspaceSidebarView.pointer = {
+        hover: (rowId) => {
+            if (workspaceSidebar === undefined) return;
+            if (workspaceSidebar.selectedId === rowId) return;
+            workspaceSidebar = { ...workspaceSidebar, selectedId: rowId };
+            renderState();
+        },
+        activate: (rowId) => {
+            if (workspaceSidebar === undefined) return;
+            const open = { ...workspaceSidebar, selectedId: rowId };
+            workspaceSidebar = open;
+            const action = openWorkspaceSelection(open, rowId);
+            if (action !== undefined) runWorkspaceSidebarAction(action);
+        },
+    };
+    workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
+        const occupied = workspaceSidebarView.railColumns();
+        if (
+            occupied === undefined
+            || event.x !== occupied - 1
+        ) return;
+        event.preventDefault();
+        event.stopPropagation();
+        workspaceRailDragging = true;
+        workspaceSidebarView.box.borderColor = theme.accent;
+    };
     searchOverlayView.pointer = {
         hover: (rowId) => {
             const selected = searchSelectionOf(rowId);
@@ -3495,6 +3666,22 @@ export async function startTui(
         workTab = { ...workTab, selectedId };
         renderState();
     };
+    workspaceSidebarView.box.onMouseScroll = (event) => {
+        if (workspaceSidebar === undefined || event.scroll === undefined) return;
+        const open = workspaceSidebar;
+        const rows = workspaceSidebarLayout(open, {
+            columns: renderer.width,
+            now: new Date(),
+        }).selectable;
+        const at = rows.indexOf(open.selectedId ?? "");
+        const next = wheelCursor(Math.max(0, at), rows.length, event.scroll);
+        const selectedId = next === undefined ? undefined : rows[next];
+        if (selectedId === undefined) return;
+        event.preventDefault();
+        event.stopPropagation();
+        workspaceSidebar = { ...open, selectedId };
+        renderState();
+    };
     searchOverlayView.box.onMouseScroll = (event) => {
         if (searchOverlay === undefined || event.scroll === undefined) return;
         const selections = searchSelections(searchOverlay);
@@ -3514,6 +3701,7 @@ export async function startTui(
         renderState();
     };
     app.add(workTabView.surface);
+    app.add(workspaceSidebarView.surface);
     app.add(searchOverlayView.surface);
     app.add(helpView.box);
     app.add(diagnosticsDialogView.box);
@@ -3605,6 +3793,34 @@ export async function startTui(
 
     const renderCoalescer = createRenderCoalescer({ render: renderState });
 
+    renderer.on(CliRenderEvents.FRAME, () => {
+        settleTranscriptScrollState();
+        measureMaterializedTranscriptEntries();
+        // Materializing and releasing both write the nodes and the spacers
+        // they touch, so neither needs a repaint of the rest of the screen.
+        // At most one runs per frame: releasing what was just built would
+        // rebuild it on the next frame.
+        // A pending search target owns the window until its row is on screen.
+        // Moving it in the same frame would release the row the scroll is
+        // about to reach.
+        if (
+            pendingSearchTarget === undefined
+            && !maybeSnapTranscriptWindowToTail()
+            && !maybeMaterializeEarlierTranscriptEntries()
+            && !maybeMaterializeLaterTranscriptEntries()
+        ) {
+            maybeEvictTranscriptEntries();
+        }
+        if (pendingTranscriptScrollAnchor !== undefined) {
+            // The rows that just arrived have no position until a layout runs,
+            // and the frame about to be painted is the one that would show
+            // them in the wrong place.
+            renderer.root.calculateLayout();
+            applyTranscriptScrollAnchor();
+        }
+        showSearchTarget();
+    });
+
     const statusTimer = setInterval(() => {
         renderStatus();
         refreshTimedSurfaces();
@@ -3641,6 +3857,11 @@ export async function startTui(
         transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
         transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
         sidebar.refit();
+        if (transcriptFollowsBottom()) {
+            pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+        } else {
+            captureTranscriptScrollAnchor();
+        }
         resizeComposer(requestedComposerTextRows);
         renderState();
     });
@@ -4215,6 +4436,28 @@ export async function startTui(
             }
         }
 
+        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
+            const open = workspaceSidebar;
+            const transition = handleWorkspaceSidebarKey(
+                open,
+                key,
+                new Date(),
+                renderer.width,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                workspaceSidebar = transition.state ?? open;
+                if (transition.action !== undefined) {
+                    runWorkspaceSidebarAction(transition.action);
+                } else {
+                    renderState();
+                    focusActiveSurface();
+                }
+                return;
+            }
+        }
+
         if (workTab !== undefined) {
             const open = workTab;
             const transition = handleWorkTabKey(open, key);
@@ -4646,6 +4889,31 @@ export async function startTui(
             }
         }
 
+        // The toggle is one chord in both directions, so the close arm runs
+        // before the open arm and before the overlay guard: the pane is not an
+        // overlay, and the chord that opened it has to reach back through it.
+        if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
+            if (workspaceSidebar !== undefined) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (workspaceSidebarFocused) {
+                    closeWorkspaceSidebar();
+                } else {
+                    workspaceSidebarFocused = true;
+                    composer.blur();
+                    renderState();
+                    focusActiveSurface();
+                }
+                return;
+            }
+            if (!anyOverlayOpen()) {
+                key.preventDefault();
+                key.stopPropagation();
+                openWorkspaceSidebar();
+                return;
+            }
+        }
+
         if (
             tuiBindingId("global", key) === "toggle_thinking"
             && !anyOverlayOpen()
@@ -4923,9 +5191,14 @@ export async function startTui(
     }
 
     void receiveAgentUpdates();
-    void loadExtensionCommands();
-    requestSessionSettings();
+    if (client.failed !== true) {
+        void loadExtensionCommands();
+        requestSessionSettings();
+    }
     void restorePersistedAgentPane();
+    if (workspaceSidebarDocked) {
+        openWorkspaceSidebar({ focus: false, persist: false });
+    }
 
     async function restorePersistedAgentPane(): Promise<void> {
         const mainAgentId = client.agentId;
@@ -4976,6 +5249,23 @@ export async function startTui(
             sessionId: client.agentId,
             workspace: client.workspace ?? process.cwd(),
             runningBackgroundAgents,
+            processes: [
+                { role: "client" as const, pid: process.pid },
+                ...(dependencies.build?.hostPid === undefined
+                    ? []
+                    : [{ role: "host" as const, pid: dependencies.build.hostPid }]),
+                ...(diagnosticsWorkerPid === undefined
+                    ? []
+                    : [{ role: "worker" as const, pid: diagnosticsWorkerPid }]),
+                ...(diagnosticsSupervisorPid === undefined
+                    ? []
+                    : [{ role: "supervisor" as const, pid: diagnosticsSupervisorPid }]),
+            ].map((entry) => ({
+                ...entry,
+                ...(diagnosticsProcessMemory.get(entry.pid) === undefined
+                    ? {}
+                    : { rssBytes: diagnosticsProcessMemory.get(entry.pid) }),
+            })),
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
             modelFailures: summariseModelFailures(readModelFailures()),
@@ -5361,6 +5651,9 @@ export async function startTui(
             renderCommandSuggestions();
             diagnosticsScope = "session";
             diagnosticsSessionPath = undefined;
+            diagnosticsWorkerPid = undefined;
+            diagnosticsSupervisorPid = undefined;
+            diagnosticsProcessMemory = new Map();
             const generation = ++diagnosticsGeneration;
             const agentId = client.agentId;
             const resolvingSessionPath = agentId !== undefined
@@ -5376,19 +5669,33 @@ export async function startTui(
             renderState();
             focusActiveSurface();
             if (agentId !== undefined && dependencies.listAgents !== undefined) {
-                void dependencies.listAgents().then((agents) => {
-                    const sessionPath = agents.find((agent) =>
-                        agent.id === agentId
-                    )?.session_path;
+                void dependencies.listAgents().then(async (agents) => {
+                    const listed = agents.find((agent) => agent.id === agentId);
+                    const sessionPath = listed?.session_path;
                     if (
                         diagnosticsDialog === undefined
                         || diagnosticsGeneration !== generation
                         || client.agentId !== agentId
                     ) return;
                     diagnosticsSessionPathResolved = true;
+                    diagnosticsWorkerPid = listed?.worker_pid;
+                    diagnosticsSupervisorPid = listed?.supervisor_pid;
+                    const processPids = [
+                        process.pid,
+                        dependencies.build?.hostPid,
+                        diagnosticsWorkerPid,
+                        diagnosticsSupervisorPid,
+                    ].filter((pid): pid is number => pid !== undefined);
+                    diagnosticsProcessMemory = await readProcessMemory(processPids);
+                    if (
+                        diagnosticsDialog === undefined
+                        || diagnosticsGeneration !== generation
+                        || client.agentId !== agentId
+                    ) return;
                     if (sessionPath === undefined) {
                         diagnosticsDialog = {
-                            ...diagnosticsDialog,
+                            text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                            scope: diagnosticsScope,
                             copyReady: true,
                         };
                         renderState();
@@ -7120,7 +7427,10 @@ export async function startTui(
                         new Error(update.detail),
                     );
                     focusActiveSurface();
-                    return;
+                    // The agent stream is terminal, but the attachment also
+                    // carries host lifecycle. Keep listening so `host stop`
+                    // becomes the ordinary recoverable disconnected state.
+                    continue;
                 }
 
                 if (
@@ -7434,7 +7744,7 @@ export async function startTui(
             renderCommandSuggestions();
             renderState();
         } catch (error) {
-            if (shuttingDown) {
+            if (shuttingDown || generation !== extensionCommandsGeneration) {
                 return;
             }
             const message = error instanceof Error
@@ -7488,6 +7798,9 @@ export async function startTui(
         if (workTab !== undefined) {
             return () => workTabView.box.focus();
         }
+        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
+            return () => workspaceSidebarView.box.focus();
+        }
         if (searchOverlay !== undefined) {
             return () => searchOverlayView.box.focus();
         }
@@ -7533,24 +7846,31 @@ export async function startTui(
         return undefined;
     }
 
+    let recordedFocusSurface: string | undefined;
+
     function focusActiveSurface(): void {
-        composer.blur();
         const overlay = activeOverlayFocus();
+        const surface = overlay !== undefined
+            ? "overlay"
+            : sidebar.isFocused()
+            ? "sidebar_composer"
+            : "main_composer";
+        if (
+            overlay === undefined
+            && composer.focused
+            && recordedFocusSurface === surface
+        ) {
+            return;
+        }
+        composer.blur();
+        recordedFocusSurface = surface;
         if (overlay !== undefined) {
             overlay();
-            flightRecorder?.record({
-                type: "focus_changed",
-                surface: "overlay",
-            });
+            flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
         composer.focus();
-        flightRecorder?.record({
-            type: "focus_changed",
-            surface: sidebar.isFocused()
-                ? "sidebar_composer"
-                : "main_composer",
-        });
+        flightRecorder?.record({ type: "focus_changed", surface });
     }
 
     function activeFlightSurface(): string {
@@ -7814,6 +8134,587 @@ export async function startTui(
         return tip.text(tipContext(inModelPicker));
     }
 
+    function transcriptEntryText(entry: TuiTranscriptEntry): string {
+        return entry.kind === "diff"
+            ? `${entry.path}\n${entry.patch}`
+            : entry.text;
+    }
+
+    function transcriptEstimatedRows(text: string, width: number): number {
+        return text.split("\n").reduce((rows, line) => {
+            const length = Math.max(1, Array.from(line).length);
+            return rows + Math.max(1, Math.ceil(length / Math.max(1, width)));
+        }, 0);
+    }
+
+    function invalidateMeasuredEntryRows(): void {
+        const width = mainTranscriptWidth();
+        if (width === measuredEntryRowsWidth) return;
+        measuredEntryRowsWidth = width;
+        measuredEntryRows.length = 0;
+    }
+
+    function measureTranscriptEntryNode(index: number): void {
+        const node = entryNodes[index];
+        if (node === undefined) return;
+        const margin = node.marginTop;
+        const rows = node.height + (typeof margin === "number" ? margin : 0);
+        if (rows > 0) measuredEntryRows[index] = rows;
+    }
+
+    /**
+     * Records what every materialized entry currently occupies.
+     *
+     * A laid-out node is the only exact answer: the estimate is a character
+     * count over the width and knows nothing of the borders and gutters the
+     * boxed kinds draw. Measuring the window on every frame keeps the estimate
+     * to entries that have never been on screen.
+     */
+    function measureMaterializedTranscriptEntries(): void {
+        invalidateMeasuredEntryRows();
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            measureTranscriptEntryNode(index);
+        }
+    }
+
+    function transcriptEntryRows(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): number {
+        if (!tuiTranscriptEntryIsVisible(entries[index])) return 0;
+        return measuredEntryRows[index] ?? estimateTranscriptEntryRows(
+            entries,
+            index,
+        );
+    }
+
+    function estimateTranscriptEntryRows(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): number {
+        const entry = entries[index];
+        if (entry === undefined) return 0;
+        // A folded tool row is not laid out, so it occupies no rows the spacer
+        // has to stand in for.
+        if (!tuiTranscriptEntryIsVisible(entry)) return 0;
+        const width = Math.max(
+            8,
+            mainTranscriptWidth()
+                - tuiGutterWidth(entry, appearance.activityIndent)
+                - 1,
+        );
+        const margin = tuiEntryMarginTop(entries, index, entrySpacing);
+        if (entry.kind === "thinking") {
+            return margin + Math.max(
+                3,
+                transcriptEstimatedRows(entry.text, width) + 2,
+            );
+        }
+        return margin + Math.max(
+            1,
+            transcriptEstimatedRows(transcriptEntryText(entry), width),
+        );
+    }
+
+    function estimatedTranscriptRows(
+        entries: readonly TuiTranscriptEntry[],
+        start: number,
+        end: number,
+    ): number {
+        invalidateMeasuredEntryRows();
+        let rows = 0;
+        for (let index = Math.max(0, start); index < end; index += 1) {
+            rows += transcriptEntryRows(entries, index);
+        }
+        return rows;
+    }
+
+    function updateTranscriptEntryNode(
+        wrapper: TextRenderable | MarkdownRenderable | BoxRenderable,
+        entry: TuiTranscriptEntry,
+    ): void {
+        wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
+        const existing = tuiGutterContent(wrapper);
+        if (
+            existing instanceof MarkdownRenderable
+            && existing.content !== tuiMarkdownEntryContent(entry)
+        ) {
+            existing.content = tuiMarkdownEntryContent(entry);
+        }
+        if (entry.kind === "tool" && existing instanceof BoxRenderable) {
+            updateTuiToolRow(existing, entry);
+        }
+        if (
+            entry.kind === "tool_header"
+            && existing instanceof BoxRenderable
+        ) {
+            updateTuiToolHeader(existing, entry);
+        }
+        if (
+            entry.kind === "thinking"
+            && existing instanceof BoxRenderable
+        ) {
+            updateTuiThinkingWindow(existing, entry);
+        }
+        if (
+            (entry.kind === "thought"
+                || entry.kind === "notice"
+                || entry.kind === "inbox")
+            && existing instanceof TextRenderable
+        ) {
+            existing.content = renderTuiEntry(entry);
+        }
+    }
+
+    function createTranscriptEntryNode(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): TextRenderable | MarkdownRenderable | BoxRenderable {
+        const entry = entries[index];
+        if (entry === undefined) {
+            throw new Error(`Transcript entry ${index} is unavailable`);
+        }
+        const node = createTuiEntryNode(
+            `entry-${index}`,
+            entry,
+            tuiEntryMarginTop(entries, index, entrySpacing),
+            assistantFollowsTools(entries, index),
+        );
+        updateTranscriptEntryNode(node, entry);
+        entryNodes[index] = node;
+        entryNodeKinds[index] = entry.kind;
+        return node;
+    }
+
+    function destroyTranscriptEntryNode(index: number): void {
+        entryNodes[index]?.destroyRecursively();
+        delete entryNodes[index];
+        delete entryNodeKinds[index];
+    }
+
+    /** Children run [top spacer, materialized entries…, bottom spacer]. */
+    function transcriptWindowChildIndex(index: number): number {
+        return 1 + index - materializedEntryStart;
+    }
+
+    function addTranscriptEntryNode(
+        node: TextRenderable | MarkdownRenderable | BoxRenderable,
+        index: number,
+    ): void {
+        transcriptEntryWindow.add(node, transcriptWindowChildIndex(index));
+    }
+
+    function updateTranscriptSpacers(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        // A box holds a row even at height 0, which at the ends of the window
+        // is a blank band above the first entry or below the last. Hiding an
+        // empty spacer is what keeps those ends flush.
+        const above = estimatedTranscriptRows(entries, 0, materializedEntryStart);
+        const below = estimatedTranscriptRows(
+            entries,
+            materializedEntryEnd,
+            entries.length,
+        );
+        transcriptWindowTopSpacer.height = above;
+        transcriptWindowTopSpacer.visible = above > 0;
+        transcriptWindowBottomSpacer.height = below;
+        transcriptWindowBottomSpacer.visible = below > 0;
+    }
+
+    /** The first materialized entry with any row inside the viewport. */
+    function topmostVisibleTranscriptEntry(): number | undefined {
+        const top = transcript.viewport.screenY;
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            const node = entryNodes[index];
+            if (node === undefined || !node.visible) continue;
+            if (node.screenY + node.height > top) return index;
+        }
+        return undefined;
+    }
+
+    /**
+     * Puts the anchored entry back where it sat, once a layout has run.
+     *
+     * The correction is the difference between two laid-out positions, so it
+     * carries no estimate of its own.
+     */
+    function applyTranscriptScrollAnchor(): void {
+        const anchor = pendingTranscriptScrollAnchor;
+        if (anchor === undefined) return;
+        pendingTranscriptScrollAnchor = undefined;
+        const node = entryNodes[anchor.index];
+        if (node === undefined) return;
+        const offset = node.screenY - transcript.viewport.screenY;
+        if (offset === anchor.offset) return;
+        transcript.scrollTo(transcript.scrollTop + offset - anchor.offset);
+    }
+
+    function captureTranscriptScrollAnchor(): void {
+        pendingTranscriptScrollAnchor = undefined;
+        const index = topmostVisibleTranscriptEntry();
+        if (index === undefined) return;
+        const node = entryNodes[index];
+        if (node === undefined) return;
+        pendingTranscriptScrollAnchor = {
+            index,
+            offset: node.screenY - transcript.viewport.screenY,
+        };
+    }
+
+    function transcriptFollowsBottom(): boolean {
+        return tuiTranscriptAtBottom(
+            transcript.scrollTop,
+            transcript.scrollHeight,
+            transcript.viewport.height,
+        );
+    }
+
+    /**
+     * Releases nodes for entries that no longer exist.
+     *
+     * The entry list shrinks whenever a turn ends and its thinking row is
+     * dropped. A node past the end of the list is outside every index the
+     * update pass walks, so nothing else would ever destroy it.
+     */
+    function trimTranscriptWindow(length: number): void {
+        for (let index = length; index < entryNodes.length; index += 1) {
+            destroyTranscriptEntryNode(index);
+        }
+        entryNodes.length = Math.min(entryNodes.length, length);
+        entryNodeKinds.length = entryNodes.length;
+        measuredEntryRows.length = Math.min(measuredEntryRows.length, length);
+        materializedEntryEnd = Math.min(materializedEntryEnd, length);
+        materializedEntryStart = Math.min(
+            materializedEntryStart,
+            materializedEntryEnd,
+        );
+    }
+
+    function renderTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        trimTranscriptWindow(entries.length);
+
+        if (entries.length === 0) {
+            transcriptWindowTopSpacer.height = 0;
+            transcriptWindowTopSpacer.visible = false;
+            transcriptWindowBottomSpacer.height = 0;
+            transcriptWindowBottomSpacer.visible = false;
+            return;
+        }
+
+        if (materializedEntryEnd === 0 && entryNodes.length === 0) {
+            const initial = tuiTranscriptTailRange(entries.length);
+            materializedEntryStart = initial.start;
+            materializedEntryEnd = initial.start;
+        }
+
+        // Entries appended while the reader is scrolled away stay behind the
+        // bottom spacer until they scroll into reach, so a long session does
+        // not rebuild its whole tail on every arriving row.
+        let materializeTo = transcriptFollowsBottom()
+            ? entries.length
+            : Math.min(materializedEntryEnd, entries.length);
+
+        const changedKindAt = entries.findIndex((entry, index) =>
+            entryNodes[index] !== undefined
+            && entryNodeKinds[index] !== entry.kind
+        );
+        if (changedKindAt !== -1) {
+            materializeTo = Math.max(materializeTo, materializedEntryEnd);
+            pendingTranscriptScrollRestore = {
+                scrollTop: transcript.scrollTop,
+                atBottom: tuiTranscriptAtBottom(
+                    transcript.scrollTop,
+                    transcript.scrollHeight,
+                    transcript.viewport.height,
+                ),
+            };
+            for (
+                let index = changedKindAt;
+                index < materializedEntryEnd;
+                index += 1
+            ) {
+                destroyTranscriptEntryNode(index);
+            }
+            materializedEntryEnd = changedKindAt;
+        }
+
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            const node = entryNodes[index];
+            const entry = entries[index];
+            if (node !== undefined && entry !== undefined) {
+                updateTranscriptEntryNode(node, entry);
+            }
+        }
+
+        for (let index = materializedEntryEnd; index < materializeTo; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        materializedEntryEnd = Math.max(materializedEntryEnd, materializeTo);
+        updateTranscriptSpacers(entries);
+    }
+
+    function materializeEarlierTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): boolean {
+        const range = tuiTranscriptPrependRange(materializedEntryStart);
+        if (range.start === range.end) return false;
+        captureTranscriptScrollAnchor();
+        materializedEntryStart = range.start;
+        for (let index = range.start; index < range.end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        updateTranscriptSpacers(entries);
+        return true;
+    }
+
+    function materializeLaterTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): boolean {
+        const end = Math.min(
+            entries.length,
+            materializedEntryEnd + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+        );
+        if (end <= materializedEntryEnd) return false;
+        for (let index = materializedEntryEnd; index < end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        materializedEntryEnd = end;
+        // Nothing above the viewport changed, so the reader's position holds
+        // on its own; only the spacer standing in for the rest shrinks.
+        updateTranscriptSpacers(entries);
+        return true;
+    }
+
+    function nodeTranscriptRows(index: number): number | undefined {
+        const node = entryNodes[index];
+        if (node === undefined) return undefined;
+        const margin = node.marginTop;
+        return node.height + (typeof margin === "number" ? margin : 0);
+    }
+
+    /**
+     * Releases entries that have moved far enough outside the viewport.
+     *
+     * Without this the window only ever grows, so reaching the top of a long
+     * session materializes all of it and holds it for the rest of the run.
+     * Each released entry's measured height goes into the spacer that replaces
+     * it, so releasing moves nothing the reader can see.
+     */
+    function evictTranscriptEntries(
+        entries: readonly TuiTranscriptEntry[],
+    ): boolean {
+        const materializedAbove = Math.max(
+            0,
+            transcript.scrollTop - transcriptWindowTopSpacer.height,
+        );
+        const materializedBelow = Math.max(
+            0,
+            transcript.scrollHeight
+                - transcriptWindowBottomSpacer.height
+                - transcript.scrollTop
+                - transcript.viewport.height,
+        );
+        const headroom = materializedEntryEnd
+            - materializedEntryStart
+            - TUI_TRANSCRIPT_INITIAL_WINDOW;
+        if (headroom <= 0) return false;
+
+        const aboveBudget = tuiTranscriptEvictableRows({
+            scrollTop: transcript.scrollTop,
+            viewportHeight: transcript.viewport.height,
+            spacerHeight: transcriptWindowTopSpacer.height,
+        });
+        if (aboveBudget > 0 && materializedAbove > 0) {
+            const limit = Math.min(
+                materializedEntryStart + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+                materializedEntryStart + headroom,
+            );
+            let released = 0;
+            let index = materializedEntryStart;
+            while (index < limit) {
+                const rows = nodeTranscriptRows(index);
+                if (rows === undefined || released + rows > aboveBudget) break;
+                measureTranscriptEntryNode(index);
+                released += rows;
+                index += 1;
+            }
+            if (index > materializedEntryStart) {
+                for (let drop = materializedEntryStart; drop < index; drop += 1) {
+                    destroyTranscriptEntryNode(drop);
+                }
+                materializedEntryStart = index;
+                updateTranscriptSpacers(entries);
+                return true;
+            }
+        }
+
+        const belowBudget = tuiTranscriptEvictableRows({
+            scrollTop: materializedBelow,
+            viewportHeight: transcript.viewport.height,
+            spacerHeight: 0,
+        });
+        if (belowBudget <= 0) return false;
+        const floor = Math.max(
+            materializedEntryStart,
+            materializedEntryEnd - TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+            materializedEntryEnd - headroom,
+        );
+        let released = 0;
+        let index = materializedEntryEnd;
+        while (index > floor) {
+            const rows = nodeTranscriptRows(index - 1);
+            if (rows === undefined || released + rows > belowBudget) break;
+            measureTranscriptEntryNode(index - 1);
+            released += rows;
+            index -= 1;
+        }
+        if (index === materializedEntryEnd) return false;
+        for (let drop = index; drop < materializedEntryEnd; drop += 1) {
+            destroyTranscriptEntryNode(drop);
+        }
+        materializedEntryEnd = index;
+        updateTranscriptSpacers(entries);
+        return true;
+    }
+
+    function maybeEvictTranscriptEntries(): boolean {
+        if (state.entries.length === 0) return false;
+        return evictTranscriptEntries(state.entries);
+    }
+
+    /**
+     * Rebuilds the window as the tail, for a reader who jumped to the bottom.
+     *
+     * Walking the window down a batch a frame would take hundreds of frames
+     * from the top of a long session, and every batch would move the bottom
+     * the reader asked to land on.
+     */
+    function setTranscriptWindow(
+        entries: readonly TuiTranscriptEntry[],
+        start: number,
+        end: number,
+    ): void {
+        for (let index = materializedEntryStart; index < materializedEntryEnd; index += 1) {
+            measureTranscriptEntryNode(index);
+            destroyTranscriptEntryNode(index);
+        }
+        materializedEntryStart = start;
+        materializedEntryEnd = start;
+        for (let index = start; index < end; index += 1) {
+            addTranscriptEntryNode(
+                createTranscriptEntryNode(entries, index),
+                index,
+            );
+        }
+        materializedEntryEnd = end;
+        updateTranscriptSpacers(entries);
+        pendingTranscriptScrollAnchor = undefined;
+    }
+
+    function snapTranscriptWindowToTail(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        const tail = tuiTranscriptTailRange(entries.length);
+        setTranscriptWindow(entries, tail.start, tail.end);
+        transcript.scrollTo(transcript.scrollHeight);
+        // The rebuilt rows have no measured height until the next layout, so
+        // the bottom is claimed again once they do.
+        pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+    }
+
+    function setTranscriptWindowAround(
+        entries: readonly TuiTranscriptEntry[],
+        index: number,
+    ): void {
+        const start = Math.max(
+            0,
+            Math.min(
+                index - Math.floor(TUI_TRANSCRIPT_INITIAL_WINDOW / 2),
+                entries.length - TUI_TRANSCRIPT_INITIAL_WINDOW,
+            ),
+        );
+        setTranscriptWindow(
+            entries,
+            start,
+            Math.min(entries.length, start + TUI_TRANSCRIPT_INITIAL_WINDOW),
+        );
+    }
+
+    function settleTranscriptScrollState(): void {
+        const restore = pendingTranscriptScrollRestore;
+        if (restore !== undefined) {
+            pendingTranscriptScrollRestore = undefined;
+            pendingTranscriptScrollAnchor = undefined;
+            transcript.scrollTo(
+                restore.atBottom ? transcript.scrollHeight : restore.scrollTop,
+            );
+        }
+        applyTranscriptScrollAnchor();
+    }
+
+    function maybeMaterializeEarlierTranscriptEntries(): boolean {
+        if (state.entries.length === 0) return false;
+        if (!tuiTranscriptNeedsEarlierEntries({
+            materializedStart: materializedEntryStart,
+            scrollTop: transcript.scrollTop,
+            viewportHeight: transcript.viewport.height,
+            spacerTop: transcriptWindowTopSpacer.screenY
+                - transcript.viewport.screenY
+                + transcript.scrollTop,
+            spacerHeight: transcriptWindowTopSpacer.height,
+        })) {
+            return false;
+        }
+        return materializeEarlierTranscriptEntries(state.entries);
+    }
+
+    function maybeMaterializeLaterTranscriptEntries(): boolean {
+        if (materializedEntryEnd >= state.entries.length) return false;
+        const buffer = Math.max(1, transcript.viewport.height)
+            * TUI_TRANSCRIPT_MATERIALIZE_BUFFER;
+        const materializedEdge = transcript.scrollHeight
+            - transcriptWindowBottomSpacer.height;
+        if (
+            transcript.scrollTop + transcript.viewport.height + buffer
+                < materializedEdge
+        ) {
+            return false;
+        }
+        return materializeLaterTranscriptEntries(state.entries);
+    }
+
+    function maybeSnapTranscriptWindowToTail(): boolean {
+        if (state.entries.length === 0) return false;
+        if (materializedEntryEnd >= state.entries.length) return false;
+        if (!transcriptFollowsBottom()) return false;
+        snapTranscriptWindowToTail(state.entries);
+        return true;
+    }
+
     function renderState(): void {
         if (shuttingDown) {
             return;
@@ -7925,6 +8826,19 @@ export async function startTui(
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
+        applyWorkspaceRail();
+        workspaceSidebarView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined
+            && (
+                settingsPicker === undefined
+                || workspaceStaysBesideSettingsPicker(settingsPicker)
+            )
+            && commandPalette === undefined
+            && workTab === undefined
+            && workspaceSidebar !== undefined
+            && (workspaceRail !== undefined || workspaceSidebarFocused);
         searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -8003,6 +8917,10 @@ export async function startTui(
             || preferencesListView.surface.visible
             || commandPaletteView.surface.visible
             || workTabView.surface.visible
+            // A rail stands beside the transcript rather than over it, so the
+            // scrim that dims the screen behind a card would be dimming the
+            // half of it the reader is still reading.
+            || (workspaceSidebarView.surface.visible && workspaceRail === undefined)
             || searchOverlayView.surface.visible
             || helpView.box.visible
             || doctorDialogView.box.visible
@@ -8054,6 +8972,7 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
+            fitSettingsPickerBesideWorkspace(settingsPicker);
         }
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
@@ -8074,6 +8993,16 @@ export async function startTui(
             workTabView.update(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
+        }
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebarView.update(workspaceSidebarViewState(
+                workspaceSidebar,
+                renderer.width,
+                new Date(),
+                workspaceRail,
+                workspaceSidebarFocused,
+                activityFrame(),
+            ));
         }
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
@@ -8103,77 +9032,7 @@ export async function startTui(
             admissionDialogView.update(admissionDialog, dialogAdmission());
         }
 
-        // Transcript state can replace a live row with a different semantic
-        // row at the same index (most notably `thinking` -> `thought`). Reusing
-        // the old renderable leaves OpenTUI's wrapped-text geometry stale in
-        // longer transcripts, producing reasoning bodies only a few columns
-        // wide. Rebuild from the first changed kind so ordering stays intact
-        // without redrawing the stable prefix.
-        const changedKindAt = state.entries.findIndex((entry, index) =>
-            entryNodes[index] !== undefined
-            && entryNodeKinds[index] !== entry.kind
-        );
-        const retainedEntries = changedKindAt === -1
-            ? state.entries.length
-            : changedKindAt;
-        while (entryNodes.length > retainedEntries) {
-            entryNodes.pop()?.destroyRecursively();
-            entryNodeKinds.pop();
-        }
-
-        state.entries.forEach((entry, index) => {
-            const wrapper = entryNodes[index];
-            if (wrapper) {
-                wrapper.visible = entry.kind !== "tool"
-                    || entry.hidden !== true;
-                const existing = tuiGutterContent(wrapper);
-                if (
-                    existing instanceof MarkdownRenderable &&
-                    existing.content !== tuiMarkdownEntryContent(entry)
-                ) {
-                    existing.content = tuiMarkdownEntryContent(entry);
-                }
-                if (entry.kind === "tool" && existing instanceof BoxRenderable) {
-                    updateTuiToolRow(existing, entry);
-                }
-                if (
-                    entry.kind === "tool_header"
-                    && existing instanceof BoxRenderable
-                ) {
-                    updateTuiToolHeader(existing, entry);
-                }
-                if (
-                    entry.kind === "thinking"
-                    && existing instanceof BoxRenderable
-                ) {
-                    updateTuiThinkingWindow(existing, entry);
-                }
-                if (
-                    (entry.kind === "thought"
-                        || entry.kind === "notice"
-                        || entry.kind === "inbox")
-                    && existing instanceof TextRenderable
-                ) {
-                    // A thought row's height changes when its fold opens and
-                    // an admission checklist notice is rewritten in place per
-                    // step, so both are re-rendered rather than left as first
-                    // drawn.
-                    existing.content = renderTuiEntry(entry);
-                }
-                return;
-            }
-
-            const node = createTuiEntryNode(
-                `entry-${index}`,
-                entry,
-                tuiEntryMarginTop(state.entries, index, entrySpacing),
-                assistantFollowsTools(state.entries, index),
-            );
-            entryNodes.push(node);
-            entryNodeKinds.push(entry.kind);
-            node.visible = entry.kind !== "tool" || entry.hidden !== true;
-            transcript.add(node);
-        });
+        renderTranscriptEntries(state.entries);
 
         showSearchTarget();
         renderStatus();
@@ -8206,6 +9065,15 @@ export async function startTui(
             if (state.entries.length > 0) pendingSearchTarget = undefined;
             return;
         }
+        if (entryNodes[index] === undefined) {
+            // Built in one step rather than a batch a frame: the target stays
+            // outside the window until the scroll reaches it, and the window
+            // would release each batch again before the next one arrived.
+            setTranscriptWindowAround(state.entries, index);
+            // The rows have no measured height until the next layout, so the
+            // scroll waits a frame for one.
+            return;
+        }
         pendingSearchTarget = undefined;
         transcript.scrollChildIntoView(`entry-${index}`);
     }
@@ -8226,6 +9094,17 @@ export async function startTui(
             workTabView.update(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
+        }
+        applyWorkspaceRail();
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebarView.update(workspaceSidebarViewState(
+                workspaceSidebar,
+                renderer.width,
+                new Date(),
+                workspaceRail,
+                workspaceSidebarFocused,
+                activityFrame(),
+            ));
         }
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
@@ -8265,11 +9144,32 @@ export async function startTui(
     }
 
     function clearTranscriptNodes(): void {
-        experimentalTuiHost.clearTranscriptRenderables();
-        while (entryNodes.length > 0) {
-            entryNodes.pop()?.destroyRecursively();
-            entryNodeKinds.pop();
+        if (state.entries.length > 0) {
+            pendingTranscriptScrollRestore = {
+                scrollTop: transcript.scrollTop,
+                atBottom: tuiTranscriptAtBottom(
+                    transcript.scrollTop,
+                    transcript.scrollHeight,
+                    transcript.viewport.height,
+                ),
+            };
+        } else {
+            pendingTranscriptScrollRestore = undefined;
         }
+        experimentalTuiHost.clearTranscriptRenderables();
+        for (const node of entryNodes) {
+            node?.destroyRecursively();
+        }
+        entryNodes.length = 0;
+        entryNodeKinds.length = 0;
+        measuredEntryRows.length = 0;
+        materializedEntryStart = 0;
+        materializedEntryEnd = 0;
+        pendingTranscriptScrollAnchor = undefined;
+        transcriptWindowTopSpacer.height = 0;
+        transcriptWindowTopSpacer.visible = false;
+        transcriptWindowBottomSpacer.height = 0;
+        transcriptWindowBottomSpacer.visible = false;
     }
 
     // The surface openers below are shared by three callers: a slash command, a
@@ -9564,6 +10464,216 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    /**
+     * Open the side bar on the session already on screen.
+     *
+     * The roster is read once here. Status after that arrives on the work
+     * index the host pushes on every roster transition, so nothing polls.
+     */
+    function openWorkspaceSidebar(
+        options: { readonly focus?: boolean; readonly persist?: boolean } = {},
+    ): void {
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(
+                state,
+                "This host does not list sessions; reconnect to switch",
+            );
+            renderState();
+            composer.focus();
+            return;
+        }
+        const generation = clientGeneration;
+        const focus = options.focus !== false;
+        if (options.persist !== false) {
+            workspaceSidebarDocked = true;
+            try {
+                saveTuiWorkspaceSidebarDocked(true);
+            } catch {
+                // A preference write cannot stop the rail opening now.
+            }
+        }
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || generation !== clientGeneration) return;
+            const sessions = workspaceSidebarSessions(agents);
+            const opened = startWorkspaceSidebar(
+                sessions,
+                workspacePinnedIds,
+                client.agentId,
+            );
+            workspaceSidebar = workIndex === undefined
+                ? opened
+                : applyWorkspaceWorkIndex(opened, workIndex);
+            workspaceSidebarFocused = focus;
+            if (focus) composer.blur();
+            renderState();
+            focusActiveSurface();
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not list sessions: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    /**
+     * The roster read again, on the push that already says the roster moved.
+     *
+     * The pane keeps the rows it has until the new listing arrives, so a
+     * refresh that is slow or fails leaves the reader looking at the last good
+     * listing rather than at nothing.
+     */
+    function refreshWorkspaceSidebarRoster(): void {
+        if (dependencies.listAgents === undefined) return;
+        const generation = clientGeneration;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || generation !== clientGeneration) return;
+            const open = workspaceSidebar;
+            if (open === undefined) return;
+            const listed = refreshWorkspaceSidebarSessions(
+                open,
+                workspaceSidebarSessions(agents),
+            );
+            workspaceSidebar = workIndex === undefined
+                ? listed
+                : applyWorkspaceWorkIndex(listed, workIndex);
+            renderState();
+        }).catch(() => {
+            // Nothing to say: the rows already listed are still the best
+            // answer, and the next push asks again.
+        });
+    }
+
+    /**
+     * Where the listing is drawn: a full-height column down the left edge with
+     * the whole chat surface beside it, or a card when the terminal is too
+     * narrow to hold both.
+     *
+     * The transcript reflows into what the rail leaves it, so the rows it had
+     * are not the rows it has. The reader's place is captured before the width
+     * changes and restored after it, which is what a resize does for the same
+     * reason.
+     */
+    function applyWorkspaceRail(): void {
+        const columns = workspaceSidebar === undefined
+            ? undefined
+            : workspaceRailColumns(renderer.width, workspaceRailPreferred);
+        if (columns !== workspaceRail) {
+            workspaceRail = columns;
+            if (transcriptFollowsBottom()) {
+                pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+            } else {
+                captureTranscriptScrollAnchor();
+            }
+            workspaceSidebarView.setRail(columns);
+        }
+        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        // The navigator owns a full-height column like an editor sidebar.
+        // Reserving that width on the app moves the transcript, composer,
+        // status rows and dialogs together; nothing from the chat can run
+        // underneath the dock.
+        app.paddingLeft = occupied;
+        workspaceSidebarView.surface.left = 0;
+        const pickerBesideRail = columns !== undefined
+            && settingsPicker !== undefined
+            && workspaceStaysBesideSettingsPicker(settingsPicker);
+        overlayScrim.left = pickerBesideRail ? occupied : 0;
+        overlayScrim.width = pickerBesideRail
+            ? Math.max(0, renderer.width - occupied)
+            : renderer.width;
+        statusBand.left = occupied;
+        statusBand.width = Math.max(0, renderer.width - occupied);
+        commandSuggestionsBox.left = occupied;
+        jumpMenuBox.left = occupied
+            + tuiComposerOverlayInset(appearance).paddingLeft;
+        sidebar.body.paddingLeft = 0;
+        sidebar.refit();
+    }
+
+    function resizeWorkspaceRailAt(pointerColumn: number): void {
+        if (workspaceRail === undefined) return;
+        const occupied = workspaceSidebarView.railColumns();
+        if (occupied === undefined) return;
+        const inset = occupied - workspaceRail;
+        const next = clampWorkspaceRailColumns(
+            pointerColumn + 1 - inset,
+            renderer.width,
+        );
+        if (next === undefined || next === workspaceRail) return;
+        workspaceRailPreferred = next;
+        renderState();
+    }
+
+    function workspaceStaysBesideSettingsPicker(
+        picker: TuiAnySettingsPickerState,
+    ): boolean {
+        if (picker.kind === "extension") return false;
+        return picker.kind === "model"
+            || picker.parent?.kind === "model"
+            || picker.pendingModel !== undefined;
+    }
+
+    function fitSettingsPickerBesideWorkspace(
+        picker: TuiAnySettingsPickerState,
+    ): void {
+        if (
+            workspaceRail === undefined
+            || !workspaceStaysBesideSettingsPicker(picker)
+        ) return;
+        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        const chatColumns = Math.max(0, renderer.width - occupied);
+        settingsPickerView.box.left = occupied + Math.floor(chatColumns * 0.1);
+        settingsPickerView.box.width = Math.max(
+            20,
+            Math.floor(chatColumns * 0.8),
+        );
+    }
+
+    function closeWorkspaceSidebar(): void {
+        workspaceSidebar = undefined;
+        workspaceSidebarFocused = false;
+        workspaceSidebarDocked = false;
+        workspaceRailDragging = false;
+        workspaceSidebarView.box.borderColor = theme.element;
+        try {
+            saveTuiWorkspaceSidebarDocked(false);
+        } catch {
+            // The current layout still closes when persistence cannot update.
+        }
+        workspaceSidebarView.surface.visible = false;
+        composer.focus();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function runWorkspaceSidebarAction(action: WorkspaceSidebarAction): void {
+        if (action.kind === "close") {
+            workspaceSidebarFocused = false;
+            composer.focus();
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (action.kind === "pin") {
+            workspacePinnedIds = action.pinnedIds;
+            try {
+                saveTuiPinnedSessionIds(action.pinnedIds);
+            } catch {
+                // A preference write cannot stop the list from reordering.
+            }
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        workspaceSidebarFocused = false;
+        composer.focus();
+        renderState();
+        beginSessionResume(action.session_path, action.session_id);
+    }
+
     function closeWorkSurfaces(): void {
         workTab = undefined;
         searchOverlay = undefined;
@@ -10263,6 +11373,14 @@ export async function startTui(
             new Error("The conversation changed"),
         );
         client = next;
+        if (workspaceSidebar !== undefined && next.agentId !== undefined) {
+            workspaceSidebar = {
+                ...workspaceSidebar,
+                currentId: next.agentId,
+                selectedId: next.agentId,
+            };
+            refreshWorkspaceSidebarRoster();
+        }
         if (next.agentId !== undefined) {
             flightRecorder?.sessionEntered(next.agentId);
         }
@@ -10335,7 +11453,8 @@ export async function startTui(
         disposeHostExtensionCommands();
         disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
-        extensionCommandsLoading = next.listExtensionCommands !== undefined;
+        extensionCommandsLoading = next.listExtensionCommands !== undefined
+            && next.failed !== true;
         watchBackgroundAgents(next);
         watchWorkIndex(next);
         sessionTitle = undefined;
@@ -10357,9 +11476,11 @@ export async function startTui(
         focusActiveSurface();
         renderCommandSuggestions();
         renderState();
-        void loadExtensionCommands();
         void receiveAgentUpdates();
-        requestSessionSettings();
+        if (next.failed !== true) {
+            void loadExtensionCommands();
+            requestSessionSettings();
+        }
     }
 
     /**
@@ -11037,6 +12158,8 @@ export async function startTui(
         composerStatusText.fg = theme.muted;
         composerRule.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
+        workspaceSidebarView.box.borderColor = theme.element;
+        workspaceSidebarView.box.focusedBorderColor = theme.element;
         composer.backgroundColor = theme.input ?? theme.background;
         composer.focusedBackgroundColor = theme.input ?? theme.background;
         composer.textColor = theme.text;
@@ -11218,10 +12341,14 @@ export async function startTui(
             visible,
             selected < 0 ? -1 : selected - window.start,
             // Less the box's own margin and padding, or the last word of a
-            // just-too-long row wraps anyway.
-            renderer.width > composerHorizontalInset
-                ? renderer.width - composerHorizontalInset
-                : undefined,
+            // just-too-long row wraps anyway. The renderer reports the whole
+            // terminal even when the workspace rail has reserved its left
+            // side, so the rail has to come out of the same budget.
+            tuiCommandSuggestionWidth(
+                renderer.width,
+                composerHorizontalInset,
+                workspaceSidebarView.railColumns() ?? 0,
+            ),
             window.hidden,
             grouped,
         );
@@ -11890,6 +13017,13 @@ export async function startTui(
         workIndex = index;
         if (workTab !== undefined) {
             workTab = applyWorkIndex(workTab, index);
+        }
+        if (workspaceSidebar !== undefined) {
+            workspaceSidebar = applyWorkspaceWorkIndex(workspaceSidebar, index);
+            // The same push carries the sessions that have gone and the ones
+            // that have arrived, so the listing is read again here rather than
+            // only when the pane is opened.
+            refreshWorkspaceSidebarRoster();
         }
         if (announce) {
             const notice = attentionNotice(

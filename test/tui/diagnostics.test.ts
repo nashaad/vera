@@ -113,6 +113,28 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
     expect(text).not.toContain("## Pre-image stash");
 });
 
+test("TUI session diagnostics shows the live process chain and memory", () => {
+    const text = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        processes: [
+            { role: "client", pid: 101, rssBytes: 10 * 1024 * 1024 },
+            { role: "host", pid: 102, rssBytes: 256 * 1024 * 1024 },
+            { role: "worker", pid: 103, rssBytes: 1536 * 1024 * 1024 },
+            { role: "supervisor", pid: 104 },
+        ],
+    });
+
+    expect(text).toContain("## Processes");
+    expect(text).toContain("client     PID 101 · 10.0 MiB");
+    expect(text).toContain("host       PID 102 · 256.0 MiB");
+    expect(text).toContain("worker     PID 103 · 1.50 GiB");
+    expect(text).toContain("supervisor PID 104 · memory unavailable");
+});
+
 test("TUI diagnostics shows marked startup timings near the top", () => {
     const text = renderTuiDiagnostics({
         state: createTuiState(),

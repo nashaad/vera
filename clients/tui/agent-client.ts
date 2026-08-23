@@ -7,6 +7,8 @@ import type {
 export interface TuiAgentClient {
     readonly agentId?: string;
     readonly workspace?: string;
+    /** True when the session is available for terminal replay only. */
+    readonly failed?: boolean;
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
     readonly capabilities?: AttachedAgentClient["capabilities"];
     supportsHostCapability?: AttachedAgentClient["supportsHostCapability"];

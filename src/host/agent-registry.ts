@@ -54,6 +54,10 @@ import {
     runHeadlessLoop,
     sessionScratchDir,
 } from "../engine/run-turn.ts";
+import type {
+    RunHeadlessLoopData,
+    RunHeadlessLoopServices,
+} from "../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
@@ -73,6 +77,9 @@ import {
 } from "../engine/subagent.ts";
 import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
+    isConsultReplyUpdate,
+    isSessionNameReplyUpdate,
+    isTimelineReplyUpdate,
     isToolApprovalUiRequestUpdate,
     isUserQuestionUiRequestUpdate,
     type ModelSubstitutionUpdate,
@@ -119,6 +126,7 @@ import type {
     ToolOutput,
 } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
+import { ToolRuntime } from "../tools/runtime.ts";
 import {
     defaultSessionPath,
     SessionStore,
@@ -167,6 +175,15 @@ import {
     sessionAttachmentName,
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
+import {
+    startWorker,
+    type WorkerHandle,
+    type WorkerOutcome,
+} from "./worker/handle.ts";
+import type {
+    WorkerAdapterSpec,
+    WorkerSessionSeed,
+} from "./worker/start.ts";
 import type { PrepareModelRequest } from "../providers/routing.ts";
 import {
     createFailedRequestCapture,
@@ -236,6 +253,10 @@ export interface RegisteredAgentSummary {
      * and recomputed on every listing, so nothing durable records it.
      */
     readonly live: boolean;
+    /** Live process hosting this session's loop, when process mode is active. */
+    readonly worker_pid?: number;
+    /** External lease supervisor paired with `worker_pid`, when active. */
+    readonly supervisor_pid?: number;
     readonly title?: string;
     /** Whether the transcript contains a non-internal user message. */
     readonly has_user_content?: boolean;
@@ -291,6 +312,19 @@ export interface AgentRegistryOptions {
      * spending the key it started with. Absent in tests that never sign in.
      */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
+    /**
+     * How a worker builds its own adapter, when a session runs in one.
+     *
+     * Absent means no session runs in a worker, whatever the environment says.
+     * The owner supplies it only when the adapter it would build in process
+     * can be rebuilt from plain JSON, which is what a host with an injected
+     * adapter factory or a live model-request hook cannot promise.
+     */
+    readonly workerAdapterSpec?: (context: {
+        readonly provider: string;
+        readonly projectRoot: string;
+        readonly sessionId: string;
+    }) => WorkerAdapterSpec;
     readonly provider?: string;
     /**
      * Config-declared provider ids accepted alongside Vera's built-ins. Read
@@ -971,6 +1005,8 @@ interface RegisteredAgentEntry {
     /** Epoch milliseconds of the peer messages that woke this session. */
     peerWakes: number[];
     run: Promise<void>;
+    /** The process running this session's loop, when it runs in one. */
+    worker?: WorkerHandle;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;
@@ -2963,6 +2999,15 @@ export class AgentRegistry {
                             || entry.agent.status === "working"
                             || entry.agent.status === "waiting"
                         ),
+                    ...(entry.worker === undefined
+                        ? {}
+                        : {
+                            worker_pid: entry.worker.pid,
+                            ...(entry.worker.supervisor?.pid === null
+                                    || entry.worker.supervisor?.pid === undefined
+                                ? {}
+                                : { supervisor_pid: entry.worker.supervisor.pid }),
+                        }),
                     ...(title === undefined || title.length === 0
                         ? {}
                         : { title: title.slice(0, 80) }),
@@ -3394,53 +3439,14 @@ export class AgentRegistry {
                 await this.options.inboxDelivery?.pumpAll();
             }
         };
-        entry.run = runHeadlessLoop(
-            agent.engine,
-            adapter,
-            this.defaultModel,
-            this.defaultReasoningEffort,
-            {
-                sessionStore: store,
+        const loopData: RunHeadlessLoopData = {
                 eventLogPath,
-                ...(this.options.modelFailureLedger === undefined
-                    ? {}
-                    : { modelFailureLedger: this.options.modelFailureLedger }),
-                eventBus: events,
                 approvalMode: entry.approvalMode,
                 // Every shell this session spawns carries its identity name,
                 // so arc stamps the session's posts with it and self-echo
                 // suppression matches with no manual export.
                 toolEnv: { ARC_SESSION: entry.arcName },
-                processRegistry: this.processRegistry,
                 instructionRoot,
-                // Read at each turn, not copied for the session: a setting
-                // the user changes has to reach a session already running.
-                get modelFallback() {
-                    return registry.options.modelFallback;
-                },
-                ...(this.options.createEffortPool === undefined
-                    ? {}
-                    : {
-                        effortPool: this.options.createEffortPool(
-                            store.header.cwd,
-                        ),
-                    }),
-                ...(this.options.reviewer === undefined
-                    ? {}
-                    : { reviewer: this.options.reviewer }),
-                readReviewer: () => this.readReviewer(),
-                get reviewers() {
-                    return registry.options.reviewers;
-                },
-                ...(this.options.reviewLog === undefined
-                    ? {}
-                    : { reviewLog: this.options.reviewLog }),
-                get permissionModes() {
-                    return registry.options.permissionModes;
-                },
-                ...(compaction === undefined ? {} : { compaction }),
-                applyToolEffect,
-                applyCommittedToolEffect,
                 enabledToolEffects: kind === "interactive"
                     ? [
                         "spawn_subagent",
@@ -3454,6 +3460,30 @@ export class AgentRegistry {
                     ]
                     : ["notify_parent", "agent_roster"],
                 enableUserInteraction: kind === "interactive",
+                offerTools: startupProfile !== "prompt_only",
+                loadOptionalContext: startupProfile === "default",
+        };
+        const loopServices: RunHeadlessLoopServices = {
+                sessionStore: store,
+                ...(this.options.modelFailureLedger === undefined
+                    ? {}
+                    : { modelFailureLedger: this.options.modelFailureLedger }),
+                eventBus: events,
+                processRegistry: this.processRegistry,
+                ...(this.options.createEffortPool === undefined
+                    ? {}
+                    : {
+                        effortPool: this.options.createEffortPool(
+                            store.header.cwd,
+                        ),
+                    }),
+                readReviewer: () => this.readReviewer(),
+                ...(this.options.reviewLog === undefined
+                    ? {}
+                    : { reviewLog: this.options.reviewLog }),
+                ...(compaction === undefined ? {} : { compaction }),
+                applyToolEffect,
+                applyCommittedToolEffect,
                 extensionTools,
                 ...(startupProfile !== "default"
                     || this.options.loadContextualContributions === undefined
@@ -3462,14 +3492,23 @@ export class AgentRegistry {
                         loadContextualContributions:
                             this.options.loadContextualContributions,
                     }),
-                offerTools: startupProfile !== "prompt_only",
-                loadOptionalContext: startupProfile === "default",
-                onInboundReady: (inbound) => {
-                    entry.inbound = inbound;
-                },
-                hasPendingDeliveryTurn: () =>
-                    entry.inbox?.hasAdmittedPending() === true,
-                onDeliveryTurnDiscarded: () => agent.deliveryTurnDiscarded(),
+                // Read at each use, not copied for the session: a setting the
+                // user changes has to reach a session already running.
+                readPolicy: () => ({
+                    ...(registry.options.modelFallback === undefined ? {} : {
+                        modelFallback: registry.options.modelFallback,
+                    }),
+                    ...(registry.options.permissionModes === undefined ? {} : {
+                        permissionModes: registry.options.permissionModes,
+                    }),
+                    ...(registry.options.reviewer === undefined ? {} : {
+                        reviewer: registry.options.reviewer,
+                    }),
+                    ...(registry.options.reviewers === undefined ? {} : {
+                        reviewers: registry.options.reviewers,
+                    }),
+                    disabledPromptContributions: disabledPromptContributions(),
+                }),
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
@@ -3483,90 +3522,125 @@ export class AgentRegistry {
                     this.options.developerSettings?.(),
                     store.header.cwd,
                 ),
-                updateModelSettings: (patch) =>
-                    this.updateModelSettings(agent.id, patch),
-                updateSessionModelSettings: (patch) =>
-                    this.updateSessionModelSettings(agent.id, patch),
-                readSessionModelSettingsHistory: () =>
-                    this.sessionModelSettingsHistory(agent.id),
-                updateSessionPermissionMode: (mode) =>
-                    this.updateSessionPermissionMode(agent.id, mode),
-                wearAgent: (name) => this.wearAgentFor(agent.id, name),
-                listAgents: () => this.listAgentsFor(agent.id),
-                updateAgentDefaultPair: (name, pair) =>
-                    this.updateAgentDefaultPairFor(agent.id, name, pair),
                 readAgentWear: () => entry.agentWear,
-                poolAdd: (entry, onStep, options) =>
-                    this.poolAdd(agent.id, entry, onStep, options),
-                poolRemove: (entry) =>
-                    this.poolRemove(agent.id, entry),
-                refreshCatalog: (provider) =>
-                    this.refreshCatalog(agent.id, provider),
-                poolName: (entry, name) =>
-                    this.poolName(agent.id, entry, name),
-                poolMove: (entry, delta) =>
-                    this.poolMove(agent.id, entry, delta),
-                ...(adapter === undefined ? {} : {
-                    consult: (request, signal) => {
-                        // One candidate, so the route cannot fall back: the
-                        // caller named a model and gets that model or an error.
-                        const complete = createRoutedCompletionService(adapter, {
-                            models: [{
-                                model: request.model,
-                                ...(request.provider === undefined
-                                    ? {}
-                                    : { provider: request.provider }),
-                                ...(request.reasoningEffort === undefined
-                                    ? {}
-                                    : isModelReasoningEffort(
-                                            request.reasoningEffort,
-                                        )
-                                    ? {
-                                        reasoningEffort:
-                                            request.reasoningEffort,
-                                    }
-                                    : {}),
-                            }],
-                        });
-                        return complete({
-                            systemPrompt: request.systemPrompt ?? "",
-                            messages: request.messages.map((message) =>
-                                consultModelMessage(message)
-                            ),
-                            ...(request.maxTokens === undefined
-                                ? {}
-                                : { maxTokens: request.maxTokens }),
-                        }, signal);
-                    },
-                }),
-                sendConsultReply: (ownerId, reply) =>
-                    agent.sendConsultReply(ownerId, reply),
                 readApprovalMode: () => entry.approvalMode,
-                readApprovalModeOrigin: () => entry.store.approvalModeOrigin(),
                 updateApprovalMode: (mode) =>
                     this.updateApprovalMode(agent.id, mode),
                 ...(this.options.permissionPreferences === undefined ? {} : {
                     readPermissionPreferences: () =>
                         this.options.permissionPreferences!.list(),
-                    addPermissionPreference: (when) =>
-                        this.options.permissionPreferences!.add(when),
-                    removePermissionPreference: (id) =>
-                        this.options.permissionPreferences!.remove(id),
                 }),
-                updateSessionName: (name) =>
-                    this.updateSessionName(agent.id, name),
-                sendTimelineReply: (ownerId, reply) =>
-                    agent.sendTimelineReply(ownerId, reply),
-                sendSessionNameReply: (ownerId, reply) =>
-                    agent.sendSessionNameReply(ownerId, reply),
-                get disabledPromptContributions() {
-                    return disabledPromptContributions();
-                },
                 ...(startupProfile !== "default"
                         || this.options.createToolHooks === undefined
                     ? {}
                     : { hooks: this.options.createToolHooks() }),
-            },
+                router: {
+                    onInboundReady: (inbound) => {
+                        entry.inbound = inbound;
+                    },
+                    hasPendingDeliveryTurn: () =>
+                        entry.inbox?.hasAdmittedPending() === true,
+                    onDeliveryTurnDiscarded: () =>
+                        agent.deliveryTurnDiscarded(),
+                    updateModelSettings: (patch) =>
+                        this.updateModelSettings(agent.id, patch),
+                    updateSessionModelSettings: (patch) =>
+                        this.updateSessionModelSettings(agent.id, patch),
+                    readSessionModelSettingsHistory: () =>
+                        this.sessionModelSettingsHistory(agent.id),
+                    updateSessionPermissionMode: (mode) =>
+                        this.updateSessionPermissionMode(agent.id, mode),
+                    wearAgent: (name) => this.wearAgentFor(agent.id, name),
+                    listAgents: () => this.listAgentsFor(agent.id),
+                    updateAgentDefaultPair: (name, pair) =>
+                        this.updateAgentDefaultPairFor(agent.id, name, pair),
+                    poolAdd: (poolEntry, onStep, poolOptions) =>
+                        this.poolAdd(agent.id, poolEntry, onStep, poolOptions),
+                    poolRemove: (poolEntry) =>
+                        this.poolRemove(agent.id, poolEntry),
+                    refreshCatalog: (provider) =>
+                        this.refreshCatalog(agent.id, provider),
+                    poolName: (poolEntry, name) =>
+                        this.poolName(agent.id, poolEntry, name),
+                    poolMove: (poolEntry, delta) =>
+                        this.poolMove(agent.id, poolEntry, delta),
+                    ...(adapter === undefined ? {} : {
+                        consult: (request, signal) => {
+                            // One candidate, so the route cannot fall back:
+                            // the caller named a model and gets that model or
+                            // an error.
+                            const complete = createRoutedCompletionService(
+                                adapter,
+                                {
+                                    models: [{
+                                        model: request.model,
+                                        ...(request.provider === undefined
+                                            ? {}
+                                            : { provider: request.provider }),
+                                        ...(request.reasoningEffort
+                                                === undefined
+                                            ? {}
+                                            : isModelReasoningEffort(
+                                                    request.reasoningEffort,
+                                                )
+                                            ? {
+                                                reasoningEffort:
+                                                    request.reasoningEffort,
+                                            }
+                                            : {}),
+                                    }],
+                                },
+                            );
+                            return complete({
+                                systemPrompt: request.systemPrompt ?? "",
+                                messages: request.messages.map((message) =>
+                                    consultModelMessage(message)
+                                ),
+                                ...(request.maxTokens === undefined
+                                    ? {}
+                                    : { maxTokens: request.maxTokens }),
+                            }, signal);
+                        },
+                    }),
+                    sendConsultReply: (ownerId, reply) =>
+                        agent.sendConsultReply(ownerId, reply),
+                    readApprovalModeOrigin: () =>
+                        entry.store.approvalModeOrigin(),
+                    ...(this.options.permissionPreferences === undefined
+                        ? {}
+                        : {
+                            addPermissionPreference: (when) =>
+                                this.options.permissionPreferences!.add(when),
+                            removePermissionPreference: (id) =>
+                                this.options.permissionPreferences!.remove(id),
+                        }),
+                    updateSessionName: (name) =>
+                        this.updateSessionName(agent.id, name),
+                    sendTimelineReply: (ownerId, reply) =>
+                        agent.sendTimelineReply(ownerId, reply),
+                    sendSessionNameReply: (ownerId, reply) =>
+                        agent.sendSessionNameReply(ownerId, reply),
+                },
+        };
+        const adapterSpec = this.workerAdapterSpecFor(store, entry);
+        entry.run = (adapterSpec === undefined
+            ? runHeadlessLoop(
+                agent.engine,
+                adapter,
+                this.defaultModel,
+                this.defaultReasoningEffort,
+                loopData,
+                loopServices,
+            )
+            : this.runInWorker({
+                agent,
+                store,
+                entry,
+                adapter: adapterSpec,
+                data: loopData,
+                services: loopServices,
+                extensionTools,
+            })
         ).catch(async (error: unknown) => {
             entry.inbox?.release();
             if (!agent.closed) {
@@ -3648,6 +3722,151 @@ export class AgentRegistry {
             agent.triggerDeliveryTurn();
         }
         return agent;
+    }
+
+    /**
+     * How this session's worker would build its adapter, or nothing.
+     *
+     * Nothing is the default and means the turn runs in this process exactly
+     * as it did before. Both conditions have to hold: the owner has to have
+     * said the adapter is rebuildable from JSON, and the environment has to
+     * have asked for a worker.
+     */
+    private workerAdapterSpecFor(
+        store: SessionStore,
+        entry: RegisteredAgentEntry,
+    ): WorkerAdapterSpec | undefined {
+        if (this.options.workerAdapterSpec === undefined) {
+            return undefined;
+        }
+        if ((process.env[WORKER_ENV] ?? "") !== "1") {
+            return undefined;
+        }
+        return this.options.workerAdapterSpec({
+            provider: entry.modelSettings.provider ?? this.defaultProvider,
+            projectRoot: store.header.cwd,
+            sessionId: store.header.id,
+        });
+    }
+
+    /**
+     * Runs the turn loop in a separate process, and reports how it stopped.
+     *
+     * The client channel is pumped in both directions here rather than by the
+     * loop, and every durable service stays on this side. A `kill -9` on the
+     * worker therefore lands on `handle.outcome` as one typed value, and the
+     * session file it was writing through is already complete on disk.
+     */
+    private async runInWorker(options: {
+        readonly agent: ResidentAgent;
+        readonly store: SessionStore;
+        readonly entry: RegisteredAgentEntry;
+        readonly adapter: WorkerAdapterSpec;
+        readonly data: RunHeadlessLoopData;
+        readonly services: RunHeadlessLoopServices;
+        readonly extensionTools?: readonly RegisteredTool[];
+    }): Promise<void> {
+        const { agent, store, services } = options;
+        const handle = await startWorker({
+            store,
+            session: await readSessionSeed(store.path),
+            model: this.defaultModel,
+            ...(this.defaultReasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: this.defaultReasoningEffort }),
+            adapter: options.adapter,
+            data: options.data,
+            services,
+            offers: {
+                approvalModeRead: services.readApprovalMode !== undefined,
+                modelSettings: services.readModelSettings !== undefined,
+                agentWear: services.readAgentWear !== undefined,
+            },
+            state: {
+                policy: services.readPolicy?.() ?? {},
+                ...(services.readModelSettings === undefined ? {} : {
+                    modelSettings: services.readModelSettings(),
+                }),
+                ...(services.readAgentWear === undefined ? {} : {
+                    agentWear: services.readAgentWear(),
+                }),
+                ...(services.readApprovalMode === undefined ? {} : {
+                    approvalMode: services.readApprovalMode(),
+                }),
+                ...(services.readPermissionPreferences === undefined ? {} : {
+                    permissionPreferences: services.readPermissionPreferences(),
+                }),
+                ...(services.readReviewer === undefined ? {} : {
+                    reviewer: services.readReviewer(),
+                }),
+            },
+            ...(options.extensionTools === undefined
+                ? {}
+                : {
+                    extensionTools: options.extensionTools,
+                    // An extension tool runs on this side, against a runtime
+                    // built from the same workspace the loop was given.
+                    toolRuntime: new ToolRuntime(
+                        store.header.cwd,
+                        undefined,
+                        undefined,
+                        options.data.toolEnv,
+                        options.data.instructionRoot?.path,
+                    ),
+                }),
+            onUpdate: (update, ownerId) => {
+                if (ownerId === undefined) {
+                    agent.engine.send(update);
+                    return;
+                }
+                if (isTimelineReplyUpdate(update)) {
+                    agent.sendTimelineReply(ownerId, update);
+                    return;
+                }
+                if (isSessionNameReplyUpdate(update)) {
+                    agent.sendSessionNameReply(ownerId, update);
+                    return;
+                }
+                if (isConsultReplyUpdate(update)) {
+                    agent.sendConsultReply(ownerId, update);
+                    return;
+                }
+                throw new Error(
+                    `Worker sent an unowned private update: ${update.type}`,
+                );
+            },
+        });
+        options.entry.worker = handle;
+        store.watchRecords(handle.server.pushRecord);
+        const pumping = new AbortController();
+        // Closing the agent stops its command channel, and a worker with no
+        // channel left has nothing to run. The process is ended the same way
+        // any other worker ends, so the outcome below is expected, not a
+        // failure to report on a session that already stopped.
+        let stopping = false;
+        void (async () => {
+            for (;;) {
+                const command = await agent.engine.receive(pumping.signal);
+                handle.send(command);
+            }
+        })().catch(() => {
+            if (agent.closed && !pumping.signal.aborted) {
+                stopping = true;
+                handle.kill();
+            }
+        });
+        try {
+            const outcome = await handle.outcome;
+            if (stopping || outcome.kind === "finished") {
+                return;
+            }
+            throw new Error(workerOutcomeDetail(outcome));
+        } finally {
+            pumping.abort();
+            if (options.entry.worker === handle) {
+                options.entry.worker = undefined;
+            }
+        }
     }
 
     private async requestInboxAdmission(
@@ -4320,4 +4539,39 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
         usage: emptyUsage(),
         stopReason: "stop",
     };
+}
+
+/** Set to `1` to run each session's turn loop in its own process. */
+const WORKER_ENV = "VERA_WORKER";
+
+/**
+ * The session file as a worker is given it: the header verbatim, then every
+ * record after it in file order. The worker folds a projection out of these
+ * and never opens the file itself.
+ */
+async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
+    const lines = (await Bun.file(path).text())
+        .split("\n")
+        .filter((line) => line.length > 0);
+    const [header, ...records] = lines;
+    return {
+        path,
+        header: JSON.parse(header ?? "{}") as Record<string, unknown>,
+        records: records.map(
+            (line) => JSON.parse(line) as Record<string, unknown>,
+        ),
+    };
+}
+
+function workerOutcomeDetail(outcome: WorkerOutcome): string {
+    switch (outcome.kind) {
+        case "failed":
+            return outcome.error;
+        case "killed":
+            return `The agent process was killed (${outcome.signal})`;
+        case "exited":
+            return `The agent process exited with code ${outcome.code}`;
+        default:
+            return "The agent process stopped";
+    }
 }

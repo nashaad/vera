@@ -75,10 +75,13 @@ test("resident agent replays a checkpoint and every later update", async () => {
     });
 
     const second = agent.attach();
+    // Every replayed checkpoint states the status it is joining, so a turn
+    // already running is not left to be inferred from what follows.
     expect(await second.receive()).toEqual({
         type: "history",
         entries: [],
         seq: 0,
+        status: "working",
     });
     expect(await second.receive()).toEqual({
         type: "user_prompt",
@@ -110,7 +113,10 @@ test("resident agent replays a checkpoint and every later update", async () => {
     expect(await second.receive()).toEqual(checkpoint);
 
     const third = agent.attach();
-    expect(await third.receive()).toEqual(checkpoint);
+    // The live copies above carry no status: the updates that said the turn
+    // started are still ahead of them. This one replaces those updates, so it
+    // carries the status instead of losing it with them.
+    expect(await third.receive()).toEqual({ ...checkpoint, status: "working" });
     const notification = {
         type: "task_notification" as const,
         deliveryId: "completion:child-1",
@@ -124,13 +130,16 @@ test("resident agent replays a checkpoint and every later update", async () => {
     expect(await third.receive()).toEqual(notification);
 
     const fourth = agent.attach();
-    expect(await fourth.receive()).toEqual(checkpoint);
+    expect(await fourth.receive()).toEqual({ ...checkpoint, status: "working" });
     expect(await fourth.receive()).toEqual(notification);
 
     const resumedFromCheckpoint = agent.attach(2);
     expect(await resumedFromCheckpoint.receive()).toEqual(notification);
     const resumedBeforeCheckpoint = agent.attach(1);
-    expect(await resumedBeforeCheckpoint.receive()).toEqual(checkpoint);
+    expect(await resumedBeforeCheckpoint.receive()).toEqual({
+        ...checkpoint,
+        status: "working",
+    });
     expect(await resumedBeforeCheckpoint.receive()).toEqual(notification);
     expect(() => agent.attach(4)).toThrow("replay cursor is unavailable");
 });
@@ -311,6 +320,19 @@ test("failing a resident agent drains one typed terminal update", async () => {
         .toThrow(ResidentAgentClosedError);
     agent.close();
     expect(agent.closed).toBeTrue();
+});
+
+test("failing an idle resident agent reports its terminal state", () => {
+    const changes: string[] = [];
+    const agent = new ResidentAgent("agent-1", "/work/one", {
+        onRunStateChanged: () => changes.push(
+            agent.failed ? "failed" : agent.status,
+        ),
+    });
+
+    agent.fail("failure-1", "Resident agent stopped unexpectedly");
+
+    expect(changes).toEqual(["failed"]);
 });
 
 test("resident agent snapshots commands and isolates attached clients", async () => {

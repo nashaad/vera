@@ -993,6 +993,24 @@ export function renderTuiCommandSuggestions(
     return new StyledText(chunks);
 }
 
+/**
+ * Columns the slash-command strip may actually paint beside a dock.
+ *
+ * The renderer still reports the whole terminal after the app reserves a
+ * left rail. Measuring against that whole width lets descriptions run under
+ * the rail and wrap inside the narrower strip, breaking one-command-per-row.
+ */
+export function tuiCommandSuggestionWidth(
+    terminalColumns: number,
+    horizontalInset: number,
+    occupiedLeftColumns = 0,
+): number {
+    return Math.max(
+        1,
+        terminalColumns - horizontalInset - occupiedLeftColumns,
+    );
+}
+
 /** The values that could finish a half-typed argument, best match first. */
 export function tuiArgumentSuggestions(
     values: readonly string[],

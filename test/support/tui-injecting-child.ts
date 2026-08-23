@@ -57,25 +57,31 @@ function session(id: string): TuiAgentClient {
         "high",
         {
             approvalMode: "auto",
+        },
+        {
             readModelSettings: () => ({
                 model: "test",
                 reasoningEffort: "high",
                 contextWindow: 100,
                 pooled: POOLED,
             }),
-            updateModelSettings: async () => undefined,
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
-            async consult(request) {
-                if (request.model === "faux-broken") {
-                    throw new Error("provider is down");
-                }
-                return {
-                    text: `SEAT SAW ${request.messages.at(-1)?.content ?? ""}`,
-                    model: request.model,
-                };
+            router: {
+                updateModelSettings: async () => undefined,
+                async consult(request) {
+                    if (request.model === "faux-broken") {
+                        throw new Error("provider is down");
+                    }
+                    const last = request.messages.at(-1)?.content ?? "";
+                    return {
+                        text: `SEAT SAW ${last}`,
+                        model: request.model,
+                    };
+                },
+                sendConsultReply: (_ownerId, reply) =>
+                    channel.engine.send(reply),
             },
-            sendConsultReply: (_ownerId, reply) => channel.engine.send(reply),
         },
     );
     return {

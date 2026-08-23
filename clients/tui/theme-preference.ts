@@ -33,7 +33,15 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly sidebar_width?: number;
+    /** Whether the workspace navigator stays docked beside the conversation. */
+    readonly workspace_sidebar_docked?: boolean;
+    /** Width of the persistent workspace navigator, in terminal columns. */
+    readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
+    // Session ids the reader pinned to the top of the workspace side bar. A
+    // pin is one person's opinion about their own list, so it stays here and
+    // never reaches the host.
+    readonly pinned_session_ids?: readonly string[];
     readonly persisted_agent_panes?: readonly DiskPersistedAgentPane[];
     // Spelled as it was when quickslots were called presets. Respelling the key
     // would leave every already-saved slot unreadable.
@@ -155,6 +163,40 @@ export function saveTuiSidebarWidth(
     }, path);
 }
 
+export function loadTuiWorkspaceSidebarDocked(
+    path = tuiThemePreferencePath(),
+): boolean {
+    return loadTuiClientPreferences(path).workspace_sidebar_docked === true;
+}
+
+export function saveTuiWorkspaceSidebarDocked(
+    docked: boolean,
+    path = tuiThemePreferencePath(),
+): void {
+    const { workspace_sidebar_docked: _previous, ...rest } =
+        loadTuiClientPreferences(path);
+    saveTuiClientPreferences({
+        ...rest,
+        ...(docked ? { workspace_sidebar_docked: true } : {}),
+    }, path);
+}
+
+export function loadTuiWorkspaceSidebarWidth(
+    path = tuiThemePreferencePath(),
+): number | undefined {
+    return loadTuiClientPreferences(path).workspace_sidebar_width;
+}
+
+export function saveTuiWorkspaceSidebarWidth(
+    columns: number,
+    path = tuiThemePreferencePath(),
+): void {
+    saveTuiClientPreferences({
+        ...loadTuiClientPreferences(path),
+        workspace_sidebar_width: columns,
+    }, path);
+}
+
 export function loadTuiSharedSessionGroups(
     path = tuiThemePreferencePath(),
 ): readonly (readonly [string, string])[] {
@@ -168,6 +210,25 @@ export function saveTuiSharedSessionGroups(
     saveTuiClientPreferences({
         ...loadTuiClientPreferences(path),
         shared_session_groups: groups,
+    }, path);
+}
+
+export function loadTuiPinnedSessionIds(
+    path = tuiThemePreferencePath(),
+): readonly string[] {
+    return loadTuiClientPreferences(path).pinned_session_ids ?? [];
+}
+
+export function saveTuiPinnedSessionIds(
+    ids: readonly string[],
+    path = tuiThemePreferencePath(),
+): void {
+    const { pinned_session_ids: _previous, ...rest } = loadTuiClientPreferences(
+        path,
+    );
+    saveTuiClientPreferences({
+        ...rest,
+        ...(ids.length === 0 ? {} : { pinned_session_ids: ids }),
     }, path);
 }
 
@@ -446,6 +507,13 @@ export function deleteTuiExtensionPreference(
     }, path);
 }
 
+function parsePinnedSessionIds(value: unknown): readonly string[] {
+    if (!Array.isArray(value)) return [];
+    return value.filter((entry): entry is string =>
+        typeof entry === "string" && entry.length > 0
+    );
+}
+
 function loadTuiClientPreferences(path: string): TuiClientPreferences {
     try {
         const value = JSON.parse(readFileSync(path, "utf8")) as unknown;
@@ -471,6 +539,15 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 20,
                 400,
             );
+            const workspaceSidebarDocked = Reflect.get(
+                value,
+                "workspace_sidebar_docked",
+            ) === true;
+            const workspaceSidebarWidth = boundedInteger(
+                Reflect.get(value, "workspace_sidebar_width"),
+                20,
+                400,
+            );
             const quickslots = Reflect.get(value, "model_presets");
             const favoritePairs = parseFavoritePairs(
                 Reflect.get(value, "favorite_pairs"),
@@ -491,6 +568,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
             const persistedAgentPanes = parsePersistedAgentPanes(
                 Reflect.get(value, "persisted_agent_panes"),
             );
+            const pinnedSessionIds = parsePinnedSessionIds(
+                Reflect.get(value, "pinned_session_ids"),
+            );
             return {
                 theme: isTuiThemeName(theme) ? theme : "default",
                 animation: isTuiActivityAnimation(animation)
@@ -507,6 +587,12 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(sidebarWidth === undefined
                     ? {}
                     : { sidebar_width: sidebarWidth }),
+                ...(workspaceSidebarDocked
+                    ? { workspace_sidebar_docked: true }
+                    : {}),
+                ...(workspaceSidebarWidth === undefined
+                    ? {}
+                    : { workspace_sidebar_width: workspaceSidebarWidth }),
                 ...(Array.isArray(quickslots)
                     ? {
                         model_presets: quickslotsForDisk(
@@ -529,6 +615,9 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 ...(persistedAgentPanes.length === 0
                     ? {}
                     : { persisted_agent_panes: persistedAgentPanes }),
+                ...(pinnedSessionIds.length === 0
+                    ? {}
+                    : { pinned_session_ids: pinnedSessionIds }),
             };
         }
     } catch {

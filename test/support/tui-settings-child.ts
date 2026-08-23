@@ -43,17 +43,26 @@ export function createTuiSettingsDependencies(): TuiDependencies {
         reasoningEffort,
         {
             approvalMode: "auto",
+        },
+        {
             readModelSettings: () => (
                 { provider, model: "test", reasoningEffort, availableModels }
             ),
-            updateModelSettings: async (patch) => {
-                if (patch.reasoningEffort !== undefined) {
-                    reasoningEffort = patch.reasoningEffort ?? "high";
-                }
-                return { provider, model: "test", reasoningEffort, availableModels };
-            },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => "auto",
+            router: {
+                updateModelSettings: async (patch) => {
+                    if (patch.reasoningEffort !== undefined) {
+                        reasoningEffort = patch.reasoningEffort ?? "high";
+                    }
+                    return {
+                        provider,
+                        model: "test",
+                        reasoningEffort,
+                        availableModels,
+                    };
+                },
+            },
         },
     );
 

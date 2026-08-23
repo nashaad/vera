@@ -397,6 +397,19 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             message,
         );
     }
+    if (update.type === "tool_breaker_tripped") {
+        // The wording is this client's; the wire carries only the tool, the
+        // count, and which of the two things happened.
+        return appendEntry(state, {
+            kind: "notice",
+            text: update.action === "withheld"
+                ? `[breaker] ${update.tool} withheld for the rest of this turn`
+                    + ` after ${update.denials} refusals in a row`
+                : `[breaker] turn ended: ${update.tool} was refused`
+                    + ` ${update.denials} times in a row after another tool`
+                    + " was already withheld",
+        });
+    }
     if (update.type === "tool_finished") {
         return {
             ...state,
@@ -529,13 +542,22 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
+            // Only a replayed checkpoint carries a status, and it carries one
+            // only when the turn it is joining is still running.
+            ...(update.status === undefined
+                ? {}
+                : { working: update.status !== "idle" }),
         });
     }
     if (update.type === "context") {
         return { ...state, context: update.measurement };
     }
     if (update.type === "user_prompt") {
-        const nextState = { ...state, modelActivity: undefined };
+        // A prompt means the session is working. The engine only sends a
+        // status update for delivery turns, so a client that did not send this
+        // prompt itself has nothing else to learn it from: a second attachment
+        // or a replay would otherwise read as ready while the turn runs.
+        const nextState = { ...state, working: true, modelActivity: undefined };
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
             return nextState;
         }
