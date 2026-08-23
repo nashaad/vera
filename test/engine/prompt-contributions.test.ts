@@ -29,6 +29,7 @@ test("built-in prompt contributors return attributed plain data in order", () =>
         title,
     }))).toEqual([
         { id: "core.identity", owner: "core", target: "stable", title: "Identity" },
+        { id: "core.narration", owner: "core", target: "stable", title: "Narration" },
         { id: "core.tools", owner: "core", target: "stable", title: "Tools" },
         { id: "core.workspace", owner: "core", target: "stable", title: "Workspace" },
         { id: "core.date", owner: "core", target: "contextual", title: "Date" },
@@ -54,6 +55,7 @@ test("an empty optional contribution does not disturb built-in order", () => {
 
     expect(contributions.map((contribution) => contribution.id)).toEqual([
         "core.identity",
+        "core.narration",
         "core.tools",
         "core.workspace",
         "core.date",
@@ -71,9 +73,10 @@ test("prompt contribution metadata records final order, bytes, and hashes", () =
 
     expect(metadata.map(({ id, order }) => ({ id, order }))).toEqual([
         { id: "core.identity", order: 0 },
-        { id: "core.tools", order: 1 },
-        { id: "core.workspace", order: 2 },
-        { id: "core.date", order: 3 },
+        { id: "core.narration", order: 1 },
+        { id: "core.tools", order: 2 },
+        { id: "core.workspace", order: 3 },
+        { id: "core.date", order: 4 },
     ]);
     expect(metadata.every((entry) => entry.bytes > 0)).toBe(true);
     expect(metadata.every((entry) => /^[a-f0-9]{64}$/.test(entry.sha256)))
@@ -106,6 +109,7 @@ test("a scratch directory adds the scratchpad contribution after the workspace",
 
     expect(contributions.map((contribution) => contribution.id)).toEqual([
         "core.identity",
+        "core.narration",
         "core.tools",
         "core.workspace",
         "core.scratchpad",
@@ -133,6 +137,7 @@ test("disabled contribution ids are omitted from both targets", () => {
 
     expect(contributions.map((contribution) => contribution.id)).toEqual([
         "core.identity",
+        "core.narration",
         "core.tools",
         "core.workspace",
     ]);

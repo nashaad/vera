@@ -248,6 +248,7 @@ test("prompt diagnostics stay outside the provider request", () => {
 
     expect(projection.promptContributions.map((entry) => entry.id)).toEqual([
         "core.identity",
+        "core.narration",
         "core.tools",
         "core.workspace",
         "core.date",
