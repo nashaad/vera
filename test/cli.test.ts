@@ -19,6 +19,7 @@ import {
 } from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
+import { renderCliHelp } from "../clients/cli/help.ts";
 
 test("vera help and version are available without starting a client", async () => {
     let output = "";
@@ -432,6 +433,155 @@ test("vera abort requests cancellation through a resident agent", async () => {
     expect(exitCode).toBe(0);
     expect(aborted).toEqual(["agent-1"]);
     expect(output).toBe("Abort requested for agent-1.\n");
+});
+
+test("vera close ends a live agent and names how to get the session back", async () => {
+    const closed: string[] = [];
+    let output = "";
+
+    const exitCode = await runCli(["close", "agent-1"], {
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "closed", sessionRetained: true };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(closed).toEqual(["agent-1"]);
+    expect(output).toBe(
+        "Closed agent-1. Its session is kept; "
+        + "resume it with 'vera resume agent-1'.\n",
+    );
+});
+
+test("vera close reports a rejection as an error with a next action", async () => {
+    let error = "";
+
+    const exitCode = await runCli(["close", "ghost"], {
+        closeAgent: async () => ({
+            status: "rejected",
+            reason: "not_found",
+        }),
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(error).toContain("Could not close ghost");
+    expect(error).toContain("vera ls --all");
+});
+
+test("vera close does not offer a resume for a session it deleted", async () => {
+    let output = "";
+
+    const exitCode = await runCli(["close", "temp-1"], {
+        closeAgent: async () => ({ status: "closed", sessionRetained: false }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(output).toContain("its session is gone");
+    expect(output).not.toContain("vera resume");
+});
+
+test("vera close accepts the identifier vera ls prints", async () => {
+    const closed: string[] = [];
+    let output = "";
+
+    const exitCode = await runCli(["close", "amber-ember:333d"], {
+        listAgents: async () => [closeableAgent("uuid-aaaa-1111", "amber-ember:333d")],
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "closed", sessionRetained: true };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(closed).toEqual(["uuid-aaaa-1111"]);
+    expect(output).toContain("Closed amber-ember:333d.");
+    expect(output).toContain("vera resume uuid-aaaa-1111");
+});
+
+test("vera close accepts an unambiguous id prefix", async () => {
+    const closed: string[] = [];
+
+    const exitCode = await runCli(["close", "uuid-aa"], {
+        listAgents: async () => [
+            closeableAgent("uuid-aaaa-1111", "amber-ember:333d"),
+            closeableAgent("uuid-bbbb-2222", "slate-heron:9c0e"),
+        ],
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "closed", sessionRetained: true };
+        },
+        stdout: { write: () => undefined },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(closed).toEqual(["uuid-aaaa-1111"]);
+});
+
+test("vera close refuses an ambiguous prefix and names the candidates", async () => {
+    const closed: string[] = [];
+    let error = "";
+
+    const exitCode = await runCli(["close", "uuid-"], {
+        listAgents: async () => [
+            closeableAgent("uuid-aaaa-1111", "amber-ember:333d"),
+            closeableAgent("uuid-bbbb-2222", "slate-heron:9c0e"),
+        ],
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "closed", sessionRetained: true };
+        },
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    // Guessing one of them is the failure this replaces.
+    expect(closed).toEqual([]);
+    expect(error).toContain("amber-ember:333d (uuid-aaaa-1111)");
+    expect(error).toContain("slate-heron:9c0e (uuid-bbbb-2222)");
+});
+
+test("vera close still reaches not_found for an id nothing matches", async () => {
+    const closed: string[] = [];
+    let error = "";
+
+    const exitCode = await runCli(["close", "ghost"], {
+        listAgents: async () => [closeableAgent("uuid-aaaa-1111", "amber-ember:333d")],
+        closeAgent: async (agentId) => {
+            closed.push(agentId);
+            return { status: "rejected", reason: "not_found" };
+        },
+        stderr: { write: (text) => error += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(closed).toEqual(["ghost"]);
+    expect(error).toContain("no agent or session has that id");
+});
+
+function closeableAgent(id: string, name: string): RegisteredAgentSummary {
+    return {
+        id,
+        name,
+        workspace: process.cwd(),
+        session_path: `/sessions/${id}.jsonl`,
+        kind: "interactive",
+        status: "idle",
+        live: true,
+        updated_at: new Date().toISOString(),
+    };
+}
+
+test("vera help separates stopping a turn from closing an agent", () => {
+    const help = renderCliHelp();
+    expect(help).toContain("vera abort <agent-id>");
+    expect(help).toContain("vera close <agent-id>");
+    expect(help).toContain("the agent stays live and keeps its queued prompts");
+    expect(help).toContain("the session is kept and can be resumed");
 });
 
 test("vera shortlist list renders stable model rows from the pool file", async () => {

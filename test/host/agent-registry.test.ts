@@ -12,6 +12,7 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { spawnSync } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import type {
     AgentUpdate,
@@ -657,6 +658,139 @@ test("session trash accepts only idle unattached non-current sessions", async ()
             .toEqual(["current"]);
         expect(await registry.trashSession("missing"))
             .toBe("not_found");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing a tree is idempotent and leaves unrelated agents alone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-tree-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "target",
+            workspace: root,
+            sessionPath: join(root, "target.jsonl"),
+        });
+        await registry.create({
+            id: "bystander",
+            workspace: root,
+            sessionPath: join(root, "bystander.jsonl"),
+        });
+
+        expect(await registry.closeAgentTree("target"))
+            .toEqual({ status: "closed", sessionRetained: true });
+        expect(registry.find("target")).toBeUndefined();
+        expect(await registry.closeAgentTree("target"))
+            .toMatchObject({ status: "not_found" });
+        expect(await registry.closeAgentTree("never-existed"))
+            .toMatchObject({ status: "not_found" });
+        expect(registry.list().map((agent) => agent.id))
+            .toEqual(["bystander"]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing an ephemeral agent reports that its session did not survive", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-ephemeral-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "temporary",
+            workspace: root,
+            sessionPath: join(root, "temporary", "session.jsonl"),
+            ephemeral: true,
+        });
+
+        expect(await registry.closeAgentTree("temporary"))
+            .toEqual({ status: "closed", sessionRetained: false });
+        // Nothing to resume, which is the fact the acknowledgement carries.
+        expect(existsSync(join(root, "temporary", "session.jsonl")))
+            .toBe(false);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing a tree closes a real background child and spares a bystander", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-child-"));
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "start-background",
+                            name: "async_subagent",
+                            input: { description: "Run the integration tests" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("I started the background work."),
+                ]);
+            }
+            // Long enough that the child is still working when the walk
+            // reaches it, which is the state the ordering has to survive.
+            return new FauxAdapter(
+                [textResponse("still running")],
+                { chunkSize: 1, delayMs: 40 },
+            );
+        },
+        model: "faux/test",
+        approvalMode: "full_access",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+            startupProfile: "bare",
+        });
+        await registry.create({
+            id: "bystander",
+            workspace: root,
+            sessionPath: join(root, "bystander.jsonl"),
+        });
+        await runPrompt(parent.attach(), "Run tests in the background");
+
+        const child = registry.list().find((agent) =>
+            agent.parent_id === "parent"
+        );
+        expect(child).toMatchObject({ kind: "background", parent_id: "parent" });
+
+        expect(await registry.closeAgentTree("parent"))
+            .toEqual({ status: "closed", sessionRetained: true });
+        expect(registry.find("parent")).toBeUndefined();
+        expect(registry.find(child!.id)).toBeUndefined();
+        expect(registry.list().map((agent) => agent.id)).toEqual(["bystander"]);
+        expect(await registry.closeAgentTree("parent"))
+            .toMatchObject({ status: "not_found" });
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

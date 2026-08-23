@@ -474,6 +474,16 @@ export interface AgentRegistryOptions {
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
+export interface CloseAgentTreeResult {
+    readonly status: "closed" | "not_found";
+    /**
+     * Whether the durable transcript is still on disk afterwards. False for an
+     * ephemeral agent, whose session directory is removed with it, so a client
+     * never offers a resume that cannot work.
+     */
+    readonly sessionRetained: boolean;
+}
+
 export interface CreateRegisteredAgentOptions {
     readonly id?: string;
     readonly workspace: string;
@@ -1170,14 +1180,94 @@ export class AgentRegistry {
         }
         entry.agent.close();
         await entry.run;
+        await this.reapClosedAgent(id, entry);
+        this.notifyRosterChanged();
+        return "closed";
+    }
+
+    /**
+     * Close one agent and every live agent descended from it.
+     *
+     * Fence first, quiesce second. `agent.close()` is synchronous and shuts
+     * admission, so every member of the subtree is fenced in one pass before
+     * anything is awaited; awaiting a child first would leave the parent live
+     * for the seconds that child takes to exit, long enough to spawn a
+     * subagent nothing is walking any more. Fencing is then repeated to a
+     * fixpoint, because a spawn can still have raced the very first pass.
+     * Roster entries are removed only at the end, so the parent links the
+     * walk follows are still intact while the subtree is being quiesced.
+     * Idempotent for the same reason `closeAgent` is: a second call finds
+     * nothing left to close and says so.
+     */
+    async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
+        const present = this.agents.has(id);
+        // Read before the walk: an ephemeral entry is gone from the roster by
+        // the time anyone could ask, and its transcript goes with it.
+        const sessionRetained = this.agents.get(id)?.ephemeral !== true;
+        const quiesced = new Map<string, RegisteredAgentEntry>();
+        while (true) {
+            const members = [id, ...this.liveDescendantsOf(id)]
+                .filter((memberId) =>
+                    this.agents.has(memberId) && !quiesced.has(memberId)
+                );
+            if (members.length === 0) {
+                break;
+            }
+            for (const memberId of members) {
+                this.agents.get(memberId)?.agent.close();
+            }
+            for (const memberId of members) {
+                const entry = this.agents.get(memberId);
+                if (entry === undefined) {
+                    continue;
+                }
+                await entry.run;
+                quiesced.set(memberId, entry);
+            }
+        }
+        for (const [memberId, entry] of quiesced) {
+            await this.reapClosedAgent(memberId, entry);
+        }
+        if (quiesced.size > 0) {
+            this.notifyRosterChanged();
+        }
+        return {
+            status: present || quiesced.size > 0 ? "closed" : "not_found",
+            sessionRetained,
+        };
+    }
+
+    /** Release what a quiesced entry still holds and take it off the roster. */
+    private async reapClosedAgent(
+        id: string,
+        entry: RegisteredAgentEntry,
+    ): Promise<void> {
         entry.inbox?.release();
         this.agents.delete(id);
         this.spawnNotices.delete(id);
         if (entry.ephemeral) {
             await rm(dirname(entry.store.path), { recursive: true, force: true });
         }
-        this.notifyRosterChanged();
-        return "closed";
+    }
+
+    /** Every live agent under `id`, deepest first. */
+    private liveDescendantsOf(id: string): readonly string[] {
+        const ordered: string[] = [];
+        // A corrupt header could name a parent cycle; without this the walk
+        // would never return.
+        const seen = new Set<string>([id]);
+        const visit = (parentId: string): void => {
+            for (const [childId, entry] of this.agents) {
+                if (entry.parentId !== parentId || seen.has(childId)) {
+                    continue;
+                }
+                seen.add(childId);
+                visit(childId);
+                ordered.push(childId);
+            }
+        };
+        visit(id);
+        return ordered;
     }
 
     /**

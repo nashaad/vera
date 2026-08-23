@@ -87,6 +87,17 @@ const MAX_PENDING_EXTENSION_REQUESTS = 16;
 const REQUEST_TIMEOUT_MS = 1_000;
 const REQUEST_CEILING_MS = 60_000;
 
+/**
+ * What the host made of a close request.
+ *
+ * `sessionRetained` is only meaningful when the close succeeded, and is absent
+ * for a close that never reached an agent.
+ */
+export interface CloseAgentOutcome {
+    readonly status: "closed" | "not_found" | "not_owned" | "failed";
+    readonly sessionRetained?: boolean;
+}
+
 export interface StartHostServerOptions {
     readonly socketPath?: string;
     readonly lockPath?: string;
@@ -175,6 +186,9 @@ export interface StartHostServerOptions {
     readonly trashSession?: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">;
+    readonly closeAgent?: (
+        targetAgentId: string,
+    ) => Promise<CloseAgentOutcome>;
     readonly renameSession?: (
         targetAgentId: string,
         name: string | null,
@@ -377,6 +391,8 @@ export async function startHostServer(
                 turns: 0,
             })),
             options.trashSession ?? (() => Promise.resolve("not_found")),
+            options.closeAgent
+                ?? (() => Promise.resolve({ status: "not_found" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
             options.runOnce ?? (() => Promise.reject(
@@ -488,6 +504,9 @@ function receiveConnection(
     trashSession: (
         targetAgentId: string,
     ) => Promise<"trashed" | "busy" | "not_found" | "failed">,
+    closeAgent: (
+        targetAgentId: string,
+    ) => Promise<CloseAgentOutcome>,
     renameSession: (
         targetAgentId: string,
         name: string | null,
@@ -1120,6 +1139,33 @@ function receiveConnection(
                     }),
                 () => send({
                     type: "session_trash_rejected",
+                    agent_id: request.target_agent_id,
+                    reason: "failed",
+                }),
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "close_agent") {
+            clearDeadline();
+            finished = true;
+            // The acknowledgement is a quiescence boundary, so it is only sent
+            // after the close has reached its terminal state, never before.
+            void closeAgent(
+                request.target_agent_id,
+            ).then(
+                (result) => result.status === "closed"
+                    ? send({
+                        type: "agent_closed",
+                        agent_id: request.target_agent_id,
+                        session_retained: result.sessionRetained !== false,
+                    })
+                    : send({
+                        type: "agent_close_rejected",
+                        agent_id: request.target_agent_id,
+                        reason: result.status,
+                    }),
+                () => send({
+                    type: "agent_close_rejected",
                     agent_id: request.target_agent_id,
                     reason: "failed",
                 }),

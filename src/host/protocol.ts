@@ -183,6 +183,43 @@ export interface TrashSessionRequest {
     readonly target_agent_id: string;
 }
 
+/**
+ * End one live agent instance, addressed by id.
+ *
+ * Distinct from the engine's `abort` command, which cancels the active turn and
+ * leaves the agent running. Close is terminal for the live instance: admission
+ * shuts first, buffered work is discarded rather than drained, and the durable
+ * session stays on disk for a later explicit resume.
+ */
+export interface CloseAgentRequest {
+    readonly type: "close_agent";
+    readonly target_agent_id: string;
+}
+
+/**
+ * The close reached its terminal state.
+ *
+ * This is a quiescence boundary: once it is sent, that agent's loop cannot
+ * issue another provider call. An already-closed target is acknowledged rather
+ * than rejected, which is what makes repeating the request safe.
+ */
+export interface AgentClosedResponse {
+    readonly type: "agent_closed";
+    readonly agent_id: string;
+    /**
+     * Whether the durable transcript survived the close. An ephemeral agent's
+     * session is deleted with it, so a client that offers `vera resume` on the
+     * strength of the acknowledgement alone would be naming a dead id.
+     */
+    readonly session_retained: boolean;
+}
+
+export interface AgentCloseRejectedResponse {
+    readonly type: "agent_close_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "not_owned" | "failed";
+}
+
 export interface RenameSessionRequest {
     readonly type: "rename_session";
     readonly target_agent_id: string;
@@ -429,6 +466,7 @@ export type HostRequest =
     | CommitAgentBranchRequest
     | SyncAgentContextRequest
     | TrashSessionRequest
+    | CloseAgentRequest
     | RenameSessionRequest
     | RunOnceRequest
     | AttachRequest;
@@ -452,6 +490,8 @@ export type HostResponse =
     | AgentContextSyncedResponse
     | SessionTrashedResponse
     | SessionTrashRejectedResponse
+    | AgentClosedResponse
+    | AgentCloseRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
     | RunOnceFinishedResponse
@@ -651,6 +691,16 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     ) {
         return {
             type: "trash_session",
+            target_agent_id: value.target_agent_id,
+        };
+    }
+    if (
+        value?.type === "close_agent"
+        && typeof value.target_agent_id === "string"
+        && value.target_agent_id.length > 0
+    ) {
+        return {
+            type: "close_agent",
             target_agent_id: value.target_agent_id,
         };
     }
