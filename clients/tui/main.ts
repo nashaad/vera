@@ -8219,10 +8219,9 @@ export async function startTui(
         );
         const margin = tuiEntryMarginTop(entries, index, entrySpacing);
         if (entry.kind === "thinking") {
-            return margin + Math.max(
-                3,
-                transcriptEstimatedRows(entry.text, width) + 2,
-            );
+            // Reasoning still arriving is one clipped row however much has
+            // arrived, so its height never depends on its text.
+            return margin + 1;
         }
         return margin + Math.max(
             1,

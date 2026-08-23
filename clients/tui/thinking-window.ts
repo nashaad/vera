@@ -1,17 +1,18 @@
-import { BoxRenderable, fg, StyledText, TextRenderable } from "@opentui/core";
+import { BoxRenderable, TextRenderable } from "@opentui/core";
 import type { CliRenderer } from "@opentui/core";
 
 import type { TuiTextTranscriptEntry } from "./state.ts";
-import { LIVE_THINKING_ELLIPSIS, renderTuiEntry, TUI_MUTED } from "./state.ts";
+import { renderTuiEntry } from "./state.ts";
 
 const windowBody = new WeakMap<BoxRenderable, TextRenderable>();
 
 /**
- * The bounded region reasoning still arriving is drawn into.
+ * The single row reasoning still arriving is drawn into.
  *
- * A column rather than one text block, because the ellipsis at each end is
- * centred and the reasoning under it is not: the marks belong to the window
- * and the text belongs to the model.
+ * One row, and one row whatever arrives: this sits in a transcript pinned to
+ * its bottom, so any row it takes beyond the settled summary's one is a row
+ * the whole scrollback jumps by when the phase ends. The mark that says there
+ * is more rides the text itself rather than taking rows above and below it.
  */
 export function createTuiThinkingWindow(
     renderer: CliRenderer,
@@ -25,19 +26,17 @@ export function createTuiThinkingWindow(
         flexDirection: "column",
         marginTop,
     });
-    box.add(ellipsis(renderer, `${id}-top`));
     const body = new TextRenderable(renderer, {
         id: `${id}-body`,
         content: renderTuiEntry(entry),
         width: "100%",
         // Reasoning still arriving is clipped at the right edge rather than
-        // wrapped, so its window is as many rows as it is lines.
+        // wrapped, so the row stays one row however long the line runs.
         wrapMode: "none",
         overflow: "hidden",
         selectable: true,
     });
     box.add(body);
-    box.add(ellipsis(renderer, `${id}-bottom`));
     windowBody.set(box, body);
     return box;
 }
@@ -51,11 +50,3 @@ export function updateTuiThinkingWindow(
     body.content = renderTuiEntry(entry);
 }
 
-function ellipsis(renderer: CliRenderer, id: string): TextRenderable {
-    return new TextRenderable(renderer, {
-        id,
-        content: new StyledText([fg(TUI_MUTED)(LIVE_THINKING_ELLIPSIS)]),
-        alignSelf: "center",
-        flexShrink: 0,
-    });
-}

@@ -2744,18 +2744,10 @@ test("a long stretch of live reasoning is bounded to its window", () => {
     expect(entry?.kind).toBe("thinking");
     const rendered = plainText(renderTuiEntry(entry!));
 
-    // The window shows the newest lines, so the tail is what is on screen and
-    // the row cannot outgrow the work above it however long the model thinks.
-    expect(rendered.split("\n")).toEqual([
-        "line 33",
-        "line 34",
-        "line 35",
-        "line 36",
-        "line 37",
-        "line 38",
-        "line 39",
-        "line 40",
-    ]);
+    // The row shows the newest line and stays one row however long the model
+    // thinks, so the settled summary that replaces it gives back no height
+    // and the scrollback above it never moves.
+    expect(rendered.split("\n")).toEqual(["··· line 40"]);
 
     // What scrolled out of the window is still all there behind the summary.
     state = appendTuiThought(state, 4);
@@ -2774,12 +2766,10 @@ test("blank lines do not spend the live reasoning window", () => {
         seq: 1,
     });
 
-    // A model that separates every sentence would otherwise fill the window
-    // with nothing, and the trailing newlines of a delta are not a line yet.
+    // A model that separates every sentence would otherwise spend the row on
+    // nothing, and the trailing newlines of a delta are not a line yet.
     expect(plainText(renderTuiEntry(state.entries[0]!)).split("\n")).toEqual([
-        "opening",
-        "middle",
-        "closing",
+        "··· closing",
     ]);
 });
 
