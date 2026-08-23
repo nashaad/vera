@@ -3909,10 +3909,9 @@ export class AgentRegistry {
     /**
      * How this session's worker would build its adapter, or nothing.
      *
-     * Nothing is the default and means the turn runs in this process exactly
-     * as it did before. Both conditions have to hold: the owner has to have
-     * said the adapter is rebuildable from JSON, and the environment has to
-     * have asked for a worker.
+     * A spec is the default. Nothing means the turn runs in this process,
+     * which happens when the owner cannot rebuild the adapter from JSON or
+     * when the environment has asked for the in-process loop.
      */
     private workerAdapterSpecFor(
         store: SessionStore,
@@ -3921,7 +3920,7 @@ export class AgentRegistry {
         if (this.options.workerAdapterSpec === undefined) {
             return undefined;
         }
-        if ((process.env[WORKER_ENV] ?? "") !== "1") {
+        if ((process.env[WORKER_ENV] ?? "") === "0") {
             return undefined;
         }
         return this.options.workerAdapterSpec({
@@ -4780,7 +4779,7 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
     };
 }
 
-/** Set to `1` to run each session's turn loop in its own process. */
+/** Set to `0` to run each session's turn loop in the host process. */
 const WORKER_ENV = "VERA_WORKER";
 const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
@@ -4867,9 +4866,11 @@ export class WorkerCapReachedError extends Error {
 
     constructor(cap: number) {
         super(
-            `This host already runs ${cap} isolated sessions, which is its `
-            + "limit. Free a slot with 'vera close <agent-id>', or run "
-            + "'vera ls' to see which are live.",
+            `${cap} ${cap === 1 ? "session is" : "sessions are"} already `
+            + "taking a turn, which is this host's limit. A slot frees as "
+            + "soon as one of them finishes. To take one now, stop a turn "
+            + "with 'vera abort <agent-id>'; 'vera ls' shows which sessions "
+            + "are working.",
         );
         this.name = "WorkerCapReachedError";
         this.cap = cap;

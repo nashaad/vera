@@ -286,8 +286,8 @@ test("a session past the worker cap fails with the way to free a slot", async ()
 
         expect(failure).toMatchObject({ type: "agent_failed" });
         if (failure.type === "agent_failed") {
-            expect(failure.detail).toContain("1 isolated sessions");
-            expect(failure.detail).toContain("vera close");
+            expect(failure.detail).toContain("1 session is already taking");
+            expect(failure.detail).toContain("vera abort");
         }
         expect(
             registry.list().find((entry) => entry.id === "second")?.worker_pid,
@@ -566,6 +566,59 @@ test("wear queued in a worker is answered by the host over the boundary", async 
         });
     } finally {
         await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a session runs in a worker with nothing set, and in the host at 0", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-default-"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+
+    async function workerPidFor(id: string): Promise<number | null> {
+        const registry = new AgentRegistry({
+            createAdapter: () => new FauxAdapter([toolCall("hold", "sleep 60")]),
+            workerAdapterSpec: () => ({
+                module: ADAPTER,
+                options: {
+                    script: [toolCall("hold", "sleep 60")],
+                    pidPath: join(root, `${id}.pid`),
+                },
+            }),
+            model: "faux/test",
+            approvalMode: "full_access",
+        });
+        try {
+            const agent = await registry.create({
+                id,
+                workspace: root,
+                sessionPath: join(root, `${id}.jsonl`),
+            });
+            const client = agent.attach();
+            expect((await client.receive()).type).toBe("history");
+            client.send({ type: "prompt", content: "hold the tool open" });
+            await receiveUntil(
+                client,
+                (update) => update.type === "tool_started",
+            );
+            const entry = registry.list().find((row) => row.id === id);
+            return entry?.worker_pid ?? null;
+        } finally {
+            await registry.close();
+        }
+    }
+
+    try {
+        delete process.env.VERA_WORKER;
+        expect(await workerPidFor("unset")).toEqual(expect.any(Number));
+
+        process.env.VERA_WORKER = "0";
+        expect(await workerPidFor("optout")).toBeNull();
+    } finally {
         if (previousWorkerMode === undefined) {
             delete process.env.VERA_WORKER;
         } else {
