@@ -30,6 +30,7 @@ import type { PoolFileModel } from "./pool-file.ts";
 import type { ModelAdapter } from "./types.ts";
 import {
     addPoolModel,
+    clearLearned,
     recordLearned,
     PoolFileWriteRefusedError,
 } from "./pool-file-store.ts";
@@ -116,7 +117,9 @@ export async function admitToPool(
     if (feedRow !== undefined) {
         // The feed carries the same conclusions a probe would have written,
         // marked `checked: "vera"`, so nothing goes on the wire and the two
-        // writes stay the two claims they are on the probed path.
+        // writes stay the two claims they are on the probed path. The feed row
+        // is the whole answer, so local facts it does not restate are dropped
+        // rather than left to outrank it.
         onStep({
             step: "feed",
             label: FEED_STEP_LABEL,
@@ -124,6 +127,7 @@ export async function admitToPool(
         });
         const refused = refusedPoolWrite(() => {
             addPoolModel(id, declaredPoolEntry(catalogModel));
+            clearLearned(id);
             recordLearned(id, feedLearnedFacts(feedRow));
         }, options);
         onStep({
@@ -145,9 +149,13 @@ export async function admitToPool(
     });
     if (verdict.status === "added") {
         // Two writes because they are two different claims: the user asked for
-        // this model, and the probe found these facts.
+        // this model, and the probe found these facts. Cleared first because
+        // `recordLearned` merges: a fact this run did not reach a conclusion
+        // about would otherwise survive from the run before, and a verify that
+        // cannot drop a fact is not a verify.
         const refused = refusedPoolWrite(() => {
             addPoolModel(id, declaredPoolEntry(catalogModel));
+            clearLearned(id);
             recordLearned(id, verdict.learned);
         }, options);
         return refused ?? { verdict: "added" };

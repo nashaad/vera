@@ -194,6 +194,47 @@ test("a fresh feed row admits the model without probing it", async () => {
     expect(entry.learned.images).toBeUndefined();
 });
 
+test("a verify drops a learned fact the new evidence does not restate", async () => {
+    const path = realPoolFile();
+    writeFileSync(path, JSON.stringify({
+        defaults: {},
+        models: {
+            "openrouter/qwen/qwen3-coder": {
+                added: true,
+                learned: {
+                    images: {
+                        ok: false,
+                        seen: "2026-08-17T15:58:50.647Z",
+                        error: "Provider returned error",
+                        checked: "user_key",
+                    },
+                },
+            },
+        },
+    }));
+
+    const outcome = await admitToPool(
+        { provider: "openrouter", model: "qwen/qwen3-coder" },
+        () => {},
+        {
+            verify: true,
+            createAdapter: () => recordingAdapter([]),
+            readFeedRow: createFeedRowReader({
+                shippedPath: writeFeed(feedOf([feedRow()])),
+                now: () => new Date(Date.parse(FEED_VERIFIED_AT) + 1_000),
+            }),
+        },
+    );
+
+    // Facts are written once and outlive every later attempt, so a verify has
+    // to be able to take one back: otherwise a wrong fact is permanent.
+    expect(outcome).toEqual({ verdict: "added" });
+    const entry = JSON.parse(readFileSync(path, "utf8"))
+        .models["openrouter/qwen/qwen3-coder"];
+    expect(entry.learned.images).toBeUndefined();
+    expect(entry.learned.probe.checked).toBe("vera");
+});
+
 test("the fast path reports one step naming the feed, not a local verify", async () => {
     realPoolFile();
     const steps: PoolAdmissionStep[] = [];

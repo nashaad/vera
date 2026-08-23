@@ -115,6 +115,15 @@ function userActionFailure(statusCode: number): ProviderFailure {
     };
 }
 
+function imageRefusalFailure(): ProviderFailure {
+    return {
+        kind: "invalid_request",
+        resolution: "user_action",
+        message: "this model does not support image input",
+        statusCode: 400,
+    };
+}
+
 function retryFailure(): ProviderFailure {
     return {
         kind: "timeout",
@@ -380,7 +389,7 @@ test("a model that refuses the image still enters the pool, with the refusal rec
         { kind: "text", text: SENTINEL },
         { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
-        { kind: "failure", failure: userActionFailure(400) },
+        { kind: "failure", failure: imageRefusalFailure() },
     ]);
     const steps: AdmissionStep[] = [];
 
@@ -402,6 +411,33 @@ test("a model that refuses the image still enters the pool, with the refusal rec
     // The probe sends a real image rather than asking about one.
     expect(requests.at(-1)?.messages.at(0)?.content)
         .toContainEqual(expect.objectContaining({ type: "image" }));
+});
+
+test("a rejection that never names images records no image fact", async () => {
+    const { adapter } = scriptedAdapter([
+        { kind: "text", text: SENTINEL },
+        { kind: "text", text: SENTINEL },
+        { kind: "tool_call", name: "admission_probe" },
+        { kind: "failure", failure: userActionFailure(400) },
+    ]);
+    const steps: AdmissionStep[] = [];
+
+    const verdict = await admitModel({
+        adapter,
+        provider: "scripted",
+        model: "probe-model",
+        catalogModel: catalogModel(),
+        onStep: (step) => steps.push(step),
+        now: () => new Date("2026-08-01T00:00:00.000Z"),
+    });
+
+    // The fact is written once and outlives every later attempt, so a refusal
+    // that says nothing about images must leave it unstated.
+    expect(verdict).toMatchObject({ status: "added" });
+    if (verdict.status !== "added") throw new Error("expected added");
+    expect(verdict.learned.images).toBeUndefined();
+    expect(steps.map((step) => `${step.step}:${step.status}`))
+        .toContain("image:skipped");
 });
 
 test("an outage during the image probe records no image fact at all", async () => {
