@@ -110,18 +110,23 @@ export interface WorkspaceSidebarTransition {
 export function workspaceSidebarSessions(
     agents: readonly RegisteredAgentSummary[],
 ): readonly WorkspaceSidebarSession[] {
-    return agents.map((agent) => ({
-        id: agent.id,
-        workspace: agent.workspace,
-        sessionPath: agent.session_path,
-        kind: agent.kind,
-        status: agent.status,
-        live: agent.live,
-        ...(agent.title === undefined ? {} : { title: agent.title }),
-        ...(agent.updated_at === undefined
-            ? {}
-            : { updatedAt: agent.updated_at }),
-    }));
+    return agents
+        // A header-only transcript is an implementation shell, not workspace
+        // history. Keep it while live so a running or attached session remains
+        // reachable; keep an unknown value for compatibility with older hosts.
+        .filter((agent) => agent.has_user_content !== false || agent.live)
+        .map((agent) => ({
+            id: agent.id,
+            workspace: agent.workspace,
+            sessionPath: agent.session_path,
+            kind: agent.kind,
+            status: agent.status,
+            live: agent.live,
+            ...(agent.title === undefined ? {} : { title: agent.title }),
+            ...(agent.updated_at === undefined
+                ? {}
+                : { updatedAt: agent.updated_at }),
+        }));
 }
 
 export function startWorkspaceSidebar(

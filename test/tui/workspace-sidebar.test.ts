@@ -110,6 +110,37 @@ describe("the registry listing", () => {
             updatedAt: "2026-08-22T11:00:00.000Z",
         }]);
     });
+
+    test("hides empty history but keeps an empty live session", () => {
+        const agent = (
+            id: string,
+            live: boolean,
+            hasUserContent: boolean | undefined,
+        ): RegisteredAgentSummary => ({
+            id,
+            workspace: "/w/one",
+            session_path: `/sessions/${id}.jsonl`,
+            kind: "interactive",
+            status: live ? "working" : "idle",
+            live,
+            ...(hasUserContent === undefined
+                ? {}
+                : { has_user_content: hasUserContent }),
+        });
+
+        const sessions = workspaceSidebarSessions([
+            agent("empty-history", false, false),
+            agent("empty-running", true, false),
+            agent("conversation", false, true),
+            agent("older-host", false, undefined),
+        ]);
+
+        expect(sessions.map((session) => session.id)).toEqual([
+            "empty-running",
+            "conversation",
+            "older-host",
+        ]);
+    });
 });
 
 describe("the roster read again", () => {
