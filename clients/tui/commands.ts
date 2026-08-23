@@ -926,13 +926,28 @@ function slashGroup(command: TuiCommandCatalogEntry): TuiSlashGroup {
 export function tuiSuggestionGaps(
     commands: readonly TuiCommandCatalogEntry[],
     grouped: boolean,
+    compact = false,
 ): number {
-    return !grouped ? 0 : commands.filter((command, index) =>
+    if (!grouped) return 0;
+    const transitions = commands.filter((command, index) =>
         index > 0
         && commands[index - 1] !== undefined
         && slashGroup(commands[index - 1]!) !== slashGroup(command)
     ).length;
+    // Compact drops the group name into its own line above the group's rows
+    // instead of sharing the first row with a command, which costs one extra
+    // line per group (including the first, which owns no gap of its own).
+    return compact && commands.length > 0
+        ? transitions + (transitions + 1)
+        : transitions;
 }
+
+/**
+ * Below this the group column and a description cannot both fit beside the
+ * command names without a row running past the available width. Compact mode
+ * drops both rather than let a row overflow.
+ */
+export const SLASH_COMPACT_WIDTH = 36;
 
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
@@ -940,8 +955,34 @@ export function renderTuiCommandSuggestions(
     maxWidth?: number,
     hidden = 0,
     grouped = false,
+    compact = false,
 ): StyledText {
     const chunks: TextChunk[] = [];
+    if (compact) {
+        commands.forEach((command, index) => {
+            const active = index === selectedIndex;
+            const previous = commands[index - 1];
+            const opensGroup = grouped
+                && (previous === undefined
+                    || slashGroup(previous) !== slashGroup(command));
+            if (index > 0) {
+                chunks.push(fg(TUI_MUTED)(opensGroup ? "\n\n" : "\n"));
+            }
+            // The group's own line, not shared with a row: a shared row is
+            // what forced the group column into every line below it.
+            if (opensGroup) {
+                chunks.push(fg(TUI_MUTED)(`${slashGroup(command)}\n`));
+            }
+            // Selection still needs a text marker, not just the accent
+            // colour, so the row reads the same with colour off.
+            chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
+            chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(`/${command.name}`));
+        });
+        if (hidden > 0) {
+            chunks.push(fg(TUI_MUTED)(`\n  … ${hidden} more`));
+        }
+        return new StyledText(chunks);
+    }
     const commandWidth = Math.max(
         0,
         ...commands.map((command) => command.name.length),

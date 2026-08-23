@@ -279,6 +279,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    SLASH_COMPACT_WIDTH,
     tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
@@ -12353,6 +12354,20 @@ export async function startTui(
         // half-typed name is one flat run, where the group column would be
         // dead width and the gaps would separate nothing.
         const grouped = composer.plainText === "/";
+        // Less the box's own margin and padding, or the last word of a
+        // just-too-long row wraps anyway. The renderer reports the whole
+        // terminal even when the workspace rail has reserved its left side,
+        // so the rail has to come out of the same budget.
+        const suggestionWidth = tuiCommandSuggestionWidth(
+            renderer.width,
+            composerHorizontalInset,
+            workspaceSidebarView.railColumns() ?? 0,
+        );
+        // Below a rail-narrowed strip the group column and a description
+        // cannot both fit beside the command names, so the list drops to a
+        // bare "group heading, then one /command per line" style instead of
+        // letting every row run past the strip.
+        const compact = suggestionWidth < SLASH_COMPACT_WIDTH;
         const window = tuiSuggestionWindow(
             suggestions.length,
             selected,
@@ -12360,7 +12375,7 @@ export async function startTui(
                 3,
                 renderer.height - SUGGESTIONS_RESERVED_ROWS
                     - extensionBottomRows
-                    - tuiSuggestionGaps(suggestions, grouped),
+                    - tuiSuggestionGaps(suggestions, grouped, compact),
             ),
         );
         const visible = suggestions.slice(
@@ -12370,20 +12385,13 @@ export async function startTui(
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             visible,
             selected < 0 ? -1 : selected - window.start,
-            // Less the box's own margin and padding, or the last word of a
-            // just-too-long row wraps anyway. The renderer reports the whole
-            // terminal even when the workspace rail has reserved its left
-            // side, so the rail has to come out of the same budget.
-            tuiCommandSuggestionWidth(
-                renderer.width,
-                composerHorizontalInset,
-                workspaceSidebarView.railColumns() ?? 0,
-            ),
+            suggestionWidth,
             window.hidden,
             grouped,
+            compact,
         );
         commandSuggestionsBox.height = suggestions.length > 0
-            ? window.rows + tuiSuggestionGaps(visible, grouped)
+            ? window.rows + tuiSuggestionGaps(visible, grouped, compact)
                 + (window.hidden > 0 ? 1 : 0) + 1
             : 1;
         const suggester = suggestions.length > 0

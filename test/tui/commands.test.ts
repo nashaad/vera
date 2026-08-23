@@ -271,6 +271,38 @@ test("the slash list measures the chat left beside a workspace rail", () => {
     expect(tuiCommandSuggestionWidth(40, 8, 37)).toBe(1);
 });
 
+// Below SLASH_COMPACT_WIDTH the group column and a description cannot both
+// fit beside the command names, so the strip drops to a heading line per
+// group and one bare "/command" per row instead of every row running past
+// the strip (what a rail-narrowed terminal used to do).
+test("compact mode drops the group column and description to a heading and bare rows", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [{
+        name: "hello",
+        description: "Say hello",
+        usage: "/hello",
+        source: "test.extension",
+    }]);
+    const commands = registry.suggestions("/");
+
+    const compact = tuiCommandSuggestionsText(
+        renderTuiCommandSuggestions(commands, 0, 20, 0, true, true),
+    );
+    expect(compact).toContain("built in\n› /rewind");
+    expect(compact).toContain("\n\nextensions\n  /hello");
+    // No description text survives compact mode.
+    for (const command of commands) {
+        expect(compact).not.toContain(command.description);
+    }
+    // Selection is still a text marker, not colour alone.
+    expect(compact).not.toContain("  /rewind");
+
+    // The heading costs a line of its own, on top of the usual group gap, so
+    // the gap count the box sizes itself from has to grow to match.
+    const lineCount = compact.split("\n").length;
+    expect(lineCount).toBe(commands.length + tuiSuggestionGaps(commands, true, true));
+});
+
 test("typing slash exposes the built-in rewind command", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
