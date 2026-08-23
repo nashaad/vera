@@ -314,7 +314,7 @@ export class SessionStore {
     private pendingAppend: Promise<void> = Promise.resolve();
     /** The file's line count, header included. Line 1 is the header. */
     private lineCount: number;
-    private readonly onRecordAppended?: (
+    private onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
     ) => void;
@@ -1192,6 +1192,19 @@ export class SessionStore {
             lineNumber,
             record as Record<string, unknown>,
         );
+    }
+
+    /**
+     * Sets the listener a store opened without one, for a reader that arrives
+     * later. See `onRecordAppended` on `OpenSessionStoreOptions`.
+     */
+    watchRecords(
+        listener: (
+            lineNumber: number,
+            record: Record<string, unknown>,
+        ) => void,
+    ): void {
+        this.onRecordAppended = listener;
     }
 
     /** The file's line count, header included. */

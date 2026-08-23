@@ -146,7 +146,9 @@ export async function startWorker(
         },
     });
 
-    child.once("exit", (code: number | null, signal: string | null) => {
+    // `close` rather than `exit`: the last stdout data can still be in flight
+    // when the process is already gone, and it carries `worker.finished`.
+    child.once("close", (code: number | null, signal: string | null) => {
         if (signal !== null) {
             resolveOutcome({ kind: "killed", signal });
             return;
@@ -201,10 +203,7 @@ export async function startWorker(
         pushState: (state: LoopState) => server.pushState(state),
         outcome,
         kill(): void {
-            if (supervisor !== undefined) {
-                supervisor.killNow();
-                return;
-            }
+            supervisor?.killNow();
             try {
                 process.kill(pid, "SIGKILL");
             } catch {
@@ -221,6 +220,7 @@ function capabilitiesOf(
     return {
         updateApprovalMode: services.updateApprovalMode !== undefined,
         reviewToolCall: services.reviewToolCall !== undefined,
+        applyHostToolEffect: services.applyToolEffect !== undefined,
         applyCommittedToolEffect:
             services.applyCommittedToolEffect !== undefined,
         loadContextualContributions:

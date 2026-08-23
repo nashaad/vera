@@ -10,7 +10,8 @@
  * - `applyToolEffect`, so the loop builds its own applier. That is what keeps a
  *   subagent a child of this worker's process. A host-side applier would run
  *   model loops in the host and would leave a subagent alive after this process
- *   is killed, which is the case the split exists for.
+ *   is killed, which is the case the split exists for. `applyHostToolEffect`
+ *   carries only the effects whose state the host holds.
  * - `owned.processRegistry`, because a worker owns its own children.
  *
  * The session store holds no file descriptor. Reads answer from a projection
@@ -33,6 +34,7 @@ import type { ToolReviewDecision } from "../../engine/reviewer.ts";
 import type { ModelTool } from "../../model/types.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
 import type {
+    AppliedToolEffectOutput,
     CommitEffect,
     RegisteredTool,
     ToolExecutionResult,
@@ -165,6 +167,33 @@ export function createRemoteHostBoundary(
                 },
             }
             : {}),
+        ...(capabilities.applyHostToolEffect
+            ? {
+                applyHostToolEffect: async (
+                    effect,
+                    signal,
+                    context,
+                ): Promise<AppliedToolEffectOutput> => {
+                    const callId = newCallId();
+                    const abort = (): void =>
+                        pipe.notify({ method: "call.cancel", callId });
+                    signal.addEventListener("abort", abort, { once: true });
+                    try {
+                        const reply = await pipe.request({
+                            method: "effect.apply",
+                            callId,
+                            effect,
+                            context,
+                        }) as {
+                            readonly output: AppliedToolEffectOutput;
+                        };
+                        return reply.output;
+                    } finally {
+                        signal.removeEventListener("abort", abort);
+                    }
+                },
+            }
+            : {}),
         ...(capabilities.applyCommittedToolEffect
             ? {
                 applyCommittedToolEffect: async (
@@ -237,24 +266,28 @@ export function createRemoteHostBoundary(
     };
 }
 
+/**
+ * Hooks are registered on the owner's side, so both calls are relayed whole,
+ * options included: the owner runs them and its answer is the outcome.
+ */
 function remoteHooks(pipe: JsonPipe): ToolHooks {
     const hooks = new ToolHooks();
-    hooks.registerPreToolUse(async (payload) => {
+    hooks.runPreToolUse = async (payload, options) => {
         const reply = await pipe.request({
             method: "hook.preToolUse",
             payload,
-            options: {},
-        }) as { readonly outcome: { readonly power: string } };
-        return reply.outcome as never;
-    });
-    hooks.registerPostToolUse(async (payload) => {
-        await pipe.request({
+            options,
+        }) as { readonly outcome: never };
+        return reply.outcome;
+    };
+    hooks.runPostToolUse = async (payload, options) => {
+        const reply = await pipe.request({
             method: "hook.postToolUse",
             payload,
-            options: {},
-        });
-        return { power: "observe" };
-    });
+            options,
+        }) as { readonly result: never };
+        return reply.result;
+    };
     return hooks;
 }
 

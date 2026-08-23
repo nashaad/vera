@@ -54,6 +54,10 @@ import {
     runHeadlessLoop,
     sessionScratchDir,
 } from "../engine/run-turn.ts";
+import type {
+    RunHeadlessLoopData,
+    RunHeadlessLoopServices,
+} from "../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
@@ -119,6 +123,7 @@ import type {
     ToolOutput,
 } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
+import { ToolRuntime } from "../tools/runtime.ts";
 import {
     defaultSessionPath,
     SessionStore,
@@ -167,6 +172,15 @@ import {
     sessionAttachmentName,
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
+import {
+    startWorker,
+    type WorkerHandle,
+    type WorkerOutcome,
+} from "./worker/handle.ts";
+import type {
+    WorkerAdapterSpec,
+    WorkerSessionSeed,
+} from "./worker/start.ts";
 import type { PrepareModelRequest } from "../providers/routing.ts";
 import {
     createFailedRequestCapture,
@@ -291,6 +305,19 @@ export interface AgentRegistryOptions {
      * spending the key it started with. Absent in tests that never sign in.
      */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
+    /**
+     * How a worker builds its own adapter, when a session runs in one.
+     *
+     * Absent means no session runs in a worker, whatever the environment says.
+     * The owner supplies it only when the adapter it would build in process
+     * can be rebuilt from plain JSON, which is what a host with an injected
+     * adapter factory or a live model-request hook cannot promise.
+     */
+    readonly workerAdapterSpec?: (context: {
+        readonly provider: string;
+        readonly projectRoot: string;
+        readonly sessionId: string;
+    }) => WorkerAdapterSpec;
     readonly provider?: string;
     /**
      * Config-declared provider ids accepted alongside Vera's built-ins. Read
@@ -971,6 +998,8 @@ interface RegisteredAgentEntry {
     /** Epoch milliseconds of the peer messages that woke this session. */
     peerWakes: number[];
     run: Promise<void>;
+    /** The process running this session's loop, when it runs in one. */
+    worker?: WorkerHandle;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;
@@ -3394,12 +3423,7 @@ export class AgentRegistry {
                 await this.options.inboxDelivery?.pumpAll();
             }
         };
-        entry.run = runHeadlessLoop(
-            agent.engine,
-            adapter,
-            this.defaultModel,
-            this.defaultReasoningEffort,
-            {
+        const loopData: RunHeadlessLoopData = {
                 eventLogPath,
                 approvalMode: entry.approvalMode,
                 // Every shell this session spawns carries its identity name,
@@ -3422,8 +3446,8 @@ export class AgentRegistry {
                 enableUserInteraction: kind === "interactive",
                 offerTools: startupProfile !== "prompt_only",
                 loadOptionalContext: startupProfile === "default",
-            },
-            {
+        };
+        const loopServices: RunHeadlessLoopServices = {
                 sessionStore: store,
                 ...(this.options.modelFailureLedger === undefined
                     ? {}
@@ -3581,7 +3605,26 @@ export class AgentRegistry {
                     sendSessionNameReply: (ownerId, reply) =>
                         agent.sendSessionNameReply(ownerId, reply),
                 },
-            },
+        };
+        const adapterSpec = this.workerAdapterSpecFor(store, entry);
+        entry.run = (adapterSpec === undefined
+            ? runHeadlessLoop(
+                agent.engine,
+                adapter,
+                this.defaultModel,
+                this.defaultReasoningEffort,
+                loopData,
+                loopServices,
+            )
+            : this.runInWorker({
+                agent,
+                store,
+                entry,
+                adapter: adapterSpec,
+                data: loopData,
+                services: loopServices,
+                extensionTools,
+            })
         ).catch(async (error: unknown) => {
             entry.inbox?.release();
             if (!agent.closed) {
@@ -3663,6 +3706,128 @@ export class AgentRegistry {
             agent.triggerDeliveryTurn();
         }
         return agent;
+    }
+
+    /**
+     * How this session's worker would build its adapter, or nothing.
+     *
+     * Nothing is the default and means the turn runs in this process exactly
+     * as it did before. Both conditions have to hold: the owner has to have
+     * said the adapter is rebuildable from JSON, and the environment has to
+     * have asked for a worker.
+     */
+    private workerAdapterSpecFor(
+        store: SessionStore,
+        entry: RegisteredAgentEntry,
+    ): WorkerAdapterSpec | undefined {
+        if (this.options.workerAdapterSpec === undefined) {
+            return undefined;
+        }
+        if ((process.env[WORKER_ENV] ?? "") !== "1") {
+            return undefined;
+        }
+        return this.options.workerAdapterSpec({
+            provider: entry.modelSettings.provider ?? this.defaultProvider,
+            projectRoot: store.header.cwd,
+            sessionId: store.header.id,
+        });
+    }
+
+    /**
+     * Runs the turn loop in a separate process, and reports how it stopped.
+     *
+     * The client channel is pumped in both directions here rather than by the
+     * loop, and every durable service stays on this side. A `kill -9` on the
+     * worker therefore lands on `handle.outcome` as one typed value, and the
+     * session file it was writing through is already complete on disk.
+     */
+    private async runInWorker(options: {
+        readonly agent: ResidentAgent;
+        readonly store: SessionStore;
+        readonly entry: RegisteredAgentEntry;
+        readonly adapter: WorkerAdapterSpec;
+        readonly data: RunHeadlessLoopData;
+        readonly services: RunHeadlessLoopServices;
+        readonly extensionTools?: readonly RegisteredTool[];
+    }): Promise<void> {
+        const { agent, store, services } = options;
+        const handle = await startWorker({
+            store,
+            session: await readSessionSeed(store.path),
+            model: this.defaultModel,
+            ...(this.defaultReasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: this.defaultReasoningEffort }),
+            adapter: options.adapter,
+            data: options.data,
+            services,
+            offers: {
+                approvalModeRead: services.readApprovalMode !== undefined,
+                modelSettings: services.readModelSettings !== undefined,
+                agentWear: services.readAgentWear !== undefined,
+            },
+            state: {
+                policy: services.readPolicy?.() ?? {},
+                ...(services.readModelSettings === undefined ? {} : {
+                    modelSettings: services.readModelSettings(),
+                }),
+                ...(services.readAgentWear === undefined ? {} : {
+                    agentWear: services.readAgentWear(),
+                }),
+                ...(services.readApprovalMode === undefined ? {} : {
+                    approvalMode: services.readApprovalMode(),
+                }),
+                ...(services.readPermissionPreferences === undefined ? {} : {
+                    permissionPreferences: services.readPermissionPreferences(),
+                }),
+                ...(services.readReviewer === undefined ? {} : {
+                    reviewer: services.readReviewer(),
+                }),
+            },
+            ...(options.extensionTools === undefined
+                ? {}
+                : {
+                    extensionTools: options.extensionTools,
+                    // An extension tool runs on this side, against a runtime
+                    // built from the same workspace the loop was given.
+                    toolRuntime: new ToolRuntime(
+                        store.header.cwd,
+                        undefined,
+                        undefined,
+                        options.data.toolEnv,
+                        options.data.instructionRoot?.path,
+                    ),
+                }),
+            onUpdate: (update) => agent.engine.send(update),
+        });
+        options.entry.worker = handle;
+        store.watchRecords(handle.server.pushRecord);
+        const pumping = new AbortController();
+        // Closing the agent stops its command channel, and a worker with no
+        // channel left has nothing to run. The process is ended the same way
+        // any other worker ends, so the outcome below is expected, not a
+        // failure to report on a session that already stopped.
+        let stopping = false;
+        void (async () => {
+            for (;;) {
+                const command = await agent.engine.receive(pumping.signal);
+                handle.send(command);
+            }
+        })().catch(() => {
+            if (agent.closed && !pumping.signal.aborted) {
+                stopping = true;
+                handle.kill();
+            }
+        });
+        try {
+            const outcome = await handle.outcome;
+            if (stopping || outcome.kind === "finished") {
+                return;
+            }
+            throw new Error(workerOutcomeDetail(outcome));
+        } finally {
+            pumping.abort();
+        }
     }
 
     private async requestInboxAdmission(
@@ -4335,4 +4500,39 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
         usage: emptyUsage(),
         stopReason: "stop",
     };
+}
+
+/** Set to `1` to run each session's turn loop in its own process. */
+const WORKER_ENV = "VERA_WORKER";
+
+/**
+ * The session file as a worker is given it: the header verbatim, then every
+ * record after it in file order. The worker folds a projection out of these
+ * and never opens the file itself.
+ */
+async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
+    const lines = (await Bun.file(path).text())
+        .split("\n")
+        .filter((line) => line.length > 0);
+    const [header, ...records] = lines;
+    return {
+        path,
+        header: JSON.parse(header ?? "{}") as Record<string, unknown>,
+        records: records.map(
+            (line) => JSON.parse(line) as Record<string, unknown>,
+        ),
+    };
+}
+
+function workerOutcomeDetail(outcome: WorkerOutcome): string {
+    switch (outcome.kind) {
+        case "failed":
+            return outcome.error;
+        case "killed":
+            return `The agent process was killed (${outcome.signal})`;
+        case "exited":
+            return `The agent process exited with code ${outcome.code}`;
+        default:
+            return "The agent process stopped";
+    }
 }

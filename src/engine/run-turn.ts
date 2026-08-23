@@ -708,8 +708,7 @@ export async function runHeadlessLoop(
     router.onInboundReady?.(inbound);
     const instructionRoot: InstructionRoot = data.instructionRoot
         ?? { path: store.header.cwd, source: "workspace" };
-    const applyToolEffect = boundary.applyToolEffect
-        ?? createSubagentEffectApplier({
+    const applySubagentEffect = createSubagentEffectApplier({
             adapter,
             workspace: store.header.cwd,
             instructionRoot,
@@ -726,6 +725,14 @@ export async function runHeadlessLoop(
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
         });
+    const applyHostToolEffect = boundary.applyHostToolEffect;
+    const applyToolEffect: ApplyToolEffect = boundary.applyToolEffect
+        ?? (applyHostToolEffect === undefined
+            ? applySubagentEffect
+            : (effect, signal, context) =>
+                effect.type === "spawn_subagent"
+                    ? applySubagentEffect(effect, signal, context)
+                    : applyHostToolEffect(effect, signal, context));
     // A configured reviewer wins, because the point of configuring one is to
     // pay for a cheaper model than the agent. Without it the reviewer reads the
     // agent's model settings at review time, not the model this loop started

@@ -112,6 +112,15 @@ export interface HostBoundary {
      * applier would survive a kill of the worker that asked for it.
      */
     readonly applyToolEffect?: ApplyToolEffect;
+    /**
+     * `effect.apply`, for the effects the owner holds the state for.
+     *
+     * Present alongside an absent `applyToolEffect`: the loop keeps its own
+     * applier for `spawn_subagent`, so a subagent stays a child of this
+     * process, and hands every other effect to the owner. Ignored when
+     * `applyToolEffect` is present, because that replaces the applier whole.
+     */
+    readonly applyHostToolEffect?: ApplyToolEffect;
     /** `effect.commit`. */
     readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     /** `contributions.load`. */

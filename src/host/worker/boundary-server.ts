@@ -58,6 +58,16 @@ export function createWorkerBoundaryServer(
     // The store's own writes and the worker's share one sequence, and the host
     // is the only writer, so this counter is the file's line count.
     let lineNumber = options.store.appendedLineCount?.() ?? 0;
+    // One bus, two processes. An event arriving from the worker is emitted
+    // here for the host's own subscribers, and must not be sent straight back
+    // to the worker that produced it.
+    let ingesting = false;
+    services.eventBus?.subscribe((event: EngineEvent) => {
+        if (ingesting) {
+            return;
+        }
+        pipe.notify({ method: "event.inject", event });
+    });
 
     const server: WorkerBoundaryServer = {
         async handleRequest(body: unknown): Promise<unknown> {
@@ -93,6 +103,31 @@ export function createWorkerBoundaryServer(
                             controller.signal,
                         );
                         return { decision };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
+                case "effect.apply": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly effect: never;
+                        readonly context: never;
+                    };
+                    if (services.applyToolEffect === undefined) {
+                        throw new Error(
+                            "The host applies no tool effects",
+                        );
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        return {
+                            output: await services.applyToolEffect(
+                                request.effect,
+                                controller.signal,
+                                request.context,
+                            ),
+                        };
                     } finally {
                         cancellers.delete(request.callId);
                     }
@@ -155,11 +190,11 @@ export function createWorkerBoundaryServer(
                         readonly payload: never;
                         readonly options: never;
                     };
-                    await services.hooks?.runPostToolUse(
+                    const result = await services.hooks?.runPostToolUse(
                         request.payload,
                         request.options,
                     );
-                    return { result: null };
+                    return { result };
                 }
                 default:
                     throw new Error(
@@ -176,7 +211,12 @@ export function createWorkerBoundaryServer(
             }
             if (message.method === "event.emit") {
                 const { event } = body as { readonly event: EngineEvent };
-                services.eventBus?.emit(event);
+                ingesting = true;
+                try {
+                    services.eventBus?.emit(event);
+                } finally {
+                    ingesting = false;
+                }
                 return;
             }
             if (message.method === "reviewLog.append") {

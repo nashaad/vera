@@ -1,4 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 import { statSync } from "node:fs";
 import { join } from "node:path";
 
@@ -411,6 +412,22 @@ export async function startResidentHost(
         credentialFingerprint: (provider) =>
             credentialFingerprint(authStorage, provider),
         createAdapter,
+        // Offered only when this host's adapter is the configured one and
+        // nothing live wraps it. An injected factory and a model-request hook
+        // are both functions, and a function does not cross to a worker.
+        ...(options.createAdapter !== undefined || hasModelRequestHooks
+            ? {}
+            : {
+                workerAdapterSpec: (context: {
+                    readonly provider: string;
+                    readonly projectRoot: string;
+                    readonly sessionId: string;
+                }) => ({
+                    module: WORKER_ADAPTER_MODULE,
+                    export: "createWorkerAdapter",
+                    options: { ...context, config: currentConfig() },
+                }),
+            }),
         provider: options.config.provider,
         customProviderIds: () => Object.keys(currentConfig().providers ?? {}),
         model: options.config.model,
@@ -1953,3 +1970,8 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
         }
     }
 }
+
+/** Imported by the worker, which builds the adapter for itself. */
+const WORKER_ADAPTER_MODULE = fileURLToPath(
+    new URL("./worker/adapter.ts", import.meta.url),
+);

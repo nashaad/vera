@@ -44,6 +44,11 @@ export interface WorkerSessionSeed {
 export interface WorkerHostCapabilities {
     readonly updateApprovalMode: boolean;
     readonly reviewToolCall: boolean;
+    /**
+     * The host answers `effect.apply` for the effects whose state it holds.
+     * The loop keeps its own applier for `spawn_subagent` either way.
+     */
+    readonly applyHostToolEffect: boolean;
     readonly applyCommittedToolEffect: boolean;
     readonly loadContextualContributions: boolean;
     readonly hooks: boolean;

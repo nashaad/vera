@@ -138,5 +138,9 @@ async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
 
 if (import.meta.main) {
     await runWorker(process.stdin, process.stdout);
+    // The last write has to reach the reader before the process goes.
+    await new Promise<void>((resolve) => {
+        process.stdout.write("", () => resolve());
+    });
     process.exit(0);
 }
