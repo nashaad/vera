@@ -58,6 +58,7 @@ export const VERA_PROVIDER_IDS = [
     "openrouter",
     "openai-codex",
     "ollama",
+    "omlx",
     "cerebras",
     "deepseek",
 ] as const;
@@ -444,7 +445,7 @@ export function loadVeraConfig(
             path,
             "it is valid JSON but not a Vera config. It expected"
                 + " schema_version 1, provider openrouter, openai-codex,"
-                + " ollama, cerebras, deepseek, or a name declared in providers,"
+                + " ollama, omlx, cerebras, deepseek, or a name declared in providers,"
                 + " a non-empty model string, an optional"
                 + " non-empty reasoning_effort string, optional approval_mode"
                 + " ask, auto, or full_access, and optional fallback with a"

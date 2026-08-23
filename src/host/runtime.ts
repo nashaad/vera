@@ -432,14 +432,44 @@ export async function startResidentHost(
             // refreshes would each build on the list the other started from
             // and whichever finished second would undo the first.
             const refreshed = catalogRefreshes.then(async () => {
-                // Ollama, DeepSeek and Codex are read locally on every call,
-                // so there is nothing to refresh for them and asking is a
-                // no-op the user would read as a refusal. Only the
-                // snapshot-backed providers answer here.
                 if (!isRefreshableProvider(provider)) {
                     return undefined;
                 }
                 const config = currentConfig();
+                if (provider === "ollama" || provider === "omlx") {
+                    const discovered = provider === "ollama"
+                        ? await discoverOllamaModelCatalog({
+                            log: hostLog,
+                            ...(config.provider_endpoints?.ollama === undefined
+                                ? {}
+                                : { host: config.provider_endpoints.ollama }),
+                        })
+                        : await discoverOmlxModelCatalog({
+                            ...(config.provider_endpoints?.omlx === undefined
+                                ? {}
+                                : { baseUrl: config.provider_endpoints.omlx }),
+                            ...(process.env.OMLX_API_KEY === undefined
+                                ? {}
+                                : { apiKey: process.env.OMLX_API_KEY }),
+                        });
+                    if (!discovered.available) {
+                        return undefined;
+                    }
+                    models = replaceProviderRows(
+                        models,
+                        provider,
+                        discovered.models,
+                        config.provider === provider
+                            ? {
+                                provider,
+                                model: config.model,
+                                label: config.model,
+                                description: "configured model",
+                            }
+                            : undefined,
+                    );
+                    return models;
+                }
                 // A provider that cannot be reached answers from its snapshot,
                 // which is the right list to keep and the wrong thing to call
                 // a refresh: the user pressed the key to find out whether they
@@ -1068,14 +1098,15 @@ export interface CatalogRefreshOptions {
 }
 
 /**
- * Asks every network-backed provider now and rewrites its snapshot, which is
+ * Asks every discoverable provider now and rewrites its snapshot, which is
  * what `vera models refresh` is for: the TTL means an ordinary start does not
  * do this, so there has to be a way to say "a model came out today".
  *
  * A provider with no credential is reported as skipped rather than as empty,
  * since the two look the same in the picker and only one of them is something
- * the user can act on. Ollama is not here: it is local, so its list costs
- * nothing to read and was never part of what the TTL exists to stop.
+ * the user can act on. Ollama and oMLX have no credential gate, so an
+ * unavailable local daemon is reported separately from a reachable daemon
+ * with no models.
  */
 export async function refreshProviderCatalogs(
     config: VeraConfig,
@@ -1085,7 +1116,22 @@ export async function refreshProviderCatalogs(
         ? {}
         : { cacheDir: options.cacheDir };
     const authStorage = options.authStorage ?? createAuthStorage();
-    const [openrouter, cerebras] = await Promise.all([
+    const [ollama, omlx, openrouter, cerebras] = await Promise.all([
+        discoverOllamaModelCatalog({
+            ...cacheOptions,
+            ...(config.provider_endpoints?.ollama === undefined
+                ? {}
+                : { host: config.provider_endpoints.ollama }),
+        }),
+        discoverOmlxModelCatalog({
+            ...cacheOptions,
+            ...(config.provider_endpoints?.omlx === undefined
+                ? {}
+                : { baseUrl: config.provider_endpoints.omlx }),
+            ...(process.env.OMLX_API_KEY === undefined
+                ? {}
+                : { apiKey: process.env.OMLX_API_KEY }),
+        }),
         hasOpenRouterCredential(config)
             ? discoveredOpenRouterModels(config, {
                 ...cacheOptions,
@@ -1101,8 +1147,33 @@ export async function refreshProviderCatalogs(
             : undefined,
     ]);
     return [
+        ollama.available
+            ? { provider: "ollama", models: ollama.models.length }
+            : { provider: "ollama", skipped: "unavailable" },
+        omlx.available
+            ? { provider: "omlx", models: omlx.models.length }
+            : { provider: "omlx", skipped: "unavailable" },
         refreshOutcome("openrouter", openrouter),
         refreshOutcome("cerebras", cerebras),
+    ];
+}
+
+/** Replace one provider's live list, including the valid empty-list case. */
+export function replaceProviderRows(
+    models: readonly SuggestedModel[],
+    provider: string,
+    rows: readonly SuggestedModel[],
+    configured?: SuggestedModel,
+): readonly SuggestedModel[] {
+    const named = new Set(rows.map((row) => row.model));
+    const replacement = named.has(configured?.model ?? "")
+        ? [...rows]
+        : configured === undefined
+            ? [...rows]
+            : [...rows, configured];
+    return [
+        ...models.filter((model) => model.provider !== provider),
+        ...replacement,
     ];
 }
 
@@ -1151,17 +1222,26 @@ async function discoverAvailableModels(
     // Asked together rather than one after another: each provider caps its own
     // wait, and the host is not discoverable until all of them have answered,
     // so serial waits add up into the client's startup deadline.
-    const [ollama, openrouter, cerebras] = await Promise.all([
+    const [ollama, omlx, openrouter, cerebras] = await Promise.all([
         discoveredOllamaModels({
             log: hostLog,
             ...(config.provider_endpoints?.ollama === undefined
                 ? {}
                 : { host: config.provider_endpoints.ollama }),
         }),
+        discoveredOmlxModels({
+            ...(config.provider_endpoints?.omlx === undefined
+                ? {}
+                : { baseUrl: config.provider_endpoints.omlx }),
+            ...(process.env.OMLX_API_KEY === undefined
+                ? {}
+                : { apiKey: process.env.OMLX_API_KEY }),
+        }),
         discoveredOpenRouterModels(config, { maxAgeMs }),
         discoveredCerebrasModels(config, { authStorage, maxAgeMs }),
     ]);
     catalog.push(...ollama);
+    catalog.push(...omlx);
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
         // models with staler facts. Nothing is dropped when the fetch comes back
@@ -1402,6 +1482,12 @@ export interface OllamaDiscoveryOptions {
     readonly log?: HostLog;
 }
 
+export interface OllamaDiscoveryResult {
+    /** Whether `/v1/models` answered successfully, including an empty list. */
+    readonly available: boolean;
+    readonly models: readonly SuggestedModel[];
+}
+
 const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
     { id: "high", label: "High" },
     { id: "medium", label: "Medium" },
@@ -1422,6 +1508,12 @@ const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
 export async function discoveredOllamaModels(
     options: OllamaDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
+    return (await discoverOllamaModelCatalog(options)).models;
+}
+
+export async function discoverOllamaModelCatalog(
+    options: OllamaDiscoveryOptions = {},
+): Promise<OllamaDiscoveryResult> {
     const host = normalizeOllamaHost(
         options.host ?? process.env.OLLAMA_HOST ?? "http://127.0.0.1:11434",
     );
@@ -1439,7 +1531,7 @@ export async function discoveredOllamaModels(
                 host,
                 reason: `HTTP ${response.status}`,
             });
-            return [];
+            return { available: false, models: [] };
         }
         const body = await response.json() as {
             data?: readonly { id?: unknown }[];
@@ -1453,7 +1545,7 @@ export async function discoveredOllamaModels(
             host,
             reason: error instanceof Error ? error.message : String(error),
         });
-        return [];
+        return { available: false, models: [] };
     }
     log({ type: "ollama_discovery_listed", host, models: ids });
 
@@ -1554,7 +1646,7 @@ export async function discoveredOllamaModels(
             reason: error instanceof Error ? error.message : String(error),
         });
     }
-    return models;
+    return { available: true, models };
 }
 
 export function ollamaCapabilities(
@@ -1588,6 +1680,130 @@ export function ollamaContextWindow(value: unknown): number | undefined {
             Number.isSafeInteger(value) && (value as number) > 0
         );
     return lengths[0];
+}
+
+export interface OmlxDiscoveryOptions {
+    readonly baseUrl?: string;
+    readonly apiKey?: string;
+    readonly cacheDir?: string;
+    readonly fetch?: (
+        input: string | URL | Request,
+        init?: RequestInit,
+    ) => Promise<Response>;
+    readonly log?: HostLog;
+}
+
+export interface OmlxDiscoveryResult {
+    /** Whether `/v1/models` answered successfully, including an empty list. */
+    readonly available: boolean;
+    readonly models: readonly SuggestedModel[];
+}
+
+const DEFAULT_OMLX_BASE_URL = "http://127.0.0.1:8000/v1";
+
+export async function discoveredOmlxModels(
+    options: OmlxDiscoveryOptions = {},
+): Promise<readonly SuggestedModel[]> {
+    return (await discoverOmlxModelCatalog(options)).models;
+}
+
+export async function discoverOmlxModelCatalog(
+    options: OmlxDiscoveryOptions = {},
+): Promise<OmlxDiscoveryResult> {
+    const baseUrl = options.baseUrl ?? DEFAULT_OMLX_BASE_URL;
+    const endpoint = providerEndpointUrl(baseUrl, "/models");
+    const fetchImplementation = options.fetch ?? globalThis.fetch;
+    const log = options.log ?? (() => {});
+    let entries: readonly {
+        readonly id?: unknown;
+        readonly max_model_len?: unknown;
+    }[];
+    try {
+        const response = await fetchImplementation(endpoint, {
+            ...(options.apiKey === undefined
+                ? {}
+                : { headers: { authorization: `Bearer ${options.apiKey}` } }),
+            signal: AbortSignal.timeout(750),
+        });
+        if (!response.ok) {
+            log({
+                type: "omlx_discovery_unavailable",
+                endpoint,
+                reason: `HTTP ${response.status}`,
+            });
+            return { available: false, models: [] };
+        }
+        const body = await response.json() as { data?: unknown };
+        if (!Array.isArray(body.data)) {
+            throw new Error("response did not contain a model list");
+        }
+        entries = body.data.filter(isOmlxModelEntry);
+    } catch (error) {
+        log({
+            type: "omlx_discovery_unavailable",
+            endpoint,
+            reason: error instanceof Error ? error.message : String(error),
+        });
+        return { available: false, models: [] };
+    }
+
+    const models = entries.flatMap((entry) => {
+        if (typeof entry.id !== "string" || entry.id.length === 0) {
+            return [];
+        }
+        const contextWindow = positiveModelLength(entry.max_model_len);
+        return [{
+            provider: "omlx",
+            model: entry.id,
+            label: entry.id,
+            description: "served locally",
+            ...(contextWindow === undefined ? {} : { contextWindow }),
+        }];
+    });
+    log({
+        type: "omlx_discovery_listed",
+        endpoint,
+        models: models.map((model) => model.model),
+    });
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "omlx",
+            fetched_at: new Date().toISOString(),
+            models: models.map((model) => ({
+                id: model.model,
+                label: model.label,
+                description: model.description,
+                ...(model.contextWindow === undefined
+                    ? {}
+                    : { context_window: model.contextWindow }),
+                levels: [],
+            })),
+        }, options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir });
+        log({
+            type: "omlx_catalog_written",
+            models: models.map((model) => model.model),
+        });
+    } catch (error) {
+        log({
+            type: "omlx_catalog_write_failed",
+            reason: error instanceof Error ? error.message : String(error),
+        });
+    }
+    return { available: true, models };
+}
+
+function isOmlxModelEntry(value: unknown): value is {
+    readonly id?: unknown;
+    readonly max_model_len?: unknown;
+} {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function positiveModelLength(value: unknown): number | undefined {
+    return Number.isSafeInteger(value) && (value as number) > 0
+        ? value as number
+        : undefined;
 }
 
 export function configuredCatalog(config: VeraConfig): readonly SuggestedModel[] {

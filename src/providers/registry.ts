@@ -108,6 +108,16 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         envVar: "OLLAMA_HOST",
         baseUrl: "http://127.0.0.1:11434",
     },
+    {
+        id: "omlx",
+        label: "oMLX",
+        shortLabel: "omlx",
+        group: "other",
+        credential: "none",
+        hint: "local, no account",
+        envVar: "OMLX_API_KEY",
+        baseUrl: "http://127.0.0.1:8000/v1",
+    },
 ];
 
 export function findProvider(id: string): ProviderDescriptor | undefined {

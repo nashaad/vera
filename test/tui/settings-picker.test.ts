@@ -661,6 +661,26 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
     });
     expect(refused.handled).toBe(true);
     expect(refused.refreshCatalog).toBeUndefined();
+
+    const ollama = {
+        ...state,
+        options: [{ ...row, provider: "ollama" }],
+        selectedIndex: 0,
+    };
+    expect(handleTuiSettingsPickerKey(ollama, {
+        name: "f",
+        ctrl: true,
+    })).toMatchObject({ handled: true, refreshCatalog: "ollama" });
+
+    const omlx = {
+        ...state,
+        options: [{ ...row, provider: "omlx" }],
+        selectedIndex: 0,
+    };
+    expect(handleTuiSettingsPickerKey(omlx, {
+        name: "f",
+        ctrl: true,
+    })).toMatchObject({ handled: true, refreshCatalog: "omlx" });
 });
 
 test("model picker filters its choices as the user types", async () => {

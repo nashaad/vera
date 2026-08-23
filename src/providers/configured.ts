@@ -96,6 +96,15 @@ const ADAPTERS: Readonly<Record<
         ...(options.log === undefined ? {} : { log: options.log }),
         ...capture(options),
     }),
+    omlx: (options, baseUrl) => createCustomOpenAIAdapter({
+        provider: "omlx",
+        baseUrl: baseUrl ?? "http://127.0.0.1:8000/v1",
+        ...((options.env ?? process.env).OMLX_API_KEY === undefined
+            ? {}
+            : { apiKey: (options.env ?? process.env).OMLX_API_KEY }),
+        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+        ...capture(options),
+    }),
     openrouter: (options, baseUrl) => {
         const pool = createPoolEffortPool(
             options.projectRoot === undefined
