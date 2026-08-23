@@ -147,7 +147,11 @@ test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async (
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("the model picker opens beside the dock", async () => {
+test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other dialog", async () => {
+    // The picker used to squeeze into whatever the dock left beside it, which
+    // broke the tab strip (it never truncates, so "Providers" ran off the
+    // narrowed card). It now hides the dock and takes its usual full width,
+    // the same as every dialog that isn't the picker.
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -158,14 +162,16 @@ test.skipIf(!tmuxAvailable)("the model picker opens beside the dock", async () =
         await tui.paneWhere((value) => value.includes("/model"));
         tui.key("Enter");
         return await tui.paneWhere((value) =>
-            value.includes("Workspace ·")
-            && value.includes("Select model")
+            value.includes("Select model")
+            && !value.includes("Workspace ·")
         );
     }, 120, 34);
 
-    const divider = column(pane, "│");
-    expect(divider).toBeGreaterThan(0);
-    expect(column(pane, "Select model")).toBeGreaterThan(divider);
+    expect(pane).toContain("Select model");
+    expect(pane).not.toContain("Workspace ·");
+    // Full width again: every tab stop is on screen, not clipped by a card
+    // narrowed to fit beside the dock.
+    expect(pane).toContain("Providers ^e");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", async () => {

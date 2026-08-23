@@ -8841,10 +8841,7 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && (
-                settingsPicker === undefined
-                || workspaceStaysBesideSettingsPicker(settingsPicker)
-            )
+            && settingsPicker === undefined
             && commandPalette === undefined
             && workTab === undefined
             && workspaceSidebar !== undefined
@@ -8981,11 +8978,7 @@ export async function startTui(
             settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
         }
         if (settingsPicker !== undefined) {
-            settingsPickerView.update(
-                settingsPicker,
-                workspaceRailInset(settingsPicker),
-            );
-            fitSettingsPickerBesideWorkspace(settingsPicker);
+            settingsPickerView.update(settingsPicker);
         }
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
@@ -10593,13 +10586,11 @@ export async function startTui(
         // underneath the dock.
         app.paddingLeft = occupied;
         workspaceSidebarView.surface.left = 0;
-        const pickerBesideRail = columns !== undefined
-            && settingsPicker !== undefined
-            && workspaceStaysBesideSettingsPicker(settingsPicker);
-        overlayScrim.left = pickerBesideRail ? occupied : 0;
-        overlayScrim.width = pickerBesideRail
-            ? Math.max(0, renderer.width - occupied)
-            : renderer.width;
+        // Every dialog, settings picker included, hides the rail rather than
+        // sitting beside it (see the workspaceSidebarView.surface.visible
+        // gate below), so the scrim always covers the whole terminal.
+        overlayScrim.left = 0;
+        overlayScrim.width = renderer.width;
         statusBand.left = occupied;
         statusBand.width = Math.max(0, renderer.width - occupied);
         commandSuggestionsBox.left = occupied;
@@ -10621,46 +10612,6 @@ export async function startTui(
         if (next === undefined || next === workspaceRail) return;
         workspaceRailPreferred = next;
         renderState();
-    }
-
-    function workspaceStaysBesideSettingsPicker(
-        picker: TuiAnySettingsPickerState,
-    ): boolean {
-        if (picker.kind === "extension") return false;
-        return picker.kind === "model"
-            || picker.parent?.kind === "model"
-            || picker.pendingModel !== undefined;
-    }
-
-    /**
-     * How many leading columns the workspace rail holds when a picker is
-     * drawn beside it rather than under its scrim. Zero whenever the rail is
-     * closed or this picker's kind hides it instead.
-     *
-     * `fitSettingsPickerBesideWorkspace` and the picker's own row content
-     * both have to agree on this number: the box shrinks to fit beside the
-     * rail, and the rows inside it are built for the same narrower width, or
-     * the detail column runs past the box's own right edge.
-     */
-    function workspaceRailInset(picker: TuiAnySettingsPickerState): number {
-        if (
-            workspaceRail === undefined
-            || !workspaceStaysBesideSettingsPicker(picker)
-        ) return 0;
-        return workspaceSidebarView.railColumns() ?? 0;
-    }
-
-    function fitSettingsPickerBesideWorkspace(
-        picker: TuiAnySettingsPickerState,
-    ): void {
-        const occupied = workspaceRailInset(picker);
-        if (occupied === 0) return;
-        const chatColumns = Math.max(0, renderer.width - occupied);
-        settingsPickerView.box.left = occupied + Math.floor(chatColumns * 0.1);
-        settingsPickerView.box.width = Math.max(
-            20,
-            Math.floor(chatColumns * 0.8),
-        );
     }
 
     function closeWorkspaceSidebar(): void {
