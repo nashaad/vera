@@ -8980,7 +8980,10 @@ export async function startTui(
             settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
         }
         if (settingsPicker !== undefined) {
-            settingsPickerView.update(settingsPicker);
+            settingsPickerView.update(
+                settingsPicker,
+                workspaceRailInset(settingsPicker),
+            );
             fitSettingsPickerBesideWorkspace(settingsPicker);
         }
         if (secretPrompt !== undefined) {
@@ -10628,14 +10631,29 @@ export async function startTui(
             || picker.pendingModel !== undefined;
     }
 
-    function fitSettingsPickerBesideWorkspace(
-        picker: TuiAnySettingsPickerState,
-    ): void {
+    /**
+     * How many leading columns the workspace rail holds when a picker is
+     * drawn beside it rather than under its scrim. Zero whenever the rail is
+     * closed or this picker's kind hides it instead.
+     *
+     * `fitSettingsPickerBesideWorkspace` and the picker's own row content
+     * both have to agree on this number: the box shrinks to fit beside the
+     * rail, and the rows inside it are built for the same narrower width, or
+     * the detail column runs past the box's own right edge.
+     */
+    function workspaceRailInset(picker: TuiAnySettingsPickerState): number {
         if (
             workspaceRail === undefined
             || !workspaceStaysBesideSettingsPicker(picker)
-        ) return;
-        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        ) return 0;
+        return workspaceSidebarView.railColumns() ?? 0;
+    }
+
+    function fitSettingsPickerBesideWorkspace(
+        picker: TuiAnySettingsPickerState,
+    ): void {
+        const occupied = workspaceRailInset(picker);
+        if (occupied === 0) return;
         const chatColumns = Math.max(0, renderer.width - occupied);
         settingsPickerView.box.left = occupied + Math.floor(chatColumns * 0.1);
         settingsPickerView.box.width = Math.max(
@@ -12626,6 +12644,12 @@ export async function startTui(
         const sideState = hostedSidebar.pane?.state.state;
         const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
+        // The renderer still reports the whole terminal once the workspace
+        // rail has reserved its left side (see `tuiCommandSuggestionWidth`'s
+        // note above), so the HUD and status rows below the composer have to
+        // come out of the same budget or their content overruns the box the
+        // rail already narrowed them to.
+        const railInset = workspaceSidebarView.railColumns() ?? 0;
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
         // Beside a second pane the row names each one, because the point of the
         // row is telling the two columns apart. Alone it carries the session
@@ -12768,7 +12792,7 @@ export async function startTui(
                     "⏎ apply",
                     "/permissions for more",
                 ].join(" · "),
-                Math.max(1, renderer.width - composerHorizontalInset),
+                Math.max(1, renderer.width - composerHorizontalInset - railInset),
                 Math.max(3, Math.min(9, renderer.height - 23)),
             );
         dialCard.visible = stripLines !== undefined;
@@ -12851,7 +12875,7 @@ export async function startTui(
                             : { fallbackTo: statusState.modelFallback.to }),
                     },
                     workIndex?.needs_you ?? 0,
-                    Math.max(1, renderer.width - composerHorizontalInset),
+                    Math.max(1, renderer.width - composerHorizontalInset - railInset),
                 )
                 : [[{
                     tone: "muted",
@@ -12869,7 +12893,7 @@ export async function startTui(
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
-                Math.min(72, renderer.width - composerHorizontalInset),
+                Math.min(72, renderer.width - composerHorizontalInset - railInset),
             )
         );
         const agentSection = currentAgentHasParent
@@ -12901,7 +12925,10 @@ export async function startTui(
             );
         // The card's own inner width, past the band's indent, its border and
         // its padding: the rules drawn inside it have to stop where it does.
-        const cardWidth = Math.max(1, renderer.width - composerHorizontalInset);
+        const cardWidth = Math.max(
+            1,
+            renderer.width - composerHorizontalInset - railInset,
+        );
         const rule = (glyph: string) =>
             fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
         // The first row says what the session is answering as, and it lives

@@ -1333,6 +1333,35 @@ test("the model tab strip keeps every stop at narrow widths", async () => {
     }
 });
 
+test("the model pane's rows stay inside the card when it sits beside a workspace rail", async () => {
+    // Mirrors what main.ts's `fitSettingsPickerBesideWorkspace` does when the
+    // workspace rail stays open beside the model pane: the card is narrowed
+    // and shifted right by the rail's width, so its own content has to be
+    // built for that narrower width too, or the detail column (drawn from
+    // `modelPaneSplit`/`pickerCardWidth`) runs past the card's right edge.
+    const width = 160;
+    const height = 40;
+    const railInset = 44;
+    const setup = await createTestRenderer({ width, height });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    view.update(modelPickerWithPool(), railInset);
+    const chatColumns = Math.max(0, width - railInset);
+    view.box.left = railInset + Math.floor(chatColumns * 0.1);
+    view.box.width = Math.max(20, Math.floor(chatColumns * 0.8));
+    await setup.flush();
+
+    const cardRight = (view.box.left as number) + (view.box.width as number);
+    const frame = setup.captureCharFrame();
+    for (const line of frame.split("\n")) {
+        const rightmost = line.trimEnd().length;
+        expect(rightmost).toBeLessThanOrEqual(cardRight);
+    }
+    setup.renderer.destroy();
+});
+
 test("the pane opens on Shortlist even when the running model is not in it", () => {
     // The pool is the list the user built for this moment, so it opens whether
     // or not the model in effect happens to be on it.
