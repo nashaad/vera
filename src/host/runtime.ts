@@ -744,6 +744,7 @@ export async function startResidentHost(
         },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
+        workerExtensions: () => currentConfig().extensions ?? [],
         registeredAgents: extensions.agents(),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [
             ...await loadSkillContribution(instructionRoot, allowedSkills),

@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -346,6 +346,223 @@ test("owner commands still answer while the loop runs in a worker", async () => 
             type: "session_name",
             requestId: "rename-1",
             name: "renamed in a worker",
+        });
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("dialling a session reaches the loop already running in a worker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-dial-"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [toolCall("hold", "sleep 60"), text("never reached")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "dial",
+            workspace: root,
+            sessionPath: join(root, "dial.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "hold the tool open" });
+        await receiveUntil(client, (update) => update.type === "tool_started");
+
+        client.send({
+            type: "update_session_permission_mode",
+            requestId: "mode-1",
+            mode: "ask",
+        });
+        await receiveUntil(
+            client,
+            (update) =>
+                update.type === "permissions"
+                || update.type === "permissions_rejected",
+        );
+
+        // The worker answers permission reads from its pushed copy, so the
+        // dial only counts as arrived once that copy carries it.
+        const state = registry.list().find((entry) => entry.id === "dial");
+        expect(state).toMatchObject({ worker_pid: expect.any(Number) });
+        client.send({ type: "get_permissions", requestId: "perm-1" });
+        const permissions = await receiveUntil(
+            client,
+            (update) =>
+                update.type === "permissions" && update.requestId === "perm-1",
+        );
+        expect(permissions).toMatchObject({ mode: "ask" });
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("an extension tool runs inside the worker when the host hands it over", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-extension-"));
+    const extension = join(root, "extension");
+    await mkdir(extension, { recursive: true });
+    await writeFile(
+        join(extension, "vera.extension.json"),
+        JSON.stringify({
+            id: "pid.extension",
+            version: "1.0.0",
+            sdk: "1",
+            entrypoint: "./extension.ts",
+            capabilities: ["tools.register"],
+        }),
+    );
+    await writeFile(
+        join(extension, "extension.ts"),
+        `export function activate(vera) {
+            vera.tools.register({
+                name: "report_pid",
+                description: "Reports the pid of the process it ran in",
+                inputSchema: {
+                    type: "object",
+                    properties: {},
+                    additionalProperties: false,
+                },
+                run() {
+                    return { output: String(process.pid) };
+                },
+            });
+        }`,
+    );
+
+    const previousWorkerMode = process.env.VERA_WORKER;
+    const previousWorkerExtensions = process.env.VERA_WORKER_EXTENSIONS;
+    process.env.VERA_WORKER = "1";
+    process.env.VERA_WORKER_EXTENSIONS = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerExtensions: () => [{ path: extension, enabled: true, config: null }],
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "pid-1",
+                            name: "report_pid",
+                            input: {},
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    text("done"),
+                ],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "ext",
+            workspace: root,
+            sessionPath: join(root, "ext.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "report your pid" });
+        const finished = await receiveUntil(
+            client,
+            (update) => update.type === "tool_finished",
+        );
+        const workerPid = await waitForFile(join(root, "ext.pid"));
+        expect(finished).toMatchObject({
+            type: "tool_finished",
+            output: String(workerPid),
+        });
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        if (previousWorkerExtensions === undefined) {
+            delete process.env.VERA_WORKER_EXTENSIONS;
+        } else {
+            process.env.VERA_WORKER_EXTENSIONS = previousWorkerExtensions;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("wear queued in a worker is answered by the host over the boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-wear-"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [text("done")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "wear",
+            workspace: root,
+            sessionPath: join(root, "wear.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({
+            type: "wear_agent",
+            requestId: "wear-1",
+            name: "no-such-agent",
+        });
+        const answer = await receiveUntil(
+            client,
+            (update) =>
+                update.type === "agent_worn" || update.type === "agent_rejected",
+        );
+        // The host is the one that knows the catalog, so a refusal naming the
+        // agent proves the question crossed and came back.
+        expect(answer).toMatchObject({
+            type: "agent_rejected",
+            requestId: "wear-1",
+            reason: "No agent named no-such-agent",
         });
     } finally {
         await registry.close();

@@ -15,6 +15,7 @@ import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ModelAdapter } from "../../model/types.ts";
 import { createJsonPipe, type JsonPipe } from "./pipe.ts";
+import { startExtensionRegistry } from "../../extensions/registry.ts";
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
 
@@ -57,12 +58,24 @@ export async function runWorker(
     const options = await started;
     const adapter = await loadAdapter(options.adapter);
 
+    const extensions = options.extensions === undefined
+            || options.extensions.length === 0
+        ? undefined
+        : await startExtensionRegistry({
+            extensions: options.extensions,
+            // A failure here costs this session its extension tools and
+            // nothing else. The host recorded the same load once already.
+            onFailure: () => {},
+        });
     const remote = createRemoteHostBoundary({
         pipe,
         session: options.session,
         offers: options.offers,
         capabilities: options.capabilities,
         state: options.state,
+        ...(extensions === undefined
+            ? {}
+            : { localExtensionTools: extensions.tools() }),
         ...(options.extensionToolDefinitions === undefined
             ? {}
             : { extensionToolDefinitions: options.extensionToolDefinitions }),
@@ -102,6 +115,7 @@ export async function runWorker(
     } catch (error) {
         failure = error instanceof Error ? error.message : String(error);
     }
+    await extensions?.close();
     pipe.notify({
         method: "worker.finished",
         ...(failure === undefined ? {} : { error: failure }),

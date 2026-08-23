@@ -329,7 +329,18 @@ export interface CompactionCompleteRequest {
     readonly system?: string;
 }
 
+/**
+ * `agent.wear`. The loop asks, because wear is queued FIFO with the prompts and
+ * only the loop knows when its turn comes; the host answers, because the agent
+ * catalog and the session's worn agent are its.
+ */
+export interface WearAgentRequest {
+    readonly method: "agent.wear";
+    readonly name: string;
+}
+
 export type WorkerRequest =
+    | WearAgentRequest
     | UpdateApprovalModeRequest
     | ReviewToolCallRequest
     | ApplyToolEffectRequest
@@ -340,6 +351,17 @@ export type WorkerRequest =
     | PreToolUseHookRequest
     | PostToolUseHookRequest
     | CompactionCompleteRequest;
+
+export interface WearAgentReply {
+    /** Absent when the owner has no such agent, or declined. */
+    readonly worn?: {
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly notice?: string;
+    };
+}
 
 export interface ApprovalModeReply {
     /** Absent when the owner declined the change. */
@@ -372,6 +394,7 @@ export interface CompletionReply {
 
 export type WorkerReply =
     | EmptyReply
+    | WearAgentReply
     | ApprovalModeReply
     | ReviewDecisionReply
     | AppliedEffectReply
@@ -452,6 +475,7 @@ export const HOST_PROTOCOL_METHODS = [
     "loop.timelineCommand",
     "loop.detachTimelineOwner",
     "loop.timelineBlocked",
+    "agent.wear",
     "approval.update",
     "review.toolCall",
     "effect.apply",
@@ -480,8 +504,9 @@ export const SERVICES_THAT_DO_NOT_CROSS = {
     /** A host-side subscriber of the events `event.emit` already carries. */
     modelFailureLedger: "derived from events",
     /**
-     * Owner-side. Its 23 hooks stay with it, and the client endpoint it holds
-     * never reaches the worker.
+     * Owner-side. Its hooks stay with it, and the client endpoint it holds
+     * never reaches the worker. `agent.wear` is the one exception: wear is
+     * queued FIFO with the prompts, so the loop has to be the one that asks.
      */
     router: "host-owned",
 } as const;

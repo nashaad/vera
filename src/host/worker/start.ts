@@ -41,6 +41,8 @@ export interface WorkerSessionSeed {
 }
 
 /** Which owner calls the host will answer. Absent means the loop does it. */
+import type { VeraExtensionConfig } from "../../config.ts";
+
 export interface WorkerHostCapabilities {
     readonly updateApprovalMode: boolean;
     readonly reviewToolCall: boolean;
@@ -54,6 +56,8 @@ export interface WorkerHostCapabilities {
     readonly hooks: boolean;
     readonly reviewLog: boolean;
     readonly hasPendingDeliveryTurn: boolean;
+    /** The owner answers `agent.wear`. */
+    readonly wearAgent: boolean;
 }
 
 export interface WorkerStartNotification {
@@ -64,6 +68,17 @@ export interface WorkerStartNotification {
     readonly data: RunHeadlessLoopData;
     readonly session: WorkerSessionSeed;
     readonly offers: HostBoundaryOffers;
+    /**
+     * Extensions the worker loads for itself, so their tools run inside the
+     * process the kill lands on.
+     *
+     * Absent means the host keeps executing them and the worker calls back
+     * with `tool.execute`. Present means every listed extension is activated a
+     * second time, in this process, which is why the owner has to ask for it
+     * rather than get it by default: an extension that opens a connection
+     * opens one per worker.
+     */
+    readonly extensions?: readonly VeraExtensionConfig[];
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
     readonly extensionToolDefinitions?: readonly ModelTool[];

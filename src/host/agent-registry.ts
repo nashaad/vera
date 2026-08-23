@@ -163,6 +163,8 @@ import {
 import type { UserMessage } from "../model/types.ts";
 import type { ConsultMessage } from "../engine/protocol.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
+import type { LoopState } from "../engine/host-protocol.ts";
+import type { VeraExtensionConfig } from "../config.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { agentNameKey, mintAgentName } from "./agent-name.ts";
 import { workspaceKey } from "../workspace-key.ts";
@@ -449,6 +451,14 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
+    /**
+     * The extension configs a worker loads for itself, so that an extension
+     * tool runs in the process a kill lands on rather than in this one.
+     *
+     * Only read when `VERA_WORKER_EXTENSIONS=1`, because loading them twice
+     * means an extension that opens a connection opens one per session.
+     */
+    readonly workerExtensions?: () => readonly VeraExtensionConfig[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
@@ -1014,6 +1024,8 @@ interface RegisteredAgentEntry {
     inbound?: InboundCommandRouter;
     /** Answers host-owned commands while this session's loop is in a worker. */
     workerOwnerRouter?: InboundCommandRouter;
+    /** The services the loop was built from, re-read to push owner state. */
+    loopServices?: RunHeadlessLoopServices;
     /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
@@ -1865,6 +1877,15 @@ export class AgentRegistry {
         id: string,
         patch: ModelSettingsPatch,
     ): Promise<ModelTurnSettings | undefined> {
+        const result = await this.applyModelSettings(id, patch);
+        this.pushWorkerState(id);
+        return result;
+    }
+
+    private async applyModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<ModelTurnSettings | undefined> {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
@@ -2026,6 +2047,17 @@ export class AgentRegistry {
     ): Promise<
         { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
     > {
+        const result = await this.applySessionModelSettings(id, patch);
+        this.pushWorkerState(id);
+        return result;
+    }
+
+    private async applySessionModelSettings(
+        id: string,
+        patch: ModelSettingsPatch,
+    ): Promise<
+        { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
+    > {
         const entry = this.agents.get(id);
         if (entry === undefined || entry.agent.closed || entry.agent.failed) {
             return undefined;
@@ -2072,6 +2104,15 @@ export class AgentRegistry {
 
     /** The posture for this session alone, leaving the host default alone. */
     async updateSessionPermissionMode(
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<ApprovalMode | undefined> {
+        const result = await this.applySessionPermissionMode(id, mode);
+        this.pushWorkerState(id);
+        return result;
+    }
+
+    private async applySessionPermissionMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
@@ -2237,6 +2278,20 @@ export class AgentRegistry {
      * in force.
      */
     async wearAgentFor(id: string, name: string): Promise<{
+        readonly name: string;
+        readonly tools?: readonly string[];
+        readonly skills?: readonly string[];
+        readonly posture?: string;
+        readonly forbiddenAccess?: readonly string[];
+        readonly notice?: string;
+        readonly permissionChanged?: boolean;
+    } | undefined> {
+        const result = await this.applyAgentWear(id, name);
+        this.pushWorkerState(id);
+        return result;
+    }
+
+    private async applyAgentWear(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -2935,6 +2990,15 @@ export class AgentRegistry {
     }
 
     async updateApprovalMode(
+        id: string,
+        mode: ApprovalMode,
+    ): Promise<ApprovalMode | undefined> {
+        const result = await this.applyApprovalMode(id, mode);
+        this.pushWorkerState(id);
+        return result;
+    }
+
+    private async applyApprovalMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
@@ -3710,10 +3774,21 @@ export class AgentRegistry {
                     ...(this.options.permissionPreferences === undefined
                         ? {}
                         : {
-                            addPermissionPreference: (when) =>
-                                this.options.permissionPreferences!.add(when),
-                            removePermissionPreference: (id) =>
-                                this.options.permissionPreferences!.remove(id),
+                            addPermissionPreference: async (when) => {
+                                const added = await this.options
+                                    .permissionPreferences!.add(when);
+                                // Preferences are the host's, not the
+                                // session's, so every worker needs the new
+                                // list, not just this one.
+                                this.pushWorkerStateEverywhere();
+                                return added;
+                            },
+                            removePermissionPreference: async (id) => {
+                                const removed = await this.options
+                                    .permissionPreferences!.remove(id);
+                                this.pushWorkerStateEverywhere();
+                                return removed;
+                            },
                         }),
                     updateSessionName: (name) =>
                         this.updateSessionName(agent.id, name),
@@ -3723,6 +3798,7 @@ export class AgentRegistry {
                         agent.sendSessionNameReply(ownerId, reply),
                 },
         };
+        entry.loopServices = loopServices;
         const adapterSpec = this.workerAdapterSpecFor(store, entry);
         entry.run = (adapterSpec === undefined
             ? runHeadlessLoop(
@@ -3863,6 +3939,40 @@ export class AgentRegistry {
      * worker therefore lands on `handle.outcome` as one typed value, and the
      * session file it was writing through is already complete on disk.
      */
+    /**
+     * The extensions a worker should load for itself, or nothing.
+     *
+     * Nothing is the default: the tools stay in this process and the worker
+     * reaches them over the boundary.
+     */
+    private workerExtensions(): readonly VeraExtensionConfig[] | undefined {
+        if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
+            return undefined;
+        }
+        const configured = this.options.workerExtensions?.();
+        return configured === undefined || configured.length === 0
+            ? undefined
+            : configured;
+    }
+
+    /**
+     * Sends this session's worker the owner state as it now stands.
+     *
+     * A no-op for a session whose loop runs in this process, which reads the
+     * same values directly.
+     */
+    private pushWorkerState(id: string): void {
+        const entry = this.agents.get(id);
+        const worker = entry?.worker;
+        if (worker === undefined || entry?.loopServices === undefined) return;
+        worker.pushState(loopStateOf(entry.loopServices));
+    }
+
+    /** Sends every running worker the owner state as it now stands. */
+    private pushWorkerStateEverywhere(): void {
+        for (const id of this.agents.keys()) this.pushWorkerState(id);
+    }
+
     /** Sessions whose loop currently runs in a separate process. */
     private liveWorkerCount(): number {
         let count = 0;
@@ -3887,6 +3997,7 @@ export class AgentRegistry {
         if (this.liveWorkerCount() >= cap) {
             throw new WorkerCapReachedError(cap);
         }
+        const workerExtensions = this.workerExtensions();
         const handle = await startWorker({
             store,
             session: await readSessionSeed(store.path),
@@ -3902,24 +4013,10 @@ export class AgentRegistry {
                 modelSettings: services.readModelSettings !== undefined,
                 agentWear: services.readAgentWear !== undefined,
             },
-            state: {
-                policy: services.readPolicy?.() ?? {},
-                ...(services.readModelSettings === undefined ? {} : {
-                    modelSettings: services.readModelSettings(),
-                }),
-                ...(services.readAgentWear === undefined ? {} : {
-                    agentWear: services.readAgentWear(),
-                }),
-                ...(services.readApprovalMode === undefined ? {} : {
-                    approvalMode: services.readApprovalMode(),
-                }),
-                ...(services.readPermissionPreferences === undefined ? {} : {
-                    permissionPreferences: services.readPermissionPreferences(),
-                }),
-                ...(services.readReviewer === undefined ? {} : {
-                    reviewer: services.readReviewer(),
-                }),
-            },
+            state: loopStateOf(services),
+            ...(workerExtensions === undefined
+                ? {}
+                : { extensions: workerExtensions }),
             ...(options.extensionTools === undefined
                 ? {}
                 : {
@@ -4685,15 +4782,47 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
 
 /** Set to `1` to run each session's turn loop in its own process. */
 const WORKER_ENV = "VERA_WORKER";
+const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
+
+/**
+ * One reading of everything the owner may change while a turn is running.
+ *
+ * Taken at spawn and again after every host-side change, because a worker
+ * answers each read from its last copy rather than calling back.
+ */
+function loopStateOf(services: RunHeadlessLoopServices): LoopState {
+    return {
+        policy: services.readPolicy?.() ?? {},
+        ...(services.readModelSettings === undefined ? {} : {
+            modelSettings: services.readModelSettings(),
+        }),
+        ...(services.readAgentWear === undefined ? {} : {
+            agentWear: services.readAgentWear(),
+        }),
+        ...(services.readApprovalMode === undefined ? {} : {
+            approvalMode: services.readApprovalMode(),
+        }),
+        ...(services.readPermissionPreferences === undefined ? {} : {
+            permissionPreferences: services.readPermissionPreferences(),
+        }),
+        ...(services.readReviewer === undefined ? {} : {
+            reviewer: services.readReviewer(),
+        }),
+    };
+}
+
 
 /**
  * Commands the host answers itself while the loop runs in a worker.
  *
  * Each one reads or writes state this process owns outright: the catalog, the
- * pool, the roster, the session header, and consults, none of which the loop
- * holds a copy of. Commands that change what a running turn uses, model
- * settings and wear and permission mode among them, are absent: those need the
- * new value pushed into the worker, which is a separate piece of work.
+ * pool, the roster, the session header, consults, and the dials. The loop keeps
+ * no copy it could answer from, and every dial change is pushed into the worker
+ * as a new `LoopState` before the next read.
+ *
+ * Wear is not here on purpose. It is queued FIFO with the prompts, so the loop
+ * decides when it takes effect; the worker keeps it and asks the host for the
+ * agent over the boundary.
  */
 const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "get_model_settings",
@@ -4709,6 +4838,11 @@ const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "owned_session_name_command",
     "consult",
     "owned_consult_command",
+    "update_model_settings",
+    "update_session_model_settings",
+    "update_session_permission_mode",
+    "add_permission_preference",
+    "remove_permission_preference",
 ]);
 
 

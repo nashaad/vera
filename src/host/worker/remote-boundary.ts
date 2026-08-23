@@ -54,6 +54,8 @@ export interface RemoteHostBoundaryOptions {
     readonly offers: HostBoundaryOffers;
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
+    /** Present when this process loaded the extensions itself. */
+    readonly localExtensionTools?: readonly RegisteredTool[];
     readonly extensionToolDefinitions?: readonly ModelTool[];
 }
 
@@ -109,7 +111,10 @@ export function createRemoteHostBoundary(
         }
         : undefined;
 
-    const extensionTools = (options.extensionToolDefinitions ?? []).map(
+    // Tools the worker loaded itself replace the proxies whole: a tool that
+    // runs here must not also be reachable by name over the boundary.
+    const extensionTools = options.localExtensionTools
+        ?? (options.extensionToolDefinitions ?? []).map(
         (definition): RegisteredTool => ({
             definition,
             async execute(
@@ -134,7 +139,7 @@ export function createRemoteHostBoundary(
                 }
             },
         }),
-    );
+        );
 
     const boundary: HostBoundary = {
         offers: options.offers,
@@ -238,6 +243,25 @@ export function createRemoteHostBoundary(
             ...(reviewLog === undefined ? {} : { reviewLog }),
             ...(extensionTools.length === 0 ? {} : { extensionTools }),
             router: {
+                ...(capabilities.wearAgent
+                    ? {
+                        wearAgent: async (name: string) => {
+                            const reply = await pipe.request({
+                                method: "agent.wear",
+                                name,
+                            }) as {
+                                readonly worn?: {
+                                    readonly name: string;
+                                    readonly tools?: readonly string[];
+                                    readonly skills?: readonly string[];
+                                    readonly posture?: string;
+                                    readonly notice?: string;
+                                };
+                            };
+                            return reply.worn;
+                        },
+                    }
+                    : {}),
                 ...(capabilities.hasPendingDeliveryTurn
                     ? { hasPendingDeliveryTurn: (): boolean => false }
                     : {}),
