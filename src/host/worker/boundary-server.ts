@@ -85,6 +85,13 @@ export function createWorkerBoundaryServer(
                     lineNumber = line;
                     return { lineNumber: line };
                 }
+                case "agent.wear": {
+                    const request = body as { readonly name: string };
+                    const worn = await services.router?.wearAgent?.(
+                        request.name,
+                    );
+                    return worn === undefined ? {} : { worn };
+                }
                 case "approval.update": {
                     const request = body as { readonly mode: never };
                     const mode = await services.updateApprovalMode?.(

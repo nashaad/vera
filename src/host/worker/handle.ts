@@ -14,6 +14,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import type { LoopState } from "../../engine/host-protocol.ts";
+import type { VeraExtensionConfig } from "../../config.ts";
 import type { HostBoundaryOffers } from "../../engine/host-boundary.ts";
 import type { RunHeadlessLoopData } from "../../engine/loop-services.ts";
 import type { RunHeadlessLoopServices } from "../../engine/loop-services.ts";
@@ -69,6 +70,7 @@ export interface StartWorkerOptions {
     readonly offers?: HostBoundaryOffers;
     readonly state?: LoopState;
     readonly extensionTools?: readonly RegisteredTool[];
+    readonly extensions?: readonly VeraExtensionConfig[];
     readonly toolRuntime?: ToolRuntime;
     /**
      * Absolute wall-clock milliseconds. The supervisor SIGKILLs the worker at
@@ -191,6 +193,9 @@ export async function startWorker(
         offers: options.offers
             ?? { approvalModeRead: false, modelSettings: false, agentWear: false },
         capabilities: capabilitiesOf(services, options.extensionTools),
+        ...(options.extensions === undefined || options.extensions.length === 0
+            ? {}
+            : { extensions: options.extensions }),
         state: options.state ?? { policy: {} },
         ...(options.extensionTools === undefined
             ? {}
@@ -229,6 +234,7 @@ function capabilitiesOf(
     extensionTools?: readonly RegisteredTool[],
 ): WorkerHostCapabilities {
     return {
+        wearAgent: services.router?.wearAgent !== undefined,
         updateApprovalMode: services.updateApprovalMode !== undefined,
         reviewToolCall: services.reviewToolCall !== undefined,
         applyHostToolEffect: services.applyToolEffect !== undefined,
