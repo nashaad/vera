@@ -3,6 +3,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { fileURLToPath } from "node:url";
 
 import { superviseWorker } from "../../src/host/worker-supervisor-handle.ts";
+import { NO_DEADLINE } from "../../src/host/worker-supervisor.ts";
 
 /**
  * Every process here is real and every signal is real. A fake process would
@@ -109,6 +110,25 @@ describe("worker supervisor", () => {
             reason: "deadline",
         });
         expect(events.at(-1)).toEqual({ v: 1, type: "exit", reason: "deadline" });
+    }, 20_000);
+
+    test("NO_DEADLINE never fires but leaves the host switch armed", async () => {
+        const worker = await startWedgedWorker();
+        const exit = exitOf(worker.child);
+
+        const handle = superviseWorker({
+            pid: worker.pid,
+            deadlineMs: NO_DEADLINE,
+        });
+
+        await Bun.sleep(1_500);
+        expect(isAlive(worker.pid)).toBe(true);
+
+        handle.detach();
+
+        expect(await waitUntilGone(worker.pid, 5_000)).toBe(true);
+        expect((await exit).signal).toBe("SIGKILL");
+        await handle.exited;
     }, 20_000);
 
     test("a host-side extension moves the deadline out", async () => {

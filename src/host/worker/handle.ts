@@ -26,6 +26,7 @@ import type { RegisteredTool } from "../../tools/types.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
 import { superviseWorker, type SupervisorHandle } from
     "../worker-supervisor-handle.ts";
+import { NO_DEADLINE } from "../worker-supervisor.ts";
 import { createJsonPipe } from "./pipe.ts";
 import {
     createWorkerBoundaryServer,
@@ -71,8 +72,9 @@ export interface StartWorkerOptions {
     readonly toolRuntime?: ToolRuntime;
     /**
      * Absolute wall-clock milliseconds. The supervisor SIGKILLs the worker at
-     * this instant whatever the worker is doing. Absent means no supervisor,
-     * which is only for callers that have their own.
+     * this instant whatever the worker is doing. Defaults to NO_DEADLINE, so
+     * the timer never fires while the host-gone and worker-exited switches
+     * stay armed.
      */
     readonly deadlineMs?: number;
     readonly onUpdate?: (update: AgentUpdate) => void;
@@ -163,9 +165,10 @@ export async function startWorker(
         resolveOutcome({ kind: "failed", error: error.message });
     });
 
-    const supervisor = options.deadlineMs === undefined
-        ? undefined
-        : superviseWorker({ pid, deadlineMs: options.deadlineMs });
+    const supervisor = superviseWorker({
+        pid,
+        deadlineMs: options.deadlineMs ?? NO_DEADLINE,
+    });
 
     pipe.notify({
         method: "worker.start",

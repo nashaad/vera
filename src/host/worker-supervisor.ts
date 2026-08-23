@@ -14,11 +14,14 @@
  *   - At the deadline the worker is killed with SIGKILL. No SIGTERM, no grace
  *     window, no notice. A grace window is a request, and a wedged loop
  *     ignores requests.
+ *   - A negative deadline means no deadline. The timer never fires; the two
+ *     switches below stay armed.
  *   - stdin closing means the host is gone: kill the worker and exit, so a
  *     crashed host leaves no orphan.
  *   - The worker disappearing means this process exits.
  *
- * The deadline is absolute wall-clock milliseconds since the epoch. Policy
+ * The deadline is absolute wall-clock milliseconds since the epoch, or
+ * NO_DEADLINE. Policy
  * about how long a lease should be, and in what units it is granted, lives in
  * the host; by the time it reaches here it is one number and a clock.
  *
@@ -28,6 +31,9 @@
  */
 
 const PROTOCOL_VERSION = 1;
+
+/** A deadline that never arrives. Any negative value behaves the same way. */
+export const NO_DEADLINE = -1;
 
 /** How often the deadline and the worker's liveness are re-checked. */
 export const SUPERVISOR_TICK_MS = 100;
@@ -157,7 +163,7 @@ export async function runSupervisor(
             break;
         }
         if (current !== null) {
-            if (Date.now() >= current.deadlineMs) {
+            if (current.deadlineMs >= 0 && Date.now() >= current.deadlineMs) {
                 killWorker(current, "deadline");
                 finished = "deadline";
                 break;
