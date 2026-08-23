@@ -9,6 +9,7 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { SessionStore } from "../../src/store/session-store.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { startWorker, type WorkerHandle } from "../../src/host/worker/handle.ts";
+import type { RunHeadlessLoopServices } from "../../src/engine/loop-services.ts";
 import { superviseWorker } from "../../src/host/worker-supervisor-handle.ts";
 
 /**
@@ -72,7 +73,11 @@ interface StartedWorker {
 async function startAgent(
     id: string,
     script: readonly AssistantMessage[],
-    options: { readonly deadlineMs?: number } = {},
+    options: {
+        readonly deadlineMs?: number;
+        readonly data?: Record<string, unknown>;
+        readonly services?: RunHeadlessLoopServices;
+    } = {},
 ): Promise<StartedWorker> {
     const directory = workspace();
     const path = join(directory, "session.jsonl");
@@ -95,7 +100,10 @@ async function startAgent(
         },
         model: "test",
         adapter: { module: ADAPTER, options: { script } },
-        data: { approvalMode: "full_access" },
+        data: { approvalMode: "full_access", ...options.data },
+        ...(options.services === undefined
+            ? {}
+            : { services: options.services }),
         onUpdate: (update) => void updates.push(update),
         ...(options.deadlineMs === undefined
             ? {}
@@ -244,3 +252,49 @@ test("a worker does not outlive the host that spawned it", async () => {
     await waitFor(() => !alive(workerPid), 15_000);
     expect(alive(workerPid)).toBe(false);
 }, 30_000);
+
+test("a host-owned tool effect is applied by the host", async () => {
+    const applied: string[] = [];
+    const agent = await startAgent(
+        "effects",
+        [
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "call-roster",
+                    name: "agent_roster",
+                    input: {},
+                }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+            text("read the roster"),
+        ],
+        {
+            data: { enabledToolEffects: ["agent_roster"] },
+            services: {
+                applyToolEffect: async (effect: { readonly type: string }) => {
+                    applied.push(effect.type);
+                    return {
+                        kind: "output",
+                        output: "one participant",
+                        isError: false,
+                    };
+                },
+            } as unknown as RunHeadlessLoopServices,
+        },
+    );
+    agent.handle.send({ type: "prompt", content: "who else is here" });
+    await waitFor(() =>
+        agent.updates.some((update) => update.type === "turn_finished")
+    );
+    // The effect crossed to this process and back: the worker never held the
+    // roster, and the loop still saw a tool result.
+    expect(applied).toEqual(["agent_roster"]);
+    const store = await SessionStore.open(agent.path);
+    expect(JSON.stringify(store.messages())).toContain("one participant");
+    agent.handle.kill();
+    await agent.handle.outcome;
+}, 60_000);
