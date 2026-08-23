@@ -279,6 +279,7 @@ import {
     registerExtensionTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
+    SLASH_COMPACT_WIDTH,
     tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
@@ -8840,10 +8841,7 @@ export async function startTui(
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined
-            && (
-                settingsPicker === undefined
-                || workspaceStaysBesideSettingsPicker(settingsPicker)
-            )
+            && settingsPicker === undefined
             && commandPalette === undefined
             && workTab === undefined
             && workspaceSidebar !== undefined
@@ -8981,7 +8979,6 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.update(settingsPicker);
-            fitSettingsPickerBesideWorkspace(settingsPicker);
         }
         if (secretPrompt !== undefined) {
             secretPromptView.update(secretPrompt);
@@ -10589,13 +10586,11 @@ export async function startTui(
         // underneath the dock.
         app.paddingLeft = occupied;
         workspaceSidebarView.surface.left = 0;
-        const pickerBesideRail = columns !== undefined
-            && settingsPicker !== undefined
-            && workspaceStaysBesideSettingsPicker(settingsPicker);
-        overlayScrim.left = pickerBesideRail ? occupied : 0;
-        overlayScrim.width = pickerBesideRail
-            ? Math.max(0, renderer.width - occupied)
-            : renderer.width;
+        // Every dialog, settings picker included, hides the rail rather than
+        // sitting beside it (see the workspaceSidebarView.surface.visible
+        // gate below), so the scrim always covers the whole terminal.
+        overlayScrim.left = 0;
+        overlayScrim.width = renderer.width;
         statusBand.left = occupied;
         statusBand.width = Math.max(0, renderer.width - occupied);
         commandSuggestionsBox.left = occupied;
@@ -10617,31 +10612,6 @@ export async function startTui(
         if (next === undefined || next === workspaceRail) return;
         workspaceRailPreferred = next;
         renderState();
-    }
-
-    function workspaceStaysBesideSettingsPicker(
-        picker: TuiAnySettingsPickerState,
-    ): boolean {
-        if (picker.kind === "extension") return false;
-        return picker.kind === "model"
-            || picker.parent?.kind === "model"
-            || picker.pendingModel !== undefined;
-    }
-
-    function fitSettingsPickerBesideWorkspace(
-        picker: TuiAnySettingsPickerState,
-    ): void {
-        if (
-            workspaceRail === undefined
-            || !workspaceStaysBesideSettingsPicker(picker)
-        ) return;
-        const occupied = workspaceSidebarView.railColumns() ?? 0;
-        const chatColumns = Math.max(0, renderer.width - occupied);
-        settingsPickerView.box.left = occupied + Math.floor(chatColumns * 0.1);
-        settingsPickerView.box.width = Math.max(
-            20,
-            Math.floor(chatColumns * 0.8),
-        );
     }
 
     function closeWorkspaceSidebar(): void {
@@ -12335,6 +12305,20 @@ export async function startTui(
         // half-typed name is one flat run, where the group column would be
         // dead width and the gaps would separate nothing.
         const grouped = composer.plainText === "/";
+        // Less the box's own margin and padding, or the last word of a
+        // just-too-long row wraps anyway. The renderer reports the whole
+        // terminal even when the workspace rail has reserved its left side,
+        // so the rail has to come out of the same budget.
+        const suggestionWidth = tuiCommandSuggestionWidth(
+            renderer.width,
+            composerHorizontalInset,
+            workspaceSidebarView.railColumns() ?? 0,
+        );
+        // Below a rail-narrowed strip the group column and a description
+        // cannot both fit beside the command names, so the list drops to a
+        // bare "group heading, then one /command per line" style instead of
+        // letting every row run past the strip.
+        const compact = suggestionWidth < SLASH_COMPACT_WIDTH;
         const window = tuiSuggestionWindow(
             suggestions.length,
             selected,
@@ -12342,7 +12326,7 @@ export async function startTui(
                 3,
                 renderer.height - SUGGESTIONS_RESERVED_ROWS
                     - extensionBottomRows
-                    - tuiSuggestionGaps(suggestions, grouped),
+                    - tuiSuggestionGaps(suggestions, grouped, compact),
             ),
         );
         const visible = suggestions.slice(
@@ -12352,20 +12336,13 @@ export async function startTui(
         commandSuggestionsText.content = renderTuiCommandSuggestions(
             visible,
             selected < 0 ? -1 : selected - window.start,
-            // Less the box's own margin and padding, or the last word of a
-            // just-too-long row wraps anyway. The renderer reports the whole
-            // terminal even when the workspace rail has reserved its left
-            // side, so the rail has to come out of the same budget.
-            tuiCommandSuggestionWidth(
-                renderer.width,
-                composerHorizontalInset,
-                workspaceSidebarView.railColumns() ?? 0,
-            ),
+            suggestionWidth,
             window.hidden,
             grouped,
+            compact,
         );
         commandSuggestionsBox.height = suggestions.length > 0
-            ? window.rows + tuiSuggestionGaps(visible, grouped)
+            ? window.rows + tuiSuggestionGaps(visible, grouped, compact)
                 + (window.hidden > 0 ? 1 : 0) + 1
             : 1;
         const suggester = suggestions.length > 0
@@ -12626,6 +12603,12 @@ export async function startTui(
         const sideState = hostedSidebar.pane?.state.state;
         const paneHeadersVisible = !anyOverlayOpen();
         const sideWidth = sidebar.width();
+        // The renderer still reports the whole terminal once the workspace
+        // rail has reserved its left side (see `tuiCommandSuggestionWidth`'s
+        // note above), so the HUD and status rows below the composer have to
+        // come out of the same budget or their content overruns the box the
+        // rail already narrowed them to.
+        const railInset = workspaceSidebarView.railColumns() ?? 0;
         const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
         // Beside a second pane the row names each one, because the point of the
         // row is telling the two columns apart. Alone it carries the session
@@ -12761,14 +12744,14 @@ export async function startTui(
             : renderDialStrip(
                 dialStrip,
                 [
-                    "tab/shift+tab lane",
+                    "↑/↓ lane",
                     `${tuiKeyChord("dials.pair.prev")}/${
                         tuiKeyChord("dials.pair.next")
                     } change`,
                     "⏎ apply",
                     "/permissions for more",
                 ].join(" · "),
-                Math.max(1, renderer.width - composerHorizontalInset),
+                Math.max(1, renderer.width - composerHorizontalInset - railInset),
                 Math.max(3, Math.min(9, renderer.height - 23)),
             );
         dialCard.visible = stripLines !== undefined;
@@ -12851,7 +12834,7 @@ export async function startTui(
                             : { fallbackTo: statusState.modelFallback.to }),
                     },
                     workIndex?.needs_you ?? 0,
-                    Math.max(1, renderer.width - composerHorizontalInset),
+                    Math.max(1, renderer.width - composerHorizontalInset - railInset),
                 )
                 : [[{
                     tone: "muted",
@@ -12869,7 +12852,7 @@ export async function startTui(
         const runningNames = runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
-                Math.min(72, renderer.width - composerHorizontalInset),
+                Math.min(72, renderer.width - composerHorizontalInset - railInset),
             )
         );
         const agentSection = currentAgentHasParent
@@ -12901,7 +12884,10 @@ export async function startTui(
             );
         // The card's own inner width, past the band's indent, its border and
         // its padding: the rules drawn inside it have to stop where it does.
-        const cardWidth = Math.max(1, renderer.width - composerHorizontalInset);
+        const cardWidth = Math.max(
+            1,
+            renderer.width - composerHorizontalInset - railInset,
+        );
         const rule = (glyph: string) =>
             fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
         // The first row says what the session is answering as, and it lives

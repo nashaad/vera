@@ -573,7 +573,12 @@ export interface TuiSettingsPickerView {
     onTab?: (tab: TuiModelPickerTab) => void;
     /** Opens provider connection without changing which model tab is active. */
     onConfigure?: () => void;
-    update(state: TuiAnySettingsPickerState): void;
+    /**
+     * `railInset` is the width, in columns, of a workspace rail the picker is
+     * drawn beside rather than over. Omit or pass 0 when nothing occupies the
+     * card's left edge.
+     */
+    update(state: TuiAnySettingsPickerState, railInset?: number): void;
 }
 
 const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
@@ -2578,7 +2583,7 @@ export function createTuiSettingsPickerView(
 
     const view: TuiSettingsPickerView = {
         box,
-        update(state): void {
+        update(state, railInset = 0): void {
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -2612,6 +2617,7 @@ export function createTuiSettingsPickerView(
                 view.tip,
                 view.onTab,
                 view.onConfigure,
+                railInset,
             );
         },
     };
@@ -2738,11 +2744,12 @@ interface ModelPaneSplit {
 function modelPaneSplit(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
+    railInset = 0,
 ): ModelPaneSplit | undefined {
     if (!hasModelDetail(state)) {
         return undefined;
     }
-    const cardWidth = pickerCardWidth(renderer, state);
+    const cardWidth = pickerCardWidth(renderer, state, railInset);
     const detailWidth = Math.max(
         MODEL_DETAIL_MIN_WIDTH,
         Math.floor(cardWidth * 0.32),
@@ -2762,22 +2769,34 @@ function modelPaneSplit(
 function pickerContentWidth(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
+    railInset = 0,
 ): number {
-    return Math.max(0, pickerCardWidth(renderer, state) - DIALOG_GUTTER_WIDTH);
+    return Math.max(
+        0,
+        pickerCardWidth(renderer, state, railInset) - DIALOG_GUTTER_WIDTH,
+    );
 }
 
 /**
  * The columns the card has inside its own padding. The footer runs the whole
  * width, so it is measured against this rather than against the row width,
  * which is short by the leading gutter.
+ *
+ * `railInset` is how many leading columns the workspace rail already holds
+ * when the picker is drawn beside it (see `fitSettingsPickerBesideWorkspace`
+ * in main.ts) rather than over it. The card's outer box shrinks to match, so
+ * its content has to be built for the same narrower width or the detail
+ * column runs past the box's own right edge.
  */
 function pickerCardWidth(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
+    railInset = 0,
 ): number {
+    const usableWidth = Math.max(0, renderer.width - railInset);
     const cardWidth = state.kind === "session"
-        ? renderer.width
-        : Math.floor(renderer.width * 0.8);
+        ? usableWidth
+        : Math.floor(usableWidth * 0.8);
     return Math.max(0, cardWidth - DIALOG_CARD_PADDING * 2);
 }
 
@@ -3047,6 +3066,7 @@ function renderListPickerRows(
     tip?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
+    railInset = 0,
 ): void {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
     const stripPane = modelStripPane(state);
@@ -3109,7 +3129,7 @@ function renderListPickerRows(
                 pool: modelTabRows(stripPane.allOptions, "pool").length,
                 all: modelTabRows(stripPane.allOptions, "all").length,
             },
-            pickerContentWidth(renderer, state),
+            pickerContentWidth(renderer, state, railInset),
             tab === undefined || tab === "help" ? undefined : modelPaneNote(state),
             onTab,
             onConfigure,
@@ -3119,12 +3139,15 @@ function renderListPickerRows(
     }
 
     if (tab === "help") {
-        const page = modelHelpNode(renderer, pickerCardWidth(renderer, state));
+        const page = modelHelpNode(
+            renderer,
+            pickerCardWidth(renderer, state, railInset),
+        );
         box.add(page);
         nodes.push(page);
         const footer = dialogFooterNode(
             renderer,
-            pickerFooter(state, pickerCardWidth(renderer, state)),
+            pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
         );
         box.add(footer);
         nodes.push(footer);
@@ -3134,7 +3157,7 @@ function renderListPickerRows(
 
     // The list and the facts about the highlighted row sit side by side, so the
     // rows go into a column of their own rather than straight onto the card.
-    const split = modelPaneSplit(renderer, state);
+    const split = modelPaneSplit(renderer, state, railInset);
     const detailed = split !== undefined;
     let body: BoxRenderable | undefined;
     let listColumn = box;
@@ -3157,7 +3180,7 @@ function renderListPickerRows(
         nodes.push(body);
     }
     const rowWidth = split === undefined
-        ? pickerContentWidth(renderer, state)
+        ? pickerContentWidth(renderer, state, railInset)
         : split.listWidth - MODEL_LIST_RULE_GAP;
 
     const availableRows = pickerMaxRows(
@@ -3304,7 +3327,7 @@ function renderListPickerRows(
 
     const footer = dialogFooterNode(
         renderer,
-        pickerFooter(state, pickerCardWidth(renderer, state)),
+        pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
     );
     box.add(footer);
     nodes.push(footer);
