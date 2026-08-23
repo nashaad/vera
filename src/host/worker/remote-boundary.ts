@@ -1,0 +1,266 @@
+/**
+ * The worker's `HostBoundary`, carried over a pipe.
+ *
+ * Behaviourally indistinguishable from `createLocalHostBoundary` as far as the
+ * loop is concerned: the loop calls the same members and observes the same
+ * presence and absence. What changes is where the work happens.
+ *
+ * Two members are deliberately absent rather than remote:
+ *
+ * - `applyToolEffect`, so the loop builds its own applier. That is what keeps a
+ *   subagent a child of this worker's process. A host-side applier would run
+ *   model loops in the host and would leave a subagent alive after this process
+ *   is killed, which is the case the split exists for.
+ * - `owned.processRegistry`, because a worker owns its own children.
+ *
+ * The session store holds no file descriptor. Reads answer from a projection
+ * folded out of the record stream; writes go out as `session.append` and the
+ * host performs them. See `session.ts`.
+ */
+
+import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
+import { ToolHooks } from "../../engine/hooks.ts";
+import type {
+    HostBoundary,
+    HostBoundaryOffers,
+} from "../../engine/host-boundary.ts";
+import type { LoopState } from "../../engine/host-protocol.ts";
+import type { InstructionRoot } from "../../engine/memory.ts";
+import type { ApprovalMode } from "../../engine/permissions.ts";
+import type { PromptContribution } from "../../engine/prompt-contributions.ts";
+import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
+import type { ToolReviewDecision } from "../../engine/reviewer.ts";
+import type { ModelTool } from "../../model/types.ts";
+import type { ToolRuntime } from "../../tools/runtime.ts";
+import type {
+    CommitEffect,
+    RegisteredTool,
+    ToolExecutionResult,
+} from "../../tools/types.ts";
+import type { JsonPipe } from "./pipe.ts";
+import { WorkerSessionStore } from "./session.ts";
+import type {
+    WorkerHostCapabilities,
+    WorkerSessionSeed,
+} from "./start.ts";
+
+export interface RemoteHostBoundaryOptions {
+    readonly pipe: JsonPipe;
+    readonly session: WorkerSessionSeed;
+    readonly offers: HostBoundaryOffers;
+    readonly capabilities: WorkerHostCapabilities;
+    readonly state: LoopState;
+    readonly extensionToolDefinitions?: readonly ModelTool[];
+}
+
+export interface RemoteHostBoundary {
+    readonly boundary: HostBoundary;
+    /** Handles one host-to-worker notification. Unknown methods are ignored. */
+    acceptNotification(body: unknown): void;
+}
+
+export function createRemoteHostBoundary(
+    options: RemoteHostBoundaryOptions,
+): RemoteHostBoundary {
+    const { pipe, capabilities } = options;
+    let state = options.state;
+
+    const store = WorkerSessionStore.seed(
+        options.session.path,
+        options.session.header,
+    );
+    for (const [index, record] of options.session.records.entries()) {
+        store.applyHostRecord(index + 2, record);
+    }
+    store.setAppender(async (record) => {
+        const reply = await pipe.request({
+            method: "session.append",
+            record,
+        }) as { readonly lineNumber: number };
+        return reply.lineNumber;
+    });
+
+    const eventBus = new EngineEventBus();
+    let injecting = false;
+    eventBus.subscribe((event: EngineEvent) => {
+        if (injecting) {
+            return;
+        }
+        pipe.notify({ method: "event.emit", event });
+    });
+
+    const hooks = capabilities.hooks
+        ? remoteHooks(pipe)
+        : new ToolHooks();
+
+    const reviewLog: ReviewLog | undefined = capabilities.reviewLog
+        ? (entry: ReviewLogEntry): void => {
+            pipe.notify({ method: "reviewLog.append", entry });
+        }
+        : undefined;
+
+    const extensionTools = (options.extensionToolDefinitions ?? []).map(
+        (definition): RegisteredTool => ({
+            definition,
+            async execute(
+                input: Readonly<Record<string, unknown>>,
+                _context: ToolRuntime,
+                signal: AbortSignal,
+            ): Promise<ToolExecutionResult> {
+                const callId = newCallId();
+                const abort = (): void =>
+                    pipe.notify({ method: "call.cancel", callId });
+                signal.addEventListener("abort", abort, { once: true });
+                try {
+                    const reply = await pipe.request({
+                        method: "tool.execute",
+                        callId,
+                        name: definition.name,
+                        input,
+                    }) as { readonly result: ToolExecutionResult };
+                    return reply.result;
+                } finally {
+                    signal.removeEventListener("abort", abort);
+                }
+            },
+        }),
+    );
+
+    const boundary: HostBoundary = {
+        offers: options.offers,
+        readState: () => state,
+        ...(capabilities.updateApprovalMode
+            ? {
+                updateApprovalMode: async (
+                    mode: ApprovalMode,
+                ): Promise<ApprovalMode | undefined> => {
+                    const reply = await pipe.request({
+                        method: "approval.update",
+                        mode,
+                    }) as { readonly mode?: ApprovalMode };
+                    return reply.mode;
+                },
+            }
+            : {}),
+        ...(capabilities.reviewToolCall
+            ? {
+                reviewToolCall: async (
+                    request,
+                    signal,
+                ): Promise<ToolReviewDecision> => {
+                    const callId = newCallId();
+                    const abort = (): void =>
+                        pipe.notify({ method: "call.cancel", callId });
+                    signal?.addEventListener("abort", abort, { once: true });
+                    try {
+                        const reply = await pipe.request({
+                            method: "review.toolCall",
+                            callId,
+                            request,
+                        }) as { readonly decision: ToolReviewDecision };
+                        return reply.decision;
+                    } finally {
+                        signal?.removeEventListener("abort", abort);
+                    }
+                },
+            }
+            : {}),
+        ...(capabilities.applyCommittedToolEffect
+            ? {
+                applyCommittedToolEffect: async (
+                    effect: CommitEffect,
+                ): Promise<void> => {
+                    await pipe.request({ method: "effect.commit", effect });
+                },
+            }
+            : {}),
+        ...(capabilities.loadContextualContributions
+            ? {
+                loadContextualContributions: async (
+                    instructionRoot: InstructionRoot,
+                    allowedSkills?: readonly string[],
+                ): Promise<readonly PromptContribution[]> => {
+                    const reply = await pipe.request({
+                        method: "contributions.load",
+                        instructionRoot,
+                        ...(allowedSkills === undefined
+                            ? {}
+                            : { allowedSkills }),
+                    }) as {
+                        readonly contributions: readonly PromptContribution[];
+                    };
+                    return reply.contributions;
+                },
+            }
+            : {}),
+        owned: {
+            sessionStore: store,
+            eventBus,
+            hooks,
+            ...(reviewLog === undefined ? {} : { reviewLog }),
+            ...(extensionTools.length === 0 ? {} : { extensionTools }),
+            router: capabilities.hasPendingDeliveryTurn
+                ? {
+                    hasPendingDeliveryTurn: (): boolean => false,
+                }
+                : {},
+        },
+    };
+
+    return {
+        boundary,
+        acceptNotification(body: unknown): void {
+            const message = body as { readonly method?: string };
+            if (message.method === "session.record") {
+                const record = body as {
+                    readonly lineNumber: number;
+                    readonly record: Record<string, unknown>;
+                };
+                store.applyHostRecord(record.lineNumber, record.record);
+                return;
+            }
+            if (message.method === "state.changed") {
+                state = (body as { readonly state: LoopState }).state;
+                return;
+            }
+            if (message.method === "event.inject") {
+                injecting = true;
+                try {
+                    eventBus.emit((body as { readonly event: EngineEvent })
+                        .event);
+                } finally {
+                    injecting = false;
+                }
+                return;
+            }
+        },
+    };
+}
+
+function remoteHooks(pipe: JsonPipe): ToolHooks {
+    const hooks = new ToolHooks();
+    hooks.registerPreToolUse(async (payload) => {
+        const reply = await pipe.request({
+            method: "hook.preToolUse",
+            payload,
+            options: {},
+        }) as { readonly outcome: { readonly power: string } };
+        return reply.outcome as never;
+    });
+    hooks.registerPostToolUse(async (payload) => {
+        await pipe.request({
+            method: "hook.postToolUse",
+            payload,
+            options: {},
+        });
+        return { power: "observe" };
+    });
+    return hooks;
+}
+
+let callCounter = 0;
+
+function newCallId(): string {
+    callCounter += 1;
+    return `w${callCounter}`;
+}

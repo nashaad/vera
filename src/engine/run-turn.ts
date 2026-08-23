@@ -450,12 +450,14 @@ export async function runHeadlessLoop(
     reasoningEffort?: ModelReasoningEffort,
     data: RunHeadlessLoopData = {},
     services: RunHeadlessLoopServices = {},
+    hostBoundary?: HostBoundary,
 ): Promise<void> {
     // The one seam to the owner. `createLocalHostBoundary` is the in-process
     // implementation and the default; a pipe implementation carrying
     // `host-protocol.ts` messages is the other, and the loop cannot tell them
     // apart.
-    const boundary: HostBoundary = createLocalHostBoundary(services);
+    const boundary: HostBoundary = hostBoundary
+        ?? createLocalHostBoundary(services);
     const owned = boundary.owned;
     const router = owned.router;
     // Read at each use rather than captured: an owner may change any of these

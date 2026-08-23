@@ -241,6 +241,11 @@ export interface CreateSessionStoreOptions {
     readonly startupProfile?: Exclude<StartupProfile, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
+    /** See `OpenSessionStoreOptions`. */
+    readonly onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 }
 
 export interface SessionCreationMetadata {
@@ -250,6 +255,16 @@ export interface SessionCreationMetadata {
 export interface OpenSessionStoreOptions {
     readonly now?: () => Date;
     readonly createId?: () => string;
+    /**
+     * Called after each record this store wrote, with the line it landed on.
+     * A process holding a projection of this file rather than the file itself
+     * advances on this stream. Records written through `appendForeignRecord`
+     * do not appear here, because their author already folded them in.
+     */
+    readonly onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 }
 
 /** The stored identity and retained snapshot reported by an append. */
@@ -286,6 +301,8 @@ export interface SessionDeliveryInbox {
 interface ParsedSessionFile {
     readonly header: SessionHeader;
     readonly state: SessionProjectionState;
+    /** The file's line count, header included. */
+    readonly lineCount: number;
 }
 
 export class SessionStore {
@@ -295,6 +312,12 @@ export class SessionStore {
     private readonly now: () => Date;
     private readonly createId: () => string;
     private pendingAppend: Promise<void> = Promise.resolve();
+    /** The file's line count, header included. Line 1 is the header. */
+    private lineCount: number;
+    private readonly onRecordAppended?: (
+        lineNumber: number,
+        record: Record<string, unknown>,
+    ) => void;
 
     /**
      * The same accumulated state a parse folds records into. The store reads
@@ -308,12 +331,17 @@ export class SessionStore {
         header: SessionHeader,
         state: SessionProjectionState,
         options: OpenSessionStoreOptions,
+        lineCount = 1,
     ) {
         this.path = path;
         this.header = header;
         this.projection = state;
         this.now = options.now ?? (() => new Date());
         this.createId = options.createId ?? randomUUID;
+        this.lineCount = lineCount;
+        if (options.onRecordAppended !== undefined) {
+            this.onRecordAppended = options.onRecordAppended;
+        }
     }
 
     static async create(
@@ -369,6 +397,9 @@ export class SessionStore {
                 ...(options.createId === undefined
                     ? {}
                     : { createId: options.createId }),
+                ...(options.onRecordAppended === undefined
+                    ? {}
+                    : { onRecordAppended: options.onRecordAppended }),
             },
         );
     }
@@ -381,7 +412,13 @@ export class SessionStore {
         const completeSource = await removeUnterminatedTail(path, source);
         const loaded = parseSessionFile(path, completeSource);
         await chmod(path, 0o600);
-        return new SessionStore(path, loaded.header, loaded.state, options);
+        return new SessionStore(
+            path,
+            loaded.header,
+            loaded.state,
+            options,
+            loaded.lineCount,
+        );
     }
 
     entries(): readonly SessionMessageEntry[] {
@@ -1150,6 +1187,45 @@ export class SessionStore {
         if (this.projection.agentFailure !== undefined) {
             throw new Error("Cannot append after the terminal agent failure");
         }
+        const lineNumber = await this.writeRecordLine(record);
+        this.onRecordAppended?.(
+            lineNumber,
+            record as Record<string, unknown>,
+        );
+    }
+
+    /** The file's line count, header included. */
+    appendedLineCount(): number {
+        return this.lineCount;
+    }
+
+    /**
+     * Writes a record another process produced, and folds it in here.
+     *
+     * The author already holds it, so it is not reported back through
+     * `onRecordAppended`. Validation is the parse's own, so a record this
+     * store would reject on a later open is rejected before it reaches disk.
+     */
+    appendForeignRecord(
+        record: Record<string, unknown>,
+    ): Promise<number> {
+        // Queued behind this store's own appends, so one sequence of line
+        // numbers describes the file whichever process produced the record.
+        const result = this.pendingAppend.then(async () => {
+            if (this.projection.agentFailure !== undefined) {
+                throw new Error(
+                    "Cannot append after the terminal agent failure",
+                );
+            }
+            const lineNumber = await this.writeRecordLine(record);
+            ingestSessionRecord(this.path, lineNumber, record, this.projection);
+            return lineNumber;
+        });
+        this.pendingAppend = result.then(() => {}, () => {});
+        return result;
+    }
+
+    private async writeRecordLine(record: object): Promise<number> {
         const file = await open(this.path, "a", 0o600);
         try {
             await file.writeFile(jsonLine(record), "utf8");
@@ -1157,6 +1233,8 @@ export class SessionStore {
         } finally {
             await file.close();
         }
+        this.lineCount += 1;
+        return this.lineCount;
     }
 
     protected requireActive(): void {
@@ -1693,7 +1771,7 @@ function parseSessionFile(path: string, source: string): ParsedSessionFile {
         );
     }
 
-    return { header, state };
+    return { header, state, lineCount: lines.length };
 }
 
 function parseHarnessMessageEntry(

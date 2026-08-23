@@ -1,0 +1,220 @@
+/**
+ * The host's side of the worker pipe.
+ *
+ * Answers what the worker asks against the real services, and pushes what the
+ * worker cannot ask for synchronously. The session file is written here and
+ * nowhere else: an append arrives as a request, the host writes it, and the
+ * reply names the line it landed on.
+ *
+ * Everything this file touches survives the worker dying. That is the point of
+ * which side it is on.
+ */
+
+import type { EngineEvent } from "../../engine/events.ts";
+import type { LoopState } from "../../engine/host-protocol.ts";
+import type { RunHeadlessLoopServices } from "../../engine/loop-services.ts";
+import type { AgentUpdate } from "../../engine/protocol.ts";
+import type { EngineCommand } from "../../engine/timeline-control.ts";
+import type { ReviewLogEntry } from "../../engine/review-log.ts";
+import type { SessionStore } from "../../store/session-store.ts";
+import type { RegisteredTool } from "../../tools/types.ts";
+import type { ToolRuntime } from "../../tools/runtime.ts";
+import type { JsonPipe } from "./pipe.ts";
+
+export interface WorkerBoundaryServerOptions {
+    readonly pipe: JsonPipe;
+    /** The real store. This process is its only writer. */
+    readonly store: SessionStore;
+    readonly services: RunHeadlessLoopServices;
+    /** Extension tools by name, resolved host-side. */
+    readonly extensionTools?: readonly RegisteredTool[];
+    readonly toolRuntime?: ToolRuntime;
+    /** Client updates the worker produced. */
+    readonly onClientUpdate?: (update: AgentUpdate) => void;
+    readonly onWorkerFinished?: (error?: string) => void;
+}
+
+export interface WorkerBoundaryServer {
+    /** Feeds one frame body the worker sent. Requests get a reply. */
+    handleRequest(body: unknown): Promise<unknown>;
+    handleNotification(body: unknown): void;
+    /** A record the host wrote on its own initiative. */
+    pushRecord(lineNumber: number, record: Record<string, unknown>): void;
+    pushState(state: LoopState): void;
+    injectEvent(event: EngineEvent): void;
+    sendCommand(command: EngineCommand): void;
+    /** The line the last host-performed append landed on. */
+    readonly lastLineNumber: number;
+}
+
+export function createWorkerBoundaryServer(
+    options: WorkerBoundaryServerOptions,
+): WorkerBoundaryServer {
+    const { pipe, services } = options;
+    const cancellers = new Map<string, AbortController>();
+    const toolsByName = new Map(
+        (options.extensionTools ?? []).map((tool) => [tool.definition.name, tool]),
+    );
+    // The store's own writes and the worker's share one sequence, and the host
+    // is the only writer, so this counter is the file's line count.
+    let lineNumber = options.store.appendedLineCount?.() ?? 0;
+
+    const server: WorkerBoundaryServer = {
+        async handleRequest(body: unknown): Promise<unknown> {
+            const message = body as { readonly method: string };
+            switch (message.method) {
+                case "session.append": {
+                    const request = body as {
+                        readonly record: Record<string, unknown>;
+                    };
+                    const line = await options.store.appendForeignRecord(
+                        request.record,
+                    );
+                    lineNumber = line;
+                    return { lineNumber: line };
+                }
+                case "approval.update": {
+                    const request = body as { readonly mode: never };
+                    const mode = await services.updateApprovalMode?.(
+                        request.mode,
+                    );
+                    return mode === undefined ? {} : { mode };
+                }
+                case "review.toolCall": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly request: never;
+                    };
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        const decision = await services.reviewToolCall?.(
+                            request.request,
+                            controller.signal,
+                        );
+                        return { decision };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
+                case "effect.commit": {
+                    const request = body as { readonly effect: never };
+                    await services.applyCommittedToolEffect?.(request.effect);
+                    return { result: null };
+                }
+                case "contributions.load": {
+                    const request = body as {
+                        readonly instructionRoot: never;
+                        readonly allowedSkills?: readonly string[];
+                    };
+                    const contributions = await services
+                        .loadContextualContributions?.(
+                            request.instructionRoot,
+                            request.allowedSkills,
+                        ) ?? [];
+                    return { contributions };
+                }
+                case "tool.execute": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly name: string;
+                        readonly input: Readonly<Record<string, unknown>>;
+                    };
+                    const tool = toolsByName.get(request.name);
+                    if (tool === undefined || options.toolRuntime === undefined) {
+                        throw new Error(
+                            `No extension tool named ${request.name}`,
+                        );
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        const result = await tool.execute(
+                            request.input,
+                            options.toolRuntime,
+                            controller.signal,
+                        );
+                        return { result };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
+                case "hook.preToolUse": {
+                    const request = body as {
+                        readonly payload: never;
+                        readonly options: never;
+                    };
+                    const outcome = await services.hooks?.runPreToolUse(
+                        request.payload,
+                        request.options,
+                    ) ?? { power: "observe" };
+                    return { outcome };
+                }
+                case "hook.postToolUse": {
+                    const request = body as {
+                        readonly payload: never;
+                        readonly options: never;
+                    };
+                    await services.hooks?.runPostToolUse(
+                        request.payload,
+                        request.options,
+                    );
+                    return { result: null };
+                }
+                default:
+                    throw new Error(
+                        `The host does not answer ${message.method}`,
+                    );
+            }
+        },
+        handleNotification(body: unknown): void {
+            const message = body as { readonly method: string };
+            if (message.method === "call.cancel") {
+                const { callId } = body as { readonly callId: string };
+                cancellers.get(callId)?.abort();
+                return;
+            }
+            if (message.method === "event.emit") {
+                const { event } = body as { readonly event: EngineEvent };
+                services.eventBus?.emit(event);
+                return;
+            }
+            if (message.method === "reviewLog.append") {
+                const { entry } = body as { readonly entry: ReviewLogEntry };
+                services.reviewLog?.(entry);
+                return;
+            }
+            if (message.method === "client.update") {
+                const { update } = body as { readonly update: AgentUpdate };
+                options.onClientUpdate?.(update);
+                return;
+            }
+            if (message.method === "worker.finished") {
+                const { error } = body as { readonly error?: string };
+                options.onWorkerFinished?.(error);
+                return;
+            }
+        },
+        pushRecord(line: number, record: Record<string, unknown>): void {
+            lineNumber = line;
+            pipe.notify({
+                method: "session.record",
+                lineNumber: line,
+                record,
+            });
+        },
+        pushState(state: LoopState): void {
+            pipe.notify({ method: "state.changed", state });
+        },
+        injectEvent(event: EngineEvent): void {
+            pipe.notify({ method: "event.inject", event });
+        },
+        sendCommand(command: EngineCommand): void {
+            pipe.notify({ method: "client.command", command });
+        },
+        get lastLineNumber(): number {
+            return lineNumber;
+        },
+    };
+    return server;
+}
