@@ -18,6 +18,7 @@ const BARE_DISABLED_CONTRIBUTIONS = [
 ] as const;
 
 const PROMPT_ONLY_DISABLED_CONTRIBUTIONS = [
+    "core.narration",
     "core.tools",
     "core.workspace",
     "core.scratchpad",

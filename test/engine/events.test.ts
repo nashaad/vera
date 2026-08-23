@@ -166,19 +166,24 @@ test("a turn fans out to updates and a per-session event log", async () => {
                 order: 0,
             }),
             expect.objectContaining({
-                id: "core.tools",
+                id: "core.narration",
                 target: "stable",
                 order: 1,
             }),
             expect.objectContaining({
-                id: "core.workspace",
+                id: "core.tools",
                 target: "stable",
                 order: 2,
             }),
             expect.objectContaining({
+                id: "core.workspace",
+                target: "stable",
+                order: 3,
+            }),
+            expect.objectContaining({
                 id: "core.date",
                 target: "contextual",
-                order: 3,
+                order: 4,
             }),
         ]);
         expect((await stat(logDirectory)).mode & 0o777).toBe(0o700);

@@ -94,6 +94,22 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
         }),
     },
     {
+        id: "core.narration",
+        owner: "core",
+        target: "stable",
+        contribute: () => ({
+            title: "Narration",
+            content:
+                "Say what you are doing as you go. Before your first tool "
+                + "call, state in one sentence what you are about to do. "
+                + "While working, post a short update when you find "
+                + "something, change direction, or hit a blocker. Write these "
+                + "as ordinary response text. Reasoning may be hidden from "
+                + "the user, so it is not a substitute for telling them what "
+                + "is happening.",
+        }),
+    },
+    {
         id: "core.tools",
         owner: "core",
         target: "stable",
