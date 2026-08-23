@@ -11,7 +11,7 @@ import {
     rmdir,
     unlink,
 } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { tmpdir, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
 import { EngineEventBus } from "../engine/events.ts";
@@ -325,6 +325,13 @@ export interface AgentRegistryOptions {
         readonly projectRoot: string;
         readonly sessionId: string;
     }) => WorkerAdapterSpec;
+    /**
+     * How many sessions may run their loop in a separate process at once.
+     * Defaults to what the machine's memory affords. A session that would
+     * exceed it fails to start rather than running unisolated, because an
+     * unisolated session is the one that cannot be killed.
+     */
+    readonly maxConcurrentWorkers?: number;
     readonly provider?: string;
     /**
      * Config-declared provider ids accepted alongside Vera's built-ins. Read
@@ -3736,7 +3743,12 @@ export class AgentRegistry {
             if (!agent.closed) {
                 entry.failure = error;
                 const failureId = randomUUID();
-                const detail = "Resident agent stopped unexpectedly";
+                // A refused start is a decision with a next action, so it
+                // reaches the client as itself rather than as the generic
+                // outcome used when a running agent stops.
+                const detail = error instanceof WorkerCapReachedError
+                    ? error.message
+                    : "Resident agent stopped unexpectedly";
                 try {
                     await store.appendAgentFailure(failureId, detail);
                 } catch {
@@ -3847,6 +3859,15 @@ export class AgentRegistry {
      * worker therefore lands on `handle.outcome` as one typed value, and the
      * session file it was writing through is already complete on disk.
      */
+    /** Sessions whose loop currently runs in a separate process. */
+    private liveWorkerCount(): number {
+        let count = 0;
+        for (const entry of this.agents.values()) {
+            if (entry.worker !== undefined) count += 1;
+        }
+        return count;
+    }
+
     private async runInWorker(options: {
         readonly agent: ResidentAgent;
         readonly store: SessionStore;
@@ -3857,6 +3878,11 @@ export class AgentRegistry {
         readonly extensionTools?: readonly RegisteredTool[];
     }): Promise<void> {
         const { agent, store, services } = options;
+        const cap = this.options.maxConcurrentWorkers
+            ?? defaultConcurrentWorkerCap();
+        if (this.liveWorkerCount() >= cap) {
+            throw new WorkerCapReachedError(cap);
+        }
         const handle = await startWorker({
             store,
             session: await readSessionSeed(store.path),
@@ -4633,6 +4659,36 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
 
 /** Set to `1` to run each session's turn loop in its own process. */
 const WORKER_ENV = "VERA_WORKER";
+
+/**
+ * Measured on 2026-08-22: a worker is about 280 MB resident and its
+ * supervisor about 27 MB, nearly all of it runtime rather than session state.
+ * The default cap spends about a quarter of the machine on isolated sessions
+ * and is clamped so a small machine keeps a usable number and a large one does
+ * not spawn without bound.
+ */
+const WORKER_FOOTPRINT_BYTES = 320 * 1024 * 1024;
+const MIN_WORKER_CAP = 2;
+const MAX_WORKER_CAP = 16;
+
+export function defaultConcurrentWorkerCap(total = totalmem()): number {
+    const affordable = Math.floor((total * 0.25) / WORKER_FOOTPRINT_BYTES);
+    return Math.min(MAX_WORKER_CAP, Math.max(MIN_WORKER_CAP, affordable));
+}
+
+export class WorkerCapReachedError extends Error {
+    readonly cap: number;
+
+    constructor(cap: number) {
+        super(
+            `This host already runs ${cap} isolated sessions, which is its `
+            + "limit. Free a slot with 'vera close <agent-id>', or run "
+            + "'vera ls' to see which are live.",
+        );
+        this.name = "WorkerCapReachedError";
+        this.cap = cap;
+    }
+}
 
 /**
  * The session file as a worker is given it: the header verbatim, then every
