@@ -159,6 +159,7 @@ test("doctor opens the read-only process report inside the TUI", async () => {
         expect(pane).toContain("Resident hosts: 1 (1 unrecognized");
         expect(pane).toContain("PID 4242");
         expect(pane).toContain("1 stray process can be stopped safely.");
+        expect(pane).toContain("Run `vera doctor` in a terminal to stop it.");
         await session.settle(400);
         pane = session.captureVisiblePane();
         expect(pane).toContain("PID 4242");

@@ -5746,7 +5746,17 @@ export async function startTui(
                     || doctorDialog === undefined
                     || doctorInspectionGeneration !== inspectionGeneration
                 ) return;
-                const processText = renderVeraDoctor(report);
+                const strayCount = report.processes.filter(
+                    (candidate) => candidate.stray,
+                ).length;
+                // The dialog has no way to ask for a confirmation and act on
+                // it, so it points at the CLI, which does, rather than
+                // reporting strays with no next step.
+                const processText = strayCount > 0
+                    ? `${renderVeraDoctor(report)}\nRun \`vera doctor\` in a terminal to stop ${
+                        strayCount === 1 ? "it" : "them"
+                    }.\n`
+                    : renderVeraDoctor(report);
                 doctorDialog = { text: processText, copyReady: false };
                 renderState();
                 focusActiveSurface();
