@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { ownTmuxServer } from "../support/uat-process-owner.ts";
+import { killTmuxServer } from "../support/kill-tmux-server.ts";
 import { cursorRow } from "../support/tui-cursor-row.ts";
 
 /**
@@ -341,7 +342,7 @@ async function withTui<T>(
             Object.entries(env)
                 .map(([name, value]) => `${name}=${quote(value)} `)
                 .join("")
-        }${quote(process.execPath)} run ${quote(CHILD)}`,
+        }exec ${quote(process.execPath)} run ${quote(CHILD)}`,
     ]);
     runTmux(socket, ["set-option", "-t", session, "monitor-bell", "on"], true);
 
@@ -437,7 +438,7 @@ async function withTui<T>(
 }
 
 function killServer(socket: string): void {
-    runTmux(socket, ["kill-server"], true);
+    killTmuxServer(socket);
 }
 
 function runTmux(

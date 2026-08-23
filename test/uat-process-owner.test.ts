@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
 import { processIsAlive } from "../src/host/process-identity.ts";
+import { killTmuxServer } from "./support/kill-tmux-server.ts";
 
 const tmuxAvailable = Bun.spawnSync(["tmux", "-V"], {
     stdout: "ignore",
@@ -169,10 +170,7 @@ function cleanFixture(fixture: OwnerFixture): void {
     ) {
         process.kill(fixture.ready.watchdogPid, "SIGKILL");
     }
-    Bun.spawnSync(["tmux", "-L", fixture.socket, "kill-server"], {
-        stdout: "ignore",
-        stderr: "ignore",
-    });
+    killTmuxServer(fixture.socket);
     rmSync(fixture.root, { recursive: true, force: true });
 }
 

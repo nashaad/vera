@@ -8,6 +8,7 @@ import {
     type TuiDependencies,
     type TuiExit,
 } from "../../clients/tui/main.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiRenameSessionScenario {
     readonly dependencies: TuiDependencies;
@@ -86,6 +87,7 @@ export function createTuiRenameSessionScenario(options: {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const scenario = createTuiRenameSessionScenario({
         home: process.env.HOME ?? ".",
         renameBusy: process.env.RENAME_BUSY === "1",

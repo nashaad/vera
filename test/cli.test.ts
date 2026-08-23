@@ -13,6 +13,7 @@ import {
 import { VeraProfileError } from "../src/profile-paths.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
+import type { VeraDoctorReport } from "../clients/process-doctor.ts";
 import {
     HostProtocolMismatchError,
     HostUnresponsiveError,
@@ -352,6 +353,7 @@ test("vera doctor renders process health and exits nonzero for a finding", async
             processes: [{
                 pid: 201,
                 ppid: 1,
+                pgid: 201,
                 elapsed: "03-00:00:00",
                 cpuPercent: 99,
                 startedAt: "Mon Aug 10 12:34:56 2026",
@@ -360,6 +362,7 @@ test("vera doctor renders process health and exits nonzero for a finding", async
                 currentHost: false,
                 knownProfileHost: false,
                 sustainedHighCpu: true,
+                stray: false,
             }],
         }),
         providerDoctor: async () => ({
@@ -373,6 +376,90 @@ test("vera doctor renders process health and exits nonzero for a finding", async
     expect(output).toContain("Vera doctor");
     expect(output).toContain("PID 201");
     expect(output).toContain("Providers");
+});
+
+function strayReport(): VeraDoctorReport {
+    return {
+        healthy: false,
+        currentHostMissing: false,
+        highCpuPercent: 50,
+        processes: [{
+            pid: 401,
+            ppid: 1,
+            pgid: 401,
+            elapsed: "00:05:00",
+            cpuPercent: 0,
+            startedAt: "Mon Aug 10 12:34:56 2026",
+            command: "bun src/host/worker/entry.ts",
+            kind: "worker",
+            currentHost: false,
+            knownProfileHost: false,
+            sustainedHighCpu: false,
+            stray: true,
+        }],
+    };
+}
+
+test("vera doctor stops stray processes once the caller confirms", async () => {
+    let output = "";
+    let asked: readonly unknown[] | undefined;
+    let stoppedWith: readonly unknown[] | undefined;
+    const exitCode = await runCli(["doctor"], {
+        doctor: async () => strayReport(),
+        providerDoctor: async () => ({ providers: [], networkChecked: false }),
+        confirmStopStrayProcesses: async (strays) => {
+            asked = strays;
+            return true;
+        },
+        stopStrayProcesses: async (strays) => {
+            stoppedWith = strays;
+            return strays.length;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(asked?.length).toBe(1);
+    expect(stoppedWith?.length).toBe(1);
+    expect(output).toContain("Stopped 1 stray process.");
+});
+
+test("vera doctor leaves stray processes running when the caller declines", async () => {
+    let output = "";
+    let stopCalled = false;
+    const exitCode = await runCli(["doctor"], {
+        doctor: async () => strayReport(),
+        providerDoctor: async () => ({ providers: [], networkChecked: false }),
+        confirmStopStrayProcesses: async () => false,
+        stopStrayProcesses: async () => {
+            stopCalled = true;
+            return 0;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(stopCalled).toBe(false);
+    expect(output).toContain("Left stray processes running.");
+});
+
+test("vera doctor --yes stops stray processes without asking", async () => {
+    let output = "";
+    let confirmCalled = false;
+    const exitCode = await runCli(["doctor", "--yes"], {
+        doctor: async () => strayReport(),
+        providerDoctor: async () => ({ providers: [], networkChecked: false }),
+        confirmStopStrayProcesses: async () => {
+            confirmCalled = true;
+            return false;
+        },
+        stopStrayProcesses: async (strays) => strays.length,
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(confirmCalled).toBe(false);
+    expect(output).toContain("Stopped 1 stray process.");
 });
 
 test("vera doctor --check-providers asks for the network probe", async () => {

@@ -14,6 +14,7 @@ import {
     type AssistantMessage,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 /** Every turn reasons and says nothing, the way a badly served model does. */
 export function createTuiModelFailureDependencies(): TuiDependencies {
@@ -59,5 +60,6 @@ export function createTuiModelFailureDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiModelFailureDependencies());
 }

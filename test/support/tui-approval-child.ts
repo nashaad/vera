@@ -8,6 +8,7 @@ import type {
     AgentUpdate,
     ClientCommand,
 } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiApprovalDependencies(): TuiDependencies {
     const requestId = "long-approval";
@@ -61,5 +62,6 @@ export function createTuiApprovalDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiApprovalDependencies());
 }

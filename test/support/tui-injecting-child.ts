@@ -13,6 +13,7 @@ import {
     type AssistantMessage,
     type ModelAdapter,
 } from "../../src/model/types.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 const EXTENSION = join(import.meta.dir, "./injecting-extension");
 
@@ -107,6 +108,7 @@ export function createTuiInjectingDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiInjectingDependencies());
 }
 

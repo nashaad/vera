@@ -9,6 +9,9 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import type { SessionSearchResults } from "../../src/store/session-search.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
+
+installTestProcessGuard();
 
 /**
  * A TUI holding a fixed work index and a fixed search answer, so a pane

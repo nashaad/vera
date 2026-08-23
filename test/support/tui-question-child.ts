@@ -8,6 +8,7 @@ import type {
     AgentUpdate,
     ClientCommand,
 } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiQuestionDependencies(): TuiDependencies {
     const requestId = "choice-question";
@@ -106,5 +107,6 @@ export function createTuiQuestionDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiQuestionDependencies());
 }

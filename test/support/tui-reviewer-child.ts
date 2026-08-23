@@ -1,5 +1,6 @@
 import { startTui, type TuiDependencies } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 const MODELS = [
     {
@@ -61,5 +62,6 @@ return { client };
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiReviewerDependencies());
 }

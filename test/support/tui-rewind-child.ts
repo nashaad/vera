@@ -10,6 +10,7 @@ import {
     type AssistantMessage,
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiRewindDependencies(): TuiDependencies {
     const channel = createInProcessChannel();
@@ -52,6 +53,7 @@ export function createTuiRewindDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiRewindDependencies());
 }
 

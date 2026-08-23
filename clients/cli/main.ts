@@ -108,6 +108,8 @@ import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import {
     diagnoseVeraProcesses,
     renderVeraDoctor,
+    stopStrayVeraProcesses,
+    type DiagnosedVeraProcess,
     type VeraDoctorReport,
 } from "../process-doctor.ts";
 import {
@@ -205,6 +207,12 @@ export interface CliDependencies {
     readonly stopHost?: () => Promise<number | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    readonly confirmStopStrayProcesses?: (
+        strays: readonly DiagnosedVeraProcess[],
+    ) => boolean | Promise<boolean>;
+    readonly stopStrayProcesses?: (
+        strays: readonly DiagnosedVeraProcess[],
+    ) => number | Promise<number>;
     readonly providerDoctor?: (
         options: ProviderDoctorOptions,
     ) => Promise<ProviderDoctorReport>;
@@ -527,13 +535,34 @@ export async function runCli(
 
     if (
         args[0] === "doctor"
-        && args.slice(1).every((arg) => arg === PROVIDER_CHECK_FLAG)
+        && args.slice(1).every((arg) =>
+            arg === PROVIDER_CHECK_FLAG || arg === "--yes" || arg === "-y"
+        )
     ) {
         const checkNetwork = args.includes(PROVIDER_CHECK_FLAG);
+        const doctorAssumeYes = assumeYes || args.includes("--yes")
+            || args.includes("-y");
         const report = await (
             dependencies.doctor ?? diagnoseVeraProcesses
         )();
         output.write(renderVeraDoctor(report));
+        const strays = report.processes.filter((process) => process.stray);
+        if (strays.length > 0) {
+            const confirmed = doctorAssumeYes || await (
+                dependencies.confirmStopStrayProcesses
+                    ?? confirmStopStrayVeraProcesses
+            )(strays);
+            if (confirmed) {
+                const stopped = await (
+                    dependencies.stopStrayProcesses ?? stopStrayVeraProcesses
+                )(strays);
+                output.write(
+                    `Stopped ${stopped} stray process${stopped === 1 ? "" : "es"}.\n`,
+                );
+            } else {
+                output.write("Left stray processes running.\n");
+            }
+        }
         const providers = await (
             dependencies.providerDoctor ?? defaultProviderDoctor
         )({ checkNetwork });
@@ -1228,6 +1257,22 @@ async function confirmResidentHostStop(): Promise<boolean> {
     try {
         const answer = await prompt.question(
             "Stop the resident Vera host and disconnect attached clients? [y/N] ",
+        );
+        return answer.trim().toLowerCase() === "y"
+            || answer.trim().toLowerCase() === "yes";
+    } finally {
+        prompt.close();
+    }
+}
+
+async function confirmStopStrayVeraProcesses(
+    strays: readonly DiagnosedVeraProcess[],
+): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const answer = await prompt.question(
+            `Stop ${strays.length} stray process${strays.length === 1 ? "" : "es"}? [y/N] `,
         );
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";

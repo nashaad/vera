@@ -6,6 +6,7 @@ import {
     type TuiExit,
 } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiResumeScenario {
     readonly dependencies: TuiDependencies;
@@ -111,6 +112,7 @@ export function createTuiResumeScenario(options: {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     const scenario = createTuiResumeScenario({
         home: process.env.HOME ?? ".",
         resumeTimeout: process.env.RESUME_TIMEOUT === "1",

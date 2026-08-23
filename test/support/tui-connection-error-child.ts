@@ -5,6 +5,7 @@ import {
 } from "../../clients/tui/main.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiConnectionErrorDependencies(): TuiDependencies {
     const updates = new AsyncQueue<AgentUpdate>();
@@ -46,5 +47,6 @@ export function createTuiConnectionErrorDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiConnectionErrorDependencies());
 }

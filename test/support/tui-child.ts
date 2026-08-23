@@ -11,6 +11,7 @@ import {
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 import type { VeraDoctorReport } from "../../clients/process-doctor.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export interface TuiChildOptions {
     /** The first doctor pass answers late with another PID, like a stale run. */
@@ -81,6 +82,7 @@ function doctorReport(pid: number): VeraDoctorReport {
         processes: [{
             pid,
             ppid: 1,
+            pgid: pid,
             elapsed: "01:23",
             cpuPercent: 98.7,
             startedAt: "Fri Aug 14 12:00:00 2026",
@@ -89,6 +91,7 @@ function doctorReport(pid: number): VeraDoctorReport {
             currentHost: false,
             knownProfileHost: false,
             sustainedHighCpu: true,
+            stray: true,
         }],
     };
 }
@@ -115,6 +118,7 @@ function response(text: string): AssistantMessage {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiChildDependencies({
         staleDoctor: process.env.VERA_TEST_STALE_DOCTOR === "1",
     }));

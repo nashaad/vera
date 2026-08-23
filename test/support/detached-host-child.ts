@@ -1,6 +1,9 @@
 import { findOrStartResidentHost } from "../../clients/host/launch.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
+
+installTestProcessGuard();
 
 const host = await findOrStartResidentHost();
 const agent = await createAgentThroughHost(host.socket_path, process.cwd());

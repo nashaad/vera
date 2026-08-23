@@ -5,6 +5,7 @@ import {
 } from "../../clients/tui/main.ts";
 import { AsyncQueue } from "../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 /** A compaction that starts and never finishes, so the bar stays visible. */
 export function createTuiCompactionDependencies(): TuiDependencies {
@@ -30,5 +31,6 @@ export function createTuiCompactionDependencies(): TuiDependencies {
 }
 
 if (import.meta.main) {
+    installTestProcessGuard();
     await startTui(createTuiCompactionDependencies());
 }

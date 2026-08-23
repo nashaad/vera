@@ -25,6 +25,7 @@ import {
     ownTmuxServer,
     ownVeraHostLock,
 } from "../support/uat-process-owner.ts";
+import { killTmuxServer } from "../support/kill-tmux-server.ts";
 
 function profileDirectory(home: string): string {
     return join(home, ".vera", "profiles", "default");
@@ -128,10 +129,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -196,10 +194,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -233,7 +228,7 @@ function startTuiSession(
         String(height),
         `cd ${shellQuote(process.cwd())} && HOME=${
             shellQuote(home)
-        } VERA_HOME=${shellQuote(join(home, ".vera"))} ${exported}${shellQuote(process.execPath)} run ${
+        } VERA_HOME=${shellQuote(join(home, ".vera"))} ${exported}exec ${shellQuote(process.execPath)} run ${
             shellQuote(childPath)
         }`,
     ]);
@@ -276,7 +271,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach rewind-agent`,
             ]);
@@ -285,10 +280,7 @@ test.skipIf(!tmuxAvailable)(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             if (hostProcess.exitCode === null) {
                 hostProcess.kill("SIGTERM");
             }
@@ -348,7 +340,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach roster-caller`,
             ]);
@@ -378,10 +370,7 @@ test.skipIf(!tmuxAvailable)(
             pane = capturePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             if (hostProcess.exitCode === null) {
                 hostProcess.kill("SIGTERM");
             }
@@ -431,7 +420,7 @@ test.skipIf(!tmuxAvailable)(
                 "160",
                 "-y",
                 "36",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach left`,
             ]);
@@ -440,7 +429,7 @@ test.skipIf(!tmuxAvailable)(
                 "-h",
                 "-t",
                 leftPane,
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach right`,
             ]);
@@ -479,10 +468,7 @@ test.skipIf(!tmuxAvailable)(
             }`;
             throw new Error(`${errorMessage(error)}\n\nLast panes:\n${panes}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
             await hostProcess.exited;
             rmSync(home, { recursive: true, force: true });
@@ -518,7 +504,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts`,
             ]);
@@ -537,10 +523,7 @@ test.skipIf(!tmuxAvailable)(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             await stopTemporaryHost(home);
             rmSync(home, { recursive: true, force: true });
         }
@@ -684,10 +667,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -885,10 +865,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -959,10 +936,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1036,10 +1010,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1095,10 +1066,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1151,7 +1119,7 @@ test.skipIf(!tmuxAvailable)(
                 "120",
                 "-y",
                 "40",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach btw-main`,
             ]);
@@ -1212,10 +1180,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
             await hostProcess.exited;
             rmSync(home, { recursive: true, force: true });
@@ -1271,7 +1236,7 @@ test.skipIf(!tmuxAvailable)(
                 "100",
                 "-y",
                 "30",
-                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} ${
+                `cd ${shellQuote(process.cwd())} && HOME=${shellQuote(home)} VERA_HOME=${shellQuote(join(home, ".vera"))} exec ${
                     shellQuote(process.execPath)
                 } run clients/cli/main.ts attach pair-main`,
             ]);
@@ -1315,10 +1280,7 @@ test.skipIf(!tmuxAvailable)(
             pane = captureVisiblePane(socket, session);
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             if (hostProcess.exitCode === null) hostProcess.kill("SIGTERM");
             await hostProcess.exited;
             rmSync(home, { recursive: true, force: true });
@@ -1371,10 +1333,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1415,10 +1374,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1489,10 +1445,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1537,10 +1490,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1597,10 +1547,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1648,10 +1595,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -1689,10 +1633,7 @@ test.skip(
         } catch (error) {
             throw new Error(`${errorMessage(error)}\n\nLast pane:\n${pane}`);
         } finally {
-            Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-                stdout: "ignore",
-                stderr: "ignore",
-            });
+            killTmuxServer(socket);
             rmSync(home, { recursive: true, force: true });
         }
     },
@@ -2018,10 +1959,7 @@ function canRunTmux(): boolean {
         stdout: "ignore",
         stderr: "ignore",
     });
-    Bun.spawnSync(["tmux", "-L", socket, "kill-server"], {
-        stdout: "ignore",
-        stderr: "ignore",
-    });
+    killTmuxServer(socket);
     return result.exitCode === 0 && session.exitCode === 0;
 }
 
