@@ -14,6 +14,7 @@ import {
 import { tmpdir, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
+import { AsyncQueue } from "../engine/async-queue.ts";
 import { EngineEventBus } from "../engine/events.ts";
 import type { SessionFacts } from "../store/session-facts.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
@@ -75,7 +76,7 @@ import {
     type SpawnModelDefault,
     type SubagentPoolPolicy,
 } from "../engine/subagent.ts";
-import type { InboundCommandRouter } from "../engine/inbound-command-router.ts";
+import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isConsultReplyUpdate,
     isSessionNameReplyUpdate,
@@ -161,6 +162,7 @@ import {
 } from "../startup-profile.ts";
 import type { UserMessage } from "../model/types.ts";
 import type { ConsultMessage } from "../engine/protocol.ts";
+import type { EngineCommand } from "../engine/timeline-control.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
 import { agentNameKey, mintAgentName } from "./agent-name.ts";
 import { workspaceKey } from "../workspace-key.ts";
@@ -1010,6 +1012,8 @@ interface RegisteredAgentEntry {
      */
     agentWear?: AgentWearSnapshot;
     inbound?: InboundCommandRouter;
+    /** Answers host-owned commands while this session's loop is in a worker. */
+    workerOwnerRouter?: InboundCommandRouter;
     /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
@@ -3960,9 +3964,30 @@ export class AgentRegistry {
         // any other worker ends, so the outcome below is expected, not a
         // failure to report on a session that already stopped.
         let stopping = false;
+        const ownerCommands = new AsyncQueue<EngineCommand>();
+        options.entry.workerOwnerRouter = new InboundCommandRouter(
+            {
+                send: (update) => agent.engine.send(update),
+                receive: (signal) => ownerCommands.receive(signal),
+            },
+            options.entry.events,
+            {
+                ...(services.readModelSettings === undefined
+                    ? {}
+                    : { readModelSettings: services.readModelSettings }),
+                ...(services.router ?? {}),
+                sendSessionNameReply: services.router?.sendSessionNameReply
+                    ?? ((_ownerId, reply) => agent.engine.send(reply)),
+                hasPendingDeliveryTurn: () => false,
+            },
+        );
         void (async () => {
             for (;;) {
                 const command = await agent.engine.receive(pumping.signal);
+                if (HOST_OWNED_COMMANDS.has(command.type)) {
+                    ownerCommands.push(command);
+                    continue;
+                }
                 handle.send(command);
             }
         })().catch(() => {
@@ -3979,6 +4004,7 @@ export class AgentRegistry {
             throw new Error(workerOutcomeDetail(outcome));
         } finally {
             pumping.abort();
+            options.entry.workerOwnerRouter = undefined;
             if (options.entry.worker === handle) {
                 options.entry.worker = undefined;
             }
@@ -4659,6 +4685,32 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
 
 /** Set to `1` to run each session's turn loop in its own process. */
 const WORKER_ENV = "VERA_WORKER";
+
+/**
+ * Commands the host answers itself while the loop runs in a worker.
+ *
+ * Each one reads or writes state this process owns outright: the catalog, the
+ * pool, the roster, the session header, and consults, none of which the loop
+ * holds a copy of. Commands that change what a running turn uses, model
+ * settings and wear and permission mode among them, are absent: those need the
+ * new value pushed into the worker, which is a separate piece of work.
+ */
+const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
+    "get_model_settings",
+    "get_session_model_settings_history",
+    "list_agents",
+    "update_agent_default_pair",
+    "pool_add",
+    "pool_remove",
+    "pool_name",
+    "pool_move",
+    "catalog_refresh",
+    "update_session_name",
+    "owned_session_name_command",
+    "consult",
+    "owned_consult_command",
+]);
+
 
 /**
  * Measured on 2026-08-22: a worker is about 280 MB resident and its

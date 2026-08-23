@@ -302,3 +302,58 @@ test("a session past the worker cap fails with the way to free a slot", async ()
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
+
+test("owner commands still answer while the loop runs in a worker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-owner-"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [toolCall("hold", "sleep 60"), text("never reached")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "owner",
+            workspace: root,
+            sessionPath: join(root, "owner.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+        client.send({ type: "prompt", content: "hold the tool open" });
+        await receiveUntil(client, (update) => update.type === "tool_started");
+
+        client.send({
+            type: "update_session_name",
+            requestId: "rename-1",
+            name: "renamed in a worker",
+        });
+        const reply = await receiveUntil(
+            client,
+            (update) =>
+                update.type === "session_name"
+                || update.type === "session_name_rejected",
+        );
+        expect(reply).toMatchObject({
+            type: "session_name",
+            requestId: "rename-1",
+            name: "renamed in a worker",
+        });
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
