@@ -5,10 +5,14 @@ import type { AuthStorage } from "./auth-storage.ts";
  * What a provider wants before it can run a turn.
  *
  * `oauth` runs a browser flow and stores what it gets back. `api_key` is a
- * string the user pastes. `none` is a provider that needs no secret at all,
- * which today means a local daemon reached over a host URL.
+ * string the user pastes. `api_key_optional` is a local provider that can
+ * accept a key when its server requires one. `none` needs no secret at all.
  */
-export type ProviderCredentialKind = "oauth" | "api_key" | "none";
+export type ProviderCredentialKind =
+    | "oauth"
+    | "api_key"
+    | "api_key_optional"
+    | "none";
 
 /**
  * Where a provider sits in the connect list. `popular` is the short group at
@@ -108,6 +112,16 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         envVar: "OLLAMA_HOST",
         baseUrl: "http://127.0.0.1:11434",
     },
+    {
+        id: "omlx",
+        label: "oMLX",
+        shortLabel: "omlx",
+        group: "other",
+        credential: "api_key_optional",
+        hint: "local, API key if required",
+        envVar: "OMLX_API_KEY",
+        baseUrl: "http://127.0.0.1:8000/v1",
+    },
 ];
 
 export function findProvider(id: string): ProviderDescriptor | undefined {
@@ -162,15 +176,18 @@ export interface ProviderConnectionOptions {
  * reports what Vera can do, not where the secret came from, and a user who
  * exported a key years ago is connected whether or not Vera wrote the file.
  *
- * A provider needing no credential is always connected, which is the honest
- * answer for a local daemon: whether it is actually running is a different
+ * A provider needing no credential, or one whose local key is optional, is
+ * always connected: whether its daemon is actually running is a different
  * question, and one only a request can answer.
  */
 export function isProviderConnected(
     provider: ProviderDescriptor,
     options: ProviderConnectionOptions = {},
 ): boolean {
-    if (provider.credential === "none") {
+    if (
+        provider.credential === "none"
+        || provider.credential === "api_key_optional"
+    ) {
         return true;
     }
     if (options.authStorage?.getCredential(provider.id) !== undefined) {

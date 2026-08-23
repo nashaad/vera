@@ -122,6 +122,10 @@ const BUILT_IN_ENDPOINTS: Readonly<Record<string, ProviderEndpoint>> = {
         baseUrl: "https://openrouter.ai/api/v1",
         protocol: "openai-chat",
     },
+    omlx: {
+        baseUrl: "http://127.0.0.1:8000/v1",
+        protocol: "openai-chat",
+    },
 };
 
 export async function diagnoseProviders(

@@ -89,3 +89,40 @@ test("a named endpoint may deliberately require no credential", async () => {
         .stopReason).toBe("stop");
     expect(authorization).toBeNull();
 });
+
+test("the built-in oMLX provider uses its local OpenAI endpoint", async () => {
+    let request: Request | undefined;
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "omlx",
+        model: "Qwen3-Coder-Next-8bit",
+        approval_mode: "ask",
+    }, {
+        authStorage: {
+            getCredential: () => ({
+                type: "api_key" as const,
+                key: "stored-omlx-secret",
+            }),
+            setCredential: () => {},
+            deleteCredential: () => {},
+        },
+        env: { OMLX_API_KEY: "env-omlx-secret" },
+        fetch: async (input, init) => {
+            request = new Request(String(input), init);
+            return new Response(
+                'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+            );
+        },
+    });
+
+    expect((await adapter.stream({
+        model: "Qwen3-Coder-Next-8bit",
+        messages: [],
+    }).result()).stopReason).toBe("stop");
+    expect(request?.url).toBe(
+        "http://127.0.0.1:8000/v1/chat/completions",
+    );
+    expect(request?.headers.get("authorization")).toBe(
+        "Bearer stored-omlx-secret",
+    );
+});

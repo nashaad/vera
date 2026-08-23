@@ -65,10 +65,15 @@ test("a stored key is used ahead of the environment", () => {
     })).toBe(true);
 });
 
-test("a provider needing no credential is always connected", () => {
+test("local providers are connected before their daemon is probed", () => {
     // Whether the daemon is actually up is a different question, and only a
-    // request can answer it. There is nothing here for the user to supply.
+    // request can answer it. oMLX may also need a key, but its endpoint can
+    // still be used without one.
     expect(isProviderConnected(findProvider("ollama")!, {
+        authStorage: storage({}),
+        env: NO_ENV,
+    })).toBe(true);
+    expect(isProviderConnected(findProvider("omlx")!, {
         authStorage: storage({}),
         env: NO_ENV,
     })).toBe(true);
@@ -95,6 +100,7 @@ test("the registry, the adapter map, and the config ids list the same providers"
                     env: {
                         CEREBRAS_API_KEY: "k",
                         DEEPSEEK_API_KEY: "k",
+                        OMLX_API_KEY: "k",
                         OPENROUTER_API_KEY: "k",
                     },
                 },

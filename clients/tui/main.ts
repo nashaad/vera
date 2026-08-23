@@ -9687,7 +9687,10 @@ export async function startTui(
         if (provider === undefined) {
             return;
         }
-        if (provider.credential === "api_key") {
+        if (
+            provider.credential === "api_key"
+            || provider.credential === "api_key_optional"
+        ) {
             secretPrompt = startTuiSecretPrompt(provider, pane);
             settingsPicker = undefined;
             composer.blur();
@@ -9886,7 +9889,7 @@ export async function startTui(
             id: providerId,
             baseUrl: provider.baseUrl ?? "",
             protocol: "openai-chat",
-            credential: provider.credential === "api_key" ? "api_key" : "none",
+            credential: provider.credential === "none" ? "none" : "api_key",
             shipped: true,
             ...(apiKey === undefined ? {} : { apiKey }),
         });

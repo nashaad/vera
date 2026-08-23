@@ -10,8 +10,11 @@ import type { AuthStorage } from "../../src/providers/auth-storage.ts";
 import {
     discoveredCodexModels,
     discoveredDeepSeekModels,
+    discoverOllamaModelCatalog,
     discoveredOllamaModels,
+    discoverOmlxModelCatalog,
     ollamaContextWindow,
+    replaceProviderRows,
 } from "../../src/host/runtime.ts";
 import { availableReasoningEfforts } from "../../src/engine/model-settings.ts";
 import { readProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
@@ -27,6 +30,79 @@ test("Ollama model metadata exposes its declared context window", () => {
     expect(ollamaContextWindow({
         model_info: { "gemma3.context_length": "131072" },
     })).toBeUndefined();
+});
+
+test("an available Ollama daemon can refresh to an empty model list", async () => {
+    const result = await discoverOllamaModelCatalog({
+        host: "http://127.0.0.1:11434",
+        fetch: async (input) => {
+            expect(String(input)).toBe("http://127.0.0.1:11434/v1/models");
+            return Response.json({ data: [] });
+        },
+    });
+
+    expect(result).toEqual({ available: true, models: [] });
+    expect(replaceProviderRows([
+        {
+            provider: "ollama",
+            model: "deleted:7b",
+            label: "deleted:7b",
+            description: "installed locally",
+        },
+        {
+            provider: "openrouter",
+            model: "kept/model",
+            label: "kept/model",
+            description: "remote",
+        },
+    ], "ollama", [])).toEqual([{
+        provider: "openrouter",
+        model: "kept/model",
+        label: "kept/model",
+        description: "remote",
+    }]);
+});
+
+test("oMLX discovery lists served models and their context windows", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-runtime-omlx-"));
+    try {
+        let authorization: string | null | undefined;
+        const result = await discoverOmlxModelCatalog({
+            baseUrl: "http://127.0.0.1:8000/v1",
+            apiKey: "omlx-secret",
+            cacheDir: directory,
+            fetch: async (input, init) => {
+                expect(String(input)).toBe("http://127.0.0.1:8000/v1/models");
+                authorization = new Headers(init?.headers).get("authorization");
+                return Response.json({
+                    data: [
+                        { id: "Qwen3-Coder-Next-8bit", max_model_len: 131_072 },
+                        { id: "small-model" },
+                    ],
+                });
+            },
+        });
+
+        expect(authorization).toBe("Bearer omlx-secret");
+        expect(result).toMatchObject({ available: true });
+        expect(result.models).toEqual([
+            {
+                provider: "omlx",
+                model: "Qwen3-Coder-Next-8bit",
+                label: "Qwen3-Coder-Next-8bit",
+                description: "served locally",
+                contextWindow: 131_072,
+            },
+            {
+                provider: "omlx",
+                model: "small-model",
+                label: "small-model",
+                description: "served locally",
+            },
+        ]);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });
 
 const codexConfig = {
