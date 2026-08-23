@@ -286,8 +286,8 @@ test("a session past the worker cap fails with the way to free a slot", async ()
 
         expect(failure).toMatchObject({ type: "agent_failed" });
         if (failure.type === "agent_failed") {
-            expect(failure.detail).toContain("1 isolated sessions");
-            expect(failure.detail).toContain("vera close");
+            expect(failure.detail).toContain("1 session is already taking");
+            expect(failure.detail).toContain("vera abort");
         }
         expect(
             registry.list().find((entry) => entry.id === "second")?.worker_pid,

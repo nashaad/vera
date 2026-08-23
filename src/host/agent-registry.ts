@@ -4866,9 +4866,11 @@ export class WorkerCapReachedError extends Error {
 
     constructor(cap: number) {
         super(
-            `This host already runs ${cap} isolated sessions, which is its `
-            + "limit. Free a slot with 'vera close <agent-id>', or run "
-            + "'vera ls' to see which are live.",
+            `${cap} ${cap === 1 ? "session is" : "sessions are"} already `
+            + "taking a turn, which is this host's limit. A slot frees as "
+            + "soon as one of them finishes. To take one now, stop a turn "
+            + "with 'vera abort <agent-id>'; 'vera ls' shows which sessions "
+            + "are working.",
         );
         this.name = "WorkerCapReachedError";
         this.cap = cap;
