@@ -28,7 +28,11 @@ import {
     type LearnedFacts,
     effortLearnedKey,
 } from "./pool-file.ts";
-import { ProviderFailureError } from "./provider-failure.ts";
+import { classifyCapabilityRejection } from "./capability-rejection.ts";
+import {
+    ProviderFailureError,
+    type ProviderFailure,
+} from "./provider-failure.ts";
 import type {
     AssistantMessage,
     ModelAdapter,
@@ -226,6 +230,8 @@ interface IncompatibleOutcome {
     readonly kind: "incompatible";
     readonly reason: string;
     readonly verdict: AdmissionVerdict & { readonly status: "incompatible" };
+    /** Absent when the stream ended in error without a classified failure. */
+    readonly failure?: ProviderFailure;
 }
 
 interface PassedOutcome {
@@ -307,9 +313,10 @@ async function probeToolCall(
 }
 
 /**
- * Undefined when the provider was unreachable, which says nothing about the
- * model. A rejection is an answer: it is the ordinary way a text-only model
- * refuses an image.
+ * Undefined when nothing was learned: the provider was unreachable, or it
+ * refused for a reason that never named images. Only a refusal that names the
+ * capability is an answer about the capability, since the fact is written once
+ * and outlives every later attempt.
  */
 async function probeImage(
     request: AdmissionRequest,
@@ -346,9 +353,19 @@ async function probeImage(
         }
         return undefined;
     }
-    return result.kind === "incompatible"
-        ? { ok: false, reason: result.reason }
-        : { ok: true };
+    if (result.kind !== "incompatible") {
+        return { ok: true };
+    }
+    // Only a refusal that names images is evidence about images. Every other
+    // rejection is about the request, the key, or the upstream route, and
+    // recording one as "no images" hides a capable model for good.
+    if (
+        result.failure === undefined
+        || classifyCapabilityRejection(result.failure)?.parameter !== "images"
+    ) {
+        return undefined;
+    }
+    return { ok: false, reason: result.reason };
 }
 
 interface ProbeSuccess {
@@ -393,6 +410,7 @@ async function probeOnce(
             return incompatible(
                 outcome.failure.message,
                 outcome.failure.statusCode,
+                outcome.failure,
             );
         }
         lastUnavailable = outcome.failure.message;
@@ -405,6 +423,7 @@ async function probeOnce(
 function incompatible(
     reason: string,
     statusCode?: number,
+    failure?: ProviderFailure,
 ): IncompatibleOutcome {
     return {
         kind: "incompatible",
@@ -414,6 +433,7 @@ function incompatible(
             reason,
             ...(statusCode === undefined ? {} : { statusCode }),
         },
+        ...(failure === undefined ? {} : { failure }),
     };
 }
 
