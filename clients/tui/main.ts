@@ -11771,16 +11771,29 @@ export async function startTui(
                 discardSwitchTarget(next);
                 return;
             }
-            try {
-                await leaveSwitchSource(sourceClient, sourceDisposition);
-            } catch (error) {
+            let destination = next;
+            if (sourceDisposition === "stop") {
+                try {
+                    await leaveSwitchSource(sourceClient, sourceDisposition);
+                } catch (error) {
+                    discardSwitchTarget(next);
+                    throw error;
+                }
+                // The selected row can be a child of the source. Hard close
+                // correctly takes that whole tree down, including the target
+                // attachment we opened first to validate the destination.
+                // Resume once more after quiescence so a durable child becomes
+                // the new root instead of putting a dead attachment on screen.
                 discardSwitchTarget(next);
-                throw error;
+                destination = await withSessionSwitchDeadline(
+                    dependencies.resumeSession(sessionPath),
+                    discardSwitchTarget,
+                );
             }
             if (openingInSidebar) {
                 await openExtensionAgent(
                     "vera.tui.agent-attachments",
-                    requireIdentifiedClient(next),
+                    requireIdentifiedClient(destination),
                     "sidebar",
                     true,
                     sessionId,
@@ -11788,7 +11801,7 @@ export async function startTui(
                 sessionSwitchPending = false;
                 return;
             }
-            switchToClient(next, draft);
+            switchToClient(destination, draft);
             if (viaBack) {
                 backOriginId = undefined;
             } else if (backOriginId !== undefined) {
