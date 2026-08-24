@@ -1,3 +1,5 @@
+import { unlinkTmuxSocketFile } from "../../clients/tmux-socket-doctor.ts";
+
 /**
  * Tears down a UAT tmux server and reaps its panes' process groups directly.
  *
@@ -6,6 +8,9 @@
  * signal and get reparented to init, spinning forever with nothing left to
  * notice it should stop. Listing pane pids before the kill and force-killing
  * each one's process group after closes that gap without tmux's cooperation.
+ *
+ * `kill-server` also leaves the socket file. Unlinking it here is what stops
+ * unique `-L` names from accumulating under `/tmp/tmux-<uid>`.
  */
 export function killTmuxServer(socketName: string): void {
     const panePids = tmuxPanePids(socketName);
@@ -14,6 +19,7 @@ export function killTmuxServer(socketName: string): void {
         stderr: "ignore",
     });
     for (const pid of panePids) killProcessGroup(pid);
+    unlinkTmuxSocketFile(socketName);
 }
 
 function tmuxPanePids(socketName: string): readonly number[] {
