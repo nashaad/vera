@@ -149,6 +149,7 @@ export interface SubagentModelChoice {
 
 export interface SubagentModelFailure {
     readonly ok: false;
+    readonly reason: "configuration_required" | "not_permitted" | "unavailable";
     readonly error: string;
     readonly substitutions: readonly Substitution[];
 }
@@ -178,6 +179,7 @@ export function resolveAssignedSubagentModel(
     ) {
         return {
             ok: false,
+            reason: "not_permitted",
             error: `Model ${request.requested} is not permitted for subagents. `
                 + "Choose a model from the subagents assignment.",
             substitutions: [],
@@ -273,6 +275,9 @@ export function resolveAssignedSubagentModel(
     }
     return {
         ok: false,
+        reason: attempts.length === 0
+            ? "configuration_required"
+            : "unavailable",
         error: attempts.length === 0
             ? "No subagent models are configured. Choose models in Defaults -> Subagents."
             : "No configured subagent model is available. Every candidate was rejected: "
@@ -360,6 +365,7 @@ export function resolveSubagentModel(
     }
     return {
         ok: false,
+        reason: "unavailable",
         error:
             "No model could run this subagent. Every candidate was rejected: "
             + rejections.join("; ") + ".",

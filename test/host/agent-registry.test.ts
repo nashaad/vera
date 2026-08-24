@@ -49,6 +49,7 @@ import { InboxAdmissionPolicy } from "../../src/host/inbox-admission.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { RegisteredTool } from "../../src/tools/types.ts";
 import { ToolHooks } from "../../src/engine/hooks.ts";
+import type { SubagentPoolPolicy } from "../../src/engine/subagent.ts";
 import {
     withoutCallDuration,
     withoutSessionUsage,
@@ -2368,6 +2369,804 @@ test("an async subagent returns immediately and delivers its final summary", asy
         )).toHaveLength(1);
         expect(registry.list().find((agent) => agent.id === child!.id))
             .toMatchObject({ kind: "background", status: "completed" });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("missing subagent policy coalesces, configures, then confirms once", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-configure-"));
+    let policy: SubagentPoolPolicy = {};
+    let adapterCount = 0;
+    const pool: readonly PooledModel[] = [{
+        provider: "faux",
+        model: "worker",
+        label: "Worker",
+        available: true,
+        verified: true,
+        levels: [],
+    }];
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterCount += 1;
+            return adapterCount === 1
+                ? new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [
+                            {
+                                type: "tool_call",
+                                id: "spawn-one",
+                                name: "async_subagent",
+                                input: {
+                                    description: "first task",
+                                    model: "composer-2",
+                                },
+                            },
+                            {
+                                type: "tool_call",
+                                id: "spawn-two",
+                                name: "async_subagent",
+                                input: {
+                                    description: "second task",
+                                    model: "composer-3",
+                                },
+                            },
+                        ],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Both launches handled."),
+                ])
+                : new FauxAdapter([textResponse("child done")]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPool: () => pool,
+        readPolicy: () => policy,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        const observer = parent.attach();
+        expect((await observer.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "start both" });
+
+        let configuration: Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (configuration === undefined) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) configuration = update;
+        }
+        expect(configuration.request).toMatchObject({
+            destination: {
+                kind: "model_assignment",
+                assignment: "subagents",
+            },
+            pendingAction: { kind: "subagent_launch", count: 2 },
+        });
+        expect(adapterCount).toBe(1);
+        expect(registry.list()).toHaveLength(1);
+        let observedConfiguration:
+            | Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (observedConfiguration === undefined) {
+            const update = await observer.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) observedConfiguration = update;
+        }
+        expect(observedConfiguration.requestId).toBe(configuration.requestId);
+
+        policy = {
+            assigned: [{
+                provider: "faux",
+                model: "worker",
+                reasoningEffort: "medium",
+            }],
+        };
+        attachment.send({
+            type: "ui_response",
+            requestId: configuration.requestId,
+            response: {
+                type: "configuration_required",
+                outcome: "configured",
+            },
+        });
+        observer.send({
+            type: "ui_response",
+            requestId: configuration.requestId,
+            response: {
+                type: "configuration_required",
+                outcome: "cancelled",
+            },
+        });
+
+        let confirmation: Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (confirmation === undefined) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) confirmation = update;
+        }
+        expect(confirmation.request.type).toBe("user_question");
+        if (confirmation.request.type !== "user_question") {
+            throw new Error("Expected launch confirmation question");
+        }
+        expect(confirmation.request.question).toContain("composer-2→faux/worker");
+        expect(confirmation.request.question).toContain("composer-3→faux/worker");
+        expect(adapterCount).toBe(1);
+        expect(registry.list()).toHaveLength(1);
+        let observedConfirmation:
+            | Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (observedConfirmation === undefined) {
+            const update = await observer.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) observedConfirmation = update;
+        }
+        expect(observedConfirmation.requestId).toBe(confirmation.requestId);
+
+        attachment.send({
+            type: "ui_response",
+            requestId: confirmation.requestId,
+            response: {
+                type: "user_question",
+                outcome: "selected",
+                choiceId: "continue",
+            },
+        });
+        observer.send({
+            type: "ui_response",
+            requestId: confirmation.requestId,
+            response: { type: "user_question", outcome: "cancelled" },
+        });
+        expect(await finishTurnText(attachment)).toBe("Both launches handled.");
+
+        const launchResults = (await SessionStore.open(join(root, "parent.jsonl")))
+            .messages().filter((message) => message.role === "tool_result");
+        expect(launchResults.map((message) =>
+            message.role === "tool_result" ? message.content[0]?.text : ""))
+            .toEqual([
+                expect.stringContaining("Async subagent"),
+                expect.stringContaining("Async subagent"),
+            ]);
+        const children = registry.list().filter((agent) =>
+            agent.parent_id === "parent");
+        expect(children).toHaveLength(2);
+        for (const child of children) {
+            expect((await SessionStore.open(child.session_path)).modelSettings())
+                .toEqual({
+                    provider: "faux",
+                    model: "worker",
+                });
+        }
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("cancelling missing subagent configuration starts no child", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-cancel-"));
+    let adapterCount = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterCount += 1;
+            return new FauxAdapter(adapterCount === 1
+                ? [
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-one",
+                            name: "async_subagent",
+                            input: { description: "cancelled task" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Cancellation observed."),
+                ]
+                : [textResponse("must not run")]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPolicy: () => ({}),
+        readPool: () => [],
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "try one" });
+        while (true) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) {
+                attachment.send({
+                    type: "ui_response",
+                    requestId: update.requestId,
+                    response: {
+                        type: "configuration_required",
+                        outcome: "cancelled",
+                    },
+                });
+                break;
+            }
+        }
+        expect(await finishTurnText(attachment)).toBe("Cancellation observed.");
+        expect(adapterCount).toBe(1);
+        expect(registry.list()).toHaveLength(1);
+        expect(await toolResultText(join(root, "parent.jsonl")))
+            .toContain("no child started");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("aborting launch confirmation closes it and starts no child", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-confirm-abort-"));
+    let policy: SubagentPoolPolicy = {};
+    let adapterCount = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterCount += 1;
+            return new FauxAdapter(adapterCount === 1
+                ? [{
+                    role: "assistant",
+                    content: [{
+                        type: "tool_call",
+                        id: "spawn-one",
+                        name: "async_subagent",
+                        input: {
+                            description: "abort before launch",
+                            model: "composer-2",
+                        },
+                    }],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "test",
+                    },
+                    usage: emptyUsage(),
+                    stopReason: "tool_use",
+                }]
+                : [textResponse("must not run")]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPool: () => [{
+            provider: "faux",
+            model: "worker",
+            label: "Worker",
+            available: true,
+            verified: true,
+            levels: [],
+        }],
+        readPolicy: () => policy,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "start then abort" });
+        let configurationId = "";
+        while (configurationId.length === 0) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) configurationId = update.requestId;
+        }
+        policy = { assigned: [{ provider: "faux", model: "worker" }] };
+        attachment.send({
+            type: "ui_response",
+            requestId: configurationId,
+            response: {
+                type: "configuration_required",
+                outcome: "configured",
+            },
+        });
+        let confirmationId = "";
+        while (confirmationId.length === 0) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) confirmationId = update.requestId;
+        }
+        attachment.send({ type: "abort" });
+        let closed = false;
+        let finished = false;
+        while (!closed || !finished) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request_closed"
+                && update.requestId === confirmationId
+            ) closed = true;
+            if (update.type === "turn_finished") finished = true;
+        }
+        expect(closed).toBe(true);
+        expect(adapterCount).toBe(1);
+        expect(registry.list().filter((agent) =>
+            agent.parent_id === "parent")).toEqual([]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a launch arriving after the advertised batch waits for its own confirmation", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-queued-"));
+    let policy: SubagentPoolPolicy = {};
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPool: () => [{
+            provider: "faux",
+            model: "worker",
+            label: "Worker",
+            available: true,
+            verified: true,
+            levels: [],
+        }],
+        readPolicy: () => policy,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        const internal = registry as unknown as {
+            readonly agents: Map<string, unknown>;
+            requestMissingSubagentConfiguration(
+                entry: unknown,
+                request: { readonly description: string; readonly model?: string },
+                context: {
+                    readonly sessionId: string;
+                    readonly approvalMode: "auto";
+                    readonly provider: string;
+                    readonly model: string;
+                },
+                signal: AbortSignal,
+            ): Promise<unknown>;
+        };
+        const entry = internal.agents.get("parent");
+        const context = {
+            sessionId: "parent",
+            approvalMode: "auto" as const,
+            provider: "faux",
+            model: "test",
+        };
+        const first = internal.requestMissingSubagentConfiguration(
+            entry,
+            { description: "first", model: "composer-2" },
+            context,
+            new AbortController().signal,
+        );
+        let configuration:
+            | Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (configuration === undefined) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) configuration = update;
+        }
+        expect(configuration.request).toMatchObject({
+            pendingAction: { count: 1 },
+        });
+
+        const second = internal.requestMissingSubagentConfiguration(
+            entry,
+            { description: "second", model: "composer-3" },
+            context,
+            new AbortController().signal,
+        );
+        policy = { assigned: [{ provider: "faux", model: "worker" }] };
+        attachment.send({
+            type: "ui_response",
+            requestId: configuration.requestId,
+            response: {
+                type: "configuration_required",
+                outcome: "configured",
+            },
+        });
+        let firstConfirmation:
+            | Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (firstConfirmation === undefined) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) firstConfirmation = update;
+        }
+        expect(firstConfirmation.request.type).toBe("user_question");
+        if (firstConfirmation.request.type !== "user_question") {
+            throw new Error("Expected first launch confirmation");
+        }
+        expect(firstConfirmation.request.question).toContain("composer-2");
+        expect(firstConfirmation.request.question).not.toContain("composer-3");
+        attachment.send({
+            type: "ui_response",
+            requestId: firstConfirmation.requestId,
+            response: {
+                type: "user_question",
+                outcome: "selected",
+                choiceId: "continue",
+            },
+        });
+        await expect(first).resolves.toMatchObject({ ok: true, model: "worker" });
+
+        let secondConfirmation:
+            | Extract<AgentUpdate, { type: "ui_request" }>
+            | undefined;
+        while (secondConfirmation === undefined) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) {
+                throw new Error("Configured queued launch reopened settings");
+            }
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) secondConfirmation = update;
+        }
+        expect(secondConfirmation.request.type).toBe("user_question");
+        if (secondConfirmation.request.type !== "user_question") {
+            throw new Error("Expected queued launch confirmation");
+        }
+        expect(secondConfirmation.request.question).toContain("composer-3");
+        expect(secondConfirmation.request.question).not.toContain("composer-2");
+        attachment.send({
+            type: "ui_response",
+            requestId: secondConfirmation.requestId,
+            response: { type: "user_question", outcome: "cancelled" },
+        });
+        await expect(second).resolves.toMatchObject({
+            ok: false,
+            reason: "cancelled",
+        });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("configuration survives detach and confirmation may cancel every launch", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-reconnect-"));
+    let policy: SubagentPoolPolicy = {};
+    let adapterCount = 0;
+    const pool: readonly PooledModel[] = [{
+        provider: "faux",
+        model: "worker",
+        label: "Worker",
+        available: true,
+        verified: true,
+        levels: [],
+    }];
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterCount += 1;
+            return new FauxAdapter(adapterCount === 1
+                ? [
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-one",
+                            name: "async_subagent",
+                            input: {
+                                description: "waiting task",
+                                model: "composer-2",
+                            },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Cancellation observed."),
+                ]
+                : [textResponse("must not run")]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPolicy: () => policy,
+        readPool: () => pool,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const first = parent.attach();
+        expect((await first.receive()).type).toBe("history");
+        first.send({ type: "prompt", content: "start one" });
+        let requestId = "";
+        while (requestId.length === 0) {
+            const update = await first.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) requestId = update.requestId;
+        }
+        first.detach();
+
+        const reconnected = parent.attach();
+        expect((await reconnected.receive()).type).toBe("history");
+        let replayed = false;
+        while (!replayed) {
+            const update = await reconnected.receive();
+            replayed = update.type === "ui_request"
+                && update.request.type === "configuration_required"
+                && update.requestId === requestId;
+        }
+        policy = { assigned: [{ provider: "faux", model: "worker" }] };
+        reconnected.send({
+            type: "ui_response",
+            requestId,
+            response: {
+                type: "configuration_required",
+                outcome: "configured",
+            },
+        });
+
+        let confirmationId = "";
+        while (confirmationId.length === 0) {
+            const update = await reconnected.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "user_question"
+            ) {
+                expect(update.request.question)
+                    .toContain("composer-2→faux/worker");
+                confirmationId = update.requestId;
+            }
+        }
+        expect(adapterCount).toBe(1);
+        reconnected.send({
+            type: "ui_response",
+            requestId: confirmationId,
+            response: { type: "user_question", outcome: "cancelled" },
+        });
+        expect(await finishTurnText(reconnected)).toBe("Cancellation observed.");
+        expect(adapterCount).toBe(1);
+        expect(registry.list()).toHaveLength(1);
+        expect(await toolResultText(join(root, "parent.jsonl")))
+            .toContain("no child started");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing the host resolves a pending configuration workflow", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-close-"));
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "spawn-one",
+                    name: "async_subagent",
+                    input: { description: "waiting task" },
+                }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+        ]),
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPolicy: () => ({}),
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const attachment = parent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "start one" });
+        while (true) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) break;
+        }
+        await expect(Promise.race([
+            registry.close().then(() => "closed"),
+            Bun.sleep(1_000).then(() => "timed out"),
+        ])).resolves.toBe("closed");
+        expect(registry.list()).toEqual([
+            expect.objectContaining({
+                id: "parent",
+                kind: "interactive",
+                status: "closed",
+                live: false,
+            }),
+        ]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("print mode reports missing subagent configuration as unavailable", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-print-"));
+    let adapters = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapters += 1;
+            return new FauxAdapter(adapters === 1
+                ? [
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-one",
+                            name: "async_subagent",
+                            input: { description: "waiting task" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("No child was started."),
+                ]
+                : [textResponse("must not run")]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPolicy: () => ({}),
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const result = await registry.runOnce({
+            prompt: "start one",
+            workspace: root,
+            startupProfile: "bare",
+        });
+        expect(result.outcome).toBe("completed");
+        expect(result.notes).toContain(
+            "Subagent configuration is unavailable in print mode; no child started.",
+        );
+        expect(adapters).toBe(1);
+        expect(registry.list()).toEqual([]);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("an existing subagent policy refuses an out-of-policy model without UI", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-policy-refusal-"));
+    let adapters = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapters += 1;
+            return new FauxAdapter([
+                {
+                    role: "assistant",
+                    content: [{
+                        type: "tool_call",
+                        id: "spawn-one",
+                        name: "async_subagent",
+                        input: {
+                            description: "forbidden task",
+                            model: "composer-2",
+                        },
+                    }],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "test",
+                    },
+                    usage: emptyUsage(),
+                    stopReason: "tool_use",
+                },
+                textResponse("Refusal observed."),
+            ]);
+        },
+        provider: "faux",
+        model: "test",
+        approvalMode: "auto",
+        readPolicy: () => ({
+            assigned: [{ provider: "faux", model: "worker" }],
+        }),
+        readPool: () => [{
+            provider: "faux",
+            model: "worker",
+            label: "Worker",
+            available: true,
+            verified: true,
+            levels: [],
+        }],
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+    try {
+        const result = await registry.runOnce({
+            prompt: "start forbidden task",
+            workspace: root,
+            startupProfile: "bare",
+        });
+        expect(result.notes).toEqual([]);
+        expect(adapters).toBe(1);
+        const toolResult = (await SessionStore.open(result.sessionPath))
+            .messages().find((message) => message.role === "tool_result");
+        expect(toolResult?.role === "tool_result"
+            ? toolResult.content[0]?.text
+            : undefined).toContain("not permitted for subagents");
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

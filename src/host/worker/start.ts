@@ -51,6 +51,7 @@ export interface WorkerHostCapabilities {
      * The loop keeps its own applier for `spawn_subagent` either way.
      */
     readonly applyHostToolEffect: boolean;
+    readonly requestMissingSubagentConfiguration: boolean;
     readonly applyCommittedToolEffect: boolean;
     readonly loadContextualContributions: boolean;
     readonly hooks: boolean;

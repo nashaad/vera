@@ -726,6 +726,12 @@ export async function runHeadlessLoop(
             get permissionModes() { return policy().permissionModes; },
             readPool: () => readModelSettings?.()?.pooled ?? [],
             readPolicy: () => policy().subagentPolicy ?? {},
+            ...(boundary.requestMissingSubagentConfiguration === undefined
+                ? {}
+                : {
+                    requestMissingConfiguration:
+                        boundary.requestMissingSubagentConfiguration,
+                }),
         });
     const applyHostToolEffect = boundary.applyHostToolEffect;
     const applyToolEffect: ApplyToolEffect = boundary.applyToolEffect

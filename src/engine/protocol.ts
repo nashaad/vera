@@ -1,4 +1,5 @@
 import type {
+    ConfigurationRequiredUiRequest,
     EngineEventSubscriber,
     PoolAdmissionVerdict,
     ToolApprovalUiRequest,
@@ -709,9 +710,17 @@ export interface UserQuestionUiRequestUpdate {
     readonly seq: number;
 }
 
+export interface ConfigurationRequiredUiRequestUpdate {
+    readonly type: "ui_request";
+    readonly requestId: string;
+    readonly request: ConfigurationRequiredUiRequest;
+    readonly seq: number;
+}
+
 export type UiRequestUpdate =
     | ToolApprovalUiRequestUpdate
-    | UserQuestionUiRequestUpdate;
+    | UserQuestionUiRequestUpdate
+    | ConfigurationRequiredUiRequestUpdate;
 
 export function isToolApprovalUiRequestUpdate(
     update: UiRequestUpdate,
@@ -723,6 +732,12 @@ export function isUserQuestionUiRequestUpdate(
     update: UiRequestUpdate,
 ): update is UserQuestionUiRequestUpdate {
     return update.request.type === "user_question";
+}
+
+export function isConfigurationRequiredUiRequestUpdate(
+    update: UiRequestUpdate,
+): update is ConfigurationRequiredUiRequestUpdate {
+    return update.request.type === "configuration_required";
 }
 
 export interface UiRequestClosedUpdate {
@@ -1141,6 +1156,23 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
                     type: "user_question",
                     outcome: "custom",
                     text: response.text.trim(),
+                },
+            };
+        }
+        if (
+            response.type === "configuration_required"
+            && (
+                response.outcome === "configured"
+                || response.outcome === "cancelled"
+                || response.outcome === "unavailable"
+            )
+        ) {
+            return {
+                type: "ui_response",
+                requestId: command.requestId,
+                response: {
+                    type: "configuration_required",
+                    outcome: response.outcome,
                 },
             };
         }
@@ -1657,6 +1689,13 @@ export function createProtocolEncoder(
         if (event.type === "ui_request") {
             seq += 1;
             if (event.request.type === "tool_approval") {
+                sender.send({
+                    type: "ui_request",
+                    requestId: event.requestId,
+                    request: event.request,
+                    seq,
+                });
+            } else if (event.request.type === "user_question") {
                 sender.send({
                     type: "ui_request",
                     requestId: event.requestId,

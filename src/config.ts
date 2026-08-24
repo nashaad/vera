@@ -1751,13 +1751,10 @@ export function configuredCompactionModels(
     config: VeraConfig,
     isReachable?: ReachabilityCheck,
 ): readonly VeraCatalogModel[] {
-    if (config.models === undefined || config.model_routes === undefined) {
-        return [];
-    }
     return bindModelAssignment(
         {
-            models: config.models,
-            model_routes: config.model_routes,
+            models: config.models ?? [],
+            model_routes: config.model_routes ?? {},
             reviewer_profiles: config.reviewer_profiles ?? {},
         },
         config.model_assignments ?? {},
@@ -1767,20 +1764,18 @@ export function configuredCompactionModels(
 }
 
 /**
- * Every assignment as it stands, for a surface that lists them. Empty when no
- * catalog is configured, since there is nothing it could name.
+ * Every assignment as it stands, for a surface that lists them. Inline
+ * assignments need no catalog; named routes still resolve against one when it
+ * exists.
  */
 export function configuredModelAssignments(
     config: VeraConfig,
     isReachable?: ReachabilityCheck,
 ): readonly ModelAssignmentRow[] {
-    if (config.models === undefined || config.model_routes === undefined) {
-        return [];
-    }
     return describeModelAssignments(
         {
-            models: config.models,
-            model_routes: config.model_routes,
+            models: config.models ?? [],
+            model_routes: config.model_routes ?? {},
             reviewer_profiles: config.reviewer_profiles ?? {},
         },
         config.model_assignments ?? {},

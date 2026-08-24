@@ -207,6 +207,31 @@ export function createRemoteHostBoundary(
                 },
             }
             : {}),
+        ...(capabilities.requestMissingSubagentConfiguration
+            ? {
+                requestMissingSubagentConfiguration: async (
+                    request,
+                    context,
+                    signal,
+                ) => {
+                    const callId = newCallId();
+                    const abort = (): void =>
+                        pipe.notify({ method: "call.cancel", callId });
+                    signal.addEventListener("abort", abort, { once: true });
+                    try {
+                        const reply = await pipe.request({
+                            method: "subagent.configure",
+                            callId,
+                            request,
+                            context,
+                        }) as { readonly resolution: never };
+                        return reply.resolution;
+                    } finally {
+                        signal.removeEventListener("abort", abort);
+                    }
+                },
+            }
+            : {}),
         ...(capabilities.applyCommittedToolEffect
             ? {
                 applyCommittedToolEffect: async (

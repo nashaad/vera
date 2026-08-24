@@ -175,3 +175,30 @@ test("the subagents assignment is narrowed to selectable shortlist entries", () 
         allowSelf: true,
     });
 });
+
+test("an inline subagents assignment works in a fresh config", () => {
+    const userPath = poolPath({
+        models: { "openrouter/worker": { added: true } },
+    });
+    const config = configPath({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "parent",
+        approval_mode: "auto",
+        model_assignments: {
+            subagents: {
+                models: [{
+                    name: "worker",
+                    provider: "openrouter",
+                    model: "worker",
+                }],
+            },
+        },
+    });
+
+    expect(subagentPoolPolicy({ userPath, configPath: config }).assigned)
+        .toEqual([{
+            provider: "openrouter",
+            model: "worker",
+        }]);
+});

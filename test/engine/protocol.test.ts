@@ -1060,6 +1060,64 @@ test("user question requests share the ordered agent update sequence", () => {
     ]);
 });
 
+test("configuration-required responses and requests stay typed", () => {
+    expect(parseClientCommand({
+        type: "ui_response",
+        requestId: "configuration-1",
+        response: {
+            type: "configuration_required",
+            outcome: "configured",
+        },
+    })).toEqual({
+        type: "ui_response",
+        requestId: "configuration-1",
+        response: {
+            type: "configuration_required",
+            outcome: "configured",
+        },
+    });
+    expect(parseClientCommand({
+        type: "ui_response",
+        requestId: "configuration-1",
+        response: {
+            type: "configuration_required",
+            outcome: "later",
+        },
+    })).toBeUndefined();
+
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    protocol({
+        type: "ui_request",
+        requestId: "configuration-1",
+        request: {
+            type: "configuration_required",
+            destination: {
+                kind: "model_assignment",
+                assignment: "subagents",
+            },
+            reason: "Two launches need configuration.",
+            pendingAction: {
+                id: "batch-1",
+                kind: "subagent_launch",
+                count: 2,
+            },
+        },
+    });
+    expect(updates[0]).toMatchObject({
+        type: "ui_request",
+        request: {
+            type: "configuration_required",
+            pendingAction: { count: 2 },
+        },
+        seq: 1,
+    });
+});
+
 test("timeline commands parse only complete rewind requests", () => {
     expect(parseClientCommand({
         type: "list_timeline",

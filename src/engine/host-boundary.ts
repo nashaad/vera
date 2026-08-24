@@ -45,6 +45,7 @@ import type { PromptContribution } from "./prompt-contributions.ts";
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { RequestMissingSubagentConfiguration } from "./subagent.ts";
 
 /**
  * Which capabilities the owner offers.
@@ -121,6 +122,9 @@ export interface HostBoundary {
      * `applyToolEffect` is present, because that replaces the applier whole.
      */
     readonly applyHostToolEffect?: ApplyToolEffect;
+    /** Owner-side semantic UI workflow for a missing subagent assignment. */
+    readonly requestMissingSubagentConfiguration?:
+        RequestMissingSubagentConfiguration;
     /** `effect.commit`. */
     readonly applyCommittedToolEffect?: ApplyCommittedToolEffect;
     /** `contributions.load`. */
@@ -178,6 +182,12 @@ export function createLocalHostBoundary(
         ...(services.applyToolEffect === undefined
             ? {}
             : { applyToolEffect: services.applyToolEffect }),
+        ...(services.requestMissingSubagentConfiguration === undefined
+            ? {}
+            : {
+                requestMissingSubagentConfiguration:
+                    services.requestMissingSubagentConfiguration,
+            }),
         ...(services.applyCommittedToolEffect === undefined
             ? {}
             : { applyCommittedToolEffect: services.applyCommittedToolEffect }),

@@ -95,6 +95,8 @@ export interface CreateSubagentEffectApplierOptions {
     readonly subagentModel?: SpawnModelDefault;
     /** Allow/deny, the failsafe list and families; absent, nothing is gated. */
     readonly readPolicy?: () => SubagentPoolPolicy;
+    /** Host-owned, coalesced configuration + confirmation for an empty policy. */
+    readonly requestMissingConfiguration?: RequestMissingSubagentConfiguration;
     /**
      * The same reviewer settings the parent runs under. Settings, not the
      * parent's reviewer instance: a reviewer keeps a running conversation
@@ -120,6 +122,19 @@ export interface SpawnModelDefault {
     readonly reasoningEffort?: ModelReasoningEffort;
 }
 
+export interface MissingSubagentConfigurationRequest {
+    readonly description: string;
+    readonly model?: string;
+    readonly reasoningEffort?: ModelReasoningEffort;
+    readonly agentDefault?: SpawnModelDefault;
+}
+
+export type RequestMissingSubagentConfiguration = (
+    request: MissingSubagentConfigurationRequest,
+    context: ToolEffectContext,
+    signal: AbortSignal,
+) => Promise<SpawnModelResolution>;
+
 export type SpawnModelResolution =
     | {
         readonly ok: true;
@@ -131,7 +146,15 @@ export type SpawnModelResolution =
         /** The same substitutions the notice reads out, as typed rows. */
         readonly substitutions?: readonly ModelSubstitution[];
     }
-    | { readonly ok: false; readonly error: string };
+    | {
+        readonly ok: false;
+        readonly reason:
+            | "configuration_required"
+            | "not_permitted"
+            | "unavailable"
+            | "cancelled";
+        readonly error: string;
+    };
 
 /**
  * The policy fields of the pool file that only the ladder reads.
@@ -236,6 +259,13 @@ export function resolveSpawnModelChoice(
             agentDefault.model,
         );
     const assigned = policy?.assigned ?? [];
+    if (assigned.length === 0 && policy?.allowSelf !== true) {
+        return {
+            ok: false,
+            reason: "configuration_required",
+            error: "No subagent models are configured. Choose models in Defaults -> Subagents.",
+        };
+    }
     const outcome = resolveAssignedSubagentModel(
         {
             ...(suggested === undefined ? {} : { requested: suggested }),
@@ -273,7 +303,11 @@ export function resolveSpawnModelChoice(
         ladderPool(context, pool, policy),
     );
     if (!outcome.ok) {
-        return { ok: false, error: outcome.error };
+        return {
+            ok: false,
+            reason: outcome.reason,
+            error: outcome.error,
+        };
     }
     return {
         ok: true,
@@ -515,8 +549,8 @@ export function createSubagentEffectApplier(
                 }
             }
         }
-        const policy = options.readPolicy?.();
-        const resolved = resolveSpawnModelChoice(
+        let policy = options.readPolicy?.();
+        let resolved = resolveSpawnModelChoice(
             effect,
             context,
             options.readPool,
@@ -524,8 +558,34 @@ export function createSubagentEffectApplier(
             policy,
             agentDefault,
         );
+        if (
+            !resolved.ok
+            && resolved.reason === "configuration_required"
+            && options.requestMissingConfiguration !== undefined
+        ) {
+            resolved = await options.requestMissingConfiguration({
+                description: effect.description,
+                ...(effect.model === undefined ? {} : { model: effect.model }),
+                ...(effect.reasoningEffort === undefined ? {} : {
+                    reasoningEffort: effect.reasoningEffort,
+                }),
+                ...(agentDefault === undefined ? {} : { agentDefault }),
+            }, context, signal);
+            policy = options.readPolicy?.();
+        }
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
+        }
+        // Configuration may have kept several calls waiting while no child
+        // counted as active. Re-check at the admission boundary so they cannot
+        // all pass the earlier snapshot and exceed the limit together.
+        if (activeChildren >= maxConcurrentChildren) {
+            return {
+                kind: "output",
+                output:
+                    `Subagent limit reached (${maxConcurrentChildren} running).`,
+                isError: true,
+            };
         }
         const notice = resolved.notice;
         const substitutions = resolved.substitutions ?? [];

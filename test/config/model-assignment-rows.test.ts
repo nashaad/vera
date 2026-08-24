@@ -5,6 +5,7 @@ import {
     type VeraModelAssignmentsConfig,
 } from "../../src/config/model-assignments.ts";
 import type { VeraModelCatalogConfig } from "../../src/config/model-catalog.ts";
+import { configuredModelAssignments } from "../../src/config.ts";
 import {
     MODEL_ASSIGNMENT_BROWSE_VALUE,
     tuiModelAssignmentOptions,
@@ -99,6 +100,7 @@ test("defaults separate session controls, work styles, and dedicated jobs", asyn
         ["extra", "Work styles"],
         ["reviewer", "Dedicated jobs"],
         ["compaction", "Dedicated jobs"],
+        ["subagents", "Dedicated jobs"],
     ]);
 
     const contextIndex = options.findIndex((option) =>
@@ -129,6 +131,31 @@ test("a assignment bound to inline models needs no route", () => {
     expect(extra?.route).toBeUndefined();
     expect(extra?.source).toBe("assignment");
     expect(extra?.models.map((model) => model.model)).toEqual(["big-1"]);
+});
+
+test("fresh config projects an inline assignment without catalog fields", () => {
+    const subagents = configuredModelAssignments({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "parent",
+        approval_mode: "auto",
+        model_assignments: {
+            subagents: {
+                models: [{
+                    name: "worker",
+                    provider: "ollama",
+                    model: "worker",
+                }],
+            },
+        },
+    }).find((row) => row.assignment === "subagents");
+
+    expect(subagents?.declared).toEqual([{
+        name: "worker",
+        provider: "ollama",
+        model: "worker",
+    }]);
+    expect(subagents?.bound).toBe(true);
 });
 
 test("a assignment naming both a route and inline models is refused", async () => {
@@ -262,10 +289,11 @@ test("the highlighted row explains itself beside the list", () => {
     expect(cell.get("extra")?.detailFacts?.[3]).toEqual(["Shortlisted", "yes"]);
 });
 
-test("no row can leave its work unrun", () => {
+test("ordinary assignment rows always name what runs when unset", () => {
     const options = tuiModelAssignmentOptions(rows({}), "session-model");
     for (const option of options.filter((option) =>
-        option.detailFacts?.some(([label]) => label === "If unset")
+        option.label !== "subagents"
+        && option.detailFacts?.some(([label]) => label === "If unset")
     )) {
         const unset = option.detailFacts?.find(([label]) => label === "If unset");
         expect([option.label, unset?.[1]]).toEqual([
@@ -273,6 +301,8 @@ test("no row can leave its work unrun", () => {
             expect.stringMatching(/session's model|whatever \w+ uses/),
         ]);
     }
+    expect(options.find((option) => option.label === "subagents")?.detailFacts)
+        .toContainEqual(["If unset", "spawn is refused"]);
 });
 
 test("the session row names its level the way every other row does", () => {

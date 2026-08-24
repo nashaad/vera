@@ -31,6 +31,7 @@ import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
+import type { SettingsDestination } from "./settings-destination.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
@@ -138,8 +139,32 @@ export type UserQuestionUiResponse =
     | UserQuestionCustomUiResponse
     | UserQuestionCancelledUiResponse;
 
-export type UiRequest = ToolApprovalUiRequest | UserQuestionUiRequest;
-export type UiResponse = ToolApprovalUiResponse | UserQuestionUiResponse;
+export interface ConfigurationRequiredUiRequest {
+    readonly type: "configuration_required";
+    /** The human decision or resource a client should expose. */
+    readonly destination: SettingsDestination;
+    readonly reason: string;
+    /** One coalesced workflow, which may stand for several waiting launches. */
+    readonly pendingAction: {
+        readonly id: string;
+        readonly kind: "subagent_launch";
+        readonly count: number;
+    };
+}
+
+export interface ConfigurationRequiredUiResponse {
+    readonly type: "configuration_required";
+    readonly outcome: "configured" | "cancelled" | "unavailable";
+}
+
+export type UiRequest =
+    | ToolApprovalUiRequest
+    | UserQuestionUiRequest
+    | ConfigurationRequiredUiRequest;
+export type UiResponse =
+    | ToolApprovalUiResponse
+    | UserQuestionUiResponse
+    | ConfigurationRequiredUiResponse;
 
 export interface UiRequestEvent {
     readonly type: "ui_request";

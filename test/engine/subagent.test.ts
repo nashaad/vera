@@ -1127,6 +1127,185 @@ test("an out-of-policy spawn carries no substitution because it is refused", () 
     expect(resolved.error).toContain("not permitted for subagents");
 });
 
+test("an empty strict policy is a typed configuration requirement", () => {
+    const resolved = resolveSpawnModelChoice(
+        { model: "requested-worker" },
+        { approvalMode: "auto", provider: "openrouter", model: "parent" },
+        () => [],
+        undefined,
+        {},
+    );
+    expect(resolved).toEqual({
+        ok: false,
+        reason: "configuration_required",
+        error: "No subagent models are configured. Choose models in Defaults -> Subagents.",
+    });
+});
+
+test("a sync spawn waits for configuration and persists the refreshed boundary", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-configure-sync-"));
+    const context = {
+        sessionId: "parent-session",
+        approvalMode: "auto" as const,
+        provider: "faux",
+        model: "parent",
+    };
+    const pool = [{
+        provider: "faux",
+        model: "worker",
+        label: "Worker",
+        available: true,
+        verified: true,
+        levels: [],
+    }] as const;
+    let policy: Parameters<typeof resolveSpawnModelChoice>[4] = {};
+    let modelCalls = 0;
+    let childPath = "";
+    let continueConfiguration: (() => void) | undefined;
+    const configured = new Promise<void>((resolve) => {
+        continueConfiguration = resolve;
+    });
+    const apply = createStrictSubagentEffectApplier({
+        adapter: {
+            stream(request) {
+                modelCalls += 1;
+                return new FauxAdapter([{
+                    role: "assistant",
+                    content: [{ type: "text", text: "child done" }],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "worker",
+                    },
+                    usage: emptyUsage(),
+                    stopReason: "stop",
+                }])
+                    .stream(request);
+            },
+        },
+        workspace: root,
+        sessionPathForId: (id) => {
+            childPath = join(root, `${id}.jsonl`);
+            return childPath;
+        },
+        readPool: () => pool,
+        readPolicy: () => policy ?? {},
+        async requestMissingConfiguration() {
+            await configured;
+            return resolveSpawnModelChoice(
+                {},
+                context,
+                () => pool,
+                undefined,
+                policy,
+            );
+        },
+    });
+    try {
+        const pending = apply({
+            type: "spawn_subagent",
+            description: "configured child",
+            model: "composer-2",
+        }, new AbortController().signal, context);
+        await Bun.sleep(0);
+        expect(modelCalls).toBe(0);
+        policy = { assigned: [{ provider: "faux", model: "worker" }] };
+        continueConfiguration?.();
+        const result = await pending;
+        expect(result.isError).toBe(false);
+        expect(modelCalls).toBe(1);
+        const child = await SessionStore.open(childPath);
+        expect(child.header.delegation).toEqual({
+            kind: "subagent",
+            parentId: "parent-session",
+            models: [{ provider: "faux", model: "worker" }],
+        });
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("configured sync siblings recheck concurrency after waiting", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-configure-limit-"));
+    const context = {
+        sessionId: "parent-session",
+        approvalMode: "auto" as const,
+        provider: "faux",
+        model: "parent",
+    };
+    const pool = [{
+        provider: "faux",
+        model: "worker",
+        label: "Worker",
+        available: true,
+        verified: true,
+        levels: [],
+    }] as const;
+    let policy: Parameters<typeof resolveSpawnModelChoice>[4] = {};
+    const waiters: Array<(resolution: ReturnType<
+        typeof resolveSpawnModelChoice
+    >) => void> = [];
+    let modelCalls = 0;
+    const apply = createStrictSubagentEffectApplier({
+        adapter: {
+            stream(request) {
+                modelCalls += 1;
+                return new FauxAdapter([{
+                    role: "assistant",
+                    content: [{ type: "text", text: "child done" }],
+                    source: {
+                        provider: "faux",
+                        api: "scripted",
+                        model: "worker",
+                    },
+                    usage: emptyUsage(),
+                    stopReason: "stop",
+                }], { delayMs: 30 }).stream(request);
+            },
+        },
+        workspace: root,
+        maxConcurrentChildren: 1,
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+        readPool: () => pool,
+        readPolicy: () => policy ?? {},
+        requestMissingConfiguration() {
+            return new Promise((resolve) => waiters.push(resolve));
+        },
+    });
+    try {
+        const signal = new AbortController().signal;
+        const first = apply({
+            type: "spawn_subagent",
+            description: "first configured child",
+        }, signal, context);
+        const second = apply({
+            type: "spawn_subagent",
+            description: "second configured child",
+        }, signal, context);
+        while (waiters.length < 2) await Bun.sleep(0);
+        policy = { assigned: [{ provider: "faux", model: "worker" }] };
+        const resolution = resolveSpawnModelChoice(
+            {},
+            context,
+            () => pool,
+            undefined,
+            policy,
+        );
+        for (const resume of waiters) resume(resolution);
+
+        const results = await Promise.all([first, second]);
+        expect(results.filter((result) => !result.isError)).toHaveLength(1);
+        expect(results.filter((result) => result.isError)).toEqual([
+            expect.objectContaining({
+                output: "Subagent limit reached (1 running).",
+            }),
+        ]);
+        expect(modelCalls).toBe(1);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("a spawn may name the pool entry it wants by its user-chosen name", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-named-"));
     const final: AssistantMessage = {

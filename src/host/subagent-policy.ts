@@ -63,13 +63,12 @@ export function subagentPoolPolicy(
             ? loadOptionalVeraConfig()
             : undefined
         : loadOptionalVeraConfig({ path: options.configPath });
-    const assignment = config?.models === undefined
-            || config.model_routes === undefined
+    const assignment = config === undefined
         ? undefined
         : resolveModelAssignment(
             {
-                models: config.models,
-                model_routes: config.model_routes,
+                models: config.models ?? [],
+                model_routes: config.model_routes ?? {},
                 reviewer_profiles: config.reviewer_profiles ?? {},
             },
             config.model_assignments ?? {},

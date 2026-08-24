@@ -572,6 +572,46 @@ test("host wire validates semantic session grants on approvals", () => {
     })).toBeUndefined();
 });
 
+test("host wire validates semantic configuration destinations", () => {
+    const request = {
+        type: "ui_request",
+        requestId: "configuration-1",
+        request: {
+            type: "configuration_required",
+            destination: {
+                kind: "model_assignment",
+                assignment: "subagents",
+            },
+            reason: "Two launches need configuration.",
+            pendingAction: {
+                id: "batch-1",
+                kind: "subagent_launch",
+                count: 2,
+            },
+        },
+        seq: 1,
+    } as const;
+    expect(parseAgentUpdate(request)).toEqual(request);
+    expect(parseAgentUpdate({
+        ...request,
+        request: {
+            ...request.request,
+            destination: {
+                kind: "model_assignment",
+                assignment: "subagents",
+                row: 3,
+            },
+        },
+    })).toBeUndefined();
+    expect(parseAgentUpdate({
+        ...request,
+        request: {
+            ...request.request,
+            pendingAction: { ...request.request.pendingAction, count: 0 },
+        },
+    })).toBeUndefined();
+});
+
 test("host wire validates targeted timeline replies", () => {
     const boundary = {
         userMessageId: "message-1",
