@@ -6432,6 +6432,10 @@ export async function startTui(
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
             const sourceClient = focusedAgentClient();
+            const sourceCompanions = clearingSidebar
+                || hostedSidebar.pane === undefined
+                ? []
+                : [hostedSidebar.pane.client];
             const sourceDisposition = commandAction.sourceDisposition ?? "stop";
             // A blank peer has nothing useful to reset. Treating a second
             // clear as close makes it possible to get rid of an empty pane
@@ -6502,7 +6506,11 @@ export async function startTui(
                     return;
                 }
                 try {
-                    await leaveSwitchSource(sourceClient, sourceDisposition);
+                    await leaveSwitchSource(
+                        sourceClient,
+                        sourceDisposition,
+                        sourceCompanions,
+                    );
                 } catch (error) {
                     await discardCreatedSwitchTarget(next);
                     throw error;
@@ -8068,15 +8076,27 @@ export async function startTui(
     async function leaveSwitchSource(
         source: TuiAgentClient,
         disposition: TuiSessionLeaveDisposition,
+        companions: readonly TuiAgentClient[] = [],
     ): Promise<void> {
         if (disposition === "keep_running") return;
-        const sourceId = source.agentId;
-        if (sourceId === undefined || dependencies.closeSession === undefined) {
+        if (dependencies.closeSession === undefined) {
             throw new Error("stopping the current conversation is unavailable");
         }
-        const result = await dependencies.closeSession(sourceId);
-        if (result.status === "closed") return;
-        throw new Error(closeSessionFailure(result.reason));
+        const seen = new Set<string>();
+        for (const candidate of [...companions, source]) {
+            const candidateId = candidate.agentId;
+            if (candidateId === undefined) {
+                throw new Error(
+                    "stopping the current conversation is unavailable",
+                );
+            }
+            if (seen.has(candidateId)) continue;
+            seen.add(candidateId);
+            const result = await dependencies.closeSession(candidateId);
+            if (result.status !== "closed") {
+                throw new Error(closeSessionFailure(result.reason));
+            }
+        }
     }
 
     /** Best-effort terminal departure: hard close when the host is reachable. */
@@ -11711,6 +11731,10 @@ export async function startTui(
         const sourceClient = openingInSidebar
             ? hostedSidebar.pane!.client
             : client;
+        const sourceCompanions = openingInSidebar
+            || hostedSidebar.pane === undefined
+            ? []
+            : [hostedSidebar.pane.client];
         settingsPicker = undefined;
         if (sessionId !== undefined && sessionId === client.agentId) {
             // The row for the session already on screen. Tearing down that
@@ -11774,7 +11798,11 @@ export async function startTui(
             let destination = next;
             if (sourceDisposition === "stop") {
                 try {
-                    await leaveSwitchSource(sourceClient, sourceDisposition);
+                    await leaveSwitchSource(
+                        sourceClient,
+                        sourceDisposition,
+                        sourceCompanions,
+                    );
                 } catch (error) {
                     discardSwitchTarget(next);
                     throw error;
