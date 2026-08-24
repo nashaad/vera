@@ -27,11 +27,17 @@ test("every slash action has an explicit pane scope", () => {
         { type: "update_model", model: "m" },
         { type: "update_reasoning", reasoningEffort: "low" },
         { type: "update_permissions", mode: "ask" },
-        { type: "open_model_picker" },
-        { type: "open_reasoning_picker" },
-        { type: "open_permissions_picker" },
+        { type: "open_settings_destination", destination: { kind: "model" } },
+        {
+            type: "open_settings_destination",
+            destination: { kind: "reasoning" },
+        },
+        {
+            type: "open_settings_destination",
+            destination: { kind: "permission_mode" },
+        },
         { type: "open_preferences_list" },
-        { type: "open_settings_menu" },
+        { type: "open_settings_destination", destination: { kind: "settings" } },
         { type: "open_configure" },
         { type: "open_command_palette" },
         { type: "open_help" },
@@ -57,7 +63,10 @@ test("every slash action has an explicit pane scope", () => {
             },
         },
         { type: "show_doctor" },
-        { type: "show_pool" },
+        {
+            type: "open_settings_destination",
+            destination: { kind: "model_shortlist" },
+        },
         { type: "pool_current_model" },
         {
             type: "run_extension",
@@ -76,11 +85,11 @@ test("every slash action has an explicit pane scope", () => {
             ["update_model", "focused_agent"],
             ["update_reasoning", "focused_agent"],
             ["update_permissions", "focused_agent"],
-            ["open_model_picker", "focused_agent"],
-            ["open_reasoning_picker", "focused_agent"],
-            ["open_permissions_picker", "focused_agent"],
+            ["open_settings_destination", "focused_agent"],
+            ["open_settings_destination", "focused_agent"],
+            ["open_settings_destination", "focused_agent"],
             ["open_preferences_list", "application"],
-            ["open_settings_menu", "focused_agent"],
+            ["open_settings_destination", "focused_agent"],
             ["open_configure", "focused_agent"],
             ["open_command_palette", "application"],
             ["open_help", "application"],
@@ -98,7 +107,7 @@ test("every slash action has an explicit pane scope", () => {
             ["show_extensions", "application"],
             ["manage_extensions", "application"],
             ["show_doctor", "application"],
-            ["show_pool", "application"],
+            ["open_settings_destination", "application"],
             ["pool_current_model", "application"],
             ["run_extension", "application"],
             ["command_error", "application"],
@@ -383,13 +392,16 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         scope: "global",
     });
     expect(registry.dispatch("/eff")).toEqual({
-        type: "open_reasoning_picker",
+        type: "open_settings_destination",
+        destination: { kind: "reasoning" },
     });
     expect(registry.dispatch("/mod")).toEqual({
-        type: "open_model_picker",
+        type: "open_settings_destination",
+        destination: { kind: "model" },
     });
     expect(registry.dispatch("/perm")).toEqual({
-        type: "open_permissions_picker",
+        type: "open_settings_destination",
+        destination: { kind: "permission_mode" },
     });
     // A provider-native level is not policed against Vera's own
     // off/low/medium/high/max words: it flows through as typed.
@@ -398,13 +410,16 @@ test("model, reasoning, and permissions commands return typed updates", () => {
         reasoningEffort: "turbo",
     });
     expect(registry.dispatch("/model")).toEqual({
-        type: "open_model_picker",
+        type: "open_settings_destination",
+        destination: { kind: "model" },
     });
     expect(registry.dispatch("/effort")).toEqual({
-        type: "open_reasoning_picker",
+        type: "open_settings_destination",
+        destination: { kind: "reasoning" },
     });
     expect(registry.dispatch("/permissions")).toEqual({
-        type: "open_permissions_picker",
+        type: "open_settings_destination",
+        destination: { kind: "permission_mode" },
     });
     expect(registry.dispatch("/themes")).toEqual({
         type: "open_theme_picker",

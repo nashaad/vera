@@ -467,6 +467,7 @@ import {
 } from "./keymap.ts";
 import { resolveTuiKeymap } from "./keybindings.ts";
 import type { AgentCatalogUpdate } from "../../src/engine/protocol.ts";
+import { resolveTuiSettingsDestination } from "./settings-destination.ts";
 
 /** The agent list a /agent surface renders, as the host last reported it. */
 type TuiAgentCatalog = {
@@ -2899,7 +2900,7 @@ export async function startTui(
      * writes the session's pair into the highlighted agent's file — the only
      * write into an agent a wire command can do.
      */
-    async function openAgentPicker(): Promise<void> {
+    async function openAgentPicker(selectedName?: string): Promise<void> {
         const target = focusedAgentClient();
         let catalog = agentCatalog;
         if (catalog === undefined) {
@@ -2909,6 +2910,17 @@ export async function startTui(
             state = appendTuiNotice(
                 state,
                 "This host does not support agents.",
+            );
+            renderState();
+            return;
+        }
+        if (
+            selectedName !== undefined
+            && !catalog.agents.some((agent) => agent.name === selectedName)
+        ) {
+            state = appendTuiNotice(
+                state,
+                `No agent named ${selectedName}; that settings destination is unavailable.`,
             );
             renderState();
             return;
@@ -2930,7 +2942,7 @@ export async function startTui(
                     description: describeAgentRow(agent),
                     current: agent.name === current.worn,
                 })),
-                selectedId: current.worn,
+                selectedId: selectedName ?? current.worn,
                 actions: [
                     { id: "wear", label: "switch", keys: ["enter"] },
                     {
@@ -2940,6 +2952,7 @@ export async function startTui(
                     },
                 ],
             }, new AbortController().signal);
+            selectedName = undefined;
             if (result.outcome === "cancelled") return;
             const agent = current.agents.find(
                 (candidate) => candidate.name === result.rowId,
@@ -5874,34 +5887,14 @@ export async function startTui(
             void writeFailureReportFile();
             return;
         }
-        if (commandAction?.type === "show_pool") {
+        if (
+            commandAction?.type === "open_settings_destination"
+            && tuiCommandScope(commandAction) === "application"
+        ) {
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            state = appendTuiNotice(
-                state,
-                tuiPoolListing(state.modelSettings?.pooled),
-            );
-            renderState();
-            return;
-        }
-        if (commandAction?.type === "show_defaults") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
-            renderCommandSuggestions();
-            openModelPicker();
-            settingsPicker = switchedModelTab(
-                settingsPicker as TuiSettingsPickerState,
-                "defaults",
-            );
-            renderState();
-            return;
-        }
-        if (commandAction?.type === "open_providers") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
-            renderCommandSuggestions();
-            openProviderPicker();
+            openSettingsDestination(commandAction.destination);
             return;
         }
         if (commandAction?.type === "pool_current_model") {
@@ -6098,11 +6091,6 @@ export async function startTui(
             renderState();
             return;
         }
-        if (commandAction?.type === "open_model_picker") {
-            composer.clearComposer();
-            openModelPicker();
-            return;
-        }
         if (commandAction?.type === "update_reasoning") {
             composer.clearComposer();
             requestModelSettingsChange(
@@ -6111,11 +6099,6 @@ export async function startTui(
                 `reasoning to ${commandAction.reasoningEffort}`,
             );
             renderState();
-            return;
-        }
-        if (commandAction?.type === "open_reasoning_picker") {
-            composer.clearComposer();
-            openReasoningPicker();
             return;
         }
         if (commandAction?.type === "update_permissions") {
@@ -6139,14 +6122,9 @@ export async function startTui(
             openPreferencesList();
             return;
         }
-        if (commandAction?.type === "open_permissions_picker") {
+        if (commandAction?.type === "open_settings_destination") {
             composer.clearComposer();
-            openPermissionsPicker();
-            return;
-        }
-        if (commandAction?.type === "open_agent_picker") {
-            composer.clearComposer();
-            void openAgentPicker();
+            openSettingsDestination(commandAction.destination);
             return;
         }
         if (commandAction?.type === "wear_agent") {
@@ -6157,11 +6135,6 @@ export async function startTui(
         if (commandAction?.type === "open_theme_picker") {
             composer.clearComposer();
             openThemePicker();
-            return;
-        }
-        if (commandAction?.type === "open_settings_menu") {
-            composer.clearComposer();
-            openSettingsMenu();
             return;
         }
         if (commandAction?.type === "open_configure") {
@@ -10366,12 +10339,100 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    /**
+     * The one place this client turns a semantic setting into TUI state.
+     * Callers may carry a picker parent for Escape, but no client position is
+     * accepted from the destination itself.
+     */
+    function openSettingsDestination(
+        destination: unknown,
+        options: {
+            readonly parent?: TuiSettingsPickerState;
+            readonly shortlistView?: "listing" | "picker";
+        } = {},
+    ): "opened" | "unavailable" {
+        const resolution = resolveTuiSettingsDestination(destination, {
+            permissionModes:
+                focusedAgentState().permissionInspection?.availableModes,
+        });
+        if (resolution.status === "unsupported") {
+            state = appendTuiNotice(
+                state,
+                "That settings destination is unavailable in this client.",
+            );
+            renderState();
+            return "unavailable";
+        }
+        const route = resolution.route;
+        if (route.type === "settings_menu") {
+            openSettingsMenu();
+        } else if (route.type === "model_picker") {
+            openModelPicker(options.parent);
+        } else if (route.type === "reasoning_picker") {
+            openReasoningPicker(options.parent);
+        } else if (route.type === "permission_mode_picker") {
+            openPermissionsPicker(options.parent);
+        } else if (route.type === "agent_picker") {
+            void openAgentPicker(route.name);
+        } else if (route.type === "provider_picker") {
+            if (
+                route.provider !== undefined
+                && !configuredProviders(loadOptionalVeraConfig()).some(
+                    (provider) => provider.id === route.provider,
+                )
+            ) {
+                state = appendTuiNotice(
+                    state,
+                    `No provider named ${route.provider}; that settings destination is unavailable.`,
+                );
+                renderState();
+                return "unavailable";
+            }
+            openProviderPicker(options.parent, {
+                ...(route.provider === undefined
+                    ? {}
+                    : { selected: route.provider }),
+            });
+        } else if (route.type === "model_shortlist") {
+            if (options.shortlistView !== "picker") {
+                state = appendTuiNotice(
+                    state,
+                    tuiPoolListing(state.modelSettings?.pooled),
+                );
+                renderState();
+            } else {
+                openModelPicker();
+                settingsPicker = switchedModelTab(
+                    settingsPicker as TuiSettingsPickerState,
+                    "pool",
+                );
+                renderState();
+            }
+        } else if (route.type === "model_assignments") {
+            openModelPicker();
+            settingsPicker = switchedModelTab(
+                settingsPicker as TuiSettingsPickerState,
+                "defaults",
+            );
+            renderState();
+        } else {
+            openModelAssignmentPicker(route.assignment, options.parent);
+        }
+        return "opened";
+    }
+
     function openSettingsMenuTarget(
         target: TuiSettingsMenuTarget,
         parent?: TuiSettingsPickerState,
     ): void {
-        if (target === "model") return openModelPicker(parent);
-        if (target === "reasoning") return openReasoningPicker(parent);
+        if (target === "model") {
+            openSettingsDestination({ kind: "model" }, { parent });
+            return;
+        }
+        if (target === "reasoning") {
+            openSettingsDestination({ kind: "reasoning" }, { parent });
+            return;
+        }
         if (target === "theme") return openThemePicker(parent);
         if (target === "context_limit") {
             settingsPicker = withTuiPickerParent(
@@ -10403,7 +10464,10 @@ export async function startTui(
                 return;
             }
         }
-        if (target === "permission_mode") return openPermissionsPicker(parent);
+        if (target === "permission_mode") {
+            openSettingsDestination({ kind: "permission_mode" }, { parent });
+            return;
+        }
         if (target === "granted_permissions") return openPreferencesList(parent);
         if (target === "reviewer") return openReviewerMenu(parent);
         if (target === "reviewer_primary") {
@@ -10448,15 +10512,8 @@ export async function startTui(
             composer.focus();
             return;
         }
-        if (action.type === "open_model_picker") return openModelPicker();
-        if (action.type === "open_reasoning_picker") {
-            return openReasoningPicker();
-        }
-        if (action.type === "open_permissions_picker") {
-            return openPermissionsPicker();
-        }
-        if (action.type === "open_agent_picker") {
-            void openAgentPicker();
+        if (action.type === "open_settings_destination") {
+            openSettingsDestination(action.destination);
             return;
         }
         if (action.type === "open_work_tab") return openWorkTab();
@@ -10466,7 +10523,6 @@ export async function startTui(
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
         }
-        if (action.type === "open_settings_menu") return openSettingsMenu();
         if (action.type === "open_help") return openHelp(action.tab);
         renderState();
         focusActiveSurface();
@@ -11380,23 +11436,25 @@ export async function startTui(
                 // Keeping a model is what makes it available as a default, so
                 // the row that says so lands on the collection it is kept in
                 // rather than leaving the user to find it.
-                openModelPicker();
-                settingsPicker = switchedModelTab(
-                    settingsPicker as TuiSettingsPickerState,
-                    "pool",
+                openSettingsDestination(
+                    { kind: "model_shortlist" },
+                    { shortlistView: "picker" },
                 );
-                renderState();
-                focusActiveSurface();
                 return;
             } else if (selection.kind === "model_assignment_open") {
                 // The pane the row was chosen on, which Enter has already
                 // cleared from `settingsPicker`: without it Escape closes the
                 // card instead of stepping back to the list.
-                openModelAssignmentPicker(
-                    selection.assignment,
-                    previousPicker?.kind === "extension"
-                        ? undefined
-                        : previousPicker,
+                openSettingsDestination(
+                    {
+                        kind: "model_assignment",
+                        assignment: selection.assignment,
+                    },
+                    {
+                        parent: previousPicker?.kind === "extension"
+                            ? undefined
+                            : previousPicker,
+                    },
                 );
                 return;
             } else if (selection.kind === "model_assignment") {

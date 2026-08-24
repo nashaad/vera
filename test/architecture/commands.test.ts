@@ -21,7 +21,10 @@ test("every registered command is in the catalog the help pane reads", () => {
 
 test("the agent surface is a command, not a chord that changes state", () => {
     const registry = createBuiltinTuiCommandRegistry();
-    expect(registry.dispatch("/agent")).toEqual({ type: "open_agent_picker" });
+    expect(registry.dispatch("/agent")).toEqual({
+        type: "open_settings_destination",
+        destination: { kind: "agent" },
+    });
     expect(registry.dispatch("/agent reviewer")).toEqual({
         type: "wear_agent",
         name: "reviewer",
