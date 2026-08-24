@@ -1173,6 +1173,9 @@ export async function startTui(
     });
     let connectionFailed = false;
     let connectionFailure: string | undefined;
+    // One automatic host restart per drop. A failed attempt sits disconnected
+    // so `/reconnect` stays the next move instead of looping.
+    let hostReconnectAttempted = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
     // What each in-flight change asked for, so a rejection can name it. The
@@ -6371,6 +6374,10 @@ export async function startTui(
         }
         if (commandAction?.type === "reconnect") {
             composer.clearComposer();
+            if (sessionSwitchPending) {
+                renderState();
+                return;
+            }
             const currentAgentId = client.agentId;
             if (
                 !connectionFailed
@@ -6386,29 +6393,7 @@ export async function startTui(
                 renderState();
                 return;
             }
-            sessionSwitchPending = true;
-            sessionSwitchActivity = "restarting host…";
-            renderState();
-            void withSessionSwitchDeadline(
-                dependencies.reconnectSession(currentAgentId),
-                discardSwitchTarget,
-            ).then((next) => {
-                if (shuttingDown) {
-                    discardSwitchTarget(next);
-                    return;
-                }
-                switchToClient(next);
-            }).catch((error) => {
-                if (shuttingDown) return;
-                sessionSwitchPending = false;
-                state = appendTuiError(
-                    state,
-                    `Could not reconnect: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
-                );
-                renderState();
-            });
+            beginHostReconnect({ clearComposer: true });
             return;
         }
         if (commandAction?.type === "create_session") {
@@ -8101,14 +8086,59 @@ export async function startTui(
         });
     }
 
-    function reportConnectionError(error: unknown): void {
-        if (shuttingDown || connectionFailed) {
+    /**
+     * After attach-only retry has already failed, start a replacement host
+     * the same way `/reconnect` does. `switchToClient` runs only after attach
+     * succeeds.
+     */
+    function beginHostReconnect(
+        options: { readonly clearComposer: boolean },
+    ): void {
+        const currentAgentId = client.agentId;
+        if (
+            sessionSwitchPending
+            || dependencies.reconnectSession === undefined
+            || currentAgentId === undefined
+        ) {
             return;
         }
-        connectionFailed = true;
-        const message = error instanceof Error ? error.message : String(error);
+        if (options.clearComposer) {
+            composer.clearComposer();
+        }
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "restarting host…";
+        settleLostHost("Host connection closed");
+        const draft = options.clearComposer ? undefined : currentDraft();
+        renderState();
+        void withSessionSwitchDeadline(
+            dependencies.reconnectSession(currentAgentId),
+            discardSwitchTarget,
+        ).then((next) => {
+            if (shuttingDown) {
+                discardSwitchTarget(next);
+                return;
+            }
+            switchToClient(next, draft);
+        }).catch((error) => {
+            if (shuttingDown) return;
+            sessionSwitchPending = false;
+            if (connectionFailed) {
+                state = appendTuiError(
+                    state,
+                    `Could not reconnect: ${
+                        error instanceof Error ? error.message : String(error)
+                    }`,
+                );
+                renderState();
+                return;
+            }
+            reportConnectionError(error);
+        });
+    }
+
+    function settleLostHost(reason: string): void {
         for (const pending of pendingConsults.values()) {
-            pending.reject(new Error(message));
+            pending.reject(new Error(reason));
         }
         pendingConsults.clear();
         for (const image of pendingImages) {
@@ -8150,9 +8180,27 @@ export async function startTui(
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
+        state = failTuiConnection(state);
+    }
+
+    function reportConnectionError(error: unknown): void {
+        if (shuttingDown || connectionFailed || sessionSwitchPending) {
+            return;
+        }
+        if (
+            !hostReconnectAttempted
+            && dependencies.reconnectSession !== undefined
+            && client.agentId !== undefined
+        ) {
+            hostReconnectAttempted = true;
+            beginHostReconnect({ clearComposer: false });
+            return;
+        }
+        connectionFailed = true;
+        const message = error instanceof Error ? error.message : String(error);
         activity = "disconnected";
         connectionFailure = message;
-        state = failTuiConnection(state);
+        settleLostHost(message);
         renderState();
         composer.focus();
     }
@@ -11878,6 +11926,7 @@ export async function startTui(
         }
         connectionFailed = false;
         connectionFailure = undefined;
+        hostReconnectAttempted = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -13135,7 +13184,9 @@ export async function startTui(
             READY_HINT,
             runningBackgroundAgents,
         );
-        if (connectionFailed) {
+        if (sessionSwitchPending) {
+            lifecycleHint = sessionSwitchActivity;
+        } else if (connectionFailed) {
             lifecycleHint = `disconnected${
                 connectionFailure === undefined
                     ? ""
@@ -13172,8 +13223,6 @@ export async function startTui(
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
             lifecycleHint = "sending prompt with image…";
-        } else if (sessionSwitchPending) {
-            lifecycleHint = sessionSwitchActivity;
         } else if (extensionCommandPending) {
             lifecycleHint =
                 `${extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
