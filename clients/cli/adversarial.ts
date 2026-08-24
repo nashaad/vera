@@ -1,4 +1,5 @@
 import {
+    ADVERSARIAL_REVIEW_TIMEOUT_MS,
     AdversarialReviewInputError,
     parseAdversarialTarget,
     runAdversarialReview,
@@ -44,6 +45,8 @@ export async function runAdversarialCli(
 
     const controller = new AbortController();
     const abort = (): void => controller.abort();
+    const timeout = setTimeout(abort, ADVERSARIAL_REVIEW_TIMEOUT_MS);
+    timeout.unref();
     process.once("SIGINT", abort);
     process.once("SIGTERM", abort);
     try {
@@ -54,6 +57,12 @@ export async function runAdversarialCli(
         });
         if (json) {
             dependencies.stdout.write(`${JSON.stringify(result, null, 2)}\n`);
+        } else if (result.outcome === "completed") {
+            dependencies.stdout.write(
+                `${result.report.trim().length === 0
+                    ? "Adversarial review completed with no report."
+                    : result.report}\n`,
+            );
         } else if (result.report.length > 0) {
             dependencies.stdout.write(`${result.report}\n`);
         }
@@ -68,13 +77,14 @@ export async function runAdversarialCli(
         if (controller.signal.aborted || isAbortError(error)) return 130;
         return error instanceof AdversarialReviewInputError ? 2 : 1;
     } finally {
+        clearTimeout(timeout);
         process.removeListener("SIGINT", abort);
         process.removeListener("SIGTERM", abort);
     }
 }
 
 function isAbortError(error: unknown): boolean {
-    return error instanceof DOMException && error.name === "AbortError";
+    return error instanceof Error && error.name === "AbortError";
 }
 
 function message(error: unknown): string {

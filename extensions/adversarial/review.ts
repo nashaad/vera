@@ -8,6 +8,7 @@ export const ADVERSARIAL_REVIEW_PROMPT = "You are the leaf adversarial reviewer.
 
 const MAX_PATCH_BYTES = 1_000_000;
 const MAX_GIT_ERROR_BYTES = 64 * 1024;
+export const ADVERSARIAL_REVIEW_TIMEOUT_MS = 10 * 60_000;
 
 export type AdversarialTarget =
     | { readonly kind: "uncommitted" }
@@ -36,6 +37,7 @@ export interface AdversarialReviewResult {
 export interface AdversarialReviewDependencies {
     readonly createReviewer?: (
         workspace: string,
+        signal?: AbortSignal,
     ) => Promise<{
         run(
             prompt: string,
@@ -66,7 +68,9 @@ export async function runAdversarialReview(
     );
     const reviewer = await (dependencies.createReviewer ?? createReviewer)(
         request.workspace,
+        request.signal,
     );
+    request.signal?.throwIfAborted();
     const result = await reviewer.run(snapshotPrompt(snapshot), {
         signal: request.signal,
     });
@@ -135,8 +139,10 @@ interface ReviewSnapshot {
     readonly resolvedRevision?: string;
 }
 
-async function createReviewer(workspace: string) {
+async function createReviewer(workspace: string, signal?: AbortSignal) {
+    signal?.throwIfAborted();
     const vera = await Vera.create({ workspace });
+    signal?.throwIfAborted();
     return vera.agent({
         instructions: ADVERSARIAL_REVIEW_PROMPT,
         tools: "none",
@@ -151,7 +157,11 @@ async function buildReviewSnapshot(
 ): Promise<ReviewSnapshot> {
     if (target.kind === "uncommitted") {
         const [tracked, status, untracked] = await Promise.all([
-            git(workspace, ["diff", "--no-ext-diff", "--binary", "HEAD"], signal),
+            git(
+                workspace,
+                ["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"],
+                signal,
+            ),
             git(workspace, ["status", "--short"], signal),
             git(
                 workspace,
@@ -165,7 +175,16 @@ async function buildReviewSnapshot(
             if (remaining <= 0) patchTooLarge();
             const added = await git(
                 workspace,
-                ["diff", "--no-index", "--binary", "--", "/dev/null", path],
+                [
+                    "diff",
+                    "--no-index",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--binary",
+                    "--",
+                    "/dev/null",
+                    path,
+                ],
                 signal,
                 [0, 1],
                 remaining + 1,
@@ -178,10 +197,28 @@ async function buildReviewSnapshot(
     const revision = await resolveRevision(workspace, target, signal, git);
     if (target.kind === "commit") {
         const [patch, files] = await Promise.all([
-            git(workspace, ["show", "--format=fuller", "--binary", revision], signal),
             git(
                 workspace,
-                ["show", "--format=", "--name-status", revision],
+                [
+                    "show",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--format=fuller",
+                    "--binary",
+                    revision,
+                ],
+                signal,
+            ),
+            git(
+                workspace,
+                [
+                    "show",
+                    "--no-ext-diff",
+                    "--no-textconv",
+                    "--format=",
+                    "--name-status",
+                    revision,
+                ],
                 signal,
             ),
         ]);
@@ -195,8 +232,16 @@ async function buildReviewSnapshot(
 
     const range = `${revision}...HEAD`;
     const [patch, files] = await Promise.all([
-        git(workspace, ["diff", "--no-ext-diff", "--binary", range], signal),
-        git(workspace, ["diff", "--name-status", range], signal),
+        git(
+            workspace,
+            ["diff", "--no-ext-diff", "--no-textconv", "--binary", range],
+            signal,
+        ),
+        git(
+            workspace,
+            ["diff", "--no-ext-diff", "--no-textconv", "--name-status", range],
+            signal,
+        ),
     ]);
     return snapshot(
         `base ${target.value} (${revision})`,
@@ -268,8 +313,18 @@ async function runGit(
     stdoutLimit = MAX_PATCH_BYTES + 1,
 ): Promise<GitResult> {
     signal?.throwIfAborted();
-    const process = Bun.spawn(["git", ...args], {
+    const process = Bun.spawn([
+        "git",
+        "--no-pager",
+        "--literal-pathspecs",
+        "-c",
+        "core.fsmonitor=",
+        "-c",
+        "diff.external=",
+        ...args,
+    ], {
         cwd: workspace,
+        env: sanitizedGitEnvironment(),
         stdout: "pipe",
         stderr: "pipe",
         signal,
@@ -288,4 +343,16 @@ async function runGit(
     }
     if (stdout.truncated) patchTooLarge();
     return { stdout: stdout.text, stderr: stderr.text, exitCode };
+}
+
+function sanitizedGitEnvironment(): Record<string, string | undefined> {
+    const environment = Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
+    );
+    return {
+        ...environment,
+        GIT_EXTERNAL_DIFF: "",
+        GIT_PAGER: "cat",
+        GIT_TERMINAL_PROMPT: "0",
+    };
 }

@@ -111,6 +111,11 @@ export class Vera {
     }
 
     agent(options: VeraAgentOptions = {}): Agent {
+        if (options.tools !== undefined && options.tools !== "none") {
+            throw new Error(
+                'The embedded Agent SDK currently supports only tools: "none"',
+            );
+        }
         if (
             options.instructions !== undefined
             && options.instructions.trim().length === 0

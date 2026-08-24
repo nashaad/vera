@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -68,6 +68,36 @@ test("empty and malformed targets fail before a reviewer is created", async () =
             "--prompt",
             "do evil",
         ])).toThrow(AdversarialReviewInputError);
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("snapshotting disables repository-configured text conversion", async () => {
+    const workspace = repository();
+    const marker = join(workspace, "textconv-ran");
+    const driver = join(workspace, "textconv.sh");
+    writeFileSync(
+        driver,
+        `#!/bin/sh\ntouch ${JSON.stringify(marker)}\ncat "$1"\n`,
+    );
+    chmodSync(driver, 0o755);
+    writeFileSync(join(workspace, ".gitattributes"), "*.txt diff=hostile\n");
+    git(workspace, ["config", "diff.hostile.textconv", driver]);
+    git(workspace, ["add", ".gitattributes"]);
+    git(workspace, ["commit", "-qm", "attributes"]);
+    writeFileSync(join(workspace, "tracked.txt"), "changed\n");
+
+    try {
+        await runAdversarialReview({
+            workspace,
+            target: { kind: "uncommitted" },
+        }, {
+            createReviewer: async () => ({
+                run: async () => completed("review"),
+            }),
+        });
+        expect(existsSync(marker)).toBe(false);
     } finally {
         rmSync(workspace, { recursive: true, force: true });
     }

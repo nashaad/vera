@@ -1,12 +1,11 @@
 import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
 import {
+    ADVERSARIAL_REVIEW_TIMEOUT_MS,
     AdversarialReviewInputError,
     parseAdversarialTarget,
     runAdversarialReview,
     type AdversarialTarget,
 } from "./review.ts";
-
-const REVIEW_TIMEOUT_MS = 10 * 60_000;
 
 export interface AdversarialExtensionDependencies {
     readonly review?: typeof runAdversarialReview;
@@ -21,7 +20,7 @@ export function activate(
         name: "adversarial",
         description: "Run a bounded adversarial review of a git target",
         usage: "/adversarial --uncommitted | --commit <sha> | --base <ref>",
-        timeoutMs: REVIEW_TIMEOUT_MS,
+        timeoutMs: ADVERSARIAL_REVIEW_TIMEOUT_MS,
         async run({ argumentsText, workspace, signal }) {
             try {
                 const target = parseAdversarialTarget(words(argumentsText));
@@ -31,12 +30,15 @@ export function activate(
                     signal,
                 });
                 return result.outcome === "completed"
-                    ? { kind: "text", text: result.report }
+                    ? { kind: "text", text: reportText(result.report) }
                     : {
                         kind: "notice",
                         level: "error",
-                        text: result.error?.message
-                            ?? `Adversarial review ${result.outcome}`,
+                        text: failedReportText(
+                            result.report,
+                            result.error?.message
+                                ?? `Adversarial review ${result.outcome}`,
+                        ),
                     };
             } catch (error) {
                 return {
@@ -53,7 +55,7 @@ export function activate(
         description: "Run a read-only adversarial review of exactly one git target.",
         invocation: "top_level",
         permissionOperation: "adversarial.review",
-        timeoutMs: REVIEW_TIMEOUT_MS,
+        timeoutMs: ADVERSARIAL_REVIEW_TIMEOUT_MS,
         inputSchema: {
             type: "object",
             properties: {
@@ -76,9 +78,12 @@ export function activate(
                 });
                 return {
                     output: result.outcome === "completed"
-                        ? result.report
-                        : result.error?.message
-                            ?? `Adversarial review ${result.outcome}`,
+                        ? reportText(result.report)
+                        : failedReportText(
+                            result.report,
+                            result.error?.message
+                                ?? `Adversarial review ${result.outcome}`,
+                        ),
                     isError: result.outcome !== "completed",
                 };
             } catch (error) {
@@ -86,6 +91,16 @@ export function activate(
             }
         },
     });
+}
+
+function reportText(report: string): string {
+    return report.trim().length === 0
+        ? "Adversarial review completed with no report."
+        : report;
+}
+
+function failedReportText(report: string, error: string): string {
+    return report.trim().length === 0 ? error : `${report}\n\n${error}`;
 }
 
 function words(value: string): readonly string[] {

@@ -50,6 +50,41 @@ test("command and top-level tool are thin adapters over one review function", as
     expect(targets).toHaveLength(2);
 });
 
+test("adapters preserve partial reports from failed reviews", async () => {
+    let command: VeraExtensionCommandSpec | undefined;
+    let tool: VeraExtensionToolSpec | undefined;
+    activate({
+        commands: { register: (spec) => command = spec },
+        tools: { register: (spec) => tool = spec },
+    } as VeraExtensionApi, {
+        async review() {
+            return {
+                ...completed(),
+                outcome: "failed",
+                report: "partial finding",
+                error: { kind: "model", message: "provider failed" },
+            };
+        },
+    });
+
+    expect(await command?.run({
+        argumentsText: "--uncommitted",
+        workspace: "/work",
+        signal: new AbortController().signal,
+    })).toMatchObject({
+        kind: "notice",
+        text: "partial finding\n\nprovider failed",
+    });
+    expect(await tool?.run({
+        input: { target: "uncommitted" },
+        workspace: "/work",
+        signal: new AbortController().signal,
+    })).toEqual({
+        output: "partial finding\n\nprovider failed",
+        isError: true,
+    });
+});
+
 function completed(): AdversarialReviewResult {
     return {
         outcome: "completed",

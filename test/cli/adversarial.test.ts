@@ -39,6 +39,31 @@ test("CLI validates before dispatch and supports text and JSON results", async (
     expect(calls).toBe(2);
 });
 
+test("CLI distinguishes abort errors and reports an empty completion", async () => {
+    const output = sink();
+    const errors = sink();
+    expect(await runAdversarialCli([
+        "adversarial",
+        "--uncommitted",
+    ], {
+        stdout: output,
+        stderr: errors,
+        review: async () => ({ ...completed(), report: "" }),
+    })).toBe(0);
+    expect(output.text).toContain("completed with no report");
+
+    const abort = new Error("stopped");
+    abort.name = "AbortError";
+    expect(await runAdversarialCli([
+        "adversarial",
+        "--uncommitted",
+    ], {
+        stdout: output,
+        stderr: errors,
+        review: async () => { throw abort; },
+    })).toBe(130);
+});
+
 function sink(): { text: string; write(text: string): void } {
     return {
         text: "",

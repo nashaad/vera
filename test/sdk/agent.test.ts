@@ -98,6 +98,21 @@ test("Agent.run rejects an empty prompt before constructing an adapter", async (
     expect(adapters).toBe(0);
 });
 
+test("Vera.agent rejects tool modes outside the tool-free SDK contract", async () => {
+    const vera = await Vera.create({
+        config: {
+            schema_version: 1,
+            provider: "faux",
+            model: "reviewer",
+            approval_mode: "auto",
+        },
+    });
+
+    expect(() => vera.agent({ tools: "bash" as never })).toThrow(
+        'supports only tools: "none"',
+    );
+});
+
 test("Agent.run returns failed when its bounded loop cannot complete", async () => {
     const adapter: ModelAdapter = {
         stream() {
