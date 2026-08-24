@@ -135,6 +135,14 @@ test("session picker filters titled durable conversations and selects an agent",
             // The id rides along so the caller can recognise the row for the
             // session already on screen and close instead of re-attaching.
             sessionId: "11111111-first-session",
+            sourceDisposition: "stop",
+        });
+    expect(handleTuiSettingsPickerKey(state, { name: "tab" }).selection)
+        .toEqual({
+            kind: "session",
+            sessionPath: "/sessions/first.jsonl",
+            sessionId: "11111111-first-session",
+            sourceDisposition: "keep_running",
         });
     expect(handleTuiSettingsPickerKey(
         state,
@@ -152,6 +160,8 @@ test("session picker filters titled durable conversations and selects an agent",
         label: "Fix the deployment race",
     });
     expect(frame).toContain("^r rename");
+    expect(frame).toContain("⏎ stop & switch");
+    expect(frame).toContain("tab keep running");
 
     let searched = state;
     for (const name of "11111111-first-session") {
@@ -195,6 +205,7 @@ test("a child picker can include an untitled hosted agent", async () => {
             kind: "session",
             sessionPath: "/sessions/child.jsonl",
             sessionId: "frosty-frost:9f3a:UAT-tester",
+            sourceDisposition: "stop",
         });
 });
 

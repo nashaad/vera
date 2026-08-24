@@ -524,6 +524,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^r rename",
     },
     {
+        id: "background_switch",
+        keys: ["tab"],
+        scope: "session_picker",
+        description: "Keep the current conversation running and switch",
+        hint: "tab keep running",
+        overrides: ["dials.open"],
+    },
+    {
         id: "trash_session",
         keys: ["delete"],
         scope: "session_picker",

@@ -16,6 +16,29 @@ import { createTuiRenameDependencies } from "../../support/tui-rename-child.ts";
 import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
+test("idle TUI exit stops the current conversation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-close-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                "none\ndetached\ncurrent-session-id"
+                    + "\nclosed current-session-id",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("clear command leaves the current conversation for a fresh one", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-new-"));
     const scenario = createTuiNewSessionScenario({ home });
@@ -59,7 +82,74 @@ test("clear command leaves the current conversation for a fresh one", async () =
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
-            "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera",
+            "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
+                + "\nclosed current-session-id,new-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("clear --background explicitly keeps the source running", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-new-background-"));
+    const scenario = createTuiNewSessionScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        // The fixture refuses its first create so this also proves a failed
+        // destination never applies the leave disposition early.
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "Could not start a new session: host refused creation",
+        );
+        session.sendText("/clear --background");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("fresh-model");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
+            "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
+                + "\nclosed new-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("clear keeps the source and cleans up its target when close fails", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-new-close-failure-"));
+    const scenario = createTuiNewSessionScenario({ home, closeFailure: true });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "Could not start a new session: host refused creation",
+        );
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane(
+            "Could not start a new session: the host could not stop the current conversation",
+        );
+        expect(pane).toContain("current-model");
+        expect(pane).not.toContain("fresh-model");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
+            "current-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
+                + "\nclosed new-session-id",
         );
     } finally {
         await session.close();
@@ -416,6 +506,102 @@ test("resuming a session from the list offers no way back", async () => {
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
         expect(pane).not.toContain("/back");
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("tab explicitly keeps the source running while resume switches", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-background-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("⏎ stop & switch");
+        expect(pane).toContain("tab keep running");
+        session.sendKey("Down");
+        session.sendKey("Tab");
+        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                "/sessions/target.jsonl\ndetached\ntarget-session-id"
+                    + "\nclosed target-session-id",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("resume stays on the source when its tree cannot be stopped", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-close-failure-"));
+    const scenario = createTuiResumeScenario({ home, closeFailure: true });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Continue the theme picker");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane(
+            "Could not switch conversation: the host could not stop the current conversation",
+        );
+        expect(pane).toContain("current-model");
+        expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                "/sessions/target.jsonl\ndetached\ncurrent-session-id"
+                    + "\nclosed ",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("resume does not show the destination before source quiescence", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-quiescence-"));
+    const scenario = createTuiResumeScenario({ home, closeDelayMs: 300 });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Continue the theme picker");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pending = await session.waitForVisiblePane("switching conversation");
+        expect(pending).toContain("current-model");
+        expect(pending).not.toContain("RESUMED HISTORY LOADED");
+        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {

@@ -16,11 +16,13 @@ export interface TuiNewSessionScenario {
 export function createTuiNewSessionScenario(options: {
     readonly home: string;
     readonly createTimeout?: boolean;
+    readonly closeFailure?: boolean;
 }): TuiNewSessionScenario {
     let detached = false;
     let nextDetached = false;
     let createAttempts = 0;
     let createdForWorkspace = "none";
+    const closedAgentIds: string[] = [];
     const client = createSettingsAnsweringClient({
         agentId: "current-session-id",
         workspace: "/work/vera",
@@ -57,6 +59,16 @@ export function createTuiNewSessionScenario(options: {
                     },
                 });
             },
+            closeSession: async (agentId) => {
+                if (
+                    options.closeFailure === true
+                    && agentId === "current-session-id"
+                ) {
+                    return { status: "rejected", reason: "failed" };
+                }
+                closedAgentIds.push(agentId);
+                return { status: "closed", sessionRetained: true };
+            },
         },
         async finish(exit) {
             await Bun.write(
@@ -70,6 +82,7 @@ export function createTuiNewSessionScenario(options: {
                     nextDetached ? "next detached" : "next attached",
                     `attempts ${createAttempts}`,
                     createdForWorkspace,
+                    `closed ${closedAgentIds.join(",")}`,
                 ].join("\n"),
             );
         },

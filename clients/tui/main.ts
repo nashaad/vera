@@ -135,6 +135,10 @@ import type {
 } from "./timeline-picker.ts";
 import { createAgentThroughHost, resumeAgentThroughHost } from
     "../../src/host/agent-start-client.ts";
+import {
+    closeAgentThroughHost,
+    type CloseAgentResult,
+} from "../../src/host/agent-close-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import { listSessionsForExtension } from "./session-listing-projection.ts";
@@ -214,6 +218,7 @@ import {
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
+import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
 import {
     resolveTuiHostedAgentAddressing,
@@ -810,6 +815,8 @@ export interface TuiDependencies {
         boundaryId: string,
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
+    /** Hard-close one root and its owned tree, resolving at quiescence. */
+    readonly closeSession?: (agentId: string) => Promise<CloseAgentResult>;
     /**
      * Scan the host's transcripts. Absent when this client reaches no host
      * that can search, which the overlay states rather than showing as an
@@ -1019,6 +1026,8 @@ export async function startConfiguredTui(
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
             resumeSession: agentClients.resume,
+            closeSession: (targetAgentId) =>
+                closeAgentThroughHost(host.socket_path, targetAgentId),
             // Read through the host rather than the session directory: the
             // host owns which profile's transcripts are the live ones, and a
             // client that resolved the path itself could search a different
@@ -3786,13 +3795,18 @@ export async function startTui(
         }
         pendingExtensionSettings.clear();
         const attachedSidebar = hostedSidebar.release();
-        void Promise.all([
-            clientExtensionHost.close(),
-            attachedSidebar?.detach(),
-        ])
+        void clientExtensionHost.close()
             .catch(() => undefined)
             .then(() => experimentalTuiHost.close())
-            .then(() => client.detach().catch(() => client.close()))
+            .then(async () => {
+                await stopClientForShutdown(client);
+                if (
+                    attachedSidebar !== undefined
+                    && attachedSidebar.agentId !== client.agentId
+                ) {
+                    await stopClientForShutdown(attachedSidebar.client);
+                }
+            })
             .then(() => {
                 finished.resolve(
                     client.agentId === undefined
@@ -6417,6 +6431,8 @@ export async function startTui(
             composer.clearComposer();
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
+            const sourceClient = focusedAgentClient();
+            const sourceDisposition = commandAction.sourceDisposition ?? "stop";
             // A blank peer has nothing useful to reset. Treating a second
             // clear as close makes it possible to get rid of an empty pane
             // without requiring a separate close command.
@@ -6479,11 +6495,17 @@ export async function startTui(
                 : dependencies.createSession!(workspace);
             void withSessionSwitchDeadline(
                 nextSession,
-                discardSwitchTarget,
+                (next) => void discardCreatedSwitchTarget(next),
             ).then(async (next) => {
                 if (shuttingDown) {
-                    discardSwitchTarget(next);
+                    void discardCreatedSwitchTarget(next);
                     return;
+                }
+                try {
+                    await leaveSwitchSource(sourceClient, sourceDisposition);
+                } catch (error) {
+                    await discardCreatedSwitchTarget(next);
+                    throw error;
                 }
                 if (clearingSidebar) {
                     await openExtensionAgent(
@@ -8035,6 +8057,48 @@ export async function startTui(
     /** Drop a session the client asked for but can no longer use. */
     function discardSwitchTarget(next: TuiAgentClient): void {
         void next.detach().catch(() => next.close());
+    }
+
+    /**
+     * Apply the user's one-shot leave intent before the new conversation takes
+     * over the screen. Close is a host acknowledgement, not an optimistic UI
+     * state: when this resolves the source root and its owned tree are unable
+     * to issue another provider call.
+     */
+    async function leaveSwitchSource(
+        source: TuiAgentClient,
+        disposition: TuiSessionLeaveDisposition,
+    ): Promise<void> {
+        if (disposition === "keep_running") return;
+        const sourceId = source.agentId;
+        if (sourceId === undefined || dependencies.closeSession === undefined) {
+            throw new Error("stopping the current conversation is unavailable");
+        }
+        const result = await dependencies.closeSession(sourceId);
+        if (result.status === "closed") return;
+        throw new Error(closeSessionFailure(result.reason));
+    }
+
+    /** Best-effort terminal departure: hard close when the host is reachable. */
+    async function stopClientForShutdown(source: TuiAgentClient): Promise<void> {
+        const sourceId = source.agentId;
+        if (sourceId !== undefined && dependencies.closeSession !== undefined) {
+            await dependencies.closeSession(sourceId).catch(() => undefined);
+        }
+        await source.detach().catch(() => source.close());
+    }
+
+    /** A newly-created target is ours to stop if the switch cannot commit. */
+    async function discardCreatedSwitchTarget(
+        next: TuiAgentClient,
+    ): Promise<void> {
+        const targetId = next.agentId;
+        if (targetId === undefined || dependencies.closeSession === undefined) {
+            discardSwitchTarget(next);
+            return;
+        }
+        await dependencies.closeSession(targetId).catch(() => undefined);
+        await next.detach().catch(() => next.close());
     }
 
     function beginFork(boundaryId: string): void {
@@ -11440,6 +11504,7 @@ export async function startTui(
                     selection.sessionId,
                     false,
                     false,
+                    selection.sourceDisposition,
                 );
                 return;
             }
@@ -11639,9 +11704,13 @@ export async function startTui(
         sessionId?: string,
         viaBack = false,
         armsBack = true,
+        sourceDisposition: TuiSessionLeaveDisposition = "stop",
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
+        const sourceClient = openingInSidebar
+            ? hostedSidebar.pane!.client
+            : client;
         settingsPicker = undefined;
         if (sessionId !== undefined && sessionId === client.agentId) {
             // The row for the session already on screen. Tearing down that
@@ -11701,6 +11770,12 @@ export async function startTui(
             if (shuttingDown) {
                 discardSwitchTarget(next);
                 return;
+            }
+            try {
+                await leaveSwitchSource(sourceClient, sourceDisposition);
+            } catch (error) {
+                discardSwitchTarget(next);
+                throw error;
             }
             if (openingInSidebar) {
                 await openExtensionAgent(
@@ -13379,6 +13454,18 @@ export async function startTui(
 function recentSessionSaveFailure(error: unknown): string {
     const detail = error instanceof Error ? error.message : String(error);
     return `Could not remember this session for vera -c: ${detail}`;
+}
+
+function closeSessionFailure(
+    reason: Extract<CloseAgentResult, { status: "rejected" }>["reason"],
+): string {
+    if (reason === "not_owned") {
+        return "the current conversation belongs to another host";
+    }
+    if (reason === "not_found") {
+        return "the current conversation is no longer running";
+    }
+    return "the host could not stop the current conversation";
 }
 
 /** What a patch asks for, as `provider/model at effort`. */
