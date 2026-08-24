@@ -169,10 +169,17 @@ test("user question accepts a digit immediately and restores composer focus", as
     let pane = "";
 
     try {
-        pane = await session.waitForVisiblePane("1. Stable");
+        pane = await session.waitForVisiblePane("1. Preview");
         expect(pane).toContain("Which release channel");
-        expect(pane).toContain("2. Preview");
+        expect(pane).toContain("recommended");
+        expect(pane).toContain("Ships weekly.");
+        expect(pane).toContain("2. Stable");
         expect(pane).toContain("3. Nightly");
+        expect(pane.indexOf("1. Preview")).toBeLessThan(pane.indexOf("2. Stable"));
+        expect(pane.indexOf("recommended")).toBeGreaterThan(
+            pane.indexOf("1. Preview"),
+        );
+        expect(pane.indexOf("recommended")).toBeLessThan(pane.indexOf("2. Stable"));
         expect(pane).not.toContain("question waiting");
         expect(pane).not.toContain("gpt-5.6-sol");
         // The reproduction for the status-line collision: above the short
@@ -182,7 +189,7 @@ test("user question accepts a digit immediately and restores composer focus", as
         // where the row goes back to the content.
         expect(pane).toContain("esc dismiss");
 
-        session.sendText("2");
+        session.sendText("1");
         pane = await session.waitForVisiblePane(
             "Selection received: preview-channel",
         );

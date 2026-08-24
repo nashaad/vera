@@ -673,6 +673,65 @@ test("a choice description sits under its label, not beside it", async () => {
     }
 });
 
+test("a recommended choice is listed first, highlighted, and hinted", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+    const recommendedRequest: UserQuestionUiRequestUpdate = {
+        ...request,
+        requestId: "recommended",
+        request: {
+            ...request.request,
+            choices: [
+                { id: "stable-channel", label: "Stable" },
+                {
+                    id: "preview-channel",
+                    label: "Preview",
+                    recommended: true,
+                },
+            ],
+        },
+    };
+    view.update(recommendedRequest);
+
+    try {
+        await setup.flush();
+        const lines = setup.captureCharFrame().split("\n");
+        const previewLine = lines.findIndex((line) => line.includes("1. Preview"));
+        const hintLine = lines.findIndex((line) =>
+            line.includes("recommended") && !line.includes("1.")
+        );
+        const stableLine = lines.findIndex((line) => line.includes("2. Stable"));
+        expect(previewLine).toBeGreaterThanOrEqual(0);
+        expect(hintLine).toBe(previewLine + 1);
+        expect(stableLine).toBe(hintLine + 1);
+        expect(lines[previewLine]?.includes("recommended")).toBe(false);
+        expect(createTuiQuestionResponse(recommendedRequest, {
+            name: "1",
+            sequence: "1",
+        })?.response).toEqual({
+            type: "user_question",
+            outcome: "selected",
+            choiceId: "preview-channel",
+        });
+        expect(view.handleKey(recommendedRequest, { name: "return" })).toEqual({
+            handled: true,
+            response: {
+                type: "ui_response",
+                requestId: "recommended",
+                response: {
+                    type: "user_question",
+                    outcome: "selected",
+                    choiceId: "preview-channel",
+                },
+            },
+        });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("a wide terminal stops choice text from running the full width", async () => {
     const setup = await createTestRenderer({ width: 220, height: 24 });
     const view = createTuiQuestionView(setup.renderer);

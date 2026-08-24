@@ -96,7 +96,12 @@ export function createTuiQuestionDependencies(): TuiDependencies {
                     question: "Which release channel should Vera use?",
                     choices: [
                         { id: "stable-channel", label: "Stable" },
-                        { id: "preview-channel", label: "Preview" },
+                        {
+                            id: "preview-channel",
+                            label: "Preview",
+                            recommended: true,
+                            description: "Ships weekly.",
+                        },
                         { id: "nightly-channel", label: "Nightly" },
                     ],
                 },

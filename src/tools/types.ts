@@ -123,6 +123,11 @@ export interface AskUserChoice {
      * carries no markup and the client owes it no styling.
      */
     readonly preview?: string;
+    /**
+     * The asker's preferred choice. At most one choice on a question may
+     * carry this. Clients list that choice first.
+     */
+    readonly recommended?: true;
 }
 
 export interface AskUserInteraction {
