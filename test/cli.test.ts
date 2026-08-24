@@ -440,7 +440,7 @@ test("vera doctor leaves stray processes running when the caller declines", asyn
 
     expect(exitCode).toBe(1);
     expect(stopCalled).toBe(false);
-    expect(output).toContain("Left stray processes running.");
+    expect(output).toContain("Left stray processes and leftover tmux sockets in place.");
 });
 
 test("vera doctor --yes stops stray processes without asking", async () => {
@@ -461,6 +461,54 @@ test("vera doctor --yes stops stray processes without asking", async () => {
     expect(confirmCalled).toBe(false);
     expect(output).toContain("Stopped 1 stray process.");
 });
+
+test("vera doctor --yes removes leftover tmux sockets without asking", async () => {
+    let output = "";
+    let confirmCalled = false;
+    let sweptNames: readonly string[] | undefined;
+    const sockets = leftoverTmuxSocketReport();
+    const exitCode = await runCli(["doctor", "--yes"], {
+        doctor: async () => ({
+            healthy: true,
+            currentHostMissing: false,
+            highCpuPercent: 50,
+            processes: [],
+        }),
+        tmuxSockets: async () => sockets,
+        providerDoctor: async () => ({ providers: [], networkChecked: false }),
+        confirmStopStrayProcesses: async () => {
+            confirmCalled = true;
+            return false;
+        },
+        sweepTmuxSockets: async (report) => {
+            sweptNames = report.sockets
+                .filter((socket) => socket.stray)
+                .map((socket) => socket.name);
+            return { killedServers: 1, unlinkedFiles: 2 };
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(confirmCalled).toBe(false);
+    expect(sweptNames).toEqual(["otps", "vera-work-tab-1"]);
+    expect(output).toContain("2 leftover Vera sockets");
+    expect(output).toContain("Leftover live Vera servers: otps");
+    expect(output).toContain("stopped 1 leftover tmux server; removed 2 leftover tmux sockets.");
+});
+
+function leftoverTmuxSocketReport() {
+    return {
+        healthy: false,
+        directory: "/tmp/tmux-501",
+        sockets: [
+            { name: "default", live: false, veraOwned: false, stray: false },
+            { name: "otps", live: true, veraOwned: true, stray: true },
+            { name: "pimem", live: true, veraOwned: false, stray: false },
+            { name: "vera-work-tab-1", live: false, veraOwned: true, stray: true },
+        ],
+    };
+}
 
 test("vera doctor --check-providers asks for the network probe", async () => {
     let output = "";

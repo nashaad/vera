@@ -119,6 +119,13 @@ import {
     type ProviderDoctorReport,
 } from "../provider-doctor.ts";
 import {
+    diagnoseTmuxSockets,
+    renderTmuxSocketDoctor,
+    sweepStaleTmuxSockets,
+    type TmuxSocketReport,
+    type TmuxSocketSweepResult,
+} from "../tmux-socket-doctor.ts";
+import {
     installExtension,
     listExtensions,
     removeExtension,
@@ -207,12 +214,17 @@ export interface CliDependencies {
     readonly stopHost?: () => Promise<number | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    readonly tmuxSockets?: () => Promise<TmuxSocketReport>;
     readonly confirmStopStrayProcesses?: (
         strays: readonly DiagnosedVeraProcess[],
+        straySocketCount?: number,
     ) => boolean | Promise<boolean>;
     readonly stopStrayProcesses?: (
         strays: readonly DiagnosedVeraProcess[],
     ) => number | Promise<number>;
+    readonly sweepTmuxSockets?: (
+        report: TmuxSocketReport,
+    ) => TmuxSocketSweepResult | Promise<TmuxSocketSweepResult>;
     readonly providerDoctor?: (
         options: ProviderDoctorOptions,
     ) => Promise<ProviderDoctorReport>;
@@ -545,29 +557,40 @@ export async function runCli(
         const report = await (
             dependencies.doctor ?? diagnoseVeraProcesses
         )();
+        const sockets = await diagnoseDoctorTmuxSockets(dependencies);
         output.write(renderVeraDoctor(report));
+        output.write(`\n${renderTmuxSocketDoctor(sockets)}`);
         const strays = report.processes.filter((process) => process.stray);
-        if (strays.length > 0) {
+        const straySockets = sockets.sockets.filter((socket) => socket.stray);
+        if (strays.length > 0 || straySockets.length > 0) {
             const confirmed = doctorAssumeYes || await (
                 dependencies.confirmStopStrayProcesses
                     ?? confirmStopStrayVeraProcesses
-            )(strays);
+            )(strays, straySockets.length);
             if (confirmed) {
-                const stopped = await (
-                    dependencies.stopStrayProcesses ?? stopStrayVeraProcesses
-                )(strays);
-                output.write(
-                    `Stopped ${stopped} stray process${stopped === 1 ? "" : "es"}.\n`,
-                );
+                if (strays.length > 0) {
+                    const stopped = await (
+                        dependencies.stopStrayProcesses ?? stopStrayVeraProcesses
+                    )(strays);
+                    output.write(
+                        `Stopped ${stopped} stray process${stopped === 1 ? "" : "es"}.\n`,
+                    );
+                }
+                if (straySockets.length > 0) {
+                    const swept = await (
+                        dependencies.sweepTmuxSockets ?? sweepStaleTmuxSockets
+                    )(sockets);
+                    output.write(renderTmuxSocketSweep(swept));
+                }
             } else {
-                output.write("Left stray processes running.\n");
+                output.write("Left stray processes and leftover tmux sockets in place.\n");
             }
         }
         const providers = await (
             dependencies.providerDoctor ?? defaultProviderDoctor
         )({ checkNetwork });
         output.write(`\n${renderProviderDoctor(providers)}`);
-        return report.healthy ? 0 : 1;
+        return report.healthy && sockets.healthy ? 0 : 1;
     }
 
     if (args[0] === "schedule") {
@@ -1267,18 +1290,56 @@ async function confirmResidentHostStop(): Promise<boolean> {
 
 async function confirmStopStrayVeraProcesses(
     strays: readonly DiagnosedVeraProcess[],
+    straySocketCount = 0,
 ): Promise<boolean> {
     if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
     const prompt = createInterface({ input: process.stdin, output: process.stdout });
     try {
+        const parts = [
+            ...(strays.length > 0
+                ? [`${strays.length} stray process${strays.length === 1 ? "" : "es"}`]
+                : []),
+            ...(straySocketCount > 0
+                ? [`${straySocketCount} leftover tmux socket${straySocketCount === 1 ? "" : "s"}`]
+                : []),
+        ];
         const answer = await prompt.question(
-            `Stop ${strays.length} stray process${strays.length === 1 ? "" : "es"}? [y/N] `,
+            `Stop ${parts.join(" and ")}? [y/N] `,
         );
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";
     } finally {
         prompt.close();
     }
+}
+
+/**
+ * Tests that inject a fake process doctor must not hit the real tmux
+ * socket directory. The real CLI (no `doctor` override) diagnoses both.
+ */
+async function diagnoseDoctorTmuxSockets(
+    dependencies: CliDependencies,
+): Promise<TmuxSocketReport> {
+    if (dependencies.tmuxSockets !== undefined) {
+        return dependencies.tmuxSockets();
+    }
+    if (dependencies.doctor !== undefined) {
+        return { healthy: true, directory: "", sockets: [] };
+    }
+    return diagnoseTmuxSockets();
+}
+
+function renderTmuxSocketSweep(result: TmuxSocketSweepResult): string {
+    const parts = [
+        ...(result.killedServers > 0
+            ? [`stopped ${result.killedServers} leftover tmux server${result.killedServers === 1 ? "" : "s"}`]
+            : []),
+        ...(result.unlinkedFiles > 0
+            ? [`removed ${result.unlinkedFiles} leftover tmux socket${result.unlinkedFiles === 1 ? "" : "s"}`]
+            : []),
+    ];
+    if (parts.length === 0) return "No leftover tmux sockets to remove.\n";
+    return `${parts.join("; ")}.\n`;
 }
 
 if (import.meta.main) {

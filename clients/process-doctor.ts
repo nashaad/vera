@@ -5,7 +5,12 @@ import {
     createHostLockfile,
     HostProtocolMismatchError,
 } from "../src/host/lockfile.ts";
-import { veraHomeDirectory } from "../src/profile-paths.ts";
+import {
+    VERA_HOME_ENV,
+    VERA_RUNTIME_DIR_ENV,
+    veraHomeDirectory,
+} from "../src/profile-paths.ts";
+import { sweepStaleTmuxSockets } from "./tmux-socket-doctor.ts";
 
 const DEFAULT_SAMPLE_INTERVAL_MS = 750;
 const DEFAULT_HIGH_CPU_PERCENT = 50;
@@ -22,6 +27,13 @@ export interface VeraProcessSample {
     readonly startedAt: string;
     readonly command: string;
     readonly kind: VeraProcessKind;
+    /**
+     * Set when this process overrode the profile runtime (`VERA_RUNTIME_DIR`
+     * or `VERA_HOME`). Isolated worktree and UAT hosts use that override, and
+     * it is what makes them leftovers instead of the daily resident.
+     */
+    readonly isolated?: boolean;
+    readonly runtimeDir?: string;
 }
 
 export interface DiagnosedVeraProcess extends VeraProcessSample {
@@ -51,6 +63,12 @@ export interface VeraDoctorOptions {
     readonly sampleIntervalMs?: number;
     readonly highCpuPercent?: number;
     readonly doctorPid?: number;
+    /**
+     * Runtime directory a caller is about to use. Processes in that runtime
+     * stay; everything else that is leftover is stray. Doctor omits this so
+     * forgotten isolated TUIs are swept too.
+     */
+    readonly preserveRuntimeDir?: string;
 }
 
 export interface VeraHostOwnership {
@@ -82,19 +100,15 @@ export async function diagnoseVeraProcesses(
             .filter((sample) => sample.pid !== doctorPid)
             .map((sample) => [sample.pid, sample]),
     );
-    const processes = secondSample
+    const preserveRuntimeDir = options.preserveRuntimeDir;
+    const annotated = secondSample
         .filter((sample) => sample.pid !== doctorPid)
-        .map((sample): DiagnosedVeraProcess => {
+        .map((sample) => {
             const currentHost = sample.kind === "host"
                 && sample.pid === currentHostPid;
             const knownProfileHost = sample.kind === "host"
                 && sample.pid !== currentHostPid
                 && knownProfileHostPids.has(sample.pid);
-            // Reparented to init: whatever spawned it, host or test harness,
-            // is definitively gone. A parent absent from this table proves
-            // nothing on its own -- tmux and shells are never Vera processes,
-            // so a live test fixture's own parent would look "missing" too.
-            const orphaned = sample.ppid === 1;
             return {
                 ...sample,
                 currentHost,
@@ -106,11 +120,24 @@ export async function diagnoseVeraProcesses(
                         sample,
                         highCpuPercent,
                     ),
-                stray: orphaned
-                    && ((sample.kind === "worker" || sample.kind === "test_fixture")
-                        || (sample.kind === "host" && !currentHost && !knownProfileHost)),
             };
-        })
+        });
+    const strayHostPids = new Set(
+        annotated
+            .filter((sample) =>
+                sample.kind === "host"
+                && strayHost(
+                    sample,
+                    preserveRuntimeDir,
+                )
+            )
+            .map((sample) => sample.pid),
+    );
+    const processes = annotated
+        .map((sample): DiagnosedVeraProcess => ({
+            ...sample,
+            stray: strayProcess(sample, strayHostPids, preserveRuntimeDir),
+        }))
         .sort(compareProcesses);
     const currentHostMissing = currentHostPid !== undefined
         && !processes.some((sample) =>
@@ -240,6 +267,32 @@ export function stopStrayVeraProcesses(
     return stopped;
 }
 
+/**
+ * Diagnose and immediately SIGKILL leftovers. Used when a client is about
+ * to start, so the next `vera` run clears isolated UAT hosts without a
+ * separate doctor invocation. Pass `preserveRuntimeDir` so the runtime this
+ * client is attaching to is not treated as leftover.
+ */
+export async function sweepStrayVeraProcesses(
+    options: Pick<
+        VeraDoctorOptions,
+        "preserveRuntimeDir" | "sampleIntervalMs" | "doctorPid"
+    > = {},
+): Promise<number> {
+    const report = await diagnoseVeraProcesses({
+        ...options,
+        sampleIntervalMs: options.sampleIntervalMs ?? 0,
+    });
+    const strays = report.processes.filter((process) => process.stray);
+    const stopped = strays.length === 0 ? 0 : stopStrayVeraProcesses(strays);
+    try {
+        await sweepStaleTmuxSockets();
+    } catch {
+        // Leftover socket files must not block a client from starting.
+    }
+    return stopped;
+}
+
 function killProcessAndGroup(pid: number, pgid: number): boolean {
     let signaled = false;
     if (pgid === pid) {
@@ -283,6 +336,60 @@ export function parseVeraProcessList(source: string): VeraProcessSample[] {
     return samples;
 }
 
+interface HostStrayInput {
+    readonly kind: VeraProcessKind;
+    readonly command: string;
+    readonly currentHost: boolean;
+    readonly knownProfileHost: boolean;
+    readonly isolated?: boolean;
+    readonly runtimeDir?: string;
+}
+
+function strayHost(
+    sample: HostStrayInput,
+    preserveRuntimeDir: string | undefined,
+): boolean {
+    if (sample.currentHost) return false;
+    if (
+        preserveRuntimeDir !== undefined
+        && sample.runtimeDir === preserveRuntimeDir
+    ) {
+        return false;
+    }
+    if (sample.isolated === true) return true;
+    if (!sample.knownProfileHost) return true;
+    // A second profile from a worktree checkout is leftover UAT, not the
+    // daily resident. Two real profiles from the main checkout stay.
+    return /(?:^|\s)\S*\/\.worktrees\//.test(sample.command);
+}
+
+function strayProcess(
+    sample: HostStrayInput & {
+        readonly pid: number;
+        readonly ppid: number;
+    },
+    strayHostPids: ReadonlySet<number>,
+    preserveRuntimeDir: string | undefined,
+): boolean {
+    if (
+        preserveRuntimeDir !== undefined
+        && sample.runtimeDir === preserveRuntimeDir
+    ) {
+        return false;
+    }
+    if (sample.kind === "host") return strayHostPids.has(sample.pid);
+    if (sample.kind === "test_fixture") {
+        return sample.ppid === 1 || sample.isolated === true;
+    }
+    if (sample.kind === "worker") {
+        return sample.ppid === 1 || strayHostPids.has(sample.ppid);
+    }
+    if (sample.kind === "client") {
+        return sample.isolated === true || sample.ppid === 1;
+    }
+    return false;
+}
+
 async function sampleVeraProcesses(): Promise<readonly VeraProcessSample[]> {
     const child = Bun.spawn([
         "ps",
@@ -302,7 +409,73 @@ async function sampleVeraProcesses(): Promise<readonly VeraProcessSample[]> {
             `Could not inspect Vera processes: ${errorOutput.trim() || `ps exited ${exitCode}`}`,
         );
     }
-    return parseVeraProcessList(output);
+    return enrichRuntimeIdentity(parseVeraProcessList(output));
+}
+
+async function enrichRuntimeIdentity(
+    samples: VeraProcessSample[],
+): Promise<VeraProcessSample[]> {
+    if (samples.length === 0) return samples;
+    const child = Bun.spawn([
+        "ps",
+        "eww",
+        "-p",
+        samples.map((sample) => String(sample.pid)).join(","),
+        "-o",
+        "pid=,command=",
+    ], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    const [exitCode, output] = await Promise.all([
+        child.exited,
+        new Response(child.stdout).text(),
+    ]);
+    if (exitCode !== 0) return samples;
+    const runtimeByPid = new Map<number, {
+        readonly isolated: boolean;
+        readonly runtimeDir?: string;
+    }>();
+    for (const line of output.split("\n")) {
+        const match = line.match(/^\s*(\d+)\s+(.*)$/);
+        if (match === null) continue;
+        const parsed = veraRuntimeFromPsLine(match[2] ?? "");
+        runtimeByPid.set(Number(match[1]), parsed);
+    }
+    return samples.map((sample) => {
+        const runtime = runtimeByPid.get(sample.pid);
+        if (runtime === undefined) return sample;
+        return {
+            ...sample,
+            isolated: runtime.isolated,
+            ...(runtime.runtimeDir === undefined
+                ? {}
+                : { runtimeDir: runtime.runtimeDir }),
+        };
+    });
+}
+
+/**
+ * Pull only Vera runtime overrides out of a `ps eww` command line. The rest
+ * of the environment can hold credentials; this function must not return it.
+ */
+function veraRuntimeFromPsLine(commandAndEnv: string): {
+    readonly isolated: boolean;
+    readonly runtimeDir?: string;
+} {
+    const runtimeDir = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
+    const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
+    const isolated = runtimeDir !== undefined || home !== undefined;
+    return {
+        isolated,
+        ...(runtimeDir === undefined ? {} : { runtimeDir }),
+    };
+}
+
+function firstEnvValue(source: string, name: string): string | undefined {
+    const match = source.match(new RegExp(`(?:^|\\s)${name}=(\\S+)`));
+    const value = match?.[1]?.trim();
+    return value === undefined || value.length === 0 ? undefined : value;
 }
 
 async function hostOwnership(): Promise<VeraHostOwnership> {
@@ -399,6 +572,9 @@ function classifyVeraProcess(command: string): VeraProcessKind | undefined {
     if (
         /(?:^|\s)\S*\/\.bun\/bin\/vera(?:\s|$)/.test(command)
         || /(?:^|\s)(?:\S*\/)?clients\/(?:cli|tui)\/main\.ts(?:\s|$)/.test(
+            command,
+        )
+        || /(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
             command,
         )
     ) {

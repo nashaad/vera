@@ -15,15 +15,24 @@ import {
 } from "../../src/host/discovery.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
 import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
+import { sweepStrayVeraProcesses } from "../process-doctor.ts";
 
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,
     "startHost"
 >;
 
-export function findOrStartResidentHost(
+export async function findOrStartResidentHost(
     options: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
+    try {
+        await sweepStrayVeraProcesses({
+            preserveRuntimeDir: veraRuntimeDirectory(),
+            sampleIntervalMs: 0,
+        });
+    } catch {
+        // Sweep must not become a new way for launch to fail.
+    }
     return ensureResidentHost({
         ...options,
         startHost: spawnDetachedResidentHost,

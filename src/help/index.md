@@ -55,10 +55,13 @@ profile file, and they do not imply that a profile is currently editable.
 
 ## doctor — Checking Vera
 
-`vera doctor` checks resident Vera processes, configuration, and providers
-without contacting provider endpoints. Add `--check-providers` to test
-provider reachability and credentials. Doctor reports problems; it does not
-edit the configuration.
+`vera doctor` checks resident Vera processes, leftover Vera tmux sockets,
+configuration, and providers without contacting provider endpoints. Add
+`--check-providers` to test provider reachability and credentials. Doctor
+reports problems. Leftover isolated hosts, their workers, test fixtures,
+forgotten clients, and stale Vera tmux sockets are stray and can be
+removed; `--yes` skips the confirmation. The user's `default` tmux socket
+and non-Vera tmux servers are left alone.
 
 ## sessions — Continuing and exporting work
 
