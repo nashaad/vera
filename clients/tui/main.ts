@@ -307,7 +307,10 @@ import {
     tuiComposerContentIndent,
     type TuiAppearance,
 } from "./appearance.ts";
-import { renderTuiActivityAnimation } from "./activity-pulse.ts";
+import {
+    renderTuiActivityAnimation,
+    renderTuiSpokes,
+} from "./activity-pulse.ts";
 import { TuiBodyFocusController } from "./body-focus.ts";
 import {
     createTuiPermissionsConfirmView,
@@ -13039,10 +13042,9 @@ export async function startTui(
         const agentHeader = agentSection[0] ?? "";
         const animatedAgentHeader = runningNames.length === 0
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-            : activityAnimation === "shimmer"
+            : activityAnimation === "off"
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-            : renderTuiActivityAnimation(
-                activityAnimation,
+            : renderTuiSpokes(
                 activityFrame(),
                 agentHeader,
                 {
@@ -13051,7 +13053,6 @@ export async function startTui(
                     inactive: TUI_ELEMENT,
                     text: TUI_MUTED,
                 },
-                activityAnimationWidth,
             );
         // The card's own inner width, past the band's indent, its border and
         // its padding: the rules drawn inside it have to stop where it does.

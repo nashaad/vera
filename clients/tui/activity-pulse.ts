@@ -20,6 +20,7 @@ const FOCUS_CARET_FRAME_HOLD = 3;
 const BRAILLE_FRAMES = [
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
 ] as const;
+const SPOKE_FRAMES = ["│", "/", "─", "\\"] as const;
 
 /** A terminal-native focus caret whose brackets keep the title still. */
 export function renderTuiFocusCaret(frame: number): string {
@@ -128,6 +129,21 @@ function parseHex(color: string): readonly [number, number, number] | undefined 
         Number.parseInt(match[2] ?? "", 16),
         Number.parseInt(match[3] ?? "", 16),
     ];
+}
+
+export function renderTuiSpokes(
+    frame: number,
+    message: string,
+    colors: TuiActivityPulseColors,
+): StyledText {
+    const glyph = SPOKE_FRAMES[positiveModulo(
+        frame,
+        SPOKE_FRAMES.length,
+    )] ?? "│";
+    return new StyledText([
+        fg(colors.active)(glyph),
+        fg(colors.text)(` ${message}`),
+    ]);
 }
 
 export function renderTuiActivityPulse(

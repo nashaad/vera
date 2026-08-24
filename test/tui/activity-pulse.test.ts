@@ -5,6 +5,7 @@ import {
     renderTuiActivityAnimation,
     renderTuiActivityPulse,
     renderTuiFocusCaret,
+    renderTuiSpokes,
 } from "../../clients/tui/activity-pulse.ts";
 
 const colors = {
@@ -141,6 +142,18 @@ test("TUI activity animation accepts a numeric width", () => {
         colors,
         5,
     ))).toBe("▒▓█▓▒ working");
+});
+
+test("TUI spokes spin a one-cell four-spoke glyph", () => {
+    expect([0, 1, 2, 3, 4].map((frame) => plainText(
+        renderTuiSpokes(frame, "4 subagents running", colors),
+    ))).toEqual([
+        "│ 4 subagents running",
+        "/ 4 subagents running",
+        "─ 4 subagents running",
+        "\\ 4 subagents running",
+        "│ 4 subagents running",
+    ]);
 });
 
 test("TUI focus caret blinks without changing its width", () => {
