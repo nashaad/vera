@@ -45,6 +45,9 @@ export interface VeraAgentOptions {
     readonly provider?: string;
     readonly model?: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    readonly instructions?: string;
+    /** The first SDK slice intentionally supports only a no-tools agent. */
+    readonly tools?: "none";
 }
 
 export interface AgentRunOptions {
@@ -62,7 +65,12 @@ export interface AgentRunResult {
     };
     readonly usage?: SessionModelUsage;
     readonly substitutions: readonly ModelSubstitution[];
-    readonly error?: string;
+    readonly error?: AgentRunError;
+}
+
+export interface AgentRunError {
+    readonly kind: "model" | "runtime" | "aborted";
+    readonly message: string;
 }
 
 interface ResolvedAgentOptions {
@@ -70,6 +78,7 @@ interface ResolvedAgentOptions {
     readonly config: VeraConfig;
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
+    readonly instructions?: string;
     readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
 }
 
@@ -96,17 +105,18 @@ export class Vera {
             path: profileConfigPath(options.profile),
             projectRoot: workspace,
         });
-        const authStorage = createAuthStorage();
         const createAdapter = options.createAdapter
-            ?? ((selected: VeraConfig, selectedWorkspace: string): ModelAdapter =>
-                createConfiguredModelAdapter(selected, {
-                    authStorage,
-                    projectRoot: selectedWorkspace,
-                }));
+            ?? defaultAdapterFactory();
         return new Vera(config, workspace, createAdapter);
     }
 
     agent(options: VeraAgentOptions = {}): Agent {
+        if (
+            options.instructions !== undefined
+            && options.instructions.trim().length === 0
+        ) {
+            throw new Error("Agent instructions must not be empty");
+        }
         const provider = options.provider ?? this.config.provider;
         const selectedConfig: VeraConfig = {
             ...this.config,
@@ -120,6 +130,9 @@ export class Vera {
             model: selectedConfig.model,
             reasoningEffort: options.reasoningEffort
                 ?? selectedConfig.reasoning_effort,
+            ...(options.instructions === undefined
+                ? {}
+                : { instructions: options.instructions.trim() }),
             createAdapter: this.createAdapter,
         });
     }
@@ -141,7 +154,7 @@ export class Agent {
         let text = "";
         let usage: SessionModelUsage | undefined;
         let outcome: AgentRunOutcome = "completed";
-        let error: string | undefined;
+        let error: AgentRunError | undefined;
         const substitutions: ModelSubstitution[] = [];
         let loop: Promise<void> | undefined;
         let loopFailure: unknown;
@@ -187,6 +200,16 @@ export class Agent {
                         modelFallback:
                             configuredModelFallback(this.options.config),
                     }),
+                    ...(this.options.instructions === undefined
+                        ? {}
+                        : {
+                            readAgentWear: () => ({
+                                name: "embedded",
+                                instructions: this.options.instructions!,
+                                tools: [],
+                                skills: [],
+                            }),
+                        }),
                 },
             ).catch((caught: unknown) => {
                 loopFailure = caught;
@@ -213,14 +236,25 @@ export class Agent {
                 }
                 if (update.type === "agent_failed") {
                     outcome = "failed";
-                    error = update.detail;
+                    error = { kind: "runtime", message: update.detail };
                     break;
                 }
                 if (update.type !== "turn_finished") continue;
                 usage = update.usage;
-                if (update.outcome === "aborted") outcome = "aborted";
-                if (update.outcome === "error") outcome = "failed";
-                error = update.error;
+                if (update.outcome === "aborted") {
+                    outcome = "aborted";
+                    error = {
+                        kind: "aborted",
+                        message: update.error ?? "Agent run was aborted",
+                    };
+                }
+                if (update.outcome === "error") {
+                    outcome = "failed";
+                    error = {
+                        kind: "model",
+                        message: update.error ?? "Model run failed",
+                    };
+                }
                 break;
             }
         } finally {
@@ -265,4 +299,13 @@ function profileConfigPath(profile: string | undefined): string | undefined {
         }),
         "config.json",
     );
+}
+
+function defaultAdapterFactory(): NonNullable<VeraCreateOptions["createAdapter"]> {
+    const authStorage = createAuthStorage();
+    return (selected, selectedWorkspace) =>
+        createConfiguredModelAdapter(selected, {
+            authStorage,
+            projectRoot: selectedWorkspace,
+        });
 }

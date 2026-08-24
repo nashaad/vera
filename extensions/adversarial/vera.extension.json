@@ -1,0 +1,10 @@
+{
+  "id": "vera.adversarial",
+  "version": "0.1.0",
+  "sdk": "1",
+  "entrypoint": "./extension.ts",
+  "capabilities": [
+    "commands.register",
+    "tools.register"
+  ]
+}

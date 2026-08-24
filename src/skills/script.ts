@@ -13,6 +13,7 @@ const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
 
 export const skillScriptTool: RegisteredTool = {
+    invocation: "top_level",
     definition: {
         name: "skill_script",
         description: "Run an executable script explicitly referenced by a loaded skill. Uses argv without a shell, the workspace as cwd, a bounded environment and output, and a timeout.",
@@ -36,6 +37,14 @@ export const skillScriptTool: RegisteredTool = {
         },
     },
     async execute(input, context, signal): Promise<ToolOutput> {
+        if (context.invocation !== "top_level") {
+            return {
+                kind: "output",
+                output:
+                    "The skill_script tool is available only to top-level sessions.",
+                isError: true,
+            };
+        }
         const skillName = requiredString(input.skill, "skill");
         const script = requiredString(input.script, "script");
         const args = stringArray(input.args);

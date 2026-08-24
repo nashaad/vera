@@ -67,7 +67,7 @@ printf 'cwd=%s\\narg=%s\\nskill=%s\\nsecret=%s\\n' "$PWD" "$1" "$VERA_SKILL_DIR"
     }
 });
 
-test("skill_script refuses a disable-model-invocation skill for a subagent, allows it at the top level", async () => {
+test("skill_script is top-level-only regardless of a skill's metadata", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skill-gate-"));
     const workspace = join(root, "workspace");
     const skillDirectory = join(projectSkillDirectory(workspace), "adversarial");
@@ -97,7 +97,12 @@ Run \`scripts/review.sh\`.
         skill: "adversarial",
         script: "scripts/review.sh",
     }, subagentRuntime, new AbortController().signal))
-        .rejects.toThrow("disable-model-invocation");
+        .resolves.toEqual({
+            kind: "output",
+            output:
+                "The skill_script tool is available only to top-level sessions.",
+            isError: true,
+        });
 
     const result = await skillScriptTool.execute({
         skill: "adversarial",

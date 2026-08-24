@@ -61,6 +61,7 @@ import {
 
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
+const MAX_HANDLER_TIMEOUT_MS = 30 * 60_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
 const MAX_EXTENSION_PRESENTATION_BYTES = 64 * 1024;
 const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
@@ -114,6 +115,7 @@ export interface ExtensionRegistry {
 
 interface RegisteredExtensionCommand {
     readonly descriptor: ExtensionCommandDescriptor;
+    readonly timeoutMs: number;
     readonly run: VeraExtensionCommandHandler;
 }
 
@@ -331,9 +333,9 @@ export async function startExtensionRegistry(
                         signal: operationSignal,
                     }),
                     {
-                        timeoutMs: handlerTimeoutMs,
+                        timeoutMs: owner.command.timeoutMs,
                         timeoutMessage:
-                            `Extension ${owner.extension.id}/${name} timed out after ${handlerTimeoutMs}ms`,
+                            `Extension ${owner.extension.id}/${name} timed out after ${owner.command.timeoutMs}ms`,
                         abortMessage:
                             `Extension ${owner.extension.id}/${name} was cancelled`,
                         signal: controller.signal,
@@ -434,6 +436,7 @@ async function activateExtension(
                     spec,
                     commands,
                     commandNames,
+                    handlerTimeoutMs,
                 );
             },
         }),
@@ -663,6 +666,7 @@ function registerTool(
         permissionOperation,
         permissionInputs,
         invocation,
+        timeoutMs,
         run,
     } = spec;
     if (
@@ -680,6 +684,7 @@ function registerTool(
             ))
         || !validPermissionInputs(permissionInputs)
         || (invocation !== undefined && invocation !== "top_level")
+        || !validHandlerTimeout(timeoutMs)
         || typeof run !== "function"
     ) {
         throw new Error("Invalid extension tool registration");
@@ -741,9 +746,9 @@ function registerTool(
                         signal: operationSignal,
                     }),
                     {
-                        timeoutMs: handlerTimeoutMs,
+                        timeoutMs: timeoutMs ?? handlerTimeoutMs,
                         timeoutMessage:
-                            `Extension ${loaded.manifest.id}/${name} timed out after ${handlerTimeoutMs}ms`,
+                            `Extension ${loaded.manifest.id}/${name} timed out after ${timeoutMs ?? handlerTimeoutMs}ms`,
                         abortMessage:
                             `Extension ${loaded.manifest.id}/${name} was cancelled`,
                         signal: controller.signal,
@@ -873,6 +878,7 @@ function registerCommand(
     spec: VeraExtensionCommandSpec,
     commands: RegisteredExtensionCommand[],
     commandNames: Set<string>,
+    handlerTimeoutMs: number,
 ): void {
     if (!loaded.manifest.capabilities.includes("commands.register")) {
         throw new Error(
@@ -886,6 +892,7 @@ function registerCommand(
         name,
         description,
         usage,
+        timeoutMs,
         run,
     } = spec;
     if (
@@ -895,6 +902,7 @@ function registerCommand(
         || description.trim().length === 0
         || typeof usage !== "string"
         || usage.trim().length === 0
+        || !validHandlerTimeout(timeoutMs)
         || typeof run !== "function"
     ) {
         throw new Error("Invalid extension command registration");
@@ -910,8 +918,17 @@ function registerCommand(
             usage: usage.trim(),
             source: loaded.manifest.id,
         },
+        timeoutMs: timeoutMs ?? handlerTimeoutMs,
         run,
     });
+}
+
+function validHandlerTimeout(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "number"
+            && Number.isInteger(value)
+            && value > 0
+            && value <= MAX_HANDLER_TIMEOUT_MS);
 }
 
 function validateCommandOwnership(

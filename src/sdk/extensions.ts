@@ -108,6 +108,8 @@ export interface VeraExtensionToolSpec {
     readonly permissionInputs?: readonly PermissionInputSpec[];
     /** Restrict this tool to sessions that were not spawned by another agent. */
     readonly invocation?: "top_level";
+    /** Per-call deadline. Omitted uses the registry default. */
+    readonly timeoutMs?: number;
     readonly run: VeraExtensionToolHandler;
 }
 
@@ -135,6 +137,8 @@ export interface VeraExtensionCommandSpec {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
+    /** Per-call deadline. Omitted uses the registry default. */
+    readonly timeoutMs?: number;
     readonly run: VeraExtensionCommandHandler;
 }
 

@@ -12,6 +12,7 @@ import {
 } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { VeraConfig } from "../../src/config.ts";
+import { ModelEventStream } from "../../src/model/stream.ts";
 
 test("Agent.run owns a bounded tool-free engine loop without a resident host", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-sdk-test-"));
@@ -96,3 +97,70 @@ test("Agent.run rejects an empty prompt before constructing an adapter", async (
     );
     expect(adapters).toBe(0);
 });
+
+test("Agent.run returns failed when its bounded loop cannot complete", async () => {
+    const adapter: ModelAdapter = {
+        stream() {
+            const stream = new ModelEventStream();
+            const error = new Error("provider unavailable");
+            queueMicrotask(() => {
+                stream.push({ type: "start" });
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        role: "assistant",
+                        content: [],
+                        source: {
+                            provider: "faux",
+                            api: "test",
+                            model: "reviewer",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "error",
+                        errorMessage: error.message,
+                    },
+                });
+            });
+            return stream;
+        },
+    };
+    const vera = await testVera(adapter);
+
+    const result = await vera.agent().run("review");
+
+    expect(result.outcome).toBe("failed");
+    expect(result.error?.message).toContain("provider unavailable");
+});
+
+test("Agent.run turns AbortSignal cancellation into an aborted result", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "too late" }],
+        source: { provider: "faux", api: "test", model: "reviewer" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const vera = await testVera(new FauxAdapter([response], { delayMs: 100 }));
+    const controller = new AbortController();
+    setTimeout(() => controller.abort(), 10);
+
+    const result = await vera.agent().run("review", {
+        signal: controller.signal,
+    });
+
+    expect(result.outcome).toBe("aborted");
+    expect(result.error?.kind).toBe("aborted");
+});
+
+function testVera(adapter: ModelAdapter): Promise<Vera> {
+    return Vera.create({
+        config: {
+            schema_version: 1,
+            provider: "faux",
+            model: "reviewer",
+            approval_mode: "auto",
+        },
+        createAdapter: () => adapter,
+    });
+}
