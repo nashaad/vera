@@ -401,6 +401,9 @@ function requestSummary(request: UiRequest): string {
     if (request.type === "user_question") {
         return truncate(oneLine(request.question));
     }
+    if (request.type === "configuration_required") {
+        return truncate(oneLine(request.reason));
+    }
     const preview = toolCallPreview(request.toolCall.input);
     return truncate(
         preview === undefined

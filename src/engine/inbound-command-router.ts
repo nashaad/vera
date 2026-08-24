@@ -2,6 +2,8 @@ import { randomUUID } from "node:crypto";
 
 import { AsyncQueue } from "./async-queue.ts";
 import type {
+    ConfigurationRequiredUiRequest,
+    ConfigurationRequiredUiResponse,
     EngineEventBus,
     PoolAdmissionVerdict,
     ToolApprovalUiResponse,
@@ -134,6 +136,15 @@ export type UserQuestionResult =
 interface PendingQuestion {
     readonly request: UserQuestionUiRequest;
     readonly resolve: (result: UserQuestionResult) => void;
+    readonly signal?: AbortSignal;
+    readonly onAbort?: () => void;
+}
+
+export type ConfigurationRequiredResult =
+    ConfigurationRequiredUiResponse["outcome"];
+
+interface PendingConfigurationRequired {
+    readonly resolve: (result: ConfigurationRequiredResult) => void;
     readonly signal?: AbortSignal;
     readonly onAbort?: () => void;
 }
@@ -359,6 +370,10 @@ export class InboundCommandRouter {
     private readonly prompts = new AsyncQueue<QueuedTurn>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
     private readonly pendingQuestions = new Map<string, PendingQuestion>();
+    private readonly pendingConfigurations = new Map<
+        string,
+        PendingConfigurationRequired
+    >();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
     private receiveFailed = false;
@@ -475,7 +490,15 @@ export class InboundCommandRouter {
         return this.activeTurn !== undefined
             || this.pendingPromptCount > 0
             || this.pendingApprovals.size > 0
-            || this.pendingQuestions.size > 0;
+            || this.pendingQuestions.size > 0
+            || this.pendingConfigurations.size > 0;
+    }
+
+    /** Whether this router, rather than a remote loop, owns the response ID. */
+    ownsUiRequest(requestId: string): boolean {
+        return this.pendingApprovals.has(requestId)
+            || this.pendingQuestions.has(requestId)
+            || this.pendingConfigurations.has(requestId);
     }
 
     requestToolApproval(
@@ -588,6 +611,43 @@ export class InboundCommandRouter {
             });
         });
 
+        this.events.emit({
+            type: "ui_request",
+            requestId,
+            request: semanticRequest,
+        });
+        return result;
+    }
+
+    requestConfigurationRequired(
+        request: Omit<ConfigurationRequiredUiRequest, "type">,
+        options: { readonly signal?: AbortSignal } = {},
+    ): Promise<ConfigurationRequiredResult> {
+        if (this.receiveFailed) return Promise.resolve("unavailable");
+        if (options.signal?.aborted) return Promise.resolve("cancelled");
+
+        const requestId = randomUUID();
+        const semanticRequest: ConfigurationRequiredUiRequest = {
+            type: "configuration_required",
+            destination: structuredClone(request.destination),
+            reason: request.reason,
+            pendingAction: { ...request.pendingAction },
+        };
+        const result = new Promise<ConfigurationRequiredResult>((resolve) => {
+            const pending: PendingConfigurationRequired = {
+                resolve,
+                ...(options.signal === undefined ? {} : {
+                    signal: options.signal,
+                    onAbort: () => {
+                        this.finishConfigurationRequired(requestId, "cancelled");
+                    },
+                }),
+            };
+            this.pendingConfigurations.set(requestId, pending);
+            pending.signal?.addEventListener("abort", pending.onAbort!, {
+                once: true,
+            });
+        });
         this.events.emit({
             type: "ui_request",
             requestId,
@@ -877,6 +937,9 @@ export class InboundCommandRouter {
             }
             for (const requestId of this.pendingQuestions.keys()) {
                 this.finishQuestion(requestId, { outcome: "cancelled" });
+            }
+            for (const requestId of this.pendingConfigurations.keys()) {
+                this.finishConfigurationRequired(requestId, "unavailable");
             }
         }
     }
@@ -1596,6 +1659,13 @@ export class InboundCommandRouter {
         }
         if (command.response.type === "user_question") {
             this.receiveQuestionResponse(command.requestId, command.response);
+            return;
+        }
+        if (command.response.type === "configuration_required") {
+            this.receiveConfigurationRequiredResponse(
+                command.requestId,
+                command.response,
+            );
         }
     }
 
@@ -1645,6 +1715,29 @@ export class InboundCommandRouter {
             return;
         }
         this.pendingQuestions.delete(requestId);
+        if (pending.signal !== undefined && pending.onAbort !== undefined) {
+            pending.signal.removeEventListener("abort", pending.onAbort);
+        }
+        this.events.emit({ type: "ui_request_closed", requestId });
+        pending.resolve(result);
+    }
+
+    private receiveConfigurationRequiredResponse(
+        requestId: string,
+        response: ConfigurationRequiredUiResponse,
+    ): void {
+        if (!this.pendingConfigurations.has(requestId)) return;
+        this.events.emit({ type: "ui_response", requestId, response });
+        this.finishConfigurationRequired(requestId, response.outcome);
+    }
+
+    private finishConfigurationRequired(
+        requestId: string,
+        result: ConfigurationRequiredResult,
+    ): void {
+        const pending = this.pendingConfigurations.get(requestId);
+        if (pending === undefined) return;
+        this.pendingConfigurations.delete(requestId);
         if (pending.signal !== undefined && pending.onAbort !== undefined) {
             pending.signal.removeEventListener("abort", pending.onAbort);
         }

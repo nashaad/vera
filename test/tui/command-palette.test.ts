@@ -22,7 +22,10 @@ const commands = [{
     description: "change the model for the next turn",
     group: "Settings",
     slashName: "model",
-    action: { type: "open_model_picker" },
+    action: {
+        type: "open_settings_destination",
+        destination: { kind: "model" },
+    },
 }, {
     name: "granted_permissions",
     label: "Review granted permissions",
@@ -91,7 +94,10 @@ test("command palette finds keyboard help by common wording and key hint", () =>
         description: "how much the model thinks",
         group: "Settings",
         keyHint: "ctrl+o reasoning",
-        action: { type: "open_reasoning_picker" },
+        action: {
+            type: "open_settings_destination",
+            destination: { kind: "reasoning" },
+        },
     } as const satisfies TuiPaletteEntry;
     let state = startTuiCommandPalette([effort]);
     for (const name of "ctrl+o") {

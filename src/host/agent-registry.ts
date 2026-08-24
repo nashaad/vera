@@ -73,12 +73,16 @@ import { isVeraProviderId } from "../config.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
+    subagentModelBoundary,
+    type MissingSubagentConfigurationRequest,
     type SpawnModelDefault,
+    type SpawnModelResolution,
     type SubagentPoolPolicy,
 } from "../engine/subagent.ts";
 import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isConsultReplyUpdate,
+    isConfigurationRequiredUiRequestUpdate,
     isSessionNameReplyUpdate,
     isTimelineReplyUpdate,
     isToolApprovalUiRequestUpdate,
@@ -124,6 +128,7 @@ import type {
     NotifyParentEffect,
     RegisteredTool,
     SpawnAsyncSubagentEffect,
+    ToolEffectContext,
     ToolOutput,
 } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
@@ -131,6 +136,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionDelegation,
     type SessionSettingOrigin,
 } from "../store/session-store.ts";
 import {
@@ -964,6 +970,7 @@ interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
     readonly modelSettings?: ModelTurnSettings;
     readonly parentId?: string;
+    readonly delegation?: SessionDelegation;
 }
 
 /**
@@ -1047,6 +1054,25 @@ interface RegisteredAgentEntry {
     failure?: unknown;
 }
 
+interface PendingSubagentLaunch {
+    readonly id: string;
+    readonly request: MissingSubagentConfigurationRequest;
+    readonly context: ToolEffectContext;
+    readonly signal: AbortSignal;
+    readonly resolve: (resolution: SpawnModelResolution) => void;
+    settled: boolean;
+    onAbort?: () => void;
+}
+
+interface PendingSubagentConfigurationBatch {
+    readonly id: string;
+    readonly entryId: string;
+    readonly actions: PendingSubagentLaunch[];
+    readonly abort: AbortController;
+    scheduled: boolean;
+    processing: boolean;
+}
+
 export class AgentRegistry {
     private readonly agents = new Map<string, RegisteredAgentEntry>();
     private readonly startingIds = new Set<string>();
@@ -1067,6 +1093,10 @@ export class AgentRegistry {
     private readonly startingBackgroundAgents = new Map<string, number>();
     /** Child id to the ladder notice its spawn produced, if any. */
     private readonly spawnNotices = new Map<string, string>();
+    private readonly pendingSubagentConfigurations = new Map<
+        string,
+        PendingSubagentConfigurationBatch[]
+    >();
     private readonly catalog: EffectiveCatalogOptions;
     private availableModels: readonly SuggestedModel[];
     private readonly rosterListeners = new Set<() => void>();
@@ -1325,6 +1355,17 @@ export class AgentRegistry {
             return `Cancelled a question from the model: `
                 + `${update.request.question}`;
         }
+        if (isConfigurationRequiredUiRequestUpdate(update)) {
+            attachment.send({
+                type: "ui_response",
+                requestId: update.requestId,
+                response: {
+                    type: "configuration_required",
+                    outcome: "unavailable",
+                },
+            });
+            return "Subagent configuration is unavailable in print mode; no child started.";
+        }
         return "Refused a request that needs someone watching.";
     }
 
@@ -1362,6 +1403,9 @@ export class AgentRegistry {
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
+                    ...(inherited?.delegation === undefined
+                        ? {}
+                        : { delegation: inherited.delegation }),
                 },
             );
             createdPath = store.path;
@@ -1401,6 +1445,18 @@ export class AgentRegistry {
         const store = await SessionStore.open(sessionPath);
         const storedProvider = store.modelSettings()?.provider;
         if (
+            store.header.delegation !== undefined
+            && store.modelSettings() !== undefined
+            && !delegationAllows(
+                store.header.delegation,
+                store.modelSettings()!,
+            )
+        ) {
+            throw new UserFacingError(
+                "This delegated session's stored model is outside its persisted boundary.",
+            );
+        }
+        if (
             store.agentFailure() === undefined
             && storedProvider !== undefined
             && !(storedProvider === "unknown" && this.defaultProvider === "unknown")
@@ -1411,7 +1467,8 @@ export class AgentRegistry {
         this.reserveId(store.header.id);
         try {
             this.requireOpen();
-            const parentId = store.header.parentId;
+            const parentId = store.header.delegation?.parentId
+                ?? store.header.parentId;
             return parentId === undefined
                 ? this.start(store, "interactive", options.eventLogPath)
                 : this.start(
@@ -1788,6 +1845,15 @@ export class AgentRegistry {
             ?? entry.modelSettings.provider
             ?? this.defaultProvider;
         const model = patch.model?.trim() ?? entry.modelSettings.model;
+        if (
+            entry.store.header.delegation !== undefined
+            && !delegationAllows(entry.store.header.delegation, {
+                provider,
+                model,
+            })
+        ) {
+            return undefined;
+        }
         // Pool membership does not gate this. The pool is the user's curated
         // shortlist, not the set of models they are allowed to run: choosing a
         // model from the catalog runs it and adds nothing.
@@ -2358,6 +2424,12 @@ export class AgentRegistry {
         const unresolvable = definition.defaultPair !== undefined
             && this.wornAgentDefaultPair(entry) === undefined;
         const target = this.effectiveDefaultPair(entry);
+        if (
+            entry.store.header.delegation !== undefined
+            && !delegationAllows(entry.store.header.delegation, target)
+        ) {
+            return `${definition.name}'s default model is outside this delegated session's persisted boundary.`;
+        }
         if (!samePair(target, entry.modelSettings)) {
             await entry.store.appendModelSettings(target, "agent-default");
             entry.modelSettings = target;
@@ -3501,13 +3573,19 @@ export class AgentRegistry {
             ...(this.options.subagentModel === undefined
                 ? {}
                 : { subagentModel: this.options.subagentModel }),
-            ...(this.options.readPolicy === undefined
-                ? {}
-                : {
-                    readPolicy: () =>
-                        this.options.readPolicy?.(store.header.cwd)
-                            ?? {},
-                }),
+            readPolicy: () => delegatedSubagentPolicy(
+                this.options.readPolicy === undefined
+                    ? { allowSelf: true }
+                    : this.options.readPolicy(store.header.cwd),
+                store.header.delegation,
+            ),
+            requestMissingConfiguration: (request, context, signal) =>
+                this.requestMissingSubagentConfiguration(
+                    entry,
+                    request,
+                    context,
+                    signal,
+                ),
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -3554,6 +3632,7 @@ export class AgentRegistry {
                     store,
                     effect,
                     context,
+                    signal,
                 );
             }
             if (effect.type === "message_subagent") {
@@ -3649,6 +3728,14 @@ export class AgentRegistry {
                     : { reviewLog: this.options.reviewLog }),
                 ...(compaction === undefined ? {} : { compaction }),
                 applyToolEffect,
+                requestMissingSubagentConfiguration:
+                    (request, context, signal) =>
+                        this.requestMissingSubagentConfiguration(
+                            entry,
+                            request,
+                            context,
+                            signal,
+                        ),
                 applyCommittedToolEffect,
                 extensionTools,
                 ...(startupProfile !== "default"
@@ -3661,7 +3748,10 @@ export class AgentRegistry {
                 // Read at each use, not copied for the session: a setting the
                 // user changes has to reach a session already running.
                 readPolicy: () => ({
-                    ...(registry.options.modelFallback === undefined ? {} : {
+                    ...(store.header.delegation !== undefined
+                            || registry.options.modelFallback === undefined
+                        ? {}
+                        : {
                         modelFallback: registry.options.modelFallback,
                     }),
                     ...(registry.options.permissionModes === undefined ? {} : {
@@ -3674,6 +3764,12 @@ export class AgentRegistry {
                         reviewers: registry.options.reviewers,
                     }),
                     disabledPromptContributions: disabledPromptContributions(),
+                    subagentPolicy: delegatedSubagentPolicy(
+                        this.options.readPolicy === undefined
+                            ? { allowSelf: true }
+                            : this.options.readPolicy(store.header.cwd),
+                        store.header.delegation,
+                    ),
                 }),
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
@@ -4073,7 +4169,12 @@ export class AgentRegistry {
             {
                 ...(services.readModelSettings === undefined
                     ? {}
-                    : { readModelSettings: services.readModelSettings }),
+                    : {
+                        readModelSettings: () => {
+                            this.pushWorkerState(agent.id);
+                            return services.readModelSettings!();
+                        },
+                    }),
                 ...(services.router ?? {}),
                 sendSessionNameReply: services.router?.sendSessionNameReply
                     ?? ((_ownerId, reply) => agent.engine.send(reply)),
@@ -4083,7 +4184,15 @@ export class AgentRegistry {
         void (async () => {
             for (;;) {
                 const command = await agent.engine.receive(pumping.signal);
-                if (HOST_OWNED_COMMANDS.has(command.type)) {
+                if (
+                    HOST_OWNED_COMMANDS.has(command.type)
+                    || (
+                        command.type === "ui_response"
+                        && options.entry.workerOwnerRouter?.ownsUiRequest(
+                            command.requestId,
+                        ) === true
+                    )
+                ) {
                     ownerCommands.push(command);
                     continue;
                 }
@@ -4103,6 +4212,7 @@ export class AgentRegistry {
             throw new Error(workerOutcomeDetail(outcome));
         } finally {
             pumping.abort();
+            ownerCommands.fail(new Error("The worker owner channel closed"));
             options.entry.workerOwnerRouter = undefined;
             if (options.entry.worker === handle) {
                 options.entry.worker = undefined;
@@ -4173,10 +4283,314 @@ export class AgentRegistry {
         return undefined;
     }
 
+    private requestMissingSubagentConfiguration(
+        entry: RegisteredAgentEntry,
+        request: MissingSubagentConfigurationRequest,
+        context: ToolEffectContext,
+        signal: AbortSignal,
+    ): Promise<SpawnModelResolution> {
+        if (entry.store.header.delegation !== undefined) {
+            return Promise.resolve({
+                ok: false,
+                reason: "unavailable",
+                error: "A delegated session cannot widen its persisted subagent model boundary.",
+            });
+        }
+        if (signal.aborted) {
+            return Promise.resolve(cancelledSubagentConfiguration());
+        }
+
+        let queue = this.pendingSubagentConfigurations.get(entry.agent.id);
+        if (queue === undefined) {
+            queue = [];
+            this.pendingSubagentConfigurations.set(entry.agent.id, queue);
+        }
+        let batch = queue.at(-1);
+        if (batch === undefined || batch.processing) {
+            batch = {
+                id: randomUUID(),
+                entryId: entry.agent.id,
+                actions: [],
+                abort: new AbortController(),
+                scheduled: false,
+                processing: false,
+            };
+            queue.push(batch);
+        }
+        const target = batch;
+        const result = new Promise<SpawnModelResolution>((resolve) => {
+            const action: PendingSubagentLaunch = {
+                id: randomUUID(),
+                request: structuredClone(request),
+                context: structuredClone(context),
+                signal,
+                resolve,
+                settled: false,
+            };
+            action.onAbort = () => {
+                this.settlePendingSubagentLaunch(
+                    action,
+                    cancelledSubagentConfiguration(),
+                );
+                if (target.actions.every((candidate) => candidate.settled)) {
+                    target.abort.abort();
+                    if (!target.processing) {
+                        this.completeSubagentConfigurationBatch(target);
+                    }
+                }
+            };
+            target.actions.push(action);
+            signal.addEventListener("abort", action.onAbort, { once: true });
+        });
+        this.scheduleSubagentConfigurationBatch(target);
+        return result;
+    }
+
+    /** One event-loop turn admits siblings; later arrivals queue behind it. */
+    private scheduleSubagentConfigurationBatch(
+        batch: PendingSubagentConfigurationBatch,
+    ): void {
+        const queue = this.pendingSubagentConfigurations.get(batch.entryId);
+        if (
+            queue?.[0] !== batch
+            || batch.scheduled
+            || batch.processing
+        ) return;
+        batch.scheduled = true;
+        setTimeout(() => {
+            batch.scheduled = false;
+            batch.processing = true;
+            void this.processMissingSubagentConfiguration(batch).catch(
+                () => this.finishSubagentConfigurationBatch(
+                    batch,
+                    unavailableSubagentConfiguration(),
+                ),
+            );
+        }, 0);
+    }
+
+    private async processMissingSubagentConfiguration(
+        batch: PendingSubagentConfigurationBatch,
+    ): Promise<void> {
+        const entry = this.agents.get(batch.entryId);
+        const router = entry === undefined
+            ? undefined
+            : entry.workerOwnerRouter ?? entry.inbound;
+        const active = (): PendingSubagentLaunch[] =>
+            batch.actions.filter((action) => !action.settled);
+        if (
+            entry === undefined
+            || entry.agent.closed
+            || !entry.agent.attached
+            || router === undefined
+            || active().length === 0
+        ) {
+            this.finishSubagentConfigurationBatch(
+                batch,
+                unavailableSubagentConfiguration(),
+            );
+            return;
+        }
+
+        let choices = active().map((action) =>
+            this.resolveConfiguredSubagentLaunch(entry, action));
+        const needsConfiguration = choices.some((choice) =>
+            !choice.resolution.ok
+            && choice.resolution.reason === "configuration_required");
+        if (needsConfiguration) {
+            let outcome: "configured" | "cancelled" | "unavailable";
+            try {
+                outcome = await router.requestConfigurationRequired({
+                    destination: {
+                        kind: "model_assignment",
+                        assignment: "subagents",
+                    },
+                    reason: active().length === 1
+                        ? "A subagent launch is waiting, but no subagent models are configured."
+                        : `${active().length} subagent launches are waiting, but no subagent models are configured.`,
+                    pendingAction: {
+                        id: batch.id,
+                        kind: "subagent_launch",
+                        count: active().length,
+                    },
+                }, { signal: batch.abort.signal });
+            } catch {
+                outcome = "unavailable";
+            }
+            if (outcome !== "configured") {
+                this.finishSubagentConfigurationBatch(
+                    batch,
+                    outcome === "cancelled"
+                        ? cancelledSubagentConfiguration()
+                        : unavailableSubagentConfiguration(),
+                );
+                return;
+            }
+
+            // The settings write and its owner-side refresh precede the response
+            // on one command stream. Push once more before answering a worker so
+            // its next policy read cannot observe the pre-dialog snapshot.
+            this.pushWorkerState(entry.agent.id);
+            choices = active().map((action) =>
+                this.resolveConfiguredSubagentLaunch(entry, action));
+        }
+        const failed = choices.find((choice) => !choice.resolution.ok);
+        if (failed !== undefined) {
+            for (const choice of choices) {
+                this.settlePendingSubagentLaunch(
+                    choice.action,
+                    choice.resolution.ok ? failed.resolution : choice.resolution,
+                );
+            }
+            this.completeSubagentConfigurationBatch(batch);
+            return;
+        }
+
+        const replacements = choices.map((choice) => {
+            const resolution = choice.resolution;
+            if (!resolution.ok) return "";
+            const requested = requestedSubagentLabel(choice.action.request);
+            const replacement = subagentResolutionLabel(resolution);
+            return `${requested}→${replacement}`;
+        });
+        const confirmationRouter = entry.workerOwnerRouter ?? entry.inbound;
+        if (confirmationRouter === undefined || entry.agent.closed) {
+            this.finishSubagentChoices(
+                choices,
+                unavailableSubagentConfiguration(),
+            );
+            this.completeSubagentConfigurationBatch(batch);
+            return;
+        }
+        const confirmation = await confirmationRouter.requestUserQuestion({
+            question: `Continue ${choices.length} waiting subagent launch${
+                choices.length === 1 ? "" : "es"
+            }?\n${replacements.join(" · ")}`,
+            choices: [
+                {
+                    id: "continue",
+                    label: "Continue",
+                    description: "Start these waiting launches once with the configured replacements.",
+                },
+                {
+                    id: "cancel",
+                    label: "Cancel",
+                    description: "Start none of the waiting launches.",
+                },
+            ],
+        }, { signal: batch.abort.signal });
+        if (
+            confirmation.outcome !== "selected"
+            || confirmation.choice.id !== "continue"
+        ) {
+            this.finishSubagentChoices(
+                choices,
+                cancelledSubagentConfiguration(),
+            );
+            this.completeSubagentConfigurationBatch(batch);
+            return;
+        }
+        for (const choice of choices) {
+            this.settlePendingSubagentLaunch(choice.action, choice.resolution);
+        }
+        this.completeSubagentConfigurationBatch(batch);
+    }
+
+    private resolveConfiguredSubagentLaunch(
+        entry: RegisteredAgentEntry,
+        action: PendingSubagentLaunch,
+    ): {
+        readonly action: PendingSubagentLaunch;
+        readonly resolution: SpawnModelResolution;
+    } {
+        const policy = this.options.readPolicy === undefined
+            ? { allowSelf: true }
+            : this.options.readPolicy(entry.store.header.cwd);
+        const pool = this.options.readPool === undefined
+            ? undefined
+            : () => this.options.readPool?.(entry.store.header.cwd) ?? [];
+        let resolution = resolveSpawnModelChoice(
+            action.request,
+            action.context,
+            pool,
+            this.options.subagentModel,
+            policy,
+            action.request.agentDefault,
+        );
+        // This one-time substitution is authorized by the confirmation that
+        // follows. A request made while policy already existed never enters
+        // this workflow and remains a loud out-of-policy refusal.
+        if (
+            !resolution.ok
+            && resolution.reason === "not_permitted"
+            && action.request.model !== undefined
+        ) {
+            resolution = resolveSpawnModelChoice(
+                {},
+                action.context,
+                pool,
+                this.options.subagentModel,
+                policy,
+                action.request.agentDefault,
+            );
+        }
+        return { action, resolution };
+    }
+
+    private finishSubagentConfigurationBatch(
+        batch: PendingSubagentConfigurationBatch,
+        resolution: SpawnModelResolution,
+    ): void {
+        for (const action of batch.actions) {
+            this.settlePendingSubagentLaunch(action, resolution);
+        }
+        this.completeSubagentConfigurationBatch(batch);
+    }
+
+    private completeSubagentConfigurationBatch(
+        batch: PendingSubagentConfigurationBatch,
+    ): void {
+        const queue = this.pendingSubagentConfigurations.get(batch.entryId);
+        if (queue === undefined) return;
+        const index = queue.indexOf(batch);
+        if (index === -1) return;
+        queue.splice(index, 1);
+        if (queue.length === 0) {
+            this.pendingSubagentConfigurations.delete(batch.entryId);
+            return;
+        }
+        this.scheduleSubagentConfigurationBatch(queue[0]!);
+    }
+
+    private finishSubagentChoices(
+        choices: readonly {
+            readonly action: PendingSubagentLaunch;
+            readonly resolution: SpawnModelResolution;
+        }[],
+        resolution: SpawnModelResolution,
+    ): void {
+        for (const choice of choices) {
+            this.settlePendingSubagentLaunch(choice.action, resolution);
+        }
+    }
+
+    private settlePendingSubagentLaunch(
+        action: PendingSubagentLaunch,
+        resolution: SpawnModelResolution,
+    ): void {
+        if (action.settled) return;
+        action.settled = true;
+        if (action.onAbort !== undefined) {
+            action.signal.removeEventListener("abort", action.onAbort);
+        }
+        action.resolve(resolution);
+    }
+
     private async spawnAsyncSubagent(
         parentStore: SessionStore,
         effect: SpawnAsyncSubagentEffect,
         context: Parameters<ApplyToolEffect>[2],
+        signal: AbortSignal,
     ): Promise<ToolOutput> {
         const running = [...this.agents.values()].filter(
             (entry) =>
@@ -4200,20 +4614,57 @@ export class AgentRegistry {
             parentStore.header.id,
             (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
         );
-        const resolved = resolveSpawnModelChoice(
-            effect,
-            context,
-            this.options.readPool === undefined
-                ? undefined
-                : () => this.options.readPool?.(parentStore.header.cwd) ?? [],
-            this.options.subagentModel,
-            this.options.readPolicy?.(parentStore.header.cwd),
-        );
-        if (!resolved.ok) {
-            return { kind: "output", output: resolved.error, isError: true };
-        }
+        let policy: SubagentPoolPolicy;
+        let resolved: SpawnModelResolution;
         let child: ResidentAgent;
         try {
+            policy = this.options.readPolicy === undefined
+                ? { allowSelf: true }
+                : this.options.readPolicy(parentStore.header.cwd);
+            resolved = resolveSpawnModelChoice(
+                effect,
+                context,
+                this.options.readPool === undefined
+                    ? undefined
+                    : () => this.options.readPool?.(parentStore.header.cwd) ?? [],
+                this.options.subagentModel,
+                policy,
+            );
+            if (!resolved.ok && resolved.reason === "configuration_required") {
+                const entry = this.agents.get(parentStore.header.id);
+                if (entry !== undefined) {
+                    resolved = await this.requestMissingSubagentConfiguration(
+                        entry,
+                        {
+                            description: effect.description,
+                            ...(effect.model === undefined
+                                ? {}
+                                : { model: effect.model }),
+                            ...(effect.reasoningEffort === undefined ? {} : {
+                                reasoningEffort: effect.reasoningEffort,
+                            }),
+                        },
+                        context,
+                        signal,
+                    );
+                    policy = this.options.readPolicy === undefined
+                        ? { allowSelf: true }
+                        : this.options.readPolicy(parentStore.header.cwd);
+                }
+            }
+            if (!resolved.ok) {
+                return { kind: "output", output: resolved.error, isError: true };
+            }
+            if (signal.aborted) {
+                const cancelled = cancelledSubagentConfiguration();
+                return {
+                    kind: "output",
+                    output: cancelled.ok
+                        ? "The waiting subagent launch was cancelled; no child started."
+                        : cancelled.error,
+                    isError: true,
+                };
+            }
             child = await this.createWithKind(
                 {
                     workspace: parentStore.header.cwd,
@@ -4228,6 +4679,11 @@ export class AgentRegistry {
                 {
                     approvalMode: context.approvalMode,
                     parentId: parentStore.header.id,
+                    delegation: {
+                        kind: "subagent",
+                        parentId: parentStore.header.id,
+                        models: subagentModelBoundary(policy, context),
+                    },
                     modelSettings: {
                         provider: resolved.provider ?? this.defaultProvider,
                         model: resolved.model,
@@ -4786,6 +5242,45 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
 const WORKER_ENV = "VERA_WORKER";
 const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
+function cancelledSubagentConfiguration(): SpawnModelResolution {
+    return {
+        ok: false,
+        reason: "cancelled",
+        error: "The waiting subagent launches were cancelled; no child started.",
+    };
+}
+
+function unavailableSubagentConfiguration(): SpawnModelResolution {
+    return {
+        ok: false,
+        reason: "unavailable",
+        error: "Subagent configuration requires an attached interactive client; no child started.",
+    };
+}
+
+function requestedSubagentLabel(
+    request: MissingSubagentConfigurationRequest,
+): string {
+    if (request.model !== undefined) return request.model;
+    if (request.agentDefault !== undefined) {
+        return request.agentDefault.provider === undefined
+            ? request.agentDefault.model
+            : `${request.agentDefault.provider}/${request.agentDefault.model}`;
+    }
+    return "assigned default";
+}
+
+function subagentResolutionLabel(
+    resolution: Extract<SpawnModelResolution, { readonly ok: true }>,
+): string {
+    const model = resolution.provider === undefined
+        ? resolution.model
+        : `${resolution.provider}/${resolution.model}`;
+    return resolution.reasoningEffort === undefined
+        ? model
+        : `${model} (${resolution.reasoningEffort})`;
+}
+
 /**
  * One reading of everything the owner may change while a turn is running.
  *
@@ -4811,6 +5306,36 @@ function loopStateOf(services: RunHeadlessLoopServices): LoopState {
             reviewer: services.readReviewer(),
         }),
     };
+}
+
+/** A delegated session can narrow with current policy, never widen past birth. */
+function delegatedSubagentPolicy(
+    current: SubagentPoolPolicy,
+    delegation: SessionDelegation | undefined,
+): SubagentPoolPolicy {
+    if (delegation === undefined) return current;
+    const boundary = new Set(delegation.models.map((entry) =>
+        `${entry.provider ?? ""}/${entry.model}`));
+    return {
+        ...current,
+        assigned: (current.assigned ?? []).filter((entry) =>
+            boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
+        // The persisted parent pair is already represented in `models`.
+        // Recomputing self from a resumed child's current parent would mint a
+        // new candidate that was never authorized at this child's spawn.
+        allowSelf: false,
+    };
+}
+
+function delegationAllows(
+    delegation: SessionDelegation,
+    settings: Pick<ModelTurnSettings, "provider" | "model">,
+): boolean {
+    const providerKey = (provider: string | undefined): string =>
+        provider === undefined || provider === "unknown" ? "" : provider;
+    return delegation.models.some((allowed) =>
+        allowed.model === settings.model
+        && providerKey(allowed.provider) === providerKey(settings.provider));
 }
 
 

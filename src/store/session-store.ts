@@ -49,7 +49,16 @@ export interface SessionHeader {
     readonly origin?: SessionOrigin;
     /** Session ID of the agent that spawned this one as a subagent. */
     readonly parentId?: string;
+    /** Durable execution provenance and model boundary for delegated work. */
+    readonly delegation?: SessionDelegation;
     readonly startupProfile?: Exclude<StartupProfile, "default">;
+}
+
+export interface SessionDelegation {
+    readonly kind: "subagent";
+    readonly parentId: string;
+    /** Exact provider/model pairs this child may use, including on resume. */
+    readonly models: readonly ModelTurnSettings[];
 }
 
 export interface SessionOrigin {
@@ -238,6 +247,7 @@ export interface CreateSessionStoreOptions {
     readonly cwd: string;
     readonly origin?: SessionOrigin;
     readonly parentId?: string;
+    readonly delegation?: SessionDelegation;
     readonly startupProfile?: Exclude<StartupProfile, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
@@ -250,6 +260,8 @@ export interface CreateSessionStoreOptions {
 
 export interface SessionCreationMetadata {
     readonly startupProfile?: Exclude<StartupProfile, "default">;
+    readonly parentId?: string;
+    readonly delegation?: SessionDelegation;
 }
 
 export interface OpenSessionStoreOptions {
@@ -361,6 +373,9 @@ export class SessionStore {
             ...(options.parentId === undefined
                 ? {}
                 : { parentId: nonEmpty(options.parentId, "session parent ID") }),
+            ...(options.delegation === undefined
+                ? {}
+                : { delegation: validSessionDelegation(options.delegation) }),
             ...(options.startupProfile === undefined
                 ? {}
                 : { startupProfile: options.startupProfile }),
@@ -1937,6 +1952,11 @@ export function parseHeaderRecord(
         || (value.origin !== undefined && !isSessionOrigin(value.origin))
         || (value.parentId !== undefined
             && (typeof value.parentId !== "string" || value.parentId.length === 0))
+        || (value.delegation !== undefined
+            && !isSessionDelegation(value.delegation))
+        || (value.delegation !== undefined
+            && value.parentId !== undefined
+            && (value.delegation as SessionDelegation).parentId !== value.parentId)
         || (value.startupProfile !== undefined
             && (!isStartupProfile(value.startupProfile)
                 || value.startupProfile === "default"))
@@ -1944,6 +1964,32 @@ export function parseHeaderRecord(
         throw invalidSession(path, "line 1 is not a valid session header");
     }
     return value as unknown as SessionHeader;
+}
+
+function validSessionDelegation(
+    delegation: SessionDelegation,
+): SessionDelegation {
+    if (!isSessionDelegation(delegation)) {
+        throw new Error("Cannot create a session with invalid delegation provenance");
+    }
+    return {
+        kind: "subagent",
+        parentId: delegation.parentId,
+        models: delegation.models.map((settings) => ({ ...settings })),
+    };
+}
+
+function isSessionDelegation(value: unknown): value is SessionDelegation {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const delegation = value as Record<string, unknown>;
+    return delegation.kind === "subagent"
+        && typeof delegation.parentId === "string"
+        && delegation.parentId.length > 0
+        && Array.isArray(delegation.models)
+        && delegation.models.length > 0
+        && delegation.models.every(isModelTurnSettings);
 }
 
 function validSessionOrigin(origin: SessionOrigin): SessionOrigin {

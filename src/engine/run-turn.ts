@@ -725,6 +725,14 @@ export async function runHeadlessLoop(
             get reviewer() { return policy().reviewer; },
             get reviewers() { return policy().reviewers; },
             get permissionModes() { return policy().permissionModes; },
+            readPool: () => readModelSettings?.()?.pooled ?? [],
+            readPolicy: () => policy().subagentPolicy ?? {},
+            ...(boundary.requestMissingSubagentConfiguration === undefined
+                ? {}
+                : {
+                    requestMissingConfiguration:
+                        boundary.requestMissingSubagentConfiguration,
+                }),
         });
     const applyHostToolEffect = boundary.applyHostToolEffect;
     const applyToolEffect: ApplyToolEffect = boundary.applyToolEffect
@@ -2510,6 +2518,9 @@ async function executePreparedTool(
             state.applyToolEffect,
             signal,
             {
+                ...(state.sessionId === undefined
+                    ? {}
+                    : { sessionId: state.sessionId }),
                 approvalMode,
                 ...(modelSettings.provider === undefined
                     ? {}

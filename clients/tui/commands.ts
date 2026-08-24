@@ -12,6 +12,7 @@ import {
     tokenizeExtensionManagerArguments,
     type ExtensionManagerCommand,
 } from "../../src/extensions/manager-command.ts";
+import type { SettingsDestination } from "../../src/engine/settings-destination.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
 
@@ -67,16 +68,9 @@ export interface UpdatePermissionsTuiCommandAction {
     readonly scope?: "global";
 }
 
-export interface OpenModelPickerTuiCommandAction {
-    readonly type: "open_model_picker";
-}
-
-export interface OpenReasoningPickerTuiCommandAction {
-    readonly type: "open_reasoning_picker";
-}
-
-export interface OpenPermissionsPickerTuiCommandAction {
-    readonly type: "open_permissions_picker";
+export interface OpenSettingsDestinationTuiCommandAction {
+    readonly type: "open_settings_destination";
+    readonly destination: SettingsDestination;
 }
 
 /**
@@ -86,10 +80,6 @@ export interface OpenPermissionsPickerTuiCommandAction {
  * as much as it is a way to change it, and `/agent <name>` is the shortcut for
  * people who already know which one they want.
  */
-export interface OpenAgentPickerTuiCommandAction {
-    readonly type: "open_agent_picker";
-}
-
 export interface WearAgentTuiCommandAction {
     readonly type: "wear_agent";
     readonly name: string;
@@ -97,10 +87,6 @@ export interface WearAgentTuiCommandAction {
 
 export interface OpenPreferencesListTuiCommandAction {
     readonly type: "open_preferences_list";
-}
-
-export interface OpenSettingsMenuTuiCommandAction {
-    readonly type: "open_settings_menu";
 }
 
 export interface OpenConfigureTuiCommandAction {
@@ -202,18 +188,6 @@ export interface ReloadClientExtensionsTuiCommandAction {
     readonly type: "reload_client_extensions";
 }
 
-export interface ShowPoolTuiCommandAction {
-    readonly type: "show_pool";
-}
-
-export interface ShowDefaultsTuiCommandAction {
-    readonly type: "show_defaults";
-}
-
-export interface OpenProvidersTuiCommandAction {
-    readonly type: "open_providers";
-}
-
 /** `/shortlist add`: pins the running model, the same write ^s makes. */
 export interface AddCurrentModelToPoolTuiCommandAction {
     readonly type: "pool_current_model";
@@ -238,13 +212,9 @@ export type TuiCommandAction =
     | UpdateModelTuiCommandAction
     | UpdateReasoningTuiCommandAction
     | UpdatePermissionsTuiCommandAction
-    | OpenModelPickerTuiCommandAction
-    | OpenReasoningPickerTuiCommandAction
-    | OpenPermissionsPickerTuiCommandAction
-    | OpenAgentPickerTuiCommandAction
+    | OpenSettingsDestinationTuiCommandAction
     | WearAgentTuiCommandAction
     | OpenPreferencesListTuiCommandAction
-    | OpenSettingsMenuTuiCommandAction
     | OpenConfigureTuiCommandAction
     | OpenCommandPaletteTuiCommandAction
     | OpenHelpTuiCommandAction
@@ -267,9 +237,6 @@ export type TuiCommandAction =
     | ShowDoctorTuiCommandAction
     | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
-    | ShowPoolTuiCommandAction
-    | ShowDefaultsTuiCommandAction
-    | OpenProvidersTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
     | TuiCommandErrorAction;
@@ -285,12 +252,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "update_model":
         case "update_reasoning":
         case "update_permissions":
-        case "open_model_picker":
-        case "open_reasoning_picker":
-        case "open_permissions_picker":
-        case "open_agent_picker":
         case "wear_agent":
-        case "open_settings_menu":
         case "open_configure":
         case "open_resume_picker":
         case "open_subagents_picker":
@@ -299,6 +261,13 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "create_session":
         case "update_session_name":
             return "focused_agent";
+        case "open_settings_destination":
+            return action.destination.kind === "provider"
+                    || action.destination.kind === "model_shortlist"
+                    || action.destination.kind === "model_assignments"
+                    || action.destination.kind === "model_assignment"
+                ? "application"
+                : "focused_agent";
         case "open_rewind":
         case "open_fork":
         case "reconnect":
@@ -318,9 +287,6 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "show_doctor":
         case "write_failure_report":
         case "reload_client_extensions":
-        case "show_pool":
-        case "show_defaults":
-        case "open_providers":
         case "pool_current_model":
         case "run_extension":
         case "command_error":
@@ -365,7 +331,7 @@ export interface TuiCommandDefinition {
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
         | OpenPreferencesListTuiCommandAction
-        | OpenSettingsMenuTuiCommandAction
+        | OpenSettingsDestinationTuiCommandAction
         | OpenConfigureTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
         | OpenHelpTuiCommandAction
@@ -384,8 +350,6 @@ export interface TuiCommandDefinition {
         | ShowExtensionsTuiCommandAction
         | ShowDoctorTuiCommandAction
         | WriteFailureReportTuiCommandAction
-        | ShowDefaultsTuiCommandAction
-        | OpenProvidersTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
     readonly arguments?: TuiCommandArgumentKind;
@@ -1155,7 +1119,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     registry.registerCommand({
         ...MODEL_COMMAND,
         parse: (argumentsText) => argumentsText.length === 0
-            ? { type: "open_model_picker" }
+            ? {
+                type: "open_settings_destination",
+                destination: { kind: "model" },
+            }
             : { type: "update_model", model: argumentsText },
         palette: {
             name: "model",
@@ -1163,7 +1130,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             description: "change the model for the next turn",
             group: "Settings",
             slashName: "model",
-            action: { type: "open_model_picker" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "model" },
+            },
         },
     });
     registry.registerCommand({
@@ -1171,7 +1141,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         parse: (argumentsText) => isReasoningEffort(argumentsText)
             ? { type: "update_reasoning", reasoningEffort: argumentsText }
             : argumentsText.length === 0
-                ? { type: "open_reasoning_picker" }
+                ? {
+                    type: "open_settings_destination",
+                    destination: { kind: "reasoning" },
+                }
                 : { type: "command_error", message: `Usage: ${EFFORT_COMMAND.usage}` },
         palette: {
             name: "effort",
@@ -1184,7 +1157,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             // nobody can find is a binding nobody has.
             keyHint: tuiKeyHint("cycle-reasoning"),
             slashName: "effort",
-            action: { type: "open_reasoning_picker" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "reasoning" },
+            },
         },
     });
     registry.registerCommand({
@@ -1193,7 +1169,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             const [mode, scope, ...rest] = argumentsText.split(/\s+/)
                 .filter((word) => word.length > 0);
             if (mode === undefined) {
-                return { type: "open_permissions_picker" };
+                return {
+                    type: "open_settings_destination",
+                    destination: { kind: "permission_mode" },
+                };
             }
             if (
                 !isApprovalMode(mode)
@@ -1217,14 +1196,20 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             description: "how much Vera asks before running commands",
             group: "Settings",
             slashName: "permissions",
-            action: { type: "open_permissions_picker" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "permission_mode" },
+            },
         },
     });
     registry.registerCommand({
         ...AGENT_COMMAND,
         parse: (argumentsText) =>
             argumentsText.length === 0
-                ? { type: "open_agent_picker" }
+                ? {
+                    type: "open_settings_destination",
+                    destination: { kind: "agent" },
+                }
                 : /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(argumentsText)
                 ? { type: "wear_agent", name: argumentsText }
                 : {
@@ -1237,19 +1222,28 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             description: "instructions, tools, skills and posture, as one thing",
             group: "Settings",
             slashName: "agent",
-            action: { type: "open_agent_picker" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "agent" },
+            },
         },
     });
     registry.registerCommand({
         ...SETTINGS_COMMAND,
-        action: { type: "open_settings_menu" },
+        action: {
+            type: "open_settings_destination",
+            destination: { kind: "settings" },
+        },
         palette: {
             name: "settings",
             label: "Open settings",
             description: "model, reasoning, permissions, and theme",
             group: "Settings",
             slashName: "settings",
-            action: { type: "open_settings_menu" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "settings" },
+            },
         },
     });
     registry.registerCommand({
@@ -1511,7 +1505,10 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         parse: (argumentsText) => {
             const argument = argumentsText.trim();
             if (argument.length === 0) {
-                return { type: "show_pool" };
+                return {
+                    type: "open_settings_destination",
+                    destination: { kind: "model_shortlist" },
+                };
             }
             if (argument === "add") {
                 return { type: "pool_current_model" };
@@ -1527,31 +1524,46 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             description: "the models you keep",
             group: "Settings",
             slashName: "shortlist",
-            action: { type: "show_pool" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "model_shortlist" },
+            },
         },
     });
     registry.registerCommand({
         ...DEFAULTS_COMMAND,
-        action: { type: "show_defaults" },
+        action: {
+            type: "open_settings_destination",
+            destination: { kind: "model_assignments" },
+        },
         palette: {
             name: "defaults",
             label: "Show which model runs each job",
             description: "snappy, eco, extra, and the jobs that inherit them",
             group: "Settings",
             slashName: "defaults",
-            action: { type: "show_defaults" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "model_assignments" },
+            },
         },
     });
     registry.registerCommand({
         ...PROVIDERS_COMMAND,
-        action: { type: "open_providers" },
+        action: {
+            type: "open_settings_destination",
+            destination: { kind: "provider" },
+        },
         palette: {
             name: "providers",
             label: "Connect a provider",
             description: "sign in, or add an endpoint of your own",
             group: "Settings",
             slashName: "providers",
-            action: { type: "open_providers" },
+            action: {
+                type: "open_settings_destination",
+                destination: { kind: "provider" },
+            },
         },
     });
     registry.registerPaletteAction({

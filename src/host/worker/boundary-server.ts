@@ -141,6 +141,35 @@ export function createWorkerBoundaryServer(
                         cancellers.delete(request.callId);
                     }
                 }
+                case "subagent.configure": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly request: never;
+                        readonly context: never;
+                    };
+                    if (
+                        services.requestMissingSubagentConfiguration
+                            === undefined
+                    ) {
+                        throw new Error(
+                            "The host offers no subagent configuration workflow",
+                        );
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        return {
+                            resolution: await services
+                                .requestMissingSubagentConfiguration(
+                                    request.request,
+                                    request.context,
+                                    controller.signal,
+                                ),
+                        };
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
+                }
                 case "effect.commit": {
                     const request = body as { readonly effect: never };
                     await services.applyCommittedToolEffect?.(request.effect);

@@ -27,7 +27,10 @@ const commands = [{
     description: "change the model for the next turn",
     group: "Settings",
     slashName: "model",
-    action: { type: "open_model_picker" },
+    action: {
+        type: "open_settings_destination",
+        destination: { kind: "model" },
+    },
 }] as const satisfies readonly TuiPaletteEntry[];
 
 // One pointer per process, so its last position outlives a test.

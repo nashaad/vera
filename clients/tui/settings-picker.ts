@@ -363,6 +363,9 @@ export interface TuiSettingsPickerState {
     readonly developerSettings?: DeveloperSettings;
     /** Set only on an assignment pane: which assignment the chosen row binds. */
     readonly modelAssignment?: ModelAssignmentId;
+    /** Ordered refs already assigned, used by the subagents toggle list. */
+    readonly assignedModels?: readonly string[];
+    readonly assignmentAllowsSelf?: boolean;
     /**
      * Set on the model pane once the user has asked for the folded rows. Like
      * `collapsed`, it lasts as long as the pane: wanting the whole catalog is
@@ -457,6 +460,9 @@ export type TuiSettingsPickerSelection =
         readonly model?: string;
         /** Present only when this selection folded in a chained level pane. */
         readonly reasoningEffort?: ModelReasoningEffort;
+        readonly remove?: boolean;
+        readonly clear?: boolean;
+        readonly allowSelf?: boolean;
     };
 
 export interface TuiPoolToggle {
@@ -1218,6 +1224,7 @@ export const REVIEWER_CLEAR_VALUE = "\u0000clear";
  * given. The row says the reason and goes to the place that fixes it.
  */
 export const MODEL_ASSIGNMENT_BROWSE_VALUE = "\u0000browse";
+export const MODEL_ASSIGNMENT_SELF_VALUE = "\u0000allow-self";
 
 /**
  * Slot rows share a list with model rows, so their values are namespaced to
@@ -1401,6 +1408,7 @@ function assignmentStatusWord(row: ModelAssignmentRow): string {
     if (row.bound) {
         return row.source === "assignment" ? "set" : "not shortlisted";
     }
+    if (row.assignment === "subagents") return "required";
     return row.inherits === undefined
         ? "uses session"
         : `uses ${row.inherits}`;
@@ -1412,7 +1420,9 @@ function assignmentRunsFact(row: ModelAssignmentRow): string {
     // Nothing bound anywhere still runs: the session's model is the last rung
     // and there is no rung below it.
     if (running === undefined) {
-        return "this session's model";
+        return row.assignment === "subagents"
+            ? row.allowSelf === true ? "parent model" : "not configured"
+            : "this session's model";
     }
     const named = running.reasoning_effort === undefined
         ? running.model
@@ -1432,7 +1442,9 @@ function assignmentFacts(
         : row.route === undefined
         ? "a model picked here"
         : `route "${row.route}"`;
-    const ifUnset = row.inherits === undefined
+    const ifUnset = row.assignment === "subagents"
+        ? "spawn is refused"
+        : row.inherits === undefined
         ? "this session's model"
         : `whatever ${row.inherits} uses`;
     return [
@@ -1457,6 +1469,9 @@ function assignmentFacts(
 function assignmentNote(row: ModelAssignmentRow): string {
     const purpose = `${row.label}: ${row.intent}.`;
     if (!row.bound) {
+        if (row.assignment === "subagents") {
+            return `${purpose} Nothing is set here, so subagent spawns are refused.`;
+        }
         if (row.inherits !== undefined) {
             return `${purpose} Nothing is set here, so it uses whatever ${row.inherits} uses.`;
         }
@@ -1654,7 +1669,8 @@ export function startTuiModelAssignmentPicker(
     label: string,
     intent: string,
     pooled: readonly PooledModel[] = [],
-    current?: string,
+    currentModels: readonly string[] = [],
+    allowSelf = false,
 ): TuiSettingsPickerState {
     const seen = new Set<string>();
     const rows: TuiSettingsPickerOption[] = [];
@@ -1665,7 +1681,9 @@ export function startTuiModelAssignmentPicker(
         rows.push({
             value,
             label: entry.poolName ?? entry.label,
-            description: entry.provider,
+            description: currentModels.includes(value)
+                ? `${entry.provider} · assigned ${currentModels.indexOf(value) + 1}`
+                : entry.provider,
             provider: entry.provider,
             model: entry.model,
             searchText: `${entry.provider} ${entry.model}`,
@@ -1681,7 +1699,15 @@ export function startTuiModelAssignmentPicker(
         label: `Keep another model on ${modelTabLabel("pool")}\u2026`,
         description: `a default can only name a model on ${modelTabLabel("pool")}`,
     };
-    const options = [clearRow, ...rows, browseRow];
+    const selfRow: TuiSettingsPickerOption = {
+        value: MODEL_ASSIGNMENT_SELF_VALUE,
+        label: "Parent model fallback",
+        description: allowSelf ? "on" : "off",
+        note: "When on, the exact parent provider/model is the final candidate.",
+    };
+    const options = assignment === "subagents"
+        ? [clearRow, ...rows, selfRow, browseRow]
+        : [clearRow, ...rows, browseRow];
     return {
         kind: "model_assignment",
         // What this assignment is for belongs to the pane, not to one of its
@@ -1690,19 +1716,21 @@ export function startTuiModelAssignmentPicker(
         subtitle: intent,
         allOptions: options,
         options,
-        selectedIndex: Math.max(
-            0,
-            options.findIndex((option) => option.value === current),
-        ),
+        selectedIndex: 0,
         query: "",
         modelAssignment: assignment,
+        ...(assignment === "subagents" ? {
+            assignedModels: currentModels,
+            assignmentAllowsSelf: allowSelf,
+        } : {}),
     };
 }
 
 /** What leaving an assignment unset does, which is the row's real meaning. */
 function unsetAssignmentMeans(assignment: ModelAssignmentId): string {
+    if (assignment === "subagents") return "subagent spawns are refused";
     return isJobAssignmentId(assignment)
-        ? `uses ${JOB_ASSIGNMENT_INTENTS[assignment]}`
+        ? `uses ${JOB_ASSIGNMENT_INTENTS[assignment] ?? "this session's model"}`
         : "uses this session's model";
 }
 
@@ -4841,15 +4869,25 @@ function pickerSelection(
         if (value === MODEL_ASSIGNMENT_BROWSE_VALUE) {
             return { kind: "model_assignment_browse" };
         }
+        if (value === MODEL_ASSIGNMENT_SELF_VALUE) {
+            return {
+                kind,
+                assignment: state.modelAssignment ?? "subagents",
+                allowSelf: state.assignmentAllowsSelf !== true,
+            };
+        }
         // The clear row carries no model, which is what unbinds the slot.
         return {
             kind,
             assignment: state.modelAssignment ?? "extra",
-            ...(value === REVIEWER_CLEAR_VALUE ? {} : {
+            ...(value === REVIEWER_CLEAR_VALUE ? { clear: true } : {
                 ...(option.provider === undefined
                     ? {}
                     : { provider: option.provider }),
                 ...(option.model === undefined ? {} : { model: option.model }),
+                ...(state.assignedModels?.includes(value) === true
+                    ? { remove: true }
+                    : {}),
             }),
         };
     }

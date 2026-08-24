@@ -33,7 +33,7 @@ import {
  */
 export type IntentAssignmentId = "snappy" | "eco" | "extra";
 
-export type JobAssignmentId = "reviewer" | "compaction";
+export type JobAssignmentId = "reviewer" | "compaction" | "subagents";
 
 export type ModelAssignmentId = IntentAssignmentId | JobAssignmentId;
 
@@ -43,7 +43,11 @@ export const INTENT_ASSIGNMENT_IDS: readonly IntentAssignmentId[] = [
     "extra",
 ];
 
-export const JOB_ASSIGNMENT_IDS: readonly JobAssignmentId[] = ["reviewer", "compaction"];
+export const JOB_ASSIGNMENT_IDS: readonly JobAssignmentId[] = [
+    "reviewer",
+    "compaction",
+    "subagents",
+];
 
 export const MODEL_ASSIGNMENT_IDS: readonly ModelAssignmentId[] = [
     ...INTENT_ASSIGNMENT_IDS,
@@ -53,7 +57,9 @@ export const MODEL_ASSIGNMENT_IDS: readonly ModelAssignmentId[] = [
 /**
  * The intent a job assignment draws on when it is unbound, which is its usual state.
  */
-export const JOB_ASSIGNMENT_INTENTS: Readonly<Record<JobAssignmentId, IntentAssignmentId>> = {
+export const JOB_ASSIGNMENT_INTENTS: Readonly<
+    Partial<Record<JobAssignmentId, IntentAssignmentId>>
+> = {
     reviewer: "extra",
     compaction: "eco",
 };
@@ -65,6 +71,7 @@ export const DEFAULT_ASSIGNMENT_LABELS: Readonly<Record<ModelAssignmentId, strin
     extra: "extra",
     reviewer: "reviewer",
     compaction: "compaction",
+    subagents: "subagents",
 };
 
 /**
@@ -77,6 +84,7 @@ export const MODEL_ASSIGNMENT_INTENTS: Readonly<Record<ModelAssignmentId, string
     extra: "the most capable model, for work worth waiting for",
     reviewer: "reviewing a change",
     compaction: "summarising a session that has run long",
+    subagents: "delegated work, in fallback order",
 };
 
 /**
@@ -95,6 +103,8 @@ export interface VeraModelAssignmentConfig {
     readonly models?: readonly VeraCatalogModel[];
     /** The user's own word for this assignment. Display only. */
     readonly label?: string;
+    /** Only meaningful for `subagents`; absent is the fail-closed default. */
+    readonly allow_self?: boolean;
 }
 
 /**
@@ -165,7 +175,7 @@ export function parseModelAssignmentsConfig(
         if (!isModelSlotId(name)) {
             return undefined;
         }
-        const parsed = parseSlot(entry, routes);
+        const parsed = parseSlot(name, entry, routes);
         if (parsed === undefined) {
             return undefined;
         }
@@ -175,6 +185,7 @@ export function parseModelAssignmentsConfig(
 }
 
 function parseSlot(
+    assignment: ModelAssignmentId,
     value: unknown,
     routes: Readonly<Record<string, readonly string[]>>,
 ): VeraModelAssignmentConfig | undefined {
@@ -185,22 +196,32 @@ function parseSlot(
     const route = record.model_route;
     const inline = record.models;
     const label = record.label;
+    const allowSelf = record.allow_self;
     if (
         (route !== undefined && inline !== undefined)
         || (route === undefined && inline === undefined)
         || (label !== undefined
             && (typeof label !== "string" || label.trim().length === 0))
+        || (allowSelf !== undefined
+            && (assignment !== "subagents" || typeof allowSelf !== "boolean"))
     ) {
         return undefined;
     }
-    const labelled = label === undefined ? {} : { label: (label as string).trim() };
+    const additions = {
+        ...(label === undefined ? {} : { label: (label as string).trim() }),
+        ...(allowSelf === undefined ? {} : { allow_self: allowSelf as boolean }),
+    };
     if (route !== undefined) {
         if (typeof route !== "string" || routes[route] === undefined) {
             return undefined;
         }
-        return { model_route: route, ...labelled };
+        return { model_route: route, ...additions };
     }
-    if (!Array.isArray(inline) || inline.length === 0) {
+    if (
+        !Array.isArray(inline)
+        || (inline.length === 0
+            && !(assignment === "subagents" && allowSelf === true))
+    ) {
         return undefined;
     }
     const models: VeraCatalogModel[] = [];
@@ -211,7 +232,7 @@ function parseSlot(
         }
         models.push(model);
     }
-    return { models, ...labelled };
+    return { models, ...additions };
 }
 
 /**
@@ -320,12 +341,14 @@ export function bindModelAssignment(
     if (bound !== undefined) return bound;
 
     if (isJobAssignmentId(request.assignment)) {
-        const intent = rung(
-            "intent",
-            resolveModelAssignment(catalog, assignments, JOB_ASSIGNMENT_INTENTS[request.assignment])
-                ?.models,
-        );
-        if (intent !== undefined) return intent;
+        const intentAssignment = JOB_ASSIGNMENT_INTENTS[request.assignment];
+        if (intentAssignment !== undefined) {
+            const intent = rung(
+                "intent",
+                resolveModelAssignment(catalog, assignments, intentAssignment)?.models,
+            );
+            if (intent !== undefined) return intent;
+        }
     }
     return { source: "session", models: [], declared: [] };
 }
@@ -361,6 +384,7 @@ export const DEFAULT_SLOT_AUTO_EXCLUSIONS:
         ],
         reviewer: [],
         compaction: [],
+        subagents: [],
     };
 
 /**
@@ -450,6 +474,8 @@ export interface ModelAssignmentRow {
     readonly source: AssignmentBindingSource;
     /** The intent assignment answering this one, present only when it does. */
     readonly inherits?: IntentAssignmentId;
+    /** Explicit parent-model fallback, only carried by `subagents`. */
+    readonly allowSelf?: boolean;
 }
 
 export function describeModelAssignments(
@@ -476,6 +502,9 @@ export function describeModelAssignments(
             source: binding.source,
             ...(binding.source === "intent" && isJobAssignmentId(assignment)
                 ? { inherits: JOB_ASSIGNMENT_INTENTS[assignment] }
+                : {}),
+            ...(assignment === "subagents"
+                ? { allowSelf: assignments.subagents?.allow_self === true }
                 : {}),
         };
     });

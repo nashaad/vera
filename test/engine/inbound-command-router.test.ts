@@ -562,6 +562,89 @@ test("the inbound router returns selected and cancelled user questions", async (
     });
 });
 
+test("configuration-required requests carry semantics and first response wins", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+
+    const configured = router.requestConfigurationRequired({
+        destination: {
+            kind: "model_assignment",
+            assignment: "subagents",
+        },
+        reason: "Two launches need a subagent policy.",
+        pendingAction: {
+            id: "batch-1",
+            kind: "subagent_launch",
+            count: 2,
+        },
+    });
+    const request = await channel.client.receive();
+    expect(request).toMatchObject({
+        type: "ui_request",
+        request: {
+            type: "configuration_required",
+            destination: {
+                kind: "model_assignment",
+                assignment: "subagents",
+            },
+            pendingAction: { id: "batch-1", count: 2 },
+        },
+    });
+    if (request.type !== "ui_request") throw new Error("missing request");
+    expect(router.ownsUiRequest(request.requestId)).toBe(true);
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "configuration_required", outcome: "configured" },
+    });
+    channel.client.send({
+        type: "ui_response",
+        requestId: request.requestId,
+        response: { type: "configuration_required", outcome: "cancelled" },
+    });
+
+    expect(await configured).toBe("configured");
+    expect(router.ownsUiRequest(request.requestId)).toBe(false);
+    expect(await channel.client.receive()).toEqual({
+        type: "ui_request_closed",
+        requestId: request.requestId,
+        seq: 2,
+    });
+});
+
+test("configuration-required abort and disconnect never leave a waiter", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events);
+    const abort = new AbortController();
+    const pending = router.requestConfigurationRequired({
+        destination: { kind: "model_assignment", assignment: "subagents" },
+        reason: "A launch needs configuration.",
+        pendingAction: { id: "batch-2", kind: "subagent_launch", count: 1 },
+    }, { signal: abort.signal });
+    const request = await channel.client.receive();
+    if (request.type !== "ui_request") throw new Error("missing request");
+    abort.abort();
+    expect(await pending).toBe("cancelled");
+    expect((await channel.client.receive()).type).toBe("ui_request_closed");
+
+    const disconnected = new InboundCommandRouter({
+        send(): void {},
+        receive(): Promise<never> {
+            return Promise.reject(new Error("gone"));
+        },
+    }, new EngineEventBus());
+    await Bun.sleep(0);
+    expect(await disconnected.requestConfigurationRequired({
+        destination: { kind: "model_assignment", assignment: "subagents" },
+        reason: "A launch needs configuration.",
+        pendingAction: { id: "batch-3", kind: "subagent_launch", count: 1 },
+    })).toBe("unavailable");
+});
+
 test("user questions ignore mismatched and stale responses; first valid wins", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();

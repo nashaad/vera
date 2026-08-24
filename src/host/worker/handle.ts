@@ -243,6 +243,8 @@ function capabilitiesOf(
         updateApprovalMode: services.updateApprovalMode !== undefined,
         reviewToolCall: services.reviewToolCall !== undefined,
         applyHostToolEffect: services.applyToolEffect !== undefined,
+        requestMissingSubagentConfiguration:
+            services.requestMissingSubagentConfiguration !== undefined,
         applyCommittedToolEffect:
             services.applyCommittedToolEffect !== undefined,
         loadContextualContributions:

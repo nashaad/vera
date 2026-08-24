@@ -12,6 +12,7 @@ import {
 import { isPermissionPredicate } from "../engine/permission-grants.ts";
 import { isContextMeasurement } from "../engine/context-measurement.ts";
 import { isModelTurnSettings } from "../engine/model-settings.ts";
+import { parseSettingsDestination } from "../engine/settings-destination.ts";
 
 export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     const update = asRecord(value);
@@ -319,6 +320,20 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
         if (request?.type === "user_question") {
             return hasExactKeys(update, ["type", "requestId", "request", "seq"])
                     && isUserQuestionRequest(request)
+                ? value as AgentUpdate
+                : undefined;
+        }
+        if (request?.type === "configuration_required") {
+            const pendingAction = asRecord(request.pendingAction);
+            return hasExactKeys(update, ["type", "requestId", "request", "seq"])
+                    && parseSettingsDestination(request.destination) !== undefined
+                    && typeof request.reason === "string"
+                    && request.reason.trim().length > 0
+                    && typeof pendingAction?.id === "string"
+                    && pendingAction.id.length > 0
+                    && pendingAction.kind === "subagent_launch"
+                    && Number.isSafeInteger(pendingAction.count)
+                    && (pendingAction.count as number) > 0
                 ? value as AgentUpdate
                 : undefined;
         }

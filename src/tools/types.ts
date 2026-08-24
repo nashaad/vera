@@ -132,6 +132,8 @@ export interface AskUserInteraction {
 }
 
 export interface ToolEffectContext {
+    /** Durable parent identity for effects that create delegated sessions. */
+    readonly sessionId?: string;
     readonly approvalMode: ApprovalMode;
     readonly provider?: string;
     readonly model: string;

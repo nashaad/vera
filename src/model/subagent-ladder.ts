@@ -104,8 +104,30 @@ export type LadderRung =
     | "suggestion"
     | "sibling"
     | "default"
+    | "assignment"
     | "self"
     | "pool";
+
+export interface AssignedSubagentModel {
+    readonly provider: string;
+    readonly model: string;
+    readonly effort?: string;
+}
+
+export interface AssignedSubagentRequest {
+    /** Explicit tool argument. A model outside the assignment is refused. */
+    readonly requested?: string;
+    readonly requestedEffort?: string;
+    /** Agent or legacy default. It is only a preference when assigned. */
+    readonly preferred?: string;
+    readonly preferredEffort?: string;
+    readonly assigned: readonly AssignedSubagentModel[];
+    readonly allowSelf: boolean;
+    readonly sessionProvider: string;
+    readonly sessionModel: string;
+    readonly sessionEffort?: string;
+    readonly selfEffort?: RelativeEffort;
+}
 
 /**
  * The same typed row a session-model substitution rides on, so a spawn that
@@ -127,11 +149,155 @@ export interface SubagentModelChoice {
 
 export interface SubagentModelFailure {
     readonly ok: false;
+    readonly reason: "configuration_required" | "not_permitted" | "unavailable";
     readonly error: string;
     readonly substitutions: readonly Substitution[];
 }
 
 export type SubagentModelOutcome = SubagentModelChoice | SubagentModelFailure;
+
+/**
+ * Resolves the authorization-first subagent ladder.
+ *
+ * Unlike the generic assignment binder, this never inherits an intent or the
+ * session model. The exact parent pair is appended only by `allowSelf`.
+ */
+export function resolveAssignedSubagentModel(
+    request: AssignedSubagentRequest,
+    pool: LadderPool,
+): SubagentModelOutcome {
+    const assignedRefs = request.assigned.map((entry) =>
+        modelRef(entry.provider, entry.model));
+    const requestedRef = request.requested === undefined
+        ? undefined
+        : assignedRef(request.requested, request.assigned);
+    const selfRef = modelRef(request.sessionProvider, request.sessionModel);
+    if (
+        request.requested !== undefined
+        && requestedRef === undefined
+        && !(request.allowSelf && request.requested === selfRef)
+    ) {
+        return {
+            ok: false,
+            reason: "not_permitted",
+            error: `Model ${request.requested} is not permitted for subagents. `
+                + "Choose a model from the subagents assignment.",
+            substitutions: [],
+        };
+    }
+
+    const preferredRef = request.preferred === undefined
+        ? undefined
+        : assignedRef(request.preferred, request.assigned);
+    const firstRef = requestedRef ?? preferredRef;
+    const attempts: Attempt[] = [];
+    if (firstRef !== undefined) {
+        const configured = request.assigned[assignedRefs.indexOf(firstRef)];
+        attempts.push({
+            rung: requestedRef === undefined ? "default" : "suggestion",
+            ref: firstRef,
+            effort: requestedRef === undefined
+                ? request.preferredEffort ?? configured?.effort
+                : request.requestedEffort ?? configured?.effort,
+        });
+    }
+    for (const assigned of request.assigned) {
+        const ref = modelRef(assigned.provider, assigned.model);
+        if (ref === firstRef) continue;
+        attempts.push({
+            rung: "assignment",
+            ref,
+            ...(assigned.effort === undefined ? {} : { effort: assigned.effort }),
+            ...(firstRef === undefined ? {} : {
+                forRef: firstRef,
+                because: "this is the next model in the subagents assignment",
+            }),
+        });
+    }
+    if (request.allowSelf && !assignedRefs.includes(selfRef)) {
+        const self = findCandidate(selfRef, pool);
+        const effort = resolveRelativeEffort(
+            request.selfEffort ?? "equal",
+            request.sessionEffort,
+            self,
+        );
+        attempts.push({
+            rung: "self",
+            ref: selfRef,
+            ...(effort === undefined ? {} : { effort }),
+            ...(firstRef === undefined ? {} : {
+                forRef: firstRef,
+                because: "parent-model fallback is enabled",
+            }),
+        });
+    }
+
+    const rejections: string[] = [];
+    for (const candidate of attempts) {
+        const resolved = tryCandidate(candidate, pool, rejections);
+        if (resolved === undefined) continue;
+        const ranRef = modelRef(resolved.provider, resolved.model);
+        const substitutions: Substitution[] = [];
+        if (candidate.forRef !== undefined && candidate.because !== undefined) {
+            substitutions.push({
+                scope: "model",
+                model: ranRef,
+                requested: candidate.forRef,
+                using: ranRef,
+                reason: joinReason(
+                    rejectionFor(candidate.forRef, rejections),
+                    candidate.because,
+                ),
+            });
+        }
+        if (resolved.effortChanged) {
+            substitutions.push({
+                scope: "effort",
+                model: ranRef,
+                requested: candidate.effort ?? "",
+                ...(resolved.effort === undefined
+                    ? {}
+                    : { using: resolved.effort }),
+                reason: `${ranRef} does not offer that level`,
+            });
+        }
+        return {
+            ok: true,
+            provider: resolved.provider,
+            model: resolved.model,
+            ...(resolved.effort === undefined ? {} : { effort: resolved.effort }),
+            rung: candidate.rung,
+            substitutions,
+            ...(substitutions.length === 0
+                ? {}
+                : { notice: formatNotice(substitutions) }),
+        };
+    }
+    return {
+        ok: false,
+        reason: attempts.length === 0
+            ? "configuration_required"
+            : "unavailable",
+        error: attempts.length === 0
+            ? "No subagent models are configured. Choose models in Defaults -> Subagents."
+            : "No configured subagent model is available. Every candidate was rejected: "
+                + rejections.join("; ") + ".",
+        substitutions: [],
+    };
+}
+
+function assignedRef(
+    requested: string,
+    assigned: readonly AssignedSubagentModel[],
+): string | undefined {
+    const exact = assigned.find((entry) =>
+        modelRef(entry.provider, entry.model) === requested);
+    if (exact !== undefined) return modelRef(exact.provider, exact.model);
+    const bare = assigned.filter((entry) => entry.model === requested);
+    return bare.length === 1
+        ? modelRef(bare[0]!.provider, bare[0]!.model)
+        : undefined;
+}
 
 interface Attempt {
     readonly rung: LadderRung;
@@ -199,6 +365,7 @@ export function resolveSubagentModel(
     }
     return {
         ok: false,
+        reason: "unavailable",
         error:
             "No model could run this subagent. Every candidate was rejected: "
             + rejections.join("; ") + ".",
