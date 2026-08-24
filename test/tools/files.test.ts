@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -245,6 +245,61 @@ test("offset and limit are 1-indexed and refuse 0", async () => {
             .rejects.toThrow("at least 1");
         await expect(read({ path: "a.txt", limit: 0 }, cwd))
             .rejects.toThrow("at least 1");
+    } finally {
+        await rm(cwd, { recursive: true, force: true });
+    }
+});
+
+test("a subagent is refused a disable-model-invocation skill's SKILL.md, a top-level session is not", async () => {
+    const cwd = await workspace();
+    try {
+        const skillDir = join(cwd, ".vera", "skills", "adversarial");
+        await mkdir(skillDir, { recursive: true });
+        await writeFile(join(skillDir, "SKILL.md"), `---
+name: adversarial
+description: Read-only adversarial review.
+disable-model-invocation: true
+---
+Body.
+`);
+        const skillPath = join(".vera", "skills", "adversarial", "SKILL.md");
+
+        const subagentRuntime = new ToolRuntime(
+            cwd,
+            undefined,
+            undefined,
+            undefined,
+            cwd,
+            undefined,
+            true,
+        );
+        const refused = await readTool.execute(
+            { path: skillPath },
+            subagentRuntime,
+            new AbortController().signal,
+        );
+        expect(refused.kind).toBe("output");
+        if (refused.kind === "output") {
+            expect(refused.isError).toBe(true);
+            expect(refused.output).toContain("disable-model-invocation");
+        }
+
+        const topLevelRuntime = new ToolRuntime(
+            cwd,
+            undefined,
+            undefined,
+            undefined,
+            cwd,
+        );
+        const allowed = await readTool.execute(
+            { path: skillPath },
+            topLevelRuntime,
+            new AbortController().signal,
+        );
+        expect(allowed.kind).toBe("output");
+        if (allowed.kind === "output") {
+            expect(allowed.isError).toBe(false);
+        }
     } finally {
         await rm(cwd, { recursive: true, force: true });
     }

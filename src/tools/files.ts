@@ -4,6 +4,9 @@ import { basename, dirname, join, resolve } from "node:path";
 import { editDiffPresentation } from "./diff-presentation.ts";
 import type { RegisteredTool } from "./types.ts";
 import type { HookToolCall } from "../sdk/hooks.ts";
+import { findSkillByPath, loadSkillCatalog } from "../skills/catalog.ts";
+import { invocationRefusal } from "../skills/invocation-gate.ts";
+import { SKILL_FILENAME } from "../skills/package.ts";
 
 /**
  * How many lines one read call may return. A file longer than this is read
@@ -51,6 +54,18 @@ export const readTool: RegisteredTool = {
         const requestedLimit = optionalInteger(input, "limit", 1);
         const limit = Math.min(requestedLimit ?? READ_MAX_LINES, READ_MAX_LINES);
         const safePath = await resolveReadPath(context.workspace, path);
+        if (context.isSubagent && basename(safePath) === SKILL_FILENAME) {
+            const catalog = await loadSkillCatalog({
+                projectRoot: context.instructionRoot,
+            });
+            const skill = findSkillByPath(catalog, safePath);
+            const refusal = skill === undefined
+                ? undefined
+                : invocationRefusal(skill.metadata, context.isSubagent);
+            if (refusal !== undefined) {
+                return { kind: "output", output: refusal, isError: true };
+            }
+        }
         const file = Bun.file(safePath);
         // Stat first: the size decides whether this is a refusal, and asking
         // costs nothing next to reading. The text is read whole so that line

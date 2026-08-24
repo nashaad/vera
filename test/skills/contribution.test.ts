@@ -14,6 +14,16 @@ test("the catalog exposes metadata and paths without loading instructions", () =
     expect(content).not.toContain("SECRET BODY");
 });
 
+test("a disable-model-invocation skill is marked invoke-only in the catalog", () => {
+    const content = renderSkillCatalog(catalog([
+        skill("adversarial", "Adversarial review.", true),
+    ]));
+
+    expect(content).toContain(
+        "adversarial: Adversarial review. (/skills/adversarial/SKILL.md) [invoke-only: use only if the user explicitly names this skill or its command]",
+    );
+});
+
 test("a large catalog is bounded and reports omitted skills", () => {
     const skills = Array.from({ length: 200 }, (_, index) =>
         skill(`skill-${index}`, "x".repeat(100))
@@ -28,12 +38,16 @@ function catalog(skills: SkillCatalog["skills"]): SkillCatalog {
     return { skills, warnings: [] };
 }
 
-function skill(name: string, description: string): SkillCatalog["skills"][number] {
+function skill(
+    name: string,
+    description: string,
+    disableModelInvocation = false,
+): SkillCatalog["skills"][number] {
     return {
         directory: `/skills/${name}`,
         skillPath: `/skills/${name}/SKILL.md`,
         scope: "user",
-        metadata: { name, description, extra: {} },
+        metadata: { name, description, disableModelInvocation, extra: {} },
         instructions: "SECRET BODY",
     };
 }

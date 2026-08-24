@@ -35,6 +35,15 @@ export class ToolRuntime {
      * refuse a skill the catalog never showed, however it was named.
      */
     allowedSkills: readonly string[] | undefined;
+    /**
+     * True for a runtime built for a spawned subagent, set once at
+     * construction and never from anything a prompt says. Skills flagged
+     * disable-model-invocation refuse outright when this is true: prompt
+     * wording is not a usable signal for "a human asked for this" (a parent
+     * agent's spawn description reads exactly like a human's request), so
+     * the gate uses which code path built the runtime instead.
+     */
+    readonly isSubagent: boolean;
     /** The tools the worn agent may call, or `undefined` for all of them. */
     allowedTools: readonly string[] | undefined;
     private readonly fileSnapshots = new Map<string, string>();
@@ -49,7 +58,9 @@ export class ToolRuntime {
         env?: Readonly<Record<string, string>>,
         instructionRoot?: string,
         processes?: ManagedProcessScope,
+        isSubagent = false,
     ) {
+        this.isSubagent = isSubagent;
         this.workspace = workspace;
         this.instructionRoot = instructionRoot ?? workspace;
         this.preimageRecorder = preimageRecorder;

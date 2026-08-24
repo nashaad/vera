@@ -44,7 +44,10 @@ export function renderSkillCatalog(catalog: SkillCatalog): string {
     let content = header;
     let omitted = 0;
     for (const skill of catalog.skills) {
-        const line = `- ${skill.metadata.name}: ${skill.metadata.description} (${skill.skillPath})\n`;
+        const tag = skill.metadata.disableModelInvocation
+            ? " [invoke-only: use only if the user explicitly names this skill or its command]"
+            : "";
+        const line = `- ${skill.metadata.name}: ${skill.metadata.description} (${skill.skillPath})${tag}\n`;
         if (content.length + line.length > MAX_CATALOG_CHARACTERS) {
             omitted += 1;
             continue;

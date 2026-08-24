@@ -67,6 +67,49 @@ printf 'cwd=%s\\narg=%s\\nskill=%s\\nsecret=%s\\n' "$PWD" "$1" "$VERA_SKILL_DIR"
     }
 });
 
+test("skill_script refuses a disable-model-invocation skill for a subagent, allows it at the top level", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-skill-gate-"));
+    const workspace = join(root, "workspace");
+    const skillDirectory = join(projectSkillDirectory(workspace), "adversarial");
+    const scriptsDirectory = join(skillDirectory, "scripts");
+    mkdirSync(scriptsDirectory, { recursive: true });
+    writeFileSync(join(skillDirectory, SKILL_FILENAME), `---
+name: adversarial
+description: Read-only adversarial review.
+disable-model-invocation: true
+---
+Run \`scripts/review.sh\`.
+`);
+    const scriptPath = join(scriptsDirectory, "review.sh");
+    writeFileSync(scriptPath, "#!/bin/sh\necho ok\n");
+    chmodSync(scriptPath, 0o755);
+
+    const subagentRuntime = new ToolRuntime(
+        workspace,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        undefined,
+        true,
+    );
+    await expect(skillScriptTool.execute({
+        skill: "adversarial",
+        script: "scripts/review.sh",
+    }, subagentRuntime, new AbortController().signal))
+        .rejects.toThrow("disable-model-invocation");
+
+    const result = await skillScriptTool.execute({
+        skill: "adversarial",
+        script: "scripts/review.sh",
+    }, new ToolRuntime(workspace), new AbortController().signal);
+    expect(result.kind).toBe("output");
+    if (result.kind === "output") {
+        expect(result.isError).toBe(false);
+        expect(result.output).toContain("ok");
+    }
+});
+
 test("skill scripts time out with a terminal error", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skill-timeout-"));
     const scriptPath = join(root, "slow.sh");

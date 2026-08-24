@@ -15,6 +15,7 @@ export function newStashingToolRuntime(
     env?: Readonly<Record<string, string>>,
     instructionRoot?: string,
     processRegistry?: ManagedProcessRegistry,
+    isSubagent?: boolean,
 ): ToolRuntime {
     if (!sweepStarted) {
         sweepStarted = true;
@@ -28,5 +29,6 @@ export function newStashingToolRuntime(
         env,
         instructionRoot,
         processRegistry?.scope(sessionId),
+        isSubagent,
     );
 }
