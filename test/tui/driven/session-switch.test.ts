@@ -39,6 +39,30 @@ test("idle TUI exit stops the current conversation", async () => {
     }
 }, 15_000);
 
+test("idle TUI exit only detaches when another viewer remains", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-shared-"));
+    const scenario = createTuiResumeScenario({
+        home,
+        otherInteractiveAttachments: 1,
+    });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
+            "none\ndetached\ncurrent-session-id\nclosed ",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("clear command leaves the current conversation for a fresh one", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-new-"));
     const scenario = createTuiNewSessionScenario({ home });
@@ -116,6 +140,79 @@ test("clear --background explicitly keeps the source running", async () => {
         expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
             "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
                 + "\nclosed new-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("clear keeps a multiply-attached source running and says why", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-clear-shared-"));
+    const scenario = createTuiNewSessionScenario({
+        home,
+        otherInteractiveAttachments: 1,
+    });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "Could not start a new session: host refused creation",
+        );
+        session.sendText("/clear");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane(
+            "The previous conversation is still running in another client",
+        );
+        expect(pane).toContain("fresh-model");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
+            "new-session-id\ndetached\nnext detached\nattempts 2\n/work/vera"
+                + "\nclosed new-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("resume leaves a multiply-attached source running and says why", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-resume-shared-"));
+    const scenario = createTuiResumeScenario({
+        home,
+        otherInteractiveAttachments: 1,
+    });
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/resume");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Continue the theme picker");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane(
+            "The previous conversation is still running in another client",
+        );
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pane).toContain(
+            "The previous conversation is still running in another client",
+        );
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
+            "/sessions/target.jsonl\ndetached\ntarget-session-id"
+                + "\nclosed target-session-id",
         );
     } finally {
         await session.close();

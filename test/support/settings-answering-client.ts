@@ -18,6 +18,10 @@ export interface SettingsAnsweringClientOptions {
         push: (update: AgentUpdate) => void,
     ) => void;
     readonly onDetach?: () => void;
+    readonly release?: NonNullable<TuiAgentClient["release"]>;
+    readonly supportsHostCapability?: NonNullable<
+        TuiAgentClient["supportsHostCapability"]
+    >;
     /**
      * Drop the first `get_model_settings` so a client that never asks again
      * stays on the loading placeholders, and one that retries after history
@@ -83,6 +87,10 @@ export function createSettingsAnsweringClient(
         receive(signal) {
             return updates.receive(signal);
         },
+        ...(options.release === undefined ? {} : { release: options.release }),
+        ...(options.supportsHostCapability === undefined
+            ? {}
+            : { supportsHostCapability: options.supportsHostCapability }),
         async detach(): Promise<void> {
             options.onDetach?.();
         },

@@ -159,6 +159,7 @@ import {
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
 } from "../../src/host/capabilities.ts";
@@ -218,7 +219,10 @@ import {
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
-import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
+import type {
+    TuiSessionLeaveDisposition,
+    TuiSessionLeaveResult,
+} from "./session-lifecycle.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
 import {
     resolveTuiHostedAgentAddressing,
@@ -1156,6 +1160,7 @@ export async function startTui(
     // rebuild, which floats it above the transcript, and once after, so it is
     // also the last line the reader reaches.
     let pendingBackNotice: string | undefined;
+    let pendingSessionSwitchNotice: string | undefined;
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -6505,8 +6510,9 @@ export async function startTui(
                     void discardCreatedSwitchTarget(next);
                     return;
                 }
+                let leaveResult: TuiSessionLeaveResult;
                 try {
-                    await leaveSwitchSource(
+                    leaveResult = await leaveSwitchSource(
                         sourceClient,
                         sourceDisposition,
                         sourceCompanions,
@@ -6530,6 +6536,15 @@ export async function startTui(
                     return;
                 }
                 switchToClient(next);
+                if (
+                    sourceDisposition === "stop"
+                    && leaveResult.sourceOutcome === "detached"
+                    && leaveResult.remainingInteractiveClients > 0
+                ) {
+                    const notice =
+                        "The previous conversation is still running in another client";
+                    pendingSessionSwitchNotice = notice;
+                }
             }).catch((error) => {
                 if (shuttingDown) {
                     return;
@@ -7492,6 +7507,13 @@ export async function startTui(
                         state = appendTuiNotice(state, pendingBackNotice);
                         pendingBackNotice = undefined;
                     }
+                    if (pendingSessionSwitchNotice !== undefined) {
+                        state = appendTuiNotice(
+                            state,
+                            pendingSessionSwitchNotice,
+                        );
+                        pendingSessionSwitchNotice = undefined;
+                    }
                 }
                 if (update.type === "status" && update.state === "idle") {
                     finishStreamingAssistant();
@@ -8077,32 +8099,80 @@ export async function startTui(
         source: TuiAgentClient,
         disposition: TuiSessionLeaveDisposition,
         companions: readonly TuiAgentClient[] = [],
-    ): Promise<void> {
-        if (disposition === "keep_running") return;
-        if (dependencies.closeSession === undefined) {
-            throw new Error("stopping the current conversation is unavailable");
-        }
-        const seen = new Set<string>();
+    ): Promise<TuiSessionLeaveResult> {
+        const seen = new Set<TuiAgentClient>();
+        let sourceResult: TuiSessionLeaveResult | undefined;
         for (const candidate of [...companions, source]) {
+            if (seen.has(candidate)) continue;
+            seen.add(candidate);
             const candidateId = candidate.agentId;
             if (candidateId === undefined) {
                 throw new Error(
                     "stopping the current conversation is unavailable",
                 );
             }
-            if (seen.has(candidateId)) continue;
-            seen.add(candidateId);
-            const result = await dependencies.closeSession(candidateId);
-            if (result.status !== "closed") {
-                throw new Error(closeSessionFailure(result.reason));
+            let result: TuiSessionLeaveResult;
+            if (
+                candidate.release !== undefined
+                && candidate.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+                ) === true
+            ) {
+                const released = await candidate.release(
+                    disposition === "keep_running"
+                        ? "keep_running"
+                        : "stop_if_last",
+                );
+                result = {
+                    sourceOutcome: released.outcome,
+                    remainingInteractiveClients:
+                        released.remainingInteractiveClients,
+                };
+            } else {
+                if (disposition === "keep_running") {
+                    result = {
+                        sourceOutcome: "detached",
+                        remainingInteractiveClients: 0,
+                    };
+                    if (candidate === source) sourceResult = result;
+                    continue;
+                }
+                if (dependencies.closeSession === undefined) {
+                    throw new Error(
+                        "stopping the current conversation is unavailable",
+                    );
+                }
+                const closed = await dependencies.closeSession(candidateId);
+                if (closed.status !== "closed") {
+                    throw new Error(closeSessionFailure(closed.reason));
+                }
+                result = {
+                    sourceOutcome: "stopped",
+                    remainingInteractiveClients: 0,
+                };
             }
+            if (candidate === source) sourceResult = result;
         }
+        return sourceResult ?? {
+            sourceOutcome: "detached",
+            remainingInteractiveClients: 0,
+        };
     }
 
-    /** Best-effort terminal departure: hard close when the host is reachable. */
+    /** Best-effort terminal departure: stop only the last interactive viewer. */
     async function stopClientForShutdown(source: TuiAgentClient): Promise<void> {
         const sourceId = source.agentId;
-        if (sourceId !== undefined && dependencies.closeSession !== undefined) {
+        if (
+            source.release !== undefined
+            && source.supportsHostCapability?.(
+                HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            ) === true
+        ) {
+            await source.release("stop_if_last").catch(() => undefined);
+        } else if (
+            sourceId !== undefined
+            && dependencies.closeSession !== undefined
+        ) {
             await dependencies.closeSession(sourceId).catch(() => undefined);
         }
         await source.detach().catch(() => source.close());
@@ -11647,6 +11717,7 @@ export async function startTui(
         // A hop the notice never landed in is over; it must not surface in
         // whichever conversation rebuilds next.
         pendingBackNotice = undefined;
+        pendingSessionSwitchNotice = undefined;
         if (next.agentId !== undefined) {
             try {
                 dependencies.onSessionEntered?.(next.agentId);
@@ -11796,27 +11867,30 @@ export async function startTui(
                 return;
             }
             let destination = next;
+            let leaveResult: TuiSessionLeaveResult | undefined;
+            try {
+                leaveResult = await leaveSwitchSource(
+                    sourceClient,
+                    sourceDisposition,
+                    sourceCompanions,
+                );
+            } catch (error) {
+                discardSwitchTarget(next);
+                throw error;
+            }
             if (sourceDisposition === "stop") {
-                try {
-                    await leaveSwitchSource(
-                        sourceClient,
-                        sourceDisposition,
-                        sourceCompanions,
-                    );
-                } catch (error) {
-                    discardSwitchTarget(next);
-                    throw error;
-                }
                 // The selected row can be a child of the source. Hard close
                 // correctly takes that whole tree down, including the target
                 // attachment we opened first to validate the destination.
                 // Resume once more after quiescence so a durable child becomes
                 // the new root instead of putting a dead attachment on screen.
-                discardSwitchTarget(next);
-                destination = await withSessionSwitchDeadline(
-                    dependencies.resumeSession(sessionPath),
-                    discardSwitchTarget,
-                );
+                if (leaveResult.sourceOutcome === "stopped") {
+                    discardSwitchTarget(next);
+                    destination = await withSessionSwitchDeadline(
+                        dependencies.resumeSession!(sessionPath),
+                        discardSwitchTarget,
+                    );
+                }
             }
             if (openingInSidebar) {
                 await openExtensionAgent(
@@ -11830,6 +11904,15 @@ export async function startTui(
                 return;
             }
             switchToClient(destination, draft);
+            if (
+                sourceDisposition === "stop"
+                && leaveResult?.sourceOutcome === "detached"
+                && leaveResult.remainingInteractiveClients > 0
+            ) {
+                const notice =
+                    "The previous conversation is still running in another client";
+                pendingSessionSwitchNotice = notice;
+            }
             if (viaBack) {
                 backOriginId = undefined;
             } else if (backOriginId !== undefined) {

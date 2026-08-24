@@ -224,6 +224,28 @@ test("commands wait for an in-flight reconnect", async () => {
     client.close();
 });
 
+test("reconnecting clients release through their current attachment", async () => {
+    let releasedWith: string | undefined;
+    const initial: AttachedAgentClient = {
+        ...fakeClient([], 0),
+        release: async (policy) => {
+            releasedWith = policy;
+            return {
+                outcome: "detached",
+                remainingInteractiveClients: 1,
+            };
+        },
+    };
+    const client = createReconnectingAgentClient(initial, async () => initial);
+
+    expect(await client.release?.("stop_if_last")).toEqual({
+        outcome: "detached",
+        remainingInteractiveClients: 1,
+    });
+    expect(releasedWith).toBe("stop_if_last");
+    expect(client.closed).toBeTrue();
+});
+
 test("a reconnect publishes the replacement background snapshot", async () => {
     const initial = fakeClient([], 4);
     const recovered = fakeClient([

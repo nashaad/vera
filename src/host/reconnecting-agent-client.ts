@@ -16,6 +16,8 @@ const RECONNECT_DELAYS_MS = [0, 50, 100, 200];
 export interface ReconnectingAgentOptions {
     readonly socketPath: () => string;
     readonly agentId: string;
+    readonly interactive?: boolean;
+    readonly clientId?: string;
 }
 
 export interface ReconnectPolicy {
@@ -34,6 +36,9 @@ export async function attachReconnectingAgent(
             socketPath: options.socketPath(),
             agentId: options.agentId,
             requestedCapabilities: HOST_CAPABILITIES,
+            ...(options.interactive === true
+                ? { interactive: true, clientId: options.clientId }
+                : {}),
             ...(afterSequence === undefined ? {} : { afterSequence }),
             signal,
         });
@@ -163,6 +168,18 @@ export function createReconnectingAgentClient(
         },
         runExtensionCommand(command, argumentsText) {
             return current.runExtensionCommand(command, argumentsText);
+        },
+        async release(policy) {
+            if (closed) throw new Error("Agent attachment is closed");
+            const release = current.release;
+            if (release === undefined) {
+                throw new Error("Host does not support attachment release");
+            }
+            closed = true;
+            lifecycle.abort(new Error("Agent attachment is released"));
+            stopBackgroundAgentUpdates();
+            stopWorkIndexUpdates();
+            return release.call(current, policy);
         },
         async detach(): Promise<void> {
             if (closed) return;

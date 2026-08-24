@@ -7,6 +7,9 @@ import {
 } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
+import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+} from "../../src/host/capabilities.ts";
 
 export interface TuiNewSessionScenario {
     readonly dependencies: TuiDependencies;
@@ -17,6 +20,7 @@ export function createTuiNewSessionScenario(options: {
     readonly home: string;
     readonly createTimeout?: boolean;
     readonly closeFailure?: boolean;
+    readonly otherInteractiveAttachments?: number;
 }): TuiNewSessionScenario {
     let detached = false;
     let nextDetached = false;
@@ -31,6 +35,15 @@ export function createTuiNewSessionScenario(options: {
         onDetach: () => {
             detached = true;
         },
+        ...(options.otherInteractiveAttachments === undefined ? {} : {
+            supportsHostCapability: (capability: string) =>
+                capability === HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            release: async () => ({
+                outcome: "detached" as const,
+                remainingInteractiveClients:
+                    options.otherInteractiveAttachments ?? 0,
+            }),
+        }),
     });
 
     return {
@@ -54,6 +67,11 @@ export function createTuiNewSessionScenario(options: {
                     workspace,
                     model: "fresh-model",
                     mode: "full_access",
+                    initialUpdates: [{
+                        type: "history",
+                        entries: [],
+                        seq: 0,
+                    }],
                     onDetach: () => {
                         nextDetached = true;
                     },

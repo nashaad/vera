@@ -262,6 +262,27 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest(JSON.stringify({
         type: "attach",
         agent_id: "agent-1",
+        attachment_kind: "interactive",
+        client_id: "client-1",
+    }))).toEqual({
+        type: "attach",
+        agent_id: "agent-1",
+        attachment_kind: "interactive",
+        client_id: "client-1",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "attach",
+        agent_id: "agent-1",
+        attachment_kind: "interactive",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "attach",
+        agent_id: "agent-1",
+        attachment_kind: "background",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
+        type: "attach",
+        agent_id: "agent-1",
         requested_capabilities: ["agent.branch-options.v1"],
         after_seq: 17,
     }))).toEqual({
@@ -399,6 +420,17 @@ test("host protocol parses messages after attach", () => {
     expect(parseAttachedClientMessage('{"type":"detach"}')).toEqual({
         type: "detach",
     });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "release_attachment",
+        policy: "stop_if_last",
+    }))).toEqual({
+        type: "release_attachment",
+        policy: "stop_if_last",
+    });
+    expect(parseAttachedClientMessage(JSON.stringify({
+        type: "release_attachment",
+        policy: "stop_sometime",
+    }))).toBeUndefined();
     expect(parseAttachedClientMessage(JSON.stringify({
         type: "get_model_settings",
         requestId: "settings-1",
