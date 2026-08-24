@@ -714,6 +714,7 @@ export async function runHeadlessLoop(
             instructionRoot,
             scratchDir,
             processRegistry,
+            parentSessionId: store.header.id,
             // Settings the host may rewrite while this session runs are read
             // here rather than copied, so a subagent spawned later is given
             // what the settings say now, not what they said at start.
@@ -1150,6 +1151,7 @@ export async function runHeadlessLoop(
             data.toolEnv,
             instructionRoot.path,
             processRegistry,
+            store.header.parentId !== undefined,
         ),
         instructionRoot,
         inbound,
@@ -1343,6 +1345,7 @@ export async function runTurn(
                     : state.enabledToolEffects ?? [],
                 state.enableUserInteraction === true,
                 state.extensionTools,
+                state.toolRuntime.invocation,
             );
         // A tool the agent does not offer is not described to the model, so
         // the ordinary case is that it is never called. Gate A is what makes

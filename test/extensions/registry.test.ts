@@ -33,7 +33,10 @@ import {
     decideToolPermission,
     extractPermissionActions,
 } from "../../src/engine/permissions.ts";
-import { executeToolHandler } from "../../src/tools/execute.ts";
+import {
+    executeToolHandler,
+    toolDefinitionsForCapabilities,
+} from "../../src/tools/execute.ts";
 import { ToolRuntime } from "../../src/tools/runtime.ts";
 
 const temporaryDirectories: string[] = [];
@@ -156,6 +159,7 @@ test("registry exposes extension tools through the ordinary tool and permission 
                     additionalProperties: false,
                 },
                 parallel: true,
+                invocation: "top_level",
                 permissionOperation: "web.search",
                 run({ input, workspace }) {
                     return {
@@ -175,6 +179,9 @@ test("registry exposes extension tools through the ordinary tool and permission 
     const tools = registry.tools();
 
     expect(tools.map((tool) => tool.definition.name)).toEqual(["web_search"]);
+    expect(tools[0]?.invocation).toBe("top_level");
+    expect(toolDefinitionsForCapabilities([], false, tools, "subagent"))
+        .not.toContainEqual(expect.objectContaining({ name: "web_search" }));
     expect(decideToolPermission(
         "ask",
         { id: "search-1", name: "web_search", input: { query: "dag" } },
@@ -203,6 +210,29 @@ test("registry exposes extension tools through the ordinary tool and permission 
             kind: "tool_notice",
             text: "Rendered result",
         },
+    });
+    await expect(executeToolHandler(
+        {
+            type: "tool_call",
+            id: "search-child",
+            name: "web_search",
+            input: { query: "dag" },
+        },
+        new ToolRuntime(
+            workspace,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            true,
+        ),
+        new AbortController().signal,
+        tools,
+    )).resolves.toEqual({
+        kind: "output",
+        output: "The web_search tool is available only to top-level sessions.",
+        isError: true,
     });
 
     await registry.close();

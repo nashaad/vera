@@ -32,13 +32,13 @@ import type { ApprovalMode } from "../../engine/permissions.ts";
 import type { PromptContribution } from "../../engine/prompt-contributions.ts";
 import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
 import type { ToolReviewDecision } from "../../engine/reviewer.ts";
-import type { ModelTool } from "../../model/types.ts";
 import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
 import type {
     AppliedToolEffectOutput,
     CommitEffect,
     RegisteredTool,
+    RegisteredToolDefinition,
     ToolExecutionResult,
 } from "../../tools/types.ts";
 import type { JsonPipe } from "./pipe.ts";
@@ -56,7 +56,7 @@ export interface RemoteHostBoundaryOptions {
     readonly state: LoopState;
     /** Present when this process loaded the extensions itself. */
     readonly localExtensionTools?: readonly RegisteredTool[];
-    readonly extensionToolDefinitions?: readonly ModelTool[];
+    readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
 }
 
 export interface RemoteHostBoundary {
@@ -115,8 +115,11 @@ export function createRemoteHostBoundary(
     // runs here must not also be reachable by name over the boundary.
     const extensionTools = options.localExtensionTools
         ?? (options.extensionToolDefinitions ?? []).map(
-        (definition): RegisteredTool => ({
-            definition,
+        (registered): RegisteredTool => ({
+            definition: registered.definition,
+            ...(registered.invocation === undefined
+                ? {}
+                : { invocation: registered.invocation }),
             async execute(
                 input: Readonly<Record<string, unknown>>,
                 _context: ToolRuntime,
@@ -130,7 +133,7 @@ export function createRemoteHostBoundary(
                     const reply = await pipe.request({
                         method: "tool.execute",
                         callId,
-                        name: definition.name,
+                        name: registered.definition.name,
                         input,
                     }) as { readonly result: ToolExecutionResult };
                     return reply.result;

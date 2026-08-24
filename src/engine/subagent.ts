@@ -68,6 +68,8 @@ import {
 export interface CreateSubagentEffectApplierOptions {
     readonly adapter: ModelAdapter;
     readonly workspace: string;
+    /** Durable identity of the session that owns spawned children. */
+    readonly parentSessionId?: string;
     /**
      * The parent's instruction root, handed down so a child keys project
      * memory where its parent does. Absent falls back to the workspace.
@@ -358,6 +360,7 @@ export interface RunSubagentOptions {
     readonly model: string;
     readonly description: string;
     readonly workspace: string;
+    readonly parentSessionId?: string;
     /** Inherited from the parent. Absent falls back to the workspace. */
     readonly instructionRoot?: InstructionRoot;
     readonly scratchDir?: string;
@@ -537,6 +540,7 @@ export function createSubagentEffectApplier(
                 offerTools: options.offerTools,
                 loadOptionalContext: options.loadOptionalContext,
                 sessionMetadata: options.sessionMetadata,
+                parentSessionId: options.parentSessionId,
                 signal,
                 sessionId,
                 ...(options.relayToolApproval === undefined
@@ -594,6 +598,9 @@ export async function runSubagent(
             {
                 sessionId,
                 cwd: options.workspace,
+                ...(options.parentSessionId === undefined
+                    ? {}
+                    : { parentId: options.parentSessionId }),
                 ...options.sessionMetadata,
             },
         );

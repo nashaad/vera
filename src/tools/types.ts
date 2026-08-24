@@ -186,6 +186,8 @@ export interface PermissionInputSpec {
 
 export interface RegisteredTool {
     readonly definition: ModelTool;
+    /** Session provenance required before this tool may be offered or run. */
+    readonly invocation?: "top_level";
     readonly parallel?: boolean;
     readonly effectType?: ToolEffect["type"];
     /** A deliberately recognized permission operation for this whole tool. */
@@ -198,4 +200,10 @@ export interface RegisteredTool {
         context: ToolRuntime,
         signal: AbortSignal,
     ): Promise<ToolExecutionResult>;
+}
+
+/** Plain metadata for carrying an extension tool across a worker boundary. */
+export interface RegisteredToolDefinition {
+    readonly definition: ModelTool;
+    readonly invocation?: "top_level";
 }

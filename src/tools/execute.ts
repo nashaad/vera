@@ -133,6 +133,7 @@ export function toolDefinitionsForCapabilities(
     enabledEffects: readonly ToolEffect["type"][],
     enableUserInteraction = false,
     extensionTools: readonly RegisteredTool[] = [],
+    invocation: ToolRuntime["invocation"] = "top_level",
 ): readonly ModelTool[] {
     const enabled = new Set(enabledEffects);
     return [...registeredTools, ...extensionTools]
@@ -142,6 +143,7 @@ export function toolDefinitionsForCapabilities(
                 tool.requiresUserInteraction !== true
                 || enableUserInteraction
             )
+            && (tool.invocation !== "top_level" || invocation === "top_level")
         )
         .map((tool) => tool.definition);
 }
@@ -227,6 +229,11 @@ export async function executeToolHandler(
     const tool = toolFor(toolCall.name, extensionTools);
     if (tool === undefined) {
         return errorOutput(`Unknown tool: ${toolCall.name}`);
+    }
+    if (tool.invocation === "top_level" && runtime.invocation !== "top_level") {
+        return errorOutput(
+            `The ${toolCall.name} tool is available only to top-level sessions.`,
+        );
     }
     // Defence in depth, not a second policy gate: the worn agent's scope is
     // enforced on the name before the hooks run, and a hook cannot rename a

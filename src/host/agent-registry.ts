@@ -3468,6 +3468,7 @@ export class AgentRegistry {
                 return findCatalogAgent(catalog, name)?.definition;
             },
             workspace: store.header.cwd,
+            parentSessionId: store.header.id,
             instructionRoot,
             scratchDir: sessionScratchDir(store.header.id),
             processRegistry: this.processRegistry,
@@ -4028,6 +4029,8 @@ export class AgentRegistry {
                         undefined,
                         options.data.toolEnv,
                         options.data.instructionRoot?.path,
+                        undefined,
+                        store.header.parentId !== undefined,
                     ),
                 }),
             onUpdate: (update, ownerId) => {

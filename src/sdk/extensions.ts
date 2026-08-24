@@ -106,6 +106,8 @@ export interface VeraExtensionToolSpec {
     readonly parallel?: boolean;
     readonly permissionOperation?: string;
     readonly permissionInputs?: readonly PermissionInputSpec[];
+    /** Restrict this tool to sessions that were not spawned by another agent. */
+    readonly invocation?: "top_level";
     readonly run: VeraExtensionToolHandler;
 }
 

@@ -9,7 +9,7 @@
  * than as the presence of a function.
  */
 
-import type { ModelTool } from "../../model/types.ts";
+import type { RegisteredToolDefinition } from "../../tools/types.ts";
 import type { ModelReasoningEffort } from "../../model/types.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
@@ -81,7 +81,7 @@ export interface WorkerStartNotification {
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
-    readonly extensionToolDefinitions?: readonly ModelTool[];
+    readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
 }
 
 /**

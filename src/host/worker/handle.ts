@@ -201,7 +201,12 @@ export async function startWorker(
             ? {}
             : {
                 extensionToolDefinitions: options.extensionTools.map(
-                    (tool) => tool.definition,
+                    (tool) => ({
+                        definition: tool.definition,
+                        ...(tool.invocation === undefined
+                            ? {}
+                            : { invocation: tool.invocation }),
+                    }),
                 ),
             }),
     });

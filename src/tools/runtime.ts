@@ -44,6 +44,8 @@ export class ToolRuntime {
      * the gate uses which code path built the runtime instead.
      */
     readonly isSubagent: boolean;
+    /** Durable session provenance, never inferred from prompt text. */
+    readonly invocation: "top_level" | "subagent";
     /** The tools the worn agent may call, or `undefined` for all of them. */
     allowedTools: readonly string[] | undefined;
     private readonly fileSnapshots = new Map<string, string>();
@@ -61,6 +63,7 @@ export class ToolRuntime {
         isSubagent = false,
     ) {
         this.isSubagent = isSubagent;
+        this.invocation = isSubagent ? "subagent" : "top_level";
         this.workspace = workspace;
         this.instructionRoot = instructionRoot ?? workspace;
         this.preimageRecorder = preimageRecorder;

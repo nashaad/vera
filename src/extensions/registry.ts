@@ -662,6 +662,7 @@ function registerTool(
         parallel,
         permissionOperation,
         permissionInputs,
+        invocation,
         run,
     } = spec;
     if (
@@ -678,6 +679,7 @@ function registerTool(
                 || permissionOperation.trim().length === 0
             ))
         || !validPermissionInputs(permissionInputs)
+        || (invocation !== undefined && invocation !== "top_level")
         || typeof run !== "function"
     ) {
         throw new Error("Invalid extension tool registration");
@@ -707,6 +709,7 @@ function registerTool(
             description: description.trim(),
             inputSchema: structuredClone(inputSchema),
         },
+        ...(invocation === undefined ? {} : { invocation }),
         ...(parallel === undefined ? {} : { parallel }),
         ...(permissionOperation === undefined
             ? {}
@@ -715,6 +718,13 @@ function registerTool(
             ? {}
             : { permissionInputs: structuredClone(permissionInputs) }),
         async execute(input, context, signal) {
+            if (invocation === "top_level" && context.invocation !== "top_level") {
+                return {
+                    kind: "output",
+                    output: `The ${name} tool is available only to top-level sessions.`,
+                    isError: true,
+                };
+            }
             const controller = new AbortController();
             const abort = (): void => controller.abort();
             signal.addEventListener("abort", abort, { once: true });
