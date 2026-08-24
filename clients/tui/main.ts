@@ -178,8 +178,10 @@ import {
     TUI_TRANSCRIPT_MATERIALIZE_BUFFER,
     tuiTranscriptEntryIsVisible,
     tuiTranscriptEvictableRows,
+    tuiTranscriptEntryStreams,
     tuiTranscriptNeedsEarlierEntries,
     tuiTranscriptPrependRange,
+    tuiTranscriptReusableTail,
     tuiTranscriptTailRange,
 } from "./transcript-window.ts";
 import { TuiAgentPane } from "./agent-pane.ts";
@@ -1136,6 +1138,7 @@ export async function startTui(
     let shuttingDown = false;
     let clientSurfaceReady = false;
     let transcriptSeeded = false;
+    let pendingTranscriptReseed = false;
     const deferredKeymapNotices: string[] = [];
     // The arrival notice lands twice on purpose: once before the history
     // rebuild, which floats it above the transcript, and once after, so it is
@@ -2026,6 +2029,10 @@ export async function startTui(
     // while a present node and kind must be assigned or deleted together.
     const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
     const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
+    const entryNodeSources = new WeakMap<
+        TextRenderable | MarkdownRenderable | BoxRenderable,
+        TuiTranscriptEntry
+    >();
     let materializedEntryStart = 0;
     let materializedEntryEnd = 0;
     /**
@@ -3219,6 +3226,7 @@ export async function startTui(
         entry: TuiTranscriptEntry,
         marginTop: number,
         separated: boolean,
+        streaming = false,
     ): TextRenderable | MarkdownRenderable | BoxRenderable {
         const inner = entry.kind === "user" ? marginTop : 0;
         const markdownNode = entry.kind === "diff"
@@ -3234,6 +3242,7 @@ export async function startTui(
                     ? TUI_MUTED
                     : TUI_TEXT,
                 inner,
+                streaming,
             );
         const node = entry.kind === "tool"
             ? createTuiToolRow(renderer, id, entry, inner)
@@ -3340,6 +3349,11 @@ export async function startTui(
                 entry,
                 tuiEntryMarginTop(entries, index, entrySpacing),
                 assistantFollowsTools(entries, index),
+                tuiTranscriptEntryStreams(
+                    entries,
+                    index,
+                    pane.state.state.working,
+                ),
             );
             node.visible = entry.kind !== "tool" || entry.hidden !== true;
             sidebarEntryNodes.push(node);
@@ -7388,7 +7402,11 @@ export async function startTui(
                     if (userTexts[0] !== undefined) {
                         adoptFallbackSessionTitle(userTexts[0]);
                     }
-                    clearTranscriptNodes();
+                    // Clearing here would leave the transcript with no entry
+                    // nodes for any frame that paints before the rebuilding
+                    // render pass runs, and a rebuilt markdown row paints
+                    // empty until its first layout.
+                    pendingTranscriptReseed = true;
                     transcriptSeeded = true;
                     for (const notice of deferredKeymapNotices.splice(0)) {
                         state = appendTuiNotice(state, notice);
@@ -7404,6 +7422,9 @@ export async function startTui(
                         state = appendTuiNotice(state, pendingBackNotice);
                         pendingBackNotice = undefined;
                     }
+                }
+                if (update.type === "status" && update.state === "idle") {
+                    finishStreamingAssistant();
                 }
                 if (
                     update.type === "turn_finished"
@@ -8249,11 +8270,15 @@ export async function startTui(
     ): void {
         wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
         const existing = tuiGutterContent(wrapper);
-        if (
-            existing instanceof MarkdownRenderable
-            && existing.content !== tuiMarkdownEntryContent(entry)
-        ) {
-            existing.content = tuiMarkdownEntryContent(entry);
+        if (existing instanceof MarkdownRenderable) {
+            // The trailing block stays unstable while this flag is on. A
+            // finished turn has no live row, so a reused node has to settle.
+            if (existing.streaming && !state.working) {
+                existing.streaming = false;
+            }
+            if (existing.content !== tuiMarkdownEntryContent(entry)) {
+                existing.content = tuiMarkdownEntryContent(entry);
+            }
         }
         if (entry.kind === "tool" && existing instanceof BoxRenderable) {
             updateTuiToolRow(existing, entry);
@@ -8288,15 +8313,18 @@ export async function startTui(
         if (entry === undefined) {
             throw new Error(`Transcript entry ${index} is unavailable`);
         }
+        const streaming = tuiTranscriptEntryStreams(entries, index, state.working);
         const node = createTuiEntryNode(
             `entry-${index}`,
             entry,
             tuiEntryMarginTop(entries, index, entrySpacing),
             assistantFollowsTools(entries, index),
+            streaming,
         );
         updateTranscriptEntryNode(node, entry);
         entryNodes[index] = node;
         entryNodeKinds[index] = entry.kind;
+        entryNodeSources.set(node, entry);
         return node;
     }
 
@@ -8412,6 +8440,10 @@ export async function startTui(
     function renderTranscriptEntries(
         entries: readonly TuiTranscriptEntry[],
     ): void {
+        if (pendingTranscriptReseed) {
+            pendingTranscriptReseed = false;
+            reseedTranscriptNodes(entries);
+        }
         trimTranscriptWindow(entries.length);
 
         if (entries.length === 0) {
@@ -8468,6 +8500,7 @@ export async function startTui(
             const entry = entries[index];
             if (node !== undefined && entry !== undefined) {
                 updateTranscriptEntryNode(node, entry);
+                entryNodeSources.set(node, entry);
             }
         }
 
@@ -9147,6 +9180,96 @@ export async function startTui(
             || sessionTrashCandidate !== undefined
             || providerForgetCandidate !== undefined
             || jumpMenu !== undefined;
+    }
+
+    /**
+     * Moves the materialized slots in [from, to) by delta, keeping the node
+     * ids in step with their new indices.
+     */
+    function shiftTranscriptEntrySlots(
+        from: number,
+        to: number,
+        delta: number,
+    ): void {
+        if (delta === 0) return;
+        const moved: {
+            node: TextRenderable | MarkdownRenderable | BoxRenderable;
+            kind: TuiTranscriptEntry["kind"];
+            rows: number | undefined;
+        }[] = [];
+        for (let index = from; index < to; index += 1) {
+            const node = entryNodes[index];
+            const kind = entryNodeKinds[index];
+            if (node === undefined || kind === undefined) continue;
+            moved.push({
+                node,
+                kind,
+                rows: measuredEntryRows[index],
+            });
+            delete entryNodes[index];
+            delete entryNodeKinds[index];
+            delete measuredEntryRows[index];
+        }
+        moved.forEach((slot, offset) => {
+            const target = from + delta + offset;
+            slot.node.id = `entry-${target}`;
+            entryNodes[target] = slot.node;
+            entryNodeKinds[target] = slot.kind;
+            if (slot.rows === undefined) delete measuredEntryRows[target];
+            else measuredEntryRows[target] = slot.rows;
+        });
+    }
+
+    /**
+     * A delivered history repeats rows the transcript already shows, but not
+     * always at the same index: the row echoing what the user typed gives way
+     * to the stored prompt, and live-only rows drop out. The tail is matched
+     * back from the newest row and the nodes that still stand are moved to
+     * their new indices. Rebuilding one costs a markdown row a frame drawn
+     * empty, which is the flash this avoids.
+     */
+    function reseedTranscriptNodes(
+        entries: readonly TuiTranscriptEntry[],
+    ): void {
+        const previous: (TuiTranscriptEntry | undefined)[] = [];
+        for (
+            let index = materializedEntryStart;
+            index < materializedEntryEnd;
+            index += 1
+        ) {
+            const node = entryNodes[index];
+            previous[index] = node === undefined
+                ? undefined
+                : entryNodeSources.get(node);
+        }
+        const kept = tuiTranscriptReusableTail({
+            previous,
+            next: entries,
+            previousStart: materializedEntryStart,
+            previousEnd: materializedEntryEnd,
+        });
+        if (kept === 0) {
+            clearTranscriptNodes();
+            return;
+        }
+        const oldEnd = materializedEntryEnd;
+        const newEnd = entries.length;
+        const dropTo = oldEnd - kept;
+        for (let index = materializedEntryStart; index < dropTo; index += 1) {
+            destroyTranscriptEntryNode(index);
+        }
+        shiftTranscriptEntrySlots(dropTo, oldEnd, newEnd - oldEnd);
+        materializedEntryStart = newEnd - kept;
+        materializedEntryEnd = newEnd;
+        pendingTranscriptScrollAnchor = undefined;
+        pendingTranscriptScrollRestore = {
+            scrollTop: transcript.scrollTop,
+            atBottom: tuiTranscriptAtBottom(
+                transcript.scrollTop,
+                transcript.scrollHeight,
+                transcript.viewport.height,
+            ),
+        };
     }
 
     function clearTranscriptNodes(): void {
@@ -12397,12 +12520,23 @@ export async function startTui(
     }
 
     function finishStreamingAssistant(): void {
-        for (let index = entryNodes.length - 1; index >= 0; index -= 1) {
-            const node = entryNodes[index];
+        // Entries other than user prompts are wrapped in a gutter box, so the
+        // markdown sits below the node held in entryNodes. Assigning the flag
+        // rebuilds every block; a settled entry is left alone.
+        const settle = (node: Renderable): void => {
             if (node instanceof MarkdownRenderable) {
-                node.streaming = false;
+                if (node.streaming) node.streaming = false;
                 return;
             }
+            const content = tuiGutterContent(node);
+            if (content !== node) {
+                settle(content);
+                return;
+            }
+            for (const child of node.getChildren()) settle(child);
+        };
+        for (const node of entryNodes) {
+            if (node !== undefined) settle(node);
         }
     }
 

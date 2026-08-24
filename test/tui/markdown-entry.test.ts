@@ -18,6 +18,7 @@ test("background completions render finished Markdown", async () => {
         syntaxStyle,
         "#ffffff",
         0,
+        false,
     );
     expect(node).toBeDefined();
     try {
@@ -42,10 +43,32 @@ test("assistant Markdown remains streaming until turn completion", async () => {
         syntaxStyle,
         "#ffffff",
         0,
+        true,
     );
 
     try {
         expect(node?.streaming).toBe(true);
+    } finally {
+        node?.destroy();
+        syntaxStyle.destroy();
+        setup.renderer.destroy();
+    }
+});
+
+test("finished assistant Markdown is created settled", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 12 });
+    const syntaxStyle = SyntaxStyle.fromStyles({});
+    const node = createTuiMarkdownEntry(
+        setup.renderer,
+        "finished-assistant",
+        { kind: "assistant", text: "Done writing" },
+        syntaxStyle,
+        "#ffffff",
+        0,
+    );
+
+    try {
+        expect(node?.streaming).toBe(false);
     } finally {
         node?.destroy();
         syntaxStyle.destroy();
@@ -67,6 +90,7 @@ test("mouse activation opens a supported local Markdown link", async () => {
         syntaxStyle,
         "#ffffff",
         0,
+        false,
         (url) => {
             opened.push(url);
         },
@@ -110,6 +134,7 @@ test("mouse activation opens a supported Obsidian deep link", async () => {
         syntaxStyle,
         "#ffffff",
         0,
+        false,
         (openedUrl) => {
             opened.push(openedUrl);
         },
@@ -151,6 +176,7 @@ test("mouse activation follows formatted and entity-decoded link labels", async 
         syntaxStyle,
         "#ffffff",
         0,
+        false,
         (url) => {
             opened.push(url);
         },
@@ -200,6 +226,7 @@ test("mouse activation uses display columns for wide Unicode labels", async () =
         syntaxStyle,
         "#ffffff",
         0,
+        false,
         (url) => {
             opened.push(url);
         },
@@ -240,6 +267,7 @@ test("mouse activation opens links rendered inside Markdown tables", async () =>
         syntaxStyle,
         "#ffffff",
         0,
+        false,
         (url) => {
             opened.push(url);
         },
@@ -313,6 +341,7 @@ test("an answer that follows no work carries no section rule", async () => {
         syntaxStyle,
         "#ffffff",
         0,
+        false,
     );
     setup.renderer.root.add(node!);
 

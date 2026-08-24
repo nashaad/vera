@@ -98,3 +98,84 @@ export function tuiTranscriptEntryIsVisible(
     if (entry === undefined) return false;
     return entry.kind !== "tool" || entry.hidden !== true;
 }
+
+/**
+ * Whether this row is the answer still arriving.
+ *
+ * OpenTUI leaves the trailing markdown block unstable while `streaming` is
+ * on. Only the last assistant row of a working turn should pay that; every
+ * other assistant row is finished prose and has to be created settled.
+ */
+export function tuiTranscriptEntryStreams(
+    entries: readonly TuiTranscriptEntry[],
+    index: number,
+    working: boolean,
+): boolean {
+    if (!working) return false;
+    if (entries[index]?.kind !== "assistant") return false;
+    for (let later = index + 1; later < entries.length; later += 1) {
+        if (entries[later]?.kind === "assistant") return false;
+    }
+    return true;
+}
+
+/**
+ * Two rows are the same transcript block, even when a rebuild adds store
+ * fields the live row did not have.
+ *
+ * A delivered history repeats what is already on screen, often with an
+ * `entryId` the optimistic row lacked. Matching on the visible identity is
+ * what lets the existing markdown node stay mounted; rebuilding it paints
+ * empty until its first layout.
+ */
+export function tuiTranscriptEntriesEquivalent(
+    left: TuiTranscriptEntry | undefined,
+    right: TuiTranscriptEntry | undefined,
+): boolean {
+    if (left === right) return true;
+    if (left === undefined || right === undefined) return false;
+    if (left.kind !== right.kind) return false;
+    if (left.kind === "diff" && right.kind === "diff") {
+        return left.path === right.path
+            && left.patch === right.patch
+            && left.text === right.text;
+    }
+    if (left.kind === "diff" || right.kind === "diff") return false;
+    return left.text === right.text
+        && left.tool === right.tool
+        && left.header === right.header
+        && left.command === right.command
+        && left.seconds === right.seconds
+        && left.reasoning === right.reasoning
+        && left.hidden === right.hidden
+        && left.active === right.active
+        && left.result === right.result
+        && left.repeat === right.repeat
+        && left.prefix === right.prefix;
+}
+
+/**
+ * How many materialized rows at the tail still stand after a rebuild.
+ *
+ * History can insert or drop rows above the answer (a thinking window
+ * becoming a summary, the stored prompt replacing the echo). Matching from
+ * the newest row keeps the answer mounted and rebuilds only what actually
+ * changed.
+ */
+export function tuiTranscriptReusableTail(input: {
+    readonly previous: readonly (TuiTranscriptEntry | undefined)[];
+    readonly next: readonly TuiTranscriptEntry[];
+    readonly previousStart: number;
+    readonly previousEnd: number;
+}): number {
+    const previousCount = Math.max(0, input.previousEnd - input.previousStart);
+    const reusable = Math.min(previousCount, input.next.length);
+    let kept = 0;
+    while (kept < reusable) {
+        const previous = input.previous[input.previousEnd - 1 - kept];
+        const next = input.next[input.next.length - 1 - kept];
+        if (!tuiTranscriptEntriesEquivalent(previous, next)) break;
+        kept += 1;
+    }
+    return kept;
+}

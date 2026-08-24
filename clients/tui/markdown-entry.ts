@@ -22,6 +22,7 @@ export function createTuiMarkdownEntry(
     syntaxStyle: SyntaxStyle,
     foreground: string,
     marginTop: number,
+    streaming = false,
     openLink: TuiLinkOpener = openTuiLink,
 ): MarkdownRenderable | undefined {
     if (entry.kind !== "assistant" && entry.kind !== "notification") {
@@ -33,7 +34,7 @@ export function createTuiMarkdownEntry(
         content: tuiMarkdownEntryContent(entry),
         syntaxStyle,
         fg: foreground,
-        streaming: entry.kind === "assistant",
+        streaming,
         width: "100%",
         marginTop,
         renderBefore() {

@@ -3,10 +3,13 @@ import { expect, test } from "bun:test";
 import {
     TUI_TRANSCRIPT_EVICT_BUFFER,
     TUI_TRANSCRIPT_MATERIALIZE_BUFFER,
+    tuiTranscriptEntriesEquivalent,
     tuiTranscriptEntryIsVisible,
+    tuiTranscriptEntryStreams,
     tuiTranscriptEvictableRows,
     tuiTranscriptNeedsEarlierEntries,
     tuiTranscriptPrependRange,
+    tuiTranscriptReusableTail,
     tuiTranscriptTailRange,
 } from "../../clients/tui/transcript-window.ts";
 import {
@@ -242,4 +245,55 @@ test("a folded tool row occupies nothing for a spacer to stand in for", () => {
     expect(tuiTranscriptEntryIsVisible({ kind: "user", text: "hello" }))
         .toBe(true);
     expect(tuiTranscriptEntryIsVisible(undefined)).toBe(false);
+});
+
+test("only the last assistant of a working turn streams", () => {
+    const entries: TuiTranscriptEntry[] = [
+        { kind: "user", text: "ask" },
+        { kind: "assistant", text: "first" },
+        { kind: "assistant", text: "live" },
+    ];
+    expect(tuiTranscriptEntryStreams(entries, 1, true)).toBe(false);
+    expect(tuiTranscriptEntryStreams(entries, 2, true)).toBe(true);
+    expect(tuiTranscriptEntryStreams(entries, 2, false)).toBe(false);
+    expect(tuiTranscriptEntryStreams(entries, 0, true)).toBe(false);
+});
+
+test("a delivered history keeps the finished answer and drops the live row", () => {
+    const previous: TuiTranscriptEntry[] = [
+        { kind: "user", text: "ask" },
+        { kind: "thinking", text: "weighing it" },
+        { kind: "assistant", text: "here is the answer" },
+    ];
+    const next: TuiTranscriptEntry[] = [
+        { kind: "user", text: "ask", entryId: "u1" },
+        { kind: "thought", text: "Reasoning: 1.2s", seconds: 1.2 },
+        { kind: "assistant", text: "here is the answer", entryId: "a1" },
+    ];
+    expect(tuiTranscriptEntriesEquivalent(previous[2], next[2])).toBe(true);
+    expect(tuiTranscriptReusableTail({
+        previous,
+        next,
+        previousStart: 0,
+        previousEnd: 3,
+    })).toBe(1);
+});
+
+test("a rebuilt prompt still matches the echo the composer already showed", () => {
+    expect(tuiTranscriptEntriesEquivalent(
+        { kind: "user", text: "hello there" },
+        { kind: "user", text: "hello there", entryId: "stored" },
+    )).toBe(true);
+    expect(tuiTranscriptReusableTail({
+        previous: [
+            { kind: "user", text: "hello there" },
+            { kind: "assistant", text: "hi" },
+        ],
+        next: [
+            { kind: "user", text: "hello there", entryId: "stored" },
+            { kind: "assistant", text: "hi", entryId: "a1" },
+        ],
+        previousStart: 0,
+        previousEnd: 2,
+    })).toBe(2);
 });
