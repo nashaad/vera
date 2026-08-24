@@ -47,6 +47,14 @@ export const askUserTool: RegisteredTool = {
                                     + " a way a monospace box would show, leave"
                                     + " it off every choice.",
                             },
+                            recommended: {
+                                type: "boolean",
+                                description:
+                                    "Optional. True on at most one choice, the"
+                                    + " one the asker would pick. Leave it off"
+                                    + " every other choice, and off every choice"
+                                    + " when there is no preference.",
+                            },
                         },
                         required: ["id", "label"],
                         additionalProperties: false,
@@ -69,10 +77,13 @@ export const askUserTool: RegisteredTool = {
             throw new Error("ask_user requires two to nine choices");
         }
 
-        const choices = input.choices.map(parseChoice);
-        const ids = new Set(choices.map((choice) => choice.id));
-        if (ids.size !== choices.length) {
+        const parsed = input.choices.map(parseChoice);
+        const ids = new Set(parsed.map((choice) => choice.id));
+        if (ids.size !== parsed.length) {
             throw new Error("ask_user choice IDs must be unique");
+        }
+        if (parsed.filter((choice) => choice.recommended === true).length > 1) {
+            throw new Error("ask_user allows at most one recommended choice");
         }
 
         return {
@@ -80,7 +91,7 @@ export const askUserTool: RegisteredTool = {
             interaction: {
                 type: "ask_user",
                 question,
-                choices,
+                choices: withRecommendedFirst(parsed),
             },
         };
     },
@@ -91,7 +102,7 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
         throw new Error(`ask_user choice ${index + 1} must be an object`);
     }
     const choice = value as Record<string, unknown>;
-    const known = ["id", "label", "description", "preview"];
+    const known = ["id", "label", "description", "preview", "recommended"];
     if (
         !Object.hasOwn(choice, "id")
         || !Object.hasOwn(choice, "label")
@@ -99,7 +110,7 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
     ) {
         throw new Error(
             `ask_user choice ${index + 1} must contain only id, label,`
-                + " description, and preview",
+                + " description, preview, and recommended",
         );
     }
     return {
@@ -120,7 +131,34 @@ function parseChoice(value: unknown, index: number): AskUserChoice {
                 `choice ${index + 1} preview`,
             ),
         }),
+        ...(parseRecommended(choice.recommended, index) ? { recommended: true } : {}),
     };
+}
+
+function parseRecommended(value: unknown, index: number): boolean {
+    if (value === undefined || value === false) {
+        return false;
+    }
+    if (value !== true) {
+        throw new Error(
+            `ask_user choice ${index + 1} recommended must be a boolean`,
+        );
+    }
+    return true;
+}
+
+function withRecommendedFirst(
+    choices: readonly AskUserChoice[],
+): readonly AskUserChoice[] {
+    const index = choices.findIndex((choice) => choice.recommended === true);
+    if (index <= 0) {
+        return choices;
+    }
+    const recommended = choices[index];
+    if (recommended === undefined) {
+        return choices;
+    }
+    return [recommended, ...choices.filter((_, i) => i !== index)];
 }
 
 function isOmitted(value: unknown): boolean {

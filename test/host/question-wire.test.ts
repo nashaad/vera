@@ -136,3 +136,46 @@ test("host wire rejects an empty choice description", () => {
         },
     })).toBeUndefined();
 });
+
+test("host wire carries one recommended choice", () => {
+    const withRecommended = {
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                validQuestion.request.choices[0],
+                {
+                    ...validQuestion.request.choices[1],
+                    recommended: true as const,
+                },
+            ],
+        },
+    };
+    expect(parseAgentUpdate(withRecommended)).toEqual(withRecommended);
+});
+
+test("host wire rejects a recommended flag that is not true", () => {
+    expect(parseAgentUpdate({
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                { ...validQuestion.request.choices[0], recommended: false },
+                validQuestion.request.choices[1],
+            ],
+        },
+    })).toBeUndefined();
+});
+
+test("host wire rejects two recommended choices", () => {
+    expect(parseAgentUpdate({
+        ...validQuestion,
+        request: {
+            ...validQuestion.request,
+            choices: [
+                { ...validQuestion.request.choices[0], recommended: true },
+                { ...validQuestion.request.choices[1], recommended: true },
+            ],
+        },
+    })).toBeUndefined();
+});

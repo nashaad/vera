@@ -135,8 +135,8 @@ test("ask_user rejects unknown choice fields", async () => {
     expect(result).toEqual({
         kind: "output",
         output:
-            "ask_user choice 1 must contain only id, label, description, and"
-                + " preview",
+            "ask_user choice 1 must contain only id, label, description,"
+                + " preview, and recommended",
         isError: true,
     });
 });
@@ -283,6 +283,88 @@ test("ask_user rejects a non-string description or preview", async () => {
     expect(badPreview).toEqual({
         kind: "output",
         output: "ask_user requires a non-empty choice 1 preview",
+        isError: true,
+    });
+});
+
+test("ask_user keeps one recommended choice and lists it first", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide" },
+            {
+                id: "narrow",
+                label: "Narrow",
+                recommended: true,
+            },
+            { id: "stacked", label: "Stacked" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "interaction",
+        interaction: {
+            type: "ask_user",
+            question: "Which layout?",
+            choices: [
+                { id: "narrow", label: "Narrow", recommended: true },
+                { id: "wide", label: "Wide" },
+                { id: "stacked", label: "Stacked" },
+            ],
+        },
+    });
+});
+
+test("ask_user treats recommended false as omitted", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", recommended: false },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "interaction",
+        interaction: {
+            type: "ask_user",
+            question: "Which layout?",
+            choices: [
+                { id: "wide", label: "Wide" },
+                { id: "narrow", label: "Narrow" },
+            ],
+        },
+    });
+});
+
+test("ask_user rejects a second recommended choice", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", recommended: true },
+            { id: "narrow", label: "Narrow", recommended: true },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "output",
+        output: "ask_user allows at most one recommended choice",
+        isError: true,
+    });
+});
+
+test("ask_user rejects a non-boolean recommended flag", async () => {
+    const result = await askUser({
+        question: "Which layout?",
+        choices: [
+            { id: "wide", label: "Wide", recommended: "yes" },
+            { id: "narrow", label: "Narrow" },
+        ],
+    });
+
+    expect(result).toEqual({
+        kind: "output",
+        output: "ask_user choice 1 recommended must be a boolean",
         isError: true,
     });
 });

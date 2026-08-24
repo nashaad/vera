@@ -551,11 +551,16 @@ function isUserQuestionRequest(request: Record<string, unknown>): boolean {
         return false;
     }
     const ids = new Set<string>();
+    let recommended = false;
     for (const value of request.choices) {
         const choice = asRecord(value);
         if (
             choice === undefined
-            || !hasKeys(choice, ["id", "label"], ["description", "preview"])
+            || !hasKeys(
+                choice,
+                ["id", "label"],
+                ["description", "preview", "recommended"],
+            )
             || typeof choice.id !== "string"
             || choice.id.trim().length === 0
             || typeof choice.label !== "string"
@@ -565,9 +570,17 @@ function isUserQuestionRequest(request: Record<string, unknown>): boolean {
                     || choice.description.trim().length === 0))
             || (Object.hasOwn(choice, "preview")
                 && typeof choice.preview !== "string")
+            || (Object.hasOwn(choice, "recommended")
+                && choice.recommended !== true)
             || ids.has(choice.id)
         ) {
             return false;
+        }
+        if (choice.recommended === true) {
+            if (recommended) {
+                return false;
+            }
+            recommended = true;
         }
         ids.add(choice.id);
     }

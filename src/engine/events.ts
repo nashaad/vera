@@ -104,6 +104,8 @@ export interface UserQuestionChoice {
     readonly description?: string;
     /** Shown verbatim in a monospace box beside the choices. */
     readonly preview?: string;
+    /** The asker's preferred choice. At most one per question. */
+    readonly recommended?: true;
 }
 
 export interface UserQuestionUiRequest {

@@ -56,6 +56,21 @@ export interface TuiQuestionKeyResult {
 // cells for choice text, while `width: "100%"` still fills narrow terminals.
 export const QUESTION_CHOICE_MAX_WIDTH = 92;
 
+function displayedQuestionChoices(
+    update: UserQuestionUiRequestUpdate,
+): UserQuestionUiRequestUpdate["request"]["choices"] {
+    const choices = update.request.choices;
+    const index = choices.findIndex((choice) => choice.recommended === true);
+    if (index <= 0) {
+        return choices;
+    }
+    const recommended = choices[index];
+    if (recommended === undefined) {
+        return choices;
+    }
+    return [recommended, ...choices.filter((_, i) => i !== index)];
+}
+
 export interface TuiQuestionView {
     // Rows are numbered, so a click carries the same digit the keyboard would
     // have sent rather than a second decision path.
@@ -265,18 +280,20 @@ export function createTuiQuestionView(
             row.destroyRecursively();
         }
         choiceRows = [];
-        update.request.choices.forEach((choice, index) => {
+        const choices = displayedQuestionChoices(update);
+        choices.forEach((choice, index) => {
             const row = questionChoiceRow(renderer, {
                 number: index + 1,
                 label: choice.label,
                 description: choice.description,
+                recommended: choice.recommended,
                 active: index === selectedIndex,
                 pointer: view.pointer,
             });
             choicesColumn.add(row);
             choiceRows.push(row);
         });
-        const otherIndex = update.request.choices.length;
+        const otherIndex = choices.length;
         const other = questionChoiceRow(renderer, {
             number: otherIndex + 1,
             label: "Other",
@@ -292,7 +309,7 @@ export function createTuiQuestionView(
 
     /** The highlighted choice's own rendering, when it brought one. */
     function renderPreview(update: UserQuestionUiRequestUpdate): void {
-        const content = update.request.choices[selectedIndex]?.preview;
+        const content = displayedQuestionChoices(update)[selectedIndex]?.preview;
         const ownPane = previewWantsOwnPane(content);
         preview.visible = ownPane;
         previewText.content = ownPane ? content ?? "" : "";
@@ -361,7 +378,8 @@ export function createTuiQuestionView(
             if (hasModifier(key)) {
                 return { handled: false };
             }
-            const count = update.request.choices.length + 1;
+            const choices = displayedQuestionChoices(update);
+            const count = choices.length + 1;
             // Notes ride alongside a choice rather than replacing it, so the
             // highlight stays where it is and ⏎ still answers.
             if (enteringNotes) {
@@ -377,7 +395,7 @@ export function createTuiQuestionView(
                     return { handled: true };
                 }
                 if (key.name === "return" || key.name === "enter") {
-                    const choice = update.request.choices[selectedIndex];
+                    const choice = choices[selectedIndex];
                     return choice === undefined
                         ? { handled: true }
                         : {
@@ -441,7 +459,7 @@ export function createTuiQuestionView(
                 return { handled: true };
             }
             if (key.name === "return" || key.name === "enter") {
-                const choice = update.request.choices[selectedIndex];
+                const choice = choices[selectedIndex];
                 if (choice === undefined && selectedIndex === count - 1) {
                     enteringCustom = true;
                     choiceAction.content = "type answer · ⏎ submit · esc back ";
@@ -491,7 +509,7 @@ export function createTuiQuestionResponse(
     const value = key.sequence?.length === 1 ? key.sequence : key.name;
     const index = Number(value) - 1;
     const choice = Number.isInteger(index)
-        ? update.request.choices[index]
+        ? displayedQuestionChoices(update)[index]
         : undefined;
     if (choice === undefined) {
         return undefined;
@@ -556,6 +574,7 @@ interface QuestionChoiceRow {
     /** What the reader has typed so far, when the row is the custom one. */
     readonly answer?: string;
     readonly description?: string;
+    readonly recommended?: true;
     readonly active: boolean;
     readonly pointer?: DialogRowPointer;
 }
@@ -610,6 +629,13 @@ function questionChoiceRow(
         }));
     }
     row.add(line);
+    if (content.recommended === true) {
+        row.add(new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)("recommended")]),
+            marginLeft: QUESTION_NUMBER_WIDTH,
+            flexShrink: 0,
+        }));
+    }
     if (content.description !== undefined) {
         row.add(new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_MUTED)(content.description)]),
