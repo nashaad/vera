@@ -3465,6 +3465,9 @@ export async function startTui(
                 );
             }
         }
+        if (isSettingsRetryTrigger(update)) {
+            retryMissingAgentSettings(pane.client, pane.state.state);
+        }
     }
     upper.add(transcript);
     upper.add(experimentalTuiHost.transcriptBottom);
@@ -5190,6 +5193,9 @@ export async function startTui(
      * attachment that does not ask stays blank about the model and, worse,
      * silent about full access until some later update happens to arrive.
      */
+    const settingsSnapshotRetries = new WeakMap<TuiAgentClient, number>();
+    const MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
+
     function requestAgentSettings(target: TuiAgentClient): void {
         void target.send({
             type: "get_model_settings",
@@ -5199,6 +5205,36 @@ export async function startTui(
             type: "get_permissions",
             requestId: randomUUID(),
         }).catch(reportConnectionError);
+    }
+
+    /**
+     * History, context, and turn-end do not carry the model snapshot. The
+     * first ask can miss if the host was not ready, so a later fact that the
+     * session is live is what asks again.
+     */
+    function retryMissingAgentSettings(
+        target: TuiAgentClient,
+        snapshot: TuiState,
+    ): void {
+        if (
+            snapshot.modelSettings !== undefined
+            && snapshot.approvalMode !== undefined
+        ) {
+            return;
+        }
+        const used = settingsSnapshotRetries.get(target) ?? 0;
+        if (used >= MAX_SETTINGS_SNAPSHOT_RETRIES) {
+            return;
+        }
+        settingsSnapshotRetries.set(target, used + 1);
+        requestAgentSettings(target);
+    }
+
+    function isSettingsRetryTrigger(update: AgentUpdate): boolean {
+        return update.type === "history"
+            || update.type === "context"
+            || update.type === "turn_finished"
+            || (update.type === "status" && update.state === "idle");
     }
 
     function requestSessionSettings(): void {
@@ -7199,6 +7235,9 @@ export async function startTui(
                     continue;
                 }
                 state = applyAgentUpdate(state, update);
+                if (isSettingsRetryTrigger(update)) {
+                    retryMissingAgentSettings(source, state);
+                }
                 if (
                     update.type === "compaction"
                     && update.phase === "finished"
@@ -7228,8 +7267,6 @@ export async function startTui(
                 }
                 if (update.type === "agent_worn" && agentCatalog !== undefined) {
                     agentCatalog = { ...agentCatalog, worn: update.name };
-                }
-                if (update.type === "model_settings") {
                 }
                 if (
                     update.type === "pool_admission_result"

@@ -18,6 +18,12 @@ export interface SettingsAnsweringClientOptions {
         push: (update: AgentUpdate) => void,
     ) => void;
     readonly onDetach?: () => void;
+    /**
+     * Drop the first `get_model_settings` so a client that never asks again
+     * stays on the loading placeholders, and one that retries after history
+     * still fills the status line.
+     */
+    readonly ignoreFirstModelSettingsRequest?: boolean;
 }
 
 /**
@@ -32,6 +38,7 @@ export function createSettingsAnsweringClient(
 ): TuiAgentClient {
     const updates = new AsyncQueue<AgentUpdate>();
     let seq = 0;
+    let ignoredFirstModelSettings = false;
     for (const update of options.initialUpdates ?? []) {
         updates.push(update);
     }
@@ -42,6 +49,13 @@ export function createSettingsAnsweringClient(
             : { workspace: options.workspace }),
         async send(command: ClientCommand): Promise<void> {
             if (command.type === "get_model_settings") {
+                if (
+                    options.ignoreFirstModelSettingsRequest === true
+                    && !ignoredFirstModelSettings
+                ) {
+                    ignoredFirstModelSettings = true;
+                    return;
+                }
                 updates.push({
                     type: "model_settings",
                     requestId: command.requestId,
