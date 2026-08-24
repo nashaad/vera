@@ -641,6 +641,7 @@ export async function runSubagent(
             undefined,
             instructionRoot.path,
             options.processRegistry,
+            true,
         );
         const state: RunTurnState = {
             messages: [],

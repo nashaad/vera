@@ -7,6 +7,7 @@ import {
 } from "../tools/bounded-capture.ts";
 import type { RegisteredTool, ToolOutput } from "../tools/types.ts";
 import { findSkill, loadSkillCatalog } from "./catalog.ts";
+import { invocationRefusal } from "./invocation-gate.ts";
 
 const DEFAULT_TIMEOUT_MS = 30_000;
 const MAX_TIMEOUT_MS = 120_000;
@@ -53,6 +54,10 @@ export const skillScriptTool: RegisteredTool = {
                 && !context.allowedSkills.includes(skillName))
         ) {
             throw new Error(`Unknown skill: ${skillName}`);
+        }
+        const refusal = invocationRefusal(skill.metadata, context.isSubagent);
+        if (refusal !== undefined) {
+            throw new Error(refusal);
         }
         if (!isDeclaredScript(script, skill.instructions)) {
             throw new Error(

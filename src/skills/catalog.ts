@@ -93,6 +93,13 @@ export function findSkill(
     return catalog.skills.find((skill) => skill.metadata.name === name);
 }
 
+export function findSkillByPath(
+    catalog: SkillCatalog,
+    skillPath: string,
+): CatalogSkill | undefined {
+    return catalog.skills.find((skill) => skill.skillPath === skillPath);
+}
+
 async function loadRoot(
     configuredRoot: string,
     scope: SkillScope,

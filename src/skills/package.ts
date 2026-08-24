@@ -20,6 +20,14 @@ const MAX_DESCRIPTION_CHARACTERS = 1024;
 export interface SkillMetadata {
     readonly name: string;
     readonly description: string;
+    /**
+     * `disable-model-invocation: true` in frontmatter. The skill still
+     * appears in the catalog so an explicit request can name it, but the
+     * catalog marks it invoke-only instead of describing it as something to
+     * reach for on judgment. There is no runtime gate behind this yet: it is
+     * a stronger prompt, not an enforced boundary.
+     */
+    readonly disableModelInvocation: boolean;
     readonly extra: Readonly<Record<string, unknown>>;
 }
 
@@ -113,12 +121,32 @@ export function parseSkillSource(source: string): {
         "description",
         MAX_DESCRIPTION_CHARACTERS,
     );
-    const { name: _name, description: _description, ...extra } = value;
+    const disableModelInvocation = parseDisableModelInvocation(
+        value["disable-model-invocation"],
+    );
+    const {
+        name: _name,
+        description: _description,
+        "disable-model-invocation": _disableModelInvocation,
+        ...extra
+    } = value;
 
     return {
-        metadata: { name, description, extra },
+        metadata: { name, description, disableModelInvocation, extra },
         instructions: source.slice(match[0].length),
     };
+}
+
+function parseDisableModelInvocation(value: unknown): boolean {
+    if (value === undefined) {
+        return false;
+    }
+    if (typeof value !== "boolean") {
+        throw new Error(
+            "Vera skill disable-model-invocation must be a boolean",
+        );
+    }
+    return value;
 }
 
 function requiredText(

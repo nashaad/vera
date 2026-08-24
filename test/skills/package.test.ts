@@ -28,6 +28,7 @@ Run both investigations in parallel.
         metadata: {
             name: "consult",
             description: "Ask two independent agents and reconcile their evidence.",
+            disableModelInvocation: false,
             extra: { context: "fork" },
         },
         instructions: "# Consult\n\nRun both investigations in parallel.\n",
@@ -59,6 +60,39 @@ test("name and description are required and bounded", () => {
     ]) {
         expect(() => parseSkillSource(source)).toThrow();
     }
+});
+
+test("disable-model-invocation opts a skill out of automatic use", () => {
+    const parsed = parseSkillSource(`---
+name: adversarial
+description: Read-only adversarial review.
+disable-model-invocation: true
+---
+Body.
+`);
+
+    expect(parsed.metadata.disableModelInvocation).toBe(true);
+    expect(parsed.metadata.extra).toEqual({});
+});
+
+test("disable-model-invocation defaults to false and rejects non-booleans", () => {
+    const parsed = parseSkillSource(`---
+name: consult
+description: Compare two independent answers.
+---
+Body.
+`);
+    expect(parsed.metadata.disableModelInvocation).toBe(false);
+
+    expect(() =>
+        parseSkillSource(`---
+name: consult
+description: Compare two independent answers.
+disable-model-invocation: yes
+---
+Body.
+`)
+    ).toThrow();
 });
 
 test("loading accepts only a directory rooted at SKILL.md", async () => {
