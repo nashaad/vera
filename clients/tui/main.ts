@@ -13085,7 +13085,6 @@ export async function startTui(
             ...detailChunks,
             ...(agentSection.length === 0 ? [] : [
                 fg(TUI_MUTED)("\n"),
-                rule("·"),
                 ...animatedAgentHeader.chunks,
                 fg(TUI_MUTED)(
                     agentSection.length === 1
@@ -13094,10 +13093,10 @@ export async function startTui(
                 ),
             ]),
         ]);
-        // A rule between every pair of rows under the frame, and one more
-        // above the agent section when there is one.
+        // A rule separates each pair of status rows under the frame. The
+        // labelled agent section is distinct enough without another divider.
         const cardRows = Math.max(1, outsideRows.length * 2 - 1)
-            + (agentSection.length === 0 ? 0 : 1 + agentSection.length);
+            + agentSection.length;
         backgroundStatusText.height = cardRows;
         // The band's own rows, which the composer sits straight on top of with
         // no gutter of its own: the card, its border lines, and whichever
