@@ -73,6 +73,7 @@ import { isVeraProviderId } from "../config.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
+    subagentModelBoundary,
     type SpawnModelDefault,
     type SubagentPoolPolicy,
 } from "../engine/subagent.ts";
@@ -131,6 +132,7 @@ import { ToolRuntime } from "../tools/runtime.ts";
 import {
     defaultSessionPath,
     SessionStore,
+    type SessionDelegation,
     type SessionSettingOrigin,
 } from "../store/session-store.ts";
 import {
@@ -964,6 +966,7 @@ interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
     readonly modelSettings?: ModelTurnSettings;
     readonly parentId?: string;
+    readonly delegation?: SessionDelegation;
 }
 
 /**
@@ -1362,6 +1365,9 @@ export class AgentRegistry {
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
+                    ...(inherited?.delegation === undefined
+                        ? {}
+                        : { delegation: inherited.delegation }),
                 },
             );
             createdPath = store.path;
@@ -1401,6 +1407,18 @@ export class AgentRegistry {
         const store = await SessionStore.open(sessionPath);
         const storedProvider = store.modelSettings()?.provider;
         if (
+            store.header.delegation !== undefined
+            && store.modelSettings() !== undefined
+            && !delegationAllows(
+                store.header.delegation,
+                store.modelSettings()!,
+            )
+        ) {
+            throw new UserFacingError(
+                "This delegated session's stored model is outside its persisted boundary.",
+            );
+        }
+        if (
             store.agentFailure() === undefined
             && storedProvider !== undefined
             && !(storedProvider === "unknown" && this.defaultProvider === "unknown")
@@ -1411,7 +1429,8 @@ export class AgentRegistry {
         this.reserveId(store.header.id);
         try {
             this.requireOpen();
-            const parentId = store.header.parentId;
+            const parentId = store.header.delegation?.parentId
+                ?? store.header.parentId;
             return parentId === undefined
                 ? this.start(store, "interactive", options.eventLogPath)
                 : this.start(
@@ -1788,6 +1807,15 @@ export class AgentRegistry {
             ?? entry.modelSettings.provider
             ?? this.defaultProvider;
         const model = patch.model?.trim() ?? entry.modelSettings.model;
+        if (
+            entry.store.header.delegation !== undefined
+            && !delegationAllows(entry.store.header.delegation, {
+                provider,
+                model,
+            })
+        ) {
+            return undefined;
+        }
         // Pool membership does not gate this. The pool is the user's curated
         // shortlist, not the set of models they are allowed to run: choosing a
         // model from the catalog runs it and adds nothing.
@@ -2358,6 +2386,12 @@ export class AgentRegistry {
         const unresolvable = definition.defaultPair !== undefined
             && this.wornAgentDefaultPair(entry) === undefined;
         const target = this.effectiveDefaultPair(entry);
+        if (
+            entry.store.header.delegation !== undefined
+            && !delegationAllows(entry.store.header.delegation, target)
+        ) {
+            return `${definition.name}'s default model is outside this delegated session's persisted boundary.`;
+        }
         if (!samePair(target, entry.modelSettings)) {
             await entry.store.appendModelSettings(target, "agent-default");
             entry.modelSettings = target;
@@ -3500,13 +3534,12 @@ export class AgentRegistry {
             ...(this.options.subagentModel === undefined
                 ? {}
                 : { subagentModel: this.options.subagentModel }),
-            ...(this.options.readPolicy === undefined
-                ? {}
-                : {
-                    readPolicy: () =>
-                        this.options.readPolicy?.(store.header.cwd)
-                            ?? {},
-                }),
+            readPolicy: () => delegatedSubagentPolicy(
+                this.options.readPolicy === undefined
+                    ? { allowSelf: true }
+                    : this.options.readPolicy(store.header.cwd),
+                store.header.delegation,
+            ),
             relayToolApproval: (update, sourceAgentId, sourceTask, signal) =>
                 this.relayChildToolApproval(
                     entry,
@@ -3660,7 +3693,10 @@ export class AgentRegistry {
                 // Read at each use, not copied for the session: a setting the
                 // user changes has to reach a session already running.
                 readPolicy: () => ({
-                    ...(registry.options.modelFallback === undefined ? {} : {
+                    ...(store.header.delegation !== undefined
+                            || registry.options.modelFallback === undefined
+                        ? {}
+                        : {
                         modelFallback: registry.options.modelFallback,
                     }),
                     ...(registry.options.permissionModes === undefined ? {} : {
@@ -3673,6 +3709,12 @@ export class AgentRegistry {
                         reviewers: registry.options.reviewers,
                     }),
                     disabledPromptContributions: disabledPromptContributions(),
+                    subagentPolicy: delegatedSubagentPolicy(
+                        this.options.readPolicy === undefined
+                            ? { allowSelf: true }
+                            : this.options.readPolicy(store.header.cwd),
+                        store.header.delegation,
+                    ),
                 }),
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
@@ -4070,7 +4112,12 @@ export class AgentRegistry {
             {
                 ...(services.readModelSettings === undefined
                     ? {}
-                    : { readModelSettings: services.readModelSettings }),
+                    : {
+                        readModelSettings: () => {
+                            this.pushWorkerState(agent.id);
+                            return services.readModelSettings!();
+                        },
+                    }),
                 ...(services.router ?? {}),
                 sendSessionNameReply: services.router?.sendSessionNameReply
                     ?? ((_ownerId, reply) => agent.engine.send(reply)),
@@ -4197,6 +4244,9 @@ export class AgentRegistry {
             parentStore.header.id,
             (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
         );
+        const policy = this.options.readPolicy === undefined
+            ? { allowSelf: true }
+            : this.options.readPolicy(parentStore.header.cwd);
         const resolved = resolveSpawnModelChoice(
             effect,
             context,
@@ -4204,7 +4254,7 @@ export class AgentRegistry {
                 ? undefined
                 : () => this.options.readPool?.(parentStore.header.cwd) ?? [],
             this.options.subagentModel,
-            this.options.readPolicy?.(parentStore.header.cwd),
+            policy,
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
@@ -4225,6 +4275,11 @@ export class AgentRegistry {
                 {
                     approvalMode: context.approvalMode,
                     parentId: parentStore.header.id,
+                    delegation: {
+                        kind: "subagent",
+                        parentId: parentStore.header.id,
+                        models: subagentModelBoundary(policy, context),
+                    },
                     modelSettings: {
                         provider: resolved.provider ?? this.defaultProvider,
                         model: resolved.model,
@@ -4808,6 +4863,36 @@ function loopStateOf(services: RunHeadlessLoopServices): LoopState {
             reviewer: services.readReviewer(),
         }),
     };
+}
+
+/** A delegated session can narrow with current policy, never widen past birth. */
+function delegatedSubagentPolicy(
+    current: SubagentPoolPolicy,
+    delegation: SessionDelegation | undefined,
+): SubagentPoolPolicy {
+    if (delegation === undefined) return current;
+    const boundary = new Set(delegation.models.map((entry) =>
+        `${entry.provider ?? ""}/${entry.model}`));
+    return {
+        ...current,
+        assigned: (current.assigned ?? []).filter((entry) =>
+            boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
+        // The persisted parent pair is already represented in `models`.
+        // Recomputing self from a resumed child's current parent would mint a
+        // new candidate that was never authorized at this child's spawn.
+        allowSelf: false,
+    };
+}
+
+function delegationAllows(
+    delegation: SessionDelegation,
+    settings: Pick<ModelTurnSettings, "provider" | "model">,
+): boolean {
+    const providerKey = (provider: string | undefined): string =>
+        provider === undefined || provider === "unknown" ? "" : provider;
+    return delegation.models.some((allowed) =>
+        allowed.model === settings.model
+        && providerKey(allowed.provider) === providerKey(settings.provider));
 }
 
 

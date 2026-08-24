@@ -51,6 +51,7 @@ import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionNameReplyUpdate, TimelineReplyUpdate } from "./protocol.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { SubagentPoolPolicy } from "./subagent.ts";
 
 /**
  * Session policy the owner may change while the loop runs, so it is read at
@@ -67,6 +68,7 @@ export interface LoopPolicy {
     readonly reviewer?: ToolReviewerSettings;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly disabledPromptContributions?: readonly string[];
+    readonly subagentPolicy?: SubagentPoolPolicy;
 }
 
 /** Plain JSON. Fixed for the life of one loop. */

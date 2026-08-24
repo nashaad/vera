@@ -1,11 +1,76 @@
 import { expect, test } from "bun:test";
 
 import {
+    resolveAssignedSubagentModel,
     resolveSubagentModel,
     type LadderCandidate,
     type LadderPool,
     type SubagentModelRequest,
 } from "../../src/model/subagent-ladder.ts";
+
+test("an explicit model outside the subagent assignment is refused", () => {
+    const outcome = resolveAssignedSubagentModel({
+        requested: "openrouter/frontier",
+        assigned: [{ provider: "openrouter", model: "worker" }],
+        allowSelf: false,
+        sessionProvider: "openrouter",
+        sessionModel: "frontier",
+    }, { models: [
+        candidate("openrouter/worker"),
+        candidate("openrouter/frontier"),
+    ] });
+
+    expect(outcome.ok).toBe(false);
+    if (!outcome.ok) expect(outcome.error).toContain("not permitted");
+});
+
+test("an unavailable assigned model falls through in assignment order", () => {
+    const outcome = resolveAssignedSubagentModel({
+        requested: "openrouter/first",
+        assigned: [
+            { provider: "openrouter", model: "first", effort: "high" },
+            { provider: "cerebras", model: "second", effort: "low" },
+        ],
+        allowSelf: false,
+        sessionProvider: "openrouter",
+        sessionModel: "frontier",
+    }, { models: [
+        candidate("openrouter/first", { available: false }),
+        candidate("cerebras/second"),
+    ] });
+
+    expect(outcome).toMatchObject({
+        ok: true,
+        provider: "cerebras",
+        model: "second",
+        effort: "low",
+        rung: "assignment",
+    });
+});
+
+test("the parent model is a final candidate only when self is enabled", () => {
+    const request = {
+        assigned: [],
+        sessionProvider: "openrouter",
+        sessionModel: "frontier",
+        sessionEffort: "high",
+    } as const;
+    const candidates = { models: [candidate("openrouter/frontier")] };
+
+    expect(resolveAssignedSubagentModel({
+        ...request,
+        allowSelf: false,
+    }, candidates).ok).toBe(false);
+    expect(resolveAssignedSubagentModel({
+        ...request,
+        allowSelf: true,
+    }, candidates)).toMatchObject({
+        ok: true,
+        model: "frontier",
+        effort: "high",
+        rung: "self",
+    });
+});
 
 function candidate(
     ref: string,

@@ -21,6 +21,14 @@ function poolPath(file: unknown): string {
     return path;
 }
 
+function configPath(file: unknown): string {
+    const directory = mkdtempSync(join(tmpdir(), "vera-subagent-config-"));
+    directories.push(directory);
+    const path = join(directory, "config.json");
+    writeFileSync(path, JSON.stringify(file));
+    return path;
+}
+
 const PROBED = { probe: { ok: true, seen: "2026-08-06" } };
 
 test("allow, deny, the failsafe list and families come off the pool file", () => {
@@ -123,4 +131,47 @@ test("a default naming nothing is passed through as the user wrote it", () => {
     });
 
     expect(subagentPoolPolicy({ userPath }).subagentDefault).toBe("nobody");
+});
+
+test("the subagents assignment is narrowed to selectable shortlist entries", () => {
+    const userPath = poolPath({
+        defaults: { deny: ["openrouter/denied"] },
+        models: {
+            "openrouter/worker": { added: true },
+            "openrouter/denied": { added: true },
+        },
+    });
+    const config = configPath({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "parent",
+        approval_mode: "auto",
+        models: [
+            { name: "worker", provider: "openrouter", model: "worker" },
+            { name: "denied", provider: "openrouter", model: "denied" },
+            { name: "outside", provider: "openrouter", model: "outside" },
+        ],
+        model_routes: {},
+        reviewer_profiles: {},
+        model_assignments: {
+            subagents: {
+                models: [
+                    { name: "worker", provider: "openrouter", model: "worker",
+                        reasoning_effort: "low" },
+                    { name: "denied", provider: "openrouter", model: "denied" },
+                    { name: "outside", provider: "openrouter", model: "outside" },
+                ],
+                allow_self: true,
+            },
+        },
+    });
+
+    expect(subagentPoolPolicy({ userPath, configPath: config })).toMatchObject({
+        assigned: [{
+            provider: "openrouter",
+            model: "worker",
+            reasoningEffort: "low",
+        }],
+        allowSelf: true,
+    });
 });

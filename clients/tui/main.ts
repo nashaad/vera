@@ -9473,6 +9473,9 @@ export async function startTui(
                 row?.label ?? assignment,
                 row?.intent ?? "",
                 targetState.modelSettings?.pooled,
+                row?.declared.map((entry) =>
+                    `${entry.provider}/${entry.model}`) ?? [],
+                row?.allowSelf === true,
             ),
             parent,
         );
@@ -9492,14 +9495,57 @@ export async function startTui(
             readonly provider?: string;
             readonly model?: string;
             readonly reasoningEffort?: ModelReasoningEffort;
+            readonly remove?: boolean;
+            readonly clear?: boolean;
+            readonly allowSelf?: boolean;
         },
     ): void {
-        const unbinding = selection.model === undefined;
+        const subagents = selection.assignment === "subagents";
+        const row = subagents
+            ? currentModelAssignmentRows().find((entry) =>
+                entry.assignment === "subagents")
+            : undefined;
+        const currentModels = row?.declared ?? [];
+        const selectedRef = selection.model === undefined
+            ? undefined
+            : `${selection.provider ?? ""}/${selection.model}`;
+        const models = !subagents
+            ? []
+            : selection.clear === true
+            ? []
+            : selection.allowSelf !== undefined
+            ? [...currentModels]
+            : selection.remove === true
+            ? currentModels.filter((entry) =>
+                `${entry.provider}/${entry.model}` !== selectedRef)
+            : [
+                ...currentModels.filter((entry) =>
+                    `${entry.provider}/${entry.model}` !== selectedRef),
+                {
+                    name: derivedModelName(
+                        selection.provider as VeraProviderId,
+                        selection.model as string,
+                    ),
+                    provider: selection.provider as VeraProviderId,
+                    model: selection.model as string,
+                    ...(selection.reasoningEffort === undefined
+                        ? {}
+                        : { reasoning_effort: selection.reasoningEffort }),
+                },
+            ];
+        const allowSelf = selection.allowSelf
+            ?? (selection.clear === true ? false : row?.allowSelf === true);
+        const unbinding = subagents
+            ? models.length === 0 && !allowSelf
+            : selection.model === undefined;
         try {
             updateVeraConfigDefaults({
                 model_assignment: {
                     assignment: selection.assignment,
-                    binding: unbinding ? null : {
+                    binding: unbinding ? null : subagents ? {
+                        models,
+                        ...(allowSelf ? { allow_self: true } : {}),
+                    } : {
                         models: [{
                             name: derivedModelName(
                                 selection.provider as VeraProviderId,
@@ -9514,6 +9560,9 @@ export async function startTui(
                     },
                 },
             });
+            // Refreshing settings also pushes the host's newly read policy to
+            // an already-running worker before another spawn can use it.
+            requestAgentSettings(focusedAgentClient());
         } catch (error) {
             state = appendTuiError(
                 state,
@@ -9528,6 +9577,10 @@ export async function startTui(
             state,
             unbinding
                 ? `${selection.assignment} unset. New sessions use it.`
+                : subagents
+                ? `Subagent policy updated: ${models.length} assigned, parent fallback ${
+                    allowSelf ? "on" : "off"
+                }.`
                 : `${selection.assignment} → ${
                     selection.reasoningEffort === undefined
                         ? selection.model
@@ -11463,6 +11516,7 @@ export async function startTui(
                 // that named a model but no level would run the provider's
                 // default rather than the one the user meant.
                 const assignedLevels = selection.model === undefined
+                    || selection.remove === true
                     || selection.reasoningEffort !== undefined
                     ? undefined
                     : modelLevelFacts(selection.provider, selection.model);

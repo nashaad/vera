@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    createSubagentEffectApplier,
+    createSubagentEffectApplier as createStrictSubagentEffectApplier,
     resolveSpawnModelChoice,
     runSubagent,
 } from "../../src/engine/subagent.ts";
@@ -34,6 +34,21 @@ import {
     withoutCallDuration,
     withoutSessionUsage,
 } from "../support/wire-usage.ts";
+
+function createSubagentEffectApplier(
+    options: Parameters<typeof createStrictSubagentEffectApplier>[0],
+): ReturnType<typeof createStrictSubagentEffectApplier> {
+    return createStrictSubagentEffectApplier({
+        ...options,
+        readPolicy: options.readPolicy ?? (() => ({
+            assigned: (options.readPool?.() ?? []).map((entry) => ({
+                provider: entry.provider,
+                model: entry.model,
+            })),
+            allowSelf: true,
+        })),
+    });
+}
 
 test("two real subagent effects overlap and create separate sessions", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-siblings-"));
@@ -423,6 +438,11 @@ test("a spawn with no override runs the configured subagent default", async () =
             model: "cheap-model",
             reasoningEffort: "medium",
         },
+        readPool: () => [{
+            provider: "cheap-provider", model: "cheap-model", label: "cheap",
+            available: true, verified: true,
+            levels: [{ id: "medium", label: "Medium" }],
+        }],
     });
 
     try {
@@ -445,7 +465,7 @@ test("a spawn with no override runs the configured subagent default", async () =
     }
 });
 
-test("an unpooled model override inherits the default, with a notice", async () => {
+test("an unpooled model override is refused before a child starts", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-unpooled-"));
     const final: AssistantMessage = {
         role: "assistant",
@@ -486,14 +506,9 @@ test("an unpooled model override inherits the default, with a notice", async () 
             model: "selected",
         });
 
-        expect(result.isError).toBe(false);
-        expect(request?.model).toBe("selected");
-        expect(result.output).toContain(
-            "Requested model haiku, ran selected instead",
-        );
-        expect(result.output).toContain("haiku is not in the pool");
-        expect(result.output).toContain("this is the session model");
-        expect(result.output).toContain("child done");
+        expect(result.isError).toBe(true);
+        expect(request).toBeUndefined();
+        expect(result.output).toContain("not permitted for subagents");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -542,9 +557,7 @@ test("an unavailable pool entry falls through like an unpooled model", async () 
 
         expect(result.isError).toBe(false);
         expect(request?.model).toBe("selected");
-        expect(result.output).toContain(
-            "Requested model small-model, ran selected instead",
-        );
+        expect(result.output).toContain("parent-model fallback is enabled");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -1064,9 +1077,15 @@ test("the pool file's subagent default is the rung a spawn with no suggestion la
     const resolved = resolveSpawnModelChoice(
         {},
         { approvalMode: "auto", provider: "openrouter", model: "session" },
-        () => [],
+        () => [{
+            provider: "openrouter", model: "worker", label: "worker",
+            available: true, verified: true, levels: [],
+        }],
         undefined,
-        { subagentDefault: "openrouter/worker" },
+        {
+            assigned: [{ provider: "openrouter", model: "worker" }],
+            subagentDefault: "openrouter/worker",
+        },
     );
 
     expect(resolved.ok).toBe(true);
@@ -1075,43 +1094,37 @@ test("the pool file's subagent default is the rung a spawn with no suggestion la
     expect(resolved.notice).toBeUndefined();
 });
 
-test("a model nothing knows the levels of is not a substitution", () => {
+test("a model with no reasoning control drops the requested effort", () => {
     const resolved = resolveSpawnModelChoice(
         { model: "openrouter/worker", reasoningEffort: "high" },
         { approvalMode: "auto", provider: "openrouter", model: "session" },
-        () => [],
+        () => [{
+            provider: "openrouter", model: "worker", label: "worker",
+            available: true, verified: true, levels: [],
+        }],
         undefined,
-        { subagentDefault: "openrouter/worker" },
+        { assigned: [{ provider: "openrouter", model: "worker" }] },
     );
 
     expect(resolved.ok).toBe(true);
     if (!resolved.ok) return;
     expect(resolved.model).toBe("worker");
-    expect(resolved.reasoningEffort).toBe("high");
-    expect(resolved.notice).toBeUndefined();
-    expect(resolved.substitutions).toBeUndefined();
+    expect(resolved.reasoningEffort).toBeUndefined();
+    expect(resolved.notice).toContain("does not offer that level");
 });
 
-test("a spawn that fell through the ladder carries typed substitution rows", () => {
+test("an out-of-policy spawn carries no substitution because it is refused", () => {
     const resolved = resolveSpawnModelChoice(
         { model: "openrouter/absent" },
         { approvalMode: "auto", provider: "openrouter", model: "session" },
         () => [],
         undefined,
-        {},
+        { allowSelf: true },
     );
 
-    expect(resolved.ok).toBe(true);
-    if (!resolved.ok) return;
-    expect(resolved.substitutions).toEqual([{
-        scope: "model",
-        model: "openrouter/session",
-        requested: "openrouter/absent",
-        using: "openrouter/session",
-        reason: "openrouter/absent is not in the pool, and this is the session"
-            + " model, which the subagent falls back to when no requested or"
-            + " default model can run",
-    }]);
+    expect(resolved.ok).toBe(false);
+    if (resolved.ok) return;
+    expect(resolved.error).toContain("not permitted for subagents");
 });
 
 test("a spawn may name the pool entry it wants by its user-chosen name", async () => {

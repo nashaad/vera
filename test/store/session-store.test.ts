@@ -119,6 +119,28 @@ test("startup profile persists in the session header", async () => {
     expect((await SessionStore.open(path)).header.startupProfile).toBe("bare");
 });
 
+test("delegation provenance and its model boundary survive reopening", async () => {
+    const path = join(temporaryDirectory(), "delegated.jsonl");
+    const delegation = {
+        kind: "subagent" as const,
+        parentId: "parent-session",
+        models: [{
+            provider: "openrouter",
+            model: "worker",
+            reasoningEffort: "low" as const,
+        }],
+    };
+    const store = await SessionStore.create(path, {
+        sessionId: "child-session",
+        cwd: "/work/vera",
+        parentId: delegation.parentId,
+        delegation,
+    });
+
+    expect(store.header.delegation).toEqual(delegation);
+    expect((await SessionStore.open(path)).header.delegation).toEqual(delegation);
+});
+
 test("harness messages replay outside model history", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "harness.jsonl");

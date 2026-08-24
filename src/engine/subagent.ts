@@ -35,6 +35,7 @@ import {
 } from "./protocol.ts";
 import { PromptPrefixTracker } from "./prompt-prefix-drift.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
+import type { ModelTurnSettings } from "./model-settings.ts";
 import {
     createRoutedToolReviewer,
     type ToolReviewerSettings,
@@ -55,7 +56,7 @@ import type { ToolRuntime } from "../tools/runtime.ts";
 import type { PooledModel } from "../model/catalog-view.ts";
 import {
     modelRef,
-    resolveSubagentModel,
+    resolveAssignedSubagentModel,
     type LadderCandidate,
     type LadderPool,
     type RelativeEffort,
@@ -140,6 +141,10 @@ export type SpawnModelResolution =
  * to the declared family label used to bound sibling search.
  */
 export interface SubagentPoolPolicy {
+    /** Ordered, shortlist-admitted authorization boundary. */
+    readonly assigned?: readonly SpawnModelDefault[];
+    /** Appends the exact parent provider/model as the final candidate. */
+    readonly allowSelf?: boolean;
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
     /** Verified pool entries in file order, the failsafe rung's candidates. */
@@ -161,6 +166,41 @@ export interface SubagentPoolPolicy {
     readonly subagentDefault?: string;
 }
 
+export function subagentModelBoundary(
+    policy: SubagentPoolPolicy | undefined,
+    context: Pick<
+        ToolEffectContext,
+        "provider" | "model" | "reasoningEffort"
+    >,
+): readonly ModelTurnSettings[] {
+    const provider = context.provider ?? "";
+    const models: ModelTurnSettings[] = (policy?.assigned ?? []).map((entry) => ({
+        ...((entry.provider ?? provider) === ""
+            ? {}
+            : { provider: entry.provider ?? provider }),
+        model: entry.model,
+        ...(entry.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: entry.reasoningEffort }),
+    }));
+    if (policy?.allowSelf === true) {
+        models.push({
+            ...(provider === "" ? {} : { provider }),
+            model: context.model,
+            ...(context.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: context.reasoningEffort }),
+        });
+    }
+    const seen = new Set<string>();
+    return models.filter((entry) => {
+        const ref = modelRef(entry.provider ?? "", entry.model);
+        if (seen.has(ref)) return false;
+        seen.add(ref);
+        return true;
+    });
+}
+
 /**
  * Turns a spawn tool's optional model suggestion into runnable settings.
  *
@@ -176,42 +216,61 @@ export function resolveSpawnModelChoice(
     readPool?: () => readonly PooledModel[],
     subagentModel?: SpawnModelDefault,
     policy?: SubagentPoolPolicy,
+    agentDefault?: SpawnModelDefault,
 ): SpawnModelResolution {
     const sessionProvider = context.provider ?? "";
     const pool = readPool?.() ?? [];
     const suggested = effect.model === undefined
         ? undefined
         : poolNamed(effect.model, pool) ?? effect.model;
-    const configuredDefault = policy?.subagentDefault
-        ?? (subagentModel === undefined
+    const configuredDefault = agentDefault === undefined
+        ? policy?.subagentDefault
+            ?? (subagentModel === undefined
             ? undefined
             : modelRef(
                 subagentModel.provider ?? sessionProvider,
                 subagentModel.model,
-            ));
-    const outcome = resolveSubagentModel(
+            ))
+        : modelRef(
+            agentDefault.provider ?? sessionProvider,
+            agentDefault.model,
+        );
+    const assigned = policy?.assigned ?? [];
+    const outcome = resolveAssignedSubagentModel(
         {
-            ...(suggested === undefined ? {} : { suggested }),
+            ...(suggested === undefined ? {} : { requested: suggested }),
             ...(effect.reasoningEffort === undefined
                 ? {}
-                : { suggestedEffort: effect.reasoningEffort }),
+                : { requestedEffort: effect.reasoningEffort }),
+            ...(configuredDefault === undefined ? {} : {
+                preferred: configuredDefault,
+            }),
+            ...(agentDefault?.reasoningEffort === undefined
+                    && (agentDefault !== undefined
+                        || subagentModel?.reasoningEffort === undefined)
+                ? {}
+                : {
+                    preferredEffort: agentDefault?.reasoningEffort
+                        ?? subagentModel?.reasoningEffort,
+                }),
+            assigned: assigned.map((entry) => ({
+                provider: entry.provider ?? sessionProvider,
+                model: entry.model,
+                ...(entry.reasoningEffort === undefined
+                    ? {}
+                    : { effort: entry.reasoningEffort }),
+            })),
+            allowSelf: policy?.allowSelf === true,
             sessionProvider,
             sessionModel: context.model,
             ...(context.reasoningEffort === undefined
                 ? {}
                 : { sessionEffort: context.reasoningEffort }),
-            ...(configuredDefault === undefined
-                ? {}
-                : { configuredDefault }),
-            ...(policy?.subagentDefault !== undefined
-                    || subagentModel?.reasoningEffort === undefined
-                ? {}
-                : { configuredDefaultEffort: subagentModel.reasoningEffort }),
             ...(policy?.selfEffort === undefined
                 ? {}
                 : { selfEffort: policy.selfEffort }),
         },
-        ladderPool(context, pool, subagentModel, policy),
+        ladderPool(context, pool, policy),
     );
     if (!outcome.ok) {
         return { ok: false, error: outcome.error };
@@ -239,14 +298,11 @@ export function resolveSpawnModelChoice(
 function ladderPool(
     context: ToolEffectContext,
     pool: readonly PooledModel[],
-    subagentModel: SpawnModelDefault | undefined,
     policy: SubagentPoolPolicy | undefined,
 ): LadderPool {
     const families = policy?.families ?? {};
     const tools = policy?.tools ?? {};
-    const models: LadderCandidate[] = pool
-        .filter((entry) => entry.available)
-        .map((entry) => {
+    const models: LadderCandidate[] = pool.map((entry) => {
             const ref = modelRef(entry.provider, entry.model);
             return {
                 provider: entry.provider,
@@ -263,7 +319,6 @@ function ladderPool(
             };
         });
     const sessionProvider = context.provider ?? "";
-    const poolDefault = policy?.subagentDefault;
     const declared: readonly {
         provider: string;
         model: string;
@@ -276,16 +331,6 @@ function ladderPool(
                 ? {}
                 : { effort: context.reasoningEffort }),
         },
-        ...(subagentModel === undefined ? [] : [{
-            provider: subagentModel.provider ?? sessionProvider,
-            model: subagentModel.model,
-            ...(subagentModel.reasoningEffort === undefined
-                ? {}
-                : { effort: subagentModel.reasoningEffort }),
-        }]),
-        ...(poolDefault === undefined || poolDefault === "self"
-            ? []
-            : [splitModelRef(poolDefault, sessionProvider)]),
     ];
     for (const entry of declared) {
         const ref = modelRef(entry.provider, entry.model);
@@ -339,19 +384,6 @@ function poolNamed(
  * carries its own slashes, so `openrouter/deepseek/deepseek-chat` is one model
  * on one provider. A bare name belongs to the session's provider.
  */
-function splitModelRef(
-    ref: string,
-    sessionProvider: string,
-): { readonly provider: string; readonly model: string } {
-    const separator = ref.indexOf("/");
-    return separator <= 0 || separator === ref.length - 1
-        ? { provider: sessionProvider, model: ref }
-        : {
-            provider: ref.slice(0, separator),
-            model: ref.slice(separator + 1),
-        };
-}
-
 export interface RunSubagentOptions {
     readonly adapter: ModelAdapter;
     readonly provider?: string;
@@ -429,7 +461,7 @@ export function createSubagentEffectApplier(
         // arguments and the ladder: it is a default, so it loses to what the
         // caller asked for and beats what nobody asked for.
         let wear: AgentWearSnapshot | undefined;
-        let effectWithAgentPair = effect;
+        let agentDefault: SpawnModelDefault | undefined;
         if (effect.agent !== undefined) {
             if (options.loadAgent === undefined) {
                 return {
@@ -469,26 +501,28 @@ export function createSubagentEffectApplier(
                     options.readPool?.() ?? [],
                 );
                 if (named !== undefined) {
-                    effectWithAgentPair = {
-                        ...effect,
-                        model: named,
-                        ...(effect.reasoningEffort === undefined
-                                && definition.defaultPair.effort !== undefined
-                            ? {
+                    const separator = named.indexOf("/");
+                    agentDefault = {
+                        provider: named.slice(0, separator),
+                        model: named.slice(separator + 1),
+                        ...(definition.defaultPair.effort === undefined
+                            ? {}
+                            : {
                                 reasoningEffort: definition.defaultPair
                                     .effort as ModelReasoningEffort,
-                            }
-                            : {}),
+                            }),
                     };
                 }
             }
         }
+        const policy = options.readPolicy?.();
         const resolved = resolveSpawnModelChoice(
-            effectWithAgentPair,
+            effect,
             context,
             options.readPool,
             options.subagentModel,
-            options.readPolicy?.(),
+            policy,
+            agentDefault,
         );
         if (!resolved.ok) {
             return { kind: "output", output: resolved.error, isError: true };
@@ -502,7 +536,6 @@ export function createSubagentEffectApplier(
         // than one field from before an edit and the next from after it.
         const {
             disabledPromptContributions,
-            modelFallback,
             reviewer,
             reviewers,
             permissionModes,
@@ -536,7 +569,17 @@ export function createSubagentEffectApplier(
                 }),
                 offerTools: options.offerTools,
                 loadOptionalContext: options.loadOptionalContext,
-                sessionMetadata: options.sessionMetadata,
+                sessionMetadata: context.sessionId === undefined
+                    ? options.sessionMetadata
+                    : {
+                        ...options.sessionMetadata,
+                        parentId: context.sessionId,
+                        delegation: {
+                            kind: "subagent",
+                            parentId: context.sessionId,
+                            models: subagentModelBoundary(policy, context),
+                        },
+                    },
                 signal,
                 sessionId,
                 ...(options.relayToolApproval === undefined
@@ -545,7 +588,9 @@ export function createSubagentEffectApplier(
                 ...(resolved.reasoningEffort === undefined
                     ? {}
                     : { reasoningEffort: resolved.reasoningEffort }),
-                ...(modelFallback === undefined ? {} : { modelFallback }),
+                // A generic fallback can name a model outside the persisted
+                // delegation boundary. Provider retry of this exact model is
+                // still handled by recovery; cross-model fallback is not.
                 ...(options.sessionPathForId === undefined
                     ? {}
                     : { sessionPath: options.sessionPathForId(sessionId) }),
@@ -599,6 +644,14 @@ export async function runSubagent(
         );
         options.signal?.throwIfAborted();
         await store.appendApprovalMode(options.approvalMode);
+        options.signal?.throwIfAborted();
+        await store.appendModelSettings({
+            ...(options.provider === undefined ? {} : { provider: options.provider }),
+            model: options.model,
+            ...(options.reasoningEffort === undefined
+                ? {}
+                : { reasoningEffort: options.reasoningEffort }),
+        });
         options.signal?.throwIfAborted();
         const events = new EngineEventBus();
         const protocol = createProtocolEncoder(

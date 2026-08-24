@@ -84,6 +84,33 @@ test("an absent block is an empty set of assignments, not a failure", () => {
     expect(parseModelAssignmentsConfig(undefined, ROUTES)).toEqual({});
 });
 
+test("subagents keep ordered models and an explicit self fallback flag", () => {
+    const assignments = parseModelAssignmentsConfig({
+        subagents: { model_route: "thinking", allow_self: true },
+    }, ROUTES);
+
+    expect(assignments?.subagents?.allow_self).toBe(true);
+    expect(resolveModelAssignment(
+        catalog(),
+        assignments ?? {},
+        "subagents",
+    )?.models.map((entry) => entry.name)).toEqual(["opus_low", "glm_high"]);
+    expect(parseModelAssignmentsConfig({
+        reviewer: { model_route: "thinking", allow_self: true },
+    }, ROUTES)).toBeUndefined();
+});
+
+test("an unbound subagents assignment does not inherit or reach the session", () => {
+    const assignments = parseModelAssignmentsConfig({
+        eco: { model_route: "quick" },
+    }, ROUTES);
+
+    const bound = bindModelAssignment(catalog(), assignments ?? {}, {
+        assignment: "subagents",
+    });
+    expect(bound).toEqual({ source: "session", models: [], declared: [] });
+});
+
 test("a blank label falls back to the shipped word", () => {
     const assignments = parseModelAssignmentsConfig(
         { extra: { model_route: "thinking", label: "  " } },
