@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import {
     AgentBranchCommitError,
     branchAgentThroughHost,
@@ -48,9 +50,12 @@ export interface ConfiguredTuiAgentClients {
 export function createConfiguredTuiAgentClients(
     socketPath: () => string,
 ): ConfiguredTuiAgentClients {
+    const clientId = randomUUID();
     const attach = (agentId: string) => attachReconnectingAgent({
         socketPath,
         agentId,
+        interactive: true,
+        clientId,
     });
     return {
         attach,

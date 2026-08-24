@@ -7,6 +7,9 @@ import {
 } from "../../clients/tui/main.ts";
 import { createSettingsAnsweringClient } from "./settings-answering-client.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
+import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+} from "../../src/host/capabilities.ts";
 
 export interface TuiResumeScenario {
     readonly dependencies: TuiDependencies;
@@ -16,6 +19,9 @@ export interface TuiResumeScenario {
 export function createTuiResumeScenario(options: {
     readonly home: string;
     readonly resumeTimeout?: boolean;
+    readonly closeFailure?: boolean;
+    readonly closeDelayMs?: number;
+    readonly otherInteractiveAttachments?: number;
 }): TuiResumeScenario {
     /**
      * The picker prints this as a relative age, so a fixed date would render
@@ -26,6 +32,7 @@ export function createTuiResumeScenario(options: {
 
     let detached = false;
     let resumedPath = "none";
+    const closedAgentIds: string[] = [];
     const firstClient = createSettingsAnsweringClient({
         agentId: "current-session-id",
         model: "current-model",
@@ -33,6 +40,15 @@ export function createTuiResumeScenario(options: {
         onDetach: () => {
             detached = true;
         },
+        ...(options.otherInteractiveAttachments === undefined ? {} : {
+            supportsHostCapability: (capability: string) =>
+                capability === HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            release: async () => ({
+                outcome: "detached" as const,
+                remainingInteractiveClients:
+                    options.otherInteractiveAttachments ?? 0,
+            }),
+        }),
     });
 
     return {
@@ -97,6 +113,22 @@ export function createTuiResumeScenario(options: {
                     }],
                 });
             },
+            closeSession: async (agentId) => {
+                if (
+                    agentId === "current-session-id"
+                    && options.closeDelayMs !== undefined
+                ) {
+                    await Bun.sleep(options.closeDelayMs);
+                }
+                if (
+                    options.closeFailure === true
+                    && agentId === "current-session-id"
+                ) {
+                    return { status: "rejected", reason: "failed" };
+                }
+                closedAgentIds.push(agentId);
+                return { status: "closed", sessionRetained: true };
+            },
         },
         async finish(exit) {
             await Bun.write(
@@ -105,6 +137,7 @@ export function createTuiResumeScenario(options: {
                     resumedPath,
                     detached ? "detached" : "attached",
                     exit.agentId ?? "none",
+                    `closed ${closedAgentIds.join(",")}`,
                 ].join("\n"),
             );
         },
@@ -114,8 +147,16 @@ export function createTuiResumeScenario(options: {
 if (import.meta.main) {
     installTestProcessGuard();
     const scenario = createTuiResumeScenario({
-        home: process.env.HOME ?? ".",
+        home: process.env.VERA_TUI_TEST_HOME ?? process.env.HOME ?? ".",
         resumeTimeout: process.env.RESUME_TIMEOUT === "1",
+        ...(process.env.OTHER_INTERACTIVE_ATTACHMENTS === undefined
+            ? {}
+            : {
+                otherInteractiveAttachments: Number.parseInt(
+                    process.env.OTHER_INTERACTIVE_ATTACHMENTS,
+                    10,
+                ),
+            }),
     });
     await scenario.finish(await startTui(scenario.dependencies));
 }

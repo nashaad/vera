@@ -939,6 +939,7 @@ export async function startResidentHost(
                 storedSessions,
                 resumeSession,
             ),
+            readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             listAgents: async () => mergeStoredAndResidentAgents(
                 await storedSessions,
                 registry.list(),

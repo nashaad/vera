@@ -20,9 +20,11 @@ import {
     type WorkIndexSnapshot,
 } from "./work-index.ts";
 import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_ATTACH_RESUME,
     parseHostCapabilities,
 } from "./capabilities.ts";
+import type { AttachmentReleasePolicy } from "./protocol.ts";
 
 const DEFAULT_MAX_PENDING_UPDATES = 1_024;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
@@ -34,6 +36,16 @@ export interface AttachAgentOptions {
     readonly requestedCapabilities?: readonly string[];
     readonly afterSequence?: number;
     readonly signal?: AbortSignal;
+    /** Interactive viewers participate in stop-if-last release decisions. */
+    readonly interactive?: boolean;
+    /** Required for interactive attachments and stable across reconnects. */
+    readonly clientId?: string;
+}
+
+export interface AttachmentReleaseResult {
+    readonly outcome: "detached" | "stopped";
+    readonly remainingInteractiveClients: number;
+    readonly sessionRetained?: boolean;
 }
 
 export interface AttachedAgentClient {
@@ -68,6 +80,9 @@ export interface AttachedAgentClient {
         command: string,
         argumentsText: string,
     ): Promise<ExtensionCommandResult>;
+    release?(
+        policy: AttachmentReleasePolicy,
+    ): Promise<AttachmentReleaseResult>;
     detach(): Promise<void>;
     close(): void;
     readonly closed: boolean;
@@ -101,9 +116,25 @@ export class AgentAttachError extends Error {
     }
 }
 
+export class AttachmentReleaseError extends Error {
+    constructor(
+        message: string,
+        readonly reason: "not_found" | "not_owned" | "failed",
+    ) {
+        super(message);
+        this.name = "AttachmentReleaseError";
+    }
+}
+
 export async function attachAgent(
     options: AttachAgentOptions,
 ): Promise<AttachedAgentClient> {
+    if (
+        options.interactive === true
+        && (options.clientId === undefined || options.clientId.length === 0)
+    ) {
+        throw new Error("Interactive attachment client ID is required");
+    }
     const maxPendingUpdates = positiveInteger(
         options.maxPendingUpdates ?? DEFAULT_MAX_PENDING_UPDATES,
         "maximum pending agent updates",
@@ -127,6 +158,12 @@ export async function attachAgent(
         await connection.send({
             type: "attach",
             agent_id: options.agentId,
+            ...(options.interactive === true
+                ? {
+                    attachment_kind: "interactive" as const,
+                    client_id: options.clientId,
+                }
+                : {}),
             ...(requestedCapabilities.length === 0
                 ? {}
                 : { requested_capabilities: requestedCapabilities }),
@@ -206,8 +243,11 @@ function createAttachedClient(
     let failed = initiallyFailed;
     let isDetaching = false;
     let detachPromise: Promise<void> | undefined;
+    let releasePromise: Promise<AttachmentReleaseResult> | undefined;
     let resolveDetached: (() => void) | undefined;
     let rejectDetached: ((error: Error) => void) | undefined;
+    let resolveReleased: ((result: AttachmentReleaseResult) => void) | undefined;
+    let rejectReleased: ((error: Error) => void) | undefined;
     let pendingUpdateCount = 0;
     let resumeReading: (() => void) | undefined;
     let lastReadSequence = initialSequence;
@@ -224,10 +264,16 @@ function createAttachedClient(
         rejectDetached = reject;
     });
     void detached.catch(() => undefined);
+    const released = new Promise<AttachmentReleaseResult>((resolve, reject) => {
+        resolveReleased = resolve;
+        rejectReleased = reject;
+    });
+    void released.catch(() => undefined);
     void readMessages();
     void connection.closedReason().then((error) => {
         failExtensionRequests(error);
         rejectDetached?.(error);
+        rejectReleased?.(error);
     });
 
     return {
@@ -304,6 +350,27 @@ function createAttachedClient(
                 arguments_text: argumentsText,
             })) as Promise<ExtensionCommandResult>;
         },
+        release(policy): Promise<AttachmentReleaseResult> {
+            if (releasePromise !== undefined) return releasePromise;
+            if (!negotiatedCapabilities.includes(
+                HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            )) {
+                return Promise.reject(
+                    new Error("Host does not support attachment release"),
+                );
+            }
+            if (isClosed || connection.closed || isDetaching) {
+                return Promise.reject(new Error("Agent attachment is closed"));
+            }
+            isDetaching = true;
+            resumeReading?.();
+            resumeReading = undefined;
+            releasePromise = connection.send({
+                type: "release_attachment",
+                policy,
+            }).then(() => released);
+            return releasePromise;
+        },
         detach(): Promise<void> {
             if (detachPromise !== undefined) {
                 return detachPromise;
@@ -339,6 +406,35 @@ function createAttachedClient(
                     continue;
                 }
                 const value = await connection.receive();
+                if (isDetaching) {
+                    const releaseResult = parseAttachmentReleased(value, agentId);
+                    if (releaseResult !== undefined) {
+                        isClosed = true;
+                        pendingUpdateCount = 0;
+                        failExtensionRequests(
+                            new Error("Agent attachment is released"),
+                        );
+                        updates.fail(new Error("Agent attachment is released"), {
+                            discardBuffered: true,
+                        });
+                        connection.close();
+                        resolveReleased?.(releaseResult);
+                        return;
+                    }
+                    const releaseError = parseAttachmentReleaseRejected(
+                        value,
+                        agentId,
+                    );
+                    if (releaseError !== undefined) {
+                        isClosed = true;
+                        pendingUpdateCount = 0;
+                        failExtensionRequests(releaseError);
+                        updates.fail(releaseError, { discardBuffered: true });
+                        connection.close();
+                        rejectReleased?.(releaseError);
+                        return;
+                    }
+                }
                 if (isDetaching && isDetached(value)) {
                     isClosed = true;
                     pendingUpdateCount = 0;
@@ -422,6 +518,7 @@ function createAttachedClient(
         updates.fail(error);
         failExtensionRequests(error);
         rejectDetached?.(error);
+        rejectReleased?.(error);
         connection.close();
     }
 
@@ -628,6 +725,60 @@ function isAttachFailure(
 
 function isDetached(value: unknown): boolean {
     return asRecord(value)?.type === "detached";
+}
+
+function parseAttachmentReleased(
+    value: unknown,
+    expectedAgentId: string,
+): AttachmentReleaseResult | undefined {
+    const response = asRecord(value);
+    if (
+        response === undefined
+        || !hasOnlyKeys(response, [
+            "type",
+            "agent_id",
+            "outcome",
+            "remaining_interactive_clients",
+            "session_retained",
+        ])
+        || response.type !== "attachment_released"
+        || response.agent_id !== expectedAgentId
+        || (response.outcome !== "detached" && response.outcome !== "stopped")
+        || !Number.isSafeInteger(response.remaining_interactive_clients)
+        || (response.remaining_interactive_clients as number) < 0
+        || (response.session_retained !== undefined
+            && typeof response.session_retained !== "boolean")
+    ) {
+        return undefined;
+    }
+    return {
+        outcome: response.outcome,
+        remainingInteractiveClients:
+            response.remaining_interactive_clients as number,
+        ...(response.session_retained === undefined
+            ? {}
+            : { sessionRetained: response.session_retained as boolean }),
+    };
+}
+
+function parseAttachmentReleaseRejected(
+    value: unknown,
+    expectedAgentId: string,
+): AttachmentReleaseError | undefined {
+    const response = asRecord(value);
+    if (
+        response?.type !== "attachment_release_rejected"
+        || response.agent_id !== expectedAgentId
+        || (response.reason !== "not_found"
+            && response.reason !== "not_owned"
+            && response.reason !== "failed")
+    ) {
+        return undefined;
+    }
+    return new AttachmentReleaseError(
+        `Host could not release agent attachment: ${response.reason}`,
+        response.reason,
+    );
 }
 
 function isProtocolError(value: unknown): boolean {

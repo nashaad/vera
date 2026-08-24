@@ -83,6 +83,7 @@ import {
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 
 export type TuiSettingsPickerKind =
@@ -432,6 +433,7 @@ export type TuiSettingsPickerSelection =
         readonly kind: "session";
         readonly sessionPath: string;
         readonly sessionId?: string;
+        readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
     | {
@@ -2123,6 +2125,25 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
     }
+    if (
+        state.kind === "session"
+        && tuiBindingId("session_picker", key) === "background_switch"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        return selected === undefined
+            ? unchanged(state, true)
+            : {
+                selection: {
+                    kind: "session",
+                    sessionPath: selected.value,
+                    sourceDisposition: "keep_running",
+                    ...(selected.sessionId === undefined
+                        ? {}
+                        : { sessionId: selected.sessionId }),
+                },
+                handled: true,
+            };
+    }
     // Ahead of the modifier bail-out below, and deliberately a modifier key:
     // the model pane sends every bare printable key to its search box, and "-"
     // is a character in most model ids, so no unmodified key is available.
@@ -3633,7 +3654,8 @@ function pickerFooterText(
     if (state.kind === "session") {
         return [
             "↑↓ ^d^u move",
-            "⏎ select",
+            "⏎ stop & switch",
+            tuiKeyHint("background_switch"),
             tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
             "esc close",
@@ -4834,6 +4856,7 @@ function pickerSelection(
         return {
             kind,
             sessionPath: value,
+            sourceDisposition: "stop",
             ...(option.sessionId === undefined
                 ? {}
                 : { sessionId: option.sessionId }),

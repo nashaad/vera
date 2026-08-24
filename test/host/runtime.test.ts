@@ -19,6 +19,7 @@ import {
 } from "../../src/host/attached-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
+import { closeAgentThroughHost } from "../../src/host/agent-close-client.ts";
 import {
     AgentStartError,
     createAgentThroughHost,
@@ -41,6 +42,110 @@ import {
 import { SessionStore } from "../../src/store/session-store.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
+import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+} from "../../src/host/capabilities.ts";
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "hard close through the resident host retains a resumable session",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-close-resume-"));
+        const socketPath = join(root, "host.sock");
+        const sessionDirectory = join(root, "sessions");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+
+        try {
+            const created = await createAgentThroughHost(socketPath, root);
+            const listed = (await listAgentsThroughHost(socketPath)).find(
+                (agent) => agent.id === created.id,
+            );
+            expect(listed?.session_path).toBeDefined();
+
+            expect(await closeAgentThroughHost(socketPath, created.id))
+                .toEqual({ status: "closed", sessionRetained: true });
+            expect(host.registry.find(created.id)).toBeUndefined();
+
+            const stored = await SessionStore.open(listed!.session_path);
+            expect(stored.header.id).toBe(created.id);
+            expect(await resumeAgentThroughHost(socketPath, listed!.session_path))
+                .toMatchObject({ id: created.id });
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "the last interactive release retains and resumes the real session",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-release-resume-"));
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+        });
+
+        try {
+            const created = await createAgentThroughHost(socketPath, root);
+            const listed = (await listAgentsThroughHost(socketPath)).find(
+                (agent) => agent.id === created.id,
+            );
+            const attach = (clientId: string) => attachAgent({
+                socketPath,
+                agentId: created.id,
+                interactive: true,
+                clientId,
+                requestedCapabilities: [
+                    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+                ],
+            });
+            const first = await attach("client-1");
+            const second = await attach("client-2");
+            await first.receive();
+            await second.receive();
+
+            expect(await first.release?.("stop_if_last")).toMatchObject({
+                outcome: "detached",
+                remainingInteractiveClients: 1,
+            });
+            expect(host.registry.find(created.id)).toBeDefined();
+            expect(await second.release?.("stop_if_last")).toMatchObject({
+                outcome: "stopped",
+                remainingInteractiveClients: 0,
+                sessionRetained: true,
+            });
+            expect(host.registry.find(created.id)).toBeUndefined();
+
+            const stored = await SessionStore.open(listed!.session_path);
+            expect(stored.header.id).toBe(created.id);
+            expect(await resumeAgentThroughHost(socketPath, listed!.session_path))
+                .toMatchObject({ id: created.id });
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "resume finds a live agent through a symlinked session directory",

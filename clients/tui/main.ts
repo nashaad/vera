@@ -136,6 +136,10 @@ import type {
 } from "./timeline-picker.ts";
 import { createAgentThroughHost, resumeAgentThroughHost } from
     "../../src/host/agent-start-client.ts";
+import {
+    closeAgentThroughHost,
+    type CloseAgentResult,
+} from "../../src/host/agent-close-client.ts";
 import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import { listSessionsForExtension } from "./session-listing-projection.ts";
@@ -156,6 +160,7 @@ import {
 } from "../../src/host/session-rename-client.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
+    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
 } from "../../src/host/capabilities.ts";
@@ -215,6 +220,10 @@ import {
     type IdentifiedTuiAgentClient,
     type TuiAgentClient,
 } from "./agent-client.ts";
+import type {
+    TuiSessionLeaveDisposition,
+    TuiSessionLeaveResult,
+} from "./session-lifecycle.ts";
 export type { TuiAgentClient } from "./agent-client.ts";
 import {
     resolveTuiHostedAgentAddressing,
@@ -812,6 +821,8 @@ export interface TuiDependencies {
         boundaryId: string,
     ) => Promise<{ readonly client: TuiAgentClient; readonly prompt: UserMessage }>;
     readonly resumeSession?: (sessionPath: string) => Promise<TuiAgentClient>;
+    /** Hard-close one root and its owned tree, resolving at quiescence. */
+    readonly closeSession?: (agentId: string) => Promise<CloseAgentResult>;
     /**
      * Scan the host's transcripts. Absent when this client reaches no host
      * that can search, which the overlay states rather than showing as an
@@ -1021,6 +1032,8 @@ export async function startConfiguredTui(
             cloneSession: agentClients.clone,
             forkSession: agentClients.fork,
             resumeSession: agentClients.resume,
+            closeSession: (targetAgentId) =>
+                closeAgentThroughHost(host.socket_path, targetAgentId),
             // Read through the host rather than the session directory: the
             // host owns which profile's transcripts are the live ones, and a
             // client that resolved the path itself could search a different
@@ -1149,6 +1162,7 @@ export async function startTui(
     // rebuild, which floats it above the transcript, and once after, so it is
     // also the last line the reader reaches.
     let pendingBackNotice: string | undefined;
+    let pendingSessionSwitchNotice: string | undefined;
     const experimentalTuiHost = createTuiExperimentalHost({
         renderer,
         theme,
@@ -3827,13 +3841,18 @@ export async function startTui(
         }
         pendingExtensionSettings.clear();
         const attachedSidebar = hostedSidebar.release();
-        void Promise.all([
-            clientExtensionHost.close(),
-            attachedSidebar?.detach(),
-        ])
+        void clientExtensionHost.close()
             .catch(() => undefined)
             .then(() => experimentalTuiHost.close())
-            .then(() => client.detach().catch(() => client.close()))
+            .then(async () => {
+                await stopClientForShutdown(client);
+                if (
+                    attachedSidebar !== undefined
+                    && attachedSidebar.agentId !== client.agentId
+                ) {
+                    await stopClientForShutdown(attachedSidebar.client);
+                }
+            })
             .then(() => {
                 finished.resolve(
                     client.agentId === undefined
@@ -6400,6 +6419,12 @@ export async function startTui(
             composer.clearComposer();
             const clearingSidebar = sidebar.isFocused()
                 && hostedSidebar.pane !== undefined;
+            const sourceClient = focusedAgentClient();
+            const sourceCompanions = clearingSidebar
+                || hostedSidebar.pane === undefined
+                ? []
+                : [hostedSidebar.pane.client];
+            const sourceDisposition = commandAction.sourceDisposition ?? "stop";
             // A blank peer has nothing useful to reset. Treating a second
             // clear as close makes it possible to get rid of an empty pane
             // without requiring a separate close command.
@@ -6462,11 +6487,22 @@ export async function startTui(
                 : dependencies.createSession!(workspace);
             void withSessionSwitchDeadline(
                 nextSession,
-                discardSwitchTarget,
+                (next) => void discardCreatedSwitchTarget(next),
             ).then(async (next) => {
                 if (shuttingDown) {
-                    discardSwitchTarget(next);
+                    void discardCreatedSwitchTarget(next);
                     return;
+                }
+                let leaveResult: TuiSessionLeaveResult;
+                try {
+                    leaveResult = await leaveSwitchSource(
+                        sourceClient,
+                        sourceDisposition,
+                        sourceCompanions,
+                    );
+                } catch (error) {
+                    await discardCreatedSwitchTarget(next);
+                    throw error;
                 }
                 if (clearingSidebar) {
                     await openExtensionAgent(
@@ -6483,6 +6519,15 @@ export async function startTui(
                     return;
                 }
                 switchToClient(next);
+                if (
+                    sourceDisposition === "stop"
+                    && leaveResult.sourceOutcome === "detached"
+                    && leaveResult.remainingInteractiveClients > 0
+                ) {
+                    const notice =
+                        "The previous conversation is still running in another client";
+                    pendingSessionSwitchNotice = notice;
+                }
             }).catch((error) => {
                 if (shuttingDown) {
                     return;
@@ -7458,6 +7503,13 @@ export async function startTui(
                         state = appendTuiNotice(state, pendingBackNotice);
                         pendingBackNotice = undefined;
                     }
+                    if (pendingSessionSwitchNotice !== undefined) {
+                        state = appendTuiNotice(
+                            state,
+                            pendingSessionSwitchNotice,
+                        );
+                        pendingSessionSwitchNotice = undefined;
+                    }
                 }
                 if (update.type === "status" && update.state === "idle") {
                     finishStreamingAssistant();
@@ -8031,6 +8083,108 @@ export async function startTui(
     /** Drop a session the client asked for but can no longer use. */
     function discardSwitchTarget(next: TuiAgentClient): void {
         void next.detach().catch(() => next.close());
+    }
+
+    /**
+     * Apply the user's one-shot leave intent before the new conversation takes
+     * over the screen. Close is a host acknowledgement, not an optimistic UI
+     * state: when this resolves the source root and its owned tree are unable
+     * to issue another provider call.
+     */
+    async function leaveSwitchSource(
+        source: TuiAgentClient,
+        disposition: TuiSessionLeaveDisposition,
+        companions: readonly TuiAgentClient[] = [],
+    ): Promise<TuiSessionLeaveResult> {
+        const seen = new Set<TuiAgentClient>();
+        let sourceResult: TuiSessionLeaveResult | undefined;
+        for (const candidate of [...companions, source]) {
+            if (seen.has(candidate)) continue;
+            seen.add(candidate);
+            const candidateId = candidate.agentId;
+            if (candidateId === undefined) {
+                throw new Error(
+                    "stopping the current conversation is unavailable",
+                );
+            }
+            let result: TuiSessionLeaveResult;
+            if (
+                candidate.release !== undefined
+                && candidate.supportsHostCapability?.(
+                    HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+                ) === true
+            ) {
+                const released = await candidate.release(
+                    disposition === "keep_running"
+                        ? "keep_running"
+                        : "stop_if_last",
+                );
+                result = {
+                    sourceOutcome: released.outcome,
+                    remainingInteractiveClients:
+                        released.remainingInteractiveClients,
+                };
+            } else {
+                if (disposition === "keep_running") {
+                    result = {
+                        sourceOutcome: "detached",
+                        remainingInteractiveClients: 0,
+                    };
+                    if (candidate === source) sourceResult = result;
+                    continue;
+                }
+                if (dependencies.closeSession === undefined) {
+                    throw new Error(
+                        "stopping the current conversation is unavailable",
+                    );
+                }
+                const closed = await dependencies.closeSession(candidateId);
+                if (closed.status !== "closed") {
+                    throw new Error(closeSessionFailure(closed.reason));
+                }
+                result = {
+                    sourceOutcome: "stopped",
+                    remainingInteractiveClients: 0,
+                };
+            }
+            if (candidate === source) sourceResult = result;
+        }
+        return sourceResult ?? {
+            sourceOutcome: "detached",
+            remainingInteractiveClients: 0,
+        };
+    }
+
+    /** Best-effort terminal departure: stop only the last interactive viewer. */
+    async function stopClientForShutdown(source: TuiAgentClient): Promise<void> {
+        const sourceId = source.agentId;
+        if (
+            source.release !== undefined
+            && source.supportsHostCapability?.(
+                HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
+            ) === true
+        ) {
+            await source.release("stop_if_last").catch(() => undefined);
+        } else if (
+            sourceId !== undefined
+            && dependencies.closeSession !== undefined
+        ) {
+            await dependencies.closeSession(sourceId).catch(() => undefined);
+        }
+        await source.detach().catch(() => source.close());
+    }
+
+    /** A newly-created target is ours to stop if the switch cannot commit. */
+    async function discardCreatedSwitchTarget(
+        next: TuiAgentClient,
+    ): Promise<void> {
+        const targetId = next.agentId;
+        if (targetId === undefined || dependencies.closeSession === undefined) {
+            discardSwitchTarget(next);
+            return;
+        }
+        await dependencies.closeSession(targetId).catch(() => undefined);
+        await next.detach().catch(() => next.close());
     }
 
     function beginFork(boundaryId: string): void {
@@ -11795,6 +11949,7 @@ export async function startTui(
                     selection.sessionId,
                     false,
                     false,
+                    selection.sourceDisposition,
                 );
                 return;
             }
@@ -11917,6 +12072,7 @@ export async function startTui(
         // A hop the notice never landed in is over; it must not surface in
         // whichever conversation rebuilds next.
         pendingBackNotice = undefined;
+        pendingSessionSwitchNotice = undefined;
         if (next.agentId !== undefined) {
             try {
                 dependencies.onSessionEntered?.(next.agentId);
@@ -11997,9 +12153,17 @@ export async function startTui(
         sessionId?: string,
         viaBack = false,
         armsBack = true,
+        sourceDisposition: TuiSessionLeaveDisposition = "stop",
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
+        const sourceClient = openingInSidebar
+            ? hostedSidebar.pane!.client
+            : client;
+        const sourceCompanions = openingInSidebar
+            || hostedSidebar.pane === undefined
+            ? []
+            : [hostedSidebar.pane.client];
         settingsPicker = undefined;
         if (sessionId !== undefined && sessionId === client.agentId) {
             // The row for the session already on screen. Tearing down that
@@ -12060,10 +12224,36 @@ export async function startTui(
                 discardSwitchTarget(next);
                 return;
             }
+            let destination = next;
+            let leaveResult: TuiSessionLeaveResult | undefined;
+            try {
+                leaveResult = await leaveSwitchSource(
+                    sourceClient,
+                    sourceDisposition,
+                    sourceCompanions,
+                );
+            } catch (error) {
+                discardSwitchTarget(next);
+                throw error;
+            }
+            if (sourceDisposition === "stop") {
+                // The selected row can be a child of the source. Hard close
+                // correctly takes that whole tree down, including the target
+                // attachment we opened first to validate the destination.
+                // Resume once more after quiescence so a durable child becomes
+                // the new root instead of putting a dead attachment on screen.
+                if (leaveResult.sourceOutcome === "stopped") {
+                    discardSwitchTarget(next);
+                    destination = await withSessionSwitchDeadline(
+                        dependencies.resumeSession!(sessionPath),
+                        discardSwitchTarget,
+                    );
+                }
+            }
             if (openingInSidebar) {
                 await openExtensionAgent(
                     "vera.tui.agent-attachments",
-                    requireIdentifiedClient(next),
+                    requireIdentifiedClient(destination),
                     "sidebar",
                     true,
                     sessionId,
@@ -12071,7 +12261,16 @@ export async function startTui(
                 sessionSwitchPending = false;
                 return;
             }
-            switchToClient(next, draft);
+            switchToClient(destination, draft);
+            if (
+                sourceDisposition === "stop"
+                && leaveResult?.sourceOutcome === "detached"
+                && leaveResult.remainingInteractiveClients > 0
+            ) {
+                const notice =
+                    "The previous conversation is still running in another client";
+                pendingSessionSwitchNotice = notice;
+            }
             if (viaBack) {
                 backOriginId = undefined;
             } else if (backOriginId !== undefined) {
@@ -13737,6 +13936,18 @@ export async function startTui(
 function recentSessionSaveFailure(error: unknown): string {
     const detail = error instanceof Error ? error.message : String(error);
     return `Could not remember this session for vera -c: ${detail}`;
+}
+
+function closeSessionFailure(
+    reason: Extract<CloseAgentResult, { status: "rejected" }>["reason"],
+): string {
+    if (reason === "not_owned") {
+        return "the current conversation belongs to another host";
+    }
+    if (reason === "not_found") {
+        return "the current conversation is no longer running";
+    }
+    return "the host could not stop the current conversation";
 }
 
 /** What a patch asks for, as `provider/model at effort`. */

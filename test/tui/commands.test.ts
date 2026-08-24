@@ -439,6 +439,14 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
     });
+    expect(registry.dispatch("/clear --background")).toEqual({
+        type: "create_session",
+        sourceDisposition: "keep_running",
+    });
+    expect(registry.dispatch("/clear later")).toEqual({
+        type: "command_error",
+        message: "Usage: /clear [--background]",
+    });
     expect(registry.dispatch("/c")).toBeUndefined();
     expect(registry.dispatch("/cle")).toEqual({ type: "create_session" });
     expect(registry.dispatch("/rename Planning")).toEqual({

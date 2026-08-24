@@ -35,6 +35,7 @@ test("stdio forwards commands and rejects bad input without closing", async () =
         Readable.from([
             "not json\n",
             '{"type":"unknown"}\n',
+            '{"type":"release_attachment","policy":"stop_if_last"}\n',
             '{"type":"prompt","content":"hello"}\n',
             '{"type":"abort"}\n',
             '{"type":"detach"}\n',
@@ -57,6 +58,11 @@ test("stdio forwards commands and rejects bad input without closing", async () =
         type: "stdio_rejected",
         line: 2,
         reason: "unknown or invalid attached-client command",
+    });
+    expect(JSON.parse(output.split("\n")[4]!)).toEqual({
+        type: "stdio_rejected",
+        line: 3,
+        reason: "attachment release is unavailable over stdio",
     });
 });
 

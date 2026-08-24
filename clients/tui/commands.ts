@@ -15,6 +15,7 @@ import {
 import type { SettingsDestination } from "../../src/engine/settings-destination.ts";
 import { TUI_ACCENT, TUI_MUTED, TUI_TEXT } from "./state.ts";
 import { tuiKeyHint } from "./keymap.ts";
+import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 
 /** What a command's first argument names, so the composer can complete it. */
 export type TuiCommandArgumentKind = "model" | "mention";
@@ -147,6 +148,7 @@ export interface ReconnectTuiCommandAction {
 
 export interface CreateSessionTuiCommandAction {
     readonly type: "create_session";
+    readonly sourceDisposition?: TuiSessionLeaveDisposition;
 }
 
 export interface UpdateSessionNameTuiCommandAction {
@@ -462,7 +464,7 @@ const RECONNECT_COMMAND = {
 const CLEAR_COMMAND = {
     name: "clear",
     description: "Start a new conversation",
-    usage: "/clear",
+    usage: "/clear [--background]",
 } as const satisfies TuiCommandCatalogEntry;
 
 const RENAME_COMMAND = {
@@ -1356,7 +1358,14 @@ export function createConfiguredBuiltinTuiCommandRegistry(
     });
     registry.registerCommand({
         ...CLEAR_COMMAND,
-        action: { type: "create_session" },
+        parse: (argumentsText) => argumentsText.length === 0
+            ? { type: "create_session" }
+            : argumentsText === "--background"
+            ? { type: "create_session", sourceDisposition: "keep_running" }
+            : {
+                type: "command_error",
+                message: `Usage: ${CLEAR_COMMAND.usage}`,
+            },
         palette: {
             name: "clear",
             label: "New conversation",

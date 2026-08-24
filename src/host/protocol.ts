@@ -238,12 +238,26 @@ export interface HostIdentityResponse {
 export interface AttachRequest {
     readonly type: "attach";
     readonly agent_id: string;
+    /** Interactive attachments participate in the host's stop-if-last rule. */
+    readonly attachment_kind?: "interactive";
+    /** Stable across every attachment and reconnect owned by one UI process. */
+    readonly client_id?: string;
     readonly requested_capabilities?: readonly string[];
     readonly after_seq?: number;
 }
 
 export interface DetachRequest {
     readonly type: "detach";
+}
+
+export type AttachmentReleasePolicy =
+    | "keep_running"
+    | "stop_if_last"
+    | "force_stop";
+
+export interface ReleaseAttachmentRequest {
+    readonly type: "release_attachment";
+    readonly policy: AttachmentReleasePolicy;
 }
 
 export interface ListExtensionCommandsRequest {
@@ -338,6 +352,20 @@ export interface AttachFailedResponse {
 
 export interface DetachedResponse {
     readonly type: "detached";
+}
+
+export interface AttachmentReleasedResponse {
+    readonly type: "attachment_released";
+    readonly agent_id: string;
+    readonly outcome: "detached" | "stopped";
+    readonly remaining_interactive_clients: number;
+    readonly session_retained?: boolean;
+}
+
+export interface AttachmentReleaseRejectedResponse {
+    readonly type: "attachment_release_rejected";
+    readonly agent_id: string;
+    readonly reason: "not_found" | "not_owned" | "failed";
 }
 
 export interface AgentListResponse {
@@ -473,6 +501,7 @@ export type HostRequest =
 export type AttachedClientMessage =
     | ClientCommand
     | DetachRequest
+    | ReleaseAttachmentRequest
     | ListExtensionCommandsRequest
     | RunExtensionCommandRequest;
 export type HostResponse =
@@ -503,6 +532,8 @@ export type HostResponse =
     | WorkIndexResponse
     | AttachFailedResponse
     | DetachedResponse
+    | AttachmentReleasedResponse
+    | AttachmentReleaseRejectedResponse
     | ExtensionCommandHostResponse
     | ProtocolErrorResponse;
 
@@ -755,6 +786,13 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         value?.type === "attach"
         && typeof value.agent_id === "string"
         && value.agent_id.length > 0
+        && (value.attachment_kind === undefined
+            || value.attachment_kind === "interactive")
+        && (value.attachment_kind === "interactive"
+            ? typeof value.client_id === "string"
+                && value.client_id.length > 0
+                && value.client_id.length <= 256
+            : value.client_id === undefined)
         && (value.requested_capabilities === undefined
             || parseHostCapabilities(value.requested_capabilities) !== undefined)
         && (value.after_seq === undefined
@@ -767,6 +805,12 @@ export function parseHostRequest(source: string): HostRequest | undefined {
         return {
             type: "attach",
             agent_id: value.agent_id,
+            ...(value.attachment_kind === undefined
+                ? {}
+                : { attachment_kind: value.attachment_kind }),
+            ...(value.client_id === undefined
+                ? {}
+                : { client_id: value.client_id as string }),
             ...(requestedCapabilities === undefined
                 ? {}
                 : { requested_capabilities: requestedCapabilities }),
@@ -820,6 +864,14 @@ export function parseAttachedClientMessage(
     const value = parseJsonObject(source);
     if (value?.type === "detach") {
         return { type: "detach" };
+    }
+    if (
+        value?.type === "release_attachment"
+        && (value.policy === "keep_running"
+            || value.policy === "stop_if_last"
+            || value.policy === "force_stop")
+    ) {
+        return { type: "release_attachment", policy: value.policy };
     }
     if (
         value?.type === "list_extension_commands"

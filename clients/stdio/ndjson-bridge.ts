@@ -191,6 +191,14 @@ export async function runAttachedStdioBridge(
                     await detach();
                     return;
                 }
+                if (message.type === "release_attachment") {
+                    writeJson(output, {
+                        type: "stdio_rejected",
+                        line: lineNumber,
+                        reason: "attachment release is unavailable over stdio",
+                    });
+                    continue;
+                }
                 if (message.type === "list_extension_commands") {
                     await forwardExtensionList(message.request_id);
                     continue;

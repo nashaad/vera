@@ -19,6 +19,7 @@ export interface TuiAgentClient {
     receive(signal?: AbortSignal): Promise<AgentUpdate>;
     listExtensionCommands?: AttachedAgentClient["listExtensionCommands"];
     runExtensionCommand?: AttachedAgentClient["runExtensionCommand"];
+    release?: AttachedAgentClient["release"];
     detach(): Promise<void>;
     close(): void;
 }

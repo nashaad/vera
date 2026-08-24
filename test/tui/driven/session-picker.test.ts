@@ -62,7 +62,10 @@ test("resume picker switches conversation without restarting the TUI", async () 
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
-            .toBe("/sessions/target.jsonl\ndetached\ntarget-session-id");
+            .toBe(
+                "/sessions/target.jsonl\ndetached\ntarget-session-id"
+                    + "\nclosed current-session-id,target-session-id",
+            );
     } finally {
         await session.close();
     }

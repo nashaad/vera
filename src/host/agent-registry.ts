@@ -1238,6 +1238,11 @@ export class AgentRegistry {
         return "closed";
     }
 
+    /** Root plus every live descendant whose execution it owns. */
+    ownedTreeIds(id: string): readonly string[] {
+        return this.agents.has(id) ? [id, ...this.liveDescendantsOf(id)] : [];
+    }
+
     /**
      * Close one agent and every live agent descended from it.
      *
