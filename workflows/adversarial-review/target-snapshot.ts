@@ -1,4 +1,4 @@
-import { captureBounded } from "../../src/tools/bounded-capture.ts";
+import { captureBounded } from "./bounded-output.ts";
 import {
     AdversarialReviewInputError,
     validateAdversarialTarget,

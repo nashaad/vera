@@ -1,7 +1,13 @@
 # Adversarial review
 
-Vera's bundled adversarial review is one deterministic TypeScript workflow
-with three entry points:
+Vera's adversarial review is one deterministic TypeScript SDK workflow at
+`workflows/adversarial-review/`. Run it directly from a Vera checkout:
+
+```sh
+bun run workflows/adversarial-review/main.ts --uncommitted
+```
+
+Three thin Vera adapters expose the same workflow:
 
 - `/adversarial --uncommitted`, `--commit <sha>`, or `--base <ref>`;
 - the top-level-only `adversarial_review` extension tool;

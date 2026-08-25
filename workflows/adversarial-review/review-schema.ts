@@ -1,4 +1,4 @@
-import type { AgentOutputSchema } from "../../src/sdk/agent.ts";
+import type { AgentOutputSchema } from "../../index.ts";
 
 export type ReviewSeverity = "critical" | "high" | "medium" | "low";
 

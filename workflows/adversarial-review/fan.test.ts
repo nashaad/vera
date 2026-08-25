@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { Vera } from "../../src/sdk/agent.ts";
+import { Vera } from "../../index.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import {
     emptyUsage,

@@ -1,4 +1,4 @@
-import { defineAgent, type AgentDefinition } from "../../src/agents/definition.ts";
+import { defineAgent, type AgentDefinition } from "../../index.ts";
 
 export const CORRECTNESS_INSTRUCTIONS = `Trace the changed control flow and find defects that make the implementation produce the wrong result, lose state, violate an invariant, or mishandle a boundary case. Prefer a concrete failure path over a general concern. Return only JSON with this exact shape: {"findings":[{"summary":"non-empty text","severity":"critical|high|medium|low","file":"optional path","line":1,"mechanism":"non-empty failure mechanism","evidence":"non-empty evidence from the target","suggestedFix":"optional smallest correction"}]}. Use an empty findings array when no defect is supported.`;
 

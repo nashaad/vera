@@ -5,7 +5,7 @@ import {
     parseAdversarialTarget,
     runAdversarialReview,
     type AdversarialTarget,
-} from "./review.ts";
+} from "../../workflows/adversarial-review/review.ts";
 
 export interface AdversarialExtensionDependencies {
     readonly review?: typeof runAdversarialReview;
