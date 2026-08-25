@@ -997,7 +997,16 @@ export async function startResidentHost(
             syncAgentContext: (agentId) => registry.syncBranchContext(agentId),
             trashSession: (targetId) => registry.trashSession(targetId),
             closeAgent: async (targetId) => {
+                const treeIds = registry.ownedTreeIds(targetId);
                 const outcome = await registry.closeAgentTree(targetId);
+                if (outcome.status === "closed" && outcome.sessionRetained) {
+                    for (const id of treeIds.length > 0 ? treeIds : [targetId]) {
+                        await indexStoredSession(
+                            join(sessionDirectory, `${id}.jsonl`),
+                            storedSessionIndex,
+                        );
+                    }
+                }
                 if (outcome.status === "closed") {
                     return {
                         status: "closed",
@@ -2137,9 +2146,8 @@ async function indexStoredSessions(
 
 /**
  * Index one session file into the stored-session map. Called for every file
- * at startup, and again for each session finished after startup (a run-once
- * turn closes its agent immediately), so the listing keeps covering sessions
- * the registry no longer holds.
+ * at startup, after a run-once turn, and after a live tree close, so the
+ * listing keeps covering sessions the registry no longer holds.
  */
 export async function indexStoredSession(
     path: string,
@@ -2154,7 +2162,9 @@ export async function indexStoredSession(
             id: header.id,
             workspace: header.cwd,
             session_path: path,
-            kind: "interactive",
+            kind: header.delegation?.kind === "subagent"
+                ? "background"
+                : "interactive",
             status: "completed",
             live: false,
             updated_at: fileStat?.mtime.toISOString() ?? header.timestamp,
@@ -2166,6 +2176,12 @@ export async function indexStoredSession(
             ...(header.origin === undefined
                 ? {}
                 : { forked_from: header.origin.sessionId }),
+            ...(header.delegation?.parentId === undefined
+                    && header.parentId === undefined
+                ? {}
+                : {
+                    parent_id: header.delegation?.parentId ?? header.parentId,
+                }),
             ...(size === undefined ? {} : { size_bytes: size }),
         });
     } catch {

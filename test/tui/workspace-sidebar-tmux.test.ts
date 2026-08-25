@@ -46,7 +46,6 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
-    expect(pane).toContain("background");
     expect(pane).toContain("provider-fall…");
     // The rail is as narrow as its rows, so it takes the short hint.
     expect(pane).toContain("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc");
@@ -335,7 +334,7 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
         // Down twice from the top row lands on relay-gui, which is neither
-        // first nor in the background group.
+        // first nor an idle recents row.
         tui.key("Down");
         tui.key("Down");
         await tui.paneWhere((value) =>
@@ -384,7 +383,8 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     expect(row("this one")).toContain("❯");
     expect(row("old chat")).toContain("old chat");
     expect(row("old chat")).not.toContain("● old chat");
-    expect(pane).toContain("background");
+    expect(pane.split("\n").some((line) => line.trim() === "background"))
+        .toBe(false);
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in it", async () => {

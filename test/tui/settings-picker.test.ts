@@ -212,6 +212,38 @@ test("a child picker can include an untitled hosted agent", async () => {
         });
 });
 
+test("a child picker Enter keeps the source running", async () => {
+    const state = startTuiSessionPicker(
+        [{
+            id: "frosty-frost:9f3a:UAT-tester",
+            workspace: "/work/alpha",
+            session_path: "/sessions/child.jsonl",
+            kind: "background",
+            status: "working",
+            live: true,
+            parent_id: "parent",
+        }],
+        "parent",
+        false,
+        new Date(),
+        true,
+        [],
+        "keep_running",
+    );
+
+    expect(handleTuiSettingsPickerKey(state, { name: "enter" }).selection)
+        .toEqual({
+            kind: "session",
+            sessionPath: "/sessions/child.jsonl",
+            sessionId: "frosty-frost:9f3a:UAT-tester",
+            sourceDisposition: "keep_running",
+        });
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("⏎ switch");
+    expect(frame).not.toContain("stop & switch");
+    expect(frame).not.toContain("keep running");
+});
+
 test("session picker threads an async subagent under its parent", async () => {
     const state = startTuiSessionPicker([
         {

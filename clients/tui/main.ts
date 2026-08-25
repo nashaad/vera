@@ -6457,6 +6457,10 @@ export async function startTui(
                 [],
                 targetAgentId,
                 true,
+                new Date(),
+                true,
+                [],
+                "keep_running",
             );
             focusActiveSurface();
             renderState();
@@ -6490,6 +6494,8 @@ export async function startTui(
                     false,
                     new Date(),
                     true,
+                    [],
+                    "keep_running",
                 );
                 focusActiveSurface();
                 renderState();
@@ -6546,7 +6552,13 @@ export async function startTui(
                     renderState();
                     return;
                 }
-                beginSessionResume(parent.session_path, parent.id);
+                beginSessionResume(
+                    parent.session_path,
+                    parent.id,
+                    false,
+                    false,
+                    "keep_running",
+                );
             }).catch((error) => {
                 if (shuttingDown) return;
                 const message = error instanceof Error
@@ -10728,6 +10740,7 @@ export async function startTui(
                 new Date(),
                 false,
                 hostedPanePersistence.groups,
+                settingsPicker.enterDisposition ?? "stop",
             );
             renderState();
         } catch {
@@ -11056,6 +11069,11 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    /**
+     * Return to the conversation this hop started from.
+     *
+     * `/back` is a view switch. It does not stop the conversation on screen.
+     */
     function runBack(): void {
         if (backOriginId === undefined) {
             state = appendTuiNotice(
@@ -11084,7 +11102,13 @@ export async function startTui(
                 renderState();
                 return;
             }
-            beginSessionResume(origin.session_path, origin.id, true);
+            beginSessionResume(
+                origin.session_path,
+                origin.id,
+                true,
+                true,
+                "keep_running",
+            );
         }).catch((error) => {
             if (shuttingDown) return;
             state = appendTuiError(
@@ -11146,6 +11170,8 @@ export async function startTui(
             row.sessionPath,
             row.sessionId,
             row.kind === "back",
+            true,
+            "keep_running",
         );
     }
 
@@ -11279,7 +11305,9 @@ export async function startTui(
      * Switch to the next or previous live session from anywhere.
      *
      * The rail does not have to be open. Leave is keep-running, the same as a
-     * rail click. Parked jsonl rows are not in the ring.
+     * rail click. Parked jsonl rows are not in the ring. Cycle does not arm
+     * `/back`: it is working-set chrome, and a child hop should offer
+     * `/parent` instead.
      */
     function cycleLiveSession(direction: 1 | -1): void {
         const openFrom = (listed: WorkspaceSidebarState): void => {
@@ -11291,7 +11319,9 @@ export async function startTui(
             );
             if (target === undefined) return;
             const action = openWorkspaceSelection(listed, target.id);
-            if (action !== undefined) runWorkspaceSidebarAction(action);
+            if (action !== undefined) {
+                runWorkspaceSidebarAction(action, false);
+            }
         };
         if (workspaceSidebar !== undefined) {
             openFrom(workspaceSidebar);
@@ -11434,7 +11464,10 @@ export async function startTui(
         focusActiveSurface();
     }
 
-    function runWorkspaceSidebarAction(action: WorkspaceSidebarAction): void {
+    function runWorkspaceSidebarAction(
+        action: WorkspaceSidebarAction,
+        armsBack = true,
+    ): void {
         if (action.kind === "close") {
             workspaceSidebarFocused = false;
             composer.focus();
@@ -11474,7 +11507,7 @@ export async function startTui(
             action.session_path,
             action.session_id,
             false,
-            true,
+            armsBack,
             "keep_running",
             action.active ? "attach" : "jsonl",
         );
@@ -12820,17 +12853,51 @@ export async function startTui(
                     "The previous conversation is still running in another client";
                 pendingSessionSwitchNotice = notice;
             }
+            const destId = client.agentId;
+            let destParentId: string | undefined;
+            let destParentTitle: string | undefined;
+            if (dependencies.listAgents !== undefined && destId !== undefined) {
+                try {
+                    const agents = await dependencies.listAgents();
+                    const dest = agents.find((agent) => agent.id === destId);
+                    destParentId = dest?.parent_id;
+                    if (destParentId !== undefined) {
+                        destParentTitle = agents.find(
+                            (agent) => agent.id === destParentId,
+                        )?.title;
+                    }
+                } catch {
+                    // The switch already landed; a listing failure cannot
+                    // take it back.
+                }
+            }
             if (viaBack) {
                 backOriginId = undefined;
-            } else if (backOriginId !== undefined) {
+            }
+            let noticeKind: "parent" | "back" | "none" = "none";
+            if (destParentId !== undefined) {
+                noticeKind = "parent";
+                const notice =
+                    "Type /parent to return to the parent conversation";
+                state = appendTuiNotice(
+                    state,
+                    destParentTitle === undefined
+                        ? notice
+                        : `Type /parent to return to "${destParentTitle}"`,
+                    "soft",
+                );
+                pendingBackNotice = notice;
+                renderState();
+            } else if (
+                backOriginId !== undefined
+                && destId !== backOriginId
+            ) {
+                noticeKind = "back";
                 // The way back, said where the person landed: the switch is
                 // easy to make by accident from the work tab, and nothing
                 // else on screen names the return trip.
                 const notice =
                     "Type /back to return to the conversation you came from";
-                // The top copy names the origin so the hop reads as a place
-                // left, not just a rule; the copy after the transcript stays
-                // generic since the name is already on screen by then.
                 let originTitle = backOriginTitle;
                 if (
                     originTitle === undefined
@@ -12852,6 +12919,8 @@ export async function startTui(
                 );
                 pendingBackNotice = notice;
                 renderState();
+            } else if (destId === backOriginId) {
+                backOriginId = undefined;
             }
         }).catch((error) => {
             if (shuttingDown) return;
