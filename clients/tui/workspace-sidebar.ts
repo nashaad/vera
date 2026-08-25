@@ -26,12 +26,12 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 export const WORKSPACE_JUMP_ROWS = 9;
 
 /**
- * Idle jsonl rows listed only while the inactive pile is this small.
+ * Idle jsonl rows kept in the rail, newest first.
  *
- * Live sessions have no cap. A larger inactive pile stays in `/resume`. The
- * session on screen is always kept, even when it is idle.
+ * Live sessions have no cap. Older idle history stays in `/resume`. The
+ * session on screen and any pin are always kept, even when they are idle.
  */
-export const WORKSPACE_IDLE_FEW = 3;
+export const WORKSPACE_RECENT_IDLE = 5;
 
 const NARROW_WIDTH = 64;
 
@@ -99,6 +99,7 @@ export interface WorkspaceSidebarState {
 
 export type WorkspaceSidebarAction =
     | { readonly kind: "close" }
+    | { readonly kind: "hide" }
     | {
         readonly kind: "open_session";
         readonly session_id: string;
@@ -148,21 +149,56 @@ export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
 }
 
 /**
- * The rows the explorer draws from a roster.
+ * The rows the agent sidebar draws from a roster.
  *
- * Live sessions are the working set and have no cap. Idle jsonl rows are
- * listed only while there are few of them. The session on screen is always
- * kept, even when it is idle.
+ * Live sessions are the working set and have no cap. Idle jsonl rows keep
+ * the last few by recency. The session on screen and pinned rows are always
+ * kept, even when they are idle, and they do not consume a recents slot: the
+ * five are besides those rows, so a second project's idle chat does not
+ * vanish when you look at one that already made the cut.
  */
 export function workspaceWorkingSet(
     sessions: readonly WorkspaceSidebarSession[],
     currentId?: string,
+    pinnedIds: readonly string[] = [],
 ): readonly WorkspaceSidebarSession[] {
-    const idle = sessions.filter((session) => !isWorkspaceActive(session));
-    if (idle.length <= WORKSPACE_IDLE_FEW) return sessions;
-    return sessions.filter((session) =>
-        isWorkspaceActive(session) || session.id === currentId
+    const pinned = new Set(pinnedIds);
+    const kept = new Set<string>();
+    for (const session of sessions) {
+        if (
+            isWorkspaceActive(session)
+            || session.id === currentId
+            || pinned.has(session.id)
+        ) {
+            kept.add(session.id);
+        }
+    }
+    const recentIdle = new Set(
+        sessions
+            .filter((session) => !kept.has(session.id))
+            .slice()
+            .sort(byIdleRecency)
+            .slice(0, WORKSPACE_RECENT_IDLE)
+            .map((session) => session.id),
     );
+    return sessions.filter((session) =>
+        kept.has(session.id) || recentIdle.has(session.id)
+    );
+}
+
+function byIdleRecency(
+    left: WorkspaceSidebarSession,
+    right: WorkspaceSidebarSession,
+): number {
+    const difference = idleTimestamp(right.updatedAt)
+        - idleTimestamp(left.updatedAt);
+    return difference === 0 ? left.id.localeCompare(right.id) : difference;
+}
+
+function idleTimestamp(value: string | undefined): number {
+    if (value === undefined) return 0;
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed : 0;
 }
 
 export function startWorkspaceSidebar(
@@ -259,7 +295,11 @@ export function workspaceSidebarLayout(
     input: WorkspaceSidebarLayoutInput,
 ): WorkspacePanelLayout {
     return layoutWorkspacePanel({
-        sessions: workspaceWorkingSet(state.sessions, state.currentId),
+        sessions: workspaceWorkingSet(
+            state.sessions,
+            state.currentId,
+            state.pinnedIds,
+        ),
         columns: input.columns,
         now: input.now,
         ...(input.contentColumns === undefined
@@ -302,8 +342,8 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * i or escape returns to chat, and digits address rows. None of the movement
- * keys switch the viewed session.
+ * i returns to the composer and leaves the rail up, escape hides it, and
+ * digits address rows. None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
  * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
@@ -341,7 +381,10 @@ export function handleWorkspaceSidebarKey(
     }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
-    if (key.name === "escape" || key.name === "i") {
+    if (key.name === "escape") {
+        return { action: { kind: "hide" }, handled: true };
+    }
+    if (key.name === "i") {
         return { action: { kind: "close" }, handled: true };
     }
     if (
@@ -407,8 +450,12 @@ export function openWorkspaceSelection(
 }
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
-    const listed = workspaceWorkingSet(state.sessions, state.currentId).length;
-    return listed === 0 ? "Workspace" : `Workspace · ${listed}`;
+    const listed = workspaceWorkingSet(
+        state.sessions,
+        state.currentId,
+        state.pinnedIds,
+    ).length;
+    return listed === 0 ? "Agent sidebar" : `Agent sidebar · ${listed}`;
 }
 
 /**
@@ -420,8 +467,8 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  */
 export function workspaceSidebarFooter(width: number): string {
     return width < NARROW_WIDTH
-        ? "↑↓/jk ^d^u 1-9 p i/esc"
-        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat";
+        ? "↑↓/jk ^d^u ⏎ 1-9 p i esc"
+        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i chat · esc hide";
 }
 
 /**
@@ -461,7 +508,10 @@ export function workspaceSidebarViewState(
     let position = 0;
     const lines: LinesViewState["lines"][number][] = layout.rows.map((row) => {
         if (row.kind === "group") {
-            return { text: row.text, tone: "accent" as const };
+            return {
+                text: row.text,
+                tone: focused ? "accent" as const : "muted" as const,
+            };
         }
         position += 1;
         // The digit is drawn on the row it addresses. Positional and churning
@@ -470,12 +520,16 @@ export function workspaceSidebarViewState(
         const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
         return {
             text: `${digit} ${row.text}`,
-            tone: "text" as const,
+            tone: focused ? "text" as const : "muted" as const,
             rowId: row.id,
-            ...(row.selected ? { selected: true } : {}),
+            // The orange bar is focus decoration. Selection still reads as `>`
+            // in the row text when the rail is up and the composer has focus.
+            ...(focused && row.selected ? { selected: true } : {}),
         };
     });
-    const cursorLine = lines.findIndex((line) => line.selected === true);
+    const cursorLine = lines.findIndex((line) =>
+        line.rowId !== undefined && line.rowId === layout.selectedId
+    );
     return {
         // Keep a fixed leading slot so focus can blink without moving the
         // title. Chat focus clears the whole marker, not only its caret.
@@ -487,6 +541,7 @@ export function workspaceSidebarViewState(
             ? [{ text: "No other sessions.", tone: "muted" as const }]
             : lines,
         footer: workspaceSidebarFooter(width),
+        ...(focused ? {} : { dimmed: true }),
     };
 }
 

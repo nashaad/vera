@@ -37,40 +37,38 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) => value.includes("Workspace"));
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => !value.includes("Workspace ·"));
+        await tui.paneWhere((value) => !value.includes("Agent sidebar ·"));
         return open;
     });
 
-    expect(pane).toContain("Workspace · 5");
+    expect(pane).toContain("Agent sidebar · 5");
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
     expect(pane).toContain("background");
     expect(pane).toContain("provider-fall…");
     // The rail is as narrow as its rows, so it takes the short hint.
-    expect(pane).toContain("↑↓/jk ^d^u 1-9 p i/esc");
+    expect(pane).toContain("↑↓/jk ^d^u ⏎ 1-9 p i esc");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("escape returns to chat without hiding the dock", async () => {
+test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", async () => {
     const result = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
         const focused = await tui.paneWhere(hasFocusedWorkspace);
         tui.key("Escape");
         await Bun.sleep(100);
-        tui.text("draft beside dock");
+        tui.text("draft after hide");
         const chat = await tui.paneWhere((value) =>
-            value.includes("Workspace ·")
-            && value.includes("draft beside dock")
+            value.includes("draft after hide")
         );
         return { focused, chat };
     });
 
     expect(workspaceLine(result.focused))
-        .toMatch(/\[(?: > |   )\] Workspace · 5/);
-    expect(result.chat).toContain("Workspace · 5");
-    expect(hasFocusedWorkspace(result.chat)).toBe(false);
-    expect(result.chat).toContain("draft beside dock");
+        .toMatch(/\[(?: > |   )\] Agent sidebar · 5/);
+    expect(result.chat).not.toContain("Agent sidebar · 5");
+    expect(result.chat).toContain("draft after hide");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a boxed caret blinks while the explorer has focus", async () => {
@@ -88,7 +86,7 @@ test.skipIf(!tmuxAvailable)("a boxed caret blinks while the explorer has focus",
 
         tui.key("Escape");
         const chatPane = await tui.paneWhere((value) =>
-            value.includes("Workspace ·") && !hasFocusedWorkspace(value)
+            value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
         );
         const chatFirst = workspaceLine(chatPane);
         await Bun.sleep(520);
@@ -107,11 +105,11 @@ test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside t
         await tui.paneWhere(hasFocusedWorkspace);
         tui.key("Escape");
         await tui.paneWhere((value) =>
-            value.includes("Workspace ·") && !hasFocusedWorkspace(value)
+            value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
         );
         tui.text("/");
         return await tui.paneWhere((value) =>
-            value.includes("Workspace ·") && value.includes("/rewind")
+            value.includes("Agent sidebar ·") && value.includes("/rewind")
         );
     }, 120, 46);
 
@@ -133,17 +131,17 @@ test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async (
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Workspace ·"));
+        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
         tui.text("i");
         await Bun.sleep(100);
         tui.text("insert beside dock");
         return await tui.paneWhere((value) =>
-            value.includes("Workspace ·")
+            value.includes("Agent sidebar ·")
             && value.includes("insert beside dock")
         );
     });
 
-    expect(pane).toContain("Workspace · 5");
+    expect(pane).toContain("Agent sidebar · 5");
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
@@ -155,7 +153,7 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Workspace ·"));
+        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
         tui.key("Escape");
         await Bun.sleep(100);
         tui.text("/model");
@@ -163,12 +161,12 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
         tui.key("Enter");
         return await tui.paneWhere((value) =>
             value.includes("Select model")
-            && !value.includes("Workspace ·")
+            && !value.includes("Agent sidebar ·")
         );
     }, 120, 34);
 
     expect(pane).toContain("Select model");
-    expect(pane).not.toContain("Workspace ·");
+    expect(pane).not.toContain("Agent sidebar ·");
     // Full width again: every tab stop is on screen, not clipped by a card
     // narrowed to fit beside the dock.
     expect(pane).toContain("Providers ^e");
@@ -179,7 +177,7 @@ test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", as
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Workspace ·") && value.includes("│")
+            value.includes("Agent sidebar ·") && value.includes("│")
         );
         const divider = column(before, "│");
         const chatBefore = column(before, "Start a conversation");
@@ -203,7 +201,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     const { after, opened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Workspace ·"));
+        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
         tui.key("Down");
         const after = await tui.paneWhere(
             (value) => selectedRow(value).includes("auth-race"),
@@ -229,7 +227,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(after).toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
-    expect(opened).toContain("Workspace ·");
+    expect(opened).toContain("Agent sidebar ·");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening", async () => {
@@ -239,7 +237,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Workspace · 45")
+            value.includes("Agent sidebar · 45")
         );
         const selectedBefore = selectedRow(before);
         tui.bytes(CTRL_D);
@@ -271,7 +269,7 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
             && value.includes("provider-fall…")
-            && value.includes("↑↓/jk ^d^u 1-9 p i/esc")
+            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i esc")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
@@ -290,7 +288,7 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("↑↓/jk ^d^u 1-9 p i/esc")
+            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i esc")
         );
         tui.text("2");
         const opened = await tui.paneWhere((value) =>
@@ -312,7 +310,7 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
     const { pinned, reopened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Workspace ·"));
+        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
         // Down twice from the top row lands on relay-gui, which is neither
         // first nor in the background group.
         tui.key("Down");
@@ -323,7 +321,7 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
         tui.text("p");
         const pinned = await tui.paneWhere((value) => value.includes("pinned"));
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => !value.includes("Workspace ·"));
+        await tui.paneWhere((value) => !value.includes("Agent sidebar ·"));
         tui.bytes(CTRL_E);
         const reopened = await tui.paneWhere((value) => value.includes("pinned"));
         return { pinned, reopened };
@@ -344,7 +342,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("Workspace ·"));
+        return await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
     });
 
     const row = (title: string): string =>
@@ -364,7 +362,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Workspace ·")
+            value.includes("Agent sidebar ·")
         );
         // The host registers the session and pushes the index that mentions
         // it. Nothing here reopens the pane.
@@ -375,7 +373,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     }, 120, 34, { VERA_TEST_PUSH_WORK_AFTER_MS: "1500" });
 
     expect(before).not.toContain("late-arrival");
-    expect(after).toContain("Workspace · 6");
+    expect(after).toContain("Agent sidebar · 6");
     // Listed with the status the same push carried, not as an idle row.
     expect(after.split("\n").find((line) => line.includes("late-arrival")))
         .toContain("? late-arrival");
@@ -434,11 +432,11 @@ function column(pane: string, text: string): number {
 }
 
 function workspaceLine(pane: string): string {
-    return pane.split("\n").find((line) => line.includes("Workspace")) ?? "";
+    return pane.split("\n").find((line) => line.includes("Agent sidebar")) ?? "";
 }
 
 function hasFocusedWorkspace(pane: string): boolean {
-    return /\[(?: > |   )\] Workspace ·/.test(workspaceLine(pane));
+    return /\[(?: > |   )\] Agent sidebar ·/.test(workspaceLine(pane));
 }
 
 /** The selected row carries `›`, so navigation remains testable without color. */

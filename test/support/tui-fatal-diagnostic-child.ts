@@ -8,7 +8,10 @@ import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
 export function createTuiFatalDiagnosticDependencies(
-    options: { readonly disconnectAfterFailure?: boolean } = {},
+    options: {
+        readonly disconnectAfterFailure?: boolean;
+        readonly reconnectSession?: TuiDependencies["reconnectSession"];
+    } = {},
 ): TuiDependencies {
     const updates = new AsyncQueue<AgentUpdate>();
     updates.push({
@@ -49,7 +52,12 @@ export function createTuiFatalDiagnosticDependencies(
         close(): void {},
     };
 
-    return { client };
+    return {
+        client,
+        ...(options.reconnectSession === undefined
+            ? {}
+            : { reconnectSession: options.reconnectSession }),
+    };
 }
 
 if (import.meta.main) {
