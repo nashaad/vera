@@ -80,6 +80,9 @@ function completed(): AdversarialReviewResult {
         target: { kind: "uncommitted" },
         changedFiles: "M file.ts",
         patchBytes: 12,
+        findings: [],
+        lensFailures: [],
+        runs: [],
         model: { provider: "faux", model: "reviewer" },
         substitutions: [],
     };

@@ -1,88 +1,292 @@
-import { captureBounded } from "../../src/tools/bounded-capture.ts";
+import type { AgentDefinition } from "../../src/agents/definition.ts";
+import type {
+    SessionModelUsage,
+    SessionModelUsageRow,
+} from "../../src/engine/protocol.ts";
 import {
     Vera,
+    type AgentRunError,
+    type AgentRunModelIdentity,
+    type AgentRunOptions,
+    type AgentRunOutcome,
     type AgentRunResult,
 } from "../../src/sdk/agent.ts";
+import {
+    REVIEW_LENSES,
+    refuter,
+    type ReviewLensName,
+} from "./lenses.ts";
+import {
+    FINDINGS_SCHEMA,
+    VERDICT_SCHEMA,
+    type RefutationVerdict,
+    type ReviewFinding,
+    type ReviewFindingsOutput,
+} from "./review-schema.ts";
+import {
+    AdversarialReviewInputError,
+    parseAdversarialTarget,
+    type AdversarialReviewRequest,
+    type AdversarialTarget,
+} from "./review-request.ts";
+import {
+    prepareReview,
+    type PreparedReview,
+} from "./target-snapshot.ts";
+
+export {
+    AdversarialReviewInputError,
+    parseAdversarialTarget,
+} from "./review-request.ts";
+export type {
+    AdversarialReviewRequest,
+    AdversarialTarget,
+} from "./review-request.ts";
 
 export const ADVERSARIAL_REVIEW_PROMPT = "You are the leaf adversarial reviewer. Review only the selected git target. Do not edit files, run tests or builds, commit, push, merge, reset, stash, invoke codex exec, invoke any other agent, or request another review. Return actionable findings first, ordered P0 through P3, with precise file/line or commit references, concrete failure mechanisms, and smallest useful corrections. Separate confirmed defects from questions and suggestions. End with coverage and unverified areas.";
-
-const MAX_PATCH_BYTES = 1_000_000;
-const MAX_GIT_ERROR_BYTES = 64 * 1024;
 export const ADVERSARIAL_REVIEW_TIMEOUT_MS = 10 * 60_000;
 
-export type AdversarialTarget =
-    | { readonly kind: "uncommitted" }
-    | { readonly kind: "commit"; readonly value: string }
-    | { readonly kind: "base"; readonly value: string };
+export interface ReviewedFinding {
+    readonly lens: ReviewLensName;
+    readonly finding: ReviewFinding;
+    readonly verdict: RefutationVerdict;
+}
 
-export interface AdversarialReviewRequest {
-    readonly workspace: string;
-    readonly target: AdversarialTarget;
-    readonly signal?: AbortSignal;
+export interface ReviewLensFailure {
+    readonly lens: ReviewLensName;
+    readonly error: AgentRunError;
+}
+
+export type ReviewRunRole = ReviewLensName | "refuter";
+
+export interface ReviewRunRecord {
+    readonly role: ReviewRunRole;
+    readonly findingIndex?: number;
+    readonly outcome: AgentRunOutcome;
+    readonly typed: boolean;
+    readonly model: AgentRunModelIdentity;
+    readonly usage?: SessionModelUsage;
+    readonly substitutions: AgentRunResult["substitutions"];
+    readonly error?: AgentRunError;
 }
 
 export interface AdversarialReviewResult {
-    readonly outcome: AgentRunResult["outcome"];
+    readonly outcome: AgentRunOutcome;
     readonly report: string;
     readonly target: AdversarialTarget;
     readonly resolvedRevision?: string;
     readonly changedFiles: string;
     readonly patchBytes: number;
-    readonly model: AgentRunResult["model"];
-    readonly usage?: AgentRunResult["usage"];
+    readonly findings: readonly ReviewedFinding[];
+    readonly lensFailures: readonly ReviewLensFailure[];
+    readonly runs: readonly ReviewRunRecord[];
+    readonly model: AgentRunModelIdentity;
+    readonly usage?: SessionModelUsage;
     readonly substitutions: AgentRunResult["substitutions"];
-    readonly error?: AgentRunResult["error"];
+    readonly error?: AgentRunError;
+}
+
+export interface ReviewRuntimeAgent {
+    run<Output = never>(
+        prompt: string,
+        options?: AgentRunOptions<Output>,
+    ): Promise<AgentRunResult<Output>>;
+}
+
+export interface ReviewRuntime {
+    agent(definition: AgentDefinition): ReviewRuntimeAgent;
+}
+
+export interface CreateReviewRuntimeOptions {
+    readonly workspace: string;
+    readonly signal?: AbortSignal;
 }
 
 export interface AdversarialReviewDependencies {
-    readonly createReviewer?: (
-        workspace: string,
-        signal?: AbortSignal,
-    ) => Promise<{
-        run(
-            prompt: string,
-            options?: { readonly signal?: AbortSignal },
-        ): Promise<AgentRunResult>;
-    }>;
-    readonly runGit?: typeof runGit;
+    readonly prepare?: typeof prepareReview;
+    readonly createRuntime?: (
+        options: CreateReviewRuntimeOptions,
+    ) => Promise<ReviewRuntime>;
 }
 
-export class AdversarialReviewInputError extends Error {
-    constructor(message: string) {
-        super(message);
-        this.name = "AdversarialReviewInputError";
-    }
+interface SourcedFinding {
+    readonly lens: ReviewLensName;
+    readonly finding: ReviewFinding;
+}
+
+interface LensPass {
+    readonly lens: ReviewLensName;
+    readonly result: AgentRunResult<ReviewFindingsOutput>;
+}
+
+interface RefutationPass {
+    readonly source: SourcedFinding;
+    readonly result: AgentRunResult<RefutationVerdict>;
 }
 
 export async function runAdversarialReview(
     request: AdversarialReviewRequest,
     dependencies: AdversarialReviewDependencies = {},
 ): Promise<AdversarialReviewResult> {
-    request.signal?.throwIfAborted();
-    const target = validatedTarget(request.target);
-    const snapshot = await buildReviewSnapshot(
-        request.workspace,
-        target,
-        request.signal,
-        dependencies.runGit ?? runGit,
-    );
-    const reviewer = await (dependencies.createReviewer ?? createReviewer)(
-        request.workspace,
-        request.signal,
-    );
-    request.signal?.throwIfAborted();
-    const result = await reviewer.run(snapshotPrompt(snapshot), {
+    const review = await (dependencies.prepare ?? prepareReview)(request);
+    const runtime = await (dependencies.createRuntime ?? createRuntime)({
+        workspace: request.workspace,
         signal: request.signal,
     });
+    request.signal?.throwIfAborted();
+
+    const lensPasses = await Promise.all(
+        REVIEW_LENSES.map(async (lens): Promise<LensPass> => ({
+            lens: lens.name,
+            result: await runtime.agent(lens.definition).run(review.prompt, {
+                signal: request.signal,
+                output: FINDINGS_SCHEMA,
+            }),
+        })),
+    );
+    const lensFailures = lensPasses.flatMap((pass) =>
+        pass.result.outcome === "completed" && pass.result.output !== undefined
+            ? []
+            : [{
+                lens: pass.lens,
+                error: resultError(pass.result, `${pass.lens} lens failed`),
+            }]
+    );
+    const sourced = lensPasses.flatMap((pass): readonly SourcedFinding[] =>
+        pass.result.outcome === "completed" && pass.result.output !== undefined
+            ? pass.result.output.findings.map((finding) => ({
+                lens: pass.lens,
+                finding,
+            }))
+            : []
+    );
+    const refutationPasses = await Promise.all(
+        sourced.map(async (source): Promise<RefutationPass> => ({
+            source,
+            result: await runtime.agent(refuter).run(
+                refutePrompt(source, review),
+                {
+                    signal: request.signal,
+                    output: VERDICT_SCHEMA,
+                },
+            ),
+        })),
+    );
+    const refutationFailures = refutationPasses.filter((pass) =>
+        pass.result.outcome !== "completed" || pass.result.output === undefined
+    );
+    const findings = refutationPasses.flatMap((pass): readonly ReviewedFinding[] =>
+        pass.result.outcome === "completed"
+            && pass.result.output !== undefined
+            && !pass.result.output.refuted
+            ? [{
+                lens: pass.source.lens,
+                finding: pass.source.finding,
+                verdict: pass.result.output,
+            }]
+            : []
+    );
+    const results: readonly AgentRunResult<unknown>[] = [
+        ...lensPasses.map((pass) => pass.result),
+        ...refutationPasses.map((pass) => pass.result),
+    ];
+    const runs: readonly ReviewRunRecord[] = [
+        ...lensPasses.map((pass) => runRecord(pass.lens, pass.result)),
+        ...refutationPasses.map((pass, index) =>
+            runRecord("refuter", pass.result, index)
+        ),
+    ];
+    const everyLensFailed = lensFailures.length === REVIEW_LENSES.length;
+    const error = everyLensFailed
+        ? {
+            kind: "runtime" as const,
+            message: "Every review lens failed.",
+        }
+        : refutationFailures.length > 0
+        ? {
+            kind: "runtime" as const,
+            message:
+                `${refutationFailures.length} finding refutation run failed.`,
+        }
+        : undefined;
+    const first = results[0];
+    if (first === undefined) {
+        throw new Error("Adversarial review started no runs");
+    }
+    return reviewResult({
+        review,
+        findings,
+        lensFailures,
+        runs,
+        results,
+        model: first.model,
+        error,
+    });
+}
+
+interface ReviewResultInput {
+    readonly review: PreparedReview;
+    readonly findings: readonly ReviewedFinding[];
+    readonly lensFailures: readonly ReviewLensFailure[];
+    readonly runs: readonly ReviewRunRecord[];
+    readonly results: readonly AgentRunResult<unknown>[];
+    readonly model: AgentRunModelIdentity;
+    readonly error?: AgentRunError;
+}
+
+function reviewResult(input: ReviewResultInput): AdversarialReviewResult {
+    const { review } = input;
+    const usage = aggregateUsage(input.results);
     return {
-        outcome: result.outcome,
-        report: result.text,
-        target,
-        ...(snapshot.resolvedRevision === undefined
+        outcome: input.error === undefined ? "completed" : "failed",
+        report: renderReport(input.findings, input.lensFailures, input.error),
+        target: review.target,
+        ...(review.snapshot.resolvedRevision === undefined
             ? {}
-            : { resolvedRevision: snapshot.resolvedRevision }),
-        changedFiles: snapshot.changedFiles,
-        patchBytes: snapshot.patchBytes,
+            : { resolvedRevision: review.snapshot.resolvedRevision }),
+        changedFiles: review.snapshot.changedFiles,
+        patchBytes: review.snapshot.patchBytes,
+        findings: input.findings,
+        lensFailures: input.lensFailures,
+        runs: input.runs,
+        model: input.model,
+        ...(usage === undefined ? {} : { usage }),
+        substitutions: input.results.flatMap((result) => result.substitutions),
+        ...(input.error === undefined ? {} : { error: input.error }),
+    };
+}
+
+function refutePrompt(source: SourcedFinding, review: PreparedReview): string {
+    return `Original task:\n${review.task}\n\nFinding from ${source.lens}:\n${JSON.stringify(source.finding)}\n\nImmutable target:\n${review.prompt}`;
+}
+
+async function createRuntime(
+    options: CreateReviewRuntimeOptions,
+): Promise<ReviewRuntime> {
+    options.signal?.throwIfAborted();
+    return Vera.create({
+        workspace: options.workspace,
+        posture: "readonly",
+    });
+}
+
+function resultError(
+    result: AgentRunResult<unknown>,
+    fallback: string,
+): AgentRunError {
+    return result.error ?? { kind: "runtime", message: fallback };
+}
+
+function runRecord(
+    role: ReviewRunRole,
+    result: AgentRunResult<unknown>,
+    findingIndex?: number,
+): ReviewRunRecord {
+    return {
+        role,
+        ...(findingIndex === undefined ? {} : { findingIndex }),
+        outcome: result.outcome,
+        typed: result.output !== undefined,
         model: result.model,
         ...(result.usage === undefined ? {} : { usage: result.usage }),
         substitutions: result.substitutions,
@@ -90,269 +294,65 @@ export async function runAdversarialReview(
     };
 }
 
-function validatedTarget(target: AdversarialTarget): AdversarialTarget {
-    if (target.kind === "uncommitted") {
-        return parseAdversarialTarget(["--uncommitted"]);
-    }
-    return parseAdversarialTarget([`--${target.kind}`, target.value]);
-}
-
-export function parseAdversarialTarget(
-    args: readonly string[],
-): AdversarialTarget {
-    if (args.length === 1 && args[0] === "--uncommitted") {
-        return { kind: "uncommitted" };
-    }
-    if (args.length === 2 && args[0] === "--commit") {
-        const value = args[1] ?? "";
-        if (!/^[0-9a-fA-F]{7,64}$/.test(value)) {
-            throw new AdversarialReviewInputError(
-                "--commit requires a 7-64 character hexadecimal commit hash",
-            );
+function aggregateUsage(
+    results: readonly AgentRunResult<unknown>[],
+): SessionModelUsage | undefined {
+    const rows = new Map<string, SessionModelUsageRow>();
+    for (const result of results) {
+        for (const row of result.usage?.rows ?? []) {
+            const key = `${row.provider}\0${row.model}`;
+            const prior = rows.get(key);
+            rows.set(key, {
+                provider: row.provider,
+                model: row.model,
+                calls: (prior?.calls ?? 0) + row.calls,
+                durationMs: (prior?.durationMs ?? 0) + row.durationMs,
+                inputTokens: (prior?.inputTokens ?? 0) + row.inputTokens,
+                outputTokens: (prior?.outputTokens ?? 0) + row.outputTokens,
+                cachedInputTokens: (prior?.cachedInputTokens ?? 0)
+                    + row.cachedInputTokens,
+                reasoningTokens: (prior?.reasoningTokens ?? 0)
+                    + row.reasoningTokens,
+                totalTokens: (prior?.totalTokens ?? 0) + row.totalTokens,
+                ...(row.cost === undefined && prior?.cost === undefined
+                    ? {}
+                    : { cost: (prior?.cost ?? 0) + (row.cost ?? 0) }),
+                callsWithoutCost: (prior?.callsWithoutCost ?? 0)
+                    + row.callsWithoutCost,
+            });
         }
-        return { kind: "commit", value };
     }
-    if (args.length === 2 && args[0] === "--base") {
-        const value = args[1] ?? "";
-        if (
-            value.length === 0
-            || value.length > 512
-            || value.startsWith("-")
-            || /[\s\0]/.test(value)
-        ) {
-            throw new AdversarialReviewInputError(
-                "--base requires one non-option git ref without whitespace",
-            );
-        }
-        return { kind: "base", value };
-    }
-    throw new AdversarialReviewInputError(
-        "usage: --uncommitted | --commit <sha> | --base <ref>",
-    );
+    return rows.size === 0 ? undefined : { rows: [...rows.values()] };
 }
 
-interface ReviewSnapshot {
-    readonly label: string;
-    readonly changedFiles: string;
-    readonly patch: string;
-    readonly patchBytes: number;
-    readonly resolvedRevision?: string;
-}
-
-async function createReviewer(workspace: string, signal?: AbortSignal) {
-    signal?.throwIfAborted();
-    const vera = await Vera.create({ workspace });
-    signal?.throwIfAborted();
-    return vera.agent({
-        instructions: ADVERSARIAL_REVIEW_PROMPT,
-        tools: "none",
-    });
-}
-
-async function buildReviewSnapshot(
-    workspace: string,
-    target: AdversarialTarget,
-    signal: AbortSignal | undefined,
-    git: typeof runGit,
-): Promise<ReviewSnapshot> {
-    if (target.kind === "uncommitted") {
-        const [tracked, status, untracked] = await Promise.all([
-            git(
-                workspace,
-                ["diff", "--no-ext-diff", "--no-textconv", "--binary", "HEAD"],
-                signal,
-            ),
-            git(workspace, ["status", "--short"], signal),
-            git(
-                workspace,
-                ["ls-files", "--others", "--exclude-standard", "-z"],
-                signal,
-            ),
-        ]);
-        let patch = tracked.stdout;
-        for (const path of untracked.stdout.split("\0").filter(Boolean)) {
-            const remaining = MAX_PATCH_BYTES - Buffer.byteLength(patch);
-            if (remaining <= 0) patchTooLarge();
-            const added = await git(
-                workspace,
-                [
-                    "diff",
-                    "--no-index",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--binary",
-                    "--",
-                    "/dev/null",
-                    path,
-                ],
-                signal,
-                [0, 1],
-                remaining + 1,
-            );
-            patch += added.stdout;
-        }
-        return snapshot("uncommitted", status.stdout, patch);
+function renderReport(
+    findings: readonly ReviewedFinding[],
+    failures: readonly ReviewLensFailure[],
+    error: AgentRunError | undefined,
+): string {
+    const sections: string[] = [];
+    if (findings.length === 0) {
+        sections.push("No findings survived refutation.");
+    } else {
+        sections.push(findings.map((row) => {
+            const location = row.finding.file === undefined
+                ? ""
+                : ` ${row.finding.file}${row.finding.line === undefined
+                    ? ""
+                    : `:${row.finding.line}`}`;
+            const fix = row.finding.suggestedFix === undefined
+                ? ""
+                : `\nCorrection: ${row.finding.suggestedFix}`;
+            return `${row.finding.severity.toUpperCase()}${location} ${row.finding.summary}\nLens: ${row.lens}\nMechanism: ${row.finding.mechanism}\nEvidence: ${row.finding.evidence}${fix}\nRefutation: ${row.verdict.reasoning}`;
+        }).join("\n\n"));
     }
-
-    const revision = await resolveRevision(workspace, target, signal, git);
-    if (target.kind === "commit") {
-        const [patch, files] = await Promise.all([
-            git(
-                workspace,
-                [
-                    "show",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--format=fuller",
-                    "--binary",
-                    revision,
-                ],
-                signal,
-            ),
-            git(
-                workspace,
-                [
-                    "show",
-                    "--no-ext-diff",
-                    "--no-textconv",
-                    "--format=",
-                    "--name-status",
-                    revision,
-                ],
-                signal,
-            ),
-        ]);
-        return snapshot(
-            `commit ${target.value} (${revision})`,
-            files.stdout,
-            patch.stdout,
-            revision,
+    if (failures.length > 0) {
+        sections.push(
+            `Lens failures:\n${failures.map((failure) =>
+                `- ${failure.lens}: ${failure.error.message}`
+            ).join("\n")}`,
         );
     }
-
-    const range = `${revision}...HEAD`;
-    const [patch, files] = await Promise.all([
-        git(
-            workspace,
-            ["diff", "--no-ext-diff", "--no-textconv", "--binary", range],
-            signal,
-        ),
-        git(
-            workspace,
-            ["diff", "--no-ext-diff", "--no-textconv", "--name-status", range],
-            signal,
-        ),
-    ]);
-    return snapshot(
-        `base ${target.value} (${revision})`,
-        files.stdout,
-        patch.stdout,
-        revision,
-    );
-}
-
-async function resolveRevision(
-    workspace: string,
-    target: Exclude<AdversarialTarget, { readonly kind: "uncommitted" }>,
-    signal: AbortSignal | undefined,
-    git: typeof runGit,
-): Promise<string> {
-    const resolved = await git(
-        workspace,
-        ["rev-parse", "--verify", `${target.value}^{commit}`],
-        signal,
-    );
-    const revision = resolved.stdout.trim();
-    if (!/^[0-9a-fA-F]{40,64}$/.test(revision)) {
-        throw new Error(`Git returned an invalid revision for ${target.value}`);
-    }
-    return revision;
-}
-
-function snapshot(
-    label: string,
-    changedFiles: string,
-    patch: string,
-    resolvedRevision?: string,
-): ReviewSnapshot {
-    const patchBytes = Buffer.byteLength(patch);
-    if (patchBytes === 0) {
-        throw new AdversarialReviewInputError("Selected target has no diff");
-    }
-    if (patchBytes > MAX_PATCH_BYTES) patchTooLarge();
-    return {
-        label,
-        changedFiles: changedFiles.trim() || "(metadata unavailable)",
-        patch,
-        patchBytes,
-        ...(resolvedRevision === undefined ? {} : { resolvedRevision }),
-    };
-}
-
-function snapshotPrompt(snapshot: ReviewSnapshot): string {
-    return `Selected target: ${snapshot.label}\n\nChanged files:\n${snapshot.changedFiles}\n\nPatch:\n${snapshot.patch}`;
-}
-
-function patchTooLarge(): never {
-    throw new AdversarialReviewInputError(
-        `Selected diff is larger than ${MAX_PATCH_BYTES.toLocaleString()} bytes`,
-    );
-}
-
-interface GitResult {
-    readonly stdout: string;
-    readonly stderr: string;
-    readonly exitCode: number;
-}
-
-async function runGit(
-    workspace: string,
-    args: readonly string[],
-    signal?: AbortSignal,
-    allowedExitCodes: readonly number[] = [0],
-    stdoutLimit = MAX_PATCH_BYTES + 1,
-): Promise<GitResult> {
-    signal?.throwIfAborted();
-    const process = Bun.spawn([
-        "git",
-        "--no-pager",
-        "--literal-pathspecs",
-        "-c",
-        "core.fsmonitor=",
-        "-c",
-        "diff.external=",
-        ...args,
-    ], {
-        cwd: workspace,
-        env: sanitizedGitEnvironment(),
-        stdout: "pipe",
-        stderr: "pipe",
-        signal,
-    });
-    const [stdout, stderr, exitCode] = await Promise.all([
-        captureBounded(process.stdout, stdoutLimit, "git stdout"),
-        captureBounded(process.stderr, MAX_GIT_ERROR_BYTES, "git stderr"),
-        process.exited,
-    ]);
-    signal?.throwIfAborted();
-    if (!allowedExitCodes.includes(exitCode)) {
-        throw new Error(
-            stderr.text.trim()
-                || `git ${args[0] ?? "command"} exited with code ${exitCode}`,
-        );
-    }
-    if (stdout.truncated) patchTooLarge();
-    return { stdout: stdout.text, stderr: stderr.text, exitCode };
-}
-
-function sanitizedGitEnvironment(): Record<string, string | undefined> {
-    const environment = Object.fromEntries(
-        Object.entries(process.env).filter(([name]) => !name.startsWith("GIT_")),
-    );
-    return {
-        ...environment,
-        GIT_EXTERNAL_DIFF: "",
-        GIT_PAGER: "cat",
-        GIT_TERMINAL_PROMPT: "0",
-    };
+    if (error !== undefined) sections.push(error.message);
+    return sections.join("\n\n");
 }

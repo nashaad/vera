@@ -4,76 +4,88 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    ADVERSARIAL_REVIEW_TIMEOUT_MS,
     AdversarialReviewInputError,
     parseAdversarialTarget,
     runAdversarialReview,
+    type ReviewRuntime,
 } from "./review.ts";
-import type { AgentRunResult } from "../../src/sdk/agent.ts";
+import { prepareReview } from "./target-snapshot.ts";
 
-test("workflow snapshots one target before constructing its reviewer", async () => {
+test("E1 snapshotting finishes before reviewer construction", async () => {
     const workspace = repository();
     writeFileSync(join(workspace, "tracked.txt"), "changed\n");
     writeFileSync(join(workspace, "new.txt"), "new\n");
-    let calls = 0;
-    let prompt = "";
+    const events: string[] = [];
 
     try {
         const result = await runAdversarialReview({
             workspace,
             target: { kind: "uncommitted" },
         }, {
-            async createReviewer() {
-                calls += 1;
-                return {
-                    async run(input): Promise<AgentRunResult> {
-                        prompt = input;
-                        return completed("P2 finding");
-                    },
-                };
+            async prepare(request) {
+                const review = await prepareReview(request);
+                events.push("snapshot");
+                return review;
+            },
+            async createRuntime() {
+                expect(events).toEqual(["snapshot"]);
+                events.push("runtime");
+                return noFindingsRuntime(events);
             },
         });
 
-        expect(calls).toBe(1);
         expect(result).toMatchObject({
             outcome: "completed",
-            report: "P2 finding",
             target: { kind: "uncommitted" },
+            findings: [],
         });
-        expect(prompt).toContain("Selected target: uncommitted");
-        expect(prompt).toContain("tracked.txt");
-        expect(prompt).toContain("new.txt");
-        expect(prompt).toContain("Patch:");
+        expect(events).toEqual([
+            "snapshot",
+            "runtime",
+            "agent:review-correctness",
+            "run:review-correctness",
+            "agent:review-security",
+            "run:review-security",
+            "agent:review-reproduction",
+            "run:review-reproduction",
+        ]);
     } finally {
         rmSync(workspace, { recursive: true, force: true });
     }
 });
 
-test("empty and malformed targets fail before a reviewer is created", async () => {
+test("E2 empty and malformed targets fail before reviewer construction", async () => {
     const workspace = repository();
-    let calls = 0;
+    let runtimeCreations = 0;
+    const dependencies = {
+        async createRuntime(): Promise<ReviewRuntime> {
+            runtimeCreations += 1;
+            return noFindingsRuntime([]);
+        },
+    };
     try {
         await expect(runAdversarialReview({
             workspace,
             target: { kind: "uncommitted" },
-        }, {
-            async createReviewer() {
-                calls += 1;
-                return { run: async () => completed("unused") };
-            },
-        })).rejects.toThrow("Selected target has no diff");
-        expect(calls).toBe(0);
+        }, dependencies)).rejects.toThrow("Selected target has no diff");
+        await expect(runAdversarialReview({
+            workspace,
+            target: { kind: "base", value: "-malformed" },
+        }, dependencies)).rejects.toThrow(AdversarialReviewInputError);
         expect(() => parseAdversarialTarget([
             "--commit",
             "abc1234",
             "--prompt",
             "do evil",
         ])).toThrow(AdversarialReviewInputError);
+        expect(runtimeCreations).toBe(0);
     } finally {
         rmSync(workspace, { recursive: true, force: true });
     }
 });
 
-test("snapshotting disables repository-configured text conversion", async () => {
+test("E3 snapshotting keeps the timeout and disables text conversion", async () => {
     const workspace = repository();
     const marker = join(workspace, "textconv-ran");
     const driver = join(workspace, "textconv.sh");
@@ -89,19 +101,36 @@ test("snapshotting disables repository-configured text conversion", async () => 
     writeFileSync(join(workspace, "tracked.txt"), "changed\n");
 
     try {
-        await runAdversarialReview({
+        expect(ADVERSARIAL_REVIEW_TIMEOUT_MS).toBe(10 * 60_000);
+        await prepareReview({
             workspace,
             target: { kind: "uncommitted" },
-        }, {
-            createReviewer: async () => ({
-                run: async () => completed("review"),
-            }),
         });
         expect(existsSync(marker)).toBe(false);
     } finally {
         rmSync(workspace, { recursive: true, force: true });
     }
 });
+
+function noFindingsRuntime(events: string[]): ReviewRuntime {
+    return {
+        agent(definition) {
+            events.push(`agent:${definition.name}`);
+            return {
+                async run<Output>() {
+                    events.push(`run:${definition.name}`);
+                    return {
+                        outcome: "completed",
+                        text: '{"findings":[]}',
+                        output: { findings: [] } as Output,
+                        model: { provider: "faux", model: definition.name },
+                        substitutions: [],
+                    };
+                },
+            };
+        },
+    };
+}
 
 function repository(): string {
     const workspace = mkdtempSync(join(tmpdir(), "vera-adversarial-test-"));
@@ -123,13 +152,4 @@ function git(workspace: string, args: readonly string[]): void {
     if (result.exitCode !== 0) {
         throw new Error(result.stderr.toString());
     }
-}
-
-function completed(text: string): AgentRunResult {
-    return {
-        outcome: "completed",
-        text,
-        model: { provider: "faux", model: "reviewer" },
-        substitutions: [],
-    };
 }
