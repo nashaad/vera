@@ -3,6 +3,7 @@ import {
     mkdirSync,
     readFileSync,
     renameSync,
+    statSync,
     writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -51,6 +52,12 @@ import {
     projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
+import {
+    isFixedEndpointProvider,
+    providerDefinition,
+    shippedProviderIds,
+} from "./providers/definitions.ts";
+import { isSafeProviderId } from "./providers/provider-id.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -95,14 +102,8 @@ export const VERA_CONFIG_ROOT_KEYS = [
     "inbox",
 ] as const;
 
-export const VERA_PROVIDER_IDS = [
-    "openrouter",
-    "openai-codex",
-    "ollama",
-    "omlx",
-    "cerebras",
-    "deepseek",
-] as const;
+/** Compatibility export while callers move to the provider resolver. */
+export const VERA_PROVIDER_IDS: readonly string[] = shippedProviderIds();
 
 export type VeraBuiltInProviderId = typeof VERA_PROVIDER_IDS[number];
 
@@ -113,8 +114,8 @@ export type VeraBuiltInProviderId = typeof VERA_PROVIDER_IDS[number];
  */
 export type VeraProviderId = string;
 
-export function isVeraProviderId(value: string): value is VeraBuiltInProviderId {
-    return (VERA_PROVIDER_IDS as readonly string[]).includes(value);
+export function isVeraProviderId(value: string): boolean {
+    return shippedProviderIds().includes(value);
 }
 
 export type VeraProviderProtocol = "openai-chat" | "anthropic-messages";
@@ -480,7 +481,8 @@ export function loadVeraConfig(
         throw new VeraConfigError(path, `it is not valid JSON (${message})`);
     }
 
-    const config = parseVeraConfig(value);
+    const migrated = migrateShippedProviderDeclarations(path, value);
+    const config = parseVeraConfig(migrated);
     if (config === undefined) {
         throw new VeraConfigError(
             path,
@@ -538,6 +540,112 @@ export function loadVeraConfig(
         ...resolved,
         extensions,
     };
+}
+
+/**
+ * Moves a shipped provider's equivalent custom declaration into the shipped
+ * definition layer. This runs before parsing so an old profile can cross the
+ * id-reservation boundary without a transient invalid config.
+ */
+export function migrateShippedProviderDeclarations(
+    path: string,
+    value: unknown,
+): unknown {
+    if (!isPlainRecord(value) || !isPlainRecord(value.providers)) {
+        return value;
+    }
+    const declarations = Object.entries(value.providers).filter(([id]) =>
+        id.trim() === "digitalocean"
+    );
+    if (declarations.length === 0) return value;
+    if (declarations.length > 1) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: more than one declaration normalizes to that id',
+        );
+    }
+    const [rawProviderId, candidate] = declarations[0]!;
+    if (!isPlainRecord(candidate)) return value;
+    const declaration = candidate;
+    const definition = providerDefinition("digitalocean");
+    if (definition === undefined) return value;
+    const protocol = declaration.protocol;
+    const credential = declaration.credential ?? "api_key";
+    if (protocol !== definition.protocol || credential !== "api_key") {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: only an openai-chat API-key declaration is representable',
+        );
+    }
+    const unsupported = Object.keys(declaration).filter((key) =>
+        !["protocol", "base_url", "credential", "api_key_env"].includes(key)
+    );
+    if (unsupported.length > 0) {
+        throw new VeraConfigError(
+            path,
+            `provider "digitalocean" cannot migrate without losing custom field(s): ${unsupported.join(", ")}`,
+        );
+    }
+    if (
+        declaration.api_key_env !== undefined
+        && declaration.api_key_env !== definition.env_var
+    ) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: api_key_env differs from the shipped definition',
+        );
+    }
+    if (typeof declaration.base_url !== "string" || !validProviderUrl(declaration.base_url)) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: base_url is invalid',
+        );
+    }
+    const customBaseUrl = declaration.base_url.replace(/\/+$/, "");
+    const existingEndpoints = value.provider_endpoints;
+    const endpoints = existingEndpoints === undefined
+        ? {}
+        : isPlainRecord(existingEndpoints)
+            ? { ...existingEndpoints }
+            : undefined;
+    if (endpoints === undefined) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: provider_endpoints is not an object',
+        );
+    }
+    const existing = endpoints.digitalocean;
+    if (existing !== undefined && existing !== customBaseUrl) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: custom base_url conflicts with provider_endpoints.digitalocean',
+        );
+    }
+    const providers = { ...value.providers };
+    delete providers[rawProviderId];
+    const migrated = {
+        ...value,
+        providers: Object.keys(providers).length === 0 ? undefined : providers,
+        ...(customBaseUrl === definition.default_base_url
+            ? {}
+            : { provider_endpoints: { ...endpoints, digitalocean: customBaseUrl } }),
+    };
+    writeMigratedConfig(path, migrated);
+    return migrated;
+}
+
+function writeMigratedConfig(path: string, value: Record<string, unknown>): void {
+    const temporaryPath = join(dirname(path), `.config-migration-${randomUUID()}.tmp`);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, path);
+    if ((statSync(path).mode & 0o777) !== 0o600) {
+        throw new VeraConfigError(path, "provider migration did not preserve config mode 0600");
+    }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, any> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**
@@ -1061,6 +1169,7 @@ function parseCustomProviders(
         const id = rawId.trim();
         if (
             id.length === 0
+            || !isSafeProviderId(id)
             || isVeraProviderId(id)
             || typeof rawValue !== "object"
             || rawValue === null
@@ -1147,7 +1256,7 @@ function parseProviderEndpoints(
         const id = rawId.trim();
         if (
             !isVeraProviderId(id)
-            || FIXED_ENDPOINT_PROVIDERS.includes(id)
+            || isFixedEndpointProvider(id)
             || typeof rawUrl !== "string"
             || !validProviderUrl(rawUrl.trim())
         ) {
@@ -1162,8 +1271,6 @@ function parseProviderEndpoints(
  * Providers reached over an endpoint that is not a host the user can move.
  * Codex is a subscription flow bound to the account it signs in to.
  */
-const FIXED_ENDPOINT_PROVIDERS: readonly string[] = ["openai-codex"];
-
 function validProviderUrl(value: string): boolean {
     try {
         const url = new URL(value);

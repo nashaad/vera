@@ -6,6 +6,7 @@ import type { VeraConfig, VeraProviderProtocol } from "../src/config.ts";
 import type { AuthStorage } from "../src/providers/auth-storage.ts";
 import {
     configuredProviders,
+    findProvider,
     isProviderConnected,
     type ProviderDescriptor,
 } from "../src/providers/registry.ts";
@@ -95,54 +96,36 @@ export interface ProviderDoctorOptions {
     readonly homeDirectory?: string;
 }
 
-/**
- * Base URLs Vera's own adapters use. Kept here rather than imported because
- * each adapter takes its URL as a default argument, not as an exported value;
- * a drift between the two shows up as a probe against the wrong host, which
- * the reported URL makes visible.
- */
-const BUILT_IN_ENDPOINTS: Readonly<Record<string, ProviderEndpoint>> = {
-    openai: {
-        baseUrl: "https://api.openai.com/v1",
-        protocol: "openai-chat",
-    },
-    anthropic: {
-        baseUrl: "https://api.anthropic.com/v1",
-        protocol: "anthropic-messages",
-    },
-    cerebras: {
-        baseUrl: "https://api.cerebras.ai/v1",
-        protocol: "openai-chat",
-    },
-    deepseek: {
-        baseUrl: "https://api.deepseek.com",
-        protocol: "openai-chat",
-    },
-    openrouter: {
-        baseUrl: "https://openrouter.ai/api/v1",
-        protocol: "openai-chat",
-    },
-    omlx: {
-        baseUrl: "http://127.0.0.1:8000/v1",
-        protocol: "openai-chat",
-    },
-};
-
 export async function diagnoseProviders(
     config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
     options: ProviderDoctorOptions = {},
 ): Promise<ProviderDoctorReport> {
     const env = options.env ?? process.env;
     const captures = await readCaptureSummaries(options);
+    const safeConfig = doctorConfig(config);
     const providers = await Promise.all(
-        configuredProviders(config).map((descriptor) =>
-            diagnoseProvider(descriptor, config, captures, options, env)
+        configuredProviders(safeConfig).map((descriptor) =>
+            diagnoseProvider(descriptor, safeConfig, captures, options, env)
         ),
     );
     return {
         providers,
         networkChecked: options.checkNetwork === true,
     };
+}
+
+function doctorConfig(
+    config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
+): Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined {
+    if (config === undefined || config.provider_endpoints === undefined) {
+        return config;
+    }
+    const provider_endpoints = Object.fromEntries(
+        Object.entries(config.provider_endpoints).filter(([id]) =>
+            findProvider(id)?.fixedEndpoint !== true
+        ),
+    );
+    return { ...config, provider_endpoints };
 }
 
 async function diagnoseProvider(
@@ -153,9 +136,11 @@ async function diagnoseProvider(
     env: Readonly<Record<string, string | undefined>>,
 ): Promise<ProviderDiagnosis> {
     const custom = config?.providers?.[descriptor.id];
-    const endpoint = custom === undefined
-        ? endpointFor(descriptor.id, env, config?.provider_endpoints?.[descriptor.id])
-        : { baseUrl: custom.base_url, protocol: custom.protocol };
+    const endpoint = endpointFor(
+        descriptor,
+        env,
+        custom?.base_url ?? config?.provider_endpoints?.[descriptor.id],
+    );
     const envVarPresent = descriptor.envVar !== undefined
         && Boolean(env[descriptor.envVar]);
     const credentialSource = resolveCredentialSource(
@@ -208,29 +193,41 @@ function resolveCredentialSource(
 }
 
 function endpointFor(
-    id: string,
+    descriptor: ProviderDescriptor,
     env: Readonly<Record<string, string | undefined>>,
     moved?: string,
 ): ProviderEndpoint | undefined {
-    if (id === "ollama") {
+    // A contributed provider owns more than its wire format. OAuth parsing,
+    // refresh, and provider-specific headers must stay on that implementation's
+    // side of the boundary, so the generic doctor cannot safely probe it.
+    if (descriptor.protocol === "contributed") return undefined;
+    if (descriptor.envVar === "OLLAMA_HOST") {
         const host = (moved ?? env.OLLAMA_HOST ?? "http://127.0.0.1:11434")
             .replace(/\/+$/, "")
             .replace(/\/v1$/, "");
         const withScheme = /^https?:\/\//.test(host) ? host : `http://${host}`;
         return {
             baseUrl: `${withScheme.replace(/\/+$/, "")}/v1`,
-            protocol: "openai-chat",
+            protocol: doctorProtocol(descriptor),
         };
     }
-    const shipped = BUILT_IN_ENDPOINTS[id];
-    if (moved === undefined || shipped === undefined) {
-        return shipped;
-    }
+    if (descriptor.baseUrl === undefined) return undefined;
+    const shipped = {
+        baseUrl: descriptor.baseUrl,
+        protocol: doctorProtocol(descriptor),
+    } satisfies ProviderEndpoint;
+    if (moved === undefined) return shipped;
     // The report probes where Vera would actually send the turn. A probe
     // against the shipped host would carry the credential somewhere the user
     // has said not to go, and report a reachable provider that is not the one
     // in use.
     return { baseUrl: moved, protocol: shipped.protocol };
+}
+
+function doctorProtocol(descriptor: ProviderDescriptor): VeraProviderProtocol {
+    return descriptor.protocol === "anthropic-messages"
+        ? "anthropic-messages"
+        : "openai-chat";
 }
 
 /**
@@ -316,6 +313,7 @@ function probeSecret(
     options: ProviderDoctorOptions,
     env: Readonly<Record<string, string | undefined>>,
 ): string | undefined {
+    if (descriptor.credential === "none") return undefined;
     let stored;
     try {
         stored = options.authStorage?.getCredential(descriptor.id);

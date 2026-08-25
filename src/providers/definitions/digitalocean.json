@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "order": 7,
+    "id": "digitalocean",
+    "label": "DigitalOcean",
+    "short_label": "digitalocean",
+    "access": "api_key",
+    "credential": "api_key",
+    "hint": "Serverless Inference model access key",
+    "env_var": "DIGITALOCEAN_API_KEY",
+    "protocol": "openai-chat",
+    "default_base_url": "https://inference.do-ai.run/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "compatibility": {
+        "request": ["openai-chat"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}

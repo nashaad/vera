@@ -6,11 +6,11 @@ import {
     writeFileSync,
 } from "node:fs";
 import { randomUUID } from "node:crypto";
-import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 
 import type { ProviderCatalog } from "./catalog-shape.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import { isSafeProviderId } from "../providers/provider-id.ts";
 
 export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
@@ -30,7 +30,15 @@ export function providerCatalogCachePath(
     provider: string,
     cacheDir = providerCatalogCacheDir(),
 ): string {
-    return join(cacheDir, `${provider}.json`);
+    if (!isSafeProviderId(provider)) {
+        throw new Error(`Unsafe provider catalog id ${JSON.stringify(provider)}`);
+    }
+    const directory = resolve(cacheDir);
+    const path = resolve(directory, `${provider}.json`);
+    if (dirname(path) !== directory) {
+        throw new Error(`Provider catalog path escaped ${directory}`);
+    }
+    return path;
 }
 
 export function writeProviderCatalogSnapshot(

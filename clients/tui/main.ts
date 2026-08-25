@@ -78,7 +78,6 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { levelsForModel } from "../../src/model/catalog-view.ts";
-import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import { derivedModelName } from "../../src/config/model-catalog.ts";
 import {
     configuredModelAssignments,
@@ -9965,6 +9964,7 @@ export async function startTui(
             actionOptions: tuiModelActionOptions(
                 refreshableProvidersOf(
                     targetState.modelSettings?.availableModels,
+                    targetState.modelSettings?.refreshableProviders,
                 ),
                 {
                     hasPool: (targetState.modelSettings?.pooled?.length ?? 0)
@@ -9982,11 +9982,16 @@ export async function startTui(
 
     /** The connected providers whose model list can be fetched again. */
     function refreshableProvidersOf(
-        models: readonly { readonly provider: string }[] | undefined,
+        models: readonly {
+            readonly provider: string;
+            readonly refreshable?: boolean;
+        }[] | undefined,
+        providers: readonly string[] | undefined,
     ): readonly string[] {
+        if (providers !== undefined) return [...new Set(providers)];
         const named = new Set<string>();
         for (const model of models ?? []) {
-            if (isRefreshableProvider(model.provider)) {
+            if (model.refreshable === true) {
                 named.add(model.provider);
             }
         }
@@ -10409,6 +10414,11 @@ export async function startTui(
         const providers = configuredProviders(config);
         const declared = new Set(Object.keys(config?.providers ?? {}));
         const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
+        const targetState = settingsTargetState();
+        const refreshable = new Set(refreshableProvidersOf(
+            targetState.modelSettings?.availableModels,
+            targetState.modelSettings?.refreshableProviders,
+        ));
         settingsPicker = withTuiPickerParent(
             startTuiProviderPicker(
                 providers.map((provider) => ({
@@ -10427,6 +10437,7 @@ export async function startTui(
                         ? {}
                         : { hint: provider.hint }),
                     connected: providerConnected(provider),
+                    ...(refreshable.has(provider.id) ? { refreshable: true } : {}),
                     ...(declared.has(provider.id) ? { declared: true } : {}),
                     ...(provider.fixedEndpoint === true
                         ? {}
@@ -13553,8 +13564,10 @@ export async function startTui(
     }
 
     function openCatalogRefreshScopePicker(): void {
+        const targetState = settingsTargetState();
         const providers = refreshableProvidersOf(
-            settingsTargetState().modelSettings?.availableModels,
+            targetState.modelSettings?.availableModels,
+            targetState.modelSettings?.refreshableProviders,
         );
         if (providers.length === 0) {
             showStatusNotice("no provider here keeps a model list to refresh");
@@ -13580,6 +13593,7 @@ export async function startTui(
             ? providers
             : refreshableProvidersOf(
                 settingsTargetState(target).modelSettings?.availableModels,
+                settingsTargetState(target).modelSettings?.refreshableProviders,
             );
         settingsPicker = undefined;
         settingsPickerAgent = undefined;

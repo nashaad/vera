@@ -188,6 +188,62 @@ test("an anthropic-protocol probe sends x-api-key", async () => {
     expect(seenHeaders["anthropic-version"]).toBe("2023-06-01");
 });
 
+test("the generic doctor does not probe contributed OAuth providers", async () => {
+    const oauthRecord = JSON.stringify({
+        schema_version: 1,
+        access_token: "access-token",
+        refresh_token: "refresh-token",
+        expires_at: 4_102_444_800_000,
+    });
+    const requested: string[] = [];
+    const report = await diagnoseProviders(undefined, base({
+        checkNetwork: true,
+        authStorage: storage({
+            "openai-codex": { type: "oauth", token: oauthRecord },
+        }),
+        fetch: async (input, init) => {
+            requested.push(String(input));
+            expect(JSON.stringify(init?.headers ?? {})).not.toContain(oauthRecord);
+            return new Response("{}", { status: 200 });
+        },
+    }));
+
+    const codex = report.providers.find((provider) =>
+        provider.id === "openai-codex"
+    );
+    expect(codex?.connected).toBe(true);
+    expect(codex?.endpoint).toBeUndefined();
+    expect(codex?.probe).toBeUndefined();
+    expect(requested.some((url) => url.startsWith("https://chatgpt.com")))
+        .toBe(false);
+});
+
+test("credentialless provider probes ignore a stale stored key", async () => {
+    let authorization: string | null | undefined;
+    await diagnoseProviders({
+        providers: {
+            "local-noauth": {
+                protocol: "openai-chat",
+                base_url: "http://127.0.0.1:8080/v1",
+                credential: "none",
+            },
+        },
+    }, base({
+        checkNetwork: true,
+        authStorage: storage({
+            "local-noauth": { type: "api_key", key: "stale-secret" },
+        }),
+        fetch: async (input, init) => {
+            if (String(input).startsWith("http://127.0.0.1:8080")) {
+                authorization = new Headers(init?.headers).get("authorization");
+            }
+            return new Response("{}", { status: 200 });
+        },
+    }));
+
+    expect(authorization).toBeNull();
+});
+
 test("recent failed-request captures are summarized from real capture files", async () => {
     const directory = await mkdtemp(join(tmpdir(), "vera-captures-"));
     const capture = createFailedRequestCapture({

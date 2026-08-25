@@ -295,6 +295,7 @@ test("host wire validates model settings results", () => {
         model: "z-ai/glm-5.2",
         label: "GLM-5.2",
         description: "fast fallback model",
+        refreshable: true,
         levels: [{ id: "high", label: "High", description: "slow and careful" }],
         defaultLevel: "high",
     }];
@@ -313,6 +314,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
+            refreshableProviders: ["openrouter", "empty-gateway"],
             pooled,
         },
         pending: true,
@@ -324,6 +326,7 @@ test("host wire validates model settings results", () => {
             model: "next-model",
             reasoningEffort: "high",
             availableModels,
+            refreshableProviders: ["openrouter", "empty-gateway"],
             pooled,
         },
         pending: true,

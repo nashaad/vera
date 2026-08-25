@@ -26,9 +26,9 @@ import type {
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
-import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ProviderAccessKind } from "../../src/providers/registry.ts";
+import { isSafeProviderId } from "../../src/providers/provider-id.ts";
 import {
     isVeraProviderId,
     type VeraCustomProviderConfig,
@@ -214,6 +214,8 @@ export interface TuiSettingsPickerOption {
      * the level is still chosen on the level pane that follows.
      */
     readonly recommendedLevel?: string;
+    /** Host-computed provider capability, carried on provider and model rows. */
+    readonly refreshable?: boolean;
     /**
      * The heading this row belongs under. Model rows leave it unset and are
      * grouped by their provider instead, which is the same idea: a heading is
@@ -260,6 +262,7 @@ export interface TuiProviderRow {
     readonly group: TuiProviderGroup;
     readonly hint?: string;
     readonly connected: boolean;
+    readonly refreshable?: boolean;
     /** Declared in config rather than shipped, so its endpoint is editable. */
     readonly declared?: boolean;
     /**
@@ -1140,6 +1143,7 @@ export function startTuiProviderPicker(
             searchText: provider.id,
             group: provider.group,
             connected: provider.connected,
+            ...(provider.refreshable === true ? { refreshable: true } : {}),
             ...(provider.declared === true ? { declared: true } : {}),
             ...(provider.endpointEditable === true
                 ? { endpointEditable: true }
@@ -2480,7 +2484,7 @@ export function handleTuiSettingsPickerKey(
         const provider = state.kind === "provider"
             ? (selected?.action === true ? undefined : selected?.value)
             : selected?.provider;
-        if (provider === undefined || !isRefreshableProvider(provider)) {
+        if (provider === undefined || selected?.refreshable !== true) {
             return unchanged(state, true);
         }
         return { state, handled: true, refreshCatalog: provider };
@@ -3980,8 +3984,7 @@ function pickerFooterText(
             ...(selected?.action === true
                 ? []
                 : [tuiKeyHint("declare_provider")]),
-            ...(selected?.value !== undefined
-                    && isRefreshableProvider(selected.value)
+            ...(selected?.refreshable === true
                 ? [tuiKeyHint("refresh_catalog")]
                 : []),
             ...(state.parent?.kind === "model" ? ["⇥ tabs"] : []),
@@ -4049,8 +4052,7 @@ function pickerFooterText(
             ...(selected?.provider === undefined
                 ? []
                 : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
-            ...(selected?.provider !== undefined
-                    && isRefreshableProvider(selected.provider)
+            ...(selected?.refreshable === true
                 ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
                 : []),
             // Behind the single-model key, since the sweep is the rarer of the
@@ -4674,6 +4676,7 @@ function modelOptions(
             }`,
             provider: model.provider,
             model: model.model,
+            ...(model.refreshable === true ? { refreshable: true } : {}),
             ...(model.hiddenByDefault === undefined
                 ? {}
                 : { hiddenByDefault: model.hiddenByDefault }),
@@ -5541,6 +5544,13 @@ function submittedProviderForm(
     }
     if (/\s/.test(id)) {
         return providerFormError(state, "id", "a name cannot contain spaces");
+    }
+    if (!isSafeProviderId(id)) {
+        return providerFormError(
+            state,
+            "id",
+            "use lowercase letters, numbers, dots, dashes, or underscores",
+        );
     }
     if (state.shipped !== true && isVeraProviderId(id)) {
         return providerFormError(state, "id", `${id} is a provider Vera ships`);

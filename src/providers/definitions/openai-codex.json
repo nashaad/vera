@@ -1,0 +1,20 @@
+{
+    "schema_version": 1,
+    "order": 3,
+    "id": "openai-codex",
+    "label": "OpenAI Codex",
+    "short_label": "codex",
+    "access": "subscription",
+    "credential": "oauth",
+    "hint": "ChatGPT Plus/Pro subscription",
+    "protocol": "contributed",
+    "behavior_id": "openai-codex",
+    "default_base_url": "https://chatgpt.com/backend-api/codex",
+    "fixed_endpoint": true,
+    "discovery": { "mode": "cache", "path": "/models", "credential": "none" },
+    "compatibility": {
+        "request": ["codex-wire"],
+        "response": ["codex-stream"],
+        "error": ["codex-error"]
+    }
+}

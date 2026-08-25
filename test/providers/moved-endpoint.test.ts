@@ -5,10 +5,12 @@ import {
     discoveredCerebrasModels,
     discoveredOllamaModels,
     discoveredOpenRouterModels,
+    standardProviderDiscoveryEndpoint,
 } from "../../src/host/runtime.ts";
 import type { VeraConfig } from "../../src/config.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import { providerEndpointUrl } from "../../src/providers/endpoint-url.ts";
+import { configuredProviders } from "../../src/providers/registry.ts";
 
 /**
  * A provider pointed somewhere else is pointed somewhere else everywhere.
@@ -99,6 +101,20 @@ test("Cerebras discovery asks the moved host", async () => {
     );
 
     expect(seen).toEqual(["https://eu.cerebras.example/v1/models"]);
+});
+
+test("declarative Cerebras discovery keeps shipped and moved listing paths", () => {
+    const shipped = configuredProviders(undefined).find((provider) =>
+        provider.id === "cerebras"
+    );
+    const moved = configuredProviders({
+        provider_endpoints: { cerebras: "https://eu.cerebras.example/v1" },
+    }).find((provider) => provider.id === "cerebras");
+
+    expect(standardProviderDiscoveryEndpoint(shipped!))
+        .toBe("https://api.cerebras.ai/public/v1/models");
+    expect(standardProviderDiscoveryEndpoint(moved!))
+        .toBe("https://eu.cerebras.example/v1/models");
 });
 
 test("the OpenRouter catalog refreshes from the moved host", async () => {

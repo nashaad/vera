@@ -167,6 +167,16 @@ test("Vera config rejects undeclared and malformed provider instances", () => {
             model_routes: {},
             reviewer_profiles: {},
         },
+        {
+            provider: "./../../config",
+            providers: {
+                "./../../config": {
+                    protocol: "openai-chat",
+                    base_url: "https://example.com/v1",
+                    credential: "none",
+                },
+            },
+        },
     ];
     for (const entry of invalid) {
         const path = temporaryConfigPath();

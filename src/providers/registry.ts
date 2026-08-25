@@ -1,5 +1,10 @@
 import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
+import {
+    resolveProviders,
+    type ProviderDiscoveryDefinition,
+    type ProviderProtocol,
+} from "./definitions.ts";
 
 /**
  * What a provider wants before it can run a turn.
@@ -40,12 +45,24 @@ export interface ProviderDescriptor {
      * on a different host.
      */
     readonly baseUrl?: string;
+    readonly endpointOverridden?: boolean;
     /**
      * Set when the endpoint is not the user's to move: a subscription flow is
      * bound to the account it signs in to. The pane shows the URL and offers
      * no field.
      */
     readonly fixedEndpoint?: boolean;
+    readonly protocol?: ProviderProtocol;
+    readonly behaviorId?: string;
+    readonly discovery?: ProviderDiscoveryDefinition;
+    readonly compatibility?: Readonly<{
+        readonly request?: readonly string[];
+        readonly response?: readonly string[];
+        readonly error?: readonly string[];
+        readonly effort?: readonly string[];
+        readonly catalog?: readonly string[];
+    }>;
+    readonly custom?: boolean;
 }
 
 /**
@@ -58,100 +75,39 @@ export interface ProviderDescriptor {
  *
  * So this list grows one row at a time, with the adapter, and never ahead of it.
  */
-export const PROVIDERS: readonly ProviderDescriptor[] = [
-    {
-        id: "cerebras",
-        label: "Cerebras",
-        shortLabel: "cerebras",
-        access: "api_key",
-        credential: "api_key",
-        hint: "API key",
-        envVar: "CEREBRAS_API_KEY",
-        baseUrl: "https://api.cerebras.ai/v1",
-    },
-    {
-        id: "deepseek",
-        label: "DeepSeek",
-        shortLabel: "deepseek",
-        access: "api_key",
-        credential: "api_key",
-        hint: "API key, pay per token",
-        envVar: "DEEPSEEK_API_KEY",
-        baseUrl: "https://api.deepseek.com",
-    },
-    {
-        id: "openai-codex",
-        label: "OpenAI Codex",
-        shortLabel: "codex",
-        access: "subscription",
-        credential: "oauth",
-        hint: "ChatGPT Plus/Pro subscription",
-        baseUrl: "https://chatgpt.com/backend-api/codex",
-        fixedEndpoint: true,
-    },
-    {
-        id: "openrouter",
-        label: "OpenRouter",
-        shortLabel: "openrouter",
-        access: "api_key",
-        credential: "api_key",
-        hint: "API key, pay per token",
-        envVar: "OPENROUTER_API_KEY",
-        baseUrl: "https://openrouter.ai/api/v1",
-    },
-    {
-        id: "ollama",
-        label: "Ollama",
-        shortLabel: "ollama",
-        access: "local",
-        credential: "none",
-        hint: "local, no account",
-        envVar: "OLLAMA_HOST",
-        baseUrl: "http://127.0.0.1:11434",
-    },
-    {
-        id: "omlx",
-        label: "oMLX",
-        shortLabel: "omlx",
-        access: "local",
-        credential: "api_key_optional",
-        hint: "local, API key if required",
-        envVar: "OMLX_API_KEY",
-        baseUrl: "http://127.0.0.1:8000/v1",
-    },
-];
-
 export function findProvider(id: string): ProviderDescriptor | undefined {
-    return PROVIDERS.find((provider) => provider.id === id);
+    return configuredProviders(undefined).find((provider) => provider.id === id);
 }
 
 export function configuredProviders(
     config: Pick<VeraConfig, "providers" | "provider_endpoints"> | undefined,
 ): readonly ProviderDescriptor[] {
-    const custom = Object.entries(config?.providers ?? {}).map(
-        ([id, provider]): ProviderDescriptor => ({
-            id,
-            label: id,
-            shortLabel: id,
-            access: provider.credential === "none" ? "local" : "api_key",
-            credential: provider.credential,
-            hint: provider.credential === "none"
-                ? "configured endpoint, no account"
-                : provider.api_key_env === undefined
-                    ? "API key"
-                    : `API key or ${provider.api_key_env}`,
-            baseUrl: provider.base_url,
-            ...(provider.api_key_env === undefined
-                ? {}
-                : { envVar: provider.api_key_env }),
-        }),
-    );
-    const endpoints = config?.provider_endpoints ?? {};
-    const shipped = PROVIDERS.map((provider) => {
-        const override = endpoints[provider.id];
-        return override === undefined ? provider : { ...provider, baseUrl: override };
-    });
-    return [...shipped, ...custom];
+    return resolveProviders({
+        providers: config?.providers,
+        provider_endpoints: config?.provider_endpoints,
+    }).map((provider) => descriptorFromResolved(provider));
+}
+
+function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[number]): ProviderDescriptor {
+    return {
+        id: provider.id,
+        label: provider.definition.label,
+        shortLabel: provider.definition.short_label,
+        access: provider.definition.access,
+        credential: provider.definition.credential,
+        ...(provider.definition.hint === undefined ? {} : { hint: provider.definition.hint }),
+        ...(provider.definition.env_var === undefined ? {} : { envVar: provider.definition.env_var }),
+        baseUrl: provider.baseUrl,
+        ...(provider.baseUrl !== provider.definition.default_base_url
+            ? { endpointOverridden: true }
+            : {}),
+        ...(provider.definition.fixed_endpoint === true ? { fixedEndpoint: true } : {}),
+        protocol: provider.definition.protocol,
+        ...(provider.definition.behavior_id === undefined ? {} : { behaviorId: provider.definition.behavior_id }),
+        discovery: provider.definition.discovery,
+        compatibility: provider.definition.compatibility,
+        custom: provider.custom,
+    };
 }
 
 export function findConfiguredProvider(

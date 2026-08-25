@@ -613,12 +613,14 @@ const availableModels = [
         model: "moonshotai/kimi-k3",
         label: "Kimi K3",
         description: "primary long-context model",
+        refreshable: true,
     },
     {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
         label: "Z-AI: GLM-5.2",
         description: "fast fallback model",
+        refreshable: true,
     },
 ] as const;
 
@@ -666,7 +668,7 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
     const row = state.options[state.selectedIndex] as TuiSettingsPickerOption;
     const onCodex = {
         ...state,
-        options: [{ ...row, provider: "openai-codex" }],
+        options: [{ ...row, provider: "openai-codex", refreshable: false }],
         selectedIndex: 0,
     };
     const refused = handleTuiSettingsPickerKey(onCodex, {
@@ -695,6 +697,16 @@ test("ctrl+f on a model row asks that provider for its list again", () => {
         name: "f",
         ctrl: true,
     })).toMatchObject({ handled: true, refreshCatalog: "omlx" });
+
+    const declared = {
+        ...state,
+        options: [{ ...row, provider: "gateway", refreshable: true }],
+        selectedIndex: 0,
+    };
+    expect(handleTuiSettingsPickerKey(declared, {
+        name: "f",
+        ctrl: true,
+    })).toMatchObject({ handled: true, refreshCatalog: "gateway" });
 });
 
 test("model picker filters its choices as the user types", async () => {
@@ -2008,6 +2020,7 @@ const PROVIDER_ROWS = [
         group: "API keys",
         hint: "API key, pay per token",
         connected: false,
+        refreshable: true,
         endpointEditable: true,
     },
     {
@@ -2016,6 +2029,7 @@ const PROVIDER_ROWS = [
         group: "Local",
         hint: "local, no account",
         connected: true,
+        refreshable: true,
         endpointEditable: true,
     },
     {
@@ -2024,10 +2038,25 @@ const PROVIDER_ROWS = [
         group: "Added in config",
         hint: "API key",
         connected: true,
+        refreshable: true,
         declared: true,
         endpointEditable: true,
     },
 ] as const;
+
+test("an empty declared provider can still ask for its model list", () => {
+    const pane = startTuiProviderPicker([{
+        id: "empty-gateway",
+        label: "Empty gateway",
+        group: "Added in config",
+        connected: true,
+        refreshable: true,
+        declared: true,
+    }]);
+
+    expect(handleTuiSettingsPickerKey(pane, { name: "f", ctrl: true }))
+        .toMatchObject({ handled: true, refreshCatalog: "empty-gateway" });
+});
 
 test("the connect pane groups providers by access and spells out connected status", async () => {
     const pane = withTuiPickerParent(
@@ -2752,6 +2781,20 @@ test("an id Vera already ships is refused in the form", () => {
     expect(transition.submitted).toBeUndefined();
     expect(transition.state?.field).toBe("id");
     expect(transition.state?.error).toContain("openrouter");
+});
+
+test("a provider id that is not a safe lowercase slug is refused", () => {
+    const form: TuiProviderFormState = {
+        ...startTuiProviderForm(),
+        id: "./../../config",
+        baseUrl: "https://gateway.example/v1",
+    };
+
+    const transition = handleTuiProviderFormKey(form, { name: "enter" });
+
+    expect(transition.submitted).toBeUndefined();
+    expect(transition.state?.field).toBe("id");
+    expect(transition.state?.error).toContain("lowercase letters");
 });
 
 test("an empty base URL is refused and lands the cursor on it", () => {
