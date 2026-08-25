@@ -1,5 +1,6 @@
 import type { LinesViewState } from "./lines-view.ts";
 import { renderTuiFocusCaret } from "./activity-pulse.ts";
+import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
@@ -39,7 +40,7 @@ const AGE_WITH_GAP_COLUMNS = 9;
 /** Keep a readable title before preserving age in a squeezed rail. */
 const MIN_TITLE_WITH_AGE_COLUMNS = 8;
 /** Narrowest useful rail; titles truncate after their markers when narrower. */
-const MIN_RAIL_COLUMNS = 26;
+export const MIN_RAIL_COLUMNS = 26;
 /** The conversation stays useful while the explorer is resized. */
 const MIN_CHAT_COLUMNS = 35;
 
@@ -264,8 +265,9 @@ export interface WorkspaceSidebarKey {
 }
 
 /**
- * Arrows or j/k move, enter opens, i or escape returns to chat, and digits
- * address rows.
+ * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
+ * i or escape returns to chat, and digits address rows. None of the movement
+ * keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
  * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
@@ -275,7 +277,32 @@ export function handleWorkspaceSidebarKey(
     key: WorkspaceSidebarKey,
     now: Date,
     columns: number,
+    viewportRows?: number,
 ): WorkspaceSidebarTransition {
+    // Half-page movement, ahead of the modifier bail-out below. The cursor
+    // travels with the jump rather than the window sliding out from under it,
+    // so ctrl+d is ↓ held down and nothing new has to be learned about where
+    // the highlight went. The chords are the picker's half-page ids, inherited
+    // into this scope, so remapping one list movement remaps both.
+    const halfPage = tuiBindingId("workspace", key);
+    if (halfPage === "half_page_down" || halfPage === "half_page_up") {
+        const layout = workspaceSidebarLayout(state, { columns, now });
+        const selectable = layout.selectable;
+        if (selectable.length === 0) return { state, handled: true };
+        const current = layout.selectedId === undefined
+            ? 0
+            : Math.max(0, selectable.indexOf(layout.selectedId));
+        const selectedId = selectable[halfPageCursor(
+            current,
+            selectable.length,
+            viewportRows ?? 10,
+            halfPage === "half_page_down" ? "down" : "up",
+        )];
+        return {
+            state: selectedId === undefined ? state : { ...state, selectedId },
+            handled: true,
+        };
+    }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
     if (key.name === "escape" || key.name === "i") {
@@ -327,7 +354,7 @@ export function handleWorkspaceSidebarKey(
     return { state, handled: true };
 }
 
-/** What activating a row means. Selecting a row switches the viewed session. */
+/** What activating a row means. Enter or a click switches the viewed session; moving the highlight does not. */
 export function openWorkspaceSelection(
     state: WorkspaceSidebarState,
     sessionId: string | undefined,
@@ -357,8 +384,8 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  */
 export function workspaceSidebarFooter(width: number): string {
     return width < NARROW_WIDTH
-        ? "↑↓/jk enter 1-9 p i/esc"
-        : "↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat";
+        ? "↑↓/jk ^d^u 1-9 p i/esc"
+        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat";
 }
 
 /**

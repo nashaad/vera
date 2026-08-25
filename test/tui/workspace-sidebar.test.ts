@@ -12,8 +12,10 @@ import {
     workspaceJumpTarget,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
+    workspaceSidebarFooter,
     workspaceSidebarText,
     workspaceSidebarViewState,
+    MIN_RAIL_COLUMNS,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -57,12 +59,14 @@ function press(
     state: WorkspaceSidebarState,
     name: string,
     modifiers: { ctrl?: boolean; shift?: boolean } = {},
+    viewportRows?: number,
 ) {
     return handleWorkspaceSidebarKey(
         state,
         { name, ...modifiers },
         NOW,
         COLUMNS,
+        viewportRows,
     );
 }
 
@@ -264,6 +268,22 @@ describe("the cursor", () => {
         expect(state.selectedId).toBe("b");
         state = press(state, "k").state!;
         expect(state.selectedId).toBe("a");
+    });
+
+    test("ctrl+d and ctrl+u jump half a page without opening", () => {
+        const sessions = Array.from({ length: 10 }, (_unused, at) =>
+            session(`s${at}`, {
+                updatedAt: `2026-08-22T1${9 - at}:00:00.000Z`,
+            }));
+        const state = open(sessions, [], "s0");
+        const down = press(state, "d", { ctrl: true }, 6);
+        expect(down.handled).toBe(true);
+        expect(down.action).toBeUndefined();
+        expect(down.state?.selectedId).toBe("s3");
+        const up = press(down.state!, "u", { ctrl: true }, 6);
+        expect(up.handled).toBe(true);
+        expect(up.action).toBeUndefined();
+        expect(up.state?.selectedId).toBe("s0");
     });
 
     test("enter opens the session under the cursor", () => {
@@ -469,7 +489,7 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer)
-            .toBe("↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat");
+            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat");
         expect(view.title).toBe("      Workspace · 1");
     });
 
@@ -481,9 +501,11 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓/jk enter 1-9 p i/esc");
+        expect(view.footer).toBe("↑↓/jk ^d^u 1-9 p i/esc");
         expect(view.footer.length)
             .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
+        expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).length)
+            .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
     });
 
     test("an empty listing says so rather than drawing nothing", () => {

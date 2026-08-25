@@ -4464,6 +4464,7 @@ export async function startTui(
                 key,
                 new Date(),
                 renderer.width,
+                workspaceSidebarView.visibleRows(),
             );
             if (transition.handled) {
                 key.preventDefault();

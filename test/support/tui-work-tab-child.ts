@@ -245,6 +245,21 @@ const ROSTER = [
     },
 ];
 
+if (process.env.VERA_TEST_MANY === "1") {
+    for (let index = 0; index < 40; index += 1) {
+        ROSTER.push({
+            id: `bulk-${index}`,
+            session_path: `/sessions/bulk-${index}.jsonl`,
+            title: `bulk-${index}`,
+            workspace: "/work/one",
+            kind: "interactive",
+            status: "working",
+            live: true,
+            updated_at: minutesAgo(20 + index),
+        });
+    }
+}
+
 const channel = createInProcessChannel();
 void runHeadlessLoop(
     channel.engine,
