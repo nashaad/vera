@@ -621,14 +621,16 @@ export async function runCli(
         )();
         for (const outcome of outcomes) {
             output.write(
-                outcome.skipped === undefined
+                outcome.failure === undefined
                     ? `${outcome.provider}: ${outcome.models} models\n`
-                    : `${outcome.provider}: skipped (${outcome.skipped})\n`,
+                    : `${outcome.provider}: failed (${
+                        catalogRefreshFailure(outcome)
+                    })\n`,
             );
         }
         // A refresh that reached nothing is not a success, and the exit code
         // is what a script reads.
-        return outcomes.some((outcome) => outcome.skipped === undefined)
+        return outcomes.some((outcome) => outcome.failure === undefined)
             ? 0
             : 1;
     }
@@ -760,6 +762,20 @@ export async function runCli(
 
     errorOutput.write(renderCliUsage());
     return 1;
+}
+
+function catalogRefreshFailure(outcome: CatalogRefreshOutcome): string {
+    const failure = outcome.failure;
+    const reason = failure === "missing_credential" ? "no credential"
+        : failure === "authentication" ? "credential rejected"
+        : failure === "malformed_response" ? "malformed response"
+        : failure === "empty_response" ? "empty response"
+        : failure === "persistence_failed" ? "could not save catalog"
+        : failure === "invalid" ? "provider is not refreshable"
+        : "provider unavailable";
+    return outcome.keptModels === undefined
+        ? reason
+        : `${reason}; kept ${outcome.keptModels} cached models`;
 }
 
 interface PrintRequest {

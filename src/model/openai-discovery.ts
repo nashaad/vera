@@ -13,6 +13,7 @@ export interface OpenAIProviderDiscoveryOptions {
     readonly credential?: "required" | "optional" | "none";
     /** Local servers use an empty successful list to replace their rows. */
     readonly preserveEmpty?: boolean;
+    readonly catalogLayers?: readonly string[];
     readonly apiKey?: string;
     readonly endpoint?: string;
     readonly cacheDir?: string;
@@ -24,10 +25,49 @@ export interface OpenAIProviderDiscoveryOptions {
     ) => Promise<Response>;
 }
 
+export type ProviderCatalogFailure =
+    | "authentication"
+    | "unavailable"
+    | "malformed_response"
+    | "empty_response";
+
+export interface FreshProviderCatalogResult {
+    readonly status: "fresh";
+    readonly catalog: ProviderCatalog;
+}
+
+export interface RefreshedProviderCatalogResult {
+    readonly status: "refreshed";
+    readonly catalog: ProviderCatalog;
+}
+
+export interface StaleProviderCatalogResult {
+    readonly status: "stale";
+    readonly catalog: ProviderCatalog;
+    readonly failure: ProviderCatalogFailure;
+}
+
+export interface FailedProviderCatalogResult {
+    readonly status: "failed";
+    readonly failure: ProviderCatalogFailure;
+}
+
+export interface ProviderCatalogPersistenceFailure {
+    readonly status: "persistence_failed";
+    readonly catalog: ProviderCatalog;
+}
+
+export type ProviderCatalogRefreshResult =
+    | FreshProviderCatalogResult
+    | RefreshedProviderCatalogResult
+    | StaleProviderCatalogResult
+    | FailedProviderCatalogResult
+    | ProviderCatalogPersistenceFailure;
+
 /** Generic authenticated/unauthenticated OpenAI-compatible `/models` ladder. */
 export async function refreshOpenAIProviderCatalog(
     options: OpenAIProviderDiscoveryOptions,
-): Promise<ProviderCatalog | undefined> {
+): Promise<ProviderCatalogRefreshResult> {
     const cacheOptions: ProviderCatalogCacheOptions = options.cacheDir === undefined
         ? {}
         : { cacheDir: options.cacheDir };
@@ -36,50 +76,97 @@ export async function refreshOpenAIProviderCatalog(
         options.maxAgeMs ?? 0,
         cacheOptions,
     );
-    if (fresh !== undefined) return fresh;
+    if (fresh !== undefined) return { status: "fresh", catalog: fresh };
     const endpoint = options.endpoint ?? providerEndpointUrl(options.baseUrl, "/models");
+    const headers: Record<string, string> = {};
+    if (options.apiKey !== undefined) {
+        headers.authorization = `Bearer ${options.apiKey}`;
+    }
+    let response: Response;
     try {
-        const headers: Record<string, string> = {};
-        if (options.apiKey !== undefined) {
-            headers.authorization = `Bearer ${options.apiKey}`;
-        }
-        const response = await (options.fetch ?? globalThis.fetch)(endpoint, {
+        response = await (options.fetch ?? globalThis.fetch)(endpoint, {
             method: "GET",
             headers,
             signal: AbortSignal.timeout(options.timeoutMs ?? 2_500),
         });
-        if (!response.ok) return staleCatalog(options.provider, cacheOptions);
-        const catalog = normalizeOpenAIModels(options.provider, await response.json());
-        if (catalog.models.length === 0 && options.preserveEmpty !== true) {
-            return staleCatalog(options.provider, cacheOptions);
-        }
-        try {
-            writeProviderCatalogSnapshot(catalog, cacheOptions);
-        } catch {
-            // The response is still useful even if the disposable snapshot is not.
-        }
-        return catalog;
     } catch {
-        return staleCatalog(options.provider, cacheOptions);
+        return failedRefresh(options.provider, cacheOptions, "unavailable");
     }
+    if (!response.ok) {
+        return failedRefresh(
+            options.provider,
+            cacheOptions,
+            response.status === 401 || response.status === 403
+                ? "authentication"
+                : "unavailable",
+        );
+    }
+    let raw: unknown;
+    try {
+        raw = await response.json();
+    } catch {
+        return failedRefresh(
+            options.provider,
+            cacheOptions,
+            "malformed_response",
+        );
+    }
+    if (!isRecord(raw) || !Array.isArray(raw.data)) {
+        return failedRefresh(
+            options.provider,
+            cacheOptions,
+            "malformed_response",
+        );
+    }
+    const catalog = normalizeOpenAIModels(
+        options.provider,
+        raw,
+        options.catalogLayers ?? [],
+    );
+    if (raw.data.length > 0 && catalog.models.length === 0) {
+        return failedRefresh(
+            options.provider,
+            cacheOptions,
+            "malformed_response",
+        );
+    }
+    if (catalog.models.length === 0 && options.preserveEmpty !== true) {
+        return failedRefresh(
+            options.provider,
+            cacheOptions,
+            "empty_response",
+        );
+    }
+    try {
+        writeProviderCatalogSnapshot(catalog, cacheOptions);
+    } catch {
+        return { status: "persistence_failed", catalog };
+    }
+    return { status: "refreshed", catalog };
 }
 
 export function normalizeOpenAIModels(
     provider: string,
     raw: unknown,
+    layers: readonly string[] = [],
 ): ProviderCatalog {
     const data = isRecord(raw) && Array.isArray(raw.data) ? raw.data : [];
     const models: CatalogModel[] = data.flatMap((entry) => {
         if (!isRecord(entry) || typeof entry.id !== "string" || entry.id.length === 0) {
             return [];
         }
+        const contextWindow = positiveNumber(
+            entry.context_window
+            ?? entry.max_model_len
+            ?? (layers.includes("cerebras-models") && isRecord(entry.limits)
+                ? entry.limits.max_context_length
+                : undefined),
+        );
         return [{
             id: entry.id,
             label: typeof entry.name === "string" ? entry.name : entry.id,
             ...(typeof entry.description === "string" ? { description: entry.description } : {}),
-            ...(positiveNumber(entry.context_window ?? entry.max_model_len) === undefined
-                ? {}
-                : { context_window: positiveNumber(entry.context_window ?? entry.max_model_len) }),
+            ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
             levels: [],
         }];
     });
@@ -97,12 +184,15 @@ function positiveNumber(value: unknown): number | undefined {
         : undefined;
 }
 
-function staleCatalog(
+function failedRefresh(
     provider: string,
     options: ProviderCatalogCacheOptions,
-): ProviderCatalog | undefined {
+    failure: ProviderCatalogFailure,
+): StaleProviderCatalogResult | FailedProviderCatalogResult {
     const cached = readProviderCatalogSnapshot(provider, options);
-    return cached.models.length === 0 ? undefined : cached;
+    return cached.models.length === 0
+        ? { status: "failed", failure }
+        : { status: "stale", catalog: cached, failure };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

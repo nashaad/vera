@@ -13,6 +13,7 @@
     "discovery": { "mode": "none", "path": "/models", "credential": "required" },
     "compatibility": {
         "request": ["thinking-object", "reasoning-content"],
+        "effort": ["deepseek-effort"],
         "response": ["openai-sse"],
         "error": ["http-status"]
     }

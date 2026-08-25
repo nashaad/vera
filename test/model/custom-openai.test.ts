@@ -77,6 +77,14 @@ test("a named endpoint may deliberately require no credential", async () => {
             },
         },
     }, {
+        authStorage: {
+            getCredential: () => ({
+                type: "api_key" as const,
+                key: "stale-secret-that-must-not-leave",
+            }),
+            setCredential: () => {},
+            deleteCredential: () => {},
+        },
         fetch: async (_input, init) => {
             authorization = new Headers(init?.headers).get("authorization");
             return new Response(

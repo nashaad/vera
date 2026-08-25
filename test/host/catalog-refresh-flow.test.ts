@@ -8,6 +8,7 @@ import { loadVeraConfig } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
+import type { AuthStorage } from "../../src/providers/auth-storage.ts";
 
 const adapter: ModelAdapter = {
     stream() {
@@ -30,6 +31,99 @@ const adapter: ModelAdapter = {
         return stream;
     },
 };
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a declared credentialless provider refreshes without spending a stale key",
+    async () => {
+        const root = await realpath(
+            await mkdtemp(join(tmpdir(), "vera-custom-refresh-")),
+        );
+        const previousHome = process.env.VERA_HOME;
+        process.env.VERA_HOME = root;
+
+        let listed: string | undefined = "first-model";
+        const authorization: Array<string | null> = [];
+        const server = Bun.serve({
+            port: 0,
+            fetch(request) {
+                authorization.push(request.headers.get("authorization"));
+                return Response.json({
+                    data: listed === undefined ? [] : [{ id: listed }],
+                });
+            },
+        });
+        const authStorage = {
+            getCredential: (provider: string) => provider === "local-gateway"
+                ? {
+                    type: "api_key" as const,
+                    key: "stored-key-that-must-not-be-sent",
+                }
+                : undefined,
+            setCredential: () => {},
+            deleteCredential: () => {},
+        } satisfies AuthStorage;
+        const configPath = join(root, "config.json");
+        await writeFile(configPath, JSON.stringify({
+            schema_version: 1,
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+            approval_mode: "ask",
+            providers: {
+                "local-gateway": {
+                    protocol: "openai-chat",
+                    base_url: `http://localhost:${server.port}/v1`,
+                    credential: "none",
+                },
+            },
+        }));
+
+        const host = await startResidentHost({
+            config: loadVeraConfig({ path: configPath }),
+            createAdapter: () => adapter,
+            authStorage,
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            eventLogDirectory: join(root, "logs"),
+        });
+
+        try {
+            const agent = await host.registry.create({
+                workspace: root,
+                sessionPath: join(root, "sessions", "agent.jsonl"),
+            });
+
+            listed = "second-model";
+            const refreshed = await host.registry.refreshCatalog(
+                agent.id,
+                "local-gateway",
+            );
+            expect(refreshed?.availableModels).toContainEqual(expect.objectContaining({
+                provider: "local-gateway",
+                model: "second-model",
+                refreshable: true,
+            }));
+            expect(refreshed?.refreshableProviders).toContain("local-gateway");
+
+            listed = undefined;
+            const emptied = await host.registry.refreshCatalog(
+                agent.id,
+                "local-gateway",
+            );
+            expect(emptied?.availableModels?.some(
+                (model) => model.provider === "local-gateway",
+            )).toBe(false);
+            expect(emptied?.refreshableProviders).toContain("local-gateway");
+            expect(authorization).toEqual([null, null]);
+        } finally {
+            await host.close();
+            server.stop(true);
+            if (previousHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = previousHome;
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "a real host asks the provider again only when a refresh is requested",

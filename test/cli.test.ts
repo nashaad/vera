@@ -1250,19 +1250,19 @@ test("vera -p flags compose in any order and unknown flags are refused", async (
     expect(requests).toHaveLength(3);
 });
 
-test("vera models refresh reports each provider and skips the uncredentialed", async () => {
+test("vera models refresh reports each provider and names an uncredentialed failure", async () => {
     let output = "";
     const exitCode = await runCli(["models", "refresh"], {
         stdout: { write: (text) => output += text },
         refreshCatalogs: async () => [
             { provider: "openrouter", models: 3 },
-            { provider: "cerebras", skipped: "no credential" },
+            { provider: "cerebras", failure: "missing_credential" },
         ],
     });
 
     expect(exitCode).toBe(0);
     expect(output).toBe(
-        "openrouter: 3 models\ncerebras: skipped (no credential)\n",
+        "openrouter: 3 models\ncerebras: failed (no credential)\n",
     );
 });
 
@@ -1271,12 +1271,32 @@ test("vera models refresh fails when no provider could be asked", async () => {
     const exitCode = await runCli(["models", "refresh"], {
         stdout: { write: (text) => output += text },
         refreshCatalogs: async () => [
-            { provider: "openrouter", skipped: "no credential" },
+            { provider: "openrouter", failure: "missing_credential" },
         ],
     });
 
     expect(exitCode).toBe(1);
-    expect(output).toBe("openrouter: skipped (no credential)\n");
+    expect(output).toBe("openrouter: failed (no credential)\n");
+});
+
+test("vera models refresh names a stale provider while keeping its rows", async () => {
+    let output = "";
+    const exitCode = await runCli(["models", "refresh"], {
+        stdout: { write: (text) => output += text },
+        refreshCatalogs: async () => [
+            {
+                provider: "cerebras",
+                models: 2,
+                failure: "unavailable",
+                keptModels: 2,
+            },
+        ],
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toBe(
+        "cerebras: failed (provider unavailable; kept 2 cached models)\n",
+    );
 });
 
 test("vera host supervise turns supervision on", async () => {

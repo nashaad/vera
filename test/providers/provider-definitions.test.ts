@@ -63,6 +63,8 @@ test("provider definitions reject unsafe, unknown, and incompatible facts", () =
         .toThrow(/unsupported schema_version/);
     expect(() => parseProviderDefinition({ ...standard, default_base_url: "file:///secret" }, "fixture"))
         .toThrow(/unsafe default_base_url/);
+    expect(() => parseProviderDefinition({ ...standard, id: "../../fixture" }, "fixture"))
+        .toThrow(/lowercase provider slug/);
     expect(() => parseProviderDefinition({
         ...standard,
         compatibility: { request: ["unknown-layer"] },

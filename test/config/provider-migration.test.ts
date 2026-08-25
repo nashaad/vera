@@ -97,3 +97,44 @@ test("migration refuses custom fields it cannot preserve", () => {
         rmSync(directory, { recursive: true, force: true });
     }
 });
+
+test("migration normalizes the previously accepted DigitalOcean id", () => {
+    const raw = {
+        ...baseConfig({
+            protocol: "openai-chat",
+            base_url: "https://inference.do-ai.run/v1",
+            credential: "api_key",
+        }),
+        providers: {
+            " digitalocean ": {
+                protocol: "openai-chat",
+                base_url: "https://inference.do-ai.run/v1",
+                credential: "api_key",
+            },
+        },
+    };
+    const { directory, path } = fixture(raw);
+    try {
+        const config = loadVeraConfig({ path });
+        expect(config.provider).toBe("digitalocean");
+        expect(JSON.parse(readFileSync(path, "utf8")).providers).toBeUndefined();
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("migration accepts the environment key already shipped for DigitalOcean", () => {
+    const { directory, path } = fixture(baseConfig({
+        protocol: "openai-chat",
+        base_url: "https://inference.do-ai.run/v1",
+        credential: "api_key",
+        api_key_env: "DIGITALOCEAN_API_KEY",
+    }));
+    try {
+        const config = loadVeraConfig({ path });
+        expect(config.provider).toBe("digitalocean");
+        expect(JSON.parse(readFileSync(path, "utf8")).providers).toBeUndefined();
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});

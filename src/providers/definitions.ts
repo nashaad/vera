@@ -1,6 +1,8 @@
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { isSafeProviderId } from "./provider-id.ts";
+
 export const PROVIDER_DEFINITION_SCHEMA_VERSION = 1;
 
 export type ProviderAccess = "subscription" | "api_key" | "local";
@@ -28,6 +30,10 @@ export interface ProviderDiscoveryDefinition {
     readonly mode: ProviderDiscoveryMode;
     readonly path: string;
     readonly credential: DiscoveryCredential;
+    /** A listing host that differs from the provider's request host. */
+    readonly baseUrl?: string;
+    /** Listing path used after the user moves the provider endpoint. */
+    readonly endpointOverridePath?: string;
 }
 
 export interface ProviderDefinition {
@@ -81,7 +87,9 @@ const ALLOWED_LAYERS = new Set([
     "completion-token-field",
     "cerebras-effort",
     "thinking-object",
+    "deepseek-effort",
     "reasoning-content",
+    "cerebras-models",
     "capability-gated-thinking",
     "codex-wire",
     "codex-stream",
@@ -214,6 +222,9 @@ export function parseProviderDefinition(
         }
     }
     if (value.schema_version !== 1) throw new Error(`${context}: unsupported schema_version`);
+    if (!isSafeProviderId(value.id as string)) {
+        throw new Error(`${context}: id must be a lowercase provider slug`);
+    }
     if (!isProviderAccess(value.access) || !isProviderCredential(value.credential)) {
         throw new Error(`${context}: invalid access or credential`);
     }
@@ -262,7 +273,27 @@ function parseDiscovery(value: unknown, context: string): ProviderDiscoveryDefin
         throw new Error(`${context}: invalid discovery definition`);
     }
     if (!isDiscoveryCredential(value.credential)) throw new Error(`${context}: invalid discovery credential`);
-    return { mode: value.mode, path: value.path, credential: value.credential };
+    if (value.base_url !== undefined && !validProviderUrl(value.base_url)) {
+        throw new Error(`${context}: unsafe discovery base_url`);
+    }
+    if (
+        value.endpoint_override_path !== undefined
+        && (
+            typeof value.endpoint_override_path !== "string"
+            || !value.endpoint_override_path.startsWith("/")
+        )
+    ) {
+        throw new Error(`${context}: invalid discovery endpoint_override_path`);
+    }
+    return {
+        mode: value.mode,
+        path: value.path,
+        credential: value.credential,
+        ...(value.base_url === undefined ? {} : { baseUrl: value.base_url }),
+        ...(value.endpoint_override_path === undefined
+            ? {}
+            : { endpointOverridePath: value.endpoint_override_path }),
+    };
 }
 
 function parseLayers(value: unknown, context: string): ProviderCompatibilityLayers {

@@ -55,7 +55,12 @@ test("disposable VERA_HOME loads DigitalOcean data and reads back a real catalog
                 });
             },
         });
-        expect(catalog?.models.map((model) => model.id)).toEqual(["account-model"]);
+        expect(catalog.status).toBe("refreshed");
+        if (!("catalog" in catalog)) {
+            throw new Error(`expected catalog, got ${catalog.status}`);
+        }
+        expect(catalog.catalog.models.map((model) => model.id))
+            .toEqual(["account-model"]);
         expect(readProviderCatalogSnapshot("digitalocean", { cacheDir }).models.map((model) => model.id))
             .toEqual(["account-model"]);
     } finally {

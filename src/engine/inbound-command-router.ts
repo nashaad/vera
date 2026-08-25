@@ -1794,6 +1794,9 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
                     levels: model.levels.map((level) => ({ ...level })),
                 })),
             }),
+        ...(settings.refreshableProviders === undefined
+            ? {}
+            : { refreshableProviders: [...settings.refreshableProviders] }),
         ...(settings.pooled === undefined
             ? {}
             : {

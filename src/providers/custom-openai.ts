@@ -86,17 +86,23 @@ function encodeRequest(
         const { reasoning: reasoningContent, ...rest } = encoded;
         return { ...rest, reasoning_content: reasoningContent };
     });
+    const providerEffort = mappedProviderEffort(reasoning, layers);
     const reasoningFields = layers.includes("thinking-object")
         ? reasoning === undefined
             ? {}
             : reasoning === "off"
                 ? { thinking: { type: "disabled" } }
-                : { thinking: { type: "enabled" }, reasoning_effort: reasoning }
+                : {
+                    thinking: { type: "enabled" },
+                    ...(providerEffort === undefined
+                        ? {}
+                        : { reasoning_effort: providerEffort }),
+                }
         : layers.includes("cerebras-effort")
             ? cerebrasEffortFields(reasoning, request.model)
-            : reasoning === undefined
+            : providerEffort === undefined
                 ? {}
-                : { reasoning_effort: reasoning };
+                : { reasoning_effort: providerEffort };
     return {
         ...(request.bodyExtensions ?? {}),
         model: request.model,
@@ -120,8 +126,27 @@ function cerebrasEffortFields(
     model: string,
 ): Record<string, string> {
     if (effort === undefined) return {};
-    if (model.startsWith("zai-glm-") && effort !== "off") return {};
-    return { reasoning_effort: effort === "off" ? "none" : effort };
+    if (model === "gpt-oss-120b") {
+        return { reasoning_effort: effort === "off" ? "none" : effort };
+    }
+    if (model.startsWith("zai-glm-") && effort === "off") {
+        return { reasoning_effort: "none" };
+    }
+    return {};
+}
+
+function mappedProviderEffort(
+    effort: string | undefined,
+    layers: readonly string[],
+): string | undefined {
+    if (effort === undefined || !layers.includes("deepseek-effort")) {
+        return effort;
+    }
+    if (effort === "xhigh" || effort === "max") return "max";
+    if (effort === "minimal" || effort === "low" || effort === "medium") {
+        return "high";
+    }
+    return effort;
 }
 
 function classifyCustomProviderError(value: unknown): ProviderFailure {

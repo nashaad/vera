@@ -67,6 +67,20 @@ describe("provider catalog cache", () => {
             .toBe(join(cacheDir, "openai-codex.json"));
     });
 
+    test("refuses provider ids that could leave the cache directory", () => {
+        const cacheDir = temporaryDirectory();
+
+        expect(() => providerCatalogCachePath("./../../config", cacheDir))
+            .toThrow(/Unsafe provider catalog id/);
+        expect(() =>
+            writeProviderCatalogSnapshot({
+                schema_version: 2,
+                provider: "./../../config",
+                models: [],
+            }, { cacheDir })
+        ).toThrow(/Unsafe provider catalog id/);
+    });
+
     test("returns an empty catalog when the file is missing", () => {
         const cacheDir = temporaryDirectory();
 

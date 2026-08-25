@@ -93,7 +93,11 @@ import {
     configuredProviders,
     type ProviderDescriptor,
 } from "../providers/registry.ts";
-import { refreshOpenAIProviderCatalog } from "../model/openai-discovery.ts";
+import {
+    refreshOpenAIProviderCatalog,
+    type ProviderCatalogFailure,
+    type ProviderCatalogRefreshResult,
+} from "../model/openai-discovery.ts";
 import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { providerEndpointUrl } from "../providers/endpoint-url.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
@@ -466,6 +470,14 @@ export async function startResidentHost(
                 return models;
             }
             : undefined,
+        refreshableProviders: () => {
+            const config = currentConfig();
+            return configuredProviders(config)
+                .filter((provider) =>
+                    isRefreshableProvider(provider.id, config)
+                )
+                .map((provider) => provider.id);
+        },
         refreshCatalog: (provider) => {
             // One at a time. A refresh reads the discovered list, replaces one
             // provider's rows in it and writes it back, so two overlapping
@@ -508,36 +520,42 @@ export async function startResidentHost(
                 // request actually landed, so it is read either side of the
                 // call.
                 const before = readProviderCatalogSnapshot(provider).fetched_at;
-                const rows = descriptor?.behaviorId === "openrouter"
-                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                const standard = descriptor?.behaviorId === "openrouter"
+                    ? undefined
                     : await standardProviderModels(
                         descriptor,
                         config,
                         authStorage,
                         { maxAgeMs: 0 },
                     );
+                const rows = standard === undefined
+                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                    : standard.models;
                 if (
-                    rows === undefined
+                    standard?.failure !== undefined
                     ||
                     readProviderCatalogSnapshot(provider).fetched_at === before
                 ) {
                     return undefined;
                 }
-                models = descriptor?.behaviorId === "openrouter"
-                    ? withProviderRows(models, provider, rows)
-                    : replaceProviderRows(
-                        models,
-                        provider,
-                        rows,
-                        config.provider === provider
-                            ? {
-                                provider,
-                                model: config.model,
-                                label: config.model,
-                                description: "configured model",
-                            }
-                            : undefined,
-                    );
+                models = withProviderRefreshability(
+                    descriptor?.behaviorId === "openrouter"
+                        ? withProviderRows(models, provider, rows)
+                        : replaceProviderRows(
+                            models,
+                            provider,
+                            rows,
+                            config.provider === provider
+                                ? {
+                                    provider,
+                                    model: config.model,
+                                    label: config.model,
+                                    description: "configured model",
+                                }
+                                : undefined,
+                        ),
+                    config,
+                );
                 return models;
             });
             // The queue carries the turn, not its failure: one refresh that
@@ -1171,11 +1189,18 @@ export function catalogMaxAgeMs(config: VeraConfig): number {
 
 export interface CatalogRefreshOutcome {
     readonly provider: string;
-    /** Absent when the provider was never asked. */
+    /** Present only when a provider response was saved successfully. */
     readonly models?: number;
-    /** Why it was not asked, when it was not. */
-    readonly skipped?: string;
+    readonly failure?: CatalogRefreshFailure;
+    /** Rows retained from an older snapshot after a failed request. */
+    readonly keptModels?: number;
 }
+
+export type CatalogRefreshFailure =
+    | ProviderCatalogFailure
+    | "missing_credential"
+    | "persistence_failed"
+    | "invalid";
 
 export interface CatalogRefreshOptions {
     readonly authStorage?: AuthStorage;
@@ -1224,11 +1249,13 @@ export async function refreshProviderCatalogs(
     return [
         ollama.available
             ? { provider: "ollama", models: ollama.models.length }
-            : { provider: "ollama", skipped: "unavailable" },
-        refreshOutcome("openrouter", openrouter),
-        ...standard.map((models, index) => refreshOutcome(
+            : { provider: "ollama", failure: "unavailable" as const },
+        openrouter === undefined
+            ? { provider: "openrouter", failure: "missing_credential" }
+            : { provider: "openrouter", models: openrouter.length },
+        ...standard.map((result, index) => standardRefreshOutcome(
             standardProviderDescriptors(config)[index]!.id,
-            models,
+            result,
         )),
     ];
 }
@@ -1252,13 +1279,19 @@ export function replaceProviderRows(
     ];
 }
 
-function refreshOutcome(
+function standardRefreshOutcome(
     provider: string,
-    models: readonly SuggestedModel[] | undefined,
+    result: StandardProviderModelsResult,
 ): CatalogRefreshOutcome {
-    return models === undefined
-        ? { provider, skipped: "no credential" }
-        : { provider, models: models.length };
+    return result.failure === undefined
+        ? { provider, models: result.models.length }
+        : {
+            provider,
+            failure: result.failure,
+            ...(result.models.length === 0
+                ? {}
+                : { keptModels: result.models.length }),
+        };
 }
 
 function standardProviderDescriptors(
@@ -1276,25 +1309,25 @@ async function standardProviderModels(
     config: VeraConfig,
     authStorage: Pick<AuthStorage, "getCredential">,
     options: { readonly cacheDir?: string; readonly maxAgeMs: number },
-): Promise<readonly SuggestedModel[] | undefined> {
+): Promise<StandardProviderModelsResult> {
     if (
         descriptor === undefined
         || descriptor.baseUrl === undefined
         || descriptor.discovery === undefined
     ) {
-        return undefined;
+        return { models: [], failure: "invalid" };
     }
-    const stored = apiKey(authStorage, descriptor.id);
-    const env = descriptor.envVar === undefined
+    const key = descriptor.discovery.credential === "none"
         ? undefined
-        : process.env[descriptor.envVar];
-    const key = stored ?? env;
+        : apiKey(authStorage, descriptor.id)
+            ?? (descriptor.envVar === undefined
+                ? undefined
+                : process.env[descriptor.envVar]);
     if (
         descriptor.discovery.credential === "required"
         && key === undefined
-        && config.provider !== descriptor.id
     ) {
-        return undefined;
+        return { models: [], failure: "missing_credential" };
     }
     const catalog = await refreshOpenAIProviderCatalog({
         provider: descriptor.id,
@@ -1303,17 +1336,57 @@ async function standardProviderModels(
         ...(descriptor.discovery.credential === "required"
             ? {}
             : { preserveEmpty: true }),
-        endpoint: providerEndpointUrl(descriptor.baseUrl, descriptor.discovery.path),
+        catalogLayers: descriptor.compatibility?.catalog ?? [],
+        endpoint: standardProviderDiscoveryEndpoint(descriptor),
         ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
         maxAgeMs: options.maxAgeMs,
     });
-    return catalog?.models.map((model) => ({
+    const models = providerCatalog(catalog)?.models.map((model) => ({
         provider: descriptor.id,
         model: model.id,
         label: model.label,
         description: model.description ?? "",
         ...(model.context_window === undefined ? {} : { contextWindow: model.context_window }),
-    }));
+    })) ?? [];
+    return {
+        models,
+        ...standardProviderFailure(catalog),
+    };
+}
+
+interface StandardProviderModelsResult {
+    readonly models: readonly SuggestedModel[];
+    readonly failure?: CatalogRefreshFailure;
+}
+
+function providerCatalog(
+    result: ProviderCatalogRefreshResult,
+) {
+    return result.status === "failed" ? undefined : result.catalog;
+}
+
+function standardProviderFailure(
+    result: ProviderCatalogRefreshResult,
+): { readonly failure?: CatalogRefreshFailure } {
+    if (result.status === "stale" || result.status === "failed") {
+        return { failure: result.failure };
+    }
+    return result.status === "persistence_failed"
+        ? { failure: "persistence_failed" }
+        : {};
+}
+
+export function standardProviderDiscoveryEndpoint(
+    descriptor: ProviderDescriptor,
+): string {
+    const discovery = descriptor.discovery!;
+    const baseUrl = descriptor.endpointOverridden === true
+        ? descriptor.baseUrl!
+        : discovery.baseUrl ?? descriptor.baseUrl!;
+    const path = descriptor.endpointOverridden === true
+        ? discovery.endpointOverridePath ?? discovery.path
+        : discovery.path;
+    return providerEndpointUrl(baseUrl, path);
 }
 
 /**
@@ -1365,7 +1438,7 @@ async function discoverAvailableModels(
         )),
     ]);
     catalog.push(...ollama);
-    catalog.push(...standard.flatMap((models) => models ?? []));
+    catalog.push(...standard.flatMap((result) => result.models));
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
         // models with staler facts. Nothing is dropped when the fetch comes back
@@ -1390,7 +1463,20 @@ async function discoverAvailableModels(
             description: "configured model",
         });
     }
-    return catalog;
+    return withProviderRefreshability(catalog, config);
+}
+
+function withProviderRefreshability(
+    models: readonly SuggestedModel[],
+    config: VeraConfig,
+): readonly SuggestedModel[] {
+    return models.map((model) =>
+        isRefreshableProvider(model.provider, config)
+            ? { ...model, refreshable: true }
+            : model.refreshable === undefined
+                ? model
+                : { ...model, refreshable: undefined }
+    );
 }
 
 export interface CerebrasDiscoveryOptions {
@@ -2013,22 +2099,20 @@ function refreshDynamicAvailableModels(
 ): readonly SuggestedModel[] {
     const withoutDeepSeek = models.filter((model) => model.provider !== "deepseek");
     const deepSeek = discoveredDeepSeekModels(config, { authStorage });
-    if (config.provider !== "deepseek") {
-        return [...withoutDeepSeek, ...deepSeek];
-    }
-    if (deepSeek.some((model) => model.model === config.model)) {
-        return [...withoutDeepSeek, ...deepSeek];
-    }
-    return [
-        ...withoutDeepSeek,
-        ...deepSeek,
-        {
-            provider: config.provider,
-            model: config.model,
-            label: config.model,
-            description: "configured model",
-        },
-    ];
+    const refreshed = config.provider !== "deepseek"
+            || deepSeek.some((model) => model.model === config.model)
+        ? [...withoutDeepSeek, ...deepSeek]
+        : [
+            ...withoutDeepSeek,
+            ...deepSeek,
+            {
+                provider: config.provider,
+                model: config.model,
+                label: config.model,
+                description: "configured model",
+            },
+        ];
+    return withProviderRefreshability(refreshed, config);
 }
 
 function hasOpenRouterCredential(config: VeraConfig): boolean {

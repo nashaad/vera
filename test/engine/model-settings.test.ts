@@ -157,6 +157,10 @@ test("settings validation accepts the pool and per-model levels", () => {
         availableModels: [{ ...available, levels: [], defaultLevel: undefined }],
     })).toBe(true);
     expect(isModelTurnSettings({ model: "with-levels", pooled: [] })).toBe(true);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        refreshableProviders: ["empty-gateway"],
+    })).toBe(true);
 });
 
 test("settings validation rejects entries missing their new fields", () => {
@@ -199,6 +203,10 @@ test("settings validation rejects entries missing their new fields", () => {
             verified: true,
             levels: [{ label: "High" }],
         }],
+    })).toBe(false);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        refreshableProviders: [""],
     })).toBe(false);
 });
 

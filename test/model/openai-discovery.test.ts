@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -8,7 +8,18 @@ import {
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../../src/model/catalog-cache.ts";
-import { refreshOpenAIProviderCatalog } from "../../src/model/openai-discovery.ts";
+import {
+    normalizeOpenAIModels,
+    refreshOpenAIProviderCatalog,
+    type ProviderCatalogRefreshResult,
+} from "../../src/model/openai-discovery.ts";
+
+function resultCatalog(result: ProviderCatalogRefreshResult) {
+    if (!("catalog" in result)) {
+        throw new Error(`expected a catalog, got ${result.status}`);
+    }
+    return result.catalog;
+}
 
 function temporaryCache(): string {
     return mkdtempSync(join(tmpdir(), "vera-openai-discovery-"));
@@ -34,7 +45,9 @@ test("generic OpenAI discovery authenticates, normalizes, and writes one provide
             },
         });
         expect(requested).toBe("https://fixture.example/v1/models");
-        expect(catalog?.models.map((model) => model.id)).toEqual(["model-a", "model-b"]);
+        expect(catalog.status).toBe("refreshed");
+        expect(resultCatalog(catalog).models.map((model) => model.id))
+            .toEqual(["model-a", "model-b"]);
         expect(readProviderCatalogSnapshot("fixture-provider", { cacheDir }).models)
             .toHaveLength(2);
     } finally {
@@ -60,7 +73,10 @@ test("fresh snapshots avoid a provider request and failed refreshes use stale ro
                 throw new Error("fresh cache should prevent this request");
             },
         });
-        expect(fresh?.models.map((model) => model.id)).toEqual(["cached"]);
+        expect(fresh).toMatchObject({ status: "fresh" });
+        expect(resultCatalog(fresh).models.map((model) => model.id)).toEqual(["cached"]);
+
+        await Bun.sleep(5);
 
         const stale = await refreshOpenAIProviderCatalog({
             provider: "fixture-provider",
@@ -69,7 +85,11 @@ test("fresh snapshots avoid a provider request and failed refreshes use stale ro
             cacheDir,
             fetch: async () => new Response("", { status: 503 }),
         });
-        expect(stale?.models.map((model) => model.id)).toEqual(["cached"]);
+        expect(stale).toMatchObject({
+            status: "stale",
+            failure: "unavailable",
+        });
+        expect(resultCatalog(stale).models.map((model) => model.id)).toEqual(["cached"]);
     } finally {
         rmSync(cacheDir, { recursive: true, force: true });
     }
@@ -84,8 +104,77 @@ test("an empty or unlisted endpoint is a normal type-a-model state", async () =>
             cacheDir,
             fetch: async () => new Response(JSON.stringify({ data: [] }), { status: 200 }),
         });
-        expect(result).toBeUndefined();
+        expect(result).toEqual({
+            status: "failed",
+            failure: "empty_response",
+        });
     } finally {
         rmSync(cacheDir, { recursive: true, force: true });
     }
+});
+
+test("malformed optional discovery preserves a good snapshot", async () => {
+    const cacheDir = temporaryCache();
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "omlx",
+            fetched_at: "2026-08-24T00:00:00.000Z",
+            models: [{ id: "kept", label: "Kept", levels: [] }],
+        }, { cacheDir });
+
+        const result = await refreshOpenAIProviderCatalog({
+            provider: "omlx",
+            baseUrl: "http://127.0.0.1:8000/v1",
+            cacheDir,
+            maxAgeMs: 0,
+            preserveEmpty: true,
+            fetch: async () => new Response("{}", { status: 200 }),
+        });
+
+        expect(result).toMatchObject({
+            status: "stale",
+            failure: "malformed_response",
+        });
+        expect(readProviderCatalogSnapshot("omlx", { cacheDir }).models)
+            .toMatchObject([{ id: "kept" }]);
+    } finally {
+        rmSync(cacheDir, { recursive: true, force: true });
+    }
+});
+
+test("a successful response reports when its snapshot cannot be saved", async () => {
+    const directory = temporaryCache();
+    const cacheDir = join(directory, "not-a-directory");
+    writeFileSync(cacheDir, "occupied");
+    try {
+        const result = await refreshOpenAIProviderCatalog({
+            provider: "fixture-provider",
+            baseUrl: "https://fixture.example/v1",
+            cacheDir,
+            fetch: async () => new Response(JSON.stringify({
+                data: [{ id: "model-a" }],
+            }), { status: 200 }),
+        });
+
+        expect(result.status).toBe("persistence_failed");
+        expect(resultCatalog(result).models.map((model) => model.id)).toEqual(["model-a"]);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("a Cerebras catalog layer reads the nested context limit", () => {
+    const catalog = normalizeOpenAIModels("cerebras", {
+        data: [{
+            id: "gpt-oss-120b",
+            name: "GPT OSS 120B",
+            limits: { max_context_length: 131_072 },
+        }],
+    }, ["cerebras-models"]);
+
+    expect(catalog.models[0]).toMatchObject({
+        id: "gpt-oss-120b",
+        context_window: 131_072,
+    });
 });

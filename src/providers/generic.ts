@@ -68,6 +68,7 @@ export function createGenericProviderAdapter(
 
 function genericApiKey(options: GenericProviderOptions): string | undefined {
     const credential = options.provider.credential;
+    if (credential === "none") return undefined;
     const stored = options.authStorage?.getCredential(options.provider.id);
     if (stored?.type === "api_key" && stored.key.length > 0) return stored.key;
     const envVar = options.provider.envVar;

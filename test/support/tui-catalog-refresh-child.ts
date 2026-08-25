@@ -23,6 +23,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
             model: "one/model",
             label: "One",
             description: "the list before the refresh",
+            refreshable: true,
             levels: [],
         },
     ];
@@ -30,6 +31,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
         provider: PROVIDER,
         model: "one/model",
         availableModels,
+        refreshableProviders: [PROVIDER],
     });
     const channel = createInProcessChannel();
     void runHeadlessLoop(
@@ -57,6 +59,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
                             model: "two/model",
                             label: "Two",
                             description: "arrived with the refresh",
+                            refreshable: true,
                             levels: [],
                         },
                     ];

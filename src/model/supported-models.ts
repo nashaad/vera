@@ -11,6 +11,8 @@ export interface SuggestedModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /** Host-resolved fact: this provider can be asked for its list again. */
+    readonly refreshable?: boolean;
     /**
      * When the provider first listed the model, in seconds since the epoch.
      * Absent on a model nothing has dated, which the picker reads as a reason

@@ -197,6 +197,10 @@ function endpointFor(
     env: Readonly<Record<string, string | undefined>>,
     moved?: string,
 ): ProviderEndpoint | undefined {
+    // A contributed provider owns more than its wire format. OAuth parsing,
+    // refresh, and provider-specific headers must stay on that implementation's
+    // side of the boundary, so the generic doctor cannot safely probe it.
+    if (descriptor.protocol === "contributed") return undefined;
     if (descriptor.envVar === "OLLAMA_HOST") {
         const host = (moved ?? env.OLLAMA_HOST ?? "http://127.0.0.1:11434")
             .replace(/\/+$/, "")
@@ -309,6 +313,7 @@ function probeSecret(
     options: ProviderDoctorOptions,
     env: Readonly<Record<string, string | undefined>>,
 ): string | undefined {
+    if (descriptor.credential === "none") return undefined;
     let stored;
     try {
         stored = options.authStorage?.getCredential(descriptor.id);

@@ -33,6 +33,8 @@ export interface ModelTurnSettings {
      */
     readonly availableReasoningEfforts?: readonly ModelReasoningEffort[];
     readonly availableModels?: readonly AvailableModel[];
+    /** Provider IDs the host can ask for a new model list, including empty lists. */
+    readonly refreshableProviders?: readonly string[];
     /**
      * The pool: the models the user admitted, newest first. Separate from
      * `availableModels` because it answers a different question and carries
@@ -206,6 +208,11 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && (settings.availableModels === undefined
             || (Array.isArray(settings.availableModels)
                 && settings.availableModels.every(isAvailableModel)))
+        && (settings.refreshableProviders === undefined
+            || (Array.isArray(settings.refreshableProviders)
+                && settings.refreshableProviders.every((provider) =>
+                    typeof provider === "string" && provider.length > 0
+                )))
         && (settings.pooled === undefined
             || (Array.isArray(settings.pooled)
                 && settings.pooled.every(isPooledModel)))
@@ -454,6 +461,8 @@ function isAvailableModel(value: unknown): boolean {
         && (model.contextWindow === undefined
             || (Number.isSafeInteger(model.contextWindow)
                 && (model.contextWindow as number) > 0))
+        && (model.refreshable === undefined
+            || typeof model.refreshable === "boolean")
         && isLevelList(model.levels)
         && (model.defaultLevel === undefined
             || typeof model.defaultLevel === "string");

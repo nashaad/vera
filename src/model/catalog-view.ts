@@ -42,6 +42,8 @@ export interface AvailableModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    /** True when the owning host can refresh this provider's model list. */
+    readonly refreshable?: boolean;
     /**
      * Why the picker folds this row away until the user reveals everything.
      * Absent means the row is shown.
@@ -131,6 +133,7 @@ export function availableModelsWithLevels(
             ...(model.contextWindow === undefined
                 ? {}
                 : { contextWindow: model.contextWindow }),
+            ...(model.refreshable === true ? { refreshable: true } : {}),
             ...(model.hiddenByDefault === undefined
                 ? {}
                 : { hiddenByDefault: model.hiddenByDefault }),

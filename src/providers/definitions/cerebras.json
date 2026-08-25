@@ -10,10 +10,17 @@
     "env_var": "CEREBRAS_API_KEY",
     "protocol": "openai-chat",
     "default_base_url": "https://api.cerebras.ai/v1",
-    "discovery": { "mode": "models", "path": "/public/v1/models", "credential": "required" },
+    "discovery": {
+        "mode": "models",
+        "path": "/public/v1/models",
+        "credential": "required",
+        "base_url": "https://api.cerebras.ai",
+        "endpoint_override_path": "/models"
+    },
     "compatibility": {
         "request": ["completion-token-field", "cerebras-effort"],
         "response": ["openai-sse"],
-        "error": ["http-status"]
+        "error": ["http-status"],
+        "catalog": ["cerebras-models"]
     }
 }

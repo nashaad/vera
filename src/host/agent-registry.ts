@@ -390,6 +390,8 @@ export interface AgentRegistryOptions {
     readonly availableModels?: readonly SuggestedModel[];
     /** Rebuilds dynamic provider rows after credentials change in this process. */
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
+    /** Host-owned discovery capability, including providers with zero rows. */
+    readonly refreshableProviders?: () => readonly string[];
     /**
      * Asks a provider for its model list now, past whatever age the snapshot
      * would otherwise be trusted for, and returns the replacement list.
@@ -1989,6 +1991,7 @@ export class AgentRegistry {
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
                 entry.store.header.cwd,
+                this.options.refreshableProviders?.(),
             );
         }
         if (patch.contextLimit !== undefined) {
@@ -2010,8 +2013,9 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+                    this.options.developerSettings?.(),
                     entry.store.header.cwd,
+                    this.options.refreshableProviders?.(),
                 );
             }
         }
@@ -2036,8 +2040,9 @@ export class AgentRegistry {
                     entry.requestedReasoningEffort,
                     this.reviewerDefault(),
                     this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+                    this.options.developerSettings?.(),
                     entry.store.header.cwd,
+                    this.options.refreshableProviders?.(),
                 );
             }
         }
@@ -2066,8 +2071,9 @@ export class AgentRegistry {
             entry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+            this.options.developerSettings?.(),
             entry.store.header.cwd,
+            this.options.refreshableProviders?.(),
         );
     }
 
@@ -2154,6 +2160,7 @@ export class AgentRegistry {
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
                 entry.store.header.cwd,
+                this.options.refreshableProviders?.(),
             ),
             origin,
         };
@@ -2591,6 +2598,7 @@ export class AgentRegistry {
                 this.options.contextLimit?.(),
                 this.options.developerSettings?.(),
                 agentEntry.store.header.cwd,
+                this.options.refreshableProviders?.(),
             ),
         };
     }
@@ -2957,8 +2965,9 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+            this.options.developerSettings?.(),
             agentEntry.store.header.cwd,
+            this.options.refreshableProviders?.(),
         );
     }
 
@@ -2989,8 +2998,9 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+            this.options.developerSettings?.(),
             agentEntry.store.header.cwd,
+            this.options.refreshableProviders?.(),
         );
     }
 
@@ -3025,8 +3035,9 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+            this.options.developerSettings?.(),
             agentEntry.store.header.cwd,
+            this.options.refreshableProviders?.(),
         );
     }
 
@@ -3061,8 +3072,9 @@ export class AgentRegistry {
             agentEntry.requestedReasoningEffort,
             this.reviewerDefault(),
             this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
+            this.options.developerSettings?.(),
             agentEntry.store.header.cwd,
+            this.options.refreshableProviders?.(),
         );
     }
 
@@ -3788,6 +3800,7 @@ export class AgentRegistry {
                     this.options.contextLimit?.(),
                     this.options.developerSettings?.(),
                     store.header.cwd,
+                    this.options.refreshableProviders?.(),
                 ),
                 readAgentWear: () => entry.agentWear,
                 readApprovalMode: () => entry.approvalMode,
@@ -5128,6 +5141,7 @@ function settingsForClient(
     contextLimit?: number,
     developer?: DeveloperSettings,
     projectRoot?: string,
+    refreshableProviders?: readonly string[],
 ): ModelTurnSettings {
     const modelContextWindow = contextWindowForModel(
         provider,
@@ -5181,6 +5195,10 @@ function settingsForClient(
             ...catalog,
             ...(projectRoot === undefined ? {} : { projectRoot }),
         }),
+        refreshableProviders: refreshableProviders
+            ?? [...new Set(models.flatMap((model) =>
+                model.refreshable === true ? [model.provider] : []
+            ))],
         pooled,
         subagentDefault: subagentModel === undefined
             ? { mode: "inherit" }

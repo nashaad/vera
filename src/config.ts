@@ -57,6 +57,7 @@ import {
     providerDefinition,
     shippedProviderIds,
 } from "./providers/definitions.ts";
+import { isSafeProviderId } from "./providers/provider-id.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -508,8 +509,19 @@ export function migrateShippedProviderDeclarations(
     if (!isPlainRecord(value) || !isPlainRecord(value.providers)) {
         return value;
     }
-    const declaration = value.providers.digitalocean;
-    if (!isPlainRecord(declaration)) return value;
+    const declarations = Object.entries(value.providers).filter(([id]) =>
+        id.trim() === "digitalocean"
+    );
+    if (declarations.length === 0) return value;
+    if (declarations.length > 1) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: more than one declaration normalizes to that id',
+        );
+    }
+    const [rawProviderId, candidate] = declarations[0]!;
+    if (!isPlainRecord(candidate)) return value;
+    const declaration = candidate;
     const definition = providerDefinition("digitalocean");
     if (definition === undefined) return value;
     const protocol = declaration.protocol;
@@ -521,12 +533,21 @@ export function migrateShippedProviderDeclarations(
         );
     }
     const unsupported = Object.keys(declaration).filter((key) =>
-        !["protocol", "base_url", "credential"].includes(key)
+        !["protocol", "base_url", "credential", "api_key_env"].includes(key)
     );
     if (unsupported.length > 0) {
         throw new VeraConfigError(
             path,
             `provider "digitalocean" cannot migrate without losing custom field(s): ${unsupported.join(", ")}`,
+        );
+    }
+    if (
+        declaration.api_key_env !== undefined
+        && declaration.api_key_env !== definition.env_var
+    ) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: api_key_env differs from the shipped definition',
         );
     }
     if (typeof declaration.base_url !== "string" || !validProviderUrl(declaration.base_url)) {
@@ -556,7 +577,7 @@ export function migrateShippedProviderDeclarations(
         );
     }
     const providers = { ...value.providers };
-    delete providers.digitalocean;
+    delete providers[rawProviderId];
     const migrated = {
         ...value,
         providers: Object.keys(providers).length === 0 ? undefined : providers,
@@ -1103,6 +1124,7 @@ function parseCustomProviders(
         const id = rawId.trim();
         if (
             id.length === 0
+            || !isSafeProviderId(id)
             || isVeraProviderId(id)
             || typeof rawValue !== "object"
             || rawValue === null
