@@ -65,6 +65,8 @@ export interface LinesViewState {
      */
     readonly cursorLine?: number;
     readonly footer: string;
+    /** Softer title colour when the surface is visible but not focused. */
+    readonly dimmed?: boolean;
 }
 
 export interface LinesView {
@@ -280,6 +282,7 @@ export function createTuiLinesView(
                     renderer,
                     state.title,
                     state.hint ?? "esc",
+                    state.dimmed === true,
                 )
                 : dialogHeaderNode(renderer, state.title, state.hint ?? "esc"));
             muted("");
@@ -376,6 +379,7 @@ function groundHeaderNode(
     renderer: RenderContext,
     title: string,
     hint: string,
+    dimmed = false,
 ): BoxRenderable {
     const header = new BoxRenderable(renderer, {
         width: "100%",
@@ -385,7 +389,7 @@ function groundHeaderNode(
     });
     header.add(new TextRenderable(renderer, {
         content: title,
-        fg: TUI_TEXT,
+        fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
     }));
     header.add(new TextRenderable(renderer, {

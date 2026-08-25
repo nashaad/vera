@@ -97,6 +97,30 @@ test("failed auto-reconnect stays disconnected and /reconnect still works", asyn
     }
 }, 15_000);
 
+test("a reconnected session that dies again does not restart the host in a loop", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-die-loop-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiConnectionErrorDependencies({
+            reconnectDiesAgain: true,
+        }),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane("disconnected:");
+        expect(pane).toContain("· /reconnect · ctrl+c quit");
+        expect(pane).not.toContain("restarting host");
+        await session.settle(200);
+        const still = session.captureVisiblePane();
+        expect(still).toContain("disconnected:");
+        expect(still).not.toContain("restarting host");
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("stream failure without reconnectSession stays disconnected", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-reconnect-unavailable-"));
     const session = await startTuiTestSession({
@@ -160,6 +184,35 @@ test("host shutdown after agent death becomes recoverable disconnection", async 
         );
         expect(pane).toContain("Resident agent stopped unexpectedly");
         expect(pane).toContain("· /reconnect · ctrl+c quit");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("agent death does not restart the host in a loop", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-failed-no-reconnect-loop-"));
+    let reconnects = 0;
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiFatalDiagnosticDependencies({
+            disconnectAfterFailure: true,
+            reconnectSession: async () => {
+                reconnects += 1;
+                throw new Error("should not auto-reconnect after agent death");
+            },
+        }),
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane(
+            "disconnected: host connection closed",
+        );
+        expect(pane).toContain("Resident agent stopped unexpectedly");
+        expect(pane).toContain("· /reconnect · ctrl+c quit");
+        expect(pane).not.toContain("restarting host");
+        expect(reconnects).toBe(0);
+        session.sendKey("C-c");
+        await session.waitForSessionExit();
     } finally {
         await session.close();
     }

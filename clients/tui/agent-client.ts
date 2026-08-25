@@ -9,6 +9,11 @@ export interface TuiAgentClient {
     readonly workspace?: string;
     /** True when the session is available for terminal replay only. */
     readonly failed?: boolean;
+    /**
+     * True when this client is painting a session file and has not started a
+     * worker. The first command that needs a loop is what activates it.
+     */
+    readonly viewOnly?: boolean;
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
     readonly capabilities?: AttachedAgentClient["capabilities"];
     supportsHostCapability?: AttachedAgentClient["supportsHostCapability"];
