@@ -87,6 +87,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "jump_to_bottom",
     "cycle-reasoning",
     "complete_command",
+    "close_session",
     "focus_composer",
     "half_page_down",
     "half_page_up",
@@ -298,6 +299,15 @@ test("the workspace list inherits picker half-page movement", () => {
     // Other picker chords stay off the rail, so a later pane-only key does
     // not become a workspace key by descent.
     expect(tuiBindingId("workspace", { name: "s", ctrl: true }))
+        .toBeUndefined();
+});
+
+test("ctrl+w closes the conversation from the composer, not from search", () => {
+    expect(tuiBindingId("composer", { name: "w", ctrl: true }))
+        .toBe("close_session");
+    expect(tuiBindingId("search", { name: "w", ctrl: true }))
+        .toBe("toggle_search_scope");
+    expect(tuiBindingId("global", { name: "w", ctrl: true }))
         .toBeUndefined();
 });
 

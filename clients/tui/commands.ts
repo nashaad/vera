@@ -164,6 +164,10 @@ export interface CompactSessionTuiCommandAction {
     readonly type: "compact_session";
 }
 
+export interface CloseSessionTuiCommandAction {
+    readonly type: "close_session";
+}
+
 export interface ShowDiagnosticsTuiCommandAction {
     readonly type: "show_diagnostics";
 }
@@ -233,6 +237,7 @@ export type TuiCommandAction =
     | UpdateSessionNameTuiCommandAction
     | CloneSessionTuiCommandAction
     | CompactSessionTuiCommandAction
+    | CloseSessionTuiCommandAction
     | ShowDiagnosticsTuiCommandAction
     | ShowExtensionsTuiCommandAction
     | ManageExtensionsTuiCommandAction
@@ -275,6 +280,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "reconnect":
         case "clone_session":
         case "compact_session":
+        case "close_session":
             return "main_session";
         case "open_preferences_list":
         case "open_work_tab":
@@ -348,6 +354,7 @@ export interface TuiCommandDefinition {
         | CreateSessionTuiCommandAction
         | CloneSessionTuiCommandAction
         | CompactSessionTuiCommandAction
+        | CloseSessionTuiCommandAction
         | ShowDiagnosticsTuiCommandAction
         | ShowExtensionsTuiCommandAction
         | ShowDoctorTuiCommandAction
@@ -479,6 +486,12 @@ const CLONE_COMMAND = {
     usage: "/clone",
 } as const satisfies TuiCommandCatalogEntry;
 
+const CLOSE_COMMAND = {
+    name: "close",
+    description: "Stop this conversation and keep the file",
+    usage: "/close",
+} as const satisfies TuiCommandCatalogEntry;
+
 const COMPACT_COMMAND = {
     name: "compact",
     description: "Summarize earlier messages to free context",
@@ -559,6 +572,7 @@ export const BUILTIN_COMMANDS = [
     CLEAR_COMMAND,
     RENAME_COMMAND,
     CLONE_COMMAND,
+    CLOSE_COMMAND,
     COMPACT_COMMAND,
     DIAGNOSTICS_COMMAND,
     EXTENSIONS_COMMAND,
@@ -1402,6 +1416,19 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "clone",
             action: { type: "clone_session" },
+        },
+    });
+    registry.registerCommand({
+        ...CLOSE_COMMAND,
+        action: { type: "close_session" },
+        palette: {
+            name: "close",
+            label: "Close conversation",
+            description: "stop this conversation and keep the file on screen",
+            group: "Session",
+            keyHint: tuiKeyHint("close_session"),
+            slashName: "close",
+            action: { type: "close_session" },
         },
     });
     registry.registerCommand({

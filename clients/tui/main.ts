@@ -331,6 +331,10 @@ import {
     handleTuiSessionTrashConfirmKey,
 } from "./session-trash-confirm.ts";
 import {
+    createTuiSessionCloseConfirmView,
+    handleTuiSessionCloseConfirmKey,
+} from "./session-close-confirm.ts";
+import {
     createTuiProviderForgetConfirmView,
     handleTuiProviderForgetConfirmKey,
     tuiProviderForgetDecision,
@@ -1481,6 +1485,11 @@ export async function startTui(
     } | undefined;
     let sessionTrashPending = false;
     /**
+     * In-flight close is waiting on `[1] close`. Idle `/close` and ctrl+w
+     * skip this and park immediately.
+     */
+    let sessionCloseConfirm = false;
+    /**
      * The credential `delete` asked to forget, waiting on the confirmation.
      *
      * It carries the pane to reopen because the connect list is read off disk:
@@ -2419,6 +2428,8 @@ export async function startTui(
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
+    const sessionCloseConfirmView =
+        createTuiSessionCloseConfirmView(renderer);
     const providerForgetConfirmView =
         createTuiProviderForgetConfirmView(renderer);
     const approvalView = createTuiApprovalView(renderer);
@@ -2438,6 +2449,7 @@ export async function startTui(
         permissionsConfirmView,
         admissionDialogView,
         sessionTrashConfirmView,
+        sessionCloseConfirmView,
         providerForgetConfirmView,
         approvalView,
         questionView,
@@ -3825,6 +3837,7 @@ export async function startTui(
     app.add(permissionsConfirmView.box);
     app.add(admissionDialogView.surface);
     app.add(sessionTrashConfirmView.surface);
+    app.add(sessionCloseConfirmView.surface);
     app.add(providerForgetConfirmView.surface);
     app.add(composerTipText);
     app.add(experimentalTuiHost.footer);
@@ -4354,6 +4367,21 @@ export async function startTui(
                 closeDials();
             } else if (action.kind === "commit") {
                 commitDials(action.pair, action.agent, action.permission);
+            }
+            return;
+        }
+
+        if (sessionCloseConfirm) {
+            const result = handleTuiSessionCloseConfirmKey(key);
+            key.preventDefault();
+            key.stopPropagation();
+            if (result === "confirm") {
+                beginParkToJsonl();
+            } else if (result === "cancel") {
+                sessionCloseConfirm = false;
+                state = appendTuiNotice(state, "conversation kept running");
+                focusActiveSurface();
+                renderState();
             }
             return;
         }
@@ -5043,6 +5071,16 @@ export async function startTui(
                 return;
             }
             applyTimelineTransition(startTuiTimelinePicker(randomUUID()));
+            return;
+        }
+
+        if (tuiBindingId("composer", key) === "close_session"
+            && composer.focused
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            requestCloseSession();
             return;
         }
 
@@ -6201,6 +6239,7 @@ export async function startTui(
             && commandAction?.type !== "open_resume_picker"
             && commandAction?.type !== "open_theme_picker"
             && commandAction?.type !== "create_session"
+            && commandAction?.type !== "close_session"
             && commandAction?.type !== "reconnect"
         ) {
             // Refusing without saying so reads as a frozen composer: the text
@@ -6531,6 +6570,11 @@ export async function startTui(
         }
         if (commandAction?.type === "create_session") {
             beginCreateSession(commandAction.sourceDisposition ?? "stop");
+            return;
+        }
+        if (commandAction?.type === "close_session") {
+            composer.clearComposer();
+            requestCloseSession();
             return;
         }
         if (commandAction?.type === "clone_session") {
@@ -7924,6 +7968,9 @@ export async function startTui(
         if (admissionDialog !== undefined) {
             return () => admissionDialogView.box.focus();
         }
+        if (sessionCloseConfirm) {
+            return () => sessionCloseConfirmView.box.focus();
+        }
         if (sessionTrashCandidate !== undefined) {
             return () => sessionTrashConfirmView.box.focus();
         }
@@ -8334,6 +8381,7 @@ export async function startTui(
         admissionReturnPicker = undefined;
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
+        sessionCloseConfirm = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -9094,20 +9142,20 @@ export async function startTui(
         providerFormView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && providerForm !== undefined;
         namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && providerForm === undefined
             && namePrompt !== undefined;
         secretPromptView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && namePrompt === undefined
             && providerForm === undefined
@@ -9116,7 +9164,7 @@ export async function startTui(
                 || configurationRequired)
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && secretPrompt === undefined
             && namePrompt === undefined
@@ -9125,14 +9173,14 @@ export async function startTui(
         preferencesListView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
         commandPaletteView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && secretPrompt === undefined
@@ -9141,7 +9189,7 @@ export async function startTui(
         workTabView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab !== undefined;
@@ -9149,7 +9197,7 @@ export async function startTui(
         workspaceSidebarView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab === undefined
@@ -9158,7 +9206,7 @@ export async function startTui(
         searchOverlayView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
             && commandPalette === undefined
             && workTab === undefined
@@ -9166,7 +9214,7 @@ export async function startTui(
         helpView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
@@ -9176,7 +9224,7 @@ export async function startTui(
         doctorDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
@@ -9187,7 +9235,7 @@ export async function startTui(
         diagnosticsDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
@@ -9198,7 +9246,7 @@ export async function startTui(
         extensionsDialogView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && commandPalette === undefined
@@ -9208,21 +9256,24 @@ export async function startTui(
             && extensionsDialog !== undefined;
         permissionsConfirmView.box.visible = uiRequest === undefined
             && timelinePicker === undefined
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && confirmingFullAccess;
         admissionDialogView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && !confirmingFullAccess
             && admissionDialog !== undefined;
         sessionTrashConfirmView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
-            && sessionTrashCandidate !== undefined;
+            && sessionTrashCandidate !== undefined
+            && !sessionCloseConfirm;
+        sessionCloseConfirmView.surface.visible = timelinePicker === undefined
+            && sessionCloseConfirm;
         providerForgetConfirmView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
-            && sessionTrashCandidate === undefined
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate !== undefined;
         const overlayVisible = dialStrip !== undefined
             || jumpMenuBox.visible
@@ -9245,6 +9296,7 @@ export async function startTui(
             || permissionsConfirmView.box.visible
             || admissionDialogView.surface.visible
             || sessionTrashConfirmView.surface.visible
+            || sessionCloseConfirmView.surface.visible
             || providerForgetConfirmView.surface.visible
             || namePromptView.surface.visible
             || providerFormView.surface.visible
@@ -9342,6 +9394,9 @@ export async function startTui(
         }
         if (sessionTrashCandidate !== undefined) {
             sessionTrashConfirmView.update(sessionTrashCandidate.label);
+        }
+        if (sessionCloseConfirm) {
+            sessionCloseConfirmView.update(sessionTitle ?? "untitled");
         }
         if (providerForgetCandidate !== undefined) {
             providerForgetConfirmView.update(providerForgetCandidate.label);
@@ -9457,6 +9512,7 @@ export async function startTui(
             || confirmingFullAccess
             || admissionDialog !== undefined
             || sessionTrashCandidate !== undefined
+            || sessionCloseConfirm
             || providerForgetCandidate !== undefined
             || jumpMenu !== undefined;
     }
@@ -12168,6 +12224,7 @@ export async function startTui(
         sessionSwitchPending = false;
         sessionTrashCandidate = undefined;
         sessionTrashPending = false;
+        sessionCloseConfirm = false;
         providerForgetCandidate = undefined;
         timelinePicker = undefined;
         settingsPicker = undefined;
@@ -12257,6 +12314,108 @@ export async function startTui(
             return dependencies.resumeSession!(sessionPath);
         }
         return await createJsonlViewClient(sessionPath);
+    }
+
+    /**
+     * `/close` and ctrl+w. Idle parks immediately; in-flight work asks first.
+     */
+    function requestCloseSession(): void {
+        if (isJsonlViewClient(client) || sessionSwitchPending) {
+            return;
+        }
+        if (
+            state.working
+            || state.compactingSince !== undefined
+            || pendingUiRequest !== undefined
+        ) {
+            sessionCloseConfirm = true;
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        beginParkToJsonl();
+    }
+
+    /**
+     * Stop this conversation's live agent and keep looking at its file.
+     *
+     * Forced jsonl so another client's still-running worker does not pull
+     * this TUI back onto a live attach.
+     */
+    function beginParkToJsonl(): void {
+        sessionCloseConfirm = false;
+        if (isJsonlViewClient(client) || sessionSwitchPending) {
+            return;
+        }
+        const sourceClient = client;
+        const sourceCompanions = hostedSidebar.pane === undefined
+            ? []
+            : [hostedSidebar.pane.client];
+        const agentId = client.agentId;
+        if (agentId === undefined) {
+            state = appendTuiError(state, "Current session ID is unavailable");
+            renderState();
+            return;
+        }
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(
+                state,
+                "Stopping this conversation is unavailable",
+            );
+            renderState();
+            return;
+        }
+        const draft = currentDraft();
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "closing conversation…";
+        renderState();
+        void withSessionSwitchDeadline(
+            (async () => {
+                const agents = await dependencies.listAgents!();
+                const listed = agents.find((agent) => agent.id === agentId);
+                const sessionPath = listed?.session_path;
+                if (sessionPath === undefined) {
+                    throw new Error("Current session file is unavailable");
+                }
+                const leaveResult = await leaveSwitchSource(
+                    sourceClient,
+                    "stop",
+                    sourceCompanions,
+                );
+                return {
+                    next: await createJsonlViewClient(sessionPath),
+                    leaveResult,
+                };
+            })(),
+            (value) => discardSwitchTarget(value.next),
+        ).then(({ next, leaveResult }) => {
+            if (shuttingDown) {
+                discardSwitchTarget(next);
+                return;
+            }
+            switchToClient(next, draft);
+            if (
+                leaveResult.sourceOutcome === "detached"
+                && leaveResult.remainingInteractiveClients > 0
+            ) {
+                pendingSessionSwitchNotice =
+                    "This conversation is still running in another client";
+            }
+        }).catch((error) => {
+            if (shuttingDown) {
+                return;
+            }
+            sessionSwitchPending = false;
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
+            state = appendTuiError(
+                state,
+                `Could not close this conversation: ${message}`,
+            );
+            focusActiveSurface();
+            renderState();
+        });
     }
 
     /**
