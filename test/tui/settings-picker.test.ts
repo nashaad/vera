@@ -2995,7 +2995,8 @@ test("the defaults pane offers a way to the collection it draws from", () => {
 
 test("the subagent picker separates assigned, available, and parent fallback", async () => {
     const assignedRef = "openai-codex/gpt-5.6-sol";
-    const parentRef = "openrouter/z-ai/glm-5.2";
+    const availableRef = "openrouter/z-ai/glm-5.2";
+    const parentRef = "openrouter/google/gemini-3.1-pro-preview";
     const pane = startTuiModelAssignmentPicker(
         "subagents",
         "subagents",
@@ -3003,7 +3004,7 @@ test("the subagent picker separates assigned, available, and parent fallback", a
         pooledModels,
         [assignedRef],
         false,
-        { provider: "openrouter", model: "z-ai/glm-5.2" },
+        { provider: "openrouter", model: "google/gemini-3.1-pro-preview" },
     );
 
     expect(pane.title).toBe("Subagent models");
@@ -3013,13 +3014,15 @@ test("the subagent picker separates assigned, available, and parent fallback", a
             label: "1. GPT-5.6-Sol",
             group: "Assigned · fallback order",
         });
-    expect(pane.options.find((option) => option.value === parentRef))
+    expect(pane.options.find((option) => option.value === availableRef))
         .toMatchObject({ group: "Available from Shortlist" });
     expect(pane.options.find((option) =>
         option.value === MODEL_ASSIGNMENT_SELF_VALUE))
         .toMatchObject({
             label: "Spawning session model",
-            description: "off · currently openrouter/z-ai/glm-5.2",
+            description: "off",
+            card: true,
+            rowMeta: `currently ${parentRef}`,
             group: "Parent model fallback",
         });
 
@@ -3027,6 +3030,8 @@ test("the subagent picker separates assigned, available, and parent fallback", a
     expect(frame).toContain("Assigned · fallback order");
     expect(frame).toContain("Available from Shortlist");
     expect(frame).toContain("Parent model fallback");
+    expect(frame).toContain(`currently ${parentRef}`);
+    expect(frame).not.toContain("currently openrouter/google/…");
     expect(frame).not.toContain("Search");
 });
 

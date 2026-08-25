@@ -478,35 +478,14 @@ export function dialogOptionRows(
     contents: readonly DialogRowContent[],
     contentWidth?: number,
 ): BoxRenderable[] {
-    // A card row spends a whole line on its label and another on its meta, so
-    // neither column is sized against the other.
-    if (contents.some((content) => content.card === true)) {
-        return contents.map((content) => dialogOptionRow(renderer, {
-            ...content,
-            ...(contentWidth === undefined
-                ? {}
-                : { label: clipped(content.label, contentWidth) }),
-            // Left under the label, not right-aligned: the two lines are a
-            // name and what is known about it, and a column pushed to the far
-            // edge reads as belonging to the row above it.
-            ...(content.meta === undefined || contentWidth === undefined
-                ? {}
-                : {
-                    meta: clippedMeta(
-                        metaParts(content.meta),
-                        contentWidth,
-                        false,
-                    ),
-                }),
-        }));
-    }
+    const inline = contents.filter((content) => content.card !== true);
     const widestLabel = Math.max(
         0,
-        ...contents.map((content) => content.label.length),
+        ...inline.map((content) => content.label.length),
     );
     const widestMeta = Math.max(
         0,
-        ...contents.map((content) =>
+        ...inline.map((content) =>
             content.meta === undefined ? 0 : metaLength(content.meta)
         ),
     );
@@ -533,18 +512,42 @@ export function dialogOptionRows(
         ? undefined
         : contentWidth - labelWidth - DESCRIPTION_GAP
             - (metaWidth === 0 ? 0 : metaWidth + META_GAP);
-    return contents.map((content) => dialogOptionRow(renderer, {
-        ...content,
-        label: clipped(content.label, labelWidth).padEnd(labelWidth),
-        ...(budget === undefined || content.description === undefined
-            ? {}
-            : { description: clipped(content.description, budget) }),
-        // The column is padded to one width so it reads as a column. Rows
-        // without a meta value keep none, since a blank column is not a fact.
-        ...(content.meta === undefined ? {} : {
-            meta: clippedMeta(metaParts(content.meta), metaWidth),
-        }),
-    }));
+    return contents.map((content) => {
+        // A card spends a whole line on its label and another on its meta, so
+        // it takes the full row width without changing the shared columns of
+        // the inline rows around it.
+        if (content.card === true) {
+            return dialogOptionRow(renderer, {
+                ...content,
+                ...(contentWidth === undefined
+                    ? {}
+                    : { label: clipped(content.label, contentWidth) }),
+                // Left under the label, not right-aligned: the two lines are a
+                // name and what is known about it.
+                ...(content.meta === undefined || contentWidth === undefined
+                    ? {}
+                    : {
+                        meta: clippedMeta(
+                            metaParts(content.meta),
+                            contentWidth,
+                            false,
+                        ),
+                    }),
+            });
+        }
+        return dialogOptionRow(renderer, {
+            ...content,
+            label: clipped(content.label, labelWidth).padEnd(labelWidth),
+            ...(budget === undefined || content.description === undefined
+                ? {}
+                : { description: clipped(content.description, budget) }),
+            // The column is padded to one width so it reads as a column. Rows
+            // without a meta value keep none, since a blank column is not a fact.
+            ...(content.meta === undefined ? {} : {
+                meta: clippedMeta(metaParts(content.meta), metaWidth),
+            }),
+        });
+    });
 }
 
 /**

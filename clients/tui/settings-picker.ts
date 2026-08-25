@@ -154,6 +154,9 @@ export interface TuiSettingsPickerOption {
     readonly searchText?: string;
     readonly provider?: string;
     readonly model?: string;
+    /** A two-line row whose second line gets the full card width. */
+    readonly card?: boolean;
+    readonly rowMeta?: DialogMeta;
     readonly sessionId?: string;
     /**
      * Session rows carry their own columns rather than folding activity and
@@ -1757,13 +1760,13 @@ export function startTuiModelAssignmentPicker(
     const selfRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_SELF_VALUE,
         label: "Spawning session model",
-        description: `${allowSelf ? "on" : "off"}${
-            parentModel === undefined
-                ? ""
-                : ` · currently ${parentModel.provider === undefined
-                    ? parentModel.model
-                    : `${parentModel.provider}/${parentModel.model}`}`
-        }`,
+        description: allowSelf ? "on" : "off",
+        card: true,
+        rowMeta: parentModel === undefined
+            ? "resolved from each spawning session"
+            : `currently ${parentModel.provider === undefined
+                ? parentModel.model
+                : `${parentModel.provider}/${parentModel.model}`}`,
         group: "Parent model fallback",
         note: "When on, each spawning session's own model is tried after every assigned model.",
     };
@@ -3417,7 +3420,9 @@ function renderListPickerRows(
                     : { description: row.option.description }),
                 // With the pane beside it, a row keeps only what tells it apart
                 // from its neighbours. Everything else is one cursor move away.
-                meta: optionMeta(state, row.option, detailed),
+                meta: row.option.rowMeta
+                    ?? optionMeta(state, row.option, detailed),
+                card: row.option.card,
                 active: row.index === state.selectedIndex,
                 current: row.option.section !== undefined
                     || isCurrentOption(state, row.option),
