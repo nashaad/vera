@@ -363,6 +363,12 @@ export interface TuiSettingsPickerState {
     /** The caller has one confirmed pool change it can reverse. */
     readonly canUndoPoolChange?: boolean;
     /**
+     * `/resume` Enter stops the conversation being left. `/subagents` Enter
+     * keeps it running, the same leave as a rail click: opening a child is
+     * not leaving the work.
+     */
+    readonly enterDisposition?: TuiSessionLeaveDisposition;
+    /**
      * The sections the user has closed, by heading. It rides on the pane so a
      * tab switch and back finds the list the way it was left, and it lasts as
      * long as the pane does: which providers are worth hiding is a question
@@ -1882,6 +1888,7 @@ export function startTuiSessionPicker(
     now: Date = new Date(),
     includeUntitled = false,
     sharedAgentGroups: readonly (readonly [string, string])[] = [],
+    enterDisposition: TuiSessionLeaveDisposition = "stop",
 ): TuiSettingsPickerState {
     // The current session is listed rather than hidden. Switching is a
     // re-attach with the screen left up, so its row costs nothing and answers
@@ -1927,6 +1934,9 @@ export function startTuiSessionPicker(
         selectedIndex: 0,
         query: "",
         loading,
+        ...(enterDisposition === "keep_running"
+            ? { enterDisposition }
+            : {}),
     };
 }
 
@@ -3802,8 +3812,12 @@ function pickerFooterText(
     if (state.kind === "session") {
         return [
             "↑↓ ^d^u move",
-            "⏎ stop & switch",
-            tuiKeyHint("background_switch"),
+            state.enterDisposition === "keep_running"
+                ? "⏎ switch"
+                : "⏎ stop & switch",
+            ...(state.enterDisposition === "keep_running"
+                ? []
+                : [tuiKeyHint("background_switch")]),
             tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
             "esc close",
@@ -5020,7 +5034,7 @@ function pickerSelection(
         return {
             kind,
             sessionPath: value,
-            sourceDisposition: "stop",
+            sourceDisposition: state.enterDisposition ?? "stop",
             ...(option.sessionId === undefined
                 ? {}
                 : { sessionId: option.sessionId }),

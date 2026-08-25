@@ -3426,8 +3426,10 @@ test("a resumed async subagent keeps its parent across restarts", async () => {
         await orphanRegistry.resume({ sessionPath: childSession });
         const orphan = orphanRegistry.list()
             .find((agent) => agent.id === childId);
-        expect(orphan).toMatchObject({ kind: "background" });
-        expect(orphan?.parent_id).toBeUndefined();
+        expect(orphan).toMatchObject({
+            kind: "background",
+            parent_id: "parent",
+        });
 
         await orphanRegistry.resume({
             sessionPath: join(root, "parent.jsonl"),

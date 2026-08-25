@@ -1,6 +1,5 @@
 import { describe, expect, test } from "bun:test";
 import {
-    BACKGROUND_GROUP,
     isSwitchableSession,
     layoutWorkspacePanel,
     moveWorkspaceSelection,
@@ -113,15 +112,16 @@ describe("grouping", () => {
         );
     });
 
-    test("background agents get their own group at the bottom", () => {
+    test("background agents sit in their workspace group", () => {
         const result = layout([
             session({ id: "bg", kind: "background", workspace: "/w/one" }),
             session({ id: "a", workspace: "/w/one" }),
             session({ id: "b", workspace: "/w/two" }),
         ]);
         const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups.at(-1)?.group).toBe(BACKGROUND_GROUP);
-        expect(result.selectable.at(-1)).toBe("bg");
+        expect(groups.map((row) => row.group)).toEqual(["/w/one", "/w/two"]);
+        expect(groups[0]?.sessions).toBe(2);
+        expect(result.selectable).toEqual(["a", "bg", "b"]);
     });
 
     test("orders groups by their most recent session", () => {
