@@ -68,6 +68,25 @@ async function waitForFile(path: string): Promise<number> {
     throw new Error(`Timed out waiting for ${path}`);
 }
 
+function processIsAlive(pid: number): boolean {
+    try {
+        process.kill(pid, 0);
+        return true;
+    } catch {
+        return false;
+    }
+}
+
+async function waitForProcessExit(pid: number): Promise<void> {
+    const deadline = Date.now() + 20_000;
+    while (processIsAlive(pid)) {
+        if (Date.now() > deadline) {
+            throw new Error(`Timed out waiting for process ${pid} to exit`);
+        }
+        await Bun.sleep(20);
+    }
+}
+
 test("the registry contains a killed worker and keeps its sibling usable", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-registry-"));
     const previousWorkerMode = process.env.VERA_WORKER;
@@ -158,6 +177,125 @@ test("the registry contains a killed worker and keeps its sibling usable", async
             type: "agent_failed",
             detail: storedFailure?.detail,
         });
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
+test("a parent close effect kills a child worker process tree", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-parent-close-"));
+    const childPath = join(root, "child.jsonl");
+    const toolPidPath = join(root, "child-tool.pid");
+    await SessionStore.create(childPath, {
+        sessionId: "child",
+        cwd: root,
+        parentId: "parent",
+    });
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const scripts = new Map<string, readonly AssistantMessage[]>([
+        ["parent", [
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "close-child",
+                    name: "close_subagent",
+                    input: { subagent_id: "child" },
+                }],
+                source: {
+                    provider: "faux",
+                    api: "scripted",
+                    model: "test",
+                },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+            text("Child closed."),
+        ]],
+        ["child", [
+            toolCall(
+                "hold",
+                `echo $$ > '${toolPidPath}'; exec sleep 60`,
+            ),
+            text("never reached"),
+        ]],
+        ["peer", [text("peer finished")]],
+    ]);
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: scripts.get(sessionId) ?? [],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        const child = await registry.resume({ sessionPath: childPath });
+        await registry.create({
+            id: "peer",
+            workspace: root,
+            sessionPath: join(root, "peer.jsonl"),
+        });
+        const childClient = child.attach();
+        expect((await childClient.receive()).type).toBe("history");
+        childClient.send({ type: "prompt", content: "hold the tool open" });
+        await receiveUntil(
+            childClient,
+            (update) => update.type === "tool_started",
+        );
+        const childWorkerPid = await waitForFile(join(root, "child.pid"));
+        const toolPid = await waitForFile(toolPidPath);
+
+        const parentClient = parent.attach();
+        expect((await parentClient.receive()).type).toBe("history");
+        parentClient.send({ type: "prompt", content: "close the child" });
+        const closed = await receiveUntil(
+            parentClient,
+            (update) => update.type === "tool_finished",
+        );
+        expect(closed).toMatchObject({
+            type: "tool_finished",
+            tool: "close_subagent",
+        });
+        if (closed.type !== "tool_finished" || closed.output === undefined) {
+            throw new Error("Expected close_subagent to finish");
+        }
+        expect(JSON.parse(closed.output)).toEqual({
+            requested_subagent_id: "child",
+            closed: true,
+            reason: "closed",
+            session_retained: true,
+        });
+        await waitForProcessExit(childWorkerPid);
+        await waitForProcessExit(toolPid);
+
+        expect(registry.find("child")).toBeUndefined();
+        const parentEntry = registry.list().find((entry) =>
+            entry.id === "parent"
+        );
+        const peerEntry = registry.list().find((entry) => entry.id === "peer");
+        expect(parentEntry?.worker_pid).toEqual(expect.any(Number));
+        expect(peerEntry?.worker_pid).toEqual(expect.any(Number));
+        expect(processIsAlive(parentEntry!.worker_pid!)).toBe(true);
+        expect(processIsAlive(peerEntry!.worker_pid!)).toBe(true);
+        expect(await Bun.file(childPath).exists()).toBe(true);
     } finally {
         await registry.close();
         if (previousWorkerMode === undefined) {

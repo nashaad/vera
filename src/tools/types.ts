@@ -62,6 +62,18 @@ export interface MessageSubagentEffect {
     readonly message: string;
 }
 
+export interface CloseSubagentEffect {
+    readonly type: "close_subagent";
+    readonly subagentId: string;
+}
+
+export interface CloseSubagentResult {
+    readonly requested_subagent_id: string;
+    readonly closed: boolean;
+    readonly reason: "closed" | "not_found" | "not_owned" | "failed";
+    readonly session_retained?: boolean;
+}
+
 export interface NotifyParentEffect {
     readonly type: "notify_parent";
     readonly message: string;
@@ -103,6 +115,7 @@ export type ToolEffect =
     | SpawnSubagentEffect
     | SpawnAsyncSubagentEffect
     | MessageSubagentEffect
+    | CloseSubagentEffect
     | NotifyParentEffect
     | PoolAddEffect
     | AgentRosterEffect

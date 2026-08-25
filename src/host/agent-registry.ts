@@ -123,6 +123,8 @@ import type {
     AppliedToolEffectOutput,
     ApplyCommittedToolEffect,
     ApplyToolEffect,
+    CloseSubagentEffect,
+    CloseSubagentResult,
     CommitEffect,
     MessageSubagentEffect,
     NotifyParentEffect,
@@ -509,6 +511,15 @@ export interface CloseAgentTreeResult {
     readonly sessionRetained: boolean;
 }
 
+export interface CloseDescendantNotOwnedResult {
+    readonly status: "not_owned";
+    readonly sessionRetained: boolean;
+}
+
+export type CloseDescendantTreeResult =
+    | CloseAgentTreeResult
+    | CloseDescendantNotOwnedResult;
+
 export interface CreateRegisteredAgentOptions {
     readonly id?: string;
     readonly workspace: string;
@@ -852,6 +863,14 @@ function toolError(output: string): ToolOutput {
     return { kind: "output", output, isError: true };
 }
 
+function closeSubagentOutput(result: CloseSubagentResult): ToolOutput {
+    return {
+        kind: "output",
+        output: JSON.stringify(result),
+        isError: !result.closed,
+    };
+}
+
 function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
@@ -1077,6 +1096,11 @@ export class AgentRegistry {
     private readonly agents = new Map<string, RegisteredAgentEntry>();
     private readonly startingIds = new Set<string>();
     private readonly deliveryTasks = new Set<Promise<void>>();
+    /** Kept for the entry's lifetime so overlapping monitors all suppress. */
+    private readonly suppressedCompletionDeliveries = new WeakSet<
+        RegisteredAgentEntry
+    >();
+    private readonly closingCompletionRecipients = new WeakSet<SessionStore>();
     private defaultModel: string;
     private defaultProvider: string;
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
@@ -1272,7 +1296,11 @@ export class AgentRegistry {
                 break;
             }
             for (const memberId of members) {
-                this.agents.get(memberId)?.agent.close();
+                const entry = this.agents.get(memberId);
+                if (entry !== undefined) {
+                    this.closingCompletionRecipients.add(entry.store);
+                    entry.agent.close();
+                }
             }
             for (const memberId of members) {
                 const entry = this.agents.get(memberId);
@@ -1293,6 +1321,48 @@ export class AgentRegistry {
             status: present || quiesced.size > 0 ? "closed" : "not_found",
             sessionRetained,
         };
+    }
+
+    /** Close one live descendant while preserving the caller and its peers. */
+    async closeDescendantTree(
+        callerId: string,
+        targetId: string,
+    ): Promise<CloseDescendantTreeResult> {
+        const target = this.agents.get(targetId);
+        if (
+            target === undefined
+            || target.agent.closed
+            || target.agent.failed
+            || target.failure !== undefined
+        ) {
+            return { status: "not_found", sessionRetained: true };
+        }
+        const caller = this.agents.get(callerId);
+        if (
+            caller === undefined
+            || caller.agent.closed
+            || caller.agent.failed
+            || caller.failure !== undefined
+            || !this.liveDescendantsOf(callerId).includes(targetId)
+        ) {
+            return { status: "not_owned", sessionRetained: true };
+        }
+
+        if (
+            target.parentId === callerId
+            && (
+                target.pendingAsyncTurns > 0
+                || target.pendingCompletionDeliveries > 0
+            )
+        ) {
+            this.suppressedCompletionDeliveries.add(target);
+        }
+        try {
+            return await this.closeAgentTree(targetId);
+        } catch (error) {
+            this.suppressedCompletionDeliveries.delete(target);
+            throw error;
+        }
     }
 
     /** Release what a quiesced entry still holds and take it off the roster. */
@@ -3643,6 +3713,9 @@ export class AgentRegistry {
             if (effect.type === "message_subagent") {
                 return this.messageSubagent(store, effect);
             }
+            if (effect.type === "close_subagent") {
+                return this.closeSubagent(agent.id, effect);
+            }
             if (effect.type === "notify_parent") {
                 return this.notifyParent(store, effect);
             }
@@ -3702,6 +3775,7 @@ export class AgentRegistry {
                         "spawn_subagent",
                         "spawn_async_subagent",
                         "message_subagent",
+                        "close_subagent",
                         "pool_add",
                         "agent_roster",
                         ...(this.options.inboxDelivery === undefined
@@ -4778,6 +4852,32 @@ export class AgentRegistry {
         };
     }
 
+    private async closeSubagent(
+        callerId: string,
+        effect: CloseSubagentEffect,
+    ): Promise<ToolOutput> {
+        try {
+            const result = await this.closeDescendantTree(
+                callerId,
+                effect.subagentId,
+            );
+            return closeSubagentOutput({
+                requested_subagent_id: effect.subagentId,
+                closed: result.status === "closed",
+                reason: result.status,
+                ...(result.status === "closed"
+                    ? { session_retained: result.sessionRetained }
+                    : {}),
+            });
+        } catch {
+            return closeSubagentOutput({
+                requested_subagent_id: effect.subagentId,
+                closed: false,
+                reason: "failed",
+            });
+        }
+    }
+
     private trackAsyncSubagentTurn(childId: string): void {
         const child = this.agents.get(childId);
         const parent = child?.parentId === undefined
@@ -4797,7 +4897,7 @@ export class AgentRegistry {
         child.completionSequence += 1;
         this.monitorAsyncSubagent(
             parent.store,
-            childId,
+            child,
             attachment,
             child.completionSequence,
         );
@@ -4805,13 +4905,14 @@ export class AgentRegistry {
 
     private monitorAsyncSubagent(
         parentStore: SessionStore,
-        childId: string,
+        childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): void {
+        const childId = childEntry.agent.id;
         const deliveryTask = this.deliverBackgroundResult(
             parentStore,
-            childId,
+            childEntry,
             attachment,
             completionSequence,
         ).catch((error: unknown) => {
@@ -4880,10 +4981,11 @@ export class AgentRegistry {
 
     private async deliverBackgroundResult(
         parentStore: SessionStore,
-        childId: string,
+        childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): Promise<void> {
+        const childId = childEntry.agent.id;
         let content = "Async subagent failed before producing a summary.";
         try {
             while (true) {
@@ -4951,6 +5053,14 @@ export class AgentRegistry {
             // The durable failure delivery below is safer than exposing host internals.
         } finally {
             attachment.detach();
+        }
+        if (
+            this.suppressedCompletionDeliveries.has(childEntry)
+            || this.closingCompletionRecipients.has(parentStore)
+        ) {
+            childEntry.pendingAsyncTurns = 0;
+            childEntry.pendingCompletionDeliveries = 0;
+            return;
         }
         // A substitution the parent cannot see is a silent success on the
         // wrong model, so it rides the completion the parent actually reads,

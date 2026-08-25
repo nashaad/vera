@@ -790,8 +790,186 @@ test("closing a tree closes a real background child and spares a bystander", asy
         expect(registry.find("parent")).toBeUndefined();
         expect(registry.find(child!.id)).toBeUndefined();
         expect(registry.list().map((agent) => agent.id)).toEqual(["bystander"]);
+        expect(await readFile(join(root, "parent.jsonl"), "utf8"))
+            .not.toContain(`completion:${child!.id}`);
         expect(await registry.closeAgentTree("parent"))
             .toMatchObject({ status: "not_found" });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("closing a descendant rejects every non-owned target", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-owned-"));
+    const childPath = join(root, "child.jsonl");
+    const grandchildPath = join(root, "grandchild.jsonl");
+    const leafPath = join(root, "leaf.jsonl");
+    await SessionStore.create(childPath, {
+        sessionId: "child",
+        cwd: root,
+        parentId: "parent",
+    });
+    await SessionStore.create(grandchildPath, {
+        sessionId: "grandchild",
+        cwd: root,
+        parentId: "child",
+    });
+    await SessionStore.create(leafPath, {
+        sessionId: "leaf",
+        cwd: root,
+        parentId: "grandchild",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: join(root, "parent.jsonl"),
+        });
+        await registry.create({
+            id: "peer",
+            workspace: root,
+            sessionPath: join(root, "peer.jsonl"),
+        });
+        await registry.resume({ sessionPath: childPath });
+        await registry.resume({ sessionPath: grandchildPath });
+        await registry.resume({ sessionPath: leafPath });
+
+        expect(await registry.closeDescendantTree("parent", "parent"))
+            .toMatchObject({ status: "not_owned" });
+        expect(await registry.closeDescendantTree("parent", "peer"))
+            .toMatchObject({ status: "not_owned" });
+        expect(await registry.closeDescendantTree("child", "parent"))
+            .toMatchObject({ status: "not_owned" });
+        expect(await registry.closeDescendantTree("child", "peer"))
+            .toMatchObject({ status: "not_owned" });
+        expect(await registry.closeDescendantTree("parent", "missing"))
+            .toMatchObject({ status: "not_found" });
+
+        const simultaneous = await Promise.all([
+            registry.closeDescendantTree("parent", "grandchild"),
+            registry.closeDescendantTree("parent", "grandchild"),
+        ]);
+        expect(simultaneous.map((result) => result.status).sort())
+            .toEqual(["closed", "not_found"]);
+        expect(registry.find("grandchild")).toBeUndefined();
+        expect(registry.find("leaf")).toBeUndefined();
+        expect(registry.find("child")).toBeDefined();
+        expect(registry.find("parent")).toBeDefined();
+        expect(registry.find("peer")).toBeDefined();
+        expect(await registry.closeDescendantTree("parent", "grandchild"))
+            .toMatchObject({ status: "not_found" });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a parent close effect replaces the child's completion delivery", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-close-effect-"));
+    const parentPath = join(root, "parent.jsonl");
+    const closeInput = { subagent_id: "pending" };
+    let adapterNumber = 0;
+    const registry = new AgentRegistry({
+        createAdapter() {
+            adapterNumber += 1;
+            if (adapterNumber === 1) {
+                return new FauxAdapter([
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "spawn-child",
+                            name: "async_subagent",
+                            input: { description: "Keep streaming" },
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Child started."),
+                    {
+                        role: "assistant",
+                        content: [{
+                            type: "tool_call",
+                            id: "close-child",
+                            name: "close_subagent",
+                            input: closeInput,
+                        }],
+                        source: {
+                            provider: "faux",
+                            api: "scripted",
+                            model: "test",
+                        },
+                        usage: emptyUsage(),
+                        stopReason: "tool_use",
+                    },
+                    textResponse("Child closed."),
+                ]);
+            }
+            return new FauxAdapter(
+                [textResponse("This response must be interrupted.")],
+                { chunkSize: 1, delayMs: 40 },
+            );
+        },
+        model: "faux/test",
+        approvalMode: "auto",
+        sessionPathForId: (id) => join(root, `${id}.jsonl`),
+    });
+
+    try {
+        const parent = await registry.create({
+            id: "parent",
+            workspace: root,
+            sessionPath: parentPath,
+        });
+        await registry.create({
+            id: "peer",
+            workspace: root,
+            sessionPath: join(root, "peer.jsonl"),
+        });
+        const attachment = parent.attach();
+        await runPrompt(attachment, "Start the child");
+        const child = registry.list().find((entry) =>
+            entry.parent_id === "parent"
+        );
+        expect(child).toBeDefined();
+        closeInput.subagent_id = child!.id;
+
+        await runPrompt(attachment, "Close the child", false);
+
+        const parentStore = await SessionStore.open(parentPath);
+        const closeResult = parentStore.messages().find((message) =>
+            message.role === "tool_result"
+            && message.toolName === "close_subagent"
+        );
+        expect(closeResult?.role).toBe("tool_result");
+        if (closeResult?.role !== "tool_result") {
+            throw new Error("Expected close_subagent tool result");
+        }
+        expect(JSON.parse(closeResult.content[0]?.text ?? "{}"))
+            .toEqual({
+                requested_subagent_id: child!.id,
+                closed: true,
+                reason: "closed",
+                session_retained: true,
+            });
+        expect(registry.find(child!.id)).toBeUndefined();
+        expect(registry.find("parent")).toBeDefined();
+        expect(registry.find("peer")).toBeDefined();
+        expect(parentStore.pendingDeliveries()).toEqual([]);
+        expect(await readFile(parentPath, "utf8"))
+            .not.toContain(`completion:${child!.id}`);
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

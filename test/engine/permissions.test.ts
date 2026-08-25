@@ -269,6 +269,34 @@ test("agent messages are recognized routine operations", () => {
     }
 });
 
+test("closing a descendant is its own routine operation", () => {
+    const toolCall = {
+        id: "call-close-child",
+        name: "close_subagent",
+        input: { subagent_id: "child-1" },
+    };
+    expect(extractPermissionActions({
+        toolCall,
+        workspace,
+        homeDirectory,
+    })).toEqual([{
+        tool: "close_subagent",
+        verb: "unknown",
+        operation: "agent.close",
+    }]);
+    expect(decideToolPermission(
+        "ask",
+        toolCall,
+        workspace,
+        [],
+        { homeDirectory },
+    )).toMatchObject({
+        behavior: "allow",
+        actions: [{ rule: "routine.agent_close" }],
+    });
+    expect(CORE_PERMISSION_OPERATIONS.has("agent.close")).toBe(true);
+});
+
 test("explicit inbox reads are recognized routine operations", () => {
     const toolCall = {
         id: "call-inbox",
