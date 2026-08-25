@@ -6,6 +6,7 @@ export * from "./src/engine/hooks.ts";
 export * from "./src/engine/permissions.ts";
 export * from "./src/sdk/hooks.ts";
 export * from "./src/sdk/agent.ts";
+export * from "./src/agents/definition.ts";
 export * from "./src/providers/openrouter.ts";
 export * from "./src/providers/openai-codex.ts";
 export * from "./src/model/reasoning-effort.ts";
