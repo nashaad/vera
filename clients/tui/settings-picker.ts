@@ -270,12 +270,12 @@ export type TuiProviderGroup =
     | "Local"
     | "Added in config";
 
-const TUI_PROVIDER_GROUP_ORDER: readonly TuiProviderGroup[] = [
-    "Subscriptions",
-    "API keys",
-    "Local",
-    "Added in config",
-];
+const TUI_PROVIDER_GROUP_RANK: Readonly<Record<TuiProviderGroup, number>> = {
+    "Subscriptions": 0,
+    "API keys": 1,
+    "Local": 2,
+    "Added in config": 3,
+};
 
 /** Maps a provider fact to this client's connect-list heading. */
 export function tuiProviderGroup(
@@ -1108,7 +1108,11 @@ export function startTuiProviderPicker(
         readonly subtitle?: string;
     } = {},
 ): TuiSettingsPickerState {
-    const rows: TuiSettingsPickerOption[] = providers
+    const rows: TuiSettingsPickerOption[] = [...providers]
+        .sort((left, right) =>
+            TUI_PROVIDER_GROUP_RANK[left.group]
+            - TUI_PROVIDER_GROUP_RANK[right.group]
+        )
         .map((provider) => ({
             value: provider.id,
             label: provider.label,
@@ -1120,11 +1124,7 @@ export function startTuiProviderPicker(
             ...(provider.endpointEditable === true
                 ? { endpointEditable: true }
                 : {}),
-        }))
-        .sort((left, right) =>
-            TUI_PROVIDER_GROUP_ORDER.indexOf(left.group as TuiProviderGroup)
-            - TUI_PROVIDER_GROUP_ORDER.indexOf(right.group as TuiProviderGroup)
-        );
+        }));
     const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
     );
@@ -3314,7 +3314,7 @@ function renderListPickerRows(
                     : row.option.label,
                 marker: state.kind === "provider"
                         && row.index === state.selectedIndex
-                    ? `›${optionMarker(state, row.option) ?? ""}`
+                    ? "›"
                     : optionMarker(state, row.option),
                 leading: optionLeading(
                     state,

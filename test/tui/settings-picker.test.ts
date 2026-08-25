@@ -2028,9 +2028,14 @@ const PROVIDER_ROWS = [
 ] as const;
 
 test("the connect pane groups providers by access and spells out connected status", async () => {
-    const frame = await pickerFrame(startTuiProviderPicker(PROVIDER_ROWS));
+    const pane = withTuiPickerParent(
+        startTuiProviderPicker(PROVIDER_ROWS),
+        modelPickerWithPool(),
+    );
+    const frame = await pickerFrame(pane, 151, 36);
 
-    expect(frame).toContain("Connect a provider");
+    expect(frame).toContain("Select model");
+    expect(frame).toContain("Providers ^e");
     expect(frame).toContain("Subscriptions");
     expect(frame).toContain("API keys");
     expect(frame).toContain("Local");
@@ -2044,6 +2049,7 @@ test("the connect pane groups providers by access and spells out connected statu
     // what it is going to ask for.
     expect(frame).toContain("ChatGPT Plus/Pro subscription");
     expect(frame).toContain("API key, pay per token");
+    expect(frame).toContain("⇥ tabs · esc back");
 });
 
 test("provider access facts map to stable TUI groups", () => {
@@ -2051,6 +2057,63 @@ test("provider access facts map to stable TUI groups", () => {
     expect(tuiProviderGroup("api_key")).toBe("API keys");
     expect(tuiProviderGroup("local")).toBe("Local");
     expect(tuiProviderGroup("api_key", true)).toBe("Added in config");
+});
+
+test("provider groups have a stable order and preserve order within a group", () => {
+    const cerebras = {
+        id: "cerebras",
+        label: "Cerebras",
+        group: "API keys" as const,
+        connected: false,
+    };
+    const pane = startTuiProviderPicker([
+        PROVIDER_ROWS[2],
+        PROVIDER_ROWS[1],
+        PROVIDER_ROWS[3],
+        PROVIDER_ROWS[0],
+        cerebras,
+    ]);
+
+    expect(pane.allOptions.filter((option) => option.action !== true)
+        .map((option) => option.value)).toEqual([
+            "openai-codex",
+            "openrouter",
+            "cerebras",
+            "ollama",
+            "gemini",
+        ]);
+});
+
+test("the provider marker moves independently of connected status", async () => {
+    const pane = startTuiProviderPicker(PROVIDER_ROWS);
+    const first = await pickerFrame(pane, 151, 36);
+    expect(first).toMatch(/›\s+OpenRouter/);
+    expect(first).not.toMatch(/›\s+Ollama/);
+
+    const moved = handleTuiSettingsPickerKey(pane, { name: "down" }).state!;
+    const second = await pickerFrame(moved, 151, 36);
+    expect(second).toMatch(/›\s+Ollama/);
+    expect(second).not.toMatch(/›\s+OpenRouter/);
+    expect(second).toMatch(/Ollama.*connected/);
+});
+
+test("provider search keeps matching group headings in group order", async () => {
+    let pane = startTuiProviderPicker(PROVIDER_ROWS);
+    for (const character of "open") {
+        pane = handleTuiSettingsPickerKey(pane, { name: character })
+            .state as TuiSettingsPickerState;
+    }
+
+    expect(pane.options.map((option) => option.value)).toEqual([
+        "openai-codex",
+        "openrouter",
+        TUI_DECLARE_PROVIDER_VALUE,
+    ]);
+    const frame = await pickerFrame(pane, 151, 36);
+    expect(frame.indexOf("Subscriptions"))
+        .toBeLessThan(frame.indexOf("API keys"));
+    expect(frame).not.toContain("Local");
+    expect(frame).not.toContain("Added in config");
 });
 
 test("the connect pane opens on the first provider still to be connected", () => {
@@ -2164,7 +2227,7 @@ test("delete on the declare row asks to forget nothing", () => {
     expect(pickerFooter(onDeclare)).not.toContain("del forget");
 });
 
-test("the declare row survives a search that matches no provider", () => {
+test("the declare row survives a search that matches no provider", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
     let filtered = pane;
@@ -2177,6 +2240,10 @@ test("the declare row survives a search that matches no provider", () => {
     // to do, so the row stays and stays last.
     expect(filtered.options.map((option) => option.value))
         .toEqual([TUI_DECLARE_PROVIDER_VALUE]);
+    const frame = await pickerFrame(filtered, 151, 36);
+    expect(frame).toMatch(/›\s+Declare a provider/);
+    expect(frame).not.toContain("›+");
+    expect(frame).not.toMatch(/\+\s+Declare a provider/);
     expect(handleTuiSettingsPickerKey(filtered, { name: "enter" })
         .declareProvider).toBe(true);
 });
