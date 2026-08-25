@@ -3,6 +3,7 @@ import {
     mkdirSync,
     readFileSync,
     renameSync,
+    statSync,
     writeFileSync,
 } from "node:fs";
 import { homedir } from "node:os";
@@ -53,6 +54,7 @@ import {
 import { veraProfileDirectory } from "./profile-paths.ts";
 import {
     isFixedEndpointProvider,
+    providerDefinition,
     shippedProviderIds,
 } from "./providers/definitions.ts";
 
@@ -437,7 +439,8 @@ export function loadVeraConfig(
         throw new VeraConfigError(path, `it is not valid JSON (${message})`);
     }
 
-    const config = parseVeraConfig(value);
+    const migrated = migrateShippedProviderDeclarations(path, value);
+    const config = parseVeraConfig(migrated);
     if (config === undefined) {
         throw new VeraConfigError(
             path,
@@ -495,6 +498,92 @@ export function loadVeraConfig(
         ...resolved,
         extensions,
     };
+}
+
+/**
+ * Moves a shipped provider's equivalent custom declaration into the shipped
+ * definition layer. This runs before parsing so an old profile can cross the
+ * id-reservation boundary without a transient invalid config.
+ */
+export function migrateShippedProviderDeclarations(
+    path: string,
+    value: unknown,
+): unknown {
+    if (!isPlainRecord(value) || !isPlainRecord(value.providers)) {
+        return value;
+    }
+    const declaration = value.providers.digitalocean;
+    if (!isPlainRecord(declaration)) return value;
+    const definition = providerDefinition("digitalocean");
+    if (definition === undefined) return value;
+    const protocol = declaration.protocol;
+    const credential = declaration.credential ?? "api_key";
+    if (protocol !== definition.protocol || credential !== "api_key") {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: only an openai-chat API-key declaration is representable',
+        );
+    }
+    const unsupported = Object.keys(declaration).filter((key) =>
+        !["protocol", "base_url", "credential"].includes(key)
+    );
+    if (unsupported.length > 0) {
+        throw new VeraConfigError(
+            path,
+            `provider "digitalocean" cannot migrate without losing custom field(s): ${unsupported.join(", ")}`,
+        );
+    }
+    if (typeof declaration.base_url !== "string" || !validProviderUrl(declaration.base_url)) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: base_url is invalid',
+        );
+    }
+    const customBaseUrl = declaration.base_url.replace(/\/+$/, "");
+    const existingEndpoints = value.provider_endpoints;
+    const endpoints = existingEndpoints === undefined
+        ? {}
+        : isPlainRecord(existingEndpoints)
+            ? { ...existingEndpoints }
+            : undefined;
+    if (endpoints === undefined) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: provider_endpoints is not an object',
+        );
+    }
+    const existing = endpoints.digitalocean;
+    if (existing !== undefined && existing !== customBaseUrl) {
+        throw new VeraConfigError(
+            path,
+            'provider "digitalocean" cannot migrate: custom base_url conflicts with provider_endpoints.digitalocean',
+        );
+    }
+    const providers = { ...value.providers };
+    delete providers.digitalocean;
+    const migrated = {
+        ...value,
+        providers: Object.keys(providers).length === 0 ? undefined : providers,
+        ...(customBaseUrl === definition.default_base_url
+            ? {}
+            : { provider_endpoints: { ...endpoints, digitalocean: customBaseUrl } }),
+    };
+    writeMigratedConfig(path, migrated);
+    return migrated;
+}
+
+function writeMigratedConfig(path: string, value: Record<string, unknown>): void {
+    const temporaryPath = join(dirname(path), `.config-migration-${randomUUID()}.tmp`);
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
+    writeFileSync(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+    renameSync(temporaryPath, path);
+    if ((statSync(path).mode & 0o777) !== 0o600) {
+        throw new VeraConfigError(path, "provider migration did not preserve config mode 0600");
+    }
+}
+
+function isPlainRecord(value: unknown): value is Record<string, any> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
 /**

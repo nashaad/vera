@@ -88,6 +88,7 @@ test("provider access is explicit enough for clients to group without guessing",
             ["openrouter", "api_key"],
             ["ollama", "local"],
             ["omlx", "local"],
+            ["digitalocean", "api_key"],
         ]);
 });
 

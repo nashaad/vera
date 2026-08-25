@@ -55,6 +55,7 @@ test("shipped and declared providers resolve to the current client facts", () =>
         "openrouter",
         "ollama",
         "omlx",
+        "digitalocean",
         "gateway",
     ]);
     expect(providers.find((provider) => provider.id === "cerebras"))
@@ -198,6 +199,7 @@ test("provider access facts map to the current UI groups", () => {
             "API keys",
             "Local",
             "Local",
+            "API keys",
         ]);
     expect(tuiProviderGroup("api_key", true)).toBe("Added in config");
 });
@@ -211,6 +213,7 @@ test("refresh eligibility remains an explicit provider fact", () => {
         "deepseek",
         "openai-codex",
         "gateway",
+        "digitalocean",
     ].map((provider) => isRefreshableProvider(provider))).toEqual([
         true,
         true,
@@ -219,6 +222,7 @@ test("refresh eligibility remains an explicit provider fact", () => {
         false,
         false,
         false,
+        true,
     ]);
 });
 
@@ -234,6 +238,7 @@ test("every current shipped row still selects an adapter", () => {
         DEEPSEEK_API_KEY: "test-key",
         OPENROUTER_API_KEY: "test-key",
         OMLX_API_KEY: "test-key",
+        DIGITALOCEAN_API_KEY: "test-key",
     };
 
     for (const provider of PROVIDERS) {
