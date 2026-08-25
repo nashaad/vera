@@ -1,6 +1,7 @@
 import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
+import { listAgentPageThroughHost } from "../src/host/agent-list-client.ts";
 import {
     createHostLockfile,
     HostProtocolMismatchError,
@@ -16,7 +17,13 @@ const DEFAULT_SAMPLE_INTERVAL_MS = 750;
 const DEFAULT_HIGH_CPU_PERCENT = 50;
 const MAX_QUIET_UNRECOGNIZED_HOSTS = 5;
 
-export type VeraProcessKind = "host" | "client" | "worker" | "test_fixture";
+export type VeraProcessKind =
+    | "host"
+    | "client"
+    | "watchdog"
+    | "worker"
+    | "supervisor"
+    | "test_fixture";
 
 export interface VeraProcessSample {
     readonly pid: number;
@@ -46,6 +53,9 @@ export interface DiagnosedVeraProcess extends VeraProcessSample {
      * host with neither a matching lock nor a parent shell of its own.
      */
     readonly stray: boolean;
+    /** Session this worker or supervisor is running, when the host named one. */
+    readonly sessionId?: string;
+    readonly sessionTitle?: string;
 }
 
 export interface VeraDoctorReport {
@@ -69,6 +79,21 @@ export interface VeraDoctorOptions {
      * forgotten isolated TUIs are swept too.
      */
     readonly preserveRuntimeDir?: string;
+    /**
+     * Running sessions from the current host listing, used to title workers.
+     * Tests inject this. Live doctor reads the host when sampling real
+     * processes, and skips the listing when the process table is injected.
+     */
+    readonly listWorkerSessions?: () => Promise<readonly VeraWorkerSession[]>;
+}
+
+/** A session the current host has actually spawned a worker for. */
+export interface VeraWorkerSession {
+    readonly id: string;
+    readonly title?: string;
+    readonly name?: string;
+    readonly workerPid: number;
+    readonly supervisorPid?: number;
 }
 
 export interface VeraHostOwnership {
@@ -85,6 +110,10 @@ export async function diagnoseVeraProcesses(
     const interval = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
     const highCpuPercent = options.highCpuPercent ?? DEFAULT_HIGH_CPU_PERCENT;
     const doctorPid = options.doctorPid ?? process.pid;
+    const listWorkerSessions = options.listWorkerSessions
+        ?? (options.sampleProcesses === undefined
+            ? listCurrentHostWorkerSessions
+            : async () => []);
 
     const firstSample = await sampleProcesses();
     await wait(interval);
@@ -133,12 +162,15 @@ export async function diagnoseVeraProcesses(
             )
             .map((sample) => sample.pid),
     );
-    const processes = annotated
-        .map((sample): DiagnosedVeraProcess => ({
-            ...sample,
-            stray: strayProcess(sample, strayHostPids, preserveRuntimeDir),
-        }))
-        .sort(compareProcesses);
+    const processes = withSessionLabels(
+        annotated
+            .map((sample): DiagnosedVeraProcess => ({
+                ...sample,
+                stray: strayProcess(sample, strayHostPids, preserveRuntimeDir),
+            }))
+            .sort(compareProcesses),
+        await listWorkerSessions(),
+    );
     const currentHostMissing = currentHostPid !== undefined
         && !processes.some((sample) =>
             sample.kind === "host" && sample.pid === currentHostPid
@@ -185,6 +217,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
             ? "not running"
             : `PID ${report.currentHostPid}`}`,
     ];
+    lines.push(...renderRunningNow(report.processes));
     const unrecognizedHighCpu = unrecognizedHosts.filter((candidate) =>
         candidate.sustainedHighCpu
     );
@@ -381,10 +414,10 @@ function strayProcess(
     if (sample.kind === "test_fixture") {
         return sample.ppid === 1 || sample.isolated === true;
     }
-    if (sample.kind === "worker") {
+    if (sample.kind === "worker" || sample.kind === "supervisor") {
         return sample.ppid === 1 || strayHostPids.has(sample.ppid);
     }
-    if (sample.kind === "client") {
+    if (sample.kind === "client" || sample.kind === "watchdog") {
         return sample.isolated === true || sample.ppid === 1;
     }
     return false;
@@ -569,23 +602,25 @@ function classifyVeraProcess(command: string): VeraProcessKind | undefined {
     if (/(?:^|\s)(?:\S*\/)?clients\/host\/main\.ts(?:\s|$)/.test(command)) {
         return "host";
     }
+    if (/(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
+        command,
+    )) {
+        return "watchdog";
+    }
     if (
         /(?:^|\s)\S*\/\.bun\/bin\/vera(?:\s|$)/.test(command)
         || /(?:^|\s)(?:\S*\/)?clients\/(?:cli|tui)\/main\.ts(?:\s|$)/.test(
             command,
         )
-        || /(?:^|\s)(?:\S*\/)?clients\/tui\/flight-watchdog\.ts(?:\s|$)/.test(
-            command,
-        )
     ) {
         return "client";
     }
-    if (
-        /(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)
-        || /(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
-            command,
-        )
-    ) {
+    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker-supervisor\.ts(?:\s|$)/.test(
+        command,
+    )) {
+        return "supervisor";
+    }
+    if (/(?:^|\s)(?:\S*\/)?src\/host\/worker\/entry\.ts(?:\s|$)/.test(command)) {
         return "worker";
     }
     if (
@@ -668,7 +703,259 @@ function renderProcessRows(
 
 function kindLabel(kind: VeraProcessKind): string {
     if (kind === "test_fixture") return "test fixture";
+    if (kind === "client") return "TUI";
     return kind;
+}
+
+const DOCTOR_HEADINGS = new Set([
+    "Vera doctor",
+    "Process summary",
+    "Running now",
+    "Issues",
+    "High CPU activity",
+]);
+
+const INVENTORY_ROLE = /^(?<indent>\s+)(?<role>TUI|host|worker|supervisor|watchdog)(?<rest>\s+PID \d+.*)$/;
+
+export type DoctorLineEmphasis =
+    | "heading"
+    | "success"
+    | "danger"
+    | "role"
+    | "tally"
+    | "body";
+
+/** Color is decoration; words still name the state when this is stripped. */
+export function doctorLineEmphasis(line: string): DoctorLineEmphasis {
+    if (DOCTOR_HEADINGS.has(line) || line.startsWith("Stray processes:")) {
+        return "heading";
+    }
+    if (line === "Result: healthy" || line === "No stray processes found.") {
+        return "success";
+    }
+    if (
+        line === "Result: issues found"
+        || line.includes("stray")
+    ) {
+        return "danger";
+    }
+    if (INVENTORY_ROLE.test(line)) return "role";
+    if (/^\s+\d+ bun  ·  /.test(line)) return "tally";
+    return "body";
+}
+
+export function colorizeVeraDoctor(
+    text: string,
+    options: { readonly color?: boolean } = {},
+): string {
+    if (options.color !== true) return text;
+    return text.split("\n").map(colorizeDoctorLine).join("\n");
+}
+
+const ANSI_RESET = "\x1b[0m";
+const ANSI_BOLD = "\x1b[1m";
+const ANSI_RED = "\x1b[31m";
+const ANSI_GREEN = "\x1b[32m";
+const ANSI_YELLOW = "\x1b[33m";
+const ANSI_BLUE = "\x1b[34m";
+const ANSI_MAGENTA = "\x1b[35m";
+const ANSI_CYAN = "\x1b[36m";
+
+function colorizeDoctorLine(line: string): string {
+    switch (doctorLineEmphasis(line)) {
+        case "heading":
+            return `${ANSI_BOLD}${line}${ANSI_RESET}`;
+        case "success":
+            return `${ANSI_GREEN}${line}${ANSI_RESET}`;
+        case "danger":
+            return `${ANSI_RED}${line}${ANSI_RESET}`;
+        case "tally":
+            return `${ANSI_BOLD}${line}${ANSI_RESET}`;
+        case "role": {
+            const match = INVENTORY_ROLE.exec(line);
+            const role = match?.groups?.role;
+            if (match === null || role === undefined) return line;
+            return `${match.groups?.indent ?? ""}${roleAnsi(role)}${role}${ANSI_RESET}${match.groups?.rest ?? ""}`;
+        }
+        default:
+            return line;
+    }
+}
+
+function roleAnsi(role: string): string {
+    if (role === "TUI") return ANSI_CYAN;
+    if (role === "host") return ANSI_YELLOW;
+    if (role === "worker") return ANSI_GREEN;
+    if (role === "supervisor") return ANSI_MAGENTA;
+    if (role === "watchdog") return ANSI_BLUE;
+    return "";
+}
+
+function renderRunningNow(
+    processes: readonly DiagnosedVeraProcess[],
+): string[] {
+    const owned = ownedProfileProcesses(processes);
+    if (owned.length === 0) return [];
+    return [
+        "",
+        "Running now",
+        `  ${bunTally(owned)}`,
+        ...inventoryRows(owned).map(inventoryRow),
+    ];
+}
+
+function ownedProfileProcesses(
+    processes: readonly DiagnosedVeraProcess[],
+): DiagnosedVeraProcess[] {
+    const host = processes.find((process) => process.currentHost);
+    if (host === undefined) return [];
+    const tuiPid = host.ppid > 1 ? host.ppid : undefined;
+    return processes.filter((process) => {
+        if (process.stray || process.kind === "test_fixture") return false;
+        if (process.pid === host.pid) return true;
+        if (tuiPid !== undefined && process.pid === tuiPid) return true;
+        if (process.ppid === host.pid) return true;
+        if (tuiPid !== undefined && process.ppid === tuiPid) return true;
+        return false;
+    });
+}
+
+function bunTally(owned: readonly DiagnosedVeraProcess[]): string {
+    const count = (kind: VeraProcessKind) =>
+        owned.filter((process) => process.kind === kind).length;
+    const parts: string[] = [];
+    const push = (n: number, one: string, many: string) => {
+        if (n > 0) parts.push(`${n} ${n === 1 ? one : many}`);
+    };
+    push(count("client"), "TUI", "TUI");
+    push(count("host"), "host", "hosts");
+    push(count("worker"), "worker", "workers");
+    push(count("supervisor"), "supervisor", "supervisors");
+    push(count("watchdog"), "watchdog", "watchdogs");
+    return `${owned.length} bun  ·  ${parts.join("  ")}`;
+}
+
+function inventoryRows(
+    owned: readonly DiagnosedVeraProcess[],
+): DiagnosedVeraProcess[] {
+    const ofKind = (kind: VeraProcessKind) =>
+        owned.filter((process) => process.kind === kind)
+            .sort((left, right) => left.pid - right.pid);
+    const workers = ofKind("worker").sort((left, right) =>
+        sessionLabel(left).localeCompare(sessionLabel(right))
+        || left.pid - right.pid
+    );
+    const remaining = ofKind("supervisor");
+    const takeSupervisor = (
+        worker: DiagnosedVeraProcess,
+        requireSession: boolean,
+    ): DiagnosedVeraProcess | undefined => {
+        const index = remaining.findIndex((supervisor) =>
+            requireSession
+                ? worker.sessionId !== undefined
+                    && supervisor.sessionId === worker.sessionId
+                : supervisor.ppid === worker.ppid
+        );
+        if (index < 0) return undefined;
+        return remaining.splice(index, 1)[0];
+    };
+    const rows: DiagnosedVeraProcess[] = [
+        ...ofKind("client"),
+        ...ofKind("host"),
+        ...ofKind("watchdog"),
+    ];
+    for (const worker of workers) {
+        rows.push(worker);
+        const paired = takeSupervisor(worker, true)
+            ?? takeSupervisor(worker, false);
+        if (paired !== undefined) rows.push(paired);
+    }
+    rows.push(...remaining);
+    return rows;
+}
+
+function inventoryRow(process: DiagnosedVeraProcess): string {
+    const role = roleLabel(process.kind).padEnd(12);
+    const titled = process.kind === "worker" || process.kind === "supervisor";
+    const suffix = titled ? `  ·  ${sessionLabel(process)}` : "";
+    return `  ${role} PID ${process.pid}${suffix}`;
+}
+
+function roleLabel(kind: VeraProcessKind): string {
+    if (kind === "client") return "TUI";
+    return kind;
+}
+
+function sessionLabel(process: DiagnosedVeraProcess): string {
+    const title = process.sessionTitle?.trim();
+    if (title !== undefined && title.length > 0) {
+        return title.length > 48 ? `${title.slice(0, 47)}…` : title;
+    }
+    if (process.sessionId !== undefined) return process.sessionId.slice(0, 8);
+    return "untitled";
+}
+
+function withSessionLabels(
+    processes: readonly DiagnosedVeraProcess[],
+    sessions: readonly VeraWorkerSession[],
+): DiagnosedVeraProcess[] {
+    const byWorker = new Map(
+        sessions.map((session) => [session.workerPid, session]),
+    );
+    const bySupervisor = new Map(
+        sessions.flatMap((session) =>
+            session.supervisorPid === undefined
+                ? []
+                : [[session.supervisorPid, session] as const]
+        ),
+    );
+    return processes.map((process) => {
+        const session = process.kind === "worker"
+            ? byWorker.get(process.pid)
+            : process.kind === "supervisor"
+            ? bySupervisor.get(process.pid)
+            : undefined;
+        if (session === undefined) return process;
+        return {
+            ...process,
+            sessionId: session.id,
+            sessionTitle: session.title ?? session.name,
+        };
+    });
+}
+
+async function listCurrentHostWorkerSessions(): Promise<
+    readonly VeraWorkerSession[]
+> {
+    try {
+        const lock = await createHostLockfile().read();
+        if (lock === undefined) return [];
+        const sessions: VeraWorkerSession[] = [];
+        let cursor: string | undefined;
+        do {
+            const page = await listAgentPageThroughHost(lock.socket_path, {
+                limit: 200,
+                order: "recent",
+                ...(cursor === undefined ? {} : { cursor }),
+            });
+            for (const agent of page.agents) {
+                if (agent.worker_pid === undefined) continue;
+                sessions.push({
+                    id: agent.id,
+                    ...(agent.title === undefined ? {} : { title: agent.title }),
+                    ...(agent.name === undefined ? {} : { name: agent.name }),
+                    workerPid: agent.worker_pid,
+                    ...(agent.supervisor_pid === undefined
+                        ? {}
+                        : { supervisorPid: agent.supervisor_pid }),
+                });
+            }
+            cursor = page.nextCursor;
+        } while (cursor !== undefined);
+        return sessions;
+    } catch {
+        return [];
+    }
 }
 
 function isMissingFileError(error: unknown): boolean {

@@ -2383,7 +2383,7 @@ export async function startTui(
     const workspaceSidebarView = createTuiLinesView(
         renderer,
         "workspace-sidebar",
-        { panelBackground: false, railDivider: true },
+        { railDivider: true, railPadding: 2 },
     );
     const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
     const helpView = createTuiHelpView(renderer);
@@ -2404,9 +2404,11 @@ export async function startTui(
         pendingText: "checking process health…",
         sections: new Set([
             "Process summary",
+            "Running now",
             "Issues",
             "High CPU activity",
         ]),
+        emphasis: "doctor",
     });
     const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
@@ -5274,6 +5276,9 @@ export async function startTui(
     const MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     function requestAgentSettings(target: TuiAgentClient): void {
+        if (target.failed === true || target.viewOnly === true) {
+            return;
+        }
         void target.send({
             type: "get_model_settings",
             requestId: randomUUID(),
@@ -6430,141 +6435,7 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "create_session") {
-            composer.clearComposer();
-            const clearingSidebar = sidebar.isFocused()
-                && hostedSidebar.pane !== undefined;
-            const sourceClient = focusedAgentClient();
-            const sourceCompanions = clearingSidebar
-                || hostedSidebar.pane === undefined
-                ? []
-                : [hostedSidebar.pane.client];
-            const sourceDisposition = commandAction.sourceDisposition ?? "stop";
-            // A blank peer has nothing useful to reset. Treating a second
-            // clear as close makes it possible to get rid of an empty pane
-            // without requiring a separate close command.
-            const clearingBlankSidebar = clearingSidebar
-                && !sidebarEntryNodes.some((node) => node.visible);
-            if (clearingBlankSidebar) {
-                closeSidebarPane();
-                return;
-            }
-            if (
-                clearingSidebar
-                    ? dependencies.createAgent === undefined
-                    : dependencies.createSession === undefined
-            ) {
-                state = appendTuiError(
-                    state,
-                    "Starting a new session is unavailable",
-                );
-                renderState();
-                return;
-            }
-            if (sessionSwitchPending) {
-                return;
-            }
-            const workspace = focusedAgentClient().workspace;
-            if (workspace === undefined) {
-                state = appendTuiError(
-                    state,
-                    "Current session workspace is unavailable",
-                );
-                renderState();
-                return;
-            }
-            sessionSwitchPending = true;
-            sessionSwitchActivity = "starting new session…";
-            sessionSwitchStartedAt = performance.now();
-            sessionSwitchOperation = "clear";
-            sessionSwitchBufferedUpdates = [];
-            sessionSwitchClearingMain = !clearingSidebar;
-            flightRecorder?.record({
-                type: "session_switch_started",
-                operation: "clear",
-                target: clearingSidebar ? "sidebar" : "main",
-            });
-            const previousState = clearingSidebar ? undefined : state;
-            if (!clearingSidebar) {
-                state = createTuiState();
-                clearTranscriptNodes();
-                renderState();
-            } else {
-                renderStatus();
-            }
-            const nextSession = clearingSidebar
-                ? dependencies.createAgent!(
-                    workspace,
-                    hostedSidebar.initialApprovalMode
-                        ?? focusedAgentState().approvalMode,
-                    hostedSidebar.attachmentLifetime,
-                )
-                : dependencies.createSession!(workspace);
-            void withSessionSwitchDeadline(
-                nextSession,
-                (next) => void discardCreatedSwitchTarget(next),
-            ).then(async (next) => {
-                if (shuttingDown) {
-                    void discardCreatedSwitchTarget(next);
-                    return;
-                }
-                let leaveResult: TuiSessionLeaveResult;
-                try {
-                    leaveResult = await leaveSwitchSource(
-                        sourceClient,
-                        sourceDisposition,
-                        sourceCompanions,
-                    );
-                } catch (error) {
-                    await discardCreatedSwitchTarget(next);
-                    throw error;
-                }
-                if (clearingSidebar) {
-                    await openExtensionAgent(
-                        hostedSidebar.owner ?? "vera.tui.agent-attachments",
-                        requireIdentifiedClient(next),
-                        "sidebar",
-                        true,
-                        hostedSidebar.mention,
-                        hostedSidebar.attachmentLifetime,
-                        hostedSidebar.initialApprovalMode,
-                    );
-                    recordSessionSwitchOutcome("completed");
-                    sessionSwitchPending = false;
-                    return;
-                }
-                switchToClient(next);
-                if (
-                    sourceDisposition === "stop"
-                    && leaveResult.sourceOutcome === "detached"
-                    && leaveResult.remainingInteractiveClients > 0
-                ) {
-                    const notice =
-                        "The previous conversation is still running in another client";
-                    pendingSessionSwitchNotice = notice;
-                }
-            }).catch((error) => {
-                if (shuttingDown) {
-                    return;
-                }
-                sessionSwitchPending = false;
-                if (previousState !== undefined) {
-                    state = previousState;
-                    for (const update of sessionSwitchBufferedUpdates) {
-                        state = applyAgentUpdate(state, update);
-                    }
-                    clearTranscriptNodes();
-                }
-                sessionSwitchBufferedUpdates = [];
-                recordSessionSwitchOutcome("failed", error);
-                const message = error instanceof Error
-                    ? error.message
-                    : String(error);
-                state = appendTuiError(
-                    state,
-                    `Could not start a new session: ${message}`,
-                );
-                renderState();
-            });
+            beginCreateSession(commandAction.sourceDisposition ?? "stop");
             return;
         }
         if (commandAction?.type === "clone_session") {
@@ -8181,6 +8052,10 @@ export async function startTui(
 
     /** Best-effort terminal departure: stop only the last interactive viewer. */
     async function stopClientForShutdown(source: TuiAgentClient): Promise<void> {
+        if (isJsonlViewClient(source)) {
+            await source.detach().catch(() => source.close());
+            return;
+        }
         const sourceId = source.agentId;
         if (
             source.release !== undefined
@@ -11341,17 +11216,26 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (action.kind === "new_session") {
+            workspaceSidebarFocused = false;
+            composer.focus();
+            renderState();
+            beginCreateSession("keep_running");
+            return;
+        }
         workspaceSidebarFocused = false;
         composer.focus();
         renderState();
         // The rail is working-set chrome. Opening another row must not stop
         // live work on the session you left; `/resume` Enter still does.
+        // Idle rows paint the file. A row that already has a worker attaches.
         beginSessionResume(
             action.session_path,
             action.session_id,
             false,
             true,
             "keep_running",
+            action.active ? "attach" : "jsonl",
         );
     }
 
@@ -12225,43 +12109,49 @@ export async function startTui(
 
     /**
      * Whether the host already has this session running. Missing from the
-     * listing means it is a file, not a worker.
+     * listing, a listing error, or no listing at all means it is a file, not
+     * a worker. Treating those as live is what started a worker on a click.
      */
     async function destinationIsLive(
         sessionPath: string,
         sessionId?: string,
     ): Promise<boolean> {
-        if (dependencies.listAgents === undefined) return true;
+        if (dependencies.listAgents === undefined) return false;
         try {
             const agents = await dependencies.listAgents();
             const row = agents.find((agent) =>
                 (sessionId !== undefined && agent.id === sessionId)
                 || agent.session_path === sessionPath
             );
-            return row?.live === true;
+            return row?.live === true || row?.worker_pid !== undefined;
         } catch {
-            return true;
+            return false;
         }
     }
 
     /**
      * Attach when the destination is already running; otherwise paint the
      * session file and wait for a send to start a worker.
+     *
+     * A rail click names the open from the row itself. `/resume` still asks
+     * the listing. A failed file read is an error, not a resume.
      */
     async function openSwitchDestination(
         sessionPath: string,
         sessionId?: string,
+        destinationOpen?: "jsonl" | "attach",
     ): Promise<TuiAgentClient> {
-        if (await destinationIsLive(sessionPath, sessionId)) {
+        const attach = destinationOpen === "attach"
+            || (
+                destinationOpen !== "jsonl"
+                && await destinationIsLive(sessionPath, sessionId)
+            );
+        if (attach) {
             return dependencies.resumeSession!(sessionPath);
         }
-        try {
-            return await createJsonlViewClient(sessionPath, {
-                onActivate: (command) => activateJsonlView(sessionPath, command),
-            });
-        } catch {
-            return dependencies.resumeSession!(sessionPath);
-        }
+        return await createJsonlViewClient(sessionPath, {
+            onActivate: (command) => activateJsonlView(sessionPath, command),
+        });
     }
 
     /**
@@ -12299,6 +12189,151 @@ export async function startTui(
     }
 
     /**
+     * Start a fresh conversation on this client.
+     *
+     * `/clear` stops the source. `/clear --background` and the agent sidebar's
+     * ctrl+n keep it running. Pair-pane clears still go through this too.
+     */
+    function beginCreateSession(
+        sourceDisposition: TuiSessionLeaveDisposition = "stop",
+    ): void {
+        composer.clearComposer();
+        const clearingSidebar = sidebar.isFocused()
+            && hostedSidebar.pane !== undefined;
+        const sourceClient = focusedAgentClient();
+        const sourceCompanions = clearingSidebar
+            || hostedSidebar.pane === undefined
+            ? []
+            : [hostedSidebar.pane.client];
+        // A blank peer has nothing useful to reset. Treating a second
+        // clear as close makes it possible to get rid of an empty pane
+        // without requiring a separate close command.
+        const clearingBlankSidebar = clearingSidebar
+            && !sidebarEntryNodes.some((node) => node.visible);
+        if (clearingBlankSidebar) {
+            closeSidebarPane();
+            return;
+        }
+        if (
+            clearingSidebar
+                ? dependencies.createAgent === undefined
+                : dependencies.createSession === undefined
+        ) {
+            state = appendTuiError(
+                state,
+                "Starting a new session is unavailable",
+            );
+            renderState();
+            return;
+        }
+        if (sessionSwitchPending) {
+            return;
+        }
+        const workspace = focusedAgentClient().workspace;
+        if (workspace === undefined) {
+            state = appendTuiError(
+                state,
+                "Current session workspace is unavailable",
+            );
+            renderState();
+            return;
+        }
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "starting new session…";
+        sessionSwitchStartedAt = performance.now();
+        sessionSwitchOperation = "clear";
+        sessionSwitchBufferedUpdates = [];
+        sessionSwitchClearingMain = !clearingSidebar;
+        flightRecorder?.record({
+            type: "session_switch_started",
+            operation: "clear",
+            target: clearingSidebar ? "sidebar" : "main",
+        });
+        const previousState = clearingSidebar ? undefined : state;
+        if (!clearingSidebar) {
+            state = createTuiState();
+            clearTranscriptNodes();
+            renderState();
+        } else {
+            renderStatus();
+        }
+        const nextSession = clearingSidebar
+            ? dependencies.createAgent!(
+                workspace,
+                hostedSidebar.initialApprovalMode
+                    ?? focusedAgentState().approvalMode,
+                hostedSidebar.attachmentLifetime,
+            )
+            : dependencies.createSession!(workspace);
+        void withSessionSwitchDeadline(
+            nextSession,
+            (next) => void discardCreatedSwitchTarget(next),
+        ).then(async (next) => {
+            if (shuttingDown) {
+                void discardCreatedSwitchTarget(next);
+                return;
+            }
+            let leaveResult: TuiSessionLeaveResult;
+            try {
+                leaveResult = await leaveSwitchSource(
+                    sourceClient,
+                    sourceDisposition,
+                    sourceCompanions,
+                );
+            } catch (error) {
+                await discardCreatedSwitchTarget(next);
+                throw error;
+            }
+            if (clearingSidebar) {
+                await openExtensionAgent(
+                    hostedSidebar.owner ?? "vera.tui.agent-attachments",
+                    requireIdentifiedClient(next),
+                    "sidebar",
+                    true,
+                    hostedSidebar.mention,
+                    hostedSidebar.attachmentLifetime,
+                    hostedSidebar.initialApprovalMode,
+                );
+                recordSessionSwitchOutcome("completed");
+                sessionSwitchPending = false;
+                return;
+            }
+            switchToClient(next);
+            if (
+                sourceDisposition === "stop"
+                && leaveResult.sourceOutcome === "detached"
+                && leaveResult.remainingInteractiveClients > 0
+            ) {
+                const notice =
+                    "The previous conversation is still running in another client";
+                pendingSessionSwitchNotice = notice;
+            }
+        }).catch((error) => {
+            if (shuttingDown) {
+                return;
+            }
+            sessionSwitchPending = false;
+            if (previousState !== undefined) {
+                state = previousState;
+                for (const update of sessionSwitchBufferedUpdates) {
+                    state = applyAgentUpdate(state, update);
+                }
+                clearTranscriptNodes();
+            }
+            sessionSwitchBufferedUpdates = [];
+            recordSessionSwitchOutcome("failed", error);
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
+            state = appendTuiError(
+                state,
+                `Could not start a new session: ${message}`,
+            );
+            renderState();
+        });
+    }
+
+    /**
      * Move to the session a picker row named.
      *
      * The draft is read before the switch and handed back to it, so a prompt
@@ -12310,6 +12345,7 @@ export async function startTui(
         viaBack = false,
         armsBack = true,
         sourceDisposition: TuiSessionLeaveDisposition = "stop",
+        destinationOpen?: "jsonl" | "attach",
     ): void {
         const openingInSidebar = sidebar.isFocused()
             && hostedSidebar.pane !== undefined;
@@ -12373,7 +12409,7 @@ export async function startTui(
         settingsPickerView.box.visible = false;
         renderState();
         void withSessionSwitchDeadline(
-            openSwitchDestination(sessionPath, sessionId),
+            openSwitchDestination(sessionPath, sessionId, destinationOpen),
             discardSwitchTarget,
         ).then(async (next) => {
             if (shuttingDown) {

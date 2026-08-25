@@ -39,7 +39,7 @@ import {
  * own.
  */
 
-export type LinesViewTone = "text" | "muted" | "accent";
+export type LinesViewTone = "text" | "muted" | "accent" | "heading";
 
 export interface LinesViewLine {
     readonly text: string;
@@ -119,10 +119,20 @@ export interface LinesView {
 }
 
 export interface LinesViewOptions {
-    /** False for a rail that lives directly on the app's shared ground. */
+    /**
+     * False for a surface that sits on the app's shared ground. A filled
+     * panel is the default, and a docked rail that should read as its own
+     * column keeps it on.
+     */
     readonly panelBackground?: boolean;
     /** A single edge separating a rail from the content beside it. */
     readonly railDivider?: boolean;
+    /**
+     * How far a rail holds its rows off its own edges. OpenCode's session
+     * sidebar uses two columns; the default stays one so a centred card that
+     * later docks does not suddenly eat title space.
+     */
+    readonly railPadding?: number;
 }
 
 export interface LinesViewPointer {
@@ -168,7 +178,8 @@ const RAIL_TOP_MARGIN = 1;
  */
 function toneColor(tone: LinesViewTone | undefined): string {
     if (tone === "muted") return TUI_MUTED;
-    return tone === "accent" ? TUI_ACCENT : TUI_TEXT;
+    if (tone === "accent") return TUI_ACCENT;
+    return TUI_TEXT;
 }
 
 export function createTuiLinesView(
@@ -179,6 +190,7 @@ export function createTuiLinesView(
     let nodes: Renderable[] = [];
     let bottomInset = COMPOSER_RESERVE;
     let rail: number | undefined;
+    const railPadding = options.railPadding ?? RAIL_PADDING;
     const box = new BoxRenderable(renderer, {
         id,
         border: false,
@@ -217,7 +229,7 @@ export function createTuiLinesView(
             );
         },
         railColumns(): number | undefined {
-            return rail === undefined ? undefined : rail + RAIL_PADDING * 2;
+            return rail === undefined ? undefined : rail + railPadding * 2;
         },
         setBottomInset(rows): void {
             bottomInset = Math.max(0, rows);
@@ -252,15 +264,16 @@ export function createTuiLinesView(
             // covering the screen: what stands beside a rail is still readable
             // and still takes the mouse, which is the difference between a rail
             // and a card.
-            surface.width = columns + RAIL_PADDING * 2;
+            surface.width = columns + railPadding * 2;
             box.border = options.railDivider === true ? ["right"] : false;
             surface.alignItems = "stretch";
             surface.justifyContent = "flex-start";
             box.width = "100%";
             box.height = "100%";
-            box.paddingLeft = RAIL_PADDING;
-            box.paddingRight = RAIL_PADDING;
+            box.paddingLeft = railPadding;
+            box.paddingRight = railPadding;
             box.paddingTop = 1;
+            box.paddingBottom = 1;
         },
         update(state): void {
             for (const node of nodes) node.destroyRecursively();
@@ -277,14 +290,19 @@ export function createTuiLinesView(
                     height: 1,
                 }));
             };
-            add(options.panelBackground === false
+            const hint = state.hint ?? "esc";
+            // A docked rail is a column, not a dialog: keep the title, drop
+            // the esc chip (the footer already names it), and honour dimming.
+            const railHeader = rail !== undefined || state.dimmed === true
+                || options.panelBackground === false;
+            add(railHeader
                 ? groundHeaderNode(
                     renderer,
                     state.title,
-                    state.hint ?? "esc",
+                    hint,
                     state.dimmed === true,
                 )
-                : dialogHeaderNode(renderer, state.title, state.hint ?? "esc"));
+                : dialogHeaderNode(renderer, state.title, hint));
             muted("");
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
@@ -335,6 +353,15 @@ function lineNode(
     transparent: boolean,
 ): Renderable {
     if (line.rowId === undefined) {
+        if (line.tone === "heading") {
+            return new TextRenderable(renderer, {
+                content: line.text,
+                fg: TUI_TEXT,
+                attributes: TextAttributes.BOLD,
+                width: "100%",
+                height: 1,
+            });
+        }
         return line.tone === "accent" && line.text.length > 0
             ? dialogGroupHeaderNode(renderer, line.text, false)
             : new TextRenderable(renderer, {
@@ -353,7 +380,7 @@ function lineNode(
             onSelect: () => view.pointer?.activate?.(rowId),
         }),
     };
-    if (transparent && line.selected !== true) {
+    if ((transparent || line.tone === "muted") && line.selected !== true) {
         const row = new BoxRenderable(renderer, {
             width: "100%",
             height: 1,
@@ -392,9 +419,11 @@ function groundHeaderNode(
         fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
     }));
-    header.add(new TextRenderable(renderer, {
-        content: hint,
-        fg: TUI_MUTED,
-    }));
+    if (hint.length > 0) {
+        header.add(new TextRenderable(renderer, {
+            content: hint,
+            fg: TUI_MUTED,
+        }));
+    }
     return header;
 }

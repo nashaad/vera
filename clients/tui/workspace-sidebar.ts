@@ -46,7 +46,7 @@ const AGE_WITH_GAP_COLUMNS = 9;
 /** Keep a readable title before preserving age in a squeezed rail. */
 const MIN_TITLE_WITH_AGE_COLUMNS = 8;
 /** Narrowest useful rail; titles truncate after their markers when narrower. */
-export const MIN_RAIL_COLUMNS = 26;
+export const MIN_RAIL_COLUMNS = 28;
 /** The conversation stays useful while the explorer is resized. */
 const MIN_CHAT_COLUMNS = 35;
 
@@ -81,12 +81,14 @@ export function clampWorkspaceRailColumns(
 /**
  * A listed session plus where its transcript lives.
  *
- * Switching resumes by path, and the path and the row are one reading of the
- * registry: looking it up again afterwards could name a session the row no
- * longer describes.
+ * Opening uses this row's own facts, not a second listing: looking it up
+ * again afterwards could name a session the row no longer describes, or
+ * treat a timeout as "already running" and start a worker.
  */
 export interface WorkspaceSidebarSession extends WorkspaceSession {
     readonly sessionPath: string;
+    /** Live process hosting this session, when the listing named one. */
+    readonly workerPid?: number;
 }
 
 export interface WorkspaceSidebarState {
@@ -100,10 +102,13 @@ export interface WorkspaceSidebarState {
 export type WorkspaceSidebarAction =
     | { readonly kind: "close" }
     | { readonly kind: "hide" }
+    | { readonly kind: "new_session" }
     | {
         readonly kind: "open_session";
         readonly session_id: string;
         readonly session_path: string;
+        /** Attach to a running worker; otherwise paint the session file. */
+        readonly active: boolean;
     }
     | { readonly kind: "pin"; readonly pinnedIds: readonly string[] };
 
@@ -133,19 +138,24 @@ export function workspaceSidebarSessions(
             ...(agent.updated_at === undefined
                 ? {}
                 : { updatedAt: agent.updated_at }),
+            ...(agent.worker_pid === undefined
+                ? {}
+                : { workerPid: agent.worker_pid }),
         }));
 }
 
 /**
  * Whether a listed session is live work, not idle jsonl.
  *
- * `live` is the host's fact. Waiting and working are kept even if that flag
- * flickers, so a needs-you row cannot vanish from the rail.
+ * `live` is the host's fact. Waiting, working, and a named worker are kept
+ * even if that flag flickers, so a needs-you row cannot vanish from the rail
+ * and a parked worker is an attach rather than a file view.
  */
 export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
     return session.live
         || session.status === "waiting"
-        || session.status === "working";
+        || session.status === "working"
+        || session.workerPid !== undefined;
 }
 
 /**
@@ -342,8 +352,9 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * i returns to the composer and leaves the rail up, escape hides it, and
- * digits address rows. None of the movement keys switch the viewed session.
+ * ctrl+n starts a new chat and keeps this one running, i returns to the
+ * composer and leaves the rail up, escape hides it, and digits address rows.
+ * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
  * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
@@ -360,8 +371,8 @@ export function handleWorkspaceSidebarKey(
     // so ctrl+d is ↓ held down and nothing new has to be learned about where
     // the highlight went. The chords are the picker's half-page ids, inherited
     // into this scope, so remapping one list movement remaps both.
-    const halfPage = tuiBindingId("workspace", key);
-    if (halfPage === "half_page_down" || halfPage === "half_page_up") {
+    const binding = tuiBindingId("workspace", key);
+    if (binding === "half_page_down" || binding === "half_page_up") {
         const layout = workspaceSidebarLayout(state, { columns, now });
         const selectable = layout.selectable;
         if (selectable.length === 0) return { state, handled: true };
@@ -372,12 +383,15 @@ export function handleWorkspaceSidebarKey(
             current,
             selectable.length,
             viewportRows ?? 10,
-            halfPage === "half_page_down" ? "down" : "up",
+            binding === "half_page_down" ? "down" : "up",
         )];
         return {
             state: selectedId === undefined ? state : { ...state, selectedId },
             handled: true,
         };
+    }
+    if (binding === "workspace_new_session") {
+        return { action: { kind: "new_session" }, handled: true };
     }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
@@ -416,7 +430,6 @@ export function handleWorkspaceSidebarKey(
             handled: true,
         };
     }
-    const binding = tuiBindingId("workspace", key);
     if (binding !== undefined && binding.startsWith("workspace_jump_")) {
         const position = Number(binding.slice("workspace_jump_".length));
         const target = workspaceJumpTarget(layout, position);
@@ -446,6 +459,7 @@ export function openWorkspaceSelection(
         kind: "open_session",
         session_id: session.id,
         session_path: session.sessionPath,
+        active: isWorkspaceActive(session),
     };
 }
 
@@ -467,8 +481,8 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  */
 export function workspaceSidebarFooter(width: number): string {
     return width < NARROW_WIDTH
-        ? "↑↓/jk ^d^u ⏎ 1-9 p i esc"
-        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i chat · esc hide";
+        ? "↑↓/jk ^d^u ⏎ 1-9 p i ^n esc"
+        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · ctrl+n new · i chat · esc hide";
 }
 
 /**
@@ -506,27 +520,34 @@ export function workspaceSidebarViewState(
     });
     const width = railColumns ?? columns;
     let position = 0;
-    const lines: LinesViewState["lines"][number][] = layout.rows.map((row) => {
+    const lines: LinesViewState["lines"][number][] = [];
+    let seenGroup = false;
+    for (const row of layout.rows) {
         if (row.kind === "group") {
-            return {
+            if (seenGroup) {
+                lines.push({ text: "", tone: "muted" as const });
+            }
+            seenGroup = true;
+            lines.push({
                 text: row.text,
-                tone: focused ? "accent" as const : "muted" as const,
-            };
+                tone: focused ? "heading" as const : "muted" as const,
+            });
+            continue;
         }
         position += 1;
         // The digit is drawn on the row it addresses. Positional and churning
         // as the list reorders, which is why it is a shortcut and not the way
         // a row is picked.
         const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
-        return {
+        lines.push({
             text: `${digit} ${row.text}`,
             tone: focused ? "text" as const : "muted" as const,
             rowId: row.id,
             // The orange bar is focus decoration. Selection still reads as `>`
             // in the row text when the rail is up and the composer has focus.
             ...(focused && row.selected ? { selected: true } : {}),
-        };
-    });
+        });
+    }
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
@@ -536,6 +557,9 @@ export function workspaceSidebarViewState(
         title: `${focused ? renderTuiFocusCaret(animationFrame) : "     "} ${
             workspaceSidebarHeader(state)
         }`,
+        // The rail's footer already names esc. The chip on the title is
+        // dialog chrome and crowds a 28-column column.
+        ...(railColumns === undefined ? {} : { hint: "" }),
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.length === 0
             ? [{ text: "No other sessions.", tone: "muted" as const }]

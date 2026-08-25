@@ -35,7 +35,7 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("Workspace"));
+        const open = await tui.paneWhere((value) => value.includes("Agent sidebar"));
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) => !value.includes("Agent sidebar ·"));
         return open;
@@ -48,7 +48,7 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("background");
     expect(pane).toContain("provider-fall…");
     // The rail is as narrow as its rows, so it takes the short hint.
-    expect(pane).toContain("↑↓/jk ^d^u ⏎ 1-9 p i esc");
+    expect(pane).toContain("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", async () => {
@@ -84,7 +84,7 @@ test.skipIf(!tmuxAvailable)("a boxed caret blinks while the explorer has focus",
         );
         const focusedSecond = workspaceLine(secondPane);
 
-        tui.key("Escape");
+        tui.key("i");
         const chatPane = await tui.paneWhere((value) =>
             value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
         );
@@ -103,7 +103,7 @@ test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside t
         await tui.settled();
         tui.bytes(CTRL_E);
         await tui.paneWhere(hasFocusedWorkspace);
-        tui.key("Escape");
+        tui.key("i");
         await tui.paneWhere((value) =>
             value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
         );
@@ -269,7 +269,7 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
             && value.includes("provider-fall…")
-            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i esc")
+            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
@@ -288,7 +288,7 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i esc")
+            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc")
         );
         tui.text("2");
         const opened = await tui.paneWhere((value) =>
@@ -386,10 +386,10 @@ test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside th
         tui.key("Enter");
         await tui.paneWhere((value) => value.includes("\u203a hello"));
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("Workspace \u00b7"));
+        const open = await tui.paneWhere((value) => value.includes("Agent sidebar \u00b7"));
         tui.bytes(CTRL_E);
         const closed = await tui.paneWhere((value) =>
-            !value.includes("Workspace \u00b7")
+            !value.includes("Agent sidebar \u00b7")
         );
         return { open, closed };
     }, 120, 34);
@@ -415,14 +415,14 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
     const open = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("Workspace \u00b7"));
+        return await tui.paneWhere((value) => value.includes("Agent sidebar \u00b7"));
     }, 70, 34);
 
     expect(open).toContain("auth-race");
     expect(workspaceRailColumns(70)).toBeUndefined();
     // Held off the left edge, which is what a centred card looks like and what
     // a rail never does.
-    expect(column(open, "Workspace \u00b7")).toBeGreaterThan(2);
+    expect(column(open, "Agent sidebar \u00b7")).toBeGreaterThan(2);
 }, 60_000);
 
 /** The column the text starts in, or -1 when the pane does not show it. */
