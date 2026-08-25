@@ -72,11 +72,6 @@ test("ctrl+shift+h toggles the focused session header", () => {
     })).toBe("toggle_session_header");
 });
 
-test("question mark opens help only from the unfocused working area", () => {
-    expect(tuiBindingId("unfocused", { name: "?" })).toBe("open_help");
-    expect(tuiBindingId("composer", { name: "?" })).toBeUndefined();
-});
-
 test("Option-delete is not mistaken for Command-delete", () => {
     expect(isTuiComposerClearKey({
         name: "backspace",

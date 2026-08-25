@@ -406,14 +406,6 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Put the cursor back in the composer",
     },
     {
-        id: "open_help",
-        keys: ["?"],
-        scope: "unfocused",
-        description: "Open keyboard shortcuts and controls",
-        hint: "? help",
-        remappable: true,
-    },
-    {
         id: "half_page_down",
         keys: ["ctrl+d"],
         scope: "picker",
