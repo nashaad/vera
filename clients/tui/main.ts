@@ -373,6 +373,10 @@ import {
     isJsonlViewClient,
 } from "./jsonl-view-client.ts";
 import {
+    createTuiResumeOverlayView,
+    jsonlViewKeyAction,
+} from "./resume-overlay.ts";
+import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
@@ -407,6 +411,7 @@ import {
     needsYouChipColumns,
     renderTuiCompactionHint,
     renderTuiIdleHint,
+    renderTuiFileViewStatusRows,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
     tuiStatusSnapshot,
@@ -2508,11 +2513,19 @@ export async function startTui(
      * margin is kept here rather than read back off the box.
      */
     let composerMarginRows = 2;
+    let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
+
+    function composerSlotHeight(): number {
+        return isJsonlViewClient(client)
+            ? resumeOverlay.box.height
+            : composerBox.height;
+    }
 
     function setComposerMargin(rows: number): void {
         composerMarginRows = rows;
         composerBox.marginBottom = rows;
-        workspaceSidebarView.setBottomInset(composerBox.height + rows);
+        resumeOverlay.box.marginBottom = rows;
+        workspaceSidebarView.setBottomInset(composerSlotHeight() + rows);
         positionCommandSuggestions();
     }
 
@@ -2520,7 +2533,7 @@ export async function startTui(
         // One more than the rows under the strip: `bottom` is where the box's
         // bottom edge sits, so without it the strip's last row lands on the
         // composer's top border instead of the row above it.
-        commandSuggestionsBox.bottom = composerBox.height
+        commandSuggestionsBox.bottom = composerSlotHeight()
             + composerMarginRows
             + experimentalTuiHost.bottomInsetRows()
             + (composerTipText.visible ? 1 : 0)
@@ -2567,6 +2580,16 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
     });
+    resumeOverlay = createTuiResumeOverlayView(renderer, () => {
+        resumeJsonlView();
+    });
+    resumeOverlay.applyAppearance({
+        marginHorizontal: appearance.composerMarginHorizontal,
+        paddingHorizontal: appearance.composerPaddingHorizontal,
+        boundaryColor: appearance.composerBoundaryColor ?? theme.element,
+        backgroundColor: theme.input ?? theme.background,
+        textColor: theme.text,
+    });
     workspaceSidebarView.setBottomInset(
         composerBox.height + composerMarginRows,
     );
@@ -2575,6 +2598,7 @@ export async function startTui(
     // opens the work tab. Width zero means no chip is on screen.
     let needsYouChipWidth = 0;
     composerStatusText.onMouseDown = (event) => {
+        if (isJsonlViewClient(client)) return;
         if (needsYouChipWidth === 0) return;
         if (event.x - composerStatusText.x >= needsYouChipWidth) return;
         openWorkTab();
@@ -2597,7 +2621,7 @@ export async function startTui(
         composer.height = nextRows;
         composerBox.height = tuiComposerPanelRows(nextRows);
         workspaceSidebarView.setBottomInset(
-            composerBox.height + composerMarginRows,
+            composerSlotHeight() + composerMarginRows,
         );
         positionCommandSuggestions();
         renderer.requestRender();
@@ -3810,6 +3834,7 @@ export async function startTui(
     app.add(heldAddressText);
     app.add(dialCard);
     app.add(composerBox);
+    app.add(resumeOverlay.box);
     app.add(statusBand);
     renderer.root.add(app);
     clientSurfaceReady = true;
@@ -3939,6 +3964,13 @@ export async function startTui(
         composerBox.marginRight = appearance.composerMarginHorizontal;
         composerBox.paddingLeft = appearance.composerPaddingHorizontal;
         composerBox.paddingRight = appearance.composerPaddingHorizontal;
+        resumeOverlay.applyAppearance({
+            marginHorizontal: appearance.composerMarginHorizontal,
+            paddingHorizontal: appearance.composerPaddingHorizontal,
+            boundaryColor: appearance.composerBoundaryColor ?? theme.element,
+            backgroundColor: theme.input ?? theme.background,
+            textColor: theme.text,
+        });
         dialCard.marginLeft = appearance.composerMarginHorizontal;
         dialCard.marginRight = appearance.composerMarginHorizontal;
         dialCard.paddingLeft = appearance.composerPaddingHorizontal + 1;
@@ -4081,6 +4113,28 @@ export async function startTui(
     renderer.keyInput.on("keypress", handleKeypress);
     let lastInputRecordAt = 0;
 
+    function applyTranscriptScroll(binding: string | undefined): boolean {
+        const scrollLines = binding === "scroll_line_up"
+            ? -1
+            : binding === "scroll_line_down"
+            ? 1
+            : binding === "scroll_half_page_up"
+            ? -Math.max(1, Math.floor(transcript.viewport.height / 2))
+            : binding === "scroll_half_page_down"
+            ? Math.max(1, Math.floor(transcript.viewport.height / 2))
+            : undefined;
+        if (binding !== "jump_to_bottom" && scrollLines === undefined) {
+            return false;
+        }
+        if (scrollLines === undefined) {
+            transcript.scrollTo(transcript.scrollHeight);
+        } else {
+            transcript.scrollBy(scrollLines);
+        }
+        renderJumpToBottom(scrollLines === undefined);
+        return true;
+    }
+
     /**
      * Every key the TUI acts on arrives here, overlays included. Pointer input
      * is routed back through it (see `pressKey`) rather than growing a second
@@ -4115,6 +4169,62 @@ export async function startTui(
         // press across the disarm.
         const previousIdleEscapeAt = lastIdleEscapeAt;
         lastIdleEscapeAt = undefined;
+        if (
+            isJsonlViewClient(client)
+            && parseRawInputEvent(key)?.type !== "interrupt"
+        ) {
+            const jsonlAction = jsonlViewKeyAction(key, {
+                conversationBinding: tuiBindingId("conversation", key),
+                globalBinding: tuiBindingId("global", key),
+                sidebarFocused: workspaceSidebarFocused
+                    && workspaceSidebar !== undefined,
+            });
+            if (jsonlAction === "scroll") {
+                key.preventDefault();
+                key.stopPropagation();
+                applyTranscriptScroll(tuiBindingId("conversation", key));
+                return;
+            }
+            if (jsonlAction === "resume") {
+                key.preventDefault();
+                key.stopPropagation();
+                resumeJsonlView();
+                return;
+            }
+            if (jsonlAction === "toggle_sidebar") {
+                // Fall through to the existing toggle, which is how you leave
+                // this file without starting a worker.
+            } else if (
+                jsonlAction === "sidebar"
+                && workspaceSidebar !== undefined
+                && workspaceSidebarFocused
+            ) {
+                const open = workspaceSidebar;
+                const transition = handleWorkspaceSidebarKey(
+                    open,
+                    key,
+                    new Date(),
+                    renderer.width,
+                    workspaceSidebarView.visibleRows(),
+                );
+                key.preventDefault();
+                key.stopPropagation();
+                if (transition.handled) {
+                    workspaceSidebar = transition.state ?? open;
+                    if (transition.action !== undefined) {
+                        runWorkspaceSidebarAction(transition.action);
+                    } else {
+                        renderState();
+                        focusActiveSurface();
+                    }
+                }
+                return;
+            } else if (jsonlAction === "block") {
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
+        }
         if (parseRawInputEvent(key)?.type === "open_palette") {
             key.preventDefault();
             key.stopPropagation();
@@ -5127,24 +5237,9 @@ export async function startTui(
         const scrollBinding = anyOverlayOpen()
             ? undefined
             : tuiBindingId("conversation", key);
-        const scrollLines = scrollBinding === "scroll_line_up"
-            ? -1
-            : scrollBinding === "scroll_line_down"
-            ? 1
-            : scrollBinding === "scroll_half_page_up"
-            ? -Math.max(1, Math.floor(transcript.viewport.height / 2))
-            : scrollBinding === "scroll_half_page_down"
-            ? Math.max(1, Math.floor(transcript.viewport.height / 2))
-            : undefined;
-        if (scrollBinding === "jump_to_bottom" || scrollLines !== undefined) {
+        if (applyTranscriptScroll(scrollBinding)) {
             key.preventDefault();
             key.stopPropagation();
-            if (scrollLines === undefined) {
-                transcript.scrollTo(transcript.scrollHeight);
-            } else {
-                transcript.scrollBy(scrollLines);
-            }
-            renderJumpToBottom(scrollLines === undefined);
             return;
         }
 
@@ -7861,9 +7956,12 @@ export async function startTui(
             ? "overlay"
             : sidebar.isFocused()
             ? "sidebar_composer"
+            : isJsonlViewClient(client)
+            ? "resume_overlay"
             : "main_composer";
         if (
             overlay === undefined
+            && !isJsonlViewClient(client)
             && composer.focused
             && recordedFocusSurface === surface
         ) {
@@ -7876,12 +7974,18 @@ export async function startTui(
             flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
+        if (isJsonlViewClient(client)) {
+            resumeOverlay.box.focus();
+            flightRecorder?.record({ type: "focus_changed", surface });
+            return;
+        }
         composer.focus();
         flightRecorder?.record({ type: "focus_changed", surface });
     }
 
     function activeFlightSurface(): string {
         if (activeOverlayFocus() !== undefined) return "overlay";
+        if (isJsonlViewClient(client)) return "resume_overlay";
         return sidebar.isFocused() ? "sidebar_composer" : "main_composer";
     }
 
@@ -9155,7 +9259,10 @@ export async function startTui(
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
         // until the pending engine request is answered.
-        composerBox.visible = uiRequest === undefined;
+        composerBox.visible = uiRequest === undefined
+            && !isJsonlViewClient(client);
+        resumeOverlay.box.visible = uiRequest === undefined
+            && isJsonlViewClient(client);
         renderCommandSuggestions();
         if (
             uiRequest !== undefined
@@ -12131,7 +12238,7 @@ export async function startTui(
 
     /**
      * Attach when the destination is already running; otherwise paint the
-     * session file and wait for a send to start a worker.
+     * session file. Resume is an explicit overlay, not a send.
      *
      * A rail click names the open from the row itself. `/resume` still asks
      * the listing. A failed file read is an error, not a resume.
@@ -12149,43 +12256,51 @@ export async function startTui(
         if (attach) {
             return dependencies.resumeSession!(sessionPath);
         }
-        return await createJsonlViewClient(sessionPath, {
-            onActivate: (command) => activateJsonlView(sessionPath, command),
-        });
+        return await createJsonlViewClient(sessionPath);
     }
 
     /**
-     * Start a worker for a conversation that was only a file, then send the
-     * command that asked for it.
+     * Start a worker for the file currently on screen.
      */
-    async function activateJsonlView(
-        sessionPath: string,
-        command: ClientCommand,
-    ): Promise<void> {
+    function resumeJsonlView(): void {
+        if (!isJsonlViewClient(client)) {
+            return;
+        }
         if (dependencies.resumeSession === undefined) {
-            throw new Error("Switching sessions is unavailable");
+            state = appendTuiError(state, "Switching sessions is unavailable");
+            renderState();
+            return;
         }
         if (sessionSwitchPending) {
-            throw new Error("A conversation switch is already in progress");
+            return;
         }
+        const sessionPath = client.sessionPath;
         sessionSwitchPending = true;
         sessionSwitchActivity = "opening conversation…";
         renderState();
-        try {
-            const live = await withSessionSwitchDeadline(
-                dependencies.resumeSession(sessionPath),
-                discardSwitchTarget,
-            );
+        void withSessionSwitchDeadline(
+            dependencies.resumeSession(sessionPath),
+            discardSwitchTarget,
+        ).then((live) => {
             if (shuttingDown) {
                 discardSwitchTarget(live);
                 return;
             }
             switchToClient(live, currentDraft());
-            await live.send(command);
-        } catch (error) {
+        }).catch((error) => {
+            if (shuttingDown) {
+                return;
+            }
             sessionSwitchPending = false;
-            throw error;
-        }
+            const message = error instanceof Error
+                ? error.message
+                : String(error);
+            state = appendTuiError(
+                state,
+                `Could not resume: ${message}`,
+            );
+            renderState();
+        });
     }
 
     /**
@@ -13052,6 +13167,13 @@ export async function startTui(
         composerBox.backgroundColor = theme.input ?? theme.background;
         composerBox.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
+        resumeOverlay.applyAppearance({
+            marginHorizontal: appearance.composerMarginHorizontal,
+            paddingHorizontal: appearance.composerPaddingHorizontal,
+            boundaryColor: appearance.composerBoundaryColor ?? theme.element,
+            backgroundColor: theme.input ?? theme.background,
+            textColor: theme.text,
+        });
         composerStatusText.fg = theme.muted;
         composerRule.borderColor = appearance.composerBoundaryColor
             ?? theme.element;
@@ -13624,6 +13746,14 @@ export async function startTui(
             lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
 
+        if (
+            isJsonlViewClient(client)
+            && !sessionSwitchPending
+            && !connectionFailed
+        ) {
+            lifecycleHint = "";
+        }
+
         statusText.fg = statusState.approvalMode === "full_access"
             ? "#ff3b30"
             : statusNotice !== undefined
@@ -13732,9 +13862,13 @@ export async function startTui(
                         : "waiting",
             ),
         );
-        const statusDetailsRows: TuiStatusChunk[][] =
-            extensionSegments === undefined
-                ? renderTuiStatusDetailsRows(
+        const statusDetailsRows: TuiStatusChunk[][] = isJsonlViewClient(client)
+            ? renderTuiFileViewStatusRows(
+                client.workspace ?? process.cwd(),
+                workspaceBranch.current(),
+            )
+            : extensionSegments === undefined
+            ? renderTuiStatusDetailsRows(
                     statusState.modelSettings,
                     statusState.approvalMode,
                     statusState.context,
@@ -13762,7 +13896,7 @@ export async function startTui(
                     workIndex?.needs_you ?? 0,
                     Math.max(1, renderer.width - composerHorizontalInset - railInset),
                 )
-                : [[{
+            : [[{
                     tone: "muted",
                     text: renderTuiStatusSegments(
                         hostedSidebar.pane === undefined

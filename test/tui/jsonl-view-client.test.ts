@@ -56,12 +56,12 @@ test("a jsonl view paints the stored transcript and does not start work", async 
     });
 
     await expect(client.send({ type: "prompt", content: "again" }))
-        .rejects.toThrow("on disk until it is opened for work");
+        .rejects.toThrow("on disk until it is resumed");
 
     client.close();
 });
 
-test("a jsonl view activates on the first command that needs a loop", async () => {
+test("a prompt does not activate a jsonl view", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-jsonl-activate-"));
     temporaryDirectories.push(directory);
     const path = join(directory, "session.jsonl");
@@ -70,14 +70,9 @@ test("a jsonl view activates on the first command that needs a loop", async () =
         cwd: "/work/vera",
     });
 
-    const sent: string[] = [];
-    const client = await createJsonlViewClient(path, {
-        onActivate: async (command) => {
-            if (command.type === "prompt") sent.push(command.content);
-        },
-    });
-    await client.send({ type: "prompt", content: "wake up" });
-    expect(sent).toEqual(["wake up"]);
+    const client = await createJsonlViewClient(path);
+    await expect(client.send({ type: "prompt", content: "wake up" }))
+        .rejects.toThrow("on disk until it is resumed");
     client.close();
 });
 
@@ -90,14 +85,8 @@ test("a settings probe does not start a worker", async () => {
         cwd: "/work/vera",
     });
 
-    let activated = false;
-    const client = await createJsonlViewClient(path, {
-        onActivate: async () => {
-            activated = true;
-        },
-    });
+    const client = await createJsonlViewClient(path);
     await client.send({ type: "get_model_settings", requestId: "probe" });
     await client.send({ type: "get_permissions", requestId: "probe" });
-    expect(activated).toBe(false);
     client.close();
 });

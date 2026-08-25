@@ -302,6 +302,25 @@ export function renderTuiStatusDetailsRows(
 }
 
 /**
+ * Status for a conversation that is only a file: the place it sat, and
+ * nothing that pretends a host is about to answer.
+ */
+export function renderTuiFileViewStatusRows(
+    workspace: string,
+    branch: string | undefined = undefined,
+): TuiStatusChunk[][] {
+    return [
+        [],
+        [
+            muted(compactWorkspace(workspace)),
+            ...(branch === undefined
+                ? []
+                : [separator, { text: branch, tone: "accent" as const }]),
+        ],
+    ];
+}
+
+/**
  * How many columns of the first details row the attention chip covers, hint
  * included when it survived the width fit: the span a client should treat as
  * the click target for opening the Work tab.

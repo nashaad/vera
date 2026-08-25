@@ -4,6 +4,7 @@ import {
     needsYouChipColumns,
     renderTuiCompactionHint,
     renderTuiIdleHint,
+    renderTuiFileViewStatusRows,
     renderTuiStatusDetailsLine,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -356,4 +357,15 @@ test("the attention hint is the caller's, so it can name the jump chord", () => 
     // An empty hint leaves the count alone rather than a dangling separator.
     expect(text(rows(""))).toContain("1 need you · test");
     expect(needsYouChipColumns(rows(""), 1)).toBe("1 need you".length);
+});
+
+test("a file view status names the place and not a loading host", () => {
+    const rows = renderTuiFileViewStatusRows("/workspace", "main");
+    expect(rows.map((row) => row.map((chunk) => chunk.text).join(""))).toEqual([
+        "",
+        "/workspace · main",
+    ]);
+    expect(renderTuiFileViewStatusRows("/workspace").map((row) =>
+        row.map((chunk) => chunk.text).join("")
+    )).toEqual(["", "/workspace"]);
 });

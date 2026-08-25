@@ -755,6 +755,48 @@ test("opening a sidebar row keeps the source session running", async () => {
     }
 }, 15_000);
 
+test("an idle file shows resume instead of the composer, and enter starts the worker", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-resume-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        expect(pane).toContain("[resume]");
+        expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain("permissions loading");
+        session.sendKey("C-p");
+        await session.settle();
+        pane = session.captureVisiblePane();
+        expect(pane).toContain("[resume]");
+        expect(pane).toContain(IDLE_TARGET_TRANSCRIPT);
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pane).toContain("resumed-model");
+        expect(pane).not.toContain("[resume]");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                `${scenario.targetPath}\ndetached\ntarget-session-id`
+                    + "\nclosed target-session-id",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("opening a live sidebar row attaches to the running worker", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-attach-"));
     const scenario = createTuiResumeScenario({ home, targetLive: true });
