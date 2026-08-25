@@ -57,7 +57,7 @@ test("the migration inventory names every provider-specific source table", () =>
     const expectedSources = [
         "src/config.ts",
         "src/providers/registry.ts",
-        "src/providers/configured.ts",
+        "src/providers/executable-contributions.ts",
         "clients/provider-doctor.ts",
         "src/model/refreshable-providers.ts",
         "src/host/runtime.ts",
@@ -66,4 +66,10 @@ test("the migration inventory names every provider-specific source table", () =>
     for (const path of expectedSources) {
         expect(existsSync(join(ROOT, path))).toBe(true);
     }
+    expect(readFileSync(join(ROOT, "src/providers/configured.ts"), "utf8"))
+        .not.toContain("ADAPTERS");
+    expect(readFileSync(join(ROOT, "clients/provider-doctor.ts"), "utf8"))
+        .not.toContain("BUILT_IN_ENDPOINTS");
+    expect(readFileSync(join(ROOT, "src/model/refreshable-providers.ts"), "utf8"))
+        .not.toContain("REFRESHABLE_PROVIDERS");
 });

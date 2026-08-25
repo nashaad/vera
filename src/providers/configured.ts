@@ -1,28 +1,21 @@
 import type { VeraConfig } from "../config.ts";
-import { createOpenAICodexAdapter } from "./openai-codex.ts";
-import { createOpenRouterAdapter } from "./openrouter.ts";
-import { createOllamaAdapter } from "./ollama-openai.ts";
-import {
-    poolEffortLevels,
-    type EffortLevelsLookup,
+import type {
+    EffortLevelsLookup,
 } from "../model/effort-levels.ts";
-import {
-    poolImageSupport,
-    type ImageSupportLookup,
+import type {
+    ImageSupportLookup,
 } from "../model/image-support.ts";
-import { createPoolEffortPool } from "../model/effort-pool.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
-import { findProvider } from "./registry.ts";
 import { findConfiguredProvider } from "./registry.ts";
 import { createGenericProviderAdapter } from "./generic.ts";
+import { createExecutableProviderAdapter } from "./executable-contributions.ts";
 import { UserFacingError } from "../user-facing-error.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { createCustomOpenAIAdapter } from "./custom-openai.ts";
 import { createCustomAnthropicAdapter } from "./custom-anthropic.ts";
 import {
     type OpenRouterAllowanceGuard,
-    openRouterAllowanceScope,
 } from "./openrouter-allowance-guard.ts";
 
 export interface ConfiguredProviderOptions {
@@ -54,91 +47,6 @@ export interface ConfiguredProviderOptions {
     readonly openRouterAllowanceGuard?: OpenRouterAllowanceGuard;
 }
 
-/**
- * The adapter for each provider the registry lists.
- *
- * Keyed rather than branched so that adding a provider is adding a row here and
- * a row in the registry, and the two cannot drift into a state where one lists a
- * provider the other cannot build.
- */
-const ADAPTERS: Readonly<Record<
-    string,
-    (options: ConfiguredProviderOptions, baseUrl?: string) => ModelAdapter
->> = {
-    "openai-codex": (options) => createOpenAICodexAdapter({
-        ...(options.authStorage === undefined
-            ? {}
-            : { authStorage: options.authStorage }),
-        ...(options.fetch === undefined
-            ? {}
-            : { fetch: options.fetch as typeof globalThis.fetch }),
-    }),
-    ollama: (options, baseUrl) => createOllamaAdapter({
-        // Ollama is reached by host, and the adapter adds the OpenAI path
-        // itself. A pasted URL that already carries it would otherwise be
-        // asked for /v1/v1.
-        host: baseUrl === undefined
-            ? (options.env ?? process.env).OLLAMA_HOST
-            : ollamaHost(baseUrl),
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        ...(options.log === undefined ? {} : { log: options.log }),
-        ...capture(options),
-    }),
-    openrouter: (options, baseUrl) => {
-        const pool = createPoolEffortPool(
-            options.projectRoot === undefined
-                ? {}
-                : { projectRoot: options.projectRoot },
-        );
-        const apiKey = requiredApiKey("openrouter", options);
-        return createOpenRouterAdapter({
-            apiKey,
-            ...(baseUrl === undefined ? {} : { baseUrl }),
-            effortLevels: options.effortLevels
-                ?? poolEffortLevels({ provider: "openrouter", pool }),
-            imageSupport: options.imageSupport
-                ?? poolImageSupport({ provider: "openrouter", pool }),
-            ...(options.openRouterAllowanceGuard === undefined
-                ? {}
-                : {
-                    allowanceGuard: options.openRouterAllowanceGuard,
-                    allowanceScope: openRouterAllowanceScope(apiKey),
-                }),
-            ...capture(options),
-        });
-    },
-};
-
-/** A host, from whatever shape of Ollama URL the config carries. */
-function ollamaHost(value: string): string {
-    return value.replace(/\/+$/, "").replace(/\/v1$/, "");
-}
-
-function capture(
-    options: ConfiguredProviderOptions,
-): { captureFailedRequest?: FailedRequestCapture } {
-    return options.captureFailedRequest === undefined
-        ? {}
-        : { captureFailedRequest: options.captureFailedRequest };
-}
-
-function optionalApiKey(
-    providerId: string,
-    options: ConfiguredProviderOptions,
-): { apiKey?: string } {
-    const stored = options.authStorage === undefined
-        ? undefined
-        : apiKey(options.authStorage, providerId);
-    const envVar = findProvider(providerId)?.envVar;
-    const fromEnv = envVar === undefined
-        ? undefined
-        : (options.env ?? process.env)[envVar];
-    const value = stored !== undefined && stored.length > 0
-        ? stored
-        : fromEnv;
-    return value === undefined ? {} : { apiKey: value };
-}
-
 export function createConfiguredModelAdapter(
     config: VeraConfig,
     options: ConfiguredProviderOptions = {},
@@ -154,12 +62,8 @@ export function createConfiguredModelAdapter(
             ...capture(options),
         });
     }
-    const build = ADAPTERS[config.provider];
-    if (build !== undefined) {
-        // A shipped provider keeps its own adapter when the endpoint moves:
-        // the wire quirks, error classification, and effort mapping belong to
-        // the provider, not to the host it happens to answer on.
-        return build(options, config.provider_endpoints?.[config.provider]);
+    if (descriptor?.behaviorId !== undefined) {
+        return createExecutableProviderAdapter(descriptor.behaviorId, descriptor, options);
     }
     if (descriptor !== undefined && descriptor.behaviorId === undefined) {
         return createGenericProviderAdapter({
@@ -233,26 +137,10 @@ function customProviderApiKey(
  * and the two can coexist because a key the user typed into Vera is the more
  * deliberate of the two.
  */
-function requiredApiKey(
-    providerId: string,
+function capture(
     options: ConfiguredProviderOptions,
-): string {
-    const stored = options.authStorage === undefined
-        ? undefined
-        : apiKey(options.authStorage, providerId);
-    if (stored !== undefined && stored.length > 0) {
-        return stored;
-    }
-    const envVar = findProvider(providerId)?.envVar;
-    const fromEnv = envVar === undefined
-        ? undefined
-        : (options.env ?? process.env)[envVar];
-    if (fromEnv !== undefined && fromEnv.length > 0) {
-        return fromEnv;
-    }
-    throw new UserFacingError(
-        `No credentials for provider ${providerId}. Connect it from the model pane (ctrl+e)${
-            envVar === undefined ? "" : ` or set ${envVar}`
-        }.`,
-    );
+): { captureFailedRequest?: FailedRequestCapture } {
+    return options.captureFailedRequest === undefined
+        ? {}
+        : { captureFailedRequest: options.captureFailedRequest };
 }

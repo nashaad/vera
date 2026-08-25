@@ -15,7 +15,6 @@ import {
     configuredProviders,
     findProvider,
     isProviderConnected,
-    PROVIDERS,
 } from "../../src/providers/registry.ts";
 import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import {
@@ -23,6 +22,8 @@ import {
     renderProviderDoctor,
 } from "../../clients/provider-doctor.ts";
 import { tuiProviderGroup } from "../../clients/tui/settings-picker.ts";
+
+const PROVIDERS = configuredProviders(undefined);
 
 const NO_ENV: Record<string, string | undefined> = {};
 

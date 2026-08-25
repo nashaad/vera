@@ -16,10 +16,10 @@ import {
     isVeraProviderId,
     loadOptionalVeraConfig,
     startingVeraConfig,
-    VERA_PROVIDER_IDS,
     VeraConfigError,
     type VeraConfig,
 } from "../../src/config.ts";
+import { shippedProviderIds } from "../../src/providers/definitions.ts";
 import { resolveAgentIdentifier } from "./agent-id.ts";
 import { abortAgentThroughHost } from "../../src/host/agent-abort-client.ts";
 import {
@@ -1130,7 +1130,7 @@ async function addPoolRef(
         return {
             verdict: "unavailable",
             reason: `unknown provider "${parsed.provider}", expected one of `
-                + [...VERA_PROVIDER_IDS, ...declared].join(", "),
+                + [...shippedProviderIds(), ...declared].join(", "),
         };
     }
     if (options.verify !== true) {

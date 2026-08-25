@@ -61,10 +61,6 @@ import {
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
 /** Compatibility export while callers move to the provider resolver. */
-export const VERA_PROVIDER_IDS = shippedProviderIds();
-
-export type VeraBuiltInProviderId = string;
-
 /**
  * A provider reference is either one of Vera's built-ins or a named endpoint
  * declared in `providers`. It stays a string at the model boundary because
@@ -72,8 +68,8 @@ export type VeraBuiltInProviderId = string;
  */
 export type VeraProviderId = string;
 
-export function isVeraProviderId(value: string): value is VeraBuiltInProviderId {
-    return (VERA_PROVIDER_IDS as readonly string[]).includes(value);
+export function isVeraProviderId(value: string): boolean {
+    return shippedProviderIds().includes(value);
 }
 
 export type VeraProviderProtocol = "openai-chat" | "anthropic-messages";

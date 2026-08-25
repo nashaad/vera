@@ -30,7 +30,7 @@ import {
     parseAgentName,
 } from "../../src/host/agent-name.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
-import { VERA_PROVIDER_IDS } from "../../src/config.ts";
+import { configuredProviders } from "../../src/providers/registry.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
 import type { AgentAttachment } from "../../src/host/resident-agent.ts";
 import type { PooledModel } from "../../src/model/catalog-view.ts";
@@ -5026,7 +5026,7 @@ test("every configured provider id is selectable", async () => {
             workspace: root,
             sessionPath: join(root, "agent.jsonl"),
         });
-        for (const provider of VERA_PROVIDER_IDS) {
+        for (const provider of configuredProviders(undefined).map((entry) => entry.id)) {
             expect(await registry.updateModelSettings(agent.id, {
                 provider,
                 model: "some-model",

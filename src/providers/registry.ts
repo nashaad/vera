@@ -2,7 +2,6 @@ import type { VeraConfig, VeraProviderId } from "../config.ts";
 import type { AuthStorage } from "./auth-storage.ts";
 import {
     resolveProviders,
-    shippedProviderDefinitions,
     type ProviderDiscoveryDefinition,
     type ProviderProtocol,
 } from "./definitions.ts";
@@ -46,6 +45,7 @@ export interface ProviderDescriptor {
      * on a different host.
      */
     readonly baseUrl?: string;
+    readonly endpointOverridden?: boolean;
     /**
      * Set when the endpoint is not the user's to move: a subscription flow is
      * bound to the account it signs in to. The pane shows the URL and offers
@@ -75,17 +75,8 @@ export interface ProviderDescriptor {
  *
  * So this list grows one row at a time, with the adapter, and never ahead of it.
  */
-export const PROVIDERS: readonly ProviderDescriptor[] = shippedProviderDefinitions()
-    .map((definition) => descriptorFromResolved({
-        definition,
-        id: definition.id,
-        baseUrl: definition.default_base_url,
-        source: "shipped",
-        custom: false,
-    }));
-
 export function findProvider(id: string): ProviderDescriptor | undefined {
-    return PROVIDERS.find((provider) => provider.id === id);
+    return configuredProviders(undefined).find((provider) => provider.id === id);
 }
 
 export function configuredProviders(
@@ -107,6 +98,9 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         ...(provider.definition.hint === undefined ? {} : { hint: provider.definition.hint }),
         ...(provider.definition.env_var === undefined ? {} : { envVar: provider.definition.env_var }),
         baseUrl: provider.baseUrl,
+        ...(provider.baseUrl !== provider.definition.default_base_url
+            ? { endpointOverridden: true }
+            : {}),
         ...(provider.definition.fixed_endpoint === true ? { fixedEndpoint: true } : {}),
         protocol: provider.definition.protocol,
         ...(provider.definition.behavior_id === undefined ? {} : { behaviorId: provider.definition.behavior_id }),

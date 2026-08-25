@@ -1,14 +1,15 @@
 import { expect, test } from "bun:test";
 
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
-import { VERA_PROVIDER_IDS, type VeraConfig } from "../../src/config.ts";
+import type { VeraConfig } from "../../src/config.ts";
 import type { StoredCredential } from "../../src/providers/auth-storage.ts";
 import {
     configuredProviders,
     findProvider,
     isProviderConnected,
-    PROVIDERS,
 } from "../../src/providers/registry.ts";
+
+const PROVIDERS = configuredProviders(undefined);
 
 const NO_ENV: Record<string, string | undefined> = {};
 
@@ -101,9 +102,9 @@ test("a provider with no credentials names the command that fixes it", () => {
 
 test("the registry, the adapter map, and the config ids list the same providers", () => {
     expect([...PROVIDERS].map((provider) => provider.id).sort())
-        .toEqual([...VERA_PROVIDER_IDS].sort());
+        .toEqual([...configuredProviders(undefined)].map((provider) => provider.id).sort());
 
-    for (const id of VERA_PROVIDER_IDS) {
+    for (const id of PROVIDERS.map((provider) => provider.id)) {
         // A provider the registry offers but the adapter map cannot build
         // would connect in the pane and then fail at the first turn.
         expect(() =>
