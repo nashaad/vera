@@ -148,7 +148,6 @@ import {
     type ExtensionRegistry,
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
-import { bundledHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
 import { searchSessions } from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
@@ -310,12 +309,7 @@ export async function startResidentHost(
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
-            extensions: [
-                ...bundledHostExtensionConfigs(
-                    options.config.disabled_builtin_extensions,
-                ),
-                ...(options.config.extensions ?? []),
-            ],
+            extensions: options.config.extensions ?? [],
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -786,12 +780,7 @@ export async function startResidentHost(
         extensionTools: [...extensions.tools(), skillScriptTool],
         workerExtensions: () => {
             const config = currentConfig();
-            return [
-                ...bundledHostExtensionConfigs(
-                    config.disabled_builtin_extensions,
-                ),
-                ...(config.extensions ?? []),
-            ];
+            return config.extensions ?? [];
         },
         registeredAgents: extensions.agents(),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [

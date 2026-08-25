@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 
-import { runAdversarialCli } from "../../clients/cli/adversarial.ts";
-import type { AdversarialReviewResult } from "../../workflows/adversarial-review/review.ts";
+import { runAdversarialCli } from "./cli.ts";
+import type { AdversarialReviewResult } from "./review.ts";
 
 test("CLI validates before dispatch and supports text and JSON results", async () => {
     const output = sink();

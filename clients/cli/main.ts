@@ -139,11 +139,6 @@ import {
     renderExtensionList,
     renderExtensionMutation,
 } from "../../src/extensions/manager-command.ts";
-import {
-    runAdversarialCli,
-    type AdversarialCliDependencies,
-} from "./adversarial.ts";
-
 const PROVIDER_CHECK_FLAG = "--check-providers";
 
 /**
@@ -250,7 +245,6 @@ export interface CliDependencies {
     readonly extensionManager?: Partial<ExtensionManagerOperations>;
     readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
-    readonly adversarialReview?: AdversarialCliDependencies["review"];
 }
 
 export async function runCli(
@@ -352,13 +346,6 @@ export async function runCli(
         await runTui({ type: "resume", sessionPath: args[1] }, tuiOptions);
         return 0;
     }
-
-    const adversarial = await runAdversarialCli(args, {
-        stdout: output,
-        stderr: errorOutput,
-        review: dependencies.adversarialReview,
-    });
-    if (adversarial !== undefined) return adversarial;
 
     const extensionRequest = parseExtensionManagerCommand(args);
     if (extensionRequest !== undefined) {

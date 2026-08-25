@@ -2,21 +2,26 @@ import { expect, test } from "bun:test";
 
 const ROOT = new URL("../../", import.meta.url);
 
-test("the adversarial workflow is application code and adapters only expose it", async () => {
-    const workflow = await source("workflows/adversarial-review/review.ts");
-    const executable = await source("workflows/adversarial-review/main.ts");
-    const extension = await source("extensions/adversarial/extension.ts");
-    const cli = await source("clients/cli/adversarial.ts");
+test("the SDK reviewer is example-only", async () => {
+    const workflow = await source("examples/sdk-reviewer/review.ts");
+    const executable = await source("examples/sdk-reviewer/main.ts");
+    const extension = await source(
+        "examples/extensions/adversarial-review/extension.ts",
+    );
+    const hostRuntime = await source("src/host/runtime.ts");
+    const cliMain = await source("clients/cli/main.ts");
+    const cliHelp = await source("clients/cli/help.ts");
 
     expect(workflow).toContain('from "../../index.ts"');
-    expect(workflow).not.toContain("extensions/adversarial");
+    expect(workflow).not.toContain("extensions/adversarial-review");
     expect(executable).toContain("runAdversarialWorkflow");
     expect(extension).toContain(
-        'from "../../workflows/adversarial-review/review.ts"',
+        'from "../../sdk-reviewer/review.ts"',
     );
-    expect(cli).toContain(
-        'from "../../workflows/adversarial-review/cli.ts"',
-    );
+    expect(hostRuntime).not.toContain("adversarial-review");
+    expect(hostRuntime).not.toContain("bundledHostExtensionConfigs");
+    expect(cliMain).not.toContain("runAdversarialCli");
+    expect(cliHelp).not.toContain("vera adversarial");
 });
 
 async function source(path: string): Promise<string> {

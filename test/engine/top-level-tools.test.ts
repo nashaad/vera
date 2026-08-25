@@ -20,11 +20,11 @@ import {
     ResidentAgentClosedError,
 } from "../../src/host/resident-agent.ts";
 
-const adversarialReviewTool: RegisteredTool = {
+const operatorReviewTool: RegisteredTool = {
     invocation: "top_level",
-    permissionOperation: "adversarial.review",
+    permissionOperation: "operator.review",
     definition: {
-        name: "adversarial_review",
+        name: "operator_review",
         description: "Review a target",
         inputSchema: { type: "object", properties: {} },
     },
@@ -33,7 +33,7 @@ const adversarialReviewTool: RegisteredTool = {
     },
 };
 
-const topLevelTools = [skillScriptTool, adversarialReviewTool];
+const topLevelTools = [skillScriptTool, operatorReviewTool];
 
 test("synchronous subagents persist their parent and receive neither top-level tool", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-top-tools-sync-"));
@@ -55,7 +55,7 @@ test("synchronous subagents persist their parent and receive neither top-level t
         expect((await SessionStore.open(sessionPath)).header.parentId)
             .toBe("parent-session");
         expect(offeredNames(requests[0])).not.toContain("skill_script");
-        expect(offeredNames(requests[0])).not.toContain("adversarial_review");
+        expect(offeredNames(requests[0])).not.toContain("operator_review");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -85,7 +85,7 @@ test("a resumed resident child derives the same exclusion from its session heade
             // Drain one bounded turn.
         }
         expect(offeredNames(requests[0])).not.toContain("skill_script");
-        expect(offeredNames(requests[0])).not.toContain("adversarial_review");
+        expect(offeredNames(requests[0])).not.toContain("operator_review");
     } finally {
         attachment.detach();
         resident.close();

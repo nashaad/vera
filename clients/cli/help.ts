@@ -15,7 +15,6 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera resume <session-id|path>", description: "Resume a durable session" },
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
-    { usage: "vera adversarial [--json] --uncommitted|--commit <sha>|--base <ref>", description: "Run a bounded read-only adversarial review" },
     { usage: "vera configure", description: "Open Vera's config file in your editor" },
     { usage: "vera extension list|install|enable|disable|remove", description: "Manage profile or project extensions" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn; the agent stays live and keeps its queued prompts" },

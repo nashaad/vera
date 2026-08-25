@@ -1,11 +1,11 @@
-import type { VeraExtensionApi } from "../../src/sdk/extensions.ts";
+import type { VeraExtensionApi } from "../../../src/sdk/extensions.ts";
 import {
     ADVERSARIAL_REVIEW_TIMEOUT_MS,
     AdversarialReviewInputError,
     parseAdversarialTarget,
     runAdversarialReview,
     type AdversarialTarget,
-} from "../../workflows/adversarial-review/review.ts";
+} from "../../sdk-reviewer/review.ts";
 
 export interface AdversarialExtensionDependencies {
     readonly review?: typeof runAdversarialReview;

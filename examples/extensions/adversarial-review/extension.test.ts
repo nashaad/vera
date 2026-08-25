@@ -5,8 +5,8 @@ import type {
     VeraExtensionApi,
     VeraExtensionCommandSpec,
     VeraExtensionToolSpec,
-} from "../../src/sdk/extensions.ts";
-import type { AdversarialReviewResult } from "../../workflows/adversarial-review/review.ts";
+} from "../../../src/sdk/extensions.ts";
+import type { AdversarialReviewResult } from "../../sdk-reviewer/review.ts";
 
 test("command and top-level tool are thin adapters over one review function", async () => {
     let command: VeraExtensionCommandSpec | undefined;
