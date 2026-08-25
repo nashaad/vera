@@ -52,9 +52,6 @@ export function workspaceRowColumns(width: WorkspacePanelWidth): number {
 
 const UNSELECTED_MARKER = " ";
 
-/** The group background sessions collect under, kept last in the listing. */
-export const BACKGROUND_GROUP = "background";
-
 /**
  * The group pinned sessions collect under, kept first in the listing.
  *
@@ -287,10 +284,9 @@ interface SessionGroup {
 }
 
 /**
- * Interactive sessions group by workspace, most recently touched group first.
- * Background agents collect in one group of their own at the bottom, whatever
- * workspace they were started in: they are work you left running rather than a
- * place you are working.
+ * Sessions group by workspace, most recently touched group first. A background
+ * child is still a conversation in that workspace, so it sits with its
+ * siblings rather than in a separate group.
  */
 function groupSessions(
     sessions: readonly WorkspaceSession[],
@@ -300,9 +296,7 @@ function groupSessions(
     for (const session of sessions) {
         const group = pinned.has(session.id)
             ? PINNED_GROUP
-                : session.kind === "background"
-                    ? BACKGROUND_GROUP
-                    : workspaceGroupPath(session.workspace);
+            : workspaceGroupPath(session.workspace);
         const existing = byGroup.get(group);
         if (existing === undefined) byGroup.set(group, [session]);
         else existing.push(session);
@@ -315,8 +309,6 @@ function groupSessions(
     groups.sort((left, right) => {
         if (left.group === PINNED_GROUP) return -1;
         if (right.group === PINNED_GROUP) return 1;
-        if (left.group === BACKGROUND_GROUP) return 1;
-        if (right.group === BACKGROUND_GROUP) return -1;
         // Compared on the timestamps alone rather than through `byRecency`,
         // whose id fallback would decide ties by uuid. Two workspaces touched
         // in the same minute read in name order instead, which is stable to
@@ -385,8 +377,7 @@ function groupRow(
     group: SessionGroup,
     contentColumns: number,
 ): WorkspaceGroupRow {
-    const label = group.group === BACKGROUND_GROUP
-            || group.group === PINNED_GROUP
+    const label = group.group === PINNED_GROUP
         ? group.group
         : basename(group.group);
     return {

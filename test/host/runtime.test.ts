@@ -75,6 +75,11 @@ import {
             expect(await closeAgentThroughHost(socketPath, created.id))
                 .toEqual({ status: "closed", sessionRetained: true });
             expect(host.registry.find(created.id)).toBeUndefined();
+            expect(
+                (await listAgentsThroughHost(socketPath)).find(
+                    (agent) => agent.id === created.id,
+                ),
+            ).toMatchObject({ id: created.id, live: false });
 
             const stored = await SessionStore.open(listed!.session_path);
             expect(stored.header.id).toBe(created.id);

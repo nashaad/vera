@@ -3339,8 +3339,10 @@ export class AgentRegistry {
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
+                    // Parent is a fact about this session even when that
+                    // parent is no longer live. `/parent` and `/subagents`
+                    // read it from the listing, not from the live registry.
                     ...(entry.parentId === undefined
-                            || !this.agents.has(entry.parentId)
                         ? {}
                         : { parent_id: entry.parentId }),
                     updated_at: entry.store.agentFailure()?.timestamp
