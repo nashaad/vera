@@ -14,18 +14,15 @@ export type ProviderCredentialKind =
     | "api_key_optional"
     | "none";
 
-/**
- * Where a provider sits in the connect list. `popular` is the short group at
- * the top; everything else is listed below it alphabetically.
- */
-export type ProviderGroup = "popular" | "other";
+/** How the user gets access to a provider. */
+export type ProviderAccessKind = "subscription" | "api_key" | "local";
 
 export interface ProviderDescriptor {
     readonly id: VeraProviderId;
     readonly label: string;
     /** Compact form for tight spaces like the status line, e.g. "codex" for "OpenAI Codex". */
     readonly shortLabel: string;
-    readonly group: ProviderGroup;
+    readonly access: ProviderAccessKind;
     readonly credential: ProviderCredentialKind;
     /**
      * What the row says in parentheses after the label: the credential in the
@@ -66,7 +63,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "cerebras",
         label: "Cerebras",
         shortLabel: "cerebras",
-        group: "popular",
+        access: "api_key",
         credential: "api_key",
         hint: "API key",
         envVar: "CEREBRAS_API_KEY",
@@ -76,7 +73,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "deepseek",
         label: "DeepSeek",
         shortLabel: "deepseek",
-        group: "popular",
+        access: "api_key",
         credential: "api_key",
         hint: "API key, pay per token",
         envVar: "DEEPSEEK_API_KEY",
@@ -86,7 +83,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "openai-codex",
         label: "OpenAI Codex",
         shortLabel: "codex",
-        group: "popular",
+        access: "subscription",
         credential: "oauth",
         hint: "ChatGPT Plus/Pro subscription",
         baseUrl: "https://chatgpt.com/backend-api/codex",
@@ -96,7 +93,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "openrouter",
         label: "OpenRouter",
         shortLabel: "openrouter",
-        group: "popular",
+        access: "api_key",
         credential: "api_key",
         hint: "API key, pay per token",
         envVar: "OPENROUTER_API_KEY",
@@ -106,7 +103,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "ollama",
         label: "Ollama",
         shortLabel: "ollama",
-        group: "other",
+        access: "local",
         credential: "none",
         hint: "local, no account",
         envVar: "OLLAMA_HOST",
@@ -116,7 +113,7 @@ export const PROVIDERS: readonly ProviderDescriptor[] = [
         id: "omlx",
         label: "oMLX",
         shortLabel: "omlx",
-        group: "other",
+        access: "local",
         credential: "api_key_optional",
         hint: "local, API key if required",
         envVar: "OMLX_API_KEY",
@@ -136,7 +133,7 @@ export function configuredProviders(
             id,
             label: id,
             shortLabel: id,
-            group: "other",
+            access: provider.credential === "none" ? "local" : "api_key",
             credential: provider.credential,
             hint: provider.credential === "none"
                 ? "configured endpoint, no account"

@@ -28,6 +28,7 @@ import type {
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import { isRefreshableProvider } from "../../src/model/refreshable-providers.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
+import type { ProviderAccessKind } from "../../src/providers/registry.ts";
 import {
     isVeraProviderId,
     type VeraCustomProviderConfig,
@@ -251,7 +252,7 @@ export interface TuiSettingsPickerOption {
 export interface TuiProviderRow {
     readonly id: string;
     readonly label: string;
-    readonly group: string;
+    readonly group: TuiProviderGroup;
     readonly hint?: string;
     readonly connected: boolean;
     /** Declared in config rather than shipped, so its endpoint is editable. */
@@ -261,6 +262,30 @@ export interface TuiProviderRow {
      * over a flow bound to the account it signs in to.
      */
     readonly endpointEditable?: boolean;
+}
+
+export type TuiProviderGroup =
+    | "Subscriptions"
+    | "API keys"
+    | "Local"
+    | "Added in config";
+
+const TUI_PROVIDER_GROUP_ORDER: readonly TuiProviderGroup[] = [
+    "Subscriptions",
+    "API keys",
+    "Local",
+    "Added in config",
+];
+
+/** Maps a provider fact to this client's connect-list heading. */
+export function tuiProviderGroup(
+    access: ProviderAccessKind,
+    declared = false,
+): TuiProviderGroup {
+    if (declared) return "Added in config";
+    if (access === "subscription") return "Subscriptions";
+    if (access === "api_key") return "API keys";
+    return "Local";
 }
 
 /**
@@ -1067,8 +1092,8 @@ const PERMISSION_SETTINGS_OPTIONS: readonly TuiSettingsPickerOption[] = [
 ];
 
 /**
- * The connect pane: every provider Vera ships, with what it wants written on
- * the row and a mark on the ones already connected.
+ * The connect pane: every provider Vera ships, grouped by how the user gets
+ * access. Connected rows say so in words rather than relying on a mark.
  *
  * The list is short and hand-picked rather than fetched, so it opens with the
  * cursor on the first unconnected row: with this few rows, the one thing left
@@ -1083,18 +1108,23 @@ export function startTuiProviderPicker(
         readonly subtitle?: string;
     } = {},
 ): TuiSettingsPickerState {
-    const rows: TuiSettingsPickerOption[] = providers.map((provider) => ({
-        value: provider.id,
-        label: provider.label,
-        description: provider.hint ?? "",
-        searchText: provider.id,
-        group: provider.group,
-        connected: provider.connected,
-        ...(provider.declared === true ? { declared: true } : {}),
-        ...(provider.endpointEditable === true
-            ? { endpointEditable: true }
-            : {}),
-    }));
+    const rows: TuiSettingsPickerOption[] = providers
+        .map((provider) => ({
+            value: provider.id,
+            label: provider.label,
+            description: provider.hint ?? "",
+            searchText: provider.id,
+            group: provider.group,
+            connected: provider.connected,
+            ...(provider.declared === true ? { declared: true } : {}),
+            ...(provider.endpointEditable === true
+                ? { endpointEditable: true }
+                : {}),
+        }))
+        .sort((left, right) =>
+            TUI_PROVIDER_GROUP_ORDER.indexOf(left.group as TuiProviderGroup)
+            - TUI_PROVIDER_GROUP_ORDER.indexOf(right.group as TuiProviderGroup)
+        );
     const firstUnconnected = rows.findIndex(
         (option) => option.connected !== true,
     );
@@ -3282,7 +3312,10 @@ function renderListPickerRows(
                         && row.index < 9
                     ? `${row.index + 1}. ${row.option.label}`
                     : row.option.label,
-                marker: optionMarker(state, row.option),
+                marker: state.kind === "provider"
+                        && row.index === state.selectedIndex
+                    ? `›${optionMarker(state, row.option) ?? ""}`
+                    : optionMarker(state, row.option),
                 leading: optionLeading(
                     state,
                     row.option,
@@ -3947,22 +3980,13 @@ function isCurrentOption(
     if (state.kind === "extension") {
         return option.current === true;
     }
-    // A connected provider is the connect pane's version of "this is already
-    // the case", which is what the marker column says everywhere else.
-    if (state.kind === "provider") {
-        return option.connected === true;
-    }
+    if (state.kind === "provider") return false;
     if (state.kind === "session") {
         return option.current === true;
     }
     return state.kind === "model" && option.value === state.initialModel;
 }
 
-/**
- * The marker column. A check on the connect pane rather than the dot the other
- * panes use: a dot means "the one in effect", and connected providers are not
- * exclusive, so several rows can carry it at once.
- */
 /**
  * The panes short enough that a digit names a row faster than moving to it.
  * The model and session panes stay out: their names carry digits, so a digit
@@ -3988,7 +4012,7 @@ function optionMarker(
         if (option.action === true) {
             return "+";
         }
-        return option.connected === true ? "✓" : undefined;
+        return undefined;
     }
     // A filled dot, at the weight of the fold arrows it shares a column with.
     return isCurrentOption(state, option) ? "●" : undefined;
@@ -4032,6 +4056,11 @@ function optionMeta(
             { text: "  " },
             { text: option.workspace ?? "" },
         ];
+    }
+    if (state.kind === "provider") {
+        return option.connected === true
+            ? [{ text: "connected", tone: "positive" }]
+            : undefined;
     }
     if (state.kind !== "model") {
         return undefined;

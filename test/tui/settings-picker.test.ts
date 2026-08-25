@@ -23,6 +23,7 @@ import {
     startTuiSessionPicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
+    tuiProviderGroup,
     syncTuiModelPicker,
     pickerFooter,
     tuiPickerAfterSelection,
@@ -1995,14 +1996,14 @@ const PROVIDER_ROWS = [
     {
         id: "openai-codex",
         label: "OpenAI Codex",
-        group: "Popular",
+        group: "Subscriptions",
         hint: "ChatGPT Plus/Pro subscription",
         connected: true,
     },
     {
         id: "openrouter",
         label: "OpenRouter",
-        group: "Popular",
+        group: "API keys",
         hint: "API key, pay per token",
         connected: false,
         endpointEditable: true,
@@ -2010,7 +2011,7 @@ const PROVIDER_ROWS = [
     {
         id: "ollama",
         label: "Ollama",
-        group: "Providers",
+        group: "Local",
         hint: "local, no account",
         connected: true,
         endpointEditable: true,
@@ -2018,7 +2019,7 @@ const PROVIDER_ROWS = [
     {
         id: "gemini",
         label: "gemini",
-        group: "Providers",
+        group: "Added in config",
         hint: "API key",
         connected: true,
         declared: true,
@@ -2026,21 +2027,30 @@ const PROVIDER_ROWS = [
     },
 ] as const;
 
-test("the connect pane groups providers, marks the connected ones, and says what each wants", async () => {
+test("the connect pane groups providers by access and spells out connected status", async () => {
     const frame = await pickerFrame(startTuiProviderPicker(PROVIDER_ROWS));
 
     expect(frame).toContain("Connect a provider");
-    expect(frame).toContain("Popular");
-    expect(frame).toContain("Providers");
-    // The mark is a check rather than the dot the other panes use: several
-    // providers can be connected at once, so it is not a "currently in effect".
-    expect(frame).toMatch(/✓\s+OpenAI Codex/);
-    expect(frame).toMatch(/✓\s+Ollama/);
-    expect(frame).not.toMatch(/✓\s+OpenRouter/);
+    expect(frame).toContain("Subscriptions");
+    expect(frame).toContain("API keys");
+    expect(frame).toContain("Local");
+    expect(frame).toContain("Added in config");
+    expect(frame).toMatch(/OpenAI Codex.*connected/);
+    expect(frame).toMatch(/Ollama.*connected/);
+    expect(frame).not.toMatch(/OpenRouter.*connected/);
+    expect(frame).not.toContain("✓");
+    expect(frame).toMatch(/›\s+OpenRouter/);
     // The credential is on the row, so choosing one is not a surprise about
     // what it is going to ask for.
     expect(frame).toContain("ChatGPT Plus/Pro subscription");
     expect(frame).toContain("API key, pay per token");
+});
+
+test("provider access facts map to stable TUI groups", () => {
+    expect(tuiProviderGroup("subscription")).toBe("Subscriptions");
+    expect(tuiProviderGroup("api_key")).toBe("API keys");
+    expect(tuiProviderGroup("local")).toBe("Local");
+    expect(tuiProviderGroup("api_key", true)).toBe("Added in config");
 });
 
 test("the connect pane opens on the first provider still to be connected", () => {

@@ -79,6 +79,18 @@ test("local providers are connected before their daemon is probed", () => {
     })).toBe(true);
 });
 
+test("provider access is explicit enough for clients to group without guessing", () => {
+    expect(PROVIDERS.map((provider) => [provider.id, provider.access]))
+        .toEqual([
+            ["cerebras", "api_key"],
+            ["deepseek", "api_key"],
+            ["openai-codex", "subscription"],
+            ["openrouter", "api_key"],
+            ["ollama", "local"],
+            ["omlx", "local"],
+        ]);
+});
+
 test("a provider with no credentials names the command that fixes it", () => {
     expect(() => createConfiguredModelAdapter(
         { schema_version: 1, provider: "openrouter", model: "any/model", approval_mode: "ask" },

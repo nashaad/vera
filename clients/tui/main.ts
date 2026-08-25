@@ -428,6 +428,7 @@ import {
     startTuiSessionPicker,
     startTuiExtensionPicker,
     startTuiProviderPicker,
+    tuiProviderGroup,
     tuiPickerAfterSelection,
     withTuiPickerParent,
     type TuiSettingsMenuTarget,
@@ -10083,9 +10084,10 @@ export async function startTui(
                 providers.map((provider) => ({
                     id: provider.id,
                     label: provider.label,
-                    group: provider.group === "popular"
-                        ? "Popular"
-                        : "Providers",
+                    group: tuiProviderGroup(
+                        provider.access,
+                        declared.has(provider.id),
+                    ),
                     // A provider pointed somewhere other than where it ships
                     // says so on its own row: it is the more surprising fact
                     // about it than which credential it takes.
