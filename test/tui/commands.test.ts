@@ -184,6 +184,22 @@ test("the palette exposes the keyboard shortcut guide", () => {
     });
 });
 
+test("the palette exposes the fresh conversation action", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.registeredPaletteActions()).toContainEqual({
+        name: "fresh",
+        label: "Start fresh conversation",
+        description: "start blank while keeping this conversation running",
+        group: "Session",
+        slashName: "fresh",
+        action: {
+            type: "create_session",
+            sourceDisposition: "keep_running",
+        },
+    });
+});
+
 test("extension manager slash commands are application-owned actions", () => {
     const registry = createBuiltinTuiCommandRegistry();
 
@@ -440,6 +456,10 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     });
     expect(registry.dispatch("/clear")).toEqual({
         type: "create_session",
+    });
+    expect(registry.dispatch("/fresh")).toEqual({
+        type: "create_session",
+        sourceDisposition: "keep_running",
     });
     expect(registry.dispatch("/clear --background")).toEqual({
         type: "create_session",

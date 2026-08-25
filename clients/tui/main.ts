@@ -12466,8 +12466,9 @@ export async function startTui(
     /**
      * Start a fresh conversation on this client.
      *
-     * `/clear` stops the source. `/clear --background` and the agent sidebar's
-     * ctrl+n keep it running. Pair-pane clears still go through this too.
+     * `/clear` stops the source. `/fresh`, `/clear --background`, and the
+     * agent sidebar's ctrl+n keep it running. Pair-pane clears still go
+     * through this too.
      */
     function beginCreateSession(
         sourceDisposition: TuiSessionLeaveDisposition = "stop",
