@@ -114,7 +114,7 @@ test("clear command leaves the current conversation for a fresh one", async () =
     }
 }, 15_000);
 
-test("clear --background explicitly keeps the source running", async () => {
+test("fresh explicitly keeps the source running", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-new-background-"));
     const scenario = createTuiNewSessionScenario({ home });
     const session = await startTuiTestSession({
@@ -131,7 +131,7 @@ test("clear --background explicitly keeps the source running", async () => {
         await session.waitForVisiblePane(
             "Could not start a new session: host refused creation",
         );
-        session.sendText("/clear --background");
+        session.sendText("/fresh");
         session.sendKey("Enter");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
