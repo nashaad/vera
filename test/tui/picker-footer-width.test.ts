@@ -20,6 +20,7 @@ const KINDS: readonly TuiSettingsPickerKind[] = [
     "reviewer_settings",
     "reviewer",
     "model_assignment",
+    "configuration_catalog",
 ];
 
 const TABS: readonly TuiModelPickerTab[] = ["pool", "all", "defaults", "help"];

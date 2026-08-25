@@ -20,9 +20,10 @@ test("the reviewer pane sets and clears both slots", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/settings");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Reviewer");
-        session.sendText("revie");
+        await session.waitForVisiblePane("All settings");
+        session.sendText("reviewer models");
         session.sendKey("Enter");
+        await session.waitForVisiblePane("Reviewer");
         await session.waitForVisiblePane("the agent's own model");
 
         // Primary, then the failsafe behind it.
