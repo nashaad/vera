@@ -49,6 +49,23 @@ test("scroll wins even while the agent sidebar is focused", () => {
     )).toBe("scroll");
 });
 
+test("ctrl+shift+[ and ] cycle live sessions from a file view", () => {
+    expect(jsonlViewKeyAction(
+        { name: "[", ctrl: true, shift: true },
+        {
+            globalBinding: "cycle_live_session_prev",
+            sidebarFocused: false,
+        },
+    )).toBe("cycle_session");
+    expect(jsonlViewKeyAction(
+        { name: "]", ctrl: true, shift: true },
+        {
+            globalBinding: "cycle_live_session_next",
+            sidebarFocused: false,
+        },
+    )).toBe("cycle_session");
+});
+
 test("the rail can still take focus so you can leave without resuming", () => {
     expect(jsonlViewKeyAction(
         { name: "e", ctrl: true },

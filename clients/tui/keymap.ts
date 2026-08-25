@@ -254,6 +254,23 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Show or hide the agent sidebar",
         hint: "ctrl+e agent sidebar",
     },
+    {
+        // Only the kitty-protocol encoding is bound. Plain ctrl+[ is Escape.
+        id: "cycle_live_session_prev",
+        keys: ["ctrl+shift+[", "ctrl+shift+{", "ctrl+{"],
+        scope: "global",
+        description: "Switch to the previous live session",
+        hint: "ctrl+shift+[ prev session",
+    },
+    {
+        // Only the kitty-protocol encoding is bound. Plain ctrl+] is a
+        // terminal group-end in some emulators.
+        id: "cycle_live_session_next",
+        keys: ["ctrl+shift+]", "ctrl+shift+}", "ctrl+}"],
+        scope: "global",
+        description: "Switch to the next live session",
+        hint: "ctrl+shift+] next session",
+    },
     ...WORKSPACE_JUMP_BINDINGS,
     {
         // A pin is a sort key, not a mode, and it is client state: it orders
