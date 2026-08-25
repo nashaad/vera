@@ -188,14 +188,18 @@ function preparedReview(): PreparedReview {
 }
 
 function roleFromRequest(request: ModelRequest): ReviewRole {
-    if (request.systemPrompt.includes(CORRECTNESS_INSTRUCTIONS)) {
+    const systemPrompt = request.systemPrompt;
+    if (systemPrompt === undefined) {
+        throw new Error("Review request is missing a system prompt");
+    }
+    if (systemPrompt.includes(CORRECTNESS_INSTRUCTIONS)) {
         return "correctness";
     }
-    if (request.systemPrompt.includes(SECURITY_INSTRUCTIONS)) return "security";
-    if (request.systemPrompt.includes(REPRODUCTION_INSTRUCTIONS)) {
+    if (systemPrompt.includes(SECURITY_INSTRUCTIONS)) return "security";
+    if (systemPrompt.includes(REPRODUCTION_INSTRUCTIONS)) {
         return "reproduction";
     }
-    if (request.systemPrompt.includes(REFUTER_INSTRUCTIONS)) return "refuter";
+    if (systemPrompt.includes(REFUTER_INSTRUCTIONS)) return "refuter";
     throw new Error("Unknown review role");
 }
 

@@ -13,9 +13,13 @@ test("command and top-level tool are thin adapters over one review function", as
     let tool: VeraExtensionToolSpec | undefined;
     const targets: unknown[] = [];
     activate({
-        commands: { register: (spec) => command = spec },
-        tools: { register: (spec) => tool = spec },
-    } as VeraExtensionApi, {
+        commands: {
+            register: (spec: VeraExtensionCommandSpec) => command = spec,
+        },
+        tools: {
+            register: (spec: VeraExtensionToolSpec) => tool = spec,
+        },
+    } as unknown as VeraExtensionApi, {
         async review(request) {
             targets.push(request.target);
             return completed();
@@ -54,9 +58,13 @@ test("adapters preserve partial reports from failed reviews", async () => {
     let command: VeraExtensionCommandSpec | undefined;
     let tool: VeraExtensionToolSpec | undefined;
     activate({
-        commands: { register: (spec) => command = spec },
-        tools: { register: (spec) => tool = spec },
-    } as VeraExtensionApi, {
+        commands: {
+            register: (spec: VeraExtensionCommandSpec) => command = spec,
+        },
+        tools: {
+            register: (spec: VeraExtensionToolSpec) => tool = spec,
+        },
+    } as unknown as VeraExtensionApi, {
         async review() {
             return {
                 ...completed(),
