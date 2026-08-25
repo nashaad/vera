@@ -365,6 +365,7 @@ import {
     openWorkspaceSelection,
     refreshWorkspaceSidebarSessions,
     startWorkspaceSidebar,
+    workspaceCycleTarget,
     workspaceRailColumns,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
@@ -1135,6 +1136,10 @@ export async function startTui(
             exitOnCtrlC: false,
             targetFps: 30,
         }));
+    // ctrl+shift chords (model picker, jump, live session cycle) only arrive
+    // when the terminal reports them. Ask for the kitty keyboard protocol so
+    // a supporting terminal actually sends them.
+    renderer.enableKittyKeyboard();
     let appearance = fitTuiAppearance(configuredAppearance, renderer.width);
     let composerContentIndent = tuiComposerContentIndent(appearance);
     let composerHorizontalInset = composerContentIndent * 2;
@@ -4213,9 +4218,9 @@ export async function startTui(
                 beginCreateSession("keep_running");
                 return;
             }
-            if (jsonlAction === "toggle_sidebar") {
-                // Fall through to the existing toggle, which is how you leave
-                // this file without starting a worker.
+            if (jsonlAction === "toggle_sidebar" || jsonlAction === "cycle_session") {
+                // Fall through: hide/show the rail, or cycle live sessions,
+                // without starting a worker.
             } else if (
                 jsonlAction === "sidebar"
                 && workspaceSidebar !== undefined
@@ -5155,6 +5160,18 @@ export async function startTui(
                 openWorkspaceSidebar();
                 return;
             }
+        }
+
+        const liveCycle = tuiBindingId("global", key);
+        if (
+            (liveCycle === "cycle_live_session_next"
+                || liveCycle === "cycle_live_session_prev")
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            cycleLiveSession(liveCycle === "cycle_live_session_next" ? 1 : -1);
+            return;
         }
 
         if (
@@ -11239,6 +11256,62 @@ export async function startTui(
             if (focus) composer.blur();
             renderState();
             focusActiveSurface();
+        }).catch((error) => {
+            if (shuttingDown) return;
+            state = appendTuiError(
+                state,
+                `Could not list sessions: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    /**
+     * Switch to the next or previous live session from anywhere.
+     *
+     * The rail does not have to be open. Leave is keep-running, the same as a
+     * rail click. Parked jsonl rows are not in the ring.
+     */
+    function cycleLiveSession(direction: 1 | -1): void {
+        const openFrom = (listed: WorkspaceSidebarState): void => {
+            const target = workspaceCycleTarget(
+                listed,
+                direction,
+                new Date(),
+                renderer.width,
+            );
+            if (target === undefined) return;
+            const action = openWorkspaceSelection(listed, target.id);
+            if (action !== undefined) runWorkspaceSidebarAction(action);
+        };
+        if (workspaceSidebar !== undefined) {
+            openFrom(workspaceSidebar);
+            return;
+        }
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(
+                state,
+                "This host does not list sessions; reconnect to switch",
+            );
+            renderState();
+            return;
+        }
+        const generation = clientGeneration;
+        void dependencies.listAgents().then((agents) => {
+            if (shuttingDown || generation !== clientGeneration) return;
+            const sessions = workspaceSidebarSessions(agents);
+            const opened = startWorkspaceSidebar(
+                sessions,
+                workspacePinnedIds,
+                client.agentId,
+            );
+            openFrom(
+                workIndex === undefined
+                    ? opened
+                    : applyWorkspaceWorkIndex(opened, workIndex),
+            );
         }).catch((error) => {
             if (shuttingDown) return;
             state = appendTuiError(

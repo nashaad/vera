@@ -196,6 +196,37 @@ export function workspaceWorkingSet(
     );
 }
 
+/**
+ * The next or previous live session in rail order, or nothing when there is
+ * nowhere to go.
+ *
+ * Live means a worker is up: working, waiting, attached-idle, or a named
+ * pid. Parked jsonl rows are skipped. Looking at one of those still lands
+ * on a live neighbour. One live session that is already on screen is a
+ * no-op.
+ */
+export function workspaceCycleTarget(
+    state: WorkspaceSidebarState,
+    direction: 1 | -1,
+    now: Date,
+    columns: number,
+): WorkspaceSidebarSession | undefined {
+    const layout = workspaceSidebarLayout(state, { columns, now });
+    const activeIds = layout.selectable.filter((id) => {
+        const session = state.sessions.find((candidate) => candidate.id === id);
+        return session !== undefined && isWorkspaceActive(session);
+    });
+    if (activeIds.length === 0) return undefined;
+    const current = state.currentId;
+    const at = current === undefined ? -1 : activeIds.indexOf(current);
+    const nextIndex = at === -1
+        ? (direction === 1 ? 0 : activeIds.length - 1)
+        : (at + direction + activeIds.length) % activeIds.length;
+    const nextId = activeIds[nextIndex];
+    if (nextId === undefined || nextId === current) return undefined;
+    return state.sessions.find((session) => session.id === nextId);
+}
+
 function byIdleRecency(
     left: WorkspaceSidebarSession,
     right: WorkspaceSidebarSession,
