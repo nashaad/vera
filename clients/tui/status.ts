@@ -421,6 +421,21 @@ export function renderTuiIdleHint(
     return `waiting for ${agents} · ${readyHint}`;
 }
 
+/**
+ * The right-hand place-row line. `ready` only belongs here when the session
+ * is idle. Painting it beside `thinking` or `stopping…` is the split chrome
+ * that made a stuck stop look like the TUI was ready.
+ */
+export function tuiPlaceRowModeLine(
+    readyHint: string,
+    idle: boolean,
+    hostedControls: readonly string[] = [],
+): string {
+    return (idle ? [readyHint, ...hostedControls] : [...hostedControls])
+        .filter((part) => part.length > 0)
+        .join(" · ");
+}
+
 /** Cells in the compaction bar. */
 const COMPACTION_BAR_CELLS = 12;
 

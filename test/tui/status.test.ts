@@ -4,6 +4,7 @@ import {
     needsYouChipColumns,
     renderTuiCompactionHint,
     renderTuiIdleHint,
+    tuiPlaceRowModeLine,
     renderTuiFileViewStatusRows,
     renderTuiStatusDetailsLine,
     renderTuiStatusDetailsRows,
@@ -212,6 +213,24 @@ test("the idle status line reports the background agents still running", () => {
     // Back to the plain hint once the children are done.
     expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
         .toBe("ready · ctrl+p commands");
+});
+
+test("the place row keeps ready off the band while a turn is live", () => {
+    expect(tuiPlaceRowModeLine("ready · ctrl+p commands", true))
+        .toBe("ready · ctrl+p commands");
+    expect(tuiPlaceRowModeLine("ready · ctrl+p commands", false)).toBe("");
+    expect(tuiPlaceRowModeLine(
+        "ready · ctrl+p commands",
+        false,
+        ["agent mode", "split", "ctrl+\\ layout"],
+    )).toBe("agent mode · split · ctrl+\\ layout");
+    expect(tuiPlaceRowModeLine(
+        "ready · ctrl+p commands",
+        true,
+        ["agent mode", "vera only", "ctrl+\\ layout"],
+    )).toBe(
+        "ready · ctrl+p commands · agent mode · vera only · ctrl+\\ layout",
+    );
 });
 
 test("the compaction hint fills with time and never completes on its own", () => {

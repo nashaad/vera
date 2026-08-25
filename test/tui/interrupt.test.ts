@@ -27,7 +27,14 @@ test("Ctrl+C aborts a working TUI turn once", () => {
     const key = { name: "c", ctrl: true };
 
     expect(tuiInterruptAction(key, true, false)).toBe("abort");
-    expect(tuiInterruptAction(key, true, true)).toBe("consume");
+    expect(tuiInterruptAction(key, true, true)).toBe("quit");
+});
+
+test("Ctrl+C quits while a stop is already in flight", () => {
+    const key = { name: "c", ctrl: true };
+
+    expect(tuiInterruptAction(key, true, true)).toBe("quit");
+    expect(tuiInterruptAction(key, false, true, true)).toBe("quit");
 });
 
 test("Ctrl+C quits the TUI while idle", () => {

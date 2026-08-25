@@ -41,7 +41,14 @@ export class TuiAgentPaneState {
         ) {
             this.abortRequested = false;
         }
-        if (update.type === "turn_finished" || update.type === "agent_failed") {
+        if (
+            update.type === "turn_finished"
+            || update.type === "agent_failed"
+            || (update.type === "status" && update.state === "idle")
+            // On the wire, user_prompt is turn_started. That follow-up is a
+            // new abort target; the latch must not still name the stopped turn.
+            || update.type === "user_prompt"
+        ) {
             this.abortRequested = false;
         }
     }
@@ -78,6 +85,10 @@ export class TuiAgentPaneState {
             this.workingSince ??= now;
             this.phaseSince = undefined;
             this.activity = "waiting";
+        } else if (update.type === "status" && update.state === "idle") {
+            this.workingSince = undefined;
+            this.phaseSince = undefined;
+            this.activity = "ready";
         } else if (update.type === "model_activity") {
             this.workingSince ??= now;
             this.activity = `retrying ${update.model}`;

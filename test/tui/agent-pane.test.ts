@@ -138,6 +138,22 @@ test("a pane clears its own abort state when its turn finishes", () => {
     expect(pane.state.abortRequested).toBe(false);
 });
 
+test("a pane clears a stuck stop when the agent goes idle", () => {
+    const pane = new TuiAgentPane({ client: client("side") });
+    pane.state.abortRequested = true;
+    pane.state.activity = "stopping";
+    pane.state.apply({ type: "status", state: "idle", seq: 1 });
+    expect(pane.state.abortRequested).toBe(false);
+    expect(pane.state.activity).toBe("ready");
+});
+
+test("a follow-up prompt after stop is a new abort target", () => {
+    const pane = new TuiAgentPane({ client: client("side") });
+    pane.state.abortRequested = true;
+    pane.state.apply({ type: "user_prompt", content: "now this", seq: 1 });
+    expect(pane.state.abortRequested).toBe(false);
+});
+
 test("a compaction the turn took down with it leaves the stop showing", () => {
     // The turn is the thing the user asked to stop and it is still unwinding.
     // Clearing here drops the indicator while the work is still running.

@@ -55,5 +55,12 @@ export function tuiInterruptAction(
     if (!working && !compacting) {
         return ctrlC ? "quit" : "pass";
     }
-    return abortRequested ? "consume" : "abort";
+    // Escape while a stop is in flight is not a second abort.
+    // Ctrl+C is two-stage: the first aborts, the next quits. Once a stop is
+    // already requested, this Ctrl+C is the quit — otherwise a stuck stop
+    // swallows the only chord that can leave the process.
+    if (abortRequested) {
+        return ctrlC ? "quit" : "consume";
+    }
+    return "abort";
 }

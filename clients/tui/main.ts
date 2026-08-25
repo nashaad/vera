@@ -416,6 +416,7 @@ import {
     needsYouChipColumns,
     renderTuiCompactionHint,
     renderTuiIdleHint,
+    tuiPlaceRowModeLine,
     renderTuiFileViewStatusRows,
     renderTuiStatusDetailsRows,
     renderTuiStatusSegments,
@@ -7553,6 +7554,12 @@ export async function startTui(
                 if (update.type === "status" && update.state === "idle") {
                     finishStreamingAssistant();
                     hostReconnectAttempted = false;
+                    abortRequested = false;
+                }
+                if (update.type === "user_prompt") {
+                    // user_prompt is turn_started. A follow-up that opened is
+                    // a new abort target, not the stop still in flight.
+                    abortRequested = false;
                 }
                 if (
                     update.type === "turn_finished"
@@ -13997,10 +14004,9 @@ export async function startTui(
                     || extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const hostedModeStatus = hostedSidebar.pane === undefined
-            ? undefined
+        const hostedControls = hostedSidebar.pane === undefined
+            ? []
             : [
-                READY_HINT,
                 `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
                 sidebar.layout() === "split"
                     ? "split"
@@ -14013,9 +14019,24 @@ export async function startTui(
                         ? "ctrl+g vera"
                         : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
                     : []),
-            ].join(" · ");
-        hostedModeText.content = hostedModeStatus ?? READY_HINT;
-        hostedModeText.visible = true;
+            ];
+        const placeIdle = !focusedAbort
+            && !statusState.working
+            && statusState.compactingSince === undefined
+            && uiRequest === undefined
+            && !sessionSwitchPending
+            && !connectionFailed
+            && !promptSubmitting
+            && !extensionCommandPending
+            && pendingImages.length === 0
+            && !isJsonlViewClient(client);
+        const hostedModeStatus = tuiPlaceRowModeLine(
+            READY_HINT,
+            placeIdle,
+            hostedControls,
+        );
+        hostedModeText.content = hostedModeStatus;
+        hostedModeText.visible = hostedModeStatus.length > 0;
         const statusLine = statusNotice ?? lifecycleHint;
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
@@ -14360,6 +14381,10 @@ export async function startTui(
             workingSince ??= Date.now();
             phaseSince = undefined;
             activity = "waiting";
+        } else if (update.type === "status" && update.state === "idle") {
+            workingSince = undefined;
+            phaseSince = undefined;
+            activity = "ready";
         } else if (update.type === "model_activity") {
             workingSince ??= Date.now();
             activity = `retrying ${update.model}`;
