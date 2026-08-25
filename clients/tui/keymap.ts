@@ -37,6 +37,7 @@ export type TuiKeyScope =
     | "workspace"
     | "picker"
     | "model_picker"
+    | "model_assignment_picker"
     | "session_picker"
     | "secret_prompt"
     | "provider_form"
@@ -57,6 +58,7 @@ export const TUI_KEY_SCOPES: readonly TuiKeyScope[] = [
     "workspace",
     "picker",
     "model_picker",
+    "model_assignment_picker",
     "session_picker",
     "secret_prompt",
     "provider_form",
@@ -83,6 +85,7 @@ export function isTuiKeyScope(value: unknown): value is TuiKeyScope {
 const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
+    "model_assignment_picker",
     "session_picker",
     "secret_prompt",
     "provider_form",
@@ -99,6 +102,7 @@ const OVERLAY_SCOPES: readonly TuiKeyScope[] = [
 const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "picker",
     "model_picker",
+    "model_assignment_picker",
     "session_picker",
 ];
 
@@ -413,6 +417,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Pin the selected model to your shortlist, or unpin it",
         hint: "^s pin",
+    },
+    {
+        id: "toggle_subagent_assignment",
+        keys: ["p"],
+        scope: "model_assignment_picker",
+        description: "Assign the selected model to subagents, or remove it",
+        hint: "p assign",
     },
     {
         id: "undo_pool_change",

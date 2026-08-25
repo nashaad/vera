@@ -375,6 +375,11 @@ export interface TuiSettingsPickerState {
     readonly revealAll?: boolean;
 }
 
+export interface TuiAssignmentParentModel {
+    readonly provider?: string;
+    readonly model: string;
+}
+
 export interface TuiPendingModelChoice {
     readonly provider: string;
     readonly model: string;
@@ -462,6 +467,8 @@ export type TuiSettingsPickerSelection =
         readonly model?: string;
         /** Present only when this selection folded in a chained level pane. */
         readonly reasoningEffort?: ModelReasoningEffort;
+        /** The one-key toggle accepts the model/provider default without pinning it. */
+        readonly acceptDefaultReasoning?: true;
         readonly remove?: boolean;
         readonly clear?: boolean;
         readonly allowSelf?: boolean;
@@ -1407,10 +1414,18 @@ function sessionRunsFact(
  * that would need a sentence is a sentence, in the block beside the list.
  */
 function assignmentStatusWord(row: ModelAssignmentRow): string {
+    if (row.assignment === "subagents") {
+        if (row.declared.length === 0) {
+            return row.allowSelf ? "parent fallback" : "not set";
+        }
+        if (row.declared.length === 1) {
+            return `1 · ${row.declared[0]!.model}`;
+        }
+        return `${row.declared.length} models`;
+    }
     if (row.bound) {
         return row.source === "assignment" ? "set" : "not shortlisted";
     }
-    if (row.assignment === "subagents") return "required";
     return row.inherits === undefined
         ? "uses session"
         : `uses ${row.inherits}`;
@@ -1673,14 +1688,46 @@ export function startTuiModelAssignmentPicker(
     pooled: readonly PooledModel[] = [],
     currentModels: readonly string[] = [],
     allowSelf = false,
+    parentModel?: TuiAssignmentParentModel,
+    selectedValue?: string,
 ): TuiSettingsPickerState {
+    const pooledByRef = new Map(
+        pooled.map((entry) => [`${entry.provider}/${entry.model}`, entry]),
+    );
+    const optionFor = (
+        value: string,
+        group: string,
+        position?: number,
+    ): TuiSettingsPickerOption => {
+        const entry = pooledByRef.get(value);
+        const slash = value.indexOf("/");
+        const provider = entry?.provider ?? value.slice(0, slash);
+        const model = entry?.model ?? value.slice(slash + 1);
+        const modelLabel = entry?.poolName ?? entry?.label ?? model;
+        return {
+            value,
+            label: position === undefined
+                ? modelLabel
+                : `${position}. ${modelLabel}`,
+            description: provider,
+            provider,
+            model,
+            group,
+            searchText: `${provider} ${model}`,
+        };
+    };
+    const assignedGroup = "Assigned · fallback order";
+    const assigned = currentModels.map((value, index) =>
+        optionFor(value, assignedGroup, index + 1));
+    const assignedRefs = new Set(currentModels);
     const seen = new Set<string>();
-    const rows: TuiSettingsPickerOption[] = [];
+    const available: TuiSettingsPickerOption[] = [];
+    const standardRows: TuiSettingsPickerOption[] = [];
     for (const entry of pooled) {
         const value = `${entry.provider}/${entry.model}`;
         if (seen.has(value)) continue;
         seen.add(value);
-        rows.push({
+        standardRows.push({
             value,
             label: entry.poolName ?? entry.label,
             description: currentModels.includes(value)
@@ -1690,35 +1737,60 @@ export function startTuiModelAssignmentPicker(
             model: entry.model,
             searchText: `${entry.provider} ${entry.model}`,
         });
+        if (assignedRefs.has(value)) continue;
+        available.push(optionFor(value, "Available from Shortlist"));
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
         label: "Not set",
-        description: unsetAssignmentMeans(assignment),
+        description: allowSelf
+            ? "no assigned models · parent fallback only"
+            : unsetAssignmentMeans(assignment),
+        group: assignedGroup,
     };
     const browseRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_BROWSE_VALUE,
-        label: `Keep another model on ${modelTabLabel("pool")}\u2026`,
-        description: `a default can only name a model on ${modelTabLabel("pool")}`,
+        label: "Add another model…",
+        description: `manage ${modelTabLabel("pool")}`,
+        group: "Shortlist",
     };
     const selfRow: TuiSettingsPickerOption = {
         value: MODEL_ASSIGNMENT_SELF_VALUE,
-        label: "Parent model fallback",
-        description: allowSelf ? "on" : "off",
-        note: "When on, the exact parent provider/model is the final candidate.",
+        label: "Spawning session model",
+        description: `${allowSelf ? "on" : "off"}${
+            parentModel === undefined
+                ? ""
+                : ` · currently ${parentModel.provider === undefined
+                    ? parentModel.model
+                    : `${parentModel.provider}/${parentModel.model}`}`
+        }`,
+        group: "Parent model fallback",
+        note: "When on, each spawning session's own model is tried after every assigned model.",
     };
     const options = assignment === "subagents"
-        ? [clearRow, ...rows, selfRow, browseRow]
-        : [clearRow, ...rows, browseRow];
+        ? [
+            ...(assigned.length === 0 ? [clearRow] : assigned),
+            ...available,
+            selfRow,
+            browseRow,
+        ]
+        : [clearRow, ...standardRows, browseRow];
+    const selectedIndex = selectedValue === undefined
+        ? 0
+        : Math.max(0, options.findIndex((option) => option.value === selectedValue));
     return {
         kind: "model_assignment",
         // What this assignment is for belongs to the pane, not to one of its
         // rows: read on a row it looks like a description of that row.
-        title: `Assign a model to ${label}`,
-        subtitle: intent,
+        title: assignment === "subagents"
+            ? "Subagent models"
+            : `Assign a model to ${label}`,
+        subtitle: assignment === "subagents"
+            ? "Models subagents may use, in fallback order."
+            : intent,
         allOptions: options,
         options,
-        selectedIndex: 0,
+        selectedIndex,
         query: "",
         modelAssignment: assignment,
         ...(assignment === "subagents" ? {
@@ -2144,6 +2216,32 @@ export function handleTuiSettingsPickerKey(
                 handled: true,
             };
     }
+    if (
+        state.kind === "model_assignment"
+        && state.modelAssignment === "subagents"
+        && tuiBindingId("model_assignment_picker", key)
+            === "toggle_subagent_assignment"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (
+            selected === undefined
+            || selected.value === REVIEWER_CLEAR_VALUE
+            || selected.value === MODEL_ASSIGNMENT_BROWSE_VALUE
+        ) {
+            return unchanged(state, true);
+        }
+        return {
+            state,
+            selection: {
+                ...pickerSelection(state, selected),
+                ...(state.assignedModels?.includes(selected.value) === true
+                    || selected.value === MODEL_ASSIGNMENT_SELF_VALUE
+                    ? {}
+                    : { acceptDefaultReasoning: true as const }),
+            },
+            handled: true,
+        };
+    }
     // Ahead of the modifier bail-out below, and deliberately a modifier key:
     // the model pane sends every bare printable key to its search box, and "-"
     // is a character in most model ids, so no unmodified key is available.
@@ -2487,6 +2585,16 @@ export function handleTuiSettingsPickerKey(
             selection: pickerSelection(state, selected),
             handled: true,
         };
+    }
+    // This short policy list reserves bare p for assignment. It has no search
+    // field, so every other printable key is swallowed instead of building an
+    // invisible query and moving the cursor away from the row just toggled.
+    if (
+        state.kind === "model_assignment"
+        && state.modelAssignment === "subagents"
+        && (key.name.length === 1 || key.name === "space")
+    ) {
+        return unchanged(state, true);
     }
     if (
         (key.name.length === 1 || key.name === "space")
@@ -3127,7 +3235,9 @@ function renderListPickerRows(
     // an empty field above them reads as a row the cursor has landed on.
     const searchable = state.kind !== "extension"
         && state.kind !== "pool_verify_scope"
-        && state.kind !== "catalog_refresh_scope";
+        && state.kind !== "catalog_refresh_scope"
+        && !(state.kind === "model_assignment"
+            && state.modelAssignment === "subagents");
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
@@ -3709,6 +3819,24 @@ function pickerFooterText(
             state.parent === undefined ? "esc close" : "esc back",
         ].join(" · ");
     }
+    if (
+        state.kind === "model_assignment"
+        && state.modelAssignment === "subagents"
+    ) {
+        const selected = state.options[state.selectedIndex];
+        if (selected?.value === MODEL_ASSIGNMENT_BROWSE_VALUE) {
+            return "↑↓ move · ⏎ open · esc done";
+        }
+        if (selected?.value === REVIEWER_CLEAR_VALUE) {
+            return "↑↓ move · esc done";
+        }
+        const action = selected?.value === MODEL_ASSIGNMENT_SELF_VALUE
+            ? "p toggle"
+            : state.assignedModels?.includes(selected?.value ?? "") === true
+            ? "p remove"
+            : "p assign";
+        return `↑↓ move · ${action} · esc done`;
+    }
     // The Defaults tab's rows are jobs, and a two-word state cell cannot say
     // what to do about one, so the cursor's row explains itself down here.
     // The Defaults tab's rows explain themselves in the column beside the
@@ -3828,7 +3956,9 @@ function listDisplayRows(
     // cursor can reach one and fold the section under it. Everything else has
     // its headings derived here.
     const grouped = state.kind === "provider"
-        || (state.kind === "model" && state.tab === "defaults");
+        || (state.kind === "model" && state.tab === "defaults")
+        || (state.kind === "model_assignment"
+            && state.modelAssignment === "subagents");
     const rows: PickerDisplayRow[] = [];
     state.options.forEach((option, index) => {
         if (
