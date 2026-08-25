@@ -1,5 +1,6 @@
 import type { LinesViewState } from "./lines-view.ts";
 import { renderTuiFocusCaret } from "./activity-pulse.ts";
+import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
@@ -24,10 +25,16 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 /** Rows the digit keys can address, counting from the top of the listing. */
 export const WORKSPACE_JUMP_ROWS = 9;
 
+/**
+ * Idle jsonl rows listed only while the inactive pile is this small.
+ *
+ * Live sessions have no cap. A larger inactive pile stays in `/resume`. The
+ * session on screen is always kept, even when it is idle.
+ */
+export const WORKSPACE_IDLE_FEW = 3;
+
 const NARROW_WIDTH = 64;
 
-/** Said in words on the row of the session already on screen. */
-const HERE_SUFFIX = " (here)";
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
 /** Selection/status markers that precede the title inside a panel row. */
@@ -39,7 +46,7 @@ const AGE_WITH_GAP_COLUMNS = 9;
 /** Keep a readable title before preserving age in a squeezed rail. */
 const MIN_TITLE_WITH_AGE_COLUMNS = 8;
 /** Narrowest useful rail; titles truncate after their markers when narrower. */
-const MIN_RAIL_COLUMNS = 26;
+export const MIN_RAIL_COLUMNS = 26;
 /** The conversation stays useful while the explorer is resized. */
 const MIN_CHAT_COLUMNS = 35;
 
@@ -57,8 +64,7 @@ export function workspaceRailColumns(
 ): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    const natural = DIGIT_COLUMNS
-        + workspaceRowColumns(width) + HERE_SUFFIX.length;
+    const natural = DIGIT_COLUMNS + workspaceRowColumns(width);
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
@@ -127,6 +133,36 @@ export function workspaceSidebarSessions(
                 ? {}
                 : { updatedAt: agent.updated_at }),
         }));
+}
+
+/**
+ * Whether a listed session is live work, not idle jsonl.
+ *
+ * `live` is the host's fact. Waiting and working are kept even if that flag
+ * flickers, so a needs-you row cannot vanish from the rail.
+ */
+export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
+    return session.live
+        || session.status === "waiting"
+        || session.status === "working";
+}
+
+/**
+ * The rows the explorer draws from a roster.
+ *
+ * Live sessions are the working set and have no cap. Idle jsonl rows are
+ * listed only while there are few of them. The session on screen is always
+ * kept, even when it is idle.
+ */
+export function workspaceWorkingSet(
+    sessions: readonly WorkspaceSidebarSession[],
+    currentId?: string,
+): readonly WorkspaceSidebarSession[] {
+    const idle = sessions.filter((session) => !isWorkspaceActive(session));
+    if (idle.length <= WORKSPACE_IDLE_FEW) return sessions;
+    return sessions.filter((session) =>
+        isWorkspaceActive(session) || session.id === currentId
+    );
 }
 
 export function startWorkspaceSidebar(
@@ -223,7 +259,7 @@ export function workspaceSidebarLayout(
     input: WorkspaceSidebarLayoutInput,
 ): WorkspacePanelLayout {
     return layoutWorkspacePanel({
-        sessions: state.sessions,
+        sessions: workspaceWorkingSet(state.sessions, state.currentId),
         columns: input.columns,
         now: input.now,
         ...(input.contentColumns === undefined
@@ -234,6 +270,7 @@ export function workspaceSidebarLayout(
         ...(state.selectedId === undefined
             ? {}
             : { selectedId: state.selectedId }),
+        ...(state.currentId === undefined ? {} : { currentId: state.currentId }),
     });
 }
 
@@ -264,8 +301,9 @@ export interface WorkspaceSidebarKey {
 }
 
 /**
- * Arrows or j/k move, enter opens, i or escape returns to chat, and digits
- * address rows.
+ * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
+ * i or escape returns to chat, and digits address rows. None of the movement
+ * keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
  * ctrl+e close the pane it opened and ctrl+c reach the client from inside it.
@@ -275,7 +313,32 @@ export function handleWorkspaceSidebarKey(
     key: WorkspaceSidebarKey,
     now: Date,
     columns: number,
+    viewportRows?: number,
 ): WorkspaceSidebarTransition {
+    // Half-page movement, ahead of the modifier bail-out below. The cursor
+    // travels with the jump rather than the window sliding out from under it,
+    // so ctrl+d is ↓ held down and nothing new has to be learned about where
+    // the highlight went. The chords are the picker's half-page ids, inherited
+    // into this scope, so remapping one list movement remaps both.
+    const halfPage = tuiBindingId("workspace", key);
+    if (halfPage === "half_page_down" || halfPage === "half_page_up") {
+        const layout = workspaceSidebarLayout(state, { columns, now });
+        const selectable = layout.selectable;
+        if (selectable.length === 0) return { state, handled: true };
+        const current = layout.selectedId === undefined
+            ? 0
+            : Math.max(0, selectable.indexOf(layout.selectedId));
+        const selectedId = selectable[halfPageCursor(
+            current,
+            selectable.length,
+            viewportRows ?? 10,
+            halfPage === "half_page_down" ? "down" : "up",
+        )];
+        return {
+            state: selectedId === undefined ? state : { ...state, selectedId },
+            handled: true,
+        };
+    }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
     if (key.name === "escape" || key.name === "i") {
@@ -327,7 +390,7 @@ export function handleWorkspaceSidebarKey(
     return { state, handled: true };
 }
 
-/** What activating a row means. Selecting a row switches the viewed session. */
+/** What activating a row means. Enter or a click switches the viewed session; moving the highlight does not. */
 export function openWorkspaceSelection(
     state: WorkspaceSidebarState,
     sessionId: string | undefined,
@@ -344,7 +407,7 @@ export function openWorkspaceSelection(
 }
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
-    const listed = state.sessions.length;
+    const listed = workspaceWorkingSet(state.sessions, state.currentId).length;
     return listed === 0 ? "Workspace" : `Workspace · ${listed}`;
 }
 
@@ -357,8 +420,8 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  */
 export function workspaceSidebarFooter(width: number): string {
     return width < NARROW_WIDTH
-        ? "↑↓/jk enter 1-9 p i/esc"
-        : "↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat";
+        ? "↑↓/jk ^d^u 1-9 p i/esc"
+        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat";
 }
 
 /**
@@ -380,7 +443,7 @@ export function workspaceSidebarViewState(
         ? undefined
         : Math.max(
             1,
-            railColumns - DIGIT_COLUMNS - HERE_SUFFIX.length
+            railColumns - DIGIT_COLUMNS
                 - ROW_MARKER_COLUMNS - RAIL_DIVIDER_COLUMNS,
         );
     const layout = workspaceSidebarLayout(state, {
@@ -405,11 +468,8 @@ export function workspaceSidebarViewState(
         // as the list reorders, which is why it is a shortcut and not the way
         // a row is picked.
         const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
-        // Text, never colour alone: the row on screen says so in words, so a
-        // monochrome render still tells you where you are.
-        const here = row.id === state.currentId ? HERE_SUFFIX : "";
         return {
-            text: `${digit} ${row.text}${here}`,
+            text: `${digit} ${row.text}`,
             tone: "text" as const,
             rowId: row.id,
             ...(row.selected ? { selected: true } : {}),

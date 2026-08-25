@@ -435,6 +435,8 @@ import {
     type TuiAnySettingsPickerState,
     type TuiReviewerSlot,
     startTuiModelAssignmentPicker,
+    MODEL_ASSIGNMENT_SELF_VALUE,
+    REVIEWER_CLEAR_VALUE,
     startTuiPoolVerifyScopePicker,
     tuiModelActionOptions,
     startTuiCatalogRefreshScopePicker,
@@ -4525,6 +4527,7 @@ export async function startTui(
                 key,
                 new Date(),
                 renderer.width,
+                workspaceSidebarView.visibleRows(),
             );
             if (transition.handled) {
                 key.preventDefault();
@@ -9710,9 +9713,18 @@ export async function startTui(
     function openModelAssignmentPicker(
         assignment: ModelAssignmentId,
         parent?: TuiSettingsPickerState,
+        selectedValue?: string,
     ): void {
         const targetState = focusedAgentState();
         const row = currentModelAssignmentRows().find((entry) => entry.assignment === assignment);
+        const parentModel = targetState.modelSettings === undefined
+            ? undefined
+            : {
+                ...(targetState.modelSettings.provider === undefined
+                    ? {}
+                    : { provider: targetState.modelSettings.provider }),
+                model: targetState.modelSettings.model,
+            };
         settingsPicker = withTuiPickerParent(
             startTuiModelAssignmentPicker(
                 assignment,
@@ -9722,6 +9734,8 @@ export async function startTui(
                 row?.declared.map((entry) =>
                     `${entry.provider}/${entry.model}`) ?? [],
                 row?.allowSelf === true,
+                parentModel,
+                selectedValue,
             ),
             parent,
         );
@@ -9741,11 +9755,12 @@ export async function startTui(
             readonly provider?: string;
             readonly model?: string;
             readonly reasoningEffort?: ModelReasoningEffort;
+            readonly acceptDefaultReasoning?: true;
             readonly remove?: boolean;
             readonly clear?: boolean;
             readonly allowSelf?: boolean;
         },
-    ): void {
+    ): string | undefined {
         const subagents = selection.assignment === "subagents";
         const row = subagents
             ? currentModelAssignmentRows().find((entry) =>
@@ -9810,14 +9825,11 @@ export async function startTui(
             // an already-running worker before another spawn can use it.
             requestAgentSettings(focusedAgentClient());
         } catch (error) {
-            state = appendTuiError(
-                state,
-                `Could not write the assignment: ${
-                    error instanceof Error ? error.message : String(error)
-                }`,
-            );
-            renderState();
-            return;
+            const message = `Could not write the assignment: ${
+                error instanceof Error ? error.message : String(error)
+            }`;
+            state = appendTuiError(state, message);
+            return message;
         }
         state = appendTuiNotice(
             state,
@@ -9834,6 +9846,7 @@ export async function startTui(
                 }. New sessions use it.`,
             "soft",
         );
+        return undefined;
     }
 
     async function openConfigureEditor(): Promise<void> {
@@ -11898,6 +11911,7 @@ export async function startTui(
                 const assignedLevels = selection.model === undefined
                     || selection.remove === true
                     || selection.reasoningEffort !== undefined
+                    || selection.acceptDefaultReasoning === true
                     ? undefined
                     : modelLevelFacts(selection.provider, selection.model);
                 if (
@@ -11922,11 +11936,20 @@ export async function startTui(
                     renderState();
                     return;
                 }
-                bindModelAssignmentFromPicker(selection);
-                if (
-                    activeConfigurationRequest !== undefined
-                    && selection.assignment === "subagents"
-                ) {
+                const bindingError = bindModelAssignmentFromPicker(selection);
+                if (bindingError !== undefined) {
+                    // The request is still waiting and the setting did not
+                    // change, so keep the picker retryable and make the
+                    // terminal failure visible outside its card.
+                    settingsPicker = previousPicker?.kind === "model_assignment"
+                        ? { ...previousPicker, subtitle: bindingError }
+                        : previousPicker;
+                    showStatusNotice(bindingError);
+                    renderState();
+                    focusActiveSurface();
+                    return;
+                }
+                if (selection.assignment === "subagents") {
                     const assignmentPane = previousPicker?.kind
                             === "model_assignment"
                         ? previousPicker
@@ -11936,9 +11959,17 @@ export async function startTui(
                                 === "model_assignment"
                         ? previousPicker.pendingModel.modelPaneState
                         : undefined;
+                    const selectedValue = selection.allowSelf !== undefined
+                        ? MODEL_ASSIGNMENT_SELF_VALUE
+                        : selection.clear === true
+                        ? REVIEWER_CLEAR_VALUE
+                        : selection.model === undefined
+                        ? undefined
+                        : `${selection.provider ?? ""}/${selection.model}`;
                     openModelAssignmentPicker(
                         "subagents",
                         assignmentPane?.parent,
+                        selectedValue,
                     );
                     return;
                 }

@@ -195,3 +195,31 @@ test("a card row puts its meta on a second line under the label", async () => {
         setup.renderer.destroy();
     }
 });
+
+test("one card row does not take width from surrounding inline rows", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const rows = dialogOptionRows(setup.renderer, [
+            {
+                label: "Worker",
+                description: "ollama",
+                active: false,
+            },
+            {
+                label: "Spawning session model",
+                description: "off",
+                meta: "currently openrouter/google/gemini-3.1-pro-preview",
+                active: false,
+                card: true,
+            },
+        ], 60);
+
+        expect(rows[0]?.height).toBe(1);
+        expect(rows[1]?.height).toBe(3);
+        expect(metaChunks(rows[1]!.getChildren()[1] as BoxRenderable)
+            .map((chunk) => chunk.text.toString()).join(""))
+            .toBe("currently openrouter/google/gemini-3.1-pro-preview");
+    } finally {
+        setup.renderer.destroy();
+    }
+});

@@ -48,7 +48,7 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("background");
     expect(pane).toContain("provider-fall…");
     // The rail is as narrow as its rows, so it takes the short hint.
-    expect(pane).toContain("↑↓/jk enter 1-9 p i/esc");
+    expect(pane).toContain("↑↓/jk ^d^u 1-9 p i/esc");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("escape returns to chat without hiding the dock", async () => {
@@ -224,10 +224,41 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     });
 
     expect(selectedRow(after)).toContain("auth-race");
-    // The cursor row is readable without the bar: it is the row the switch
-    // named, and the pane says which transcript it went to.
+    // j/k only moved the highlight. The viewed transcript is still this one
+    // until Enter, which is when the path in the pane changes.
+    expect(after).toContain("[ this one ]");
+    expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
     expect(opened).toContain("Workspace ·");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening", async () => {
+    const CTRL_D = ["04"];
+    const CTRL_U = ["15"];
+    const { before, afterDown, afterUp } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const before = await tui.paneWhere((value) =>
+            value.includes("Workspace · 45")
+        );
+        const selectedBefore = selectedRow(before);
+        tui.bytes(CTRL_D);
+        const afterDown = await tui.paneWhere((value) => {
+            const row = selectedRow(value);
+            return row.length > 0 && row !== selectedBefore;
+        });
+        tui.bytes(CTRL_U);
+        const afterUp = await tui.paneWhere(
+            (value) => selectedRow(value) === selectedBefore,
+        );
+        return { before, afterDown, afterUp };
+    }, 100, 34, { VERA_TEST_MANY: "1" });
+
+    expect(selectedRow(afterDown)).not.toBe(selectedRow(before));
+    expect(selectedRow(afterUp)).toBe(selectedRow(before));
+    // Half-page is highlight only. The viewed transcript does not follow.
+    expect(compact(afterDown)).not.toContain("/sessions/bulk-");
+    expect(afterDown).toContain("[ this one ]");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async () => {
@@ -240,7 +271,7 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
             && value.includes("provider-fall…")
-            && value.includes("↑↓/jk enter 1-9 p i/esc")
+            && value.includes("↑↓/jk ^d^u 1-9 p i/esc")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
@@ -259,7 +290,7 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("↑↓/jk enter 1-9 p i/esc")
+            && value.includes("↑↓/jk ^d^u 1-9 p i/esc")
         );
         tui.text("2");
         const opened = await tui.paneWhere((value) =>
@@ -324,7 +355,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     expect(row("relay-gui")).toContain("* relay-gui");
     expect(row("auth-refactor")).toContain("+ auth-refactor");
     // Where you already are, said in words.
-    expect(row("this one")).toContain("(here)");
+    expect(row("this one")).toContain("[ this one ]");
     expect(pane).toContain("background");
 }, 60_000);
 

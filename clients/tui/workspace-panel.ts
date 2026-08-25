@@ -158,6 +158,11 @@ export interface WorkspacePanelInput {
      * nearest surviving neighbour in this order rather than at the top.
      */
     readonly previousSelectable?: readonly string[];
+    /**
+     * The session whose transcript is on screen. Its title is drawn in
+     * brackets, because the cursor can sit on another row without switching.
+     */
+    readonly currentId?: string;
 }
 
 /**
@@ -207,6 +212,7 @@ export function layoutWorkspacePanel(
                 showAge,
                 now: input.now,
                 selected: session.id === selectedId,
+                current: session.id === input.currentId,
             }));
         }
     }
@@ -363,7 +369,11 @@ interface RowContext {
     readonly showAge: boolean;
     readonly now: Date;
     readonly selected: boolean;
+    readonly current: boolean;
 }
+
+/** `[ ` and ` ]` around the title of the session on screen. */
+const CURRENT_TITLE_WRAP = 4;
 
 function sessionRow(
     session: WorkspaceSession,
@@ -377,11 +387,13 @@ function sessionRow(
         : "";
     const room = context.contentColumns
         - (age.length === 0 ? 0 : AGE_COLUMNS + 1);
-    const shown = clip(title, Math.max(1, room));
+    const wrap = context.current ? CURRENT_TITLE_WRAP : 0;
+    const shown = clip(title, Math.max(1, room - wrap));
+    const display = context.current ? `[ ${shown} ]` : shown;
     const selectionMarker = context.selected
         ? SELECTED_MARKER
         : UNSELECTED_MARKER;
-    const head = `${selectionMarker} ${marker} ${shown}`;
+    const head = `${selectionMarker} ${marker} ${display}`;
     const text = age.length === 0
         ? head
         : `${pad(head, ROW_MARKER_COLUMNS + room)} ${age.padStart(AGE_COLUMNS)}`;
