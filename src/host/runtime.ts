@@ -89,6 +89,11 @@ import {
     type AuthStorage,
 } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import {
+    configuredProviders,
+    type ProviderDescriptor,
+} from "../providers/registry.ts";
+import { refreshOpenAIProviderCatalog } from "../model/openai-discovery.ts";
 import { OpenRouterAllowanceGuard } from "../providers/openrouter-allowance-guard.ts";
 import { providerEndpointUrl } from "../providers/endpoint-url.ts";
 import type { FailedRequestCapture } from "../providers/failed-request-capture.ts";
@@ -467,24 +472,17 @@ export async function startResidentHost(
             // refreshes would each build on the list the other started from
             // and whichever finished second would undo the first.
             const refreshed = catalogRefreshes.then(async () => {
-                if (!isRefreshableProvider(provider)) {
-                    return undefined;
-                }
                 const config = currentConfig();
-                if (provider === "ollama" || provider === "omlx") {
-                    const discovered = provider === "ollama"
-                        ? await discoverOllamaModelCatalog({
-                            log: hostLog,
-                            ...(config.provider_endpoints?.ollama === undefined
-                                ? {}
-                                : { host: config.provider_endpoints.ollama }),
-                        })
-                        : await discoverOmlxModelCatalog({
-                            ...(config.provider_endpoints?.omlx === undefined
-                                ? {}
-                                : { baseUrl: config.provider_endpoints.omlx }),
-                            ...omlxDiscoveryAuth(authStorage),
-                        });
+                if (!isRefreshableProvider(provider, config)) return undefined;
+                const descriptor = configuredProviders(config)
+                    .find((entry) => entry.id === provider);
+                if (descriptor?.behaviorId === "ollama") {
+                    const discovered = await discoverOllamaModelCatalog({
+                        log: hostLog,
+                        ...(config.provider_endpoints?.ollama === undefined
+                            ? {}
+                            : { host: config.provider_endpoints.ollama }),
+                    });
                     if (!discovered.available) {
                         return undefined;
                     }
@@ -510,18 +508,36 @@ export async function startResidentHost(
                 // request actually landed, so it is read either side of the
                 // call.
                 const before = readProviderCatalogSnapshot(provider).fetched_at;
-                const rows = provider === "cerebras"
-                    ? await discoveredCerebrasModels(config, {
+                const rows = descriptor?.behaviorId === "openrouter"
+                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                    : await standardProviderModels(
+                        descriptor,
+                        config,
                         authStorage,
-                        maxAgeMs: 0,
-                    })
-                    : await discoveredOpenRouterModels(config, { maxAgeMs: 0 });
+                        { maxAgeMs: 0 },
+                    );
                 if (
+                    rows === undefined
+                    ||
                     readProviderCatalogSnapshot(provider).fetched_at === before
                 ) {
                     return undefined;
                 }
-                models = withProviderRows(models, provider, rows);
+                models = descriptor?.behaviorId === "openrouter"
+                    ? withProviderRows(models, provider, rows)
+                    : replaceProviderRows(
+                        models,
+                        provider,
+                        rows,
+                        config.provider === provider
+                            ? {
+                                provider,
+                                model: config.model,
+                                label: config.model,
+                                description: "configured model",
+                            }
+                            : undefined,
+                    );
                 return models;
             });
             // The queue carries the turn, not its failure: one refresh that
@@ -1185,19 +1201,12 @@ export async function refreshProviderCatalogs(
         ? {}
         : { cacheDir: options.cacheDir };
     const authStorage = options.authStorage ?? createAuthStorage();
-    const [ollama, omlx, openrouter, cerebras] = await Promise.all([
+    const [ollama, openrouter, standard] = await Promise.all([
         discoverOllamaModelCatalog({
             ...cacheOptions,
             ...(config.provider_endpoints?.ollama === undefined
                 ? {}
                 : { host: config.provider_endpoints.ollama }),
-        }),
-        discoverOmlxModelCatalog({
-            ...cacheOptions,
-            ...(config.provider_endpoints?.omlx === undefined
-                ? {}
-                : { baseUrl: config.provider_endpoints.omlx }),
-            ...omlxDiscoveryAuth(authStorage),
         }),
         hasOpenRouterCredential(config)
             ? discoveredOpenRouterModels(config, {
@@ -1205,23 +1214,22 @@ export async function refreshProviderCatalogs(
                 maxAgeMs: 0,
             })
             : undefined,
-        hasCerebrasCredential(config, authStorage)
-            ? discoveredCerebrasModels(config, {
+        Promise.all(standardProviderDescriptors(config).map((descriptor) =>
+            standardProviderModels(descriptor, config, authStorage, {
                 ...cacheOptions,
-                authStorage,
                 maxAgeMs: 0,
             })
-            : undefined,
+        )),
     ]);
     return [
         ollama.available
             ? { provider: "ollama", models: ollama.models.length }
             : { provider: "ollama", skipped: "unavailable" },
-        omlx.available
-            ? { provider: "omlx", models: omlx.models.length }
-            : { provider: "omlx", skipped: "unavailable" },
         refreshOutcome("openrouter", openrouter),
-        refreshOutcome("cerebras", cerebras),
+        ...standard.map((models, index) => refreshOutcome(
+            standardProviderDescriptors(config)[index]!.id,
+            models,
+        )),
     ];
 }
 
@@ -1251,6 +1259,61 @@ function refreshOutcome(
     return models === undefined
         ? { provider, skipped: "no credential" }
         : { provider, models: models.length };
+}
+
+function standardProviderDescriptors(
+    config: VeraConfig,
+): readonly ProviderDescriptor[] {
+    return configuredProviders(config).filter((provider) =>
+        provider.protocol === "openai-chat"
+        && provider.behaviorId === undefined
+        && provider.discovery?.mode === "models"
+    );
+}
+
+async function standardProviderModels(
+    descriptor: ProviderDescriptor | undefined,
+    config: VeraConfig,
+    authStorage: Pick<AuthStorage, "getCredential">,
+    options: { readonly cacheDir?: string; readonly maxAgeMs: number },
+): Promise<readonly SuggestedModel[] | undefined> {
+    if (
+        descriptor === undefined
+        || descriptor.baseUrl === undefined
+        || descriptor.discovery === undefined
+    ) {
+        return undefined;
+    }
+    const stored = apiKey(authStorage, descriptor.id);
+    const env = descriptor.envVar === undefined
+        ? undefined
+        : process.env[descriptor.envVar];
+    const key = stored ?? env;
+    if (
+        descriptor.discovery.credential === "required"
+        && key === undefined
+        && config.provider !== descriptor.id
+    ) {
+        return undefined;
+    }
+    const catalog = await refreshOpenAIProviderCatalog({
+        provider: descriptor.id,
+        baseUrl: descriptor.baseUrl,
+        ...(key === undefined ? {} : { apiKey: key }),
+        ...(descriptor.discovery.credential === "required"
+            ? {}
+            : { preserveEmpty: true }),
+        endpoint: providerEndpointUrl(descriptor.baseUrl, descriptor.discovery.path),
+        ...(options.cacheDir === undefined ? {} : { cacheDir: options.cacheDir }),
+        maxAgeMs: options.maxAgeMs,
+    });
+    return catalog?.models.map((model) => ({
+        provider: descriptor.id,
+        model: model.id,
+        label: model.label,
+        description: model.description ?? "",
+        ...(model.context_window === undefined ? {} : { contextWindow: model.context_window }),
+    }));
 }
 
 /**
@@ -1289,24 +1352,20 @@ async function discoverAvailableModels(
     // Asked together rather than one after another: each provider caps its own
     // wait, and the host is not discoverable until all of them have answered,
     // so serial waits add up into the client's startup deadline.
-    const [ollama, omlx, openrouter, cerebras] = await Promise.all([
+    const [ollama, openrouter, standard] = await Promise.all([
         discoveredOllamaModels({
             log: hostLog,
             ...(config.provider_endpoints?.ollama === undefined
                 ? {}
                 : { host: config.provider_endpoints.ollama }),
         }),
-        discoveredOmlxModels({
-            ...(config.provider_endpoints?.omlx === undefined
-                ? {}
-                : { baseUrl: config.provider_endpoints.omlx }),
-            ...omlxDiscoveryAuth(authStorage),
-        }),
         discoveredOpenRouterModels(config, { maxAgeMs }),
-        discoveredCerebrasModels(config, { authStorage, maxAgeMs }),
+        Promise.all(standardProviderDescriptors(config).map((descriptor) =>
+            standardProviderModels(descriptor, config, authStorage, { maxAgeMs })
+        )),
     ]);
     catalog.push(...ollama);
-    catalog.push(...omlx);
+    catalog.push(...standard.flatMap((models) => models ?? []));
     if (openrouter.length > 0) {
         // The fetched list supersedes the shipped entries, which name the same
         // models with staler facts. Nothing is dropped when the fetch comes back
@@ -1319,7 +1378,6 @@ async function discoverAvailableModels(
         }
         catalog.push(...openrouter);
     }
-    catalog.push(...cerebras);
     catalog.push(...discoveredDeepSeekModels(config, { authStorage }));
     catalog.push(...discoveredCodexModels(config));
     if (!catalog.some((item) =>

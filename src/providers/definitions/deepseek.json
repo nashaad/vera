@@ -12,7 +12,7 @@
     "default_base_url": "https://api.deepseek.com",
     "discovery": { "mode": "none", "path": "/models", "credential": "required" },
     "compatibility": {
-        "request": ["deepseek-thinking"],
+        "request": ["thinking-object", "reasoning-content"],
         "response": ["openai-sse"],
         "error": ["http-status"]
     }

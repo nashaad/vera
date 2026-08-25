@@ -8,11 +8,12 @@
     "credential": "none",
     "hint": "local, no account",
     "env_var": "OLLAMA_HOST",
-    "protocol": "openai-chat",
+    "protocol": "contributed",
+    "behavior_id": "ollama",
     "default_base_url": "http://127.0.0.1:11434",
     "discovery": { "mode": "models", "path": "/models", "credential": "none" },
     "compatibility": {
-        "request": ["ollama-thinking"],
+        "request": ["capability-gated-thinking"],
         "response": ["openai-sse"],
         "error": ["http-status"]
     }

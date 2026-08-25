@@ -11,6 +11,8 @@ export interface OpenAIProviderDiscoveryOptions {
     readonly provider: string;
     readonly baseUrl: string;
     readonly credential?: "required" | "optional" | "none";
+    /** Local servers use an empty successful list to replace their rows. */
+    readonly preserveEmpty?: boolean;
     readonly apiKey?: string;
     readonly endpoint?: string;
     readonly cacheDir?: string;
@@ -48,7 +50,9 @@ export async function refreshOpenAIProviderCatalog(
         });
         if (!response.ok) return staleCatalog(options.provider, cacheOptions);
         const catalog = normalizeOpenAIModels(options.provider, await response.json());
-        if (catalog.models.length === 0) return staleCatalog(options.provider, cacheOptions);
+        if (catalog.models.length === 0 && options.preserveEmpty !== true) {
+            return staleCatalog(options.provider, cacheOptions);
+        }
         try {
             writeProviderCatalogSnapshot(catalog, cacheOptions);
         } catch {
@@ -73,6 +77,9 @@ export function normalizeOpenAIModels(
             id: entry.id,
             label: typeof entry.name === "string" ? entry.name : entry.id,
             ...(typeof entry.description === "string" ? { description: entry.description } : {}),
+            ...(positiveNumber(entry.context_window ?? entry.max_model_len) === undefined
+                ? {}
+                : { context_window: positiveNumber(entry.context_window ?? entry.max_model_len) }),
             levels: [],
         }];
     });
@@ -82,6 +89,12 @@ export function normalizeOpenAIModels(
         fetched_at: new Date().toISOString(),
         models,
     };
+}
+
+function positiveNumber(value: unknown): number | undefined {
+    return Number.isSafeInteger(value) && (value as number) > 0
+        ? value as number
+        : undefined;
 }
 
 function staleCatalog(

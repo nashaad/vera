@@ -2,8 +2,6 @@ import type { VeraConfig } from "../config.ts";
 import { createOpenAICodexAdapter } from "./openai-codex.ts";
 import { createOpenRouterAdapter } from "./openrouter.ts";
 import { createOllamaAdapter } from "./ollama-openai.ts";
-import { createCerebrasAdapter } from "./cerebras-openai.ts";
-import { createDeepSeekAdapter } from "./deepseek-openai.ts";
 import {
     poolEffortLevels,
     type EffortLevelsLookup,
@@ -67,18 +65,6 @@ const ADAPTERS: Readonly<Record<
     string,
     (options: ConfiguredProviderOptions, baseUrl?: string) => ModelAdapter
 >> = {
-    cerebras: (options, baseUrl) => createCerebrasAdapter({
-        apiKey: requiredApiKey("cerebras", options),
-        ...(baseUrl === undefined ? {} : { baseUrl }),
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        ...capture(options),
-    }),
-    deepseek: (options, baseUrl) => createDeepSeekAdapter({
-        apiKey: requiredApiKey("deepseek", options),
-        ...(baseUrl === undefined ? {} : { baseUrl }),
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
-        ...capture(options),
-    }),
     "openai-codex": (options) => createOpenAICodexAdapter({
         ...(options.authStorage === undefined
             ? {}
@@ -96,13 +82,6 @@ const ADAPTERS: Readonly<Record<
             : ollamaHost(baseUrl),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...(options.log === undefined ? {} : { log: options.log }),
-        ...capture(options),
-    }),
-    omlx: (options, baseUrl) => createCustomOpenAIAdapter({
-        provider: "omlx",
-        baseUrl: baseUrl ?? "http://127.0.0.1:8000/v1",
-        ...optionalApiKey("omlx", options),
-        ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
     }),
     openrouter: (options, baseUrl) => {
@@ -181,6 +160,16 @@ export function createConfiguredModelAdapter(
         // the wire quirks, error classification, and effort mapping belong to
         // the provider, not to the host it happens to answer on.
         return build(options, config.provider_endpoints?.[config.provider]);
+    }
+    if (descriptor !== undefined && descriptor.behaviorId === undefined) {
+        return createGenericProviderAdapter({
+            provider: descriptor!,
+            config,
+            ...(options.authStorage === undefined ? {} : { authStorage: options.authStorage }),
+            ...(options.env === undefined ? {} : { env: options.env }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            ...capture(options),
+        });
     }
     const custom = config.providers?.[config.provider];
     if (custom === undefined) {

@@ -10,9 +10,9 @@
     "env_var": "CEREBRAS_API_KEY",
     "protocol": "openai-chat",
     "default_base_url": "https://api.cerebras.ai/v1",
-    "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "discovery": { "mode": "models", "path": "/public/v1/models", "credential": "required" },
     "compatibility": {
-        "request": ["cerebras-request-fields"],
+        "request": ["completion-token-field", "cerebras-effort"],
         "response": ["openai-sse"],
         "error": ["http-status"]
     }

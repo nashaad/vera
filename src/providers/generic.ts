@@ -49,6 +49,10 @@ export function createGenericProviderAdapter(
     if (protocol === "openai-chat") {
         const openai: CustomOpenAIAdapterOptions = {
             ...shared,
+            requestLayers: [
+                ...(options.provider.compatibility?.request ?? []),
+                ...(options.provider.compatibility?.effort ?? []),
+            ],
             ...(declaration?.images === undefined ? {} : { supportsImageInput: declaration.images }),
         };
         return createCustomOpenAIAdapter(openai);
