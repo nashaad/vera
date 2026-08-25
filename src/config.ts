@@ -54,6 +54,47 @@ import { veraProfileDirectory } from "./profile-paths.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
+/**
+ * Keys the profile loader knows how to read. Clients that inventory settings
+ * should use this registry instead of maintaining a second root-key list.
+ * `permission_profiles` remains here because the parser accepts it as the
+ * deprecated spelling of `permission_modes`.
+ */
+export const VERA_CONFIG_ROOT_KEYS = [
+    "schema_version",
+    "provider",
+    "providers",
+    "provider_endpoints",
+    "model",
+    "reasoning_effort",
+    "context_limit",
+    "approval_mode",
+    "fallback",
+    "reviewer",
+    "subagent",
+    "models",
+    "model_routes",
+    "reviewer_profiles",
+    "compaction",
+    "model_assignments",
+    "permission_modes",
+    "permission_profiles",
+    "extensions",
+    "hooks",
+    "disabled_builtin_extensions",
+    "disabled_prompt_contributions",
+    "experimental",
+    "developer",
+    "event_log",
+    "tips",
+    "tui",
+    "model_feed_url",
+    "model_picker_max_age_months",
+    "model_picker_collapse_versions",
+    "model_catalog_max_age_days",
+    "inbox",
+] as const;
+
 export const VERA_PROVIDER_IDS = [
     "openrouter",
     "openai-codex",

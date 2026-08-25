@@ -86,6 +86,7 @@ import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
+import type { ConfigurationCatalogEntry } from "./configuration-catalog.ts";
 
 export type TuiSettingsPickerKind =
     | "model"
@@ -103,7 +104,8 @@ export type TuiSettingsPickerKind =
     | "reviewer"
     | "model_assignment"
     | "pool_verify_scope"
-    | "catalog_refresh_scope";
+    | "catalog_refresh_scope"
+    | "configuration_catalog";
 
 /**
  * Where a menu row leads. The menu kinds carry no value of their own: choosing
@@ -395,6 +397,10 @@ export interface TuiSettingsPickerState {
     /** Ordered refs already assigned, used by the subagents toggle list. */
     readonly assignedModels?: readonly string[];
     readonly assignmentAllowsSelf?: boolean;
+    /** The exhaustive settings registry behind the All settings pane. */
+    readonly configurationEntries?: readonly ConfigurationCatalogEntry[];
+    /** Project root the catalog was read from, carried into project writers. */
+    readonly configurationProjectRoot?: string;
     /**
      * Set on the model pane once the user has asked for the folded rows. Like
      * `collapsed`, it lasts as long as the pane: wanting the whole catalog is
@@ -443,6 +449,10 @@ export interface TuiSettingsPickerKey {
 }
 
 export type TuiSettingsPickerSelection =
+    | {
+        readonly kind: "configuration";
+        readonly entry: ConfigurationCatalogEntry;
+    }
     | {
         readonly kind: "model";
         readonly provider: string;
@@ -1210,6 +1220,7 @@ export function tuiPickerMenuAncestor(
     while (current !== undefined) {
         if (
             current.kind === "settings"
+            || current.kind === "configuration_catalog"
             || current.kind === "permission_settings"
             || current.kind === "reviewer_settings"
             || current.kind === "developer_settings"
@@ -1873,6 +1884,110 @@ export function startTuiSettingsMenu(
         selectedIndex: 0,
         query: "",
     };
+}
+
+/**
+ * The root settings surface is a catalog, not a second writer. Its rows carry
+ * the registry entry through selection so the client can route a structured
+ * control, raw file editor, provider surface, or read-only explanation without
+ * guessing from a label.
+ */
+export function startTuiConfigurationCatalog(
+    entries: readonly ConfigurationCatalogEntry[],
+    projectRoot?: string,
+): TuiSettingsPickerState {
+    const options = entries.map((entry) => {
+        const facts = entry.facts ?? [];
+        const locationSearch = entry.location.split("/").at(-1) ?? entry.location;
+        const valueSearch = entry.value.startsWith("/")
+            ? entry.value.split("/").at(-1) ?? entry.value
+            : entry.value;
+        const factSearch = facts.flatMap(([label, value]) => [
+            label,
+            value.startsWith("/")
+                ? value.split("/").at(-1) ?? value
+                : value,
+        ]);
+        return {
+            value: entry.id,
+            label: entry.label,
+            description: `${entry.value} · ${configurationActionLabel(entry.action)}`,
+            note: entry.description,
+            detailTitle: entry.label,
+            detailFacts: [
+                ["Current", entry.value],
+                ["Location", entry.location],
+                ["Scope", entry.scope],
+                ["Apply", entry.apply],
+                ["Action", configurationActionLabel(entry.action)],
+                ...facts,
+            ],
+            searchText: [
+                entry.id,
+                entry.label,
+                entry.description,
+                valueSearch,
+                locationSearch,
+                entry.scope,
+                entry.apply,
+                configurationActionLabel(entry.action),
+                entry.searchText ?? "",
+                ...factSearch,
+            ].join(" "),
+            group: entry.group,
+        } satisfies TuiSettingsPickerOption;
+    });
+    return {
+        kind: "configuration_catalog",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        title: "All settings",
+        subtitle: "Every supported lever · select one to open its editor",
+        configurationEntries: entries,
+        ...(projectRoot === undefined ? {} : { configurationProjectRoot: projectRoot }),
+    };
+}
+
+/**
+ * Re-read the catalog without throwing away the user's search or cursor. A
+ * structured editor can change the value behind a row, so returning to the
+ * catalog must rebuild its facts rather than display the old snapshot.
+ */
+export function refreshTuiConfigurationCatalog(
+    state: TuiSettingsPickerState,
+    entries: readonly ConfigurationCatalogEntry[],
+    projectRoot?: string,
+): TuiSettingsPickerState {
+    const fresh = startTuiConfigurationCatalog(entries, projectRoot);
+    const selectedValue = state.options[state.selectedIndex]?.value;
+    const options = matching(fresh.allOptions, state.query);
+    const selectedIndex = selectedValue === undefined
+        ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
+        : Math.max(
+            0,
+            options.findIndex((option) => option.value === selectedValue),
+        );
+    return {
+        ...fresh,
+        query: state.query,
+        options,
+        selectedIndex,
+    };
+}
+
+function configurationActionLabel(
+    action: ConfigurationCatalogEntry["action"],
+): string {
+    if (action.kind === "settings") return "open structured control";
+    if (action.kind === "provider") return "open provider connection";
+    if (action.kind === "raw") {
+        return action.target === "directory"
+            ? "open owning directory"
+            : "edit owning file";
+    }
+    return "view guidance";
 }
 
 export function startTuiSessionPicker(
@@ -2884,7 +2999,7 @@ export function tuiPickerViewportRows(
     const rows = pickerMaxRows(
         renderer,
         (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
+            + (state.subtitle !== undefined ? 1 : 0),
     );
     return state.kind === "model" && state.tab === "all"
         ? Math.min(rows, MODEL_ALL_MAX_ROWS)
@@ -2902,7 +3017,8 @@ export function tuiPickerViewportRows(
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
-    return tab === "pool" || tab === "defaults" || tab === "actions";
+    return state.kind === "configuration_catalog"
+        || tab === "pool" || tab === "defaults" || tab === "actions";
 }
 
 /** The narrowest the detail column is worth drawing at. */
@@ -3019,7 +3135,8 @@ function stackedDetailLines(
     width: number,
 ): readonly (readonly TextChunk[])[] {
     if (
-        state.kind !== "model" || state.tab !== "defaults"
+        (state.kind !== "model" || state.tab !== "defaults")
+        && state.kind !== "configuration_catalog"
         || option?.detailFacts === undefined
     ) {
         return [];
@@ -3193,19 +3310,27 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
 function modelDetailHeight(
     state: TuiAnySettingsPickerState,
     width: number,
+    maxHeight?: number,
 ): number {
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
+    let desired: number;
     if (described && option.detailFacts !== undefined) {
         // The name, a blank, two lines per fact, a blank, and the note.
-        return 3 + option.detailFacts.length * 2
+        desired = 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
+    } else {
+        // The name, the source, a blank, two lines per fact, and a blank under them.
+        desired = described
+            ? 3 + modelDetailFacts(state, option).length * 2 + 1
+            : 0;
     }
-    // The name, the source, a blank, two lines per fact, and a blank under them.
-    const facts = described
-        ? 3 + modelDetailFacts(state, option).length * 2 + 1
-        : 0;
-    return facts;
+    // Catalog rows deliberately carry enough ownership facts to make every
+    // lever legible. On a short terminal those facts must yield to the footer
+    // instead of making the card taller than the viewport.
+    return state.kind === "configuration_catalog" && maxHeight !== undefined
+        ? Math.min(desired, maxHeight)
+        : desired;
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
@@ -3475,7 +3600,10 @@ function renderListPickerRows(
     if (split !== undefined && body !== undefined) {
         // The facts fill a column as tall as the list beside them, so a model
         // that carries more of them never moves a row.
-        lines = Math.max(lines, modelDetailHeight(state, split.detailWidth));
+        lines = Math.max(
+            lines,
+            modelDetailHeight(state, split.detailWidth, availableRows),
+        );
         listColumn.height = lines;
         const detail = modelDetailNode(
             renderer,
@@ -3818,6 +3946,9 @@ function pickerFooterText(
     if (state.kind === "settings") {
         return "↑↓ move · ⏎ open · esc close";
     }
+    if (state.kind === "configuration_catalog") {
+        return "↑↓ move · ⏎ open · esc close";
+    }
     if (state.kind === "permission_settings") {
         return "↑↓ move · ⏎ open · esc back";
     }
@@ -3994,6 +4125,7 @@ function listDisplayRows(
     // cursor can reach one and fold the section under it. Everything else has
     // its headings derived here.
     const grouped = state.kind === "provider"
+        || state.kind === "configuration_catalog"
         || (state.kind === "model" && state.tab === "defaults")
         || (state.kind === "model_assignment"
             && state.modelAssignment === "subagents");
@@ -4277,6 +4409,9 @@ function optionMeta(
 function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind === "extension") {
         return "No options available";
+    }
+    if (state.kind === "configuration_catalog") {
+        return "No supported settings found";
     }
     if (state.kind === "model" && state.tab === "pool") {
         return "No shortlisted models match. Tab switches to All models.";
@@ -4941,6 +5076,15 @@ function pickerSelection(
     option: TuiSettingsPickerOption,
 ): TuiSettingsPickerSelection {
     const kind = state.kind;
+    if (kind === "configuration_catalog") {
+        const entry = state.configurationEntries?.find(
+            (candidate) => candidate.id === option.value,
+        );
+        if (entry === undefined) {
+            throw new Error("configuration catalog option has no registry entry");
+        }
+        return { kind: "configuration", entry };
+    }
     if (kind === "model") {
         // The Defaults tab shares the model pane but its rows are jobs, so
         // they resolve to the assignment rather than to a model.
@@ -5102,21 +5246,23 @@ function pickerTitle(
     return kind === "model"
         ? "Select model"
         : kind === "provider"
-        ? "Connect a provider"
-        : kind === "reasoning"
+            ? "Connect a provider"
+            : kind === "reasoning"
             ? "Reasoning"
             : kind === "permissions"
                 ? "Permission mode"
                 : kind === "session"
                     ? "Resume"
                     : kind === "settings"
-                        ? "Settings"
-                        : kind === "permission_settings"
-                            ? "Permissions"
-                            : kind === "reviewer_settings"
-                                ? "Reviewer"
-                                : kind === "reviewer"
-                                    ? "Select reviewer"
+                    ? "Settings"
+                    : kind === "permission_settings"
+                        ? "Permissions"
+                        : kind === "reviewer_settings"
+                            ? "Reviewer"
+                            : kind === "reviewer"
+                                ? "Select reviewer"
+                                : kind === "configuration_catalog"
+                                    ? "All settings"
                                     : kind === "model_assignment"
                                         ? "Assign a model"
                                         : "Theme";
