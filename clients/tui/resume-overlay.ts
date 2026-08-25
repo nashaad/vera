@@ -44,6 +44,7 @@ export type JsonlViewKeyAction =
     | "toggle_sidebar"
     | "sidebar"
     | "new_session"
+    | "cycle_session"
     | "block";
 
 export interface JsonlViewKey {
@@ -76,6 +77,12 @@ export function jsonlViewKeyAction(
     }
     if (options.globalBinding === "toggle_workspace_sidebar") {
         return "toggle_sidebar";
+    }
+    if (
+        options.globalBinding === "cycle_live_session_next"
+        || options.globalBinding === "cycle_live_session_prev"
+    ) {
+        return "cycle_session";
     }
     if (options.workspaceBinding === "workspace_new_session") {
         return "new_session";

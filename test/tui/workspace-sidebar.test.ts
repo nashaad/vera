@@ -17,6 +17,7 @@ import {
     workspaceSidebarText,
     workspaceSidebarViewState,
     workspaceWorkingSet,
+    workspaceCycleTarget,
     MIN_RAIL_COLUMNS,
     WORKSPACE_RECENT_IDLE,
     type WorkspaceSidebarSession,
@@ -323,6 +324,59 @@ describe("the working set", () => {
         ]);
         expect(workspaceSidebarText(open(sessions, ["idle-0"]), COLUMNS, NOW))
             .toContain("session idle-0");
+    });
+});
+
+describe("cycling live sessions", () => {
+    test("next and previous walk live rows and skip parked jsonl", () => {
+        const state = open(
+            [
+                session("a", {
+                    live: true,
+                    status: "working",
+                    updatedAt: "2026-08-22T11:02:00.000Z",
+                }),
+                session("parked"),
+                session("b", {
+                    live: true,
+                    status: "idle",
+                    updatedAt: "2026-08-22T11:01:00.000Z",
+                }),
+            ],
+            [],
+            "a",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)?.id).toBe("b");
+        expect(workspaceCycleTarget(state, -1, NOW, COLUMNS)?.id).toBe("b");
+        expect(workspaceCycleTarget(
+            { ...state, currentId: "b" },
+            1,
+            NOW,
+            COLUMNS,
+        )?.id).toBe("a");
+    });
+
+    test("looking at a parked file still lands on a live neighbour", () => {
+        const state = open(
+            [
+                session("live", { live: true, status: "working" }),
+                session("parked"),
+            ],
+            [],
+            "parked",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)?.id).toBe("live");
+        expect(workspaceCycleTarget(state, -1, NOW, COLUMNS)?.id).toBe("live");
+    });
+
+    test("one live session already on screen is a no-op", () => {
+        const state = open(
+            [session("only", { live: true, status: "working" })],
+            [],
+            "only",
+        );
+        expect(workspaceCycleTarget(state, 1, NOW, COLUMNS)).toBeUndefined();
+        expect(workspaceCycleTarget(state, -1, NOW, COLUMNS)).toBeUndefined();
     });
 });
 
