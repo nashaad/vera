@@ -337,6 +337,32 @@ export interface AgentRejectedEvent {
     readonly reason: string;
 }
 
+export interface SkillCatalogEvent {
+    readonly type: "skill_catalog";
+    readonly requestId: string;
+    readonly skills: readonly {
+        readonly name: string;
+        readonly description: string;
+        readonly disableModelInvocation: boolean;
+    }[];
+    readonly warnings: readonly string[];
+}
+
+export interface SkillInvocationAcceptedEvent {
+    readonly type: "skill_invocation_accepted";
+    readonly requestId: string;
+    readonly name: string;
+    readonly prompt: string;
+    readonly queued: boolean;
+}
+
+export interface SkillInvocationRejectedEvent {
+    readonly type: "skill_invocation_rejected";
+    readonly requestId: string;
+    readonly name: string;
+    readonly reason: string;
+}
+
 export interface PermissionsRejectedEvent {
     readonly type: "permissions_rejected";
     readonly requestId: string;
@@ -584,6 +610,9 @@ export type EngineEvent =
     | AgentWornEvent
     | AgentCatalogEvent
     | AgentRejectedEvent
+    | SkillCatalogEvent
+    | SkillInvocationAcceptedEvent
+    | SkillInvocationRejectedEvent
     | ModelSettingsRejectedEvent
     | PoolAdmissionProgressEvent
     | PoolAdmissionResultEvent
@@ -738,6 +767,9 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     prompt_prefix_drift: "warn",
     prompt_queued: "info",
     session_model_settings_history: "debug",
+    skill_catalog: "debug",
+    skill_invocation_accepted: "info",
+    skill_invocation_rejected: "warn",
     task_notification: "info",
     tool_breaker_tripped: "warn",
     tool_denied: "warn",

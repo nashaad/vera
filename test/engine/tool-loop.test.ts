@@ -154,6 +154,7 @@ test("a discovered skill script runs through the ordinary tool loop", async () =
     await writeFile(join(skillDirectory, "SKILL.md"), `---
 name: inspect
 description: Inspect a value with the bundled helper.
+disable-model-invocation: true
 ---
 Run \`scripts/inspect.sh\` with the value as its first argument.
 `);
@@ -199,7 +200,9 @@ Run \`scripts/inspect.sh\` with the value as its first argument.
         store: new InMemorySessionStore(),
         toolRuntime: new ToolRuntime(workspace),
         instructionRoot: { path: workspace, source: "workspace" },
-        inbound: new InboundCommandRouter(channel.engine, events),
+        inbound: new InboundCommandRouter(channel.engine, events, {
+            invokeSkill: async () => ({ allowed: true }),
+        }),
         events,
         hooks: new ToolHooks(),
         approvalMode: "full_access",
@@ -208,7 +211,12 @@ Run \`scripts/inspect.sh\` with the value as its first argument.
     };
 
     try {
-        channel.client.send({ type: "prompt", content: "use $inspect" });
+        channel.client.send({
+            type: "invoke_skill",
+            requestId: "invoke-inspect",
+            name: "inspect",
+            argumentsText: "value",
+        });
         const turn = runTurn(adapter, "test", state);
         while ((await channel.client.receive()).type !== "turn_finished") {
             // Drain the observable lifecycle through its terminal update.

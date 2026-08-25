@@ -6,6 +6,7 @@ import {
     createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
     registerExtensionTuiCommands,
+    registerSkillTuiCommands,
     renderTuiCommandSuggestions,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
@@ -76,6 +77,7 @@ test("every slash action has an explicit pane scope", () => {
             source: "test",
             origin: "client",
         },
+        { type: "invoke_skill", name: "deploy", argumentsText: "staging" },
         { type: "command_error", message: "bad" },
     ] satisfies readonly TuiCommandAction[];
 
@@ -112,8 +114,48 @@ test("every slash action has an explicit pane scope", () => {
             ["open_settings_destination", "application"],
             ["pool_current_model", "application"],
             ["run_extension", "application"],
+            ["invoke_skill", "main_session"],
             ["command_error", "application"],
         ]);
+});
+
+test("skills automatically register direct slash commands", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    const registration = registerSkillTuiCommands(registry, [{
+        name: "deploy",
+        description: "Deploy the current service.",
+        disableModelInvocation: true,
+    }]);
+
+    expect(registration.warnings).toEqual([]);
+    expect(registry.registeredCommands()).toContainEqual({
+        name: "deploy",
+        description: "Deploy the current service.",
+        usage: "/deploy [arguments]",
+        group: "skills",
+    });
+    expect(registry.dispatch("/deploy staging now")).toEqual({
+        type: "invoke_skill",
+        name: "deploy",
+        argumentsText: "staging now",
+    });
+
+    registration.dispose();
+    expect(registry.hasCommand("deploy")).toBe(false);
+});
+
+test("an existing slash command wins a skill-name collision", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    const registration = registerSkillTuiCommands(registry, [{
+        name: "rewind",
+        description: "A conflicting skill.",
+        disableModelInvocation: false,
+    }]);
+
+    expect(registration.warnings).toEqual([
+        "Skill rewind cannot register /rewind: that command already exists.",
+    ]);
+    expect(registry.dispatch("/rewind")).toEqual({ type: "open_rewind" });
 });
 
 // The catalog says what a command is; where it came from is the registry's to

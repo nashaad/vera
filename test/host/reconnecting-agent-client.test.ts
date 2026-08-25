@@ -129,6 +129,52 @@ test("a prompt remains private until its sequenced acceptance arrives", async ()
     );
 });
 
+test("sequenced skill replies survive a dropped connection without resubmission", async () => {
+    const initial = fakeClient([], 4);
+    const recovered = fakeClient([{
+        type: "skill_invocation_accepted",
+        requestId: "invoke-1",
+        name: "deploy",
+        prompt: "/deploy staging",
+        queued: false,
+        seq: 5,
+    }], 4);
+    const cursors: Array<number | undefined> = [];
+    const sent: ClientCommand[] = [];
+    const initialWithSend: AttachedAgentClient = {
+        ...initial,
+        send: async (command) => {
+            sent.push(command);
+        },
+    };
+    const client = createReconnectingAgentClient(
+        initialWithSend,
+        async (cursor) => {
+            cursors.push(cursor);
+            return recovered;
+        },
+    );
+    const command: ClientCommand = {
+        type: "invoke_skill",
+        requestId: "invoke-1",
+        name: "deploy",
+        argumentsText: "staging",
+    };
+
+    await client.send(command);
+    expect(await client.receive()).toEqual({
+        type: "skill_invocation_accepted",
+        requestId: "invoke-1",
+        name: "deploy",
+        prompt: "/deploy staging",
+        queued: false,
+        seq: 5,
+    });
+    expect(sent).toEqual([command]);
+    expect(cursors).toEqual([4]);
+    client.close();
+});
+
 test("another attachment's prompt does not settle this client's prompts", async () => {
     const initial = fakeClient([
         { type: "user_prompt", content: "someone else", seq: 5 },

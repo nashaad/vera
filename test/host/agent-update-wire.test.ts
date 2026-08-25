@@ -12,6 +12,41 @@ test("host wire carries streamed reasoning and rejects a missing text field", ()
     expect(parseAgentUpdate({ type: "assistant_thinking", seq: 4 })).toBeUndefined();
 });
 
+test("host wire validates skill catalogs and invocation outcomes", () => {
+    const catalog = {
+        type: "skill_catalog" as const,
+        requestId: "skills-1",
+        skills: [{
+            name: "deploy",
+            description: "Deploy the current service.",
+            disableModelInvocation: true,
+        }],
+        warnings: [],
+        seq: 1,
+    };
+    expect(parseAgentUpdate(catalog)).toEqual(catalog);
+    expect(parseAgentUpdate({
+        ...catalog,
+        skills: [{ ...catalog.skills[0], disableModelInvocation: "yes" }],
+    })).toBeUndefined();
+
+    expect(parseAgentUpdate({
+        type: "skill_invocation_accepted",
+        requestId: "invoke-1",
+        name: "deploy",
+        prompt: "/deploy staging",
+        queued: false,
+        seq: 2,
+    })).toBeDefined();
+    expect(parseAgentUpdate({
+        type: "skill_invocation_rejected",
+        requestId: "invoke-2",
+        name: "deploy",
+        reason: "unavailable",
+        seq: 3,
+    })).toBeDefined();
+});
+
 test("host wire validates requester-owned image attachment results", () => {
     const attached = {
         type: "image_attached" as const,

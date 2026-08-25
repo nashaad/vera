@@ -200,6 +200,34 @@ test("attachment IDs remain ordered across commands and transcript projection", 
     }]);
 });
 
+test("only invoke_skill can mint trusted skill authority", () => {
+    expect(parseClientCommand({
+        type: "prompt",
+        content: "/deploy staging",
+        userInvokedSkill: "deploy",
+    })).toEqual({
+        type: "prompt",
+        content: "/deploy staging",
+    });
+    expect(parseClientCommand({
+        type: "invoke_skill",
+        requestId: "skill-1",
+        name: "deploy",
+        argumentsText: "staging",
+    })).toEqual({
+        type: "invoke_skill",
+        requestId: "skill-1",
+        name: "deploy",
+        argumentsText: "staging",
+    });
+    expect(parseClientCommand({
+        type: "invoke_skill",
+        requestId: "skill-1",
+        name: "Deploy",
+        argumentsText: "staging",
+    })).toBeUndefined();
+});
+
 test("a projected attachment carries the name it was attached from", () => {
     expect(projectTranscript([{
         role: "user",

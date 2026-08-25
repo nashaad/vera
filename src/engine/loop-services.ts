@@ -129,6 +129,8 @@ export interface InboundRouterHostHooks {
     ) => Promise<ApprovalMode | undefined>;
     readonly wearAgent?: InboundCommandRouterOptions["wearAgent"];
     readonly listAgents?: InboundCommandRouterOptions["listAgents"];
+    readonly listSkills?: InboundCommandRouterOptions["listSkills"];
+    readonly invokeSkill?: InboundCommandRouterOptions["invokeSkill"];
     readonly updateAgentDefaultPair?:
         InboundCommandRouterOptions["updateAgentDefaultPair"];
     readonly readApprovalModeOrigin?: () => SessionSettingOrigin | undefined;

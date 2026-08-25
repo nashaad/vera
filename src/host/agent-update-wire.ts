@@ -239,6 +239,41 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? value as AgentUpdate
             : undefined;
     }
+    if (update.type === "skill_catalog") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && Array.isArray(update.skills)
+                && update.skills.every((skill: unknown) => {
+                    const row = asRecord(skill);
+                    return typeof row?.name === "string"
+                        && typeof row.description === "string"
+                        && typeof row.disableModelInvocation === "boolean";
+                })
+                && Array.isArray(update.warnings)
+                && update.warnings.every((warning: unknown) =>
+                    typeof warning === "string"
+                )
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "skill_invocation_accepted") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.name === "string"
+                && typeof update.prompt === "string"
+                && typeof update.queued === "boolean"
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "skill_invocation_rejected") {
+        return typeof update.requestId === "string"
+                && update.requestId.length > 0
+                && typeof update.name === "string"
+                && typeof update.reason === "string"
+                && update.reason.length > 0
+            ? value as AgentUpdate
+            : undefined;
+    }
     if (update.type === "session_model_settings_history") {
         return typeof update.requestId === "string"
                 && update.requestId.length > 0

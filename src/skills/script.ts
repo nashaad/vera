@@ -64,7 +64,11 @@ export const skillScriptTool: RegisteredTool = {
         ) {
             throw new Error(`Unknown skill: ${skillName}`);
         }
-        const refusal = invocationRefusal(skill.metadata, context.isSubagent);
+        const refusal = invocationRefusal(
+            skill.metadata,
+            context.isSubagent,
+            context.userInvokedSkill,
+        );
         if (refusal !== undefined) {
             throw new Error(refusal);
         }

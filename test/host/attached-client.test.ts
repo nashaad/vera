@@ -3,7 +3,10 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { join } from "node:path";
 
-import type { AgentUpdate } from "../../src/engine/protocol.ts";
+import type {
+    AgentUpdate,
+    ClientCommand,
+} from "../../src/engine/protocol.ts";
 import {
     AgentAttachError,
     attachAgent,
@@ -12,8 +15,12 @@ import {
 } from "../../src/host/attached-client.ts";
 import { NO_BACKGROUND_AGENTS } from "../../src/host/background-agents.ts";
 import { HOST_CAPABILITY_AGENT_ATTACH_RESUME } from "../../src/host/capabilities.ts";
+import { HOST_CAPABILITY_SKILL_COMMANDS } from "../../src/host/capabilities.ts";
 import { ResidentAgent } from "../../src/host/resident-agent.ts";
 import { startHostServer } from "../../src/host/server.ts";
+import { EngineEventBus } from "../../src/engine/events.ts";
+import { createProtocolEncoder } from "../../src/engine/protocol.ts";
+import { InboundCommandRouter } from "../../src/engine/inbound-command-router.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -78,6 +85,76 @@ afterEach(() => {
             expect((await oldClient.receive()).type).toBe("history");
         } finally {
             oldClient.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "skill authority crosses only the typed attached-client command",
+    async () => {
+        const directory = temporaryDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const events = new EngineEventBus();
+        events.subscribe(createProtocolEncoder(agent.engine));
+        const router = new InboundCommandRouter(agent.engine, events, {
+            listSkills: async () => ({
+                skills: [{
+                    name: "deploy",
+                    description: "Deploy the service.",
+                    disableModelInvocation: true,
+                }],
+                warnings: [],
+            }),
+            invokeSkill: async () => ({ allowed: true }),
+        });
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            capabilities: [HOST_CAPABILITY_SKILL_COMMANDS],
+            findAgent: () => agent,
+        });
+        const client = await attachAgent({
+            socketPath,
+            agentId: agent.id,
+            requestedCapabilities: [HOST_CAPABILITY_SKILL_COMMANDS],
+        });
+        try {
+            expect((await client.receive()).type).toBe("history");
+            await client.send({ type: "list_skills", requestId: "skills-1" });
+            expect(await client.receive()).toMatchObject({
+                type: "skill_catalog",
+                requestId: "skills-1",
+                skills: [{ name: "deploy" }],
+            });
+
+            await client.send({
+                type: "invoke_skill",
+                requestId: "invoke-1",
+                name: "deploy",
+                argumentsText: "staging",
+            });
+            const invokedTurn = router.startTurn();
+            expect(await client.receive()).toMatchObject({
+                type: "skill_invocation_accepted",
+                requestId: "invoke-1",
+            });
+            const invoked = await invokedTurn;
+            expect(invoked.userInvokedSkill).toBe("deploy");
+            router.finishTurn();
+
+            await client.send({
+                type: "prompt",
+                content: "/deploy production",
+                userInvokedSkill: "deploy",
+            } as unknown as ClientCommand);
+            const forged = await router.startTurn();
+            expect(forged.userInvokedSkill).toBeUndefined();
+            router.finishTurn();
+        } finally {
+            client.close();
             agent.close();
             await server.close();
         }

@@ -3,6 +3,7 @@ import { fg, StyledText, type TextChunk } from "@opentui/core";
 import type {
     ClientExtensionCommandDescriptor,
 } from "../../src/extensions/client-registry.ts";
+import type { SkillCatalogUpdate } from "../../src/engine/protocol.ts";
 import type {
     ExtensionCommandDescriptor,
     ExtensionCommandResult,
@@ -212,6 +213,12 @@ export interface RunExtensionTuiCommandAction {
     readonly origin: "direct" | "client" | "host";
 }
 
+export interface InvokeSkillTuiCommandAction {
+    readonly type: "invoke_skill";
+    readonly name: string;
+    readonly argumentsText: string;
+}
+
 export type TuiCommandAction =
     | OpenRewindTuiCommandAction
     | OpenForkTuiCommandAction
@@ -246,6 +253,7 @@ export type TuiCommandAction =
     | ReloadClientExtensionsTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
     | RunExtensionTuiCommandAction
+    | InvokeSkillTuiCommandAction
     | TuiCommandErrorAction;
 
 export type TuiCommandScope = "focused_agent" | "main_session" | "application";
@@ -281,6 +289,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "clone_session":
         case "compact_session":
         case "close_session":
+        case "invoke_skill":
             return "main_session";
         case "open_preferences_list":
         case "open_work_tab":
@@ -335,7 +344,7 @@ export interface TuiCommandDefinition {
     readonly name: string;
     readonly description: string;
     readonly usage: string;
-    readonly prefixPriority?: "builtin" | "extension";
+    readonly prefixPriority?: "builtin" | "extension" | "skill";
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
         | OpenPreferencesListTuiCommandAction
@@ -640,6 +649,8 @@ export class TuiCommandRegistry {
             usage: command.usage,
             group: command.prefixPriority === "extension"
                 ? "extensions" as const
+                : command.prefixPriority === "skill"
+                ? "skills" as const
                 : "built in" as const,
             ...(command.arguments === undefined
                 ? {}
@@ -738,10 +749,16 @@ export class TuiCommandRegistry {
                 && (candidate.isAvailable?.() ?? true)
             );
             const builtinMatches = matches.filter(
-                (candidate) => candidate.prefixPriority !== "extension",
+                (candidate) => candidate.prefixPriority !== "extension"
+                    && candidate.prefixPriority !== "skill",
+            );
+            const extensionMatches = matches.filter(
+                (candidate) => candidate.prefixPriority === "extension",
             );
             const eligibleMatches = builtinMatches.length > 0
                 ? builtinMatches
+                : extensionMatches.length > 0
+                ? extensionMatches
                 : matches;
             if (eligibleMatches.length !== 1) {
                 return undefined;
@@ -840,6 +857,46 @@ export function registerExtensionTuiCommands(
         for (const definition of definitions) {
             registry.unregisterCommand(definition.name, definition);
         }
+    };
+}
+
+export function registerSkillTuiCommands(
+    registry: TuiCommandRegistry,
+    skills: SkillCatalogUpdate["skills"],
+): { readonly dispose: () => void; readonly warnings: readonly string[] } {
+    const registered: TuiCommandDefinition[] = [];
+    const warnings: string[] = [];
+    for (const skill of skills) {
+        if (registry.hasCommand(skill.name)) {
+            warnings.push(
+                `Skill ${skill.name} cannot register /${skill.name}: that command already exists.`,
+            );
+            continue;
+        }
+        const definition: TuiCommandDefinition = {
+            name: skill.name,
+            description: skill.description,
+            usage: `/${skill.name} [arguments]`,
+            prefixPriority: "skill",
+            parse: (argumentsText) => ({
+                type: "invoke_skill",
+                name: skill.name,
+                argumentsText,
+            }),
+        };
+        registry.registerCommand(definition);
+        registered.push(definition);
+    }
+    let disposed = false;
+    return {
+        warnings,
+        dispose: (): void => {
+            if (disposed) return;
+            disposed = true;
+            for (const definition of registered) {
+                registry.unregisterCommand(definition.name, definition);
+            }
+        },
     };
 }
 

@@ -154,6 +154,8 @@ export interface InboundTurn {
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly triggeredByDelivery?: true;
+    /** Authority minted only by the router's typed skill-command path. */
+    readonly userInvokedSkill?: string;
 }
 
 interface QueuedTurnContext {
@@ -164,12 +166,15 @@ interface QueuedPrompt extends QueuedTurnContext {
     readonly prompt: PromptCommand;
     readonly triggeredByDelivery?: never;
     readonly wear?: never;
+    readonly skillInvocation?: never;
+    readonly userInvokedSkill?: string;
 }
 
 interface QueuedDeliveryTurn extends QueuedTurnContext {
     readonly prompt?: never;
     readonly triggeredByDelivery: true;
     readonly wear?: never;
+    readonly skillInvocation?: never;
 }
 
 /**
@@ -183,9 +188,32 @@ interface QueuedWear extends Partial<QueuedTurnContext> {
     readonly wear: { readonly requestId: string; readonly name: string };
     readonly prompt?: never;
     readonly triggeredByDelivery?: never;
+    readonly skillInvocation?: never;
 }
 
-type QueuedTurn = QueuedPrompt | QueuedDeliveryTurn | QueuedWear;
+/**
+ * A typed skill command waiting behind any earlier turns and wear changes.
+ *
+ * Validation happens when this item reaches the front of the queue. Doing it
+ * on socket arrival would validate against the agent worn before an earlier
+ * queued `/agent` command, then run the turn under the agent worn after it.
+ */
+interface QueuedSkillInvocation extends QueuedTurnContext {
+    readonly skillInvocation: {
+        readonly requestId: string;
+        readonly name: string;
+        readonly argumentsText: string;
+    };
+    readonly prompt?: never;
+    readonly triggeredByDelivery?: never;
+    readonly wear?: never;
+}
+
+type QueuedTurn =
+    | QueuedPrompt
+    | QueuedDeliveryTurn
+    | QueuedWear
+    | QueuedSkillInvocation;
 
 export interface InboundCommandRouterOptions {
     readonly appendHarnessMessage?: (
@@ -247,6 +275,18 @@ export interface InboundCommandRouterOptions {
         }[];
         readonly notices: readonly string[];
     }>;
+    readonly listSkills?: () => Promise<{
+        readonly skills: readonly {
+            readonly name: string;
+            readonly description: string;
+            readonly disableModelInvocation: boolean;
+        }[];
+        readonly warnings: readonly string[];
+    }>;
+    readonly invokeSkill?: (name: string) => Promise<
+        | { readonly allowed: true }
+        | { readonly allowed: false; readonly reason: string }
+    >;
     /** Answers with why the write was refused, or nothing when it happened. */
     readonly updateAgentDefaultPair?: (
         name: string,
@@ -415,6 +455,16 @@ export class InboundCommandRouter {
                         await this.applyWear(queued.wear);
                         continue;
                     }
+                    if (queued.skillInvocation !== undefined) {
+                        const prompt = await this.resolveSkillInvocation(
+                            queued.skillInvocation,
+                            queued.modelSettings,
+                        );
+                        if (prompt === undefined) {
+                            continue;
+                        }
+                        queued = prompt;
+                    }
                     if (
                         queued.triggeredByDelivery !== true
                         || this.options.hasPendingDeliveryTurn?.() !== false
@@ -447,7 +497,13 @@ export class InboundCommandRouter {
                 prompt: { type: "prompt", content: "" },
                 triggeredByDelivery: true,
             }
-            : { ...context, prompt: queued.prompt };
+            : {
+                ...context,
+                prompt: queued.prompt,
+                ...(queued.userInvokedSkill === undefined
+                    ? {}
+                    : { userInvokedSkill: queued.userInvokedSkill }),
+            };
     }
 
     finishTurn(): void {
@@ -791,6 +847,28 @@ export class InboundCommandRouter {
                     continue;
                 }
 
+                if (command.type === "list_skills") {
+                    await this.listSkills(command.requestId);
+                    continue;
+                }
+
+                if (command.type === "invoke_skill") {
+                    await this.contextAppend;
+                    const settings = this.options.readModelSettings?.();
+                    this.pendingPromptCount += 1;
+                    this.prompts.push({
+                        skillInvocation: {
+                            requestId: command.requestId,
+                            name: command.name,
+                            argumentsText: command.argumentsText,
+                        },
+                        ...(settings === undefined
+                            ? {}
+                            : { modelSettings: copyModelSettings(settings) }),
+                    });
+                    continue;
+                }
+
                 if (command.type === "update_agent_default_pair") {
                     await this.updateAgentDefaultPair(
                         command.requestId,
@@ -1129,6 +1207,94 @@ export class InboundCommandRouter {
             type: "agent_catalog",
             update: { requestId, ...(await this.options.listAgents()) },
         });
+    }
+
+    private async listSkills(requestId: string): Promise<void> {
+        if (this.options.listSkills === undefined) {
+            this.events.emit({
+                type: "skill_catalog",
+                requestId,
+                skills: [],
+                warnings: ["This host does not support skill commands."],
+            });
+            return;
+        }
+        try {
+            const catalog = await this.options.listSkills();
+            this.events.emit({
+                type: "skill_catalog",
+                requestId,
+                skills: catalog.skills,
+                warnings: catalog.warnings,
+            });
+        } catch {
+            this.events.emit({
+                type: "skill_catalog",
+                requestId,
+                skills: [],
+                warnings: ["Skill commands are unavailable."],
+            });
+        }
+    }
+
+    private async resolveSkillInvocation(
+        invocation: QueuedSkillInvocation["skillInvocation"],
+        modelSettings: ModelTurnSettings | undefined,
+    ): Promise<QueuedPrompt | undefined> {
+        const { requestId, name, argumentsText } = invocation;
+        const invoke = this.options.invokeSkill;
+        if (invoke === undefined) {
+            this.events.emit({
+                type: "skill_invocation_rejected",
+                requestId,
+                name,
+                reason: "This host does not support skill commands.",
+            });
+            return undefined;
+        }
+        let decision: Awaited<ReturnType<typeof invoke>>;
+        try {
+            decision = await invoke(name);
+        } catch {
+            this.events.emit({
+                type: "skill_invocation_rejected",
+                requestId,
+                name,
+                reason: `/${name} is unavailable.`,
+            });
+            return undefined;
+        }
+        if (!decision.allowed) {
+            this.events.emit({
+                type: "skill_invocation_rejected",
+                requestId,
+                name,
+                reason: decision.reason,
+            });
+            return undefined;
+        }
+        const prompt = `/${name}${
+            argumentsText.length === 0 ? "" : ` ${argumentsText}`
+        }`;
+        this.events.emit({
+            type: "skill_invocation_accepted",
+            requestId,
+            name,
+            prompt,
+            // Validation happens only when this item is about to become the
+            // active turn, after every earlier queue item has settled.
+            queued: false,
+        });
+        return {
+            prompt: {
+                type: "prompt",
+                content: prompt,
+            },
+            userInvokedSkill: name,
+            ...(modelSettings === undefined
+                ? {}
+                : { modelSettings: copyModelSettings(modelSettings) }),
+        };
     }
 
     private async updateAgentDefaultPair(

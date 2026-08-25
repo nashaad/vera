@@ -620,6 +620,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "agent_rejected") {
         return appendTuiNotice(state, update.reason);
     }
+    if (
+        update.type === "skill_catalog"
+        || update.type === "skill_invocation_accepted"
+        || update.type === "skill_invocation_rejected"
+    ) {
+        // The command registry and the pending invocation own these replies.
+        return state;
+    }
     if (update.type === "session_model_settings_history") {
         return { ...state, modelSettingsHistory: update.entries };
     }

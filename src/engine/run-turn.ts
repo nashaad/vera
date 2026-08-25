@@ -162,6 +162,7 @@ import type { EffortPool } from "../model/effort-pool.ts";
 import { preflightEffort } from "./effort-coarsening.ts";
 import {
     defaultSessionPath,
+    sessionIsSubagent,
     SessionStore,
     type SessionCompactionDiagnostics,
     type SessionDeliveryEntry,
@@ -658,6 +659,12 @@ export async function runHeadlessLoop(
         ...(router.listAgents === undefined
             ? {}
             : { listAgents: router.listAgents }),
+        ...(router.listSkills === undefined
+            ? {}
+            : { listSkills: router.listSkills }),
+        ...(router.invokeSkill === undefined
+            ? {}
+            : { invokeSkill: router.invokeSkill }),
         ...(router.updateAgentDefaultPair === undefined
             ? {}
             : { updateAgentDefaultPair: router.updateAgentDefaultPair }),
@@ -1159,7 +1166,7 @@ export async function runHeadlessLoop(
             data.toolEnv,
             instructionRoot.path,
             processRegistry,
-            store.header.parentId !== undefined,
+            sessionIsSubagent(store.header),
         ),
         instructionRoot,
         inbound,
@@ -1345,6 +1352,7 @@ export async function runTurn(
         state.firedNudges?.clear();
         state.toolRuntime.allowedTools = turnToolExecutionScope(wear);
         state.toolRuntime.allowedSkills = wear?.skills;
+        state.toolRuntime.userInvokedSkill = turn.userInvokedSkill;
         const offered = state.offerTools === false
             ? []
             : toolDefinitionsForCapabilities(

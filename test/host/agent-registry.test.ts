@@ -79,6 +79,46 @@ test("a missing workspace is a useful creation failure", async () => {
     }
 });
 
+test("legacy parent-only sessions cannot invoke skill slash commands", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-legacy-skill-"));
+    const sessionPath = join(root, "legacy-child.jsonl");
+    const skillDirectory = join(root, ".vera", "skills", "deploy");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(join(skillDirectory, "SKILL.md"), [
+        "---",
+        "name: deploy",
+        "description: Deploy the current service.",
+        "disable-model-invocation: true",
+        "---",
+        "Deploy it.",
+        "",
+    ].join("\n"), "utf8");
+    await SessionStore.create(sessionPath, {
+        sessionId: "legacy-child",
+        cwd: root,
+        parentId: "parent",
+    });
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+    });
+
+    try {
+        await registry.resume({ sessionPath });
+        expect(await registry.decideSkillInvocationFor(
+            "legacy-child",
+            "deploy",
+        )).toEqual({
+            allowed: false,
+            reason: "Skill slash commands are available only in top-level sessions.",
+        });
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("failed creation removes its unpublished session", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-create-failure-"));
     const sessionPath = join(root, "failed.jsonl");

@@ -137,6 +137,7 @@ import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
 import { ToolRuntime } from "../tools/runtime.ts";
 import {
     defaultSessionPath,
+    sessionIsSubagent,
     SessionStore,
     type SessionDelegation,
     type SessionSettingOrigin,
@@ -187,6 +188,12 @@ import {
     sessionAttachmentName,
 } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
+import {
+    decideSkillInvocation,
+    loadSkillCommandCatalog,
+    type SkillCommandCatalog,
+    type SkillInvocationDecision,
+} from "../skills/commands.ts";
 import {
     startWorker,
     type WorkerHandle,
@@ -2404,6 +2411,37 @@ export class AgentRegistry {
         };
     }
 
+    async listSkillsFor(id: string): Promise<SkillCommandCatalog> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return { skills: [], warnings: ["Skill commands are unavailable."] };
+        }
+        return loadSkillCommandCatalog({
+            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
+            ...(entry.agentWear?.skills === undefined
+                ? {}
+                : { allowedSkills: entry.agentWear.skills }),
+        });
+    }
+
+    async decideSkillInvocationFor(
+        id: string,
+        name: string,
+    ): Promise<SkillInvocationDecision> {
+        const entry = this.agents.get(id);
+        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
+            return { allowed: false, reason: `/${name} is unavailable.` };
+        }
+        return decideSkillInvocation({
+            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
+            name,
+            ...(entry.agentWear?.skills === undefined
+                ? {}
+                : { allowedSkills: entry.agentWear.skills }),
+            isSubagent: sessionIsSubagent(entry.store.header),
+        });
+    }
+
     private async agentCatalogFor(
         entry: RegisteredAgentEntry,
     ): Promise<AgentCatalog> {
@@ -3908,6 +3946,9 @@ export class AgentRegistry {
                         this.updateSessionPermissionMode(agent.id, mode),
                     wearAgent: (name) => this.wearAgentFor(agent.id, name),
                     listAgents: () => this.listAgentsFor(agent.id),
+                    listSkills: () => this.listSkillsFor(agent.id),
+                    invokeSkill: (name) =>
+                        this.decideSkillInvocationFor(agent.id, name),
                     updateAgentDefaultPair: (name, pair) =>
                         this.updateAgentDefaultPairFor(agent.id, name, pair),
                     poolAdd: (poolEntry, onStep, poolOptions) =>

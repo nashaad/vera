@@ -21,6 +21,8 @@ export const HOST_CAPABILITY_HARNESS_MESSAGES = "harness-messages.v1";
  * silently rewrites global defaults is worse than no strip.
  */
 export const HOST_CAPABILITY_SESSION_SCOPED_STATE = "session-scoped-state.v1";
+/** Trusted skill catalogs and per-turn user slash invocation. */
+export const HOST_CAPABILITY_SKILL_COMMANDS = "skills.commands.v1";
 /** Machine-wide work inbox: a snapshot on attach, then changes as they land. */
 export const HOST_CAPABILITY_WORK_INDEX = "work.index.v1";
 
@@ -33,6 +35,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
+    HOST_CAPABILITY_SKILL_COMMANDS,
     HOST_CAPABILITY_WORK_INDEX,
 ] as const;
 

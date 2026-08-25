@@ -36,12 +36,17 @@ export class ToolRuntime {
      */
     allowedSkills: readonly string[] | undefined;
     /**
+     * The skill a trusted user slash command invoked for this turn.
+     *
+     * Reset at every turn boundary. Prompt text never sets it, so a model or
+     * parent agent cannot mint the authority by spelling a command.
+     */
+    userInvokedSkill: string | undefined;
+    /**
      * True for a runtime built for a spawned subagent, set once at
-     * construction and never from anything a prompt says. Skills flagged
-     * disable-model-invocation refuse outright when this is true: prompt
-     * wording is not a usable signal for "a human asked for this" (a parent
-     * agent's spawn description reads exactly like a human's request), so
-     * the gate uses which code path built the runtime instead.
+     * construction and never from anything a prompt says. Invoke-only skills
+     * refuse outright when this is true; top-level turns additionally require
+     * `userInvokedSkill` from the trusted client-command path.
      */
     readonly isSubagent: boolean;
     /** Durable session provenance, never inferred from prompt text. */
@@ -78,6 +83,7 @@ export class ToolRuntime {
             this.processes = processes;
         }
         this.allowedSkills = undefined;
+        this.userInvokedSkill = undefined;
         this.allowedTools = undefined;
     }
 

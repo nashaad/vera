@@ -253,6 +253,18 @@ export interface ListAgentsCommand {
     readonly requestId: string;
 }
 
+export interface ListSkillsCommand {
+    readonly type: "list_skills";
+    readonly requestId: string;
+}
+
+export interface InvokeSkillCommand {
+    readonly type: "invoke_skill";
+    readonly requestId: string;
+    readonly name: string;
+    readonly argumentsText: string;
+}
+
 /**
  * The one writer into an agent file, and it writes one key.
  *
@@ -459,6 +471,8 @@ export type ClientCommand =
     | UpdateSessionPermissionModeCommand
     | WearAgentCommand
     | ListAgentsCommand
+    | ListSkillsCommand
+    | InvokeSkillCommand
     | UpdateAgentDefaultPairCommand
     | ConsultCommand
     | PoolAddCommand
@@ -807,6 +821,35 @@ export interface AgentRejectedUpdate {
     readonly seq: number;
 }
 
+export interface SkillCatalogUpdate {
+    readonly type: "skill_catalog";
+    readonly requestId: string;
+    readonly skills: readonly {
+        readonly name: string;
+        readonly description: string;
+        readonly disableModelInvocation: boolean;
+    }[];
+    readonly warnings: readonly string[];
+    readonly seq: number;
+}
+
+export interface SkillInvocationAcceptedUpdate {
+    readonly type: "skill_invocation_accepted";
+    readonly requestId: string;
+    readonly name: string;
+    readonly prompt: string;
+    readonly queued: boolean;
+    readonly seq: number;
+}
+
+export interface SkillInvocationRejectedUpdate {
+    readonly type: "skill_invocation_rejected";
+    readonly requestId: string;
+    readonly name: string;
+    readonly reason: string;
+    readonly seq: number;
+}
+
 /**
  * Every model setting the session has held, oldest first.
  *
@@ -1016,6 +1059,9 @@ export type AgentUpdate =
     | AgentWornUpdate
     | AgentCatalogUpdate
     | AgentRejectedUpdate
+    | SkillCatalogUpdate
+    | SkillInvocationAcceptedUpdate
+    | SkillInvocationRejectedUpdate
     | ModelSettingsRejectedUpdate
     | PoolAdmissionProgressUpdate
     | PoolAdmissionResultUpdate
@@ -1213,6 +1259,23 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
     }
     if (command.type === "list_agents" && isRequestId(command.requestId)) {
         return { type: "list_agents", requestId: command.requestId };
+    }
+    if (command.type === "list_skills" && isRequestId(command.requestId)) {
+        return { type: "list_skills", requestId: command.requestId };
+    }
+    if (
+        command.type === "invoke_skill"
+        && isRequestId(command.requestId)
+        && typeof command.name === "string"
+        && /^[a-z0-9]+(?:-[a-z0-9]+)*$/.test(command.name)
+        && typeof command.argumentsText === "string"
+    ) {
+        return {
+            type: "invoke_skill",
+            requestId: command.requestId,
+            name: command.name,
+            argumentsText: command.argumentsText,
+        };
     }
     if (
         command.type === "update_agent_default_pair"
@@ -1759,6 +1822,43 @@ export function createProtocolEncoder(
             sender.send({
                 type: "agent_rejected",
                 requestId: event.requestId,
+                reason: event.reason,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "skill_catalog") {
+            seq += 1;
+            sender.send({
+                type: "skill_catalog",
+                requestId: event.requestId,
+                skills: event.skills,
+                warnings: event.warnings,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "skill_invocation_accepted") {
+            seq += 1;
+            sender.send({
+                type: "skill_invocation_accepted",
+                requestId: event.requestId,
+                name: event.name,
+                prompt: event.prompt,
+                queued: event.queued,
+                seq,
+            });
+            return;
+        }
+
+        if (event.type === "skill_invocation_rejected") {
+            seq += 1;
+            sender.send({
+                type: "skill_invocation_rejected",
+                requestId: event.requestId,
+                name: event.name,
                 reason: event.reason,
                 seq,
             });

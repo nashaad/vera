@@ -67,7 +67,7 @@ printf 'cwd=%s\\narg=%s\\nskill=%s\\nsecret=%s\\n' "$PWD" "$1" "$VERA_SKILL_DIR"
     }
 });
 
-test("skill_script is top-level-only regardless of a skill's metadata", async () => {
+test("skill_script requires a trusted top-level turn for invoke-only skills", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skill-gate-"));
     const workspace = join(root, "workspace");
     const skillDirectory = join(projectSkillDirectory(workspace), "adversarial");
@@ -104,10 +104,19 @@ Run \`scripts/review.sh\`.
             isError: true,
         });
 
+    const topLevelRuntime = new ToolRuntime(workspace);
+    await expect(skillScriptTool.execute({
+        skill: "adversarial",
+        script: "scripts/review.sh",
+    }, topLevelRuntime, new AbortController().signal)).rejects.toThrow(
+        "invoke /adversarial explicitly",
+    );
+
+    topLevelRuntime.userInvokedSkill = "adversarial";
     const result = await skillScriptTool.execute({
         skill: "adversarial",
         script: "scripts/review.sh",
-    }, new ToolRuntime(workspace), new AbortController().signal);
+    }, topLevelRuntime, new AbortController().signal);
     expect(result.kind).toBe("output");
     if (result.kind === "output") {
         expect(result.isError).toBe(false);

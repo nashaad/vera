@@ -54,6 +54,11 @@ export interface SessionHeader {
     readonly startupProfile?: Exclude<StartupProfile, "default">;
 }
 
+/** Legacy and current delegated sessions share the same durable provenance. */
+export function sessionIsSubagent(header: SessionHeader): boolean {
+    return header.parentId !== undefined || header.delegation !== undefined;
+}
+
 export interface SessionDelegation {
     readonly kind: "subagent";
     readonly parentId: string;

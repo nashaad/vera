@@ -54,14 +54,29 @@ export const readTool: RegisteredTool = {
         const requestedLimit = optionalInteger(input, "limit", 1);
         const limit = Math.min(requestedLimit ?? READ_MAX_LINES, READ_MAX_LINES);
         const safePath = await resolveReadPath(context.workspace, path);
-        if (context.isSubagent && basename(safePath) === SKILL_FILENAME) {
+        if (basename(safePath) === SKILL_FILENAME) {
             const catalog = await loadSkillCatalog({
                 projectRoot: context.instructionRoot,
             });
             const skill = findSkillByPath(catalog, safePath);
+            if (
+                skill !== undefined
+                && context.allowedSkills !== undefined
+                && !context.allowedSkills.includes(skill.metadata.name)
+            ) {
+                return {
+                    kind: "output",
+                    output: `Skill ${skill.metadata.name} is not available to the active agent.`,
+                    isError: true,
+                };
+            }
             const refusal = skill === undefined
                 ? undefined
-                : invocationRefusal(skill.metadata, context.isSubagent);
+                : invocationRefusal(
+                    skill.metadata,
+                    context.isSubagent,
+                    context.userInvokedSkill,
+                );
             if (refusal !== undefined) {
                 return { kind: "output", output: refusal, isError: true };
             }

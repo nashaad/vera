@@ -58,6 +58,152 @@ test("the inbound router queues prompts and aborts only the active turn", async 
     ]);
 });
 
+test("skill commands list facts and mint authority for exactly their turn", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        listSkills: async () => ({
+            skills: [{
+                name: "deploy",
+                description: "Deploy the current service.",
+                disableModelInvocation: true,
+            }],
+            warnings: [],
+        }),
+        invokeSkill: async (name) => name === "deploy"
+            ? { allowed: true }
+            : { allowed: false, reason: `No skill named ${name}` },
+    });
+
+    channel.client.send({ type: "list_skills", requestId: "skills-1" });
+    expect(await channel.client.receive()).toEqual({
+        type: "skill_catalog",
+        requestId: "skills-1",
+        skills: [{
+            name: "deploy",
+            description: "Deploy the current service.",
+            disableModelInvocation: true,
+        }],
+        warnings: [],
+        seq: 1,
+    });
+
+    channel.client.send({
+        type: "invoke_skill",
+        requestId: "invoke-1",
+        name: "deploy",
+        argumentsText: "staging",
+    });
+    const invokedTurn = router.startTurn();
+    expect(await channel.client.receive()).toEqual({
+        type: "skill_invocation_accepted",
+        requestId: "invoke-1",
+        name: "deploy",
+        prompt: "/deploy staging",
+        queued: false,
+        seq: 2,
+    });
+    const invoked = await invokedTurn;
+    expect(invoked.prompt).toEqual({
+        type: "prompt",
+        content: "/deploy staging",
+    });
+    expect(invoked.userInvokedSkill).toBe("deploy");
+    router.finishTurn();
+
+    channel.client.send({ type: "prompt", content: "next" });
+    const next = await router.startTurn();
+    expect(next.userInvokedSkill).toBeUndefined();
+    router.finishTurn();
+});
+
+test("a refused skill command terminates and the next prompt still runs", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const router = new InboundCommandRouter(channel.engine, events, {
+        invokeSkill: async () => ({
+            allowed: false,
+            reason: "No skill named missing is available to this agent.",
+        }),
+    });
+
+    channel.client.send({
+        type: "invoke_skill",
+        requestId: "invoke-missing",
+        name: "missing",
+        argumentsText: "",
+    });
+    const nextTurn = router.startTurn();
+    expect(await channel.client.receive()).toEqual({
+        type: "skill_invocation_rejected",
+        requestId: "invoke-missing",
+        name: "missing",
+        reason: "No skill named missing is available to this agent.",
+        seq: 1,
+    });
+
+    channel.client.send({ type: "prompt", content: "still connected" });
+    const turn = await nextTurn;
+    expect(turn.prompt.content).toBe("still connected");
+    router.finishTurn();
+});
+
+test("skill commands validate after earlier queued wear changes", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    events.subscribe(createProtocolEncoder(channel.engine));
+    let worn = "alpha";
+    const router = new InboundCommandRouter(channel.engine, events, {
+        wearAgent: async (name) => {
+            worn = name;
+            return { name };
+        },
+        invokeSkill: async (name) => worn === "alpha" && name === "alpha-only"
+            ? { allowed: true }
+            : {
+                allowed: false,
+                reason: `No skill named ${name} is available to ${worn}.`,
+            },
+    });
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "busy" });
+    await firstTurn;
+    channel.client.send({
+        type: "wear_agent",
+        requestId: "wear-beta",
+        name: "beta",
+    });
+    channel.client.send({
+        type: "invoke_skill",
+        requestId: "invoke-alpha",
+        name: "alpha-only",
+        argumentsText: "",
+    });
+    router.finishTurn();
+
+    const nextTurn = router.startTurn();
+    expect(await channel.client.receive()).toEqual({
+        type: "agent_worn",
+        requestId: "wear-beta",
+        name: "beta",
+        seq: 1,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "skill_invocation_rejected",
+        requestId: "invoke-alpha",
+        name: "alpha-only",
+        reason: "No skill named alpha-only is available to beta.",
+        seq: 2,
+    });
+
+    channel.client.send({ type: "prompt", content: "after rejection" });
+    expect((await nextTurn).prompt.content).toBe("after rejection");
+    router.finishTurn();
+});
+
 test("a delivery trigger waits behind the active turn without a fake prompt", async () => {
     const channel = createInProcessChannel();
     const internalClient = channel.client as unknown as MessageChannel<

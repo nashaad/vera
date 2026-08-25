@@ -250,7 +250,7 @@ test("offset and limit are 1-indexed and refuse 0", async () => {
     }
 });
 
-test("a subagent is refused a disable-model-invocation skill's SKILL.md, a top-level session is not", async () => {
+test("disable-model-invocation requires the trusted top-level skill turn", async () => {
     const cwd = await workspace();
     try {
         const skillDir = join(cwd, ".vera", "skills", "adversarial");
@@ -291,14 +291,41 @@ Body.
             undefined,
             cwd,
         );
-        const allowed = await readTool.execute(
+        const automatic = await readTool.execute(
             { path: skillPath },
             topLevelRuntime,
             new AbortController().signal,
         );
-        expect(allowed.kind).toBe("output");
-        if (allowed.kind === "output") {
-            expect(allowed.isError).toBe(false);
+        expect(automatic.kind).toBe("output");
+        if (automatic.kind === "output") {
+            expect(automatic.isError).toBe(true);
+            expect(automatic.output).toContain("invoke /adversarial explicitly");
+        }
+
+        topLevelRuntime.allowedSkills = [];
+        topLevelRuntime.userInvokedSkill = "adversarial";
+        const disallowed = await readTool.execute(
+            { path: skillPath },
+            topLevelRuntime,
+            new AbortController().signal,
+        );
+        expect(disallowed.kind).toBe("output");
+        if (disallowed.kind === "output") {
+            expect(disallowed.isError).toBe(true);
+            expect(disallowed.output).toContain(
+                "not available to the active agent",
+            );
+        }
+
+        topLevelRuntime.allowedSkills = ["adversarial"];
+        const explicitlyInvoked = await readTool.execute(
+            { path: skillPath },
+            topLevelRuntime,
+            new AbortController().signal,
+        );
+        expect(explicitlyInvoked.kind).toBe("output");
+        if (explicitlyInvoked.kind === "output") {
+            expect(explicitlyInvoked.isError).toBe(false);
         }
     } finally {
         await rm(cwd, { recursive: true, force: true });

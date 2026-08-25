@@ -24,8 +24,8 @@ export interface SkillMetadata {
      * `disable-model-invocation: true` in frontmatter. The skill still
      * appears in the catalog so an explicit request can name it, but the
      * catalog marks it invoke-only instead of describing it as something to
-     * reach for on judgment. There is no runtime gate behind this yet: it is
-     * a stronger prompt, not an enforced boundary.
+     * reach for on judgment. Reads and scripts require the trusted slash
+     * invocation carried by the current top-level turn.
      */
     readonly disableModelInvocation: boolean;
     readonly extra: Readonly<Record<string, unknown>>;

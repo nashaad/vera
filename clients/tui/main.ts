@@ -64,6 +64,7 @@ import {
     type AgentUpdate,
     type AttachmentRef,
     type ClientCommand,
+    type SkillCatalogUpdate,
     type UiRequestUpdate,
 } from "../../src/engine/protocol.ts";
 import type {
@@ -166,6 +167,7 @@ import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_HARNESS_MESSAGES,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
+    HOST_CAPABILITY_SKILL_COMMANDS,
 } from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
@@ -292,6 +294,7 @@ import {
     createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
     registerExtensionTuiCommands,
+    registerSkillTuiCommands,
     renderTuiArgumentSuggestions,
     renderTuiCommandSuggestions,
     SLASH_COMPACT_WIDTH,
@@ -1369,6 +1372,7 @@ export async function startTui(
         string,
         (catalog: TuiAgentCatalog | undefined) => void
     >();
+    const pendingSkillInvocations = new Map<string, string>();
     let messageInterceptPending = false;
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
@@ -1452,6 +1456,9 @@ export async function startTui(
     let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
     let disposeHostExtensionCommands = (): void => {};
     let extensionCommandsGeneration = 0;
+    let disposeSkillCommands = (): void => {};
+    let skillCatalogRequestId: string | undefined;
+    const announcedSkillCommandNotices = new Set<string>();
     let confirmingFullAccess = false;
     let confirmingFullAccessAgent: TuiAgentClient | undefined;
     /**
@@ -1581,6 +1588,7 @@ export async function startTui(
         dependencies.client.listExtensionCommands !== undefined
         && dependencies.client.failed !== true
         && dependencies.client.viewOnly !== true;
+    let skillCommandsLoading = supportsSkillCommands(dependencies.client);
     let runningBackgroundAgents = 0;
     let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
@@ -4088,6 +4096,9 @@ export async function startTui(
         stopWatchingBackgroundAgents = undefined;
         stopWatchingWorkIndex?.();
         stopWatchingWorkIndex = undefined;
+        disposeSkillCommands();
+        disposeSkillCommands = () => {};
+        pendingSkillInvocations.clear();
         process.stdin.off("data", watchTerminalFocus);
         writeTerminal(FOCUS_REPORTING_OFF);
         const picker = pendingExtensionPicker;
@@ -5674,6 +5685,7 @@ export async function startTui(
     void receiveAgentUpdates();
     if (client.failed !== true && client.viewOnly !== true) {
         void loadExtensionCommands();
+        requestSkillCommands();
         requestSessionSettings();
     }
     void restorePersistedAgentPane();
@@ -5926,12 +5938,14 @@ export async function startTui(
             : commandRegistry.dispatch(prompt);
         if (
             commandAction === undefined
-            && extensionCommandsLoading
+            && (extensionCommandsLoading || skillCommandsLoading)
             && prompt.startsWith("/")
         ) {
             state = appendTuiNotice(
                 state,
-                "Extension commands are still loading",
+                skillCommandsLoading
+                    ? "Commands are still loading"
+                    : "Extension commands are still loading",
             );
             renderState();
             return;
@@ -6465,6 +6479,36 @@ export async function startTui(
                     + " session, or ctrl+c to quit.",
             );
             renderState();
+            return;
+        }
+        if (commandAction?.type === "invoke_skill") {
+            const requestId = randomUUID();
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            pendingSkillInvocations.set(requestId, prompt);
+            promptSubmitting = true;
+            renderCommandSuggestions();
+            renderStatus();
+            void client.send({
+                type: "invoke_skill",
+                requestId,
+                name: commandAction.name,
+                argumentsText: commandAction.argumentsText,
+            }).catch((error) => {
+                if (!pendingSkillInvocations.delete(requestId) || shuttingDown) {
+                    return;
+                }
+                promptSubmitting = pendingSkillInvocations.size > 0;
+                if (composer.plainText.length === 0) {
+                    composer.setComposerText(prompt);
+                    renderCommandSuggestions();
+                }
+                state = appendTuiError(
+                    state,
+                    error instanceof Error ? error.message : String(error),
+                );
+                renderState();
+            });
             return;
         }
         if (commandAction?.type === "update_model") {
@@ -7529,6 +7573,17 @@ export async function startTui(
                     renderState();
                     continue;
                 }
+                if (update.type === "skill_catalog") {
+                    receiveSkillCatalog(update);
+                    continue;
+                }
+                if (
+                    update.type === "skill_invocation_accepted"
+                    || update.type === "skill_invocation_rejected"
+                ) {
+                    receiveSkillInvocation(update);
+                    continue;
+                }
                 state = applyAgentUpdate(state, update);
                 if (isSettingsRetryTrigger(update)) {
                     retryMissingAgentSettings(source, state);
@@ -7562,6 +7617,13 @@ export async function startTui(
                 }
                 if (update.type === "agent_worn" && agentCatalog !== undefined) {
                     agentCatalog = { ...agentCatalog, worn: update.name };
+                }
+                if (
+                    source === client
+                    && (update.type === "agent_worn"
+                        || update.type === "turn_finished")
+                ) {
+                    requestSkillCommands();
                 }
                 if (
                     update.type === "pool_admission_result"
@@ -7802,6 +7864,7 @@ export async function startTui(
                 renderCoalescer.request(update.type);
 
                 if (update.type === "agent_failed") {
+                    failPendingSkillInvocations();
                     rejectPendingExtensionSettingsFor(
                         client,
                         new Error(update.detail),
@@ -7825,6 +7888,7 @@ export async function startTui(
             // A pump left behind by a switch fails on its closed connection.
             // That is the switch working, not the new session losing its host.
             if (generation === clientGeneration) {
+                failPendingSkillInvocations();
                 rejectPendingExtensionSettingsFor(client, error);
                 reportConnectionError(error);
             }
@@ -8083,6 +8147,12 @@ export async function startTui(
             if (generation !== extensionCommandsGeneration) {
                 return;
             }
+            // Extensions own their names ahead of skills. A skill catalog can
+            // arrive first on startup, so clear it before rebuilding the
+            // extension generation and request it again afterwards.
+            skillCatalogRequestId = undefined;
+            disposeSkillCommands();
+            disposeSkillCommands = () => {};
             disposeHostExtensionCommands();
             const disposers: (() => void)[] = [];
             hostExtensionCommands = commands;
@@ -8126,6 +8196,7 @@ export async function startTui(
             }
             renderCommandSuggestions();
             renderState();
+            requestSkillCommands();
         } catch (error) {
             if (shuttingDown || generation !== extensionCommandsGeneration) {
                 return;
@@ -8142,6 +8213,116 @@ export async function startTui(
             if (generation === extensionCommandsGeneration) {
                 extensionCommandsLoading = false;
             }
+        }
+    }
+
+    function supportsSkillCommands(target: TuiAgentClient): boolean {
+        return target.failed !== true
+            && target.viewOnly !== true
+            && target.supportsHostCapability?.(
+                HOST_CAPABILITY_SKILL_COMMANDS,
+            ) === true;
+    }
+
+    function requestSkillCommands(): void {
+        if (!supportsSkillCommands(client)) {
+            skillCatalogRequestId = undefined;
+            skillCommandsLoading = false;
+            disposeSkillCommands();
+            disposeSkillCommands = () => {};
+            return;
+        }
+        const requestId = randomUUID();
+        skillCatalogRequestId = requestId;
+        skillCommandsLoading = true;
+        void client.send({ type: "list_skills", requestId }).catch((error) => {
+            if (shuttingDown || skillCatalogRequestId !== requestId) return;
+            skillCatalogRequestId = undefined;
+            skillCommandsLoading = false;
+            state = appendTuiError(
+                state,
+                `Could not load skill commands: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
+            );
+            renderState();
+        });
+    }
+
+    function receiveSkillCatalog(update: SkillCatalogUpdate): void {
+        if (update.requestId !== skillCatalogRequestId) return;
+        skillCatalogRequestId = undefined;
+        skillCommandsLoading = false;
+        disposeSkillCommands();
+        const registration = registerSkillTuiCommands(
+            commandRegistry,
+            update.skills,
+        );
+        disposeSkillCommands = registration.dispose;
+        for (const notice of [...update.warnings, ...registration.warnings]) {
+            if (announcedSkillCommandNotices.has(notice)) continue;
+            announcedSkillCommandNotices.add(notice);
+            state = appendTuiNotice(state, notice);
+        }
+        if (commandPalette !== undefined) {
+            commandPalette = updateTuiCommandPaletteCommands(
+                commandPalette,
+                registeredPaletteEntries(),
+            );
+        }
+        if (help !== undefined) {
+            help = updateTuiHelpCommands(
+                help,
+                coreHelpCommands(),
+                hostExtensionCommands,
+            );
+        }
+        renderCommandSuggestions();
+        renderState();
+    }
+
+    function receiveSkillInvocation(
+        update: Extract<
+            AgentUpdate,
+            {
+                readonly type:
+                    | "skill_invocation_accepted"
+                    | "skill_invocation_rejected";
+            }
+        >,
+    ): void {
+        const prompt = pendingSkillInvocations.get(update.requestId);
+        if (prompt === undefined) return;
+        pendingSkillInvocations.delete(update.requestId);
+        promptSubmitting = pendingSkillInvocations.size > 0;
+        if (update.type === "skill_invocation_rejected") {
+            if (composer.plainText.length === 0) {
+                composer.setComposerText(prompt);
+                renderCommandSuggestions();
+            }
+            state = appendTuiError(state, update.reason);
+            renderState();
+            return;
+        }
+        state = update.queued
+            ? queueTuiPrompt(state, update.prompt)
+            : beginTuiTurn(state, update.prompt);
+        adoptFallbackSessionTitle(update.prompt);
+        if (!update.queued && workingSince === undefined) {
+            workingSince = Date.now();
+            phaseSince = workingSince;
+            activity = "thinking";
+        }
+        renderState();
+    }
+
+    function failPendingSkillInvocations(): void {
+        const prompt = pendingSkillInvocations.values().next().value;
+        pendingSkillInvocations.clear();
+        promptSubmitting = false;
+        if (prompt !== undefined && composer.plainText.length === 0) {
+            composer.setComposerText(prompt);
+            renderCommandSuggestions();
         }
     }
 
@@ -12757,9 +12938,14 @@ export async function startTui(
         disposeHostExtensionCommands();
         disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
+        skillCatalogRequestId = undefined;
+        disposeSkillCommands();
+        disposeSkillCommands = () => {};
+        pendingSkillInvocations.clear();
         extensionCommandsLoading = next.listExtensionCommands !== undefined
             && next.failed !== true
             && next.viewOnly !== true;
+        skillCommandsLoading = supportsSkillCommands(next);
         watchBackgroundAgents(next);
         watchWorkIndex(next);
         sessionTitle = undefined;
@@ -12784,6 +12970,7 @@ export async function startTui(
         void receiveAgentUpdates();
         if (next.failed !== true && next.viewOnly !== true) {
             void loadExtensionCommands();
+            requestSkillCommands();
             requestSessionSettings();
         }
     }
@@ -13181,6 +13368,16 @@ export async function startTui(
             return;
         }
         if (sessionSwitchPending) {
+            return;
+        }
+        if (!openingInSidebar && promptSubmitting) {
+            state = appendTuiNotice(
+                state,
+                "Wait for the skill command to be accepted or rejected before switching conversations.",
+            );
+            settingsPickerView.box.visible = false;
+            focusActiveSurface();
+            renderState();
             return;
         }
         // Only the first hop is remembered: /back always returns to where
@@ -14506,7 +14703,9 @@ export async function startTui(
         } else if (pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
         } else if (promptSubmitting) {
-            lifecycleHint = "sending prompt with image…";
+            lifecycleHint = pendingSkillInvocations.size > 0
+                ? "invoking skill…"
+                : "sending prompt with image…";
         } else if (extensionCommandPending) {
             lifecycleHint =
                 `${extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
