@@ -17,9 +17,15 @@ export type TuiActivityAnimation =
 const DEFAULT_PULSE_WIDTH = 7;
 const DEFAULT_SYMMETRIC_WAVE_WIDTH = 5;
 const FOCUS_CARET_FRAME_HOLD = 3;
-const BRAILLE_FRAMES = [
+export const BRAILLE_FRAMES = [
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
 ] as const;
+
+/** One cell of the braille spinner, for a rail row that is working. */
+export function tuiBrailleSpinner(frame: number): string {
+    return BRAILLE_FRAMES[positiveModulo(frame, BRAILLE_FRAMES.length)] ?? "⠋";
+}
+
 const SPOKE_FRAMES = ["│", "/", "─", "\\"] as const;
 
 /** A terminal-native focus caret whose brackets keep the title still. */
