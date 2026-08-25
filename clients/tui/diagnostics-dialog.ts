@@ -13,13 +13,17 @@ import {
     dialogHeaderNode,
 } from "./dialog-chrome.ts";
 import {
+    TUI_ACCENT,
+    TUI_DANGER,
     TUI_MUTED,
+    TUI_NOTICE,
     TUI_PANEL,
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 import type { TuiDiagnosticsScope } from "./diagnostics.ts";
 import { tuiBindingId } from "./keymap.ts";
+import { doctorLineEmphasis } from "../process-doctor.ts";
 
 export interface TuiDiagnosticsDialogState {
     readonly text: string;
@@ -55,6 +59,8 @@ export interface TuiDiagnosticsDialogOptions {
     readonly sections?: ReadonlySet<string>;
     readonly skipFirstLine?: boolean;
     readonly showScopeTabs?: boolean;
+    /** Doctor reports paint Result / stray / role labels; copy stays plain. */
+    readonly emphasis?: "doctor";
 }
 
 export function handleTuiDiagnosticsDialogKey(
@@ -180,6 +186,7 @@ export function createTuiDiagnosticsDialogView(
             bodyText.content = styledDiagnostics(state.text, {
                 sections: options.sections,
                 skipFirstLine: options.skipFirstLine,
+                emphasis: options.emphasis,
             });
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
@@ -236,6 +243,7 @@ const DIAGNOSTIC_SECTIONS = new Set([
 interface DiagnosticsStyleOptions {
     readonly sections?: ReadonlySet<string> | undefined;
     readonly skipFirstLine?: boolean | undefined;
+    readonly emphasis?: "doctor" | undefined;
 }
 
 /** Low-contrast report text with just enough hierarchy to scan quickly. */
@@ -249,13 +257,51 @@ export function styledDiagnostics(
     const sections = options.sections ?? DIAGNOSTIC_SECTIONS;
     return new StyledText(lines.flatMap((line, index) => {
         const heading = sections.has(line) || line.startsWith("### ");
-        const content = heading
-            ? bold(fg(TUI_TEXT)(line.replace(/^#{2,3} /, "")))
-            : fg(TUI_MUTED)(line);
+        const chunks = options.emphasis === "doctor"
+            ? styledDoctorLine(line, heading)
+            : [
+                heading
+                    ? bold(fg(TUI_TEXT)(line.replace(/^#{2,3} /, "")))
+                    : fg(TUI_MUTED)(line),
+            ];
         return index === lines.length - 1
-            ? [content]
-            : [content, fg(TUI_MUTED)("\n")];
+            ? chunks
+            : [...chunks, fg(TUI_MUTED)("\n")];
     }));
+}
+
+const INVENTORY_ROLE_LINE =
+    /^(?<indent>\s+)(?<role>TUI|host|worker|supervisor|watchdog)(?<rest>\s+PID \d+.*)$/;
+
+function styledDoctorLine(line: string, heading: boolean) {
+    if (heading || doctorLineEmphasis(line) === "heading") {
+        return [bold(fg(TUI_TEXT)(line))];
+    }
+    const tone = doctorLineEmphasis(line);
+    if (tone === "success") return [bold(fg(TUI_SUCCESS)(line))];
+    if (tone === "danger") return [fg(TUI_DANGER)(line)];
+    if (tone === "tally") return [fg(TUI_TEXT)(line)];
+    if (tone === "role") {
+        const match = INVENTORY_ROLE_LINE.exec(line);
+        const role = match?.groups?.role;
+        if (match !== null && role !== undefined) {
+            return [
+                fg(TUI_MUTED)(match.groups?.indent ?? ""),
+                fg(inventoryRoleColor(role))(role),
+                fg(TUI_MUTED)(match.groups?.rest ?? ""),
+            ];
+        }
+    }
+    return [fg(TUI_MUTED)(line)];
+}
+
+function inventoryRoleColor(role: string): string {
+    if (role === "TUI") return TUI_ACCENT;
+    if (role === "host") return TUI_TEXT;
+    if (role === "worker") return TUI_SUCCESS;
+    if (role === "supervisor") return TUI_NOTICE;
+    if (role === "watchdog") return TUI_ACCENT;
+    return TUI_TEXT;
 }
 
 /** Keeps copied diagnostics as Markdown while presenting native terminal text. */

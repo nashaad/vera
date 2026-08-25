@@ -21,6 +21,7 @@ export function createTuiNewSessionScenario(options: {
     readonly createTimeout?: boolean;
     readonly closeFailure?: boolean;
     readonly otherInteractiveAttachments?: number;
+    readonly succeedFirst?: boolean;
 }): TuiNewSessionScenario {
     let detached = false;
     let nextDetached = false;
@@ -58,7 +59,7 @@ export function createTuiNewSessionScenario(options: {
                 if (options.createTimeout === true) {
                     return new Promise(() => {});
                 }
-                if (createAttempts === 1) {
+                if (createAttempts === 1 && options.succeedFirst !== true) {
                     throw new Error("host refused creation");
                 }
                 await Bun.sleep(400);

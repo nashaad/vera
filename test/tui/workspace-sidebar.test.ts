@@ -118,6 +118,28 @@ describe("the registry listing", () => {
         }]);
     });
 
+    test("a parked worker is active even when live is false", () => {
+        const agents: readonly RegisteredAgentSummary[] = [{
+            id: "parked",
+            workspace: "/w/one",
+            session_path: "/sessions/parked.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+            worker_pid: 4242,
+            title: "parked",
+            updated_at: "2026-08-22T11:00:00.000Z",
+        }];
+        const sessions = workspaceSidebarSessions(agents);
+        expect(sessions[0]?.workerPid).toBe(4242);
+        expect(press(open(sessions), "return").action).toEqual({
+            kind: "open_session",
+            session_id: "parked",
+            session_path: "/sessions/parked.jsonl",
+            active: true,
+        });
+    });
+
     test("hides empty history but keeps an empty live session", () => {
         const agent = (
             id: string,
@@ -358,7 +380,7 @@ describe("the rail", () => {
     });
 
     test("a preferred width is clamped before either column becomes unusable", () => {
-        expect(workspaceRailColumns(120, 20)).toBe(26);
+        expect(workspaceRailColumns(120, 20)).toBe(28);
         expect(workspaceRailColumns(120, 500)).toBe(83);
         expect(clampWorkspaceRailColumns(58.4, 120)).toBe(58);
         expect(workspaceRailColumns(60, 40)).toBeUndefined();
@@ -410,6 +432,26 @@ describe("the rail", () => {
         expect(chat.lines.find((line) => line.rowId === "a")?.text)
             .toContain("›");
         expect(chat.cursorLine).toBe(focused.cursorLine);
+    });
+
+    test("draws folder headings in the heading tone and gaps the groups", () => {
+        const state = open([
+            session("a", { workspace: "/w/one", live: true, status: "working" }),
+            session("b", {
+                workspace: "/w/two",
+                live: true,
+                status: "working",
+                updatedAt: "2026-08-22T10:00:00.000Z",
+            }),
+        ], [], "a");
+        const focused = workspaceSidebarViewState(state, 120, NOW, 37, true);
+        const headings = focused.lines.filter((line) => line.tone === "heading");
+        expect(headings.map((line) => line.text)).toEqual(["one", "two"]);
+        const first = focused.lines.findIndex((line) => line.text === "one");
+        const second = focused.lines.findIndex((line) => line.text === "two");
+        expect(focused.lines[second - 1]?.text).toBe("");
+        expect(second).toBeGreaterThan(first);
+        expect(focused.hint).toBe("");
     });
 });
 
@@ -465,6 +507,7 @@ describe("the cursor", () => {
             kind: "open_session",
             session_id: "b",
             session_path: "/sessions/b.jsonl",
+            active: false,
         });
     });
 
@@ -476,6 +519,11 @@ describe("the cursor", () => {
     test("i returns to chat and leaves the rail up", () => {
         expect(press(open([session("a")]), "i").action)
             .toEqual({ kind: "close" });
+    });
+
+    test("ctrl+n starts a new chat without opening a row", () => {
+        expect(press(open([session("a")]), "n", { ctrl: true }))
+            .toEqual({ action: { kind: "new_session" }, handled: true });
     });
 
     test("a bare key it does not use is swallowed, a chord is not", () => {
@@ -493,6 +541,7 @@ describe("clicking a row", () => {
             kind: "open_session",
             session_id: "b",
             session_path: "/sessions/b.jsonl",
+            active: false,
         });
     });
 
@@ -537,6 +586,7 @@ describe("the digits", () => {
             kind: "open_session",
             session_id: "b",
             session_path: "/sessions/b.jsonl",
+            active: false,
         });
     });
 });
@@ -665,7 +715,7 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer)
-            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i chat · esc hide");
+            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · ctrl+n new · i chat · esc hide");
         expect(view.title).toBe("      Agent sidebar · 1");
     });
 
@@ -677,7 +727,7 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓/jk ^d^u ⏎ 1-9 p i esc");
+        expect(view.footer).toBe("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc");
         expect(view.footer.length)
             .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).length)
