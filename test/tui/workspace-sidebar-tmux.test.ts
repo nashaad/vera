@@ -232,6 +232,26 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(opened).toContain("Agent sidebar ·");
 }, 60_000);
 
+/** kitty CSI u for ctrl+shift+] (`]` is codepoint 93, modifiers 6). */
+const CTRL_SHIFT_RIGHT_BRACKET = Array.from(
+    "\u001b[93;6u",
+    (character) => character.charCodeAt(0).toString(16).padStart(2, "0"),
+);
+
+test.skipIf(!tmuxAvailable)("ctrl+shift+] opens the next live session from chat", async () => {
+    const opened = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_SHIFT_RIGHT_BRACKET);
+        return await tui.paneWhere((value) =>
+            compact(value).includes("/sessions/")
+            && !compact(value).includes("/sessions/work-tab-child.jsonl")
+        );
+    });
+
+    expect(compact(opened)).toMatch(/\/sessions\/[a-z0-9-]+\.jsonl/);
+    expect(compact(opened)).not.toContain("/sessions/work-tab-child.jsonl");
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening", async () => {
     const CTRL_D = ["04"];
     const CTRL_U = ["15"];

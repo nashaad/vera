@@ -74,6 +74,8 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "cycle_agent_layout",
     "switch_pane",
     "toggle_workspace_sidebar",
+    "cycle_live_session_prev",
+    "cycle_live_session_next",
     // Not blind: the row moves under the pinned heading as the key is pressed,
     // and the side bar showing it is already on screen.
     "toggle_workspace_pin",
@@ -173,6 +175,10 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
         .toBe("toggle_tool_details");
     expect(tuiBindingId("model_picker", { name: "e", ctrl: true }))
         .toBe("open_providers");
+    expect(tuiBindingId("global", { name: "[", ctrl: true, shift: true }))
+        .toBe("cycle_live_session_prev");
+    expect(tuiBindingId("global", { name: "]", ctrl: true, shift: true }))
+        .toBe("cycle_live_session_next");
 });
 
 test("the unfocused keys reach the composer without shadowing its own tab", () => {
