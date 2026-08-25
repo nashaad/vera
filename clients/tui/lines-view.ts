@@ -107,6 +107,12 @@ export interface LinesView {
      * a fixed reservation eventually paints a rail across the input frame.
      */
     setBottomInset(rows: number): void;
+    /**
+     * How many list rows the card or rail can show right now, the same count
+     * `update` windows around the cursor. Movement keys that jump a half page
+     * read this rather than inventing a second measurement.
+     */
+    visibleRows(): number;
     update(state: LinesViewState): void;
 }
 
@@ -214,6 +220,15 @@ export function createTuiLinesView(
         setBottomInset(rows): void {
             bottomInset = Math.max(0, rows);
             applyBottomInset();
+        },
+        visibleRows(): number {
+            return listWindowRows(
+                dialogBoxHeight(
+                    renderer,
+                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
+                ) - bottomInset,
+                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
+            );
         },
         setRail(columns): void {
             if (rail === columns) return;

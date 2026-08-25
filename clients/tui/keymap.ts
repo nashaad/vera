@@ -102,6 +102,12 @@ const PICKER_SCOPES: readonly TuiKeyScope[] = [
     "session_picker",
 ];
 
+/** Half-page movement only: the workspace list uses the same chords. */
+const HALF_PAGE_IDS: ReadonlySet<string> = new Set([
+    "half_page_down",
+    "half_page_up",
+]);
+
 export interface TuiBinding {
     readonly id: string;
     /** Chords in the `ctrl+shift+name` form that `tuiChord` produces. */
@@ -843,7 +849,13 @@ function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
     if (binding.scope === "global") {
         return true;
     }
-    return binding.scope === "picker" && PICKER_SCOPES.includes(scope);
+    if (binding.scope === "picker" && PICKER_SCOPES.includes(scope)) {
+        return true;
+    }
+    // The workspace rail is a list, not a settings pane, so it inherits only
+    // half-page movement. Stuffing it into PICKER_SCOPES would also inherit
+    // every later picker chord.
+    return HALF_PAGE_IDS.has(binding.id) && scope === "workspace";
 }
 
 /** Whether two scopes can be active at once, so a chord in both is ambiguous. */

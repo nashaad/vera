@@ -160,6 +160,22 @@ describe("row text", () => {
         expect(row.text.trimEnd().endsWith("2h ago")).toBe(true);
     });
 
+    test("the session on screen wraps its title in brackets", () => {
+        const result = layoutWorkspacePanel({
+            sessions: [session({
+                id: "a",
+                title: "fix the composer",
+                updatedAt: "2026-08-22T10:00:00.000Z",
+            })],
+            columns: 120,
+            now: NOW,
+            currentId: "a",
+        });
+        const row = sessionRows(result)[0]!;
+        expect(row.text).toContain("[ fix the composer ]");
+        expect(row.text).not.toContain("(here)");
+    });
+
     test("medium drops the age and truncates the title", () => {
         const result = layout([
             session({

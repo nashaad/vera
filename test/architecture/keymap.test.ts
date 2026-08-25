@@ -288,6 +288,18 @@ test("the workspace chords resolve to their own bindings", () => {
     expect(WORKSPACE_JUMP_IDS).toHaveLength(9);
 });
 
+test("the workspace list inherits picker half-page movement", () => {
+    expect(tuiBindingId("workspace", { name: "d", ctrl: true }))
+        .toBe("half_page_down");
+    expect(tuiBindingId("workspace", { name: "u", ctrl: true }))
+        .toBe("half_page_up");
+    expect(tuiChordOwner("ctrl+d", "workspace")?.id).toBe("half_page_down");
+    // Other picker chords stay off the rail, so a later pane-only key does
+    // not become a workspace key by descent.
+    expect(tuiBindingId("workspace", { name: "s", ctrl: true }))
+        .toBeUndefined();
+});
+
 test("a digit jumps only while the side bar holds focus", () => {
     for (const digit of ["1", "2", "3", "4", "5", "6", "7", "8", "9"]) {
         expect(tuiBindingId("workspace", { name: digit }))

@@ -12,8 +12,13 @@ import {
     workspaceJumpTarget,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
+    workspaceSidebarFooter,
+    workspaceSidebarHeader,
     workspaceSidebarText,
     workspaceSidebarViewState,
+    workspaceWorkingSet,
+    MIN_RAIL_COLUMNS,
+    WORKSPACE_IDLE_FEW,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -57,12 +62,14 @@ function press(
     state: WorkspaceSidebarState,
     name: string,
     modifiers: { ctrl?: boolean; shift?: boolean } = {},
+    viewportRows?: number,
 ) {
     return handleWorkspaceSidebarKey(
         state,
         { name, ...modifiers },
         NOW,
         COLUMNS,
+        viewportRows,
     );
 }
 
@@ -143,6 +150,53 @@ describe("the registry listing", () => {
     });
 });
 
+describe("the working set", () => {
+    test("keeps every live session, however many there are", () => {
+        const sessions = Array.from({ length: 12 }, (_unused, at) =>
+            session(`live-${at}`, { live: true, status: "working" }));
+        expect(workspaceWorkingSet(sessions).map((entry) => entry.id))
+            .toEqual(sessions.map((entry) => entry.id));
+        expect(workspaceSidebarHeader(open(sessions)))
+            .toBe("Workspace · 12");
+    });
+
+    test("lists idle rows only while there are few of them", () => {
+        const few = [
+            session("a"),
+            session("b"),
+            session("c"),
+        ];
+        expect(few).toHaveLength(WORKSPACE_IDLE_FEW);
+        expect(workspaceWorkingSet(few).map((entry) => entry.id))
+            .toEqual(["a", "b", "c"]);
+
+        const many = [
+            ...few,
+            session("d"),
+            session("live", { live: true, status: "working" }),
+        ];
+        expect(workspaceWorkingSet(many).map((entry) => entry.id))
+            .toEqual(["live"]);
+        expect(workspaceSidebarHeader(open(many))).toBe("Workspace · 1");
+    });
+
+    test("keeps the idle session on screen when the pile is large", () => {
+        const sessions = [
+            session("live", { live: true, status: "working" }),
+            session("current"),
+            session("idle-2"),
+            session("idle-3"),
+            session("idle-4"),
+        ];
+        expect(workspaceWorkingSet(sessions, "current").map((entry) => entry.id))
+            .toEqual(["live", "current"]);
+        expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
+            .toContain("[ session current ]");
+        expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
+            .not.toContain("session idle-2");
+    });
+});
+
 describe("the roster read again", () => {
     test("lists a session that arrived while the pane was open", () => {
         const state = open([session("a")], [], "a");
@@ -214,12 +268,13 @@ describe("the rail", () => {
         })], [], "a");
         const withAge = workspaceSidebarViewState(state, 120, NOW, 37)
             .lines.find((line) => line.rowId === "a")?.text;
-        const titleOnly = workspaceSidebarViewState(state, 120, NOW, 26)
+        const titleOnly = workspaceSidebarViewState(state, 120, NOW, 23)
             .lines.find((line) => line.rowId === "a")?.text;
 
-        expect(withAge).toContain("4m ago (here)");
+        expect(withAge).toContain("[ a useful descrip… ]");
+        expect(withAge).toContain("4m ago");
         expect(titleOnly).not.toContain("ago");
-        expect(titleOnly).toContain("a useful de… (here)");
+        expect(titleOnly).toContain("[ a useful de… ]");
     });
 
     test("marks when the explorer owns keyboard focus", () => {
@@ -264,6 +319,24 @@ describe("the cursor", () => {
         expect(state.selectedId).toBe("b");
         state = press(state, "k").state!;
         expect(state.selectedId).toBe("a");
+    });
+
+    test("ctrl+d and ctrl+u jump half a page without opening", () => {
+        const sessions = Array.from({ length: 10 }, (_unused, at) =>
+            session(`s${at}`, {
+                live: true,
+                status: "working",
+                updatedAt: `2026-08-22T1${9 - at}:00:00.000Z`,
+            }));
+        const state = open(sessions, [], "s0");
+        const down = press(state, "d", { ctrl: true }, 6);
+        expect(down.handled).toBe(true);
+        expect(down.action).toBeUndefined();
+        expect(down.state?.selectedId).toBe("s3");
+        const up = press(down.state!, "u", { ctrl: true }, 6);
+        expect(up.handled).toBe(true);
+        expect(up.action).toBeUndefined();
+        expect(up.state?.selectedId).toBe("s0");
     });
 
     test("enter opens the session under the cursor", () => {
@@ -445,8 +518,10 @@ describe("the drawn card", () => {
             COLUMNS,
             NOW,
         );
-        expect(text.split("\n").filter((line) => line.includes("(here)")))
-            .toHaveLength(1);
+        expect(text.split("\n").filter((line) =>
+            line.includes("[ session b ]")
+        )).toHaveLength(1);
+        expect(text).not.toContain("(here)");
     });
 
     test("numbers the top nine rows and stops", () => {
@@ -454,6 +529,8 @@ describe("the drawn card", () => {
             { length: 10 },
             (_unused, at) =>
                 session(`s${at}`, {
+                    live: true,
+                    status: "working",
                     updatedAt: `2026-08-22T1${9 - at}:00:00.000Z`,
                 }),
         );
@@ -469,7 +546,7 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer)
-            .toBe("↑↓/jk browse · enter open · 1-9 jump · p pin · i/esc chat");
+            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat");
         expect(view.title).toBe("      Workspace · 1");
     });
 
@@ -481,9 +558,11 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓/jk enter 1-9 p i/esc");
+        expect(view.footer).toBe("↑↓/jk ^d^u 1-9 p i/esc");
         expect(view.footer.length)
             .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
+        expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).length)
+            .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
     });
 
     test("an empty listing says so rather than drawing nothing", () => {
