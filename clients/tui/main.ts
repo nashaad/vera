@@ -4463,17 +4463,6 @@ export async function startTui(
             return;
         }
 
-        if (
-            !composer.focused
-            && activeOverlayFocus() === undefined
-            && tuiBindingId("unfocused", key) === "open_help"
-        ) {
-            key.preventDefault();
-            key.stopPropagation();
-            openHelp();
-            return;
-        }
-
         if (sessionTrashCandidate !== undefined) {
             if (sessionTrashPending) {
                 key.preventDefault();
