@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { chmodSync, existsSync, mkdtempSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import type { TuiAgentClient } from "../../../clients/tui/main.ts";
 import {
@@ -47,6 +47,7 @@ test("missing subagent settings are configured and confirmed through the real TU
     let childModelCalls = 0;
     let registry: AgentRegistry | undefined;
     let configPath = "";
+    let configDirectoryLocked = false;
 
     const session = await startTuiTestSession({
         home,
@@ -151,18 +152,37 @@ test("missing subagent settings are configured and confirmed through the real TU
         session.sendText("delegate both tasks");
         session.sendKey("Enter");
 
-        let pane = await session.waitForVisiblePane("Assign a model to subagents");
+        let pane = await session.waitForVisiblePane("Subagent models");
         expect(pane).toContain("Not set");
+        expect(pane).toContain("Assigned · fallback order");
+        expect(pane).toContain("Available from Shortlist");
         expect(pane).toContain("Worker");
         expect(pane).toContain("Parent model fallback");
+        expect(pane).toContain("test");
         expect(adapterCount).toBe(1);
         expect(childModelCalls).toBe(0);
         expect(registry?.list()).toHaveLength(1);
 
-        // Not set opens selected; the shortlisted worker is the next row.
+        // Not set opens selected; p assigns the shortlisted worker without
+        // dismissing the policy pane.
         session.sendKey("Down");
-        session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("assigned 1");
+        chmodSync(dirname(configPath), 0o500);
+        configDirectoryLocked = true;
+        session.sendText("p");
+        pane = await session.waitForVisiblePane("Could not write the assignment");
+        expect(pane).toContain("Subagent models");
+        expect(pane).toContain("Not set");
+        expect(existsSync(configPath)).toBe(false);
+
+        // A failed durable write leaves the same picker retryable. Restoring
+        // the store and pressing p again completes the original request.
+        chmodSync(dirname(configPath), 0o700);
+        configDirectoryLocked = false;
+        session.sendText("p");
+        pane = await session.waitForVisiblePane("1. Worker");
+        expect(pane).toContain("Subagent models");
+        expect(pane).not.toContain("Not set");
+        expect(pane).toContain("p remove");
         expect(pane).toContain("Worker");
         expect(adapterCount).toBe(1);
         expect(childModelCalls).toBe(0);
@@ -171,6 +191,9 @@ test("missing subagent settings are configured and confirmed through the real TU
             .toMatchObject({
                 models: [{ provider: "ollama", model: "worker" }],
             });
+        expect(loadVeraConfig({ path: configPath })
+            .model_assignments?.subagents?.models?.[0]?.reasoning_effort)
+            .toBeUndefined();
 
         // Saving only updates configuration. Leaving the destination advances
         // to the distinct launch confirmation.
@@ -205,6 +228,9 @@ test("missing subagent settings are configured and confirmed through the real TU
             });
         }
     } finally {
+        if (configDirectoryLocked) {
+            chmodSync(dirname(configPath), 0o700);
+        }
         await session.close();
         await registry?.close();
         if (previousPoolPath === undefined) {

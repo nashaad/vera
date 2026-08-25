@@ -44,7 +44,9 @@ import {
     startTuiCatalogRefreshScopePicker,
     startTuiPoolVerifyScopePicker,
     MODEL_ASSIGNMENT_BROWSE_VALUE,
+    MODEL_ASSIGNMENT_SELF_VALUE,
     startTuiModelAssignmentPicker,
+    tuiModelAssignmentOptions,
 } from "../../clients/tui/settings-picker.ts";
 
 // Most capable first, matching `CatalogModel.levels` ordering: the level
@@ -2989,6 +2991,170 @@ test("the defaults pane offers a way to the collection it draws from", () => {
         { name: "enter" },
     ).selection;
     expect(selected).toEqual({ kind: "model_assignment_browse" });
+});
+
+test("the subagent picker separates assigned, available, and parent fallback", async () => {
+    const assignedRef = "openai-codex/gpt-5.6-sol";
+    const parentRef = "openrouter/z-ai/glm-5.2";
+    const pane = startTuiModelAssignmentPicker(
+        "subagents",
+        "subagents",
+        "delegated work",
+        pooledModels,
+        [assignedRef],
+        false,
+        { provider: "openrouter", model: "z-ai/glm-5.2" },
+    );
+
+    expect(pane.title).toBe("Subagent models");
+    expect(pane.options.some((option) => option.label === "Not set")).toBe(false);
+    expect(pane.options.find((option) => option.value === assignedRef))
+        .toMatchObject({
+            label: "1. GPT-5.6-Sol",
+            group: "Assigned · fallback order",
+        });
+    expect(pane.options.find((option) => option.value === parentRef))
+        .toMatchObject({ group: "Available from Shortlist" });
+    expect(pane.options.find((option) =>
+        option.value === MODEL_ASSIGNMENT_SELF_VALUE))
+        .toMatchObject({
+            label: "Spawning session model",
+            description: "off · currently openrouter/z-ai/glm-5.2",
+            group: "Parent model fallback",
+        });
+
+    const frame = await pickerFrame(pane);
+    expect(frame).toContain("Assigned · fallback order");
+    expect(frame).toContain("Available from Shortlist");
+    expect(frame).toContain("Parent model fallback");
+    expect(frame).not.toContain("Search");
+});
+
+test("p toggles subagent assignment without turning into search text", () => {
+    const assignedRef = "openai-codex/gpt-5.6-sol";
+    const pane = startTuiModelAssignmentPicker(
+        "subagents",
+        "subagents",
+        "delegated work",
+        pooledModels,
+        [assignedRef],
+        false,
+        { provider: "openrouter", model: "z-ai/glm-5.2" },
+    );
+
+    const remove = handleTuiSettingsPickerKey(pane, { name: "p" });
+    expect(remove.selection).toEqual({
+        kind: "model_assignment",
+        assignment: "subagents",
+        provider: "openai-codex",
+        model: "gpt-5.6-sol",
+        remove: true,
+    });
+    expect(remove.state?.query).toBe("");
+    expect(pickerFooter(pane)).toContain("p remove");
+
+    const availableIndex = pane.options.findIndex((option) =>
+        option.value === "openrouter/z-ai/glm-5.2");
+    const addPane = { ...pane, selectedIndex: availableIndex };
+    expect(handleTuiSettingsPickerKey(addPane, { name: "p" }).selection)
+        .toEqual({
+            kind: "model_assignment",
+            assignment: "subagents",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            acceptDefaultReasoning: true,
+        });
+    expect(pickerFooter(addPane)).toContain("p assign");
+
+    const parentIndex = pane.options.findIndex((option) =>
+        option.value === MODEL_ASSIGNMENT_SELF_VALUE);
+    expect(handleTuiSettingsPickerKey(
+        { ...pane, selectedIndex: parentIndex },
+        { name: "p" },
+    ).selection).toEqual({
+        kind: "model_assignment",
+        assignment: "subagents",
+        allowSelf: true,
+    });
+});
+
+test("p accepts provider-default reasoning without pinning a level", () => {
+    const pane = startTuiModelAssignmentPicker(
+        "subagents",
+        "subagents",
+        "delegated work",
+        [{
+            provider: "openrouter",
+            model: "x-ai/grok-4.20",
+            label: "Grok 4.20",
+            available: true,
+            verified: true,
+            levels: [
+                { id: "high", label: "High" },
+                { id: "medium", label: "Medium" },
+            ],
+            defaultLevel: "medium",
+        }],
+    );
+    const modelIndex = pane.options.findIndex((option) =>
+        option.value === "openrouter/x-ai/grok-4.20");
+
+    expect(handleTuiSettingsPickerKey(
+        { ...pane, selectedIndex: modelIndex },
+        { name: "p" },
+    ).selection).toEqual({
+        kind: "model_assignment",
+        assignment: "subagents",
+        provider: "openrouter",
+        model: "x-ai/grok-4.20",
+        acceptDefaultReasoning: true,
+    });
+});
+
+test("the subagent assignment says Not set only while its model list is empty", () => {
+    const pane = startTuiModelAssignmentPicker(
+        "subagents",
+        "subagents",
+        "delegated work",
+        pooledModels,
+        [],
+        true,
+        { provider: "openrouter", model: "z-ai/glm-5.2" },
+    );
+
+    expect(pane.options[0]).toMatchObject({
+        label: "Not set",
+        description: "no assigned models · parent fallback only",
+        group: "Assigned · fallback order",
+    });
+});
+
+test("the Defaults row reports the subagent assignment instead of generic set", () => {
+    const assigned = {
+        provider: "openrouter",
+        model: "openai/gpt-5.6-luna",
+        name: "luna",
+    } as const;
+    const row = (declared: readonly (typeof assigned)[]) => ({
+        assignment: "subagents" as const,
+        label: "subagents",
+        intent: "delegated work, in fallback order",
+        bound: declared.length > 0,
+        declared,
+        models: declared,
+        source: "assignment" as const,
+        allowSelf: false,
+    });
+
+    expect(tuiModelAssignmentOptions([row([assigned])])[2]?.description)
+        .toBe("1 · openai/gpt-5.6-luna");
+    expect(tuiModelAssignmentOptions([row([])])[2]?.description)
+        .toBe("not set");
+    expect(tuiModelAssignmentOptions([{
+        ...row([]),
+        bound: true,
+        allowSelf: true,
+    }])[2]?.description).toBe("parent fallback");
 });
 
 test("the sweep key asks how much of the kept collection it covers", () => {
