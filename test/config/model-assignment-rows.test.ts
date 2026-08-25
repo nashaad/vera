@@ -98,7 +98,7 @@ test("defaults separate session controls, work styles, and dedicated jobs", asyn
         ["snappy", "Work styles"],
         ["eco", "Work styles"],
         ["extra", "Work styles"],
-        ["reviewer", "Dedicated jobs"],
+        ["classifier", "Dedicated jobs"],
         ["compaction", "Dedicated jobs"],
         ["subagents", "Dedicated jobs"],
     ]);
@@ -281,7 +281,7 @@ test("the highlighted row explains itself beside the list", () => {
         "not on your shortlist, so this session's model runs it instead",
     );
     // A job row names the substitute that actually ran.
-    expect(cell.get("reviewer")?.detailFacts).toEqual([
+    expect(cell.get("classifier")?.detailFacts).toEqual([
         ["Runs", "big-1 (high) (via extra)"],
         ["Set to", "nothing"],
         ["If unset", "whatever extra uses"],
