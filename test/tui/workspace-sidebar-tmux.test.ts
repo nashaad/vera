@@ -226,7 +226,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(selectedRow(after)).toContain("auth-race");
     // j/k only moved the highlight. The viewed transcript is still this one
     // until Enter, which is when the path in the pane changes.
-    expect(after).toContain("(here)");
+    expect(after).toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
     expect(opened).toContain("Workspace ·");
@@ -258,7 +258,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
     expect(selectedRow(afterUp)).toBe(selectedRow(before));
     // Half-page is highlight only. The viewed transcript does not follow.
     expect(compact(afterDown)).not.toContain("/sessions/bulk-");
-    expect(afterDown).toContain("(here)");
+    expect(afterDown).toContain("[ this one ]");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async () => {
@@ -355,7 +355,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     expect(row("relay-gui")).toContain("* relay-gui");
     expect(row("auth-refactor")).toContain("+ auth-refactor");
     // Where you already are, said in words.
-    expect(row("this one")).toContain("(here)");
+    expect(row("this one")).toContain("[ this one ]");
     expect(pane).toContain("background");
 }, 60_000);
 

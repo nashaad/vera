@@ -25,10 +25,16 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 /** Rows the digit keys can address, counting from the top of the listing. */
 export const WORKSPACE_JUMP_ROWS = 9;
 
+/**
+ * Idle jsonl rows listed only while the inactive pile is this small.
+ *
+ * Live sessions have no cap. A larger inactive pile stays in `/resume`. The
+ * session on screen is always kept, even when it is idle.
+ */
+export const WORKSPACE_IDLE_FEW = 3;
+
 const NARROW_WIDTH = 64;
 
-/** Said in words on the row of the session already on screen. */
-const HERE_SUFFIX = " (here)";
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
 /** Selection/status markers that precede the title inside a panel row. */
@@ -58,8 +64,7 @@ export function workspaceRailColumns(
 ): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    const natural = DIGIT_COLUMNS
-        + workspaceRowColumns(width) + HERE_SUFFIX.length;
+    const natural = DIGIT_COLUMNS + workspaceRowColumns(width);
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
@@ -128,6 +133,36 @@ export function workspaceSidebarSessions(
                 ? {}
                 : { updatedAt: agent.updated_at }),
         }));
+}
+
+/**
+ * Whether a listed session is live work, not idle jsonl.
+ *
+ * `live` is the host's fact. Waiting and working are kept even if that flag
+ * flickers, so a needs-you row cannot vanish from the rail.
+ */
+export function isWorkspaceActive(session: WorkspaceSidebarSession): boolean {
+    return session.live
+        || session.status === "waiting"
+        || session.status === "working";
+}
+
+/**
+ * The rows the explorer draws from a roster.
+ *
+ * Live sessions are the working set and have no cap. Idle jsonl rows are
+ * listed only while there are few of them. The session on screen is always
+ * kept, even when it is idle.
+ */
+export function workspaceWorkingSet(
+    sessions: readonly WorkspaceSidebarSession[],
+    currentId?: string,
+): readonly WorkspaceSidebarSession[] {
+    const idle = sessions.filter((session) => !isWorkspaceActive(session));
+    if (idle.length <= WORKSPACE_IDLE_FEW) return sessions;
+    return sessions.filter((session) =>
+        isWorkspaceActive(session) || session.id === currentId
+    );
 }
 
 export function startWorkspaceSidebar(
@@ -224,7 +259,7 @@ export function workspaceSidebarLayout(
     input: WorkspaceSidebarLayoutInput,
 ): WorkspacePanelLayout {
     return layoutWorkspacePanel({
-        sessions: state.sessions,
+        sessions: workspaceWorkingSet(state.sessions, state.currentId),
         columns: input.columns,
         now: input.now,
         ...(input.contentColumns === undefined
@@ -235,6 +270,7 @@ export function workspaceSidebarLayout(
         ...(state.selectedId === undefined
             ? {}
             : { selectedId: state.selectedId }),
+        ...(state.currentId === undefined ? {} : { currentId: state.currentId }),
     });
 }
 
@@ -371,7 +407,7 @@ export function openWorkspaceSelection(
 }
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
-    const listed = state.sessions.length;
+    const listed = workspaceWorkingSet(state.sessions, state.currentId).length;
     return listed === 0 ? "Workspace" : `Workspace · ${listed}`;
 }
 
@@ -407,7 +443,7 @@ export function workspaceSidebarViewState(
         ? undefined
         : Math.max(
             1,
-            railColumns - DIGIT_COLUMNS - HERE_SUFFIX.length
+            railColumns - DIGIT_COLUMNS
                 - ROW_MARKER_COLUMNS - RAIL_DIVIDER_COLUMNS,
         );
     const layout = workspaceSidebarLayout(state, {
@@ -432,11 +468,8 @@ export function workspaceSidebarViewState(
         // as the list reorders, which is why it is a shortcut and not the way
         // a row is picked.
         const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
-        // Text, never colour alone: the row on screen says so in words, so a
-        // monochrome render still tells you where you are.
-        const here = row.id === state.currentId ? HERE_SUFFIX : "";
         return {
-            text: `${digit} ${row.text}${here}`,
+            text: `${digit} ${row.text}`,
             tone: "text" as const,
             rowId: row.id,
             ...(row.selected ? { selected: true } : {}),
