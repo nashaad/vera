@@ -1,11 +1,14 @@
 import { expect, test } from "bun:test";
 
 import {
+    colorizeVeraDoctor,
     diagnoseVeraProcesses,
+    doctorLineEmphasis,
     parseVeraProcessList,
     renderVeraDoctor,
     stopStrayVeraProcesses,
     type DiagnosedVeraProcess,
+    type VeraProcessKind,
     type VeraProcessSample,
 } from "../clients/process-doctor.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
@@ -50,7 +53,7 @@ test("process parsing finds orphaned workers and test fixtures", () => {
 
     expect(samples.map((sample) => sample.kind)).toEqual([
         "worker",
-        "worker",
+        "supervisor",
         "test_fixture",
     ]);
 });
@@ -296,7 +299,8 @@ test("doctor flags an orphaned worker and test fixture as stray, not one with a 
     expect(output).toContain("Stray processes: 2 orphaned");
     expect(output).toContain("PID 401");
     expect(output).toContain("PID 402");
-    expect(output).not.toContain("PID 400");
+    expect(output).toMatch(/worker\s+PID 400/);
+    expect(output).not.toMatch(/PID 400[^\n]*stray/);
     expect(output).toContain("2 stray processes can be stopped safely.");
 });
 
@@ -423,6 +427,223 @@ test("doctor keeps the runtime a caller is about to attach to", async () => {
     expect(strayByPid.get(201)).toBe(true);
 });
 
+test("process parsing finds a watchdog separately from the TUI, and a supervisor separately from a worker", () => {
+    const samples = parseVeraProcessList(`
+  610    92   610    00:01:00   0.0 Tue Aug 25 01:00:00 2026 bun clients/tui/main.ts
+  611    92   611    00:01:00   0.0 Tue Aug 25 01:00:00 2026 bun clients/tui/flight-watchdog.ts
+  612   200   612    00:01:00   0.0 Tue Aug 25 01:00:00 2026 bun src/host/worker/entry.ts
+  613   200   613    00:01:00   0.0 Tue Aug 25 01:00:00 2026 bun src/host/worker-supervisor.ts
+`);
+    expect(samples.map((sample) => sample.kind)).toEqual([
+        "client",
+        "watchdog",
+        "worker",
+        "supervisor",
+    ]);
+});
+
+test("doctor lists the owned bun tree after healthy, titled and untitled", async () => {
+    const sample = [
+        { ...processSample(92, "client", 0), ppid: 90, pid: 92, pgid: 92 },
+        { ...processSample(200, "host", 0), ppid: 92 },
+        { ...processSample(105, "watchdog", 0), ppid: 92, pid: 105, pgid: 105 },
+        { ...processSample(301, "worker", 0), ppid: 200, pid: 301, pgid: 301 },
+        { ...processSample(401, "supervisor", 0), ppid: 200, pid: 401, pgid: 401 },
+        { ...processSample(302, "worker", 0), ppid: 200, pid: 302, pgid: 302 },
+        { ...processSample(402, "supervisor", 0), ppid: 200, pid: 402, pgid: 402 },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        listWorkerSessions: async () => [
+            {
+                id: "sess-titled",
+                title: "Start a conversation",
+                workerPid: 301,
+                supervisorPid: 401,
+            },
+            {
+                id: "sess-untitled",
+                name: "misty-lark:d367",
+                workerPid: 302,
+                supervisorPid: 402,
+            },
+        ],
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(true);
+    const output = renderVeraDoctor(report);
+    expect(output).toContain("Result: healthy");
+    expect(output).toContain("No stray processes found.");
+    expect(output).toContain(
+        "7 bun  ·  1 TUI  1 host  2 workers  2 supervisors  1 watchdog",
+    );
+    expect(output).toMatch(/TUI\s+PID 92/);
+    expect(output).toMatch(/host\s+PID 200/);
+    expect(output).toMatch(/watchdog\s+PID 105/);
+    expect(output).toContain("Start a conversation");
+    expect(output).toContain("misty-lark:d367");
+});
+
+test("doctor counts eleven bun for four worker pairs plus watchdog", async () => {
+    const sample = [
+        { ...processSample(10, "client", 0), pid: 10, ppid: 9, pgid: 10 },
+        { ...processSample(20, "host", 0), ppid: 10 },
+        { ...processSample(11, "watchdog", 0), pid: 11, ppid: 10, pgid: 11 },
+        ...[1, 2, 3, 4].flatMap((n) => [
+            {
+                ...processSample(20 + n, "worker", 0),
+                pid: 20 + n,
+                ppid: 20,
+                pgid: 20 + n,
+            },
+            {
+                ...processSample(30 + n, "supervisor", 0),
+                pid: 30 + n,
+                ppid: 20,
+                pgid: 30 + n,
+            },
+        ]),
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 20,
+            knownProfileHostPids: new Set([20]),
+        }),
+        sampleProcesses: async () => sample,
+        listWorkerSessions: async () =>
+            [1, 2, 3, 4].map((n) => ({
+                id: `sess-${n}`,
+                title: n === 4 ? undefined : `chat ${n}`,
+                name: n === 4 ? "misty-lark:aaaa" : undefined,
+                workerPid: 20 + n,
+                supervisorPid: 30 + n,
+            })),
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(true);
+    const output = renderVeraDoctor(report);
+    expect(output).toContain(
+        "11 bun  ·  1 TUI  1 host  4 workers  4 supervisors  1 watchdog",
+    );
+    expect(output).toContain("chat 1");
+    expect(output).toContain("misty-lark:aaaa");
+    expect(output).toContain("Result: healthy");
+});
+
+test("doctor keeps strays out of Running now", async () => {
+    const sample = [
+        { ...processSample(200, "host", 0), ppid: 92 },
+        { ...processSample(92, "client", 0), pid: 92, ppid: 90, pgid: 92 },
+        { ...processSample(301, "worker", 0), ppid: 200, pid: 301, pgid: 301 },
+        { ...processSample(401, "supervisor", 0), ppid: 200, pid: 401, pgid: 401 },
+        processSample(501, "worker", 0),
+        processSample(502, "supervisor", 0),
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        listWorkerSessions: async () => [
+            {
+                id: "live",
+                title: "on screen",
+                workerPid: 301,
+                supervisorPid: 401,
+            },
+        ],
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(false);
+    const output = renderVeraDoctor(report);
+    expect(output).toContain("on screen");
+    expect(output).toMatch(/worker\s+PID 301/);
+    expect(output).toContain("Stray processes:");
+    expect(output).toContain("PID 501");
+    expect(output).toContain("PID 502");
+    const running = output.slice(
+        output.indexOf("Running now"),
+        output.indexOf("Stray processes:"),
+    );
+    expect(running).not.toContain("PID 501");
+    expect(running).not.toContain("PID 502");
+});
+
+test("doctor lists an untitled worker when the host did not name it", async () => {
+    const sample = [
+        { ...processSample(200, "host", 0), ppid: 92 },
+        { ...processSample(92, "client", 0), pid: 92, ppid: 90, pgid: 92 },
+        { ...processSample(301, "worker", 0), ppid: 200, pid: 301, pgid: 301 },
+        { ...processSample(401, "supervisor", 0), ppid: 200, pid: 401, pgid: 401 },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(true);
+    const output = renderVeraDoctor(report);
+    expect(output).toMatch(/worker\s+PID 301  ·  untitled/);
+    expect(output).toMatch(/supervisor\s+PID 401  ·  untitled/);
+});
+
+test("colorizeVeraDoctor leaves copyable text alone without color", () => {
+    const text = renderVeraDoctor({
+        healthy: true,
+        currentHostMissing: false,
+        processes: [{
+            ...processSample(200, "host", 0),
+            currentHost: true,
+            knownProfileHost: false,
+            sustainedHighCpu: false,
+            stray: false,
+        }],
+        highCpuPercent: 50,
+    });
+    expect(colorizeVeraDoctor(text)).toBe(text);
+    expect(colorizeVeraDoctor(text, { color: false })).toBe(text);
+});
+
+test("colorizeVeraDoctor paints Result and roles when color is on", () => {
+    const text = [
+        "Vera doctor",
+        "",
+        "Running now",
+        "  2 bun  ·  1 TUI  1 host",
+        "  TUI          PID 92",
+        "  host         PID 200",
+        "Result: healthy",
+        "No stray processes found.",
+        "",
+    ].join("\n");
+    const painted = colorizeVeraDoctor(text, { color: true });
+    expect(painted).toContain("\x1b[32mResult: healthy\x1b[0m");
+    expect(painted).toContain("\x1b[32mNo stray processes found.\x1b[0m");
+    expect(painted).toContain("\x1b[1mRunning now\x1b[0m");
+    expect(painted).toContain("\x1b[36mTUI\x1b[0m");
+    expect(painted).toContain("\x1b[33mhost\x1b[0m");
+    expect(doctorLineEmphasis("Result: issues found")).toBe("danger");
+    expect(doctorLineEmphasis("  worker       PID 301  ·  untitled")).toBe(
+        "role",
+    );
+});
+
 test("stopStrayVeraProcesses kills a stray's process group", async () => {
     const child = Bun.spawn(
         [process.execPath, "-e", "await Bun.sleep(300000)"],
@@ -452,13 +673,17 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
 
 function processSample(
     pid: number,
-    kind: "host" | "client" | "worker" | "test_fixture",
+    kind: VeraProcessKind,
     cpuPercent: number,
 ): VeraProcessSample {
     const entrypoint = kind === "host"
         ? `/work/${pid}/clients/host/main.ts`
         : kind === "worker"
         ? "src/host/worker/entry.ts"
+        : kind === "supervisor"
+        ? "src/host/worker-supervisor.ts"
+        : kind === "watchdog"
+        ? "clients/tui/flight-watchdog.ts"
         : kind === "test_fixture"
         ? "test/support/tui-work-tab-child.ts"
         : "/Users/nash/.bun/bin/vera";

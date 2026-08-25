@@ -78,6 +78,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     // and the side bar showing it is already on screen.
     "toggle_workspace_pin",
     ...WORKSPACE_JUMP_IDS,
+    "workspace_new_session",
     "toggle_tool_details",
     "scroll_line_up",
     "scroll_line_down",
@@ -297,6 +298,18 @@ test("the workspace list inherits picker half-page movement", () => {
     // Other picker chords stay off the rail, so a later pane-only key does
     // not become a workspace key by descent.
     expect(tuiBindingId("workspace", { name: "s", ctrl: true }))
+        .toBeUndefined();
+});
+
+test("ctrl+n starts a new chat only while the agent sidebar holds focus", () => {
+    expect(tuiBindingId("workspace", { name: "n", ctrl: true }))
+        .toBe("workspace_new_session");
+    // The model picker already names a pooled model with this chord.
+    expect(tuiBindingId("model_picker", { name: "n", ctrl: true }))
+        .toBe("name_pooled");
+    expect(tuiBindingId("composer", { name: "n", ctrl: true }))
+        .toBeUndefined();
+    expect(tuiBindingId("global", { name: "n", ctrl: true }))
         .toBeUndefined();
 });
 

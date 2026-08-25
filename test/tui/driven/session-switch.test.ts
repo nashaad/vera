@@ -13,7 +13,7 @@ import {
     createTuiForkSessionScenario,
 } from "../../support/tui-fork-session-child.ts";
 import { createTuiRenameDependencies } from "../../support/tui-rename-child.ts";
-import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
+import { createTuiResumeScenario, IDLE_TARGET_TRANSCRIPT } from "../../support/tui-resume-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("idle TUI exit stops the current conversation", async () => {
@@ -203,7 +203,7 @@ test("resume leaves a multiply-attached source running and says why", async () =
         await session.waitForVisiblePane(
             "The previous conversation is still running in another client",
         );
-        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         expect(pane).toContain(
             "The previous conversation is still running in another client",
         );
@@ -211,8 +211,7 @@ test("resume leaves a multiply-attached source running and says why", async () =
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
-            "/sessions/target.jsonl\ndetached\ntarget-session-id"
-                + "\nclosed target-session-id",
+            "none\ndetached\ntarget-session-id\nclosed ",
         );
     } finally {
         await session.close();
@@ -599,7 +598,7 @@ test("resuming a session from the list offers no way back", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
         expect(pane).not.toContain("/back");
@@ -629,14 +628,13 @@ test("tab explicitly keeps the source running while resume switches", async () =
         expect(pane).toContain("tab keep running");
         session.sendKey("Down");
         session.sendKey("Tab");
-        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "/sessions/target.jsonl\ndetached\ntarget-session-id"
-                    + "\nclosed target-session-id",
+                "none\ndetached\ntarget-session-id\nclosed ",
             );
     } finally {
         await session.close();
@@ -665,13 +663,13 @@ test("resume stays on the source when its tree cannot be stopped", async () => {
         );
         expect(pane).toContain("current-model");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "/sessions/target.jsonl\ndetached\ncurrent-session-id"
-                    + "\nclosed ",
+                "none\ndetached\ncurrent-session-id\nclosed ",
             );
     } finally {
         await session.close();
@@ -697,8 +695,8 @@ test("resume does not show the destination before source quiescence", async () =
         session.sendKey("Enter");
         const pending = await session.waitForVisiblePane("switching conversation");
         expect(pending).toContain("current-model");
-        expect(pending).not.toContain("RESUMED HISTORY LOADED");
-        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pending).not.toContain(IDLE_TARGET_TRANSCRIPT);
+        await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -739,20 +737,93 @@ test("opening a sidebar row keeps the source session running", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar · 3");
-        session.sendKey("Down");
+        await session.waitForVisiblePane("Agent sidebar · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         expect(pane).not.toContain("Interrupted");
+        expect(pane).not.toContain("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "/sessions/target.jsonl\ndetached\ntarget-session-id"
+                "none\ndetached\ntarget-session-id\nclosed ",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("opening a live sidebar row attaches to the running worker", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-attach-"));
+    const scenario = createTuiResumeScenario({ home, targetLive: true });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                `${scenario.targetPath}\ndetached\ntarget-session-id`
                     + "\nclosed target-session-id",
             );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("ctrl+n in the agent sidebar starts a new chat and keeps the source running", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-new-"));
+    const scenario = createTuiNewSessionScenario({
+        home,
+        succeedFirst: true,
+    });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => ({
+            ...scenario.dependencies,
+            listAgents: async () => [{
+                id: "current-session-id",
+                workspace: "/work/vera",
+                session_path: "/sessions/current.jsonl",
+                kind: "interactive" as const,
+                status: "idle" as const,
+                live: true,
+                title: "The one already open",
+                updated_at: new Date().toISOString(),
+            }],
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar ·");
+        session.sendKey("C-n");
+        await session.waitForVisiblePane("fresh-model");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "new-session-result.txt"), "utf8")).toBe(
+            "new-session-id\ndetached\nnext detached\nattempts 1\n/work/vera"
+                + "\nclosed new-session-id",
+        );
     } finally {
         await session.close();
     }

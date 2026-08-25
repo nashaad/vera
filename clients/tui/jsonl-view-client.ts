@@ -49,6 +49,9 @@ export async function createJsonlViewClient(
         viewOnly: true,
         sessionPath,
         async send(command: ClientCommand): Promise<void> {
+            if (!commandNeedsRunningLoop(command)) {
+                return;
+            }
             if (options.onActivate === undefined) {
                 throw new Error(
                     "This conversation is on disk until it is opened for work",
@@ -69,4 +72,23 @@ export async function createJsonlViewClient(
         },
     };
     return client;
+}
+
+/**
+ * Reads and listings do not start a worker. A prompt, an approval, or any
+ * other command that needs the loop is what turns this file into a session.
+ */
+function commandNeedsRunningLoop(command: ClientCommand): boolean {
+    switch (command.type) {
+        case "get_model_settings":
+        case "get_permissions":
+        case "get_session_model_settings_history":
+        case "list_agents":
+        case "list_timeline":
+        case "preview_timeline_action":
+        case "catalog_refresh":
+            return false;
+        default:
+            return true;
+    }
 }

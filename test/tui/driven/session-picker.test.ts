@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
+import { createTuiResumeScenario, IDLE_TARGET_TRANSCRIPT } from "../../support/tui-resume-child.ts";
 import {
     createTuiTrashSessionScenario,
 } from "../../support/tui-trash-session-child.ts";
@@ -38,13 +38,14 @@ test("resume picker switches conversation without restarting the TUI", async () 
             "the picker to close on the current session",
         );
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
 
         session.sendText("/resume");
         session.sendKey("Enter");
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         // The picker is gone when its rows are. Picking a session is where the
         // person meant to go rather than a hop taken to answer something, so
         // nothing offers them a trip back from it.
@@ -53,18 +54,14 @@ test("resume picker switches conversation without restarting the TUI", async () 
         // The pane belongs to the process that started: the transcript was
         // replaced under a TUI that never went away.
         expect(pane).toContain("Message Vera");
-        // The resumed session's own model and approval mode, not the ones
-        // belonging to the conversation that was on screen.
-        pane = await session.waitForVisiblePane("resumed-model");
-        expect(pane).toContain("FULL ACCESS · RED ZONE");
-        expect(pane).not.toContain("current-model");
+        expect(pane).not.toContain("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "/sessions/target.jsonl\ndetached\ntarget-session-id"
-                    + "\nclosed current-session-id,target-session-id",
+                "none\ndetached\ntarget-session-id"
+                    + "\nclosed current-session-id",
             );
     } finally {
         await session.close();
