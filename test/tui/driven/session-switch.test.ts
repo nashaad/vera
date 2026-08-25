@@ -203,7 +203,7 @@ test("resume leaves a multiply-attached source running and says why", async () =
         await session.waitForVisiblePane(
             "The previous conversation is still running in another client",
         );
-        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).toContain(
             "The previous conversation is still running in another client",
         );
@@ -211,7 +211,8 @@ test("resume leaves a multiply-attached source running and says why", async () =
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
-            "none\ndetached\ntarget-session-id\nclosed ",
+            `${scenario.targetPath}\ndetached\ntarget-session-id`
+                + "\nclosed target-session-id",
         );
     } finally {
         await session.close();
@@ -598,10 +599,11 @@ test("resuming a session from the list offers no way back", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
         expect(pane).not.toContain("/back");
+        expect(pane).not.toContain("[resume]");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -628,13 +630,14 @@ test("tab explicitly keeps the source running while resume switches", async () =
         expect(pane).toContain("tab keep running");
         session.sendKey("Down");
         session.sendKey("Tab");
-        await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "none\ndetached\ntarget-session-id\nclosed ",
+                `${scenario.targetPath}\ndetached\ntarget-session-id`
+                    + "\nclosed target-session-id",
             );
     } finally {
         await session.close();
@@ -669,7 +672,8 @@ test("resume stays on the source when its tree cannot be stopped", async () => {
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "none\ndetached\ncurrent-session-id\nclosed ",
+                `${scenario.targetPath}\ndetached\ncurrent-session-id`
+                    + "\nclosed ",
             );
     } finally {
         await session.close();
@@ -696,7 +700,8 @@ test("resume does not show the destination before source quiescence", async () =
         const pending = await session.waitForVisiblePane("switching conversation");
         expect(pending).toContain("current-model");
         expect(pending).not.toContain(IDLE_TARGET_TRANSCRIPT);
-        await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        expect(pending).not.toContain("RESUMED HISTORY LOADED");
+        await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {

@@ -12077,6 +12077,7 @@ export async function startTui(
                     false,
                     false,
                     selection.sourceDisposition,
+                    "attach",
                 );
                 return;
             }
@@ -12295,10 +12296,10 @@ export async function startTui(
 
     /**
      * Attach when the destination is already running; otherwise paint the
-     * session file. Resume is an explicit overlay, not a send.
+     * session file. The overlay is how a file view starts a worker.
      *
-     * A rail click names the open from the row itself. `/resume` still asks
-     * the listing. A failed file read is an error, not a resume.
+     * A rail click names the open from the row itself. `/resume` from the
+     * picker always attaches. A failed file read is an error, not a resume.
      */
     async function openSwitchDestination(
         sessionPath: string,
