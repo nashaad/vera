@@ -18,7 +18,7 @@ import {
     workspaceSidebarViewState,
     workspaceWorkingSet,
     MIN_RAIL_COLUMNS,
-    WORKSPACE_IDLE_FEW,
+    WORKSPACE_RECENT_IDLE,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -157,43 +157,146 @@ describe("the working set", () => {
         expect(workspaceWorkingSet(sessions).map((entry) => entry.id))
             .toEqual(sessions.map((entry) => entry.id));
         expect(workspaceSidebarHeader(open(sessions)))
-            .toBe("Workspace · 12");
+            .toBe("Agent sidebar · 12");
     });
 
-    test("lists idle rows only while there are few of them", () => {
+    test("lists idle rows when there are only a few of them", () => {
         const few = [
             session("a"),
             session("b"),
             session("c"),
         ];
-        expect(few).toHaveLength(WORKSPACE_IDLE_FEW);
         expect(workspaceWorkingSet(few).map((entry) => entry.id))
             .toEqual(["a", "b", "c"]);
-
-        const many = [
-            ...few,
-            session("d"),
-            session("live", { live: true, status: "working" }),
-        ];
-        expect(workspaceWorkingSet(many).map((entry) => entry.id))
-            .toEqual(["live"]);
-        expect(workspaceSidebarHeader(open(many))).toBe("Workspace · 1");
     });
 
-    test("keeps the idle session on screen when the pile is large", () => {
+    test("keeps the five most recent idle rows when the pile is large", () => {
+        const idle = Array.from({ length: 8 }, (_unused, at) =>
+            session(`idle-${at}`, {
+                updatedAt: `2026-08-22T11:0${at}:00.000Z`,
+            }));
+        const sessions = [
+            ...idle,
+            session("live", { live: true, status: "working" }),
+        ];
+        expect(workspaceWorkingSet(sessions).map((entry) => entry.id))
+            .toEqual([
+                "idle-3",
+                "idle-4",
+                "idle-5",
+                "idle-6",
+                "idle-7",
+                "live",
+            ]);
+        expect(workspaceWorkingSet(sessions)).toHaveLength(
+            WORKSPACE_RECENT_IDLE + 1,
+        );
+        expect(workspaceSidebarHeader(open(sessions)))
+            .toBe("Agent sidebar · 6");
+    });
+
+    test("an older second project stays listed when the session on screen already made the last five", () => {
+        const sessions = [
+            session("whats-this", {
+                title: "whats this",
+                workspace: "/w/vera",
+                updatedAt: "2026-08-22T11:57:00.000Z",
+            }),
+            session("ask-one", {
+                title: "ask me a question",
+                workspace: "/w/vera",
+                updatedAt: "2026-08-22T11:54:00.000Z",
+            }),
+            session("ask-two", {
+                title: "ask me a question",
+                workspace: "/w/vera",
+                updatedAt: "2026-08-22T11:53:00.000Z",
+            }),
+            session("we-made", {
+                title: "we made a bunch",
+                workspace: "/w/vera",
+                updatedAt: "2026-08-22T11:52:00.000Z",
+            }),
+            session("add-to", {
+                title: "add to workspace",
+                workspace: "/w/vera",
+                updatedAt: "2026-08-22T11:51:00.000Z",
+            }),
+            session("please-configure", {
+                title: "please configure",
+                workspace: "/w/test-do-serverless",
+                updatedAt: "2026-08-22T11:50:00.000Z",
+            }),
+        ];
+        const withOlderCurrent = workspaceWorkingSet(sessions, "add-to");
+        const withNewerCurrent = workspaceWorkingSet(sessions, "we-made");
+        expect(withOlderCurrent.map((entry) => entry.id)).toEqual([
+            "whats-this",
+            "ask-one",
+            "ask-two",
+            "we-made",
+            "add-to",
+            "please-configure",
+        ]);
+        expect(withNewerCurrent.map((entry) => entry.id))
+            .toEqual(withOlderCurrent.map((entry) => entry.id));
+        const text = workspaceSidebarText(
+            open(sessions, [], "we-made"),
+            COLUMNS,
+            NOW,
+        );
+        expect(text).toContain("test-do-serverless");
+        expect(text).not.toContain("/w/test-do-serverless");
+        expect(text).toContain("please configure");
+        expect(text).toContain("[ we made a bunch ]");
+    });
+
+    test("keeps the idle session on screen even when it is older than the last five", () => {
         const sessions = [
             session("live", { live: true, status: "working" }),
-            session("current"),
-            session("idle-2"),
-            session("idle-3"),
-            session("idle-4"),
+            session("current", { updatedAt: "2026-08-22T10:00:00.000Z" }),
+            session("idle-1", { updatedAt: "2026-08-22T11:01:00.000Z" }),
+            session("idle-2", { updatedAt: "2026-08-22T11:02:00.000Z" }),
+            session("idle-3", { updatedAt: "2026-08-22T11:03:00.000Z" }),
+            session("idle-4", { updatedAt: "2026-08-22T11:04:00.000Z" }),
+            session("idle-5", { updatedAt: "2026-08-22T11:05:00.000Z" }),
+            session("idle-6", { updatedAt: "2026-08-22T11:06:00.000Z" }),
         ];
         expect(workspaceWorkingSet(sessions, "current").map((entry) => entry.id))
-            .toEqual(["live", "current"]);
+            .toEqual([
+                "live",
+                "current",
+                "idle-2",
+                "idle-3",
+                "idle-4",
+                "idle-5",
+                "idle-6",
+            ]);
         expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
             .toContain("[ session current ]");
         expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
-            .not.toContain("session idle-2");
+            .toContain("session idle-6");
+        expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
+            .not.toContain("session idle-1");
+    });
+
+    test("keeps a pinned idle session that is older than the last five", () => {
+        const sessions = Array.from({ length: 6 }, (_unused, at) =>
+            session(`idle-${at}`, {
+                updatedAt: `2026-08-22T11:0${at}:00.000Z`,
+            }));
+        expect(workspaceWorkingSet(sessions, undefined, ["idle-0"]).map(
+            (entry) => entry.id,
+        )).toEqual([
+            "idle-0",
+            "idle-1",
+            "idle-2",
+            "idle-3",
+            "idle-4",
+            "idle-5",
+        ]);
+        expect(workspaceSidebarText(open(sessions, ["idle-0"]), COLUMNS, NOW))
+            .toContain("session idle-0");
     });
 });
 
@@ -288,9 +391,25 @@ describe("the rail", () => {
             true,
             4,
         );
-        expect(focused.title).toBe("[   ] Workspace · 1");
+        expect(focused.title).toBe("[   ] Agent sidebar · 1");
         const chat = workspaceSidebarViewState(state, 120, NOW, 37, false, 4);
-        expect(chat.title).toBe("      Workspace · 1");
+        expect(chat.title).toBe("      Agent sidebar · 1");
+    });
+
+    test("dims when the rail is up and chat has focus", () => {
+        const state = open([session("a"), session("b")], [], "a");
+        const focused = workspaceSidebarViewState(state, 120, NOW, 37, true);
+        const chat = workspaceSidebarViewState(state, 120, NOW, 37, false);
+        expect(focused.dimmed).toBeUndefined();
+        expect(focused.lines.some((line) => line.selected === true)).toBe(true);
+        expect(focused.lines.find((line) => line.rowId === "a")?.tone)
+            .toBe("text");
+        expect(chat.dimmed).toBe(true);
+        expect(chat.lines.some((line) => line.selected === true)).toBe(false);
+        expect(chat.lines.every((line) => line.tone === "muted")).toBe(true);
+        expect(chat.lines.find((line) => line.rowId === "a")?.text)
+            .toContain("›");
+        expect(chat.cursorLine).toBe(focused.cursorLine);
     });
 });
 
@@ -349,12 +468,12 @@ describe("the cursor", () => {
         });
     });
 
-    test("escape returns to chat", () => {
+    test("escape hides the rail", () => {
         expect(press(open([session("a")]), "escape").action)
-            .toEqual({ kind: "close" });
+            .toEqual({ kind: "hide" });
     });
 
-    test("i returns to chat", () => {
+    test("i returns to chat and leaves the rail up", () => {
         expect(press(open([session("a")]), "i").action)
             .toEqual({ kind: "close" });
     });
@@ -546,8 +665,8 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer)
-            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i/esc chat");
-        expect(view.title).toBe("      Workspace · 1");
+            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · i chat · esc hide");
+        expect(view.title).toBe("      Agent sidebar · 1");
     });
 
     test("the rail takes the short hint, wide as the terminal is", () => {
@@ -558,7 +677,7 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓/jk ^d^u 1-9 p i/esc");
+        expect(view.footer).toBe("↑↓/jk ^d^u ⏎ 1-9 p i esc");
         expect(view.footer.length)
             .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).length)
@@ -575,6 +694,8 @@ describe("the drawn card", () => {
             open([session("a"), session("b")], [], "b"),
             COLUMNS,
             NOW,
+            undefined,
+            true,
         );
         expect(view.lines[view.cursorLine!]?.selected).toBe(true);
     });

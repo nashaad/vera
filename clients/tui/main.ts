@@ -369,6 +369,10 @@ import {
     type WorkspaceSidebarState,
 } from "./workspace-sidebar.ts";
 import {
+    createJsonlViewClient,
+    isJsonlViewClient,
+} from "./jsonl-view-client.ts";
+import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
@@ -1191,8 +1195,13 @@ export async function startTui(
     let connectionFailed = false;
     let connectionFailure: string | undefined;
     // One automatic host restart per drop. A failed attempt sits disconnected
-    // so `/reconnect` stays the next move instead of looping.
+    // so `/reconnect` stays the next move instead of looping. Cleared only
+    // after a reconnected session is actually idle; clearing it at switch
+    // time lets a dying worker restart the host forever and freeze the TUI.
     let hostReconnectAttempted = false;
+    // This attachment already delivered agent_failed. The stream closing
+    // after that is not a dropped host.
+    let agentFailedThisAttachment = false;
     let statusNotice: string | undefined;
     let statusNoticeVersion = 0;
     // What each in-flight change asked for, so a rejection can name it. The
@@ -1519,7 +1528,8 @@ export async function startTui(
     let sidebarPromptSubmitting = false;
     let extensionCommandsLoading =
         dependencies.client.listExtensionCommands !== undefined
-        && dependencies.client.failed !== true;
+        && dependencies.client.failed !== true
+        && dependencies.client.viewOnly !== true;
     let runningBackgroundAgents = 0;
     let runningBackgroundAgentNames: readonly string[] = [];
     let currentAgentHasParent = false;
@@ -5309,7 +5319,7 @@ export async function startTui(
     }
 
     void receiveAgentUpdates();
-    if (client.failed !== true) {
+    if (client.failed !== true && client.viewOnly !== true) {
         void loadExtensionCommands();
         requestSessionSettings();
     }
@@ -7517,6 +7527,7 @@ export async function startTui(
                 }
                 if (update.type === "status" && update.state === "idle") {
                     finishStreamingAssistant();
+                    hostReconnectAttempted = false;
                 }
                 if (
                     update.type === "turn_finished"
@@ -7525,6 +7536,7 @@ export async function startTui(
                     abortRequested = false;
                     finishStreamingAssistant();
                     if (update.type === "agent_failed") {
+                        agentFailedThisAttachment = true;
                         pendingUiRequest = undefined;
                         timelinePicker = undefined;
                         settingsPicker = undefined;
@@ -8105,6 +8117,14 @@ export async function startTui(
         for (const candidate of [...companions, source]) {
             if (seen.has(candidate)) continue;
             seen.add(candidate);
+            if (isJsonlViewClient(candidate)) {
+                const result = {
+                    sourceOutcome: "detached" as const,
+                    remainingInteractiveClients: 0,
+                };
+                if (candidate === source) sourceResult = result;
+                continue;
+            }
             const candidateId = candidate.agentId;
             if (candidateId === undefined) {
                 throw new Error(
@@ -8345,6 +8365,22 @@ export async function startTui(
         if (shuttingDown || connectionFailed || sessionSwitchPending) {
             return;
         }
+        const message = error instanceof Error ? error.message : String(error);
+        // A jsonl view and a session that already died are not a dropped host.
+        // Restarting the host here is what froze the TUI in a reconnect loop.
+        if (
+            client.viewOnly === true
+            || client.failed === true
+            || agentFailedThisAttachment
+        ) {
+            connectionFailed = true;
+            connectionFailure = message;
+            activity = "disconnected";
+            settleLostHost(message);
+            renderState();
+            composer.focus();
+            return;
+        }
         if (
             !hostReconnectAttempted
             && dependencies.reconnectSession !== undefined
@@ -8355,7 +8391,6 @@ export async function startTui(
             return;
         }
         connectionFailed = true;
-        const message = error instanceof Error ? error.message : String(error);
         activity = "disconnected";
         connectionFailure = message;
         settleLostHost(message);
@@ -11291,6 +11326,10 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (action.kind === "hide") {
+            closeWorkspaceSidebar();
+            return;
+        }
         if (action.kind === "pin") {
             workspacePinnedIds = action.pinnedIds;
             try {
@@ -11305,7 +11344,15 @@ export async function startTui(
         workspaceSidebarFocused = false;
         composer.focus();
         renderState();
-        beginSessionResume(action.session_path, action.session_id);
+        // The rail is working-set chrome. Opening another row must not stop
+        // live work on the session you left; `/resume` Enter still does.
+        beginSessionResume(
+            action.session_path,
+            action.session_id,
+            false,
+            true,
+            "keep_running",
+        );
     }
 
     function closeWorkSurfaces(): void {
@@ -12052,6 +12099,7 @@ export async function startTui(
         recordSessionSwitchOutcome("completed");
         const previous = client;
         clientGeneration += 1;
+        agentFailedThisAttachment = false;
         // The old session owned these calls; nothing will answer them now.
         for (const pending of [...pendingConsults.values()]) {
             pending.reject(new Error("The conversation changed"));
@@ -12115,7 +12163,6 @@ export async function startTui(
         }
         connectionFailed = false;
         connectionFailure = undefined;
-        hostReconnectAttempted = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -12146,7 +12193,8 @@ export async function startTui(
         disposeHostExtensionCommands = () => {};
         hostExtensionCommands = [];
         extensionCommandsLoading = next.listExtensionCommands !== undefined
-            && next.failed !== true;
+            && next.failed !== true
+            && next.viewOnly !== true;
         watchBackgroundAgents(next);
         watchWorkIndex(next);
         sessionTitle = undefined;
@@ -12169,9 +12217,84 @@ export async function startTui(
         renderCommandSuggestions();
         renderState();
         void receiveAgentUpdates();
-        if (next.failed !== true) {
+        if (next.failed !== true && next.viewOnly !== true) {
             void loadExtensionCommands();
             requestSessionSettings();
+        }
+    }
+
+    /**
+     * Whether the host already has this session running. Missing from the
+     * listing means it is a file, not a worker.
+     */
+    async function destinationIsLive(
+        sessionPath: string,
+        sessionId?: string,
+    ): Promise<boolean> {
+        if (dependencies.listAgents === undefined) return true;
+        try {
+            const agents = await dependencies.listAgents();
+            const row = agents.find((agent) =>
+                (sessionId !== undefined && agent.id === sessionId)
+                || agent.session_path === sessionPath
+            );
+            return row?.live === true;
+        } catch {
+            return true;
+        }
+    }
+
+    /**
+     * Attach when the destination is already running; otherwise paint the
+     * session file and wait for a send to start a worker.
+     */
+    async function openSwitchDestination(
+        sessionPath: string,
+        sessionId?: string,
+    ): Promise<TuiAgentClient> {
+        if (await destinationIsLive(sessionPath, sessionId)) {
+            return dependencies.resumeSession!(sessionPath);
+        }
+        try {
+            return await createJsonlViewClient(sessionPath, {
+                onActivate: (command) => activateJsonlView(sessionPath, command),
+            });
+        } catch {
+            return dependencies.resumeSession!(sessionPath);
+        }
+    }
+
+    /**
+     * Start a worker for a conversation that was only a file, then send the
+     * command that asked for it.
+     */
+    async function activateJsonlView(
+        sessionPath: string,
+        command: ClientCommand,
+    ): Promise<void> {
+        if (dependencies.resumeSession === undefined) {
+            throw new Error("Switching sessions is unavailable");
+        }
+        if (sessionSwitchPending) {
+            throw new Error("A conversation switch is already in progress");
+        }
+        sessionSwitchPending = true;
+        sessionSwitchActivity = "opening conversation…";
+        renderState();
+        try {
+            const live = await withSessionSwitchDeadline(
+                dependencies.resumeSession(sessionPath),
+                discardSwitchTarget,
+            );
+            if (shuttingDown) {
+                discardSwitchTarget(live);
+                return;
+            }
+            switchToClient(live, currentDraft());
+            await live.send(command);
+        } catch (error) {
+            sessionSwitchPending = false;
+            throw error;
         }
     }
 
@@ -12250,7 +12373,7 @@ export async function startTui(
         settingsPickerView.box.visible = false;
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.resumeSession(sessionPath),
+            openSwitchDestination(sessionPath, sessionId),
             discardSwitchTarget,
         ).then(async (next) => {
             if (shuttingDown) {
@@ -12269,7 +12392,10 @@ export async function startTui(
                 discardSwitchTarget(next);
                 throw error;
             }
-            if (sourceDisposition === "stop") {
+            if (
+                sourceDisposition === "stop"
+                && !isJsonlViewClient(next)
+            ) {
                 // The selected row can be a child of the source. Hard close
                 // correctly takes that whole tree down, including the target
                 // attachment we opened first to validate the destination.

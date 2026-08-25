@@ -265,9 +265,9 @@ function groupSessions(
     for (const session of sessions) {
         const group = pinned.has(session.id)
             ? PINNED_GROUP
-            : session.kind === "background"
-                ? BACKGROUND_GROUP
-                : session.workspace;
+                : session.kind === "background"
+                    ? BACKGROUND_GROUP
+                    : workspaceGroupPath(session.workspace);
         const existing = byGroup.get(group);
         if (existing === undefined) byGroup.set(group, [session]);
         else existing.push(session);
@@ -354,13 +354,11 @@ function groupRow(
             || group.group === PINNED_GROUP
         ? group.group
         : basename(group.group);
-    const count = `${group.sessions.length}`;
-    const room = contentColumns - count.length - 1;
     return {
         kind: "group",
         group: group.group,
         sessions: group.sessions.length,
-        text: `${clip(label, Math.max(1, room))} ${count}`,
+        text: clip(label, Math.max(1, contentColumns)),
     };
 }
 
@@ -408,6 +406,17 @@ function sessionRow(
         selected: context.selected,
         text,
     };
+}
+
+/**
+ * The path a listing groups by. A git worktree under `.worktrees/` belongs
+ * with its parent checkout, so a session started from `vera/.worktrees/aside`
+ * does not get its own `aside` heading.
+ */
+export function workspaceGroupPath(workspace: string): string {
+    const marker = "/.worktrees/";
+    const at = workspace.indexOf(marker);
+    return at > 0 ? workspace.slice(0, at) : workspace;
 }
 
 function basename(workspace: string): string {

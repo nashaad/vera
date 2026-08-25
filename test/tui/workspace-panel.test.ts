@@ -80,6 +80,28 @@ describe("grouping", () => {
         expect(groups.map((row) => row.sessions)).toEqual([2, 1]);
     });
 
+    test("a git worktree groups with its parent checkout", () => {
+        const result = layout([
+            session({
+                id: "main",
+                workspace: "/Users/nash/Projects/vera",
+                title: "on main",
+            }),
+            session({
+                id: "aside",
+                workspace: "/Users/nash/Projects/vera/.worktrees/aside",
+                title: "count to 10",
+            }),
+        ]);
+        const groups = result.rows.filter((row) => row.kind === "group");
+        expect(groups).toHaveLength(1);
+        expect(groups[0]?.group).toBe("/Users/nash/Projects/vera");
+        expect(groups[0]?.text).toBe("vera");
+        expect(result.rows.filter((row) => row.kind === "session")).toHaveLength(
+            2,
+        );
+    });
+
     test("background agents get their own group at the bottom", () => {
         const result = layout([
             session({ id: "bg", kind: "background", workspace: "/w/one" }),
@@ -220,13 +242,14 @@ describe("row text", () => {
         expect(sessionRows(result)[0]?.age).toBe("");
     });
 
-    test("group headers name the workspace and count its sessions", () => {
+    test("group headers name the workspace without a count", () => {
         const result = layout([
             session({ id: "a", workspace: "/Users/nash/Projects/vera" }),
             session({ id: "b", workspace: "/Users/nash/Projects/vera" }),
         ]);
         const header = result.rows.find((row) => row.kind === "group")!;
-        expect(header.text).toBe("vera 2");
+        expect(header.text).toBe("vera");
+        expect(header.sessions).toBe(2);
     });
 });
 
