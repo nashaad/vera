@@ -94,7 +94,6 @@ import {
     findHelpTopic,
     loadHelpCorpus,
     parseHelpRequest,
-    renderHelpIndex,
     renderHelpTopic,
     renderHelpUsage,
     renderLlmHelp,
@@ -267,6 +266,15 @@ export async function runCli(
         confirmBusyUpgrade: assumeYes ? () => true : confirmBusyHostUpgrade,
     };
 
+    if (
+        args.length === 1
+        && (args[0] === "help" || args[0] === "--help" || args[0] === "-h")
+    ) {
+        const corpus = await (dependencies.helpCorpus ?? loadHelpCorpus)();
+        output.write(renderCliHelp(corpus));
+        return 0;
+    }
+
     if (args[0] === "help") {
         const request = parseHelpRequest(args);
         if (request === undefined) {
@@ -279,7 +287,7 @@ export async function runCli(
             return 0;
         }
         if (request.topic === undefined) {
-            output.write(renderHelpIndex(corpus));
+            output.write(renderCliHelp(corpus));
             return 0;
         }
         const topic = findHelpTopic(corpus, request.topic);
@@ -292,14 +300,6 @@ export async function runCli(
             return 1;
         }
         output.write(renderHelpTopic(topic));
-        return 0;
-    }
-
-    if (
-        args.length === 1
-        && (args[0] === "--help" || args[0] === "-h")
-    ) {
-        output.write(renderCliHelp());
         return 0;
     }
 

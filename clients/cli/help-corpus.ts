@@ -95,25 +95,6 @@ export function findHelpTopic(
     );
 }
 
-export function renderHelpIndex(corpus: HelpCorpus): string {
-    const width = Math.max(...corpus.topics.map((topic) => topic.slug.length));
-    const topics = corpus.topics.map((topic) =>
-        `  ${topic.slug.padEnd(width)}  ${topic.summary}`
-    );
-    return [
-        corpus.title,
-        "",
-        corpus.intro,
-        "",
-        "Topics:",
-        ...topics,
-        "",
-        "Use `vera help <topic>` for one topic, or `vera help --llms` for the",
-        "compact help corpus.",
-        "",
-    ].join("\n");
-}
-
 export function renderHelpTopic(topic: HelpTopic): string {
     return [
         `${topic.title} (${topic.slug})`,
@@ -211,5 +192,5 @@ function cleanBlock(lines: readonly string[]): string {
 }
 
 function firstParagraph(body: string): string {
-    return body.split("\n").find((line) => line.trim().length > 0)!.trim();
+    return body.split(/\n\s*\n/, 1)[0]!.replace(/\s*\n\s*/g, " ").trim();
 }

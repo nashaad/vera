@@ -21,6 +21,7 @@ import {
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
+import { loadHelpCorpus } from "../clients/cli/help-corpus.ts";
 
 test("vera help and version are available without starting a client", async () => {
     let output = "";
@@ -736,8 +737,8 @@ function closeableAgent(id: string, name: string): RegisteredAgentSummary {
     };
 }
 
-test("vera help separates stopping a turn from closing an agent", () => {
-    const help = renderCliHelp();
+test("vera help separates stopping a turn from closing an agent", async () => {
+    const help = renderCliHelp(await loadHelpCorpus());
     expect(help).toContain("vera abort <agent-id>");
     expect(help).toContain("vera close <agent-id>");
     expect(help).toContain("the agent stays live and keeps its queued prompts");

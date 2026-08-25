@@ -32,27 +32,49 @@ test("help requests distinguish the index, a topic, and llms output", () => {
     expect(parseHelpRequest(["doctor"])).toBeUndefined();
 });
 
-test("vera help renders the shared topic corpus without starting a client", async () => {
-    let output = "";
+test("topic summaries keep the complete first paragraph", () => {
+    const wrapped = parseHelpCorpus(`# Vera help
+
+Use a topic for focused guidance.
+
+## profiles — Profiles and configuration
+
+Select a profile when Vera starts. The first paragraph can wrap across
+source lines without becoming a fragment in the top-level help.
+`);
+
+    expect(wrapped.topics[0]?.summary).toBe(
+        "Select a profile when Vera starts. The first paragraph can wrap across source lines without becoming a fragment in the top-level help.",
+    );
+});
+
+test("top-level help aliases render one command and topic overview", async () => {
+    const outputs: string[] = [];
     let started = false;
     const dependencies = {
         helpCorpus: async () => corpus,
         runTui: async () => {
             started = true;
         },
-        stdout: { write: (text: string) => output += text },
+        stdout: { write: (text: string) => outputs.push(text) },
     };
 
     expect(await runCli(["help"], dependencies)).toBe(0);
-    expect(output).toContain("Vera help");
-    expect(output).toContain("profiles");
-    expect(output).toContain("recovery");
+    expect(await runCli(["--help"], dependencies)).toBe(0);
+    expect(await runCli(["-h"], dependencies)).toBe(0);
+    expect(outputs[0]).toBe(outputs[1]);
+    expect(outputs[1]).toBe(outputs[2]);
+    expect(outputs[0]).toContain("Vera coding agent");
+    expect(outputs[0]).toContain("vera attach <agent-id>");
+    expect(outputs[0]).toContain("Help topics:");
+    expect(outputs[0]).toContain("profiles");
+    expect(outputs[0]).toContain("recovery");
     expect(started).toBe(false);
 
-    output = "";
+    outputs.length = 0;
     expect(await runCli(["help", "profile"], dependencies)).toBe(0);
-    expect(output).toContain("Profiles and configuration (profiles)");
-    expect(output).toContain("Select a profile when Vera starts.");
+    expect(outputs[0]).toContain("Profiles and configuration (profiles)");
+    expect(outputs[0]).toContain("Select a profile when Vera starts.");
     expect(started).toBe(false);
 });
 

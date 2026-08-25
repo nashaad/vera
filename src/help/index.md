@@ -82,6 +82,9 @@ Project recovery may require Git, the preimage stash under
 
 ## commands — Finding the command you need
 
-`vera --help` lists executable CLI commands and flags. `/help` opens the TUI
-help surface, and `/commands` opens its executable command palette. Help is
-read-only: it explains a command but does not run it.
+`vera help`, `vera --help`, and `vera -h` print the same top-level command,
+flag, and topic overview. They are aliases backed by one renderer and must not
+drift into separate help surfaces. Use `vera help <topic>` for detailed
+guidance. `/help` opens the TUI help surface, and `/commands` opens its
+executable command palette. Help is read-only: it explains a command but does
+not run it.

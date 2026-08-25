@@ -1,3 +1,5 @@
+import type { HelpCorpus } from "./help-corpus.ts";
+
 export interface CliCommandHelp {
     readonly usage: string;
     readonly description: string;
@@ -38,10 +40,18 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera stdio --resume <session-id|path>", description: "Resume and bridge a session as NDJSON" },
 ] as const;
 
-export function renderCliHelp(): string {
+/**
+ * Top-level CLI help has one renderer. `vera help`, `vera -h`, and
+ * `vera --help` must stay aliases; topic lookup only narrows this corpus.
+ */
+export function renderCliHelp(corpus: HelpCorpus): string {
     const width = Math.max(...CLI_COMMANDS.map((command) => command.usage.length));
     const commands = CLI_COMMANDS.map((command) =>
         `  ${command.usage.padEnd(width)}  ${command.description}`
+    ).join("\n");
+    const topicWidth = Math.max(...corpus.topics.map((topic) => topic.slug.length));
+    const topics = corpus.topics.map((topic) =>
+        `  ${topic.slug.padEnd(topicWidth)}  ${topic.summary}`
     ).join("\n");
     return `Vera coding agent\n\nUsage:\n${commands}\n\nOptions:\n`
         + "  -h, --help     Show this help\n"
@@ -53,7 +63,9 @@ export function renderCliHelp(): string {
         + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
         + "  --model <name|id>         Run on one shortlisted model, by name or provider/model\n"
-        + "  --effort <level>          Run at one reasoning effort\n";
+        + "  --effort <level>          Run at one reasoning effort\n"
+        + `\nHelp topics:\n${topics}\n\n`
+        + "Use 'vera help <topic>' for one topic, or 'vera help --llms' for the compact help corpus.\n";
 }
 
 export function renderCliUsage(): string {
