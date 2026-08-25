@@ -69,7 +69,7 @@ export const DEFAULT_ASSIGNMENT_LABELS: Readonly<Record<ModelAssignmentId, strin
     snappy: "snappy",
     eco: "eco",
     extra: "extra",
-    reviewer: "reviewer",
+    reviewer: "classifier",
     compaction: "compaction",
     subagents: "subagents",
 };
@@ -82,7 +82,7 @@ export const MODEL_ASSIGNMENT_INTENTS: Readonly<Record<ModelAssignmentId, string
     snappy: "dirt cheap and fast, for work nothing depends on",
     eco: "smart but fast, for work a turn waits on",
     extra: "the most capable model, for work worth waiting for",
-    reviewer: "reviewing a change",
+    reviewer: "classifying whether an action may run",
     compaction: "summarising a session that has run long",
     subagents: "delegated work, in fallback order",
 };
