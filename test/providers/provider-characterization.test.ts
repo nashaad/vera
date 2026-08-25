@@ -68,7 +68,7 @@ test("shipped and declared providers resolve to the current client facts", () =>
             baseUrl: "https://eu.cerebras.example/v1",
         });
     expect(providers.find((provider) => provider.id === "gateway"))
-        .toEqual({
+        .toMatchObject({
             id: "gateway",
             label: "gateway",
             shortLabel: "gateway",

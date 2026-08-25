@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "order": 5,
+    "id": "ollama",
+    "label": "Ollama",
+    "short_label": "ollama",
+    "access": "local",
+    "credential": "none",
+    "hint": "local, no account",
+    "env_var": "OLLAMA_HOST",
+    "protocol": "openai-chat",
+    "default_base_url": "http://127.0.0.1:11434",
+    "discovery": { "mode": "models", "path": "/models", "credential": "none" },
+    "compatibility": {
+        "request": ["ollama-thinking"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}

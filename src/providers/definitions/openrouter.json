@@ -1,0 +1,20 @@
+{
+    "schema_version": 1,
+    "order": 4,
+    "id": "openrouter",
+    "label": "OpenRouter",
+    "short_label": "openrouter",
+    "access": "api_key",
+    "credential": "api_key",
+    "hint": "API key, pay per token",
+    "env_var": "OPENROUTER_API_KEY",
+    "protocol": "contributed",
+    "behavior_id": "openrouter",
+    "default_base_url": "https://openrouter.ai/api/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "compatibility": {
+        "request": ["openrouter-request-fields"],
+        "response": ["openrouter-stream"],
+        "error": ["openrouter-error"]
+    }
+}

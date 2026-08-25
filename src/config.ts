@@ -51,19 +51,17 @@ import {
     projectVeraExtensionDirectory,
 } from "./extensions/discovery.ts";
 import { veraProfileDirectory } from "./profile-paths.ts";
+import {
+    isFixedEndpointProvider,
+    shippedProviderIds,
+} from "./providers/definitions.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
-export const VERA_PROVIDER_IDS = [
-    "openrouter",
-    "openai-codex",
-    "ollama",
-    "omlx",
-    "cerebras",
-    "deepseek",
-] as const;
+/** Compatibility export while callers move to the provider resolver. */
+export const VERA_PROVIDER_IDS = shippedProviderIds();
 
-export type VeraBuiltInProviderId = typeof VERA_PROVIDER_IDS[number];
+export type VeraBuiltInProviderId = string;
 
 /**
  * A provider reference is either one of Vera's built-ins or a named endpoint
@@ -1106,7 +1104,7 @@ function parseProviderEndpoints(
         const id = rawId.trim();
         if (
             !isVeraProviderId(id)
-            || FIXED_ENDPOINT_PROVIDERS.includes(id)
+            || isFixedEndpointProvider(id)
             || typeof rawUrl !== "string"
             || !validProviderUrl(rawUrl.trim())
         ) {
@@ -1121,8 +1119,6 @@ function parseProviderEndpoints(
  * Providers reached over an endpoint that is not a host the user can move.
  * Codex is a subscription flow bound to the account it signs in to.
  */
-const FIXED_ENDPOINT_PROVIDERS: readonly string[] = ["openai-codex"];
-
 function validProviderUrl(value: string): boolean {
     try {
         const url = new URL(value);

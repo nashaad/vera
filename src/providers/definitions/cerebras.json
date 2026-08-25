@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "order": 1,
+    "id": "cerebras",
+    "label": "Cerebras",
+    "short_label": "cerebras",
+    "access": "api_key",
+    "credential": "api_key",
+    "hint": "API key",
+    "env_var": "CEREBRAS_API_KEY",
+    "protocol": "openai-chat",
+    "default_base_url": "https://api.cerebras.ai/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "required" },
+    "compatibility": {
+        "request": ["cerebras-request-fields"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}

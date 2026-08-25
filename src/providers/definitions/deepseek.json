@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "order": 2,
+    "id": "deepseek",
+    "label": "DeepSeek",
+    "short_label": "deepseek",
+    "access": "api_key",
+    "credential": "api_key",
+    "hint": "API key, pay per token",
+    "env_var": "DEEPSEEK_API_KEY",
+    "protocol": "openai-chat",
+    "default_base_url": "https://api.deepseek.com",
+    "discovery": { "mode": "none", "path": "/models", "credential": "required" },
+    "compatibility": {
+        "request": ["deepseek-thinking"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}

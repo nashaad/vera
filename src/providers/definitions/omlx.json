@@ -1,0 +1,19 @@
+{
+    "schema_version": 1,
+    "order": 6,
+    "id": "omlx",
+    "label": "oMLX",
+    "short_label": "omlx",
+    "access": "local",
+    "credential": "api_key_optional",
+    "hint": "local, API key if required",
+    "env_var": "OMLX_API_KEY",
+    "protocol": "openai-chat",
+    "default_base_url": "http://127.0.0.1:8000/v1",
+    "discovery": { "mode": "models", "path": "/models", "credential": "optional" },
+    "compatibility": {
+        "request": ["openai-chat"],
+        "response": ["openai-sse"],
+        "error": ["http-status"]
+    }
+}
