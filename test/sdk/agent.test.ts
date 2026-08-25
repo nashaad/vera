@@ -1,116 +1,357 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+    existsSync,
+    mkdirSync,
+    mkdtempSync,
+    rmSync,
+    writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { Vera } from "../../src/sdk/agent.ts";
+import { defineAgent, type AgentDefinition } from "../../src/agents/definition.ts";
+import type { VeraConfig } from "../../src/config.ts";
+import {
+    Vera,
+    type AgentOutputSchema,
+} from "../../src/sdk/agent.ts";
 import {
     emptyUsage,
     type AssistantMessage,
     type ModelAdapter,
     type ModelRequest,
 } from "../../src/model/types.ts";
-import { FauxAdapter } from "../support/faux-adapter.ts";
-import type { VeraConfig } from "../../src/config.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
+import { FauxAdapter } from "../support/faux-adapter.ts";
 
-test("Agent.run owns a bounded tool-free engine loop without a resident host", async () => {
-    const workspace = mkdtempSync(join(tmpdir(), "vera-sdk-test-"));
-    const response: AssistantMessage = {
-        role: "assistant",
-        content: [{ type: "text", text: "bounded answer" }],
-        source: { provider: "faux", api: "test", model: "reviewer" },
-        usage: {
-            ...emptyUsage(),
-            inputTokens: 3,
-            outputTokens: 2,
-            totalTokens: 5,
-        },
-        stopReason: "stop",
-    };
-    const scripted = new FauxAdapter([response], { chunkSize: 3 });
-    let request: ModelRequest | undefined;
-    const adapter: ModelAdapter = {
-        stream(next) {
-            request = next;
-            return scripted.stream(next);
-        },
-    };
-    const config: VeraConfig = {
-        schema_version: 1,
-        provider: "faux",
-        model: "reviewer",
-        reasoning_effort: "high",
-        approval_mode: "ask",
-    };
+test("A1 an SDK agent runs from a module-level definition", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("bounded answer")], requests);
+    const definition = defineAgent({
+        name: "review-correctness",
+        instructions: "Inspect control flow and report concrete defects.",
+        tools: [],
+    });
+
+    const result = await vera.agent(definition).run("Review this patch");
+
+    expect(result).toMatchObject({
+        outcome: "completed",
+        text: "bounded answer",
+        model: { provider: "faux", model: "reviewer" },
+        substitutions: [],
+    });
+    expect(requests[0]?.systemPrompt).toContain(definition.instructions);
+    expect(requests[0]?.tools).toEqual([]);
+});
+
+test("A2 a definition name resolves through the catalog", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-catalog-");
+    const directory = join(workspace, ".vera", "agents");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(
+        join(directory, "review-correctness.md"),
+        "Instructions loaded from the project catalog.\n",
+    );
+    const requests: ModelRequest[] = [];
 
     try {
-        const vera = await Vera.create({
-            config,
+        const vera = await scriptedVera([answer("catalog run")], requests, {
             workspace,
-            createAdapter: () => adapter,
         });
-        const result = await vera.agent().run("Review this patch");
+        await vera.agent("review-correctness").run("Review this patch");
 
-        expect(result).toMatchObject({
-            outcome: "completed",
-            text: "bounded answer",
-            model: { provider: "faux", model: "reviewer" },
-            substitutions: [],
-        });
-        expect(result.usage?.rows).toEqual([
-            expect.objectContaining({
-                provider: "faux",
-                model: "reviewer",
-                inputTokens: 3,
-                outputTokens: 2,
-                totalTokens: 5,
-                calls: 1,
-            }),
-        ]);
-        expect(request?.model).toBe("reviewer");
-        expect(request?.reasoningEffort).toBe("high");
-        expect(request?.tools).toEqual([]);
-        expect(JSON.stringify(request?.messages)).toContain("Review this patch");
+        expect(requests[0]?.systemPrompt).toContain(
+            "Instructions loaded from the project catalog.",
+        );
     } finally {
         rmSync(workspace, { recursive: true, force: true });
     }
 });
 
+test("A3 an invalid definition is refused where it is defined", () => {
+    expect(() => defineAgent({
+        name: "Review_Bad",
+        instructions: "review",
+    })).toThrow("must be lowercase letters");
+    expect(() => defineAgent({
+        name: "review-empty",
+        instructions: "   ",
+    })).toThrow("instructions must not be empty");
+});
+
+test("A4 defaultPair selects the model and effort", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-pair-");
+    const directory = join(workspace, ".vera");
+    mkdirSync(directory, { recursive: true });
+    writeFileSync(join(directory, "pool.json"), JSON.stringify({
+        defaults: {},
+        models: {
+            "pair-provider/pair-model": {
+                added: true,
+                name: "luna",
+            },
+        },
+    }));
+    const selected: VeraConfig[] = [];
+    const requests: ModelRequest[] = [];
+    const vera = await Vera.create({
+        config: baseConfig(),
+        workspace,
+        createAdapter(config) {
+            selected.push(config);
+            const scripted = new FauxAdapter([
+                answer("selected", config.provider, config.model),
+            ]);
+            return capture(scripted, requests);
+        },
+    });
+    const definition = defineAgent({
+        name: "review-pair",
+        instructions: "Review with the role default.",
+        tools: [],
+        defaultPair: { name: "luna", effort: "high" },
+    });
+
+    try {
+        await vera.agent(definition).run("review");
+        await vera.agent(definition, {
+            provider: "override-provider",
+            model: "override-model",
+            reasoningEffort: "low",
+        }).run("review again");
+
+        expect(selected[0]).toMatchObject({
+            provider: "pair-provider",
+            model: "pair-model",
+        });
+        expect(requests[0]).toMatchObject({
+            model: "pair-model",
+            reasoningEffort: "high",
+        });
+        expect(selected[1]).toMatchObject({
+            provider: "override-provider",
+            model: "override-model",
+        });
+        expect(requests[1]).toMatchObject({
+            model: "override-model",
+            reasoningEffort: "low",
+        });
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("B1 an SDK agent does not run at full access", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-posture-");
+    const requests: ModelRequest[] = [];
+    const blockedPath = join(workspace, "blocked.txt");
+    const vera = await scriptedVera([
+        toolCall("write", { path: blockedPath, content: "no" }),
+        answer("write was refused"),
+    ], requests, {
+        workspace,
+        config: { ...baseConfig(), approval_mode: "full_access" },
+        posture: "full_access",
+    });
+    const definition = defineAgent({
+        name: "review-readonly",
+        instructions: "Inspect without changing files.",
+        tools: ["write"],
+        posture: "readonly",
+    });
+
+    try {
+        const result = await vera.agent(definition).run("try the write");
+
+        expect(existsSync(blockedPath)).toBe(false);
+        expect(JSON.stringify(requests[1]?.messages)).toContain(
+            "Permission mode readonly requires deny",
+        );
+        expect(result).toMatchObject({
+            outcome: "completed",
+            text: "write was refused",
+        });
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("B2 a definition cannot widen the runtime posture", async () => {
+    const vera = await Vera.create({
+        config: { ...baseConfig(), approval_mode: "readonly" },
+        posture: "readonly",
+    });
+    const definition = defineAgent({
+        name: "review-wide",
+        instructions: "Review with broad access.",
+        tools: [],
+        posture: "full_access",
+    });
+
+    expect(() => vera.agent(definition)).toThrow("would widen runtime posture");
+});
+
+test("B3 tools are offered from the definition list", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("done")], requests);
+    const definition = defineAgent({
+        name: "review-reader",
+        instructions: "Read relevant source.",
+        tools: ["read"],
+        posture: "readonly",
+    });
+
+    await vera.agent(definition).run("review");
+
+    const names = requests[0]?.tools?.map((tool) => tool.name) ?? [];
+    expect(names).toContain("read");
+    expect(names).not.toContain("write");
+    expect(names).not.toContain("subagent");
+});
+
+test("B4 a reviewer cannot delegate", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([
+        toolCall("subagent", { description: "delegate" }),
+        answer("delegation refused"),
+    ], requests);
+    const definition = defineAgent({
+        name: "review-leaf",
+        instructions: "Review the supplied change.",
+        tools: ["read"],
+        posture: "readonly",
+    });
+
+    const result = await vera.agent(definition).run("review");
+
+    const offered = requests[0]?.tools?.map((tool) => tool.name) ?? [];
+    expect(offered).not.toContain("subagent");
+    expect(JSON.stringify(requests[1]?.messages)).toContain(
+        "does not offer the subagent tool",
+    );
+    expect(result.text).toBe("delegation refused");
+});
+
+test("B5 one posture decision covers the fan", async () => {
+    const workspace = temporaryWorkspace("vera-sdk-fan-posture-");
+    let adapters = 0;
+    const vera = await Vera.create({
+        config: { ...baseConfig(), approval_mode: "readonly" },
+        workspace,
+        posture: "readonly",
+        createAdapter() {
+            adapters += 1;
+            return new FauxAdapter([
+                toolCall("write", {
+                    path: join(workspace, `blocked-${adapters}.txt`),
+                    content: "no",
+                }),
+                answer(`refused ${adapters}`),
+            ]);
+        },
+    });
+    const definitions = ["one", "two", "three", "four"].map((name) =>
+        defineAgent({
+            name: `review-${name}`,
+            instructions: `Review lens ${name}.`,
+            tools: ["write"],
+        })
+    );
+
+    try {
+        const results = await Promise.all(
+            definitions.map((definition) => vera.agent(definition).run("review")),
+        );
+
+        expect(results.map((result) => result.outcome)).toEqual([
+            "completed",
+            "completed",
+            "completed",
+            "completed",
+        ]);
+        for (let index = 1; index <= 4; index += 1) {
+            expect(existsSync(join(workspace, `blocked-${index}.txt`))).toBe(false);
+        }
+    } finally {
+        rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("C1 a run with an output schema returns typed output", async () => {
+    const vera = await scriptedVera([
+        toolCallWithText(
+            "I will inspect the file before returning the result.",
+            "read",
+            { path: "package.json" },
+        ),
+        answer(
+            'There is one supported finding.\n'
+                + '{"findings":[{"summary":"broken branch"}]}',
+        ),
+    ]);
+    const schema = findingsSchema();
+    const definition = defineAgent({
+        name: "review-structured",
+        instructions: "Inspect the file and return structured findings.",
+        tools: ["read"],
+        posture: "readonly",
+    });
+
+    const result = await vera.agent(definition).run("review", {
+        output: schema,
+    });
+
+    expect(result).toMatchObject({
+        outcome: "completed",
+        output: { findings: [{ summary: "broken branch" }] },
+    });
+    expect(result.text).toContain("I will inspect the file");
+    expect(result.text).toContain("There is one supported finding.");
+    expect(result.text).toContain('{"findings":[{"summary":"broken branch"}]}');
+});
+
+test("C2 a response that violates the schema fails loudly", async () => {
+    const vera = await scriptedVera([
+        answer("not json"),
+        answer('{"findings":[{}]}'),
+    ]);
+    const bound = vera.agent(basicDefinition());
+    const prose = await bound.run("review prose", { output: findingsSchema() });
+    const partial = await bound.run("review partial", { output: findingsSchema() });
+
+    for (const result of [prose, partial]) {
+        expect(result.outcome).toBe("failed");
+        expect(result.error).toMatchObject({ kind: "schema" });
+        expect(result.error?.message.length).toBeGreaterThan(0);
+        expect("output" in result).toBe(false);
+        expect(result.output).toBeUndefined();
+    }
+});
+
+test("C3 a run without a schema is unchanged", async () => {
+    const vera = await scriptedVera([answer("plain text")]);
+
+    const result = await vera.agent(basicDefinition()).run("review");
+
+    expect(result).toMatchObject({ outcome: "completed", text: "plain text" });
+    expect("output" in result).toBe(false);
+});
+
 test("Agent.run rejects an empty prompt before constructing an adapter", async () => {
     let adapters = 0;
     const vera = await Vera.create({
-        config: {
-            schema_version: 1,
-            provider: "faux",
-            model: "reviewer",
-            approval_mode: "auto",
-        },
+        config: baseConfig(),
         createAdapter() {
             adapters += 1;
             throw new Error("must not run");
         },
     });
 
-    await expect(vera.agent().run("  ")).rejects.toThrow(
+    await expect(vera.agent(basicDefinition()).run("  ")).rejects.toThrow(
         "Agent prompt must not be empty",
     );
     expect(adapters).toBe(0);
-});
-
-test("Vera.agent rejects tool modes outside the tool-free SDK contract", async () => {
-    const vera = await Vera.create({
-        config: {
-            schema_version: 1,
-            provider: "faux",
-            model: "reviewer",
-            approval_mode: "auto",
-        },
-    });
-
-    expect(() => vera.agent({ tools: "bash" as never })).toThrow(
-        'supports only tools: "none"',
-    );
 });
 
 test("Agent.run returns failed when its bounded loop cannot complete", async () => {
@@ -140,27 +381,27 @@ test("Agent.run returns failed when its bounded loop cannot complete", async () 
             return stream;
         },
     };
-    const vera = await testVera(adapter);
+    const vera = await Vera.create({
+        config: baseConfig(),
+        createAdapter: () => adapter,
+    });
 
-    const result = await vera.agent().run("review");
+    const result = await vera.agent(basicDefinition()).run("review");
 
     expect(result.outcome).toBe("failed");
     expect(result.error?.message).toContain("provider unavailable");
 });
 
 test("Agent.run turns AbortSignal cancellation into an aborted result", async () => {
-    const response: AssistantMessage = {
-        role: "assistant",
-        content: [{ type: "text", text: "too late" }],
-        source: { provider: "faux", api: "test", model: "reviewer" },
-        usage: emptyUsage(),
-        stopReason: "stop",
-    };
-    const vera = await testVera(new FauxAdapter([response], { delayMs: 100 }));
+    const response = answer("too late");
+    const vera = await Vera.create({
+        config: baseConfig(),
+        createAdapter: () => new FauxAdapter([response], { delayMs: 100 }),
+    });
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 10);
 
-    const result = await vera.agent().run("review", {
+    const result = await vera.agent(basicDefinition()).run("review", {
         signal: controller.signal,
     });
 
@@ -168,14 +409,137 @@ test("Agent.run turns AbortSignal cancellation into an aborted result", async ()
     expect(result.error?.kind).toBe("aborted");
 });
 
-function testVera(adapter: ModelAdapter): Promise<Vera> {
-    return Vera.create({
-        config: {
-            schema_version: 1,
-            provider: "faux",
-            model: "reviewer",
-            approval_mode: "auto",
+interface FindingOutput {
+    readonly findings: readonly { readonly summary: string }[];
+}
+
+function findingsSchema(): AgentOutputSchema<FindingOutput> {
+    return {
+        parse(value) {
+            if (!isRecord(value) || !Array.isArray(value.findings)) {
+                throw new Error("findings must be an array");
+            }
+            const findings = value.findings.map((finding) => {
+                if (!isRecord(finding) || typeof finding.summary !== "string") {
+                    throw new Error("finding summary is required");
+                }
+                return { summary: finding.summary };
+            });
+            return { findings };
         },
-        createAdapter: () => adapter,
+    };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+    return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function basicDefinition(): AgentDefinition {
+    return defineAgent({
+        name: "review-basic",
+        instructions: "Review the supplied input.",
+        tools: [],
     });
+}
+
+interface ScriptedVeraOptions {
+    readonly workspace?: string;
+    readonly config?: VeraConfig;
+    readonly posture?: string;
+}
+
+function scriptedVera(
+    responses: readonly AssistantMessage[],
+    requests: ModelRequest[] = [],
+    options: ScriptedVeraOptions = {},
+): Promise<Vera> {
+    const scripted = new FauxAdapter(responses, { chunkSize: 3 });
+    return Vera.create({
+        config: options.config ?? baseConfig(),
+        ...(options.workspace === undefined ? {} : { workspace: options.workspace }),
+        ...(options.posture === undefined ? {} : { posture: options.posture }),
+        createAdapter: () => capture(scripted, requests),
+    });
+}
+
+function capture(adapter: ModelAdapter, requests: ModelRequest[]): ModelAdapter {
+    return {
+        stream(request) {
+            requests.push(request);
+            return adapter.stream(request);
+        },
+    };
+}
+
+function baseConfig(): VeraConfig {
+    return {
+        schema_version: 1,
+        provider: "faux",
+        model: "reviewer",
+        reasoning_effort: "high",
+        approval_mode: "readonly",
+    };
+}
+
+function temporaryWorkspace(prefix: string): string {
+    return mkdtempSync(join(tmpdir(), prefix));
+}
+
+function answer(
+    text: string,
+    provider = "faux",
+    model = "reviewer",
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider, api: "test", model },
+        usage: {
+            ...emptyUsage(),
+            inputTokens: 3,
+            outputTokens: 2,
+            totalTokens: 5,
+        },
+        stopReason: "stop",
+    };
+}
+
+function toolCall(
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: `call-${name}`,
+            name,
+            input,
+        }],
+        source: { provider: "faux", api: "test", model: "reviewer" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+}
+
+function toolCallWithText(
+    text: string,
+    name: string,
+    input: Readonly<Record<string, unknown>>,
+): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [
+            { type: "text", text },
+            {
+                type: "tool_call",
+                id: `call-${name}`,
+                name,
+                input,
+            },
+        ],
+        source: { provider: "faux", api: "test", model: "reviewer" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
 }

@@ -77,6 +77,19 @@ const KNOWN_KEYS = new Set([
     "nudges",
 ]);
 
+const DEFINITION_KEYS = new Set([
+    "name",
+    "description",
+    "tools",
+    "skills",
+    "posture",
+    "forbiddenAccess",
+    "context",
+    "defaultPair",
+    "nudges",
+    "instructions",
+]);
+
 export interface ParseAgentOptions {
     /** The names the host will accept for `posture`, when it can say. */
     readonly permissionModes?: readonly string[];
@@ -88,16 +101,38 @@ export interface ParseAgentOptions {
     readonly interactive?: boolean;
 }
 
+/**
+ * Validates a definition where application code declares it and returns the
+ * normalized value. File-backed and module-level definitions share the same
+ * field validator so the two forms cannot drift.
+ */
+export function defineAgent(definition: AgentDefinition): AgentDefinition {
+    const value = definition as unknown as Record<string, unknown>;
+    for (const key of Object.keys(value)) {
+        if (!DEFINITION_KEYS.has(key)) {
+            throw new Error(`Agent ${String(value.name)} has an unknown key: ${key}`);
+        }
+    }
+    return validateAgentDefinition({
+        name: value.name,
+        description: value.description,
+        tools: value.tools,
+        skills: value.skills,
+        posture: value.posture,
+        forbiddenAccess: value.forbiddenAccess,
+        context: value.context,
+        defaultPair: value.defaultPair,
+        nudges: value.nudges,
+        instructions: value.instructions,
+    }, {}, true);
+}
+
 export function parseAgentDefinition(
     name: string,
     source: string,
     options: ParseAgentOptions = {},
 ): AgentDefinition {
-    if (!AGENT_NAME.test(name)) {
-        throw new Error(
-            `Agent name ${name} must be lowercase letters, numbers and single hyphens`,
-        );
-    }
+    validateAgentName(name);
     if (source.length > MAX_AGENT_BYTES) {
         throw new Error(`Agent ${name} exceeds the ${MAX_AGENT_BYTES}-byte limit`);
     }
@@ -113,8 +148,45 @@ export function parseAgentDefinition(
             throw new Error(`Agent ${name} has an unknown key: ${key}`);
         }
     }
+    return validateAgentDefinition({
+        name,
+        description: frontmatter.description,
+        tools: frontmatter.tools,
+        skills: frontmatter.skills,
+        posture: frontmatter.posture,
+        forbiddenAccess: frontmatter.forbidden_access,
+        context: frontmatter.context,
+        defaultPair: frontmatter.default_pair,
+        nudges: frontmatter.nudges,
+        instructions,
+    }, options, false);
+}
 
-    const context = frontmatter.context;
+interface AgentDefinitionFields {
+    readonly name: unknown;
+    readonly description: unknown;
+    readonly tools: unknown;
+    readonly skills: unknown;
+    readonly posture: unknown;
+    readonly forbiddenAccess: unknown;
+    readonly context: unknown;
+    readonly defaultPair: unknown;
+    readonly nudges: unknown;
+    readonly instructions: unknown;
+}
+
+function validateAgentDefinition(
+    fields: AgentDefinitionFields,
+    options: ParseAgentOptions,
+    requireInstructions: boolean,
+): AgentDefinition {
+    const name = validateAgentName(fields.name);
+    const instructions = validateInstructions(
+        name,
+        fields.instructions,
+        requireInstructions,
+    );
+    const context = fields.context;
     if (context !== undefined && context !== "full") {
         throw new Error(
             `Agent ${name}: context ${JSON.stringify(context)} is not yet supported`,
@@ -124,16 +196,16 @@ export function parseAgentDefinition(
     const description = optionalText(
         name,
         "description",
-        frontmatter.description,
+        fields.description,
         MAX_DESCRIPTION_CHARACTERS,
     );
-    const tools = optionalNameList(name, "tools", frontmatter.tools);
-    const skills = optionalNameList(name, "skills", frontmatter.skills);
-    const posture = optionalText(name, "posture", frontmatter.posture, 64);
+    const tools = optionalNameList(name, "tools", fields.tools);
+    const skills = optionalNameList(name, "skills", fields.skills);
+    const posture = optionalText(name, "posture", fields.posture, 64);
     const forbiddenAccess = optionalNameList(
         name,
         "forbidden_access",
-        frontmatter.forbidden_access,
+        fields.forbiddenAccess,
     );
     if (
         posture !== undefined
@@ -150,8 +222,8 @@ export function parseAgentDefinition(
             throw new Error(`Agent ${name}: no permission mode named ${unknown}`);
         }
     }
-    const defaultPair = parseDefaultPair(name, frontmatter.default_pair);
-    const nudges = parseNudges(name, frontmatter.nudges);
+    const defaultPair = parseDefaultPair(name, fields.defaultPair);
+    const nudges = parseNudges(name, fields.nudges);
     if (nudges !== undefined && options.interactive === false) {
         throw new Error(
             `Agent ${name} carries nudges, which only an interactive session can show`,
@@ -170,6 +242,33 @@ export function parseAgentDefinition(
         ...(nudges === undefined ? {} : { nudges }),
         instructions,
     };
+}
+
+function validateAgentName(value: unknown): string {
+    if (typeof value !== "string" || !AGENT_NAME.test(value)) {
+        throw new Error(
+            `Agent name ${String(value)} must be lowercase letters, numbers and single hyphens`,
+        );
+    }
+    return value;
+}
+
+function validateInstructions(
+    name: string,
+    value: unknown,
+    required: boolean,
+): string {
+    if (typeof value !== "string") {
+        throw new Error(`Agent ${name}: instructions must be a string`);
+    }
+    const instructions = value.trim();
+    if (required && instructions.length === 0) {
+        throw new Error(`Agent ${name}: instructions must not be empty`);
+    }
+    if (instructions.length > MAX_AGENT_BYTES) {
+        throw new Error(`Agent ${name} exceeds the ${MAX_AGENT_BYTES}-byte limit`);
+    }
+    return instructions;
 }
 
 /** The name an agent file carries, which is the filename without `.md`. */
