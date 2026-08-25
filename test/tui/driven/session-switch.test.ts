@@ -870,3 +870,108 @@ test("ctrl+n in the agent sidebar starts a new chat and keeps the source running
         await session.close();
     }
 }, 15_000);
+
+test("close command parks the current session as a resume file", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-close-slash-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/close");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("[resume]")
+                && visible.includes("hello from disk"),
+            "the parked file with resume overlay",
+        );
+        expect(pane).not.toContain("Start a conversation");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
+            "none\ndetached\ncurrent-session-id\nclosed current-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("ctrl+w parks the current session as a resume file", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-close-chord-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-w");
+        const pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("[resume]")
+                && visible.includes("hello from disk"),
+            "the parked file with resume overlay",
+        );
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
+            "none\ndetached\ncurrent-session-id\nclosed current-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("closing in-flight work asks first", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-close-confirm-"));
+    const scenario = createTuiResumeScenario({ home, inFlight: true });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("TURN IN FLIGHT");
+        session.sendKey("C-w");
+        let pane = await session.waitForVisiblePane("Stop this conversation?");
+        expect(pane).toContain("[1] close");
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("TURN IN FLIGHT")
+                && !visible.includes("Stop this conversation?"),
+            "the in-flight transcript after cancel",
+        );
+        expect(pane).not.toContain("[resume]");
+        session.sendKey("C-w");
+        await session.waitForVisiblePane("[1] close");
+        session.sendKey("1");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("[resume]")
+                && visible.includes("hello from disk"),
+            "the parked file after confirmed close",
+        );
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8")).toBe(
+            "none\ndetached\ncurrent-session-id\nclosed current-session-id",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);

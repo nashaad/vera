@@ -393,6 +393,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Complete the slash command being typed",
     },
     {
+        id: "close_session",
+        keys: ["ctrl+w"],
+        scope: "composer",
+        description: "Stop this conversation and keep the file",
+        hint: "ctrl+w close",
+    },
+    {
         id: "focus_composer",
         keys: ["i", "tab"],
         scope: "unfocused",

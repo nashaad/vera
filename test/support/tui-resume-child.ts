@@ -33,6 +33,10 @@ export function createTuiResumeScenario(options: {
      * painting the session file. Timeout tests hang inside resume.
      */
     readonly targetLive?: boolean;
+    /**
+     * Replay the current session as still working so close asks first.
+     */
+    readonly inFlight?: boolean;
 }): TuiResumeScenario {
     /**
      * The picker prints this as a relative age, so a fixed date would render
@@ -62,6 +66,19 @@ export function createTuiResumeScenario(options: {
         onDetach: () => {
             detached = true;
         },
+        ...(options.inFlight === true
+            ? {
+                initialUpdates: [{
+                    type: "history" as const,
+                    entries: [{
+                        kind: "assistant" as const,
+                        text: "TURN IN FLIGHT",
+                    }],
+                    status: "working" as const,
+                    seq: 0,
+                }],
+            }
+            : {}),
         ...(options.otherInteractiveAttachments === undefined ? {} : {
             supportsHostCapability: (capability: string) =>
                 capability === HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,

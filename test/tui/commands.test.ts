@@ -51,6 +51,7 @@ test("every slash action has an explicit pane scope", () => {
         { type: "update_session_name", name: "name" },
         { type: "clone_session" },
         { type: "compact_session" },
+        { type: "close_session" },
         { type: "show_diagnostics" },
         { type: "show_extensions" },
         {
@@ -103,6 +104,7 @@ test("every slash action has an explicit pane scope", () => {
             ["update_session_name", "focused_agent"],
             ["clone_session", "main_session"],
             ["compact_session", "main_session"],
+            ["close_session", "main_session"],
             ["show_diagnostics", "application"],
             ["show_extensions", "application"],
             ["manage_extensions", "application"],
@@ -460,7 +462,13 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/clone")).toEqual({
         type: "clone_session",
     });
-    expect(registry.dispatch("/clo")).toEqual({ type: "clone_session" });
+    expect(registry.dispatch("/clon")).toEqual({ type: "clone_session" });
+    expect(registry.dispatch("/close")).toEqual({
+        type: "close_session",
+    });
+    expect(registry.dispatch("/clos")).toEqual({ type: "close_session" });
+    // /clo matches both /clone and /close.
+    expect(registry.dispatch("/clo")).toBeUndefined();
 });
 
 test("ordinary and unknown slash input remain ordinary prompts", () => {
