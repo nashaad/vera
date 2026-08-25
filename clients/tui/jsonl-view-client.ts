@@ -10,7 +10,7 @@ import type { TuiAgentClient } from "./agent-client.ts";
 
 /**
  * A conversation opened from its session file, with no host agent and no
- * worker. The first command that needs a running loop is how it becomes live.
+ * worker. The resume overlay is what turns it into a live session.
  */
 export interface JsonlViewClient extends TuiAgentClient {
     readonly viewOnly: true;
@@ -25,9 +25,6 @@ export function isJsonlViewClient(
 
 export async function createJsonlViewClient(
     sessionPath: string,
-    options: {
-        readonly onActivate?: (command: ClientCommand) => Promise<void>;
-    } = {},
 ): Promise<JsonlViewClient> {
     const snapshot = await readSessionSnapshot(sessionPath);
     const outgoing = new AsyncQueue<AgentUpdate>();
@@ -52,12 +49,9 @@ export async function createJsonlViewClient(
             if (!commandNeedsRunningLoop(command)) {
                 return;
             }
-            if (options.onActivate === undefined) {
-                throw new Error(
-                    "This conversation is on disk until it is opened for work",
-                );
-            }
-            await options.onActivate(command);
+            throw new Error(
+                "This conversation is on disk until it is resumed",
+            );
         },
         receive(signal) {
             return outgoing.receive(signal);
@@ -75,8 +69,8 @@ export async function createJsonlViewClient(
 }
 
 /**
- * Reads and listings do not start a worker. A prompt, an approval, or any
- * other command that needs the loop is what turns this file into a session.
+ * Reads and listings do not start a worker. A prompt or any other command
+ * that needs the loop is refused until the overlay resumes this file.
  */
 function commandNeedsRunningLoop(command: ClientCommand): boolean {
     switch (command.type) {
