@@ -2601,6 +2601,7 @@ export async function startTui(
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
         backgroundColor: theme.input ?? theme.background,
         textColor: theme.text,
+        mutedColor: theme.muted,
     });
     workspaceSidebarView.setBottomInset(
         composerBox.height + composerMarginRows,
@@ -3983,6 +3984,7 @@ export async function startTui(
             boundaryColor: appearance.composerBoundaryColor ?? theme.element,
             backgroundColor: theme.input ?? theme.background,
             textColor: theme.text,
+        mutedColor: theme.muted,
         });
         dialCard.marginLeft = appearance.composerMarginHorizontal;
         dialCard.marginRight = appearance.composerMarginHorizontal;
@@ -4189,6 +4191,7 @@ export async function startTui(
             const jsonlAction = jsonlViewKeyAction(key, {
                 conversationBinding: tuiBindingId("conversation", key),
                 globalBinding: tuiBindingId("global", key),
+                workspaceBinding: tuiBindingId("workspace", key),
                 sidebarFocused: workspaceSidebarFocused
                     && workspaceSidebar !== undefined,
             });
@@ -4202,6 +4205,12 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 resumeJsonlView();
+                return;
+            }
+            if (jsonlAction === "new_session") {
+                key.preventDefault();
+                key.stopPropagation();
+                beginCreateSession("keep_running");
                 return;
             }
             if (jsonlAction === "toggle_sidebar") {
@@ -13333,6 +13342,7 @@ export async function startTui(
             boundaryColor: appearance.composerBoundaryColor ?? theme.element,
             backgroundColor: theme.input ?? theme.background,
             textColor: theme.text,
+        mutedColor: theme.muted,
         });
         composerStatusText.fg = theme.muted;
         composerRule.borderColor = appearance.composerBoundaryColor

@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 
+import { BRAILLE_FRAMES } from "../../clients/tui/activity-pulse.ts";
 import { workspaceRailColumns } from "../../clients/tui/workspace-sidebar.ts";
 import { ownTmuxServer } from "../support/uat-process-owner.ts";
 import { killTmuxServer } from "../support/kill-tmux-server.ts";
@@ -41,7 +42,7 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
         return open;
     });
 
-    expect(pane).toContain("Agent sidebar · 5");
+    expect(pane).toContain("Agent sidebar · 6");
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
@@ -66,8 +67,8 @@ test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", asy
     });
 
     expect(workspaceLine(result.focused))
-        .toMatch(/\[(?: > |   )\] Agent sidebar · 5/);
-    expect(result.chat).not.toContain("Agent sidebar · 5");
+        .toMatch(/\[(?: > |   )\] Agent sidebar · 6/);
+    expect(result.chat).not.toContain("Agent sidebar · 6");
     expect(result.chat).toContain("draft after hide");
 }, 60_000);
 
@@ -141,7 +142,7 @@ test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async (
         );
     });
 
-    expect(pane).toContain("Agent sidebar · 5");
+    expect(pane).toContain("Agent sidebar · 6");
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
@@ -224,7 +225,8 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(selectedRow(after)).toContain("auth-race");
     // j/k only moved the highlight. The viewed transcript is still this one
     // until Enter, which is when the path in the pane changes.
-    expect(after).toContain("[ this one ]");
+    expect(after).toContain("this one");
+    expect(after).not.toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
     expect(opened).toContain("Agent sidebar ·");
@@ -237,7 +239,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Agent sidebar · 45")
+            value.includes("Agent sidebar · 46")
         );
         const selectedBefore = selectedRow(before);
         tui.bytes(CTRL_D);
@@ -256,7 +258,8 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
     expect(selectedRow(afterUp)).toBe(selectedRow(before));
     // Half-page is highlight only. The viewed transcript does not follow.
     expect(compact(afterDown)).not.toContain("/sessions/bulk-");
-    expect(afterDown).toContain("[ this one ]");
+    expect(afterDown).toContain("this one");
+    expect(afterDown).not.toContain("[ this one ]");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async () => {
@@ -349,11 +352,18 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
         pane.split("\n").find((line) => line.includes(title)) ?? "";
     // Waiting and working come from the pushed work index, idle from the
     // roster. Each is a character, never only a colour.
-    expect(row("auth-race")).toContain("? auth-race");
-    expect(row("relay-gui")).toContain("* relay-gui");
-    expect(row("auth-refactor")).toContain("+ auth-refactor");
-    // Where you already are, said in words.
-    expect(row("this one")).toContain("[ this one ]");
+    expect(row("auth-race")).toContain("! auth-race");
+    expect(row("relay-gui")).toMatch(
+        new RegExp(`[${BRAILLE_FRAMES.join("")}] relay-gui`),
+    );
+    expect(row("auth-refactor")).toContain("auth-refactor");
+    expect(row("auth-refactor")).not.toContain("● auth-refactor");
+    // Live idle is a finished turn only while it is still recent.
+    expect(row("this one")).toContain("● this one");
+    expect(row("this one")).not.toContain("[ this one ]");
+    expect(row("this one")).toContain("❯");
+    expect(row("old chat")).toContain("old chat");
+    expect(row("old chat")).not.toContain("● old chat");
     expect(pane).toContain("background");
 }, 60_000);
 
@@ -373,10 +383,10 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     }, 120, 34, { VERA_TEST_PUSH_WORK_AFTER_MS: "1500" });
 
     expect(before).not.toContain("late-arrival");
-    expect(after).toContain("Agent sidebar · 6");
+    expect(after).toContain("Agent sidebar · 7");
     // Listed with the status the same push carried, not as an idle row.
     expect(after.split("\n").find((line) => line.includes("late-arrival")))
-        .toContain("? late-arrival");
+        .toContain("! late-arrival");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside the transcript", async () => {
@@ -439,9 +449,9 @@ function hasFocusedWorkspace(pane: string): boolean {
     return /\[(?: > |   )\] Agent sidebar ·/.test(workspaceLine(pane));
 }
 
-/** The selected row carries `›`, so navigation remains testable without color. */
+/** The selected row carries `❯`, so navigation remains testable without color. */
 function selectedRow(pane: string): string {
-    return pane.split("\n").find((line) => line.includes("›")) ?? "";
+    return pane.split("\n").find((line) => line.includes("❯")) ?? "";
 }
 
 /** A narrow chat column can wrap a diagnostic path across terminal rows. */

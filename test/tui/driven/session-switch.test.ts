@@ -14,6 +14,7 @@ import {
 } from "../../support/tui-fork-session-child.ts";
 import { createTuiRenameDependencies } from "../../support/tui-rename-child.ts";
 import { createTuiResumeScenario, IDLE_TARGET_TRANSCRIPT } from "../../support/tui-resume-child.ts";
+import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("idle TUI exit stops the current conversation", async () => {
@@ -778,6 +779,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
         expect(pane).toContain("[resume]");
+        expect(pane).toContain("ctrl+n new");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain("permissions loading");
         session.sendKey("C-p");
@@ -797,6 +799,45 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
                 `${scenario.targetPath}\ndetached\ntarget-session-id`
                     + "\nclosed target-session-id",
             );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("ctrl+n from an idle file starts a new chat", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-new-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => ({
+            ...scenario.dependencies,
+            createSession: async (workspace) => createSettingsAnsweringClient({
+                agentId: "new-session-id",
+                workspace,
+                model: "fresh-model",
+                mode: "full_access",
+                initialUpdates: [{
+                    type: "history",
+                    entries: [],
+                    seq: 0,
+                }],
+            }),
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("[resume]");
+        session.sendKey("C-n");
+        const pane = await session.waitForVisiblePane("fresh-model");
+        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("ctrl+n new");
     } finally {
         await session.close();
     }

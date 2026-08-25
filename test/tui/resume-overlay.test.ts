@@ -5,6 +5,7 @@ import {
     jsonlViewKeyAction,
     RESUME_OVERLAY_HINT,
     RESUME_OVERLAY_LABEL,
+    RESUME_OVERLAY_NEW_HINT,
     RESUME_OVERLAY_TEXT,
 } from "../../clients/tui/resume-overlay.ts";
 
@@ -12,6 +13,7 @@ test("the overlay names resume in brackets and enter as the key", () => {
     expect(RESUME_OVERLAY_LABEL).toBe("[resume]");
     expect(RESUME_OVERLAY_HINT).toBe("enter");
     expect(RESUME_OVERLAY_TEXT).toBe("[resume] · enter");
+    expect(RESUME_OVERLAY_NEW_HINT).toBe("ctrl+n new");
 });
 
 test("enter resumes when the file view owns the keyboard", () => {
@@ -59,6 +61,16 @@ test("the rail can still take focus so you can leave without resuming", () => {
         { name: "down" },
         { sidebarFocused: true },
     )).toBe("sidebar");
+});
+
+test("ctrl+n starts a new chat from the file view", () => {
+    expect(jsonlViewKeyAction(
+        { name: "n", ctrl: true },
+        {
+            workspaceBinding: "workspace_new_session",
+            sidebarFocused: false,
+        },
+    )).toBe("new_session");
 });
 
 test("HUD, palette, and typing are blocked until resume", () => {

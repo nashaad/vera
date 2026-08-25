@@ -243,6 +243,16 @@ const ROSTER = [
         live: false,
         updated_at: minutesAgo(14),
     },
+    {
+        id: "old-chat",
+        session_path: "/sessions/old-chat.jsonl",
+        title: "old chat",
+        workspace: "/work/one",
+        kind: "interactive" as const,
+        status: "idle" as const,
+        live: false,
+        updated_at: minutesAgo(20),
+    },
 ];
 
 if (process.env.VERA_TEST_MANY === "1") {
