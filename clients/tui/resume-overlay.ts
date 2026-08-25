@@ -7,6 +7,7 @@ import {
 import {
     TUI_ELEMENT,
     TUI_INPUT,
+    TUI_MUTED,
     TUI_TEXT,
 } from "./state.ts";
 
@@ -34,11 +35,15 @@ export const RESUME_OVERLAY_HINT = "enter";
 export const RESUME_OVERLAY_TEXT =
     `${RESUME_OVERLAY_LABEL} · ${RESUME_OVERLAY_HINT}`;
 
+/** New chat from a file view, because slash commands are blocked. */
+export const RESUME_OVERLAY_NEW_HINT = "ctrl+n new";
+
 export type JsonlViewKeyAction =
     | "resume"
     | "scroll"
     | "toggle_sidebar"
     | "sidebar"
+    | "new_session"
     | "block";
 
 export interface JsonlViewKey {
@@ -53,15 +58,16 @@ export interface JsonlViewKey {
 /**
  * What a key does while the on-screen conversation is a session file.
  *
- * Scroll the transcript, resume, leave through the rail, or nothing. The
- * composer, HUD, palette, and every other action wait until the file is a
- * session again.
+ * Scroll the transcript, resume, start a new chat, leave through the rail,
+ * or nothing. The HUD, palette, slash commands, and typing wait until the
+ * file is a session again.
  */
 export function jsonlViewKeyAction(
     key: JsonlViewKey,
     options: {
         readonly conversationBinding?: string;
         readonly globalBinding?: string;
+        readonly workspaceBinding?: string;
         readonly sidebarFocused: boolean;
     },
 ): JsonlViewKeyAction {
@@ -70,6 +76,9 @@ export function jsonlViewKeyAction(
     }
     if (options.globalBinding === "toggle_workspace_sidebar") {
         return "toggle_sidebar";
+    }
+    if (options.workspaceBinding === "workspace_new_session") {
+        return "new_session";
     }
     if (options.sidebarFocused) {
         return "sidebar";
@@ -99,12 +108,14 @@ function isUnmodifiedEnter(key: JsonlViewKey): boolean {
 export interface TuiResumeOverlayView {
     readonly box: BoxRenderable;
     readonly label: TextRenderable;
+    readonly hint: TextRenderable;
     applyAppearance(appearance: {
         readonly marginHorizontal: number;
         readonly paddingHorizontal: number;
         readonly boundaryColor: string;
         readonly backgroundColor: string;
         readonly textColor: string;
+        readonly mutedColor: string;
     }): void;
 }
 
@@ -119,6 +130,13 @@ export function createTuiResumeOverlayView(
         width: "100%",
         height: 1,
     });
+    const hint = new TextRenderable(renderer, {
+        id: "resume-overlay-new",
+        content: RESUME_OVERLAY_NEW_HINT,
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+    });
     const box = new BoxRenderable(renderer, {
         id: "resume-overlay",
         border: true,
@@ -126,7 +144,7 @@ export function createTuiResumeOverlayView(
         borderColor: TUI_ELEMENT,
         focusedBorderColor: TUI_ELEMENT,
         backgroundColor: TUI_INPUT,
-        height: 3,
+        height: 4,
         paddingLeft: 1,
         paddingRight: 1,
         marginLeft: 2,
@@ -140,9 +158,11 @@ export function createTuiResumeOverlayView(
         },
     });
     box.add(label);
+    box.add(hint);
     return {
         box,
         label,
+        hint,
         applyAppearance(appearance) {
             box.marginLeft = appearance.marginHorizontal;
             box.marginRight = appearance.marginHorizontal;
@@ -152,6 +172,7 @@ export function createTuiResumeOverlayView(
             box.focusedBorderColor = appearance.boundaryColor;
             box.backgroundColor = appearance.backgroundColor;
             label.fg = appearance.textColor;
+            hint.fg = appearance.mutedColor;
         },
     };
 }

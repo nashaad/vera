@@ -23,6 +23,7 @@ import {
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
 import { PINNED_GROUP } from "../../clients/tui/workspace-panel.ts";
+import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
 import { tuiBindingId } from "../../clients/tui/keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type {
@@ -270,7 +271,8 @@ describe("the working set", () => {
         expect(text).toContain("test-do-serverless");
         expect(text).not.toContain("/w/test-do-serverless");
         expect(text).toContain("please configure");
-        expect(text).toContain("[ we made a bunch ]");
+        expect(text).toContain("we made a bunch");
+        expect(text).not.toContain("[ we made a bunch ]");
     });
 
     test("keeps the idle session on screen even when it is older than the last five", () => {
@@ -295,7 +297,9 @@ describe("the working set", () => {
                 "idle-6",
             ]);
         expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
-            .toContain("[ session current ]");
+            .toContain("session current");
+        expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
+            .not.toContain("[ session current ]");
         expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
             .toContain("session idle-6");
         expect(workspaceSidebarText(open(sessions, [], "current"), COLUMNS, NOW))
@@ -396,10 +400,12 @@ describe("the rail", () => {
         const titleOnly = workspaceSidebarViewState(state, 120, NOW, 23)
             .lines.find((line) => line.rowId === "a")?.text;
 
-        expect(withAge).toContain("[ a useful descrip… ]");
+        expect(withAge).toContain("a useful descriptive…");
         expect(withAge).toContain("4m ago");
+        expect(withAge).not.toContain("[");
         expect(titleOnly).not.toContain("ago");
-        expect(titleOnly).toContain("[ a useful de… ]");
+        expect(titleOnly).toContain("a useful descri…");
+        expect(titleOnly).not.toContain("[");
     });
 
     test("marks when the explorer owns keyboard focus", () => {
@@ -427,10 +433,10 @@ describe("the rail", () => {
         expect(focused.lines.find((line) => line.rowId === "a")?.tone)
             .toBe("text");
         expect(chat.dimmed).toBe(true);
-        expect(chat.lines.some((line) => line.selected === true)).toBe(false);
+        expect(chat.lines.some((line) => line.selected === true)).toBe(true);
         expect(chat.lines.every((line) => line.tone === "muted")).toBe(true);
         expect(chat.lines.find((line) => line.rowId === "a")?.text)
-            .toContain("›");
+            .toContain("❯");
         expect(chat.cursorLine).toBe(focused.cursorLine);
     });
 
@@ -675,22 +681,80 @@ describe("status from the pushed work index", () => {
             ]),
         );
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain("? needs you");
-        expect(text).toContain("* running");
+        expect(text).toContain("! needs you");
+        expect(text).toContain(`${tuiBrailleSpinner(0)} running`);
     });
 });
 
 describe("the drawn card", () => {
-    test("names the session on screen in words", () => {
+    test("the session on screen is not wrapped in brackets", () => {
         const text = workspaceSidebarText(
             open([session("a"), session("b")], [], "b"),
             COLUMNS,
             NOW,
         );
-        expect(text.split("\n").filter((line) =>
-            line.includes("[ session b ]")
-        )).toHaveLength(1);
+        expect(text).toContain("session b");
+        expect(text).not.toContain("[ session b ]");
         expect(text).not.toContain("(here)");
+        expect(text).not.toContain("● session b");
+    });
+
+    test("an idle session you are looking at still reads as completed", () => {
+        const text = workspaceSidebarText(
+            open(
+                [session("a", {
+                    title: "count to 5",
+                    status: "idle",
+                    live: true,
+                    updatedAt: "2026-08-22T11:55:00.000Z",
+                })],
+                [],
+                "a",
+            ),
+            COLUMNS,
+            NOW,
+        );
+        expect(text).toContain("● count to 5");
+        expect(text).toContain("❯");
+        expect(text).not.toContain("[ count to");
+    });
+
+    test("an idle file view is not marked completed", () => {
+        const text = workspaceSidebarText(
+            open(
+                [session("a", {
+                    title: "do you know",
+                    status: "idle",
+                    live: false,
+                })],
+                [],
+                "a",
+            ),
+            COLUMNS,
+            NOW,
+        );
+        expect(text).toContain("do you know");
+        expect(text).not.toContain("● do you know");
+        expect(text).toContain("❯");
+    });
+
+    test("a live finished turn older than ten minutes is blank", () => {
+        const text = workspaceSidebarText(
+            open(
+                [session("a", {
+                    title: "count to 5",
+                    status: "idle",
+                    live: true,
+                    updatedAt: "2026-08-22T11:49:00.000Z",
+                })],
+                [],
+                "a",
+            ),
+            COLUMNS,
+            NOW,
+        );
+        expect(text).toContain("count to 5");
+        expect(text).not.toContain("● count to 5");
     });
 
     test("numbers the top nine rows and stops", () => {

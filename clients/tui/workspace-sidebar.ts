@@ -298,6 +298,7 @@ export interface WorkspaceSidebarLayoutInput {
     readonly now: Date;
     readonly contentColumns?: number;
     readonly showAge?: boolean;
+    readonly animationFrame?: number;
 }
 
 export function workspaceSidebarLayout(
@@ -316,6 +317,9 @@ export function workspaceSidebarLayout(
             ? {}
             : { contentColumns: input.contentColumns }),
         ...(input.showAge === undefined ? {} : { showAge: input.showAge }),
+        ...(input.animationFrame === undefined
+            ? {}
+            : { animationFrame: input.animationFrame }),
         pinnedIds: state.pinnedIds,
         ...(state.selectedId === undefined
             ? {}
@@ -510,6 +514,7 @@ export function workspaceSidebarViewState(
     const layout = workspaceSidebarLayout(state, {
         columns,
         now,
+        animationFrame,
         ...(railContentColumns === undefined
             ? {}
             : {
@@ -543,9 +548,10 @@ export function workspaceSidebarViewState(
             text: `${digit} ${row.text}`,
             tone: focused ? "text" as const : "muted" as const,
             rowId: row.id,
-            // The orange bar is focus decoration. Selection still reads as `>`
-            // in the row text when the rail is up and the composer has focus.
-            ...(focused && row.selected ? { selected: true } : {}),
+            // The highlight bar stays on the cursor row even while chat has
+            // focus, so the on-screen conversation still reads without wrapping
+            // its title in brackets.
+            ...(row.selected ? { selected: true } : {}),
         });
     }
     const cursorLine = lines.findIndex((line) =>
