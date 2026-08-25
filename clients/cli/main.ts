@@ -108,6 +108,7 @@ import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import {
     diagnoseVeraProcesses,
     renderVeraDoctor,
+    colorizeVeraDoctor,
     stopStrayVeraProcesses,
     type DiagnosedVeraProcess,
     type VeraDoctorReport,
@@ -177,6 +178,13 @@ async function refreshDiscoveredCatalogs(): Promise<
 
 interface CliOutput {
     write(text: string): unknown;
+}
+
+function cliStreamWantsColor(output: CliOutput): boolean {
+    if (process.env.NO_COLOR !== undefined && process.env.NO_COLOR !== "") {
+        return false;
+    }
+    return "isTTY" in output && (output as { isTTY?: boolean }).isTTY === true;
 }
 
 export interface CliDependencies {
@@ -570,7 +578,9 @@ export async function runCli(
             dependencies.doctor ?? diagnoseVeraProcesses
         )();
         const sockets = await diagnoseDoctorTmuxSockets(dependencies);
-        output.write(renderVeraDoctor(report));
+        output.write(colorizeVeraDoctor(renderVeraDoctor(report), {
+            color: cliStreamWantsColor(output),
+        }));
         output.write(`\n${renderTmuxSocketDoctor(sockets)}`);
         const strays = report.processes.filter((process) => process.stray);
         const straySockets = sockets.sockets.filter((socket) => socket.stray);

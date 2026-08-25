@@ -264,6 +264,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         description: "Pin or unpin the selected session",
     },
     {
+        id: "workspace_new_session",
+        keys: ["ctrl+n"],
+        scope: "workspace",
+        description: "Start a new chat without stopping the current one",
+        hint: "^n new",
+    },
+    {
         id: "toggle_tool_details",
         keys: ["ctrl+t"],
         scope: "conversation",

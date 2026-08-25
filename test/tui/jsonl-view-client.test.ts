@@ -80,3 +80,24 @@ test("a jsonl view activates on the first command that needs a loop", async () =
     expect(sent).toEqual(["wake up"]);
     client.close();
 });
+
+test("a settings probe does not start a worker", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-jsonl-probe-"));
+    temporaryDirectories.push(directory);
+    const path = join(directory, "session.jsonl");
+    await SessionStore.create(path, {
+        sessionId: "session-3",
+        cwd: "/work/vera",
+    });
+
+    let activated = false;
+    const client = await createJsonlViewClient(path, {
+        onActivate: async () => {
+            activated = true;
+        },
+    });
+    await client.send({ type: "get_model_settings", requestId: "probe" });
+    await client.send({ type: "get_permissions", requestId: "probe" });
+    expect(activated).toBe(false);
+    client.close();
+});
