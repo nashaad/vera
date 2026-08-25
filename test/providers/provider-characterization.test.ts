@@ -211,7 +211,7 @@ test("refresh eligibility remains an explicit provider fact", () => {
         "deepseek",
         "openai-codex",
         "gateway",
-    ].map(isRefreshableProvider)).toEqual([
+    ].map((provider) => isRefreshableProvider(provider))).toEqual([
         true,
         true,
         true,

@@ -9,13 +9,16 @@
  * Read by the host, which does the asking, and by the client, which decides
  * whether to offer the key at all. One list rather than two that drift.
  */
-const REFRESHABLE_PROVIDERS: readonly string[] = [
-    "ollama",
-    "omlx",
-    "openrouter",
-    "cerebras",
-];
+import {
+    resolveProviders,
+    type ProviderResolutionInput,
+} from "../providers/definitions.ts";
 
-export function isRefreshableProvider(provider: string): boolean {
-    return REFRESHABLE_PROVIDERS.includes(provider);
+export function isRefreshableProvider(
+    provider: string,
+    input: ProviderResolutionInput = {},
+): boolean {
+    return resolveProviders(input).some((entry) =>
+        entry.id === provider && entry.definition.discovery.mode === "models"
+    );
 }

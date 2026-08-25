@@ -16,6 +16,8 @@ import { createPoolEffortPool } from "../model/effort-pool.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findProvider } from "./registry.ts";
+import { findConfiguredProvider } from "./registry.ts";
+import { createGenericProviderAdapter } from "./generic.ts";
 import { UserFacingError } from "../user-facing-error.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { createCustomOpenAIAdapter } from "./custom-openai.ts";
@@ -162,6 +164,17 @@ export function createConfiguredModelAdapter(
     config: VeraConfig,
     options: ConfiguredProviderOptions = {},
 ): ModelAdapter {
+    const descriptor = findConfiguredProvider(config.provider, config);
+    if (descriptor?.custom === true) {
+        return createGenericProviderAdapter({
+            provider: descriptor,
+            config,
+            ...(options.authStorage === undefined ? {} : { authStorage: options.authStorage }),
+            ...(options.env === undefined ? {} : { env: options.env }),
+            ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
+            ...capture(options),
+        });
+    }
     const build = ADAPTERS[config.provider];
     if (build !== undefined) {
         // A shipped provider keeps its own adapter when the endpoint moves:
