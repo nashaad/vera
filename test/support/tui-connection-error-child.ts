@@ -11,6 +11,8 @@ export interface TuiConnectionErrorOptions {
     readonly reconnectDelayMs?: number;
     readonly reconnectFailures?: number;
     readonly reconnectUnavailable?: boolean;
+    /** Reconnect attaches, then the new stream dies without going idle. */
+    readonly reconnectDiesAgain?: boolean;
 }
 
 export function createTuiConnectionErrorDependencies(
@@ -46,7 +48,9 @@ export function createTuiConnectionErrorDependencies(
                 remainingFailures -= 1;
                 throw new Error("could not start host");
             }
-            return createReconnectedClient();
+            return options.reconnectDiesAgain === true
+                ? createDyingReconnectedClient()
+                : createReconnectedClient();
         },
     };
 }
@@ -59,6 +63,25 @@ function createReconnectedClient(): TuiAgentClient {
         seq: 0,
     });
     reconnectedUpdates.push({ type: "status", state: "idle", seq: 1 });
+    return {
+        agentId: "agent-1",
+        async send(): Promise<void> {},
+        receive(signal): Promise<AgentUpdate> {
+            return reconnectedUpdates.receive(signal);
+        },
+        async detach(): Promise<void> {},
+        close(): void {},
+    };
+}
+
+function createDyingReconnectedClient(): TuiAgentClient {
+    const reconnectedUpdates = new AsyncQueue<AgentUpdate>();
+    reconnectedUpdates.push({
+        type: "history",
+        entries: [{ kind: "assistant", text: "Host reconnected." }],
+        seq: 0,
+    });
+    reconnectedUpdates.fail(new Error("Resident agent stopped unexpectedly"));
     return {
         agentId: "agent-1",
         async send(): Promise<void> {},

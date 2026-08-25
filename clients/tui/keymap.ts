@@ -251,8 +251,8 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_workspace_sidebar",
         keys: ["ctrl+e"],
         scope: "global",
-        description: "Show or hide the workspace side bar",
-        hint: "ctrl+e workspace",
+        description: "Show or hide the agent sidebar",
+        hint: "ctrl+e agent sidebar",
     },
     ...WORKSPACE_JUMP_BINDINGS,
     {

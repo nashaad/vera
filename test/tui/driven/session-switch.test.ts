@@ -725,3 +725,35 @@ test("back typed in the composer runs the command instead of prompting", async (
         await session.close();
     }
 }, 15_000);
+
+test("opening a sidebar row keeps the source session running", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-keep-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 3");
+        session.sendKey("Down");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain("Interrupted");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
+            .toBe(
+                "/sessions/target.jsonl\ndetached\ntarget-session-id"
+                    + "\nclosed target-session-id",
+            );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
