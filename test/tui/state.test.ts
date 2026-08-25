@@ -230,7 +230,11 @@ test("summaries a shortened rebuild strands report as one stretch", () => {
     const thoughts = state.entries.filter((entry) => entry.kind === "thought");
     expect(thoughts).toHaveLength(1);
     expect(thoughts[0]?.text).toBe("Reasoning: 27.0s");
-    expect(thoughts[0]?.reasoning).toBe("phase 0\n\nphase 1\n\nphase 2");
+    const thought = thoughts[0];
+    if (thought === undefined || thought.kind === "diff") {
+        throw new Error("Expected one thought row");
+    }
+    expect(thought.reasoning).toBe("phase 0\n\nphase 1\n\nphase 2");
     expect(state.entries.at(-1)?.kind).toBe("notice");
 });
 

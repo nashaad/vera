@@ -227,7 +227,7 @@ test("a user config override replaces declared keys and adds new ones", () => {
         },
     }, "nash.arc-source");
 
-    expect(merged.watches[0].config).toEqual({
+    expect(merged.watches[0]!.config).toEqual({
         server: "https://arc-nashaad.fly.dev",
         topic: "vera",
         kind: ["publish", "unblock"],
@@ -241,7 +241,7 @@ test("a watch the override does not name keeps its manifest config", () => {
     }, "nash.arc-source");
 
     expect(merged.watches[1]).toBe(OVERRIDE_FIXTURE.watches[1]);
-    expect(merged.watches[1].config).toEqual({ topic: "ci" });
+    expect(merged.watches[1]!.config).toEqual({ topic: "ci" });
 });
 
 test("the merge replaces a nested object rather than merging into it", () => {
@@ -259,7 +259,7 @@ test("the merge replaces a nested object rather than merging into it", () => {
         watches: { issues: { auth: { token: "y" } } },
     }, "nash.arc-source");
 
-    expect(merged.watches[0].config).toEqual({ auth: { token: "y" } });
+    expect(merged.watches[0]!.config).toEqual({ auth: { token: "y" } });
 });
 
 test("the manifest config is left untouched by an override", () => {
@@ -267,7 +267,7 @@ test("the manifest config is left untouched by an override", () => {
         watches: { issues: { server: "https://arc-nashaad.fly.dev" } },
     }, "nash.arc-source");
 
-    expect(OVERRIDE_FIXTURE.watches[0].config).toEqual({
+    expect(OVERRIDE_FIXTURE.watches[0]!.config).toEqual({
         server: "https://arc.example",
         topic: "vera",
         kind: ["publish", "unblock"],

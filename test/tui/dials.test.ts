@@ -16,6 +16,7 @@ import {
     renderEffortScale,
     renderDialStrip,
     type DialPair,
+    type DialLane,
     type DialPoolEntry,
     type DialStripState,
 } from "../../clients/tui/dials.ts";
@@ -748,7 +749,7 @@ test("tab walks the rungs in the order they are drawn", () => {
     const drawn = dialText(scaleStrip(PLAIN_SOL))
         .map((line) => /^[\u203a ] (EFFORT|ACCESS|MODEL|AGENT)/.exec(line)?.[1])
         .filter((label): label is string => label !== undefined)
-        .map((label) => label.toLowerCase());
+        .map((label) => label.toLowerCase() as DialLane);
     const walked = drawn.map((_, step) => moveDialLane(scaleStrip(PLAIN_SOL), step).lane);
     expect(walked).toEqual(drawn);
     expect(drawn).toEqual(["effort", "access", "model", "agent"]);

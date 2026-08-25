@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 
-const source = (path: string): string =>
+const source = (path: string): Promise<string> =>
     Bun.file(new URL(`../../${path}`, import.meta.url)).text();
 
 test("the dial HUD is coloured in one place, not inside the renderer", async () => {
