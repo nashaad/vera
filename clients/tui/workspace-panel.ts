@@ -1,5 +1,6 @@
 import type { VeraClientSession } from "../../src/sdk/extensions.ts";
 import { relativeTime } from "../../src/relative-time.ts";
+import { tuiBrailleSpinner } from "./activity-pulse.ts";
 
 /**
  * The workspace list, described rather than drawn.
@@ -49,7 +50,6 @@ export function workspaceRowColumns(width: WorkspacePanelWidth): number {
     return CONTENT_COLUMNS[width] + ROW_MARKER_COLUMNS;
 }
 
-const SELECTED_MARKER = "›";
 const UNSELECTED_MARKER = " ";
 
 /** The group background sessions collect under, kept last in the listing. */
@@ -66,9 +66,10 @@ export const PINNED_GROUP = "pinned";
 
 /**
  * Column one, as text. Colour may ride on top of it and may never replace it:
- * every state has to survive a monochrome render.
+ * waiting, working, and completed have to survive a monochrome render. Closed
+ * and failed share a blank cell.
  */
-export type WorkspaceRowMarker = "!" | "?" | "*" | "+" | "-" | ".";
+export type WorkspaceRowMarker = string;
 
 export type WorkspaceSessionStatus = VeraClientSession["status"];
 
@@ -85,21 +86,47 @@ export interface WorkspaceSession extends VeraClientSession {
 }
 
 /**
- * One character per status, all six distinct and none of them blank.
- *
- * Colour rides on top of this and may never replace it, so two statuses that
- * share a marker are indistinguishable to a reader whose terminal is not
- * showing colour.
+ * Waiting and any other needs-you state. Working spins. A live session whose
+ * turn landed in the last ten minutes is a filled circle, whether the roster
+ * says completed or idle, so looking at it does not blank the mark. A file
+ * view is never that circle, even when the work index still calls it
+ * completed. Older live idle, closed, and failed leave the cell blank so the
+ * title column does not shift.
  */
+export const WORKSPACE_WAITING_MARKER = "!";
+export const WORKSPACE_COMPLETED_MARKER = "●";
+export const WORKSPACE_QUIET_MARKER = " ";
+export const WORKSPACE_SELECTED_MARKER = "❯";
+export const WORKSPACE_COMPLETED_WINDOW_MS = 10 * 60 * 1_000;
+
 export function workspaceStatusMarker(
     status: WorkspaceSessionStatus,
+    frame = 0,
+    live = false,
+    updatedAt?: string,
+    now?: Date,
 ): WorkspaceRowMarker {
-    if (status === "failed") return "!";
-    if (status === "waiting") return "?";
-    if (status === "working") return "*";
-    if (status === "completed") return "+";
-    if (status === "closed") return "-";
-    return ".";
+    if (status === "waiting") return WORKSPACE_WAITING_MARKER;
+    if (status === "working") return tuiBrailleSpinner(frame);
+    if (
+        live
+        && (status === "completed" || status === "idle")
+        && recentlyFinished(updatedAt, now)
+    ) {
+        return WORKSPACE_COMPLETED_MARKER;
+    }
+    return WORKSPACE_QUIET_MARKER;
+}
+
+function recentlyFinished(
+    updatedAt: string | undefined,
+    now: Date | undefined,
+): boolean {
+    if (updatedAt === undefined || now === undefined) return false;
+    const parsed = Date.parse(updatedAt);
+    if (!Number.isFinite(parsed)) return false;
+    const elapsed = now.getTime() - parsed;
+    return elapsed >= 0 && elapsed <= WORKSPACE_COMPLETED_WINDOW_MS;
 }
 
 export interface WorkspaceGroupRow {
@@ -159,10 +186,12 @@ export interface WorkspacePanelInput {
      */
     readonly previousSelectable?: readonly string[];
     /**
-     * The session whose transcript is on screen. Its title is drawn in
-     * brackets, because the cursor can sit on another row without switching.
+     * The session whose transcript is on screen. The cursor can sit on another
+     * row without switching; this is the membership key, not a title wrap.
      */
     readonly currentId?: string;
+    /** Advances the working spinner. Ignored for every other status. */
+    readonly animationFrame?: number;
 }
 
 /**
@@ -178,6 +207,12 @@ export interface WorkspacePanelInput {
  */
 export function isSwitchableSession(session: WorkspaceSession): boolean {
     return session.ephemeral !== true;
+}
+
+/** A named worker is still an attach, even if `live` flickered off. */
+function namedWorker(session: WorkspaceSession): boolean {
+    return "workerPid" in session
+        && typeof (session as { workerPid?: number }).workerPid === "number";
 }
 
 /**
@@ -212,7 +247,7 @@ export function layoutWorkspacePanel(
                 showAge,
                 now: input.now,
                 selected: session.id === selectedId,
-                current: session.id === input.currentId,
+                animationFrame: input.animationFrame ?? 0,
             }));
         }
     }
@@ -367,31 +402,32 @@ interface RowContext {
     readonly showAge: boolean;
     readonly now: Date;
     readonly selected: boolean;
-    readonly current: boolean;
+    readonly animationFrame: number;
 }
-
-/** `[ ` and ` ]` around the title of the session on screen. */
-const CURRENT_TITLE_WRAP = 4;
 
 function sessionRow(
     session: WorkspaceSession,
     group: string,
     context: RowContext,
 ): WorkspaceSessionRow {
-    const marker = workspaceStatusMarker(session.status);
+    const marker = workspaceStatusMarker(
+        session.status,
+        context.animationFrame,
+        session.live || namedWorker(session),
+        session.updatedAt,
+        context.now,
+    );
     const title = session.title ?? session.id;
     const age = context.showAge
         ? relativeTime(session.updatedAt, context.now, "")
         : "";
     const room = context.contentColumns
         - (age.length === 0 ? 0 : AGE_COLUMNS + 1);
-    const wrap = context.current ? CURRENT_TITLE_WRAP : 0;
-    const shown = clip(title, Math.max(1, room - wrap));
-    const display = context.current ? `[ ${shown} ]` : shown;
+    const shown = clip(title, Math.max(1, room));
     const selectionMarker = context.selected
-        ? SELECTED_MARKER
+        ? WORKSPACE_SELECTED_MARKER
         : UNSELECTED_MARKER;
-    const head = `${selectionMarker} ${marker} ${display}`;
+    const head = `${selectionMarker} ${marker} ${shown}`;
     const text = age.length === 0
         ? head
         : `${pad(head, ROW_MARKER_COLUMNS + room)} ${age.padStart(AGE_COLUMNS)}`;

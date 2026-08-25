@@ -4,14 +4,25 @@ import {
     isSwitchableSession,
     layoutWorkspacePanel,
     moveWorkspaceSelection,
+    WORKSPACE_COMPLETED_MARKER,
+    WORKSPACE_COMPLETED_WINDOW_MS,
+    WORKSPACE_QUIET_MARKER,
+    WORKSPACE_SELECTED_MARKER,
+    WORKSPACE_WAITING_MARKER,
     type WorkspacePanelLayout,
     type WorkspaceSession,
     type WorkspaceSessionStatus,
     workspacePanelWidth,
     workspaceStatusMarker,
 } from "../../clients/tui/workspace-panel.ts";
+import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
 
 const NOW = new Date("2026-08-22T12:00:00.000Z");
+const RECENT = "2026-08-22T11:55:00.000Z";
+const TEN_MINUTES_AGO = new Date(
+    NOW.getTime() - WORKSPACE_COMPLETED_WINDOW_MS,
+).toISOString();
+const ELEVEN_MINUTES_AGO = "2026-08-22T11:49:00.000Z";
 
 function session(
     overrides: Partial<WorkspaceSession> & { id: string },
@@ -147,24 +158,98 @@ describe("grouping", () => {
 
 describe("status markers", () => {
     const expected: Record<WorkspaceSessionStatus, string> = {
-        failed: "!",
-        waiting: "?",
-        working: "*",
-        completed: "+",
-        closed: "-",
-        idle: ".",
+        waiting: WORKSPACE_WAITING_MARKER,
+        working: tuiBrailleSpinner(0),
+        completed: WORKSPACE_QUIET_MARKER,
+        failed: WORKSPACE_QUIET_MARKER,
+        closed: WORKSPACE_QUIET_MARKER,
+        idle: WORKSPACE_QUIET_MARKER,
     };
 
     for (const [status, marker] of Object.entries(expected)) {
         test(`${status} reads as ${JSON.stringify(marker)}`, () => {
             expect(workspaceStatusMarker(status as WorkspaceSessionStatus))
-                .toBe(marker as never);
+                .toBe(marker);
             const result = layout([
                 session({ id: "a", status: status as WorkspaceSessionStatus }),
             ]);
-            expect(sessionRows(result)[0]?.marker).toBe(marker as never);
+            expect(sessionRows(result)[0]?.marker).toBe(marker);
         });
     }
+
+    test("a live idle session still reads as completed", () => {
+        expect(workspaceStatusMarker("idle", 0, true, RECENT, NOW))
+            .toBe(WORKSPACE_COMPLETED_MARKER);
+        const result = layout([
+            session({
+                id: "a",
+                status: "idle",
+                live: true,
+                title: "count to 5",
+                updatedAt: RECENT,
+            }),
+        ]);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_COMPLETED_MARKER);
+    });
+
+    test("a live finished turn keeps the mark at ten minutes", () => {
+        expect(workspaceStatusMarker("idle", 0, true, TEN_MINUTES_AGO, NOW))
+            .toBe(WORKSPACE_COMPLETED_MARKER);
+    });
+
+    test("a live finished turn older than ten minutes is blank", () => {
+        expect(workspaceStatusMarker("idle", 0, true, ELEVEN_MINUTES_AGO, NOW))
+            .toBe(WORKSPACE_QUIET_MARKER);
+        const result = layout([
+            session({
+                id: "a",
+                status: "idle",
+                live: true,
+                title: "count to 5",
+                updatedAt: ELEVEN_MINUTES_AGO,
+            }),
+        ]);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("●");
+    });
+
+    test("a completed file view is not a completed mark", () => {
+        const result = layout([
+            session({
+                id: "a",
+                status: "completed",
+                live: false,
+                title: "auth-refactor",
+                updatedAt: RECENT,
+            }),
+        ]);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("●");
+    });
+
+    test("an idle file view is not a completed mark", () => {
+        expect(workspaceStatusMarker("idle", 0, false))
+            .toBe(WORKSPACE_QUIET_MARKER);
+        const result = layout([
+            session({ id: "a", status: "idle", live: false, title: "old chat" }),
+        ]);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("●");
+    });
+
+    test("working advances through the braille spinner", () => {
+        expect(workspaceStatusMarker("working", 0)).toBe(tuiBrailleSpinner(0));
+        expect(workspaceStatusMarker("working", 1)).toBe(tuiBrailleSpinner(1));
+        expect(workspaceStatusMarker("working", 1))
+            .not.toBe(workspaceStatusMarker("working", 0));
+        const spinning = layoutWorkspacePanel({
+            sessions: [session({ id: "a", status: "working", title: "run" })],
+            columns: 120,
+            now: NOW,
+            animationFrame: 1,
+        });
+        expect(sessionRows(spinning)[0]?.marker).toBe(tuiBrailleSpinner(1));
+    });
 });
 
 describe("row text", () => {
@@ -182,7 +267,7 @@ describe("row text", () => {
         expect(row.text.trimEnd().endsWith("2h ago")).toBe(true);
     });
 
-    test("the session on screen wraps its title in brackets", () => {
+    test("the session on screen is not wrapped in brackets", () => {
         const result = layoutWorkspacePanel({
             sessions: [session({
                 id: "a",
@@ -194,8 +279,10 @@ describe("row text", () => {
             currentId: "a",
         });
         const row = sessionRows(result)[0]!;
-        expect(row.text).toContain("[ fix the composer ]");
-        expect(row.text).not.toContain("(here)");
+        expect(row.text).toContain("fix the composer");
+        expect(row.text).not.toContain("[");
+        expect(row.text).not.toContain("]");
+        expect(row.text).toContain(WORKSPACE_SELECTED_MARKER);
     });
 
     test("medium drops the age and truncates the title", () => {
@@ -396,7 +483,7 @@ describe("switchable sessions", () => {
 });
 
 describe("monochrome render", () => {
-    test("every status is distinguishable with no colour", () => {
+    test("waiting, working, and completed stay distinct without colour", () => {
         const statuses: readonly WorkspaceSessionStatus[] = [
             "waiting",
             "working",
@@ -411,26 +498,39 @@ describe("monochrome render", () => {
                     id: `s${index}`,
                     title: status,
                     status,
-                    updatedAt: `2026-08-22T11:${
-                        `${59 - index}`.padStart(2, "0")
-                    }:00.000Z`,
+                    live: status === "completed",
+                    updatedAt: status === "completed"
+                        ? RECENT
+                        : `2026-08-22T11:${
+                            `${59 - index}`.padStart(2, "0")
+                        }:00.000Z`,
                 })
             ),
             120,
             "s2",
         );
-        const markers = sessionRows(result).map((row) => row.marker);
-        expect(markers).toHaveLength(statuses.length);
-        expect(new Set(markers).size).toBe(statuses.length);
-        expect(markers.filter((marker) => marker.trim() === "")).toEqual([]);
+        const byStatus = new Map(
+            sessionRows(result).map((row) => [row.status, row.marker]),
+        );
+        expect(byStatus.get("waiting")).toBe(WORKSPACE_WAITING_MARKER);
+        expect(byStatus.get("working")).toBe(tuiBrailleSpinner(0));
+        expect(byStatus.get("completed")).toBe(WORKSPACE_COMPLETED_MARKER);
+        expect(byStatus.get("idle")).toBe(WORKSPACE_QUIET_MARKER);
+        expect(byStatus.get("failed")).toBe(WORKSPACE_QUIET_MARKER);
+        expect(byStatus.get("closed")).toBe(WORKSPACE_QUIET_MARKER);
+        const marked = ["waiting", "working", "completed"].map(
+            (status) => byStatus.get(status as WorkspaceSessionStatus),
+        );
+        expect(new Set(marked).size).toBe(3);
         // The selection marker is column one and the status marker column
         // three, so neither stands in for the other.
         const selected = sessionRows(result).filter((row) => row.selected);
         expect(selected).toHaveLength(1);
         for (const row of result.rows) {
             if (row.kind !== "session") continue;
-            expect(row.text.startsWith(row.selected ? "\u203a " : "  "))
-                .toBe(true);
+            expect(row.text.startsWith(
+                row.selected ? `${WORKSPACE_SELECTED_MARKER} ` : "  ",
+            )).toBe(true);
             expect(row.text.slice(2, 3)).toBe(row.marker);
         }
     });
