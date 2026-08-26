@@ -419,7 +419,7 @@ const SETTINGS_COMMAND = {
 
 const CONFIGURE_COMMAND = {
     name: "configure",
-    description: "Open Vera's config file in your editor",
+    description: "Choose a Vera configuration file to edit",
     usage: "/configure",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1331,8 +1331,8 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         action: { type: "open_configure" },
         palette: {
             name: "configure",
-            label: "Open config file",
-            description: "edit Vera's provider and model defaults",
+            label: "Configure files",
+            description: "choose a profile or project config file to edit",
             group: "Settings",
             slashName: "configure",
             action: { type: "open_configure" },

@@ -15,6 +15,7 @@ const KINDS: readonly TuiSettingsPickerKind[] = [
     "permissions",
     "theme",
     "session",
+    "configure",
     "settings",
     "permission_settings",
     "reviewer_settings",

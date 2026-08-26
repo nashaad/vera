@@ -10,6 +10,7 @@ import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import {
     handleTuiSettingsPickerKey,
     handleTuiSettingsPickerScroll,
+    startTuiConfigurePicker,
     startTuiSettingsMenu,
     startTuiContextLimitPicker,
     startTuiDeveloperMenu,
@@ -945,6 +946,62 @@ test("escape closes the settings picker", () => {
     const state = startTuiReasoningPicker(REASONING_LEVELS, undefined, "max");
 
     expect(handleTuiSettingsPickerKey(state, { name: "escape" })).toEqual({
+        handled: true,
+    });
+});
+
+test("configure picker lists concrete files by scope without search", async () => {
+    const files = [{
+        label: "Profile config",
+        path: "/home/nash/.vera/profiles/dev/config.json",
+        displayPath: "~/.vera/profiles/dev/config.json",
+        scope: "Profile",
+        createIfMissing: true,
+    }, {
+        label: "TUI preferences",
+        path: "/home/nash/.vera/profiles/dev/tui.json",
+        displayPath: "~/.vera/profiles/dev/tui.json",
+        scope: "Profile",
+        createIfMissing: false,
+    }, {
+        label: "Project config",
+        path: "/work/vera/.vera/config.json",
+        displayPath: ".vera/config.json",
+        scope: "Project",
+        createIfMissing: false,
+    }] as const;
+    const picker = startTuiConfigurePicker(files);
+
+    expect(picker.options.map((option) => [
+        option.label,
+        option.description,
+        option.group,
+    ])).toEqual([
+        ["Profile config", "~/.vera/profiles/dev/config.json", "Profile"],
+        ["TUI preferences", "~/.vera/profiles/dev/tui.json", "Profile"],
+        ["Project config", ".vera/config.json", "Project"],
+    ]);
+    expect(pickerFooter(picker)).toBe("↑↓ move · ⏎ edit · esc close");
+
+    const typed = handleTuiSettingsPickerKey(picker, { name: "x" });
+    expect(typed.handled).toBe(true);
+    expect(typed.state?.query).toBe("");
+
+    const frame = await pickerFrame(picker);
+    expect(frame).toContain("Choose a configuration file to edit");
+    expect(frame).toContain(
+        "To edit another profile, restart with: vera --profile <name>",
+    );
+    expect(frame).toContain("Profile");
+    expect(frame).toContain("Project");
+    expect(frame).not.toContain("Search");
+
+    const moved = handleTuiSettingsPickerKey(picker, { name: "down" });
+    expect(handleTuiSettingsPickerKey(
+        moved.state ?? picker,
+        { name: "enter" },
+    ).selection).toEqual({ kind: "configure", file: files[1] });
+    expect(handleTuiSettingsPickerKey(picker, { name: "escape" })).toEqual({
         handled: true,
     });
 });
