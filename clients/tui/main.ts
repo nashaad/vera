@@ -18,8 +18,6 @@ import {
     type MouseEvent,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
-import { mkdirSync } from "node:fs";
-import { dirname } from "node:path";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
@@ -73,7 +71,6 @@ import type {
     ModelTurnSettings,
 } from "../../src/engine/model-settings.ts";
 import type { ModelReasoningEffort, UserMessage } from "../../src/model/types.ts";
-import type { StartupProfile } from "../../src/startup-profile.ts";
 import type {
     ReasoningLevel,
     ReasoningLevelId,
@@ -85,7 +82,6 @@ import {
     loadOptionalVeraConfig,
     updateVeraConfigDefaults,
     type VeraProviderId,
-    type VeraConfig,
     tipsEnabled as configuredTipsEnabled,
     type VeraExtensionConfig,
 } from "../../src/config.ts";
@@ -439,8 +435,6 @@ import {
     startTuiReviewerMenu,
     startTuiReviewerPicker,
     startTuiSettingsMenu,
-    startTuiConfigurationCatalog,
-    refreshTuiConfigurationCatalog,
     startTuiContextLimitPicker,
     startTuiDeveloperMenu,
     startTuiDeveloperValuePicker,
@@ -475,11 +469,6 @@ import {
     type TuiProviderFormState,
     type TuiProviderFormTransition,
 } from "./settings-picker.ts";
-import {
-    buildConfigurationCatalog,
-    type ConfigurationCatalogAction,
-    type ConfigurationCatalogEntry,
-} from "./configuration-catalog.ts";
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
@@ -805,12 +794,6 @@ export interface TuiDependencies {
     readonly appearance?: TuiAppearance;
     readonly copyText?: (text: string) => Promise<void>;
     readonly openConfigure?: () => Promise<void>;
-    /** Loads a fresh profile/project config for the All settings snapshot. */
-    readonly loadConfiguration?: (projectRoot: string) => VeraConfig | undefined;
-    /** Opens an arbitrary owning file from the settings catalog. */
-    readonly openFile?: (path: string) => Promise<void>;
-    /** Startup profile for a newly-created session, when known. */
-    readonly startupProfile?: StartupProfile;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     /** One page of the session listing, with the facts the caller named. */
     readonly listSessionPage?: (
@@ -1037,12 +1020,6 @@ export async function startConfiguredTui(
         const exit = await startTui({
             client,
             appearance: resolveTuiAppearance(config?.tui),
-            startupProfile: resolvedTarget.type === "create"
-                ? resolvedTarget.startupProfile ?? "default"
-                : undefined,
-            loadConfiguration: (projectRoot) =>
-                loadOptionalVeraConfig({ projectRoot }),
-            openFile: (path) => openFileInEditor(path),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
             listSessionPage,
@@ -1152,13 +1129,6 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
-    // Startup profile is a property of an attached session, not of the TUI
-    // process. Unknown attached sessions stay unknown rather than inheriting
-    // the profile that happened to launch this client.
-    const startupProfiles = new WeakMap<TuiAgentClient, StartupProfile>();
-    if (dependencies.startupProfile !== undefined) {
-        startupProfiles.set(client, dependencies.startupProfile);
-    }
     const flightRecorder = dependencies.flightRecorder;
     flightRecorder?.sessionEntered(client.agentId ?? "unknown");
     const configuredAppearance = dependencies.appearance
@@ -1499,7 +1469,6 @@ export async function startTui(
      */
     let catalogRefreshSweep: {
         readonly queue: readonly string[];
-        readonly target: TuiAgentClient;
         index: number;
         readonly results: {
             provider: string;
@@ -1510,7 +1479,6 @@ export async function startTui(
     } | undefined;
     let poolVerifySweep: {
         readonly queue: readonly { readonly provider: string; readonly model: string }[];
-        readonly target: TuiAgentClient;
         readonly total: number;
         index: number;
         answered: number;
@@ -2870,32 +2838,6 @@ export async function startTui(
             : state;
     }
 
-    /** Settings panes keep their owning agent even while a child picker is open. */
-    function settingsTarget(): TuiAgentClient {
-        return settingsPickerAgent ?? focusedAgentClient();
-    }
-
-    function settingsTargetState(target = settingsTarget()): TuiState {
-        if (target === client) return state;
-        return hostedSidebar.pane?.client === target
-            ? hostedSidebar.pane.state.state
-            : focusedAgentState();
-    }
-
-    function updateSettingsTargetState(
-        update: (current: TuiState) => TuiState,
-        target = settingsTarget(),
-    ): void {
-        if (target === client) {
-            state = update(state);
-            return;
-        }
-        const pane = hostedSidebar.pane;
-        if (pane?.client !== target) return;
-        pane.state.state = update(pane.state.state);
-        renderSidebarAgent(pane);
-    }
-
     /** The pool as the strip needs it: identity, name, and published levels. */
     function dialPool(): readonly DialPoolEntry[] {
         return (focusedAgentState().modelSettings?.pooled ?? []).map(
@@ -3600,17 +3542,6 @@ export async function startTui(
             }
         }
         if (update.type === "model_settings") {
-            const poolChange = pendingPoolChanges.get(update.requestId);
-            pendingPoolChanges.delete(update.requestId);
-            if (poolChange !== undefined) {
-                poolChangeUndo = poolChange;
-            }
-            const pendingUndo = pendingPoolUndos.get(update.requestId);
-            pendingPoolUndos.delete(update.requestId);
-            if (pendingUndo?.completesOnSettings === true) {
-                poolChangeUndo = undefined;
-                showStatusNotice("shortlist change undone");
-            }
             settleExtensionModelSettings(update, pane.client);
             const change = requestedModelChanges.get(update.requestId);
             if (change?.target === pane.client) {
@@ -3635,43 +3566,7 @@ export async function startTui(
             ) {
                 notifyExtensionSettings(pane.state.state.modelSettings);
             }
-            if (
-                settingsPicker?.kind === "model"
-                && settingsPickerAgent === pane.client
-            ) {
-                settingsPicker = syncTuiModelPicker(
-                    settingsPicker,
-                    pane.state.state.modelSettings,
-                );
-                if (poolChangeUndo !== undefined) {
-                    settingsPicker = {
-                        ...settingsPicker,
-                        canUndoPoolChange: true,
-                    };
-                }
-            }
-            if (
-                settingsPicker?.kind === "reviewer_settings"
-                && settingsPickerAgent === pane.client
-            ) {
-                settingsPicker = withTuiPickerParent(
-                    startTuiReviewerMenu(pane.state.state.modelSettings?.reviewerDefault),
-                    settingsPicker.parent,
-                );
-            }
         } else if (update.type === "model_settings_rejected") {
-            pendingPoolChanges.delete(update.requestId);
-            const pendingUndo = pendingPoolUndos.get(update.requestId);
-            pendingPoolUndos.delete(update.requestId);
-            if (pendingUndo !== undefined) {
-                poolChangeUndo = pendingUndo.undo;
-                if (settingsPicker?.kind === "model" && settingsPickerAgent === pane.client) {
-                    settingsPicker = {
-                        ...settingsPicker,
-                        canUndoPoolChange: true,
-                    };
-                }
-            }
             settleExtensionModelSettings(update, pane.client);
             const change = requestedModelChanges.get(update.requestId);
             if (change?.target === pane.client) {
@@ -3683,12 +3578,6 @@ export async function startTui(
             }
         } else if (update.type === "permissions") {
             requestedPermissionChanges.delete(update.requestId);
-            if (preferencesList !== undefined && settingsPickerAgent === pane.client) {
-                preferencesList = syncTuiPreferencesList(
-                    preferencesList,
-                    pane.state.state.permissionInspection,
-                );
-            }
         } else if (update.type === "permissions_rejected") {
             const subject = requestedPermissionChanges.get(update.requestId);
             requestedPermissionChanges.delete(update.requestId);
@@ -3697,95 +3586,6 @@ export async function startTui(
                     pane.state.state,
                     rejectionNotice(subject, update.reason),
                 );
-            } else if (preferencesList !== undefined && settingsPickerAgent === pane.client) {
-                pane.state.state = appendTuiError(
-                    pane.state.state,
-                    update.reason === "unavailable"
-                        ? "Removing permissions is unavailable on this host"
-                        : "That permission could not be removed",
-                );
-            }
-        }
-        if (update.type === "pool_admission_result") {
-            if (retryPoolAdmission(update.requestId, update.verdict, pane.client)) {
-                renderState();
-                return;
-            }
-            if (poolVerifySweepResult(update.requestId, update.verdict)) {
-                renderState();
-                return;
-            }
-            const pendingUndo = pendingPoolUndos.get(update.requestId);
-            if (
-                pendingUndo !== undefined
-                && update.verdict === "added"
-                && pendingUndo.undo.poolName !== undefined
-            ) {
-                pendingPoolUndos.delete(update.requestId);
-                const nameRequestId = randomUUID();
-                pendingPoolUndos.set(nameRequestId, {
-                    undo: pendingUndo.undo,
-                    completesOnSettings: true,
-                });
-                sendCommand({
-                    type: "pool_name",
-                    requestId: nameRequestId,
-                    provider: update.provider,
-                    model: update.model,
-                    name: pendingUndo.undo.poolName,
-                }, pane.client);
-            } else if (pendingUndo !== undefined && update.verdict !== "added") {
-                pendingPoolUndos.delete(update.requestId);
-                poolChangeUndo = pendingUndo.undo;
-                if (settingsPicker?.kind === "model" && settingsPickerAgent === pane.client) {
-                    settingsPicker = {
-                        ...settingsPicker,
-                        canUndoPoolChange: true,
-                    };
-                }
-            }
-            if (pendingPoolName?.requestId === update.requestId) {
-                const pending = pendingPoolName;
-                pendingPoolName = undefined;
-                if (update.verdict === "added" && namePrompt === undefined) {
-                    namePrompt = startTuiNamePrompt(
-                        {
-                            kind: "pool",
-                            provider: pending.provider,
-                            model: pending.model,
-                        },
-                        pending.label,
-                        settingsPicker?.kind === "model"
-                            ? settingsPicker
-                            : undefined,
-                    );
-                    focusActiveSurface();
-                }
-            }
-        }
-        if (
-            (update.type === "model_settings"
-                || update.type === "model_settings_rejected")
-            && catalogRefreshSweepResult(
-                update.requestId,
-                update.type === "model_settings",
-            )
-        ) {
-            // The sweep owns its own reporting.
-        } else if (
-            (update.type === "model_settings"
-                || update.type === "model_settings_rejected")
-            && catalogRefreshes.has(update.requestId)
-        ) {
-            const provider = catalogRefreshes.get(update.requestId)!;
-            catalogRefreshes.delete(update.requestId);
-            if (update.type === "model_settings_rejected") {
-                showStatusNotice(`could not ask ${provider}, its saved list stands`);
-            } else {
-                const count = (pane.state.state.modelSettings?.availableModels ?? [])
-                    .filter((entry) => entry.provider === provider)
-                    .length;
-                showStatusNotice(`${provider}: ${count} models`);
             }
         }
         if (isSettingsRetryTrigger(update)) {
@@ -7568,7 +7368,7 @@ export async function startTui(
                 observeActivity(update);
                 if (
                     update.type === "pool_admission_result"
-                    && retryPoolAdmission(update.requestId, update.verdict, client)
+                    && retryPoolAdmission(update.requestId, update.verdict)
                 ) {
                     renderState();
                     continue;
@@ -7745,7 +7545,6 @@ export async function startTui(
                 if (
                     update.type === "model_settings"
                     && settingsPicker?.kind === "reviewer_settings"
-                    && settingsPickerAgent === client
                 ) {
                     // Same rule: the rows read the host's snapshot, not a
                     // local guess about what the choice did.
@@ -7895,14 +7694,11 @@ export async function startTui(
         }
     }
 
-    function sendCommand(
-        command: ClientCommand,
-        target: TuiAgentClient = client,
-    ): void {
+    function sendCommand(command: ClientCommand): void {
         if (command.type === "prompt") {
             flightRecorder?.record({ type: "submit_dispatched" });
         }
-        void target.send(command).then(() => {
+        void client.send(command).then(() => {
             if (command.type === "prompt") {
                 flightRecorder?.record({ type: "submit_accepted" });
             }
@@ -10059,9 +9855,8 @@ export async function startTui(
     // routes cannot drift into opening the same picker with different arguments.
 
     function openReviewerMenu(parent?: TuiSettingsPickerState): void {
-        const targetState = settingsTargetState();
         settingsPicker = withTuiPickerParent(
-            startTuiReviewerMenu(targetState.modelSettings?.reviewerDefault),
+            startTuiReviewerMenu(state.modelSettings?.reviewerDefault),
             parent,
         );
         renderState();
@@ -10072,14 +9867,13 @@ export async function startTui(
         slot: TuiReviewerSlot,
         parent?: TuiSettingsPickerState,
     ): void {
-        const targetState = settingsTargetState();
-        const reviewer = targetState.modelSettings?.reviewerDefault;
+        const reviewer = state.modelSettings?.reviewerDefault;
         settingsPicker = withTuiPickerParent(
             startTuiReviewerPicker(
                 slot,
-                targetState.modelSettings?.pooled,
+                state.modelSettings?.pooled,
                 slot === "primary" ? reviewer?.primary : reviewer?.fallback,
-                targetState.modelSettings?.availableModels,
+                state.modelSettings?.availableModels,
             ),
             parent,
         );
@@ -10101,7 +9895,7 @@ export async function startTui(
                 ? {}
                 : { provider: selection.provider }),
         };
-        const current = settingsTargetState().modelSettings?.reviewerDefault;
+        const current = state.modelSettings?.reviewerDefault;
         if (selection.slot === "primary") {
             if (chosen === undefined) return null;
             return {
@@ -10127,14 +9921,9 @@ export async function startTui(
         return selection.slot === "primary" ? name : `failsafe ${name}`;
     }
 
-    function openModelPicker(
-        parent?: TuiSettingsPickerState,
-        projectRoot = parent?.configurationProjectRoot
-            ?? focusedAgentClient().workspace
-            ?? process.cwd(),
-    ): void {
+    function openModelPicker(parent?: TuiSettingsPickerState): void {
         if (parent === undefined) settingsPickerAgent = focusedAgentClient();
-        const targetState = settingsTargetState();
+        const targetState = focusedAgentState();
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
             targetState.modelSettings?.model,
@@ -10149,7 +9938,7 @@ export async function startTui(
         settingsPicker = {
             ...settingsPicker,
             assignmentOptions: tuiModelAssignmentOptions(
-                currentModelAssignmentRows(projectRoot),
+                currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
                 targetState.modelSettings?.reasoningEffort,
                 targetState.modelSettings?.contextLimit,
@@ -10168,7 +9957,7 @@ export async function startTui(
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
         // that was kept underneath the provider picker.
-        requestAgentSettings(settingsTarget());
+        requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
     }
@@ -10192,11 +9981,8 @@ export async function startTui(
     }
 
     /** How many models the current snapshot holds for one provider. */
-    function catalogSizeOf(
-        provider: string,
-        target = settingsTarget(),
-    ): number {
-        return (settingsTargetState(target).modelSettings?.availableModels ?? [])
+    function catalogSizeOf(provider: string): number {
+        return (state.modelSettings?.availableModels ?? [])
             .filter((entry) => entry.provider === provider)
             .length;
     }
@@ -10206,16 +9992,14 @@ export async function startTui(
      * and the pool are both files the user may have just edited, and this is
      * the surface that claims to show what they say.
      */
-    function currentModelAssignmentRows(
-        projectRoot = settingsTarget().workspace ?? process.cwd(),
-    ): readonly ModelAssignmentRow[] {
-        const configured = loadOptionalVeraConfig({ projectRoot });
+    function currentModelAssignmentRows(): readonly ModelAssignmentRow[] {
+        const configured = loadOptionalVeraConfig();
         if (configured === undefined) {
             return [];
         }
         return configuredModelAssignments(
             configured,
-            poolReachability(loadPoolFile({ projectRoot }).merged),
+            poolReachability(loadPoolFile({ projectRoot: process.cwd() }).merged),
         );
     }
 
@@ -10224,7 +10008,7 @@ export async function startTui(
         parent?: TuiSettingsPickerState,
         selectedValue?: string,
     ): void {
-        const targetState = settingsTargetState();
+        const targetState = focusedAgentState();
         const row = currentModelAssignmentRows().find((entry) => entry.assignment === assignment);
         const parentModel = targetState.modelSettings === undefined
             ? undefined
@@ -10332,7 +10116,7 @@ export async function startTui(
             });
             // Refreshing settings also pushes the host's newly read policy to
             // an already-running worker before another spawn can use it.
-            requestAgentSettings(settingsTarget());
+            requestAgentSettings(focusedAgentClient());
         } catch (error) {
             const message = `Could not write the assignment: ${
                 error instanceof Error ? error.message : String(error)
@@ -10365,10 +10149,8 @@ export async function startTui(
                 openFileInEditor(veraConfigPath())))();
             state = appendTuiNotice(
                 state,
-                "Configure editor closed. The running Vera process did not reload"
-                + " this file. Settings apply to new sessions; a changed extension"
-                + " list needs a restart. Restart Vera outside this TUI for restart"
-                + "-timed changes.",
+                "Configure editor closed. Settings apply to new sessions; a"
+                + " changed extension list needs a restart.",
             );
         } catch (error) {
             state = appendTuiError(
@@ -10411,7 +10193,7 @@ export async function startTui(
     }
 
     function currentModelLevels(): readonly ReasoningLevel[] {
-        const targetState = settingsTargetState();
+        const targetState = focusedAgentState();
         return modelLevelFacts(
             targetState.modelSettings?.provider,
             targetState.modelSettings?.model,
@@ -10421,7 +10203,7 @@ export async function startTui(
 
     function openReasoningPicker(parent?: TuiSettingsPickerState): void {
         if (parent === undefined) settingsPickerAgent = focusedAgentClient();
-        const targetState = settingsTargetState();
+        const targetState = focusedAgentState();
         // An empty (or unresolved) level list means this model has no
         // reasoning control at all. A card with no rows is indistinguishable
         // from the TUI ignoring the key, so say why there is nothing to pick.
@@ -10486,13 +10268,12 @@ export async function startTui(
     }
 
     function openThemePicker(parent?: TuiSettingsPickerState): void {
-        const targetState = settingsTargetState();
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "theme",
-            targetState.modelSettings?.model,
-            targetState.modelSettings?.reasoningEffort,
-            targetState.approvalMode,
-            targetState.modelSettings?.availableModels,
+            state.modelSettings?.model,
+            state.modelSettings?.reasoningEffort,
+            state.approvalMode,
+            state.modelSettings?.availableModels,
             themeName,
         ), parent);
         renderState();
@@ -10504,14 +10285,11 @@ export async function startTui(
         // this fetch. Without the fetch the list could be stale, since a
         // client is only sent an inspection at startup and when something
         // changes it.
-        preferencesList = startTuiPreferencesList(settingsTargetState().permissionInspection);
+        preferencesList = startTuiPreferencesList(state.permissionInspection);
         // Its own overlay rather than a picker pane, so the pane it came from
         // is held here instead of on the state, and closing puts it back.
         preferencesListParent = parent;
-        sendCommand(
-            { type: "get_permissions", requestId: randomUUID() },
-            settingsTarget(),
-        );
+        sendCommand({ type: "get_permissions", requestId: randomUUID() });
         composer.blur();
         focusActiveSurface();
         renderState();
@@ -10607,7 +10385,7 @@ export async function startTui(
         const providers = configuredProviders(config);
         const declared = new Set(Object.keys(config?.providers ?? {}));
         const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
-        const targetState = settingsTargetState();
+        const targetState = state;
         const refreshable = new Set(refreshableProvidersOf(
             targetState.modelSettings?.availableModels,
             targetState.modelSettings?.refreshableProviders,
@@ -10815,7 +10593,7 @@ export async function startTui(
             state,
             `forgot the stored ${candidate.label} credential`,
         );
-        requestAgentSettings(settingsTarget());
+        requestAgentSettings(focusedAgentClient());
         // Reopened rather than patched: the mark on every row is read from the
         // store, and the store just changed.
         openProviderPicker(candidate.pane, { selected: candidate.providerId });
@@ -10974,7 +10752,7 @@ export async function startTui(
                 );
             }
         }
-        requestAgentSettings(settingsTarget());
+        requestAgentSettings(focusedAgentClient());
         // Rebuilt rather than patched: the connect list is read from the config
         // file, and the file just changed. It opens on the row that was just
         // declared, which is the one the user came here to act on.
@@ -10997,7 +10775,7 @@ export async function startTui(
                     key: transition.submitted,
                 });
                 state = appendTuiNotice(state, `stored ${prompt.label} API key`);
-                requestAgentSettings(settingsTarget());
+                requestAgentSettings(focusedAgentClient());
             } catch (error) {
                 state = appendTuiError(
                     state,
@@ -11015,7 +10793,7 @@ export async function startTui(
         }
         settingsPicker = prompt.parent;
         if (settingsPicker?.kind === "model") {
-            requestAgentSettings(settingsTarget());
+            requestAgentSettings(focusedAgentClient());
         }
         renderState();
         focusActiveSurface();
@@ -11051,7 +10829,7 @@ export async function startTui(
                 provider: prompt.target.provider,
                 model: prompt.target.model,
                 name: transition.submitted,
-            }, settingsTarget());
+            });
         } else if (
             transition.submitted !== undefined
             && prompt.target.kind === "session"
@@ -11163,161 +10941,15 @@ export async function startTui(
         }
     }
 
-    function buildConfigurationCatalogPicker(
-        previous?: TuiSettingsPickerState,
-    ): TuiSettingsPickerState {
-        const target = settingsTarget();
-        const projectRoot = previous?.configurationProjectRoot
-            ?? target.workspace
-            ?? process.cwd();
-        let config: VeraConfig | undefined;
-        let configError: string | undefined;
-        try {
-            config = dependencies.loadConfiguration?.(projectRoot)
-                ?? loadOptionalVeraConfig({ projectRoot });
-        } catch (error) {
-            configError = error instanceof Error ? error.message : String(error);
-        }
-        const targetState = settingsTargetState(target);
-        const entries = buildConfigurationCatalog({
-            config,
-            ...(configError === undefined ? {} : { configError }),
-            projectRoot,
-            currentSession: targetState.modelSettings === undefined
-                ? undefined
-                : {
-                    provider: targetState.modelSettings.provider,
-                    model: targetState.modelSettings.model,
-                    reasoningEffort: targetState.modelSettings.reasoningEffort,
-                    permissionMode: targetState.approvalMode,
-                },
-            theme: themeName,
-            authStorage,
-            pool: loadPoolFile({ projectRoot }),
-            permissionPreferenceCount:
-                targetState.permissionInspection?.activePreferences?.length,
-            clientExtensions: configuredClientExtensions,
-            environment: process.env,
-            startupProfile: startupProfiles.get(target),
-        });
-        return previous?.kind === "configuration_catalog"
-            ? refreshTuiConfigurationCatalog(previous, entries, projectRoot)
-            : startTuiConfigurationCatalog(entries, projectRoot);
-    }
-
     function openSettingsMenu(): void {
         settingsPickerAgent = focusedAgentClient();
-        settingsPicker = buildConfigurationCatalogPicker();
+        settingsPicker = startTuiSettingsMenu(
+            "settings",
+            focusedAgentState()?.modelSettings?.developer,
+        );
         composer.blur();
         renderState();
         focusActiveSurface();
-    }
-
-    async function openConfigurationCatalogFile(
-        entry: ConfigurationCatalogEntry,
-    ): Promise<void> {
-        if (entry.action.kind !== "raw") return;
-        renderer.suspend();
-        try {
-            mkdirSync(
-                entry.action.target === "directory"
-                    ? entry.action.path
-                    : dirname(entry.action.path),
-                { recursive: true, mode: 0o700 },
-            );
-            if (
-                entry.action.path === veraConfigPath()
-                && dependencies.openConfigure !== undefined
-            ) {
-                await dependencies.openConfigure();
-            } else {
-                await (dependencies.openFile ?? openFileInEditor)(
-                    entry.action.path,
-                );
-            }
-            const restart = entry.apply.toLowerCase().includes("restart")
-                ? " Restart Vera outside this TUI for it to take effect."
-                : "";
-            state = appendTuiNotice(
-                state,
-                `Editor closed for ${entry.label}. The running process did not reload ${entry.location}. Apply: ${entry.apply}.${restart}`,
-                "soft",
-            );
-        } catch (error) {
-            state = appendTuiError(
-                state,
-                `Could not open ${entry.location}: ${error instanceof Error ? error.message : String(error)}`,
-            );
-        } finally {
-            if (settingsPicker?.kind === "configuration_catalog") {
-                settingsPicker = buildConfigurationCatalogPicker(settingsPicker);
-            }
-            renderer.resume();
-            renderState();
-            focusActiveSurface();
-        }
-    }
-
-    function applyConfigurationCatalogAction(
-        entry: ConfigurationCatalogEntry,
-        parent: TuiSettingsPickerState,
-    ): void {
-        const action: ConfigurationCatalogAction = entry.action;
-        if (action.kind === "raw") {
-            void openConfigurationCatalogFile(entry);
-            return;
-        }
-        if (action.kind === "readonly") {
-            state = appendTuiNotice(state, action.reason, "soft");
-            renderState();
-            focusActiveSurface();
-            return;
-        }
-        if (action.kind === "provider") {
-            openSettingsDestination({ kind: "provider" }, { parent });
-            return;
-        }
-        const target = action.target;
-        if (target === "provider") {
-            openSettingsDestination({ kind: "provider" }, { parent });
-            return;
-        }
-        if (target === "model_shortlist") {
-            openModelPicker(parent);
-            if (settingsPicker?.kind === "model") {
-                settingsPicker = switchedModelTab(settingsPicker, "pool");
-                renderState();
-                focusActiveSurface();
-            }
-            return;
-        }
-        if (target === "model_assignments") {
-            openModelPicker(parent);
-            if (settingsPicker?.kind === "model") {
-                settingsPicker = switchedModelTab(settingsPicker, "defaults");
-                renderState();
-                focusActiveSurface();
-            }
-            return;
-        }
-        if (target === "preferences") {
-            openPreferencesList(parent);
-            return;
-        }
-        if (target === "agent") {
-            settingsPicker = undefined;
-            closeSettingsPickerSurface();
-            void openAgentPicker();
-            return;
-        }
-        if (target === "extensions") {
-            settingsPicker = undefined;
-            closeSettingsPickerSurface();
-            composer.setComposerText("/extensions");
-            submitPrompt();
-            return;
-        }
-        openSettingsMenuTarget(target, parent);
     }
 
     /**
@@ -11334,7 +10966,7 @@ export async function startTui(
     ): "opened" | "unavailable" {
         const resolution = resolveTuiSettingsDestination(destination, {
             permissionModes:
-                settingsTargetState().permissionInspection?.availableModes,
+                focusedAgentState().permissionInspection?.availableModes,
         });
         if (resolution.status === "unsupported") {
             state = appendTuiNotice(
@@ -11526,7 +11158,6 @@ export async function startTui(
         target: TuiSettingsMenuTarget,
         parent?: TuiSettingsPickerState,
     ): void {
-        const targetState = settingsTargetState();
         if (target === "model") {
             openSettingsDestination({ kind: "model" }, { parent });
             return;
@@ -11538,7 +11169,7 @@ export async function startTui(
         if (target === "theme") return openThemePicker(parent);
         if (target === "context_limit") {
             settingsPicker = withTuiPickerParent(
-                startTuiContextLimitPicker(targetState.modelSettings?.contextLimit),
+                startTuiContextLimitPicker(state.modelSettings?.contextLimit),
                 parent,
             );
             renderState();
@@ -11547,7 +11178,7 @@ export async function startTui(
         }
         if (target === "developer") {
             settingsPicker = withTuiPickerParent(
-                startTuiDeveloperMenu(targetState.modelSettings?.developer),
+                startTuiDeveloperMenu(state.modelSettings?.developer),
                 parent,
             );
             renderState();
@@ -11557,7 +11188,7 @@ export async function startTui(
         if (target.startsWith("developer_")) {
             const pane = startTuiDeveloperValuePicker(
                 target,
-                targetState.modelSettings?.developer,
+                state.modelSettings?.developer,
             );
             if (pane !== undefined) {
                 settingsPicker = withTuiPickerParent(pane, parent);
@@ -12426,7 +12057,7 @@ export async function startTui(
                 provider: move.provider,
                 model: move.model,
                 delta: move.delta,
-            }, settingsTarget());
+            });
             return;
         }
         if ("poolToggle" in transition && transition.poolToggle !== undefined) {
@@ -12461,7 +12092,7 @@ export async function startTui(
                 });
                 return;
             }
-            const removed = settingsTargetState().modelSettings?.pooled?.find((entry) =>
+            const removed = state.modelSettings?.pooled?.find((entry) =>
                 entry.provider === toggle.provider
                 && entry.model === toggle.model
             );
@@ -12479,7 +12110,7 @@ export async function startTui(
                 requestId,
                 provider: toggle.provider,
                 model: toggle.model,
-            }, settingsTarget());
+            });
         }
         if (
             "undoPoolChange" in transition
@@ -12504,7 +12135,7 @@ export async function startTui(
                     requestId,
                     provider: undo.provider,
                     model: undo.model,
-                }, settingsTarget());
+                });
             } else {
                 const requestId = requestPoolAdmission(
                     undo.provider,
@@ -12522,30 +12153,12 @@ export async function startTui(
             if (selection.kind === "extension") {
                 return;
             }
-            if (selection.kind === "configuration") {
-                if (previousPicker?.kind !== "configuration_catalog") {
-                    state = appendTuiNotice(
-                        state,
-                        "The settings catalog is no longer open; reopen /settings.",
-                    );
-                    renderState();
-                    return;
-                }
-                settingsPicker = previousPicker;
-                applyConfigurationCatalogAction(selection.entry, previousPicker);
-                return;
-            }
             if (selection.kind === "model") {
                 // Choosing a model runs it and nothing else. The pool is the
                 // user's own shortlist, so it is only ever written by the key
                 // that says so.
-                const targetState = settingsTargetState();
                 const chosenLevels = selection.reasoningEffort === undefined
-                    ? modelLevelFacts(
-                        selection.provider,
-                        selection.model,
-                        targetState,
-                    )
+                    ? modelLevelFacts(selection.provider, selection.model)
                     : undefined;
                 if (
                     chosenLevels !== undefined
@@ -12557,7 +12170,7 @@ export async function startTui(
                     settingsPicker = startTuiReasoningPicker(
                         chosenLevels.levels,
                         chosenLevels.defaultLevel,
-                        targetState.modelSettings?.reasoningEffort,
+                        state.modelSettings?.reasoningEffort,
                         {
                             provider: selection.provider,
                             model: selection.model,
@@ -12697,11 +12310,7 @@ export async function startTui(
                     || selection.reasoningEffort !== undefined
                     || selection.acceptDefaultReasoning === true
                     ? undefined
-                    : modelLevelFacts(
-                        selection.provider,
-                        selection.model,
-                        settingsTargetState(),
-                    );
+                    : modelLevelFacts(selection.provider, selection.model);
                 if (
                     assignedLevels !== undefined
                     && assignedLevels.levels.length > 0
@@ -12778,13 +12387,10 @@ export async function startTui(
             // Where the stack goes next is `tuiPickerAfterSelection`'s rule.
             // A confirmation overrides it: it is its own modal level, and the
             // menu would sit open behind it.
-            const nextPicker = confirmingFullAccess
+            settingsPicker = confirmingFullAccess
                     || previousPicker?.kind === "extension"
                 ? undefined
                 : tuiPickerAfterSelection(selection, previousPicker);
-            settingsPicker = nextPicker?.kind === "configuration_catalog"
-                ? buildConfigurationCatalogPicker(nextPicker)
-                : nextPicker;
         }
         if (sessionTrashCandidate !== undefined) {
             composer.blur();
@@ -12802,7 +12408,7 @@ export async function startTui(
             settingsPickerView.box.focus();
         }
         if (returningToModelPicker) {
-            requestAgentSettings(settingsTarget());
+            requestAgentSettings(focusedAgentClient());
         }
         renderState();
     }
@@ -13252,10 +12858,6 @@ export async function startTui(
                 void discardCreatedSwitchTarget(next);
                 return;
             }
-            // Both in-TUI creation paths use Vera's default startup profile;
-            // attached or resumed sessions remain deliberately unknown until
-            // the host exposes that metadata.
-            startupProfiles.set(next, "default");
             let leaveResult: TuiSessionLeaveResult;
             try {
                 leaveResult = await leaveSwitchSource(
@@ -13681,7 +13283,6 @@ export async function startTui(
         readonly model: string;
         readonly verify: boolean;
         readonly retry: boolean;
-        readonly target: TuiAgentClient;
     }>();
 
     /**
@@ -13694,7 +13295,6 @@ export async function startTui(
     function retryPoolAdmission(
         requestId: string,
         verdict: string,
-        target = settingsTarget(),
     ): boolean {
         const attempt = poolAdmissionAttempts.get(requestId);
         poolAdmissionAttempts.delete(requestId);
@@ -13703,16 +13303,12 @@ export async function startTui(
         ) {
             return false;
         }
-        updateSettingsTargetState(
-            (current) => dropTuiAdmission(current, requestId),
-            target,
-        );
+        state = dropTuiAdmission(state, requestId);
         const retryId = requestPoolAdmission(
             attempt.provider,
             attempt.model,
             attempt.verify,
             true,
-            attempt.target,
         );
         if (poolVerifySweep?.requestId === requestId) {
             // A retry is the same step of the sweep under a new id. Without
@@ -13761,7 +13357,7 @@ export async function startTui(
         const requestId = randomUUID();
         catalogRefreshes.set(requestId, provider);
         showStatusNotice(`asking ${provider} for its model list…`);
-        sendCommand({ type: "catalog_refresh", requestId, provider }, settingsTarget());
+        sendCommand({ type: "catalog_refresh", requestId, provider });
         renderState();
     }
 
@@ -13770,41 +13366,26 @@ export async function startTui(
         model: string,
         verify = false,
         retry = false,
-        target: TuiAgentClient = settingsTarget(),
     ): string {
         const requestId = randomUUID();
-        poolAdmissionAttempts.set(requestId, {
-            provider,
-            model,
-            verify,
-            retry,
-            target,
-        });
-        updateSettingsTargetState(
-            (current) => beginTuiAdmission(
-                current,
-                requestId,
-                `${provider}/${model}`,
-            ),
-            target,
-        );
+        poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
+        state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
             requestId,
             provider,
             model,
             ...(verify ? { verify: true } : {}),
-        }, target);
+        });
         renderState();
         return requestId;
     }
 
     /** The live admission record for the dialog's own request, if any. */
     function dialogAdmission() {
-        const targetState = settingsTargetState();
-        return targetState.admission !== undefined
-                && targetState.admission.requestId === admissionDialog?.requestId
-            ? targetState.admission
+        return state.admission !== undefined
+                && state.admission.requestId === admissionDialog?.requestId
+            ? state.admission
             : undefined;
     }
 
@@ -13815,14 +13396,12 @@ export async function startTui(
      * where they were.
      */
     /** Every model the user keeps, in the order the pane lists them. */
-    function keptModels(
-        target = settingsTarget(),
-    ): readonly {
+    function keptModels(): readonly {
         readonly provider: string;
         readonly model: string;
         readonly verified: boolean;
     }[] {
-        return (settingsTargetState(target).modelSettings?.pooled ?? []).map((entry) => ({
+        return (focusedAgentState().modelSettings?.pooled ?? []).map((entry) => ({
             provider: entry.provider,
             model: entry.model,
             verified: entry.verified === true,
@@ -13830,7 +13409,7 @@ export async function startTui(
     }
 
     function openCatalogRefreshScopePicker(): void {
-        const targetState = settingsTargetState();
+        const targetState = state;
         const providers = refreshableProvidersOf(
             targetState.modelSettings?.availableModels,
             targetState.modelSettings?.refreshableProviders,
@@ -13854,15 +13433,13 @@ export async function startTui(
 
     /** An empty scope names every provider that keeps a list. */
     function startCatalogRefreshSweep(providers: readonly string[]): void {
-        const target = settingsTarget();
         const queue = providers.length > 0
             ? providers
             : refreshableProvidersOf(
-                settingsTargetState(target).modelSettings?.availableModels,
-                settingsTargetState(target).modelSettings?.refreshableProviders,
+                state.modelSettings?.availableModels,
+                state.modelSettings?.refreshableProviders,
             );
         settingsPicker = undefined;
-        settingsPickerAgent = undefined;
         composer.blur();
         if (catalogRefreshSweep !== undefined) {
             // Two sweeps at once cannot both be reported: the second would
@@ -13878,7 +13455,7 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        catalogRefreshSweep = { queue, target, index: 0, results: [] };
+        catalogRefreshSweep = { queue, index: 0, results: [] };
         renderState();
         focusActiveSurface();
         advanceCatalogRefreshSweep();
@@ -13894,19 +13471,13 @@ export async function startTui(
             renderState();
             return;
         }
-        sweep.results.push({
-            provider: next,
-            before: catalogSizeOf(next, sweep.target),
-        });
+        sweep.results.push({ provider: next, before: catalogSizeOf(next) });
         showStatusNotice(
             `asking ${next} (${sweep.index + 1}/${sweep.queue.length})\u2026`,
         );
         const requestId = randomUUID();
         sweep.requestId = requestId;
-        sendCommand(
-            { type: "catalog_refresh", requestId, provider: next },
-            sweep.target,
-        );
+        sendCommand({ type: "catalog_refresh", requestId, provider: next });
         renderState();
     }
 
@@ -13919,7 +13490,7 @@ export async function startTui(
         if (sweep === undefined || sweep.requestId !== requestId) return false;
         const result = sweep.results.at(-1);
         if (result !== undefined && refreshed) {
-            result.after = catalogSizeOf(result.provider, sweep.target);
+            result.after = catalogSizeOf(result.provider);
         }
         sweep.index += 1;
         advanceCatalogRefreshSweep();
@@ -13977,12 +13548,10 @@ export async function startTui(
      * line instead, and the rows update as each verdict lands.
      */
     function startPoolVerifySweep(onlyUnverified: boolean): void {
-        const target = settingsTarget();
-        const queue = keptModels(target)
+        const queue = keptModels()
             .filter((entry) => !onlyUnverified || !entry.verified)
             .map((entry) => ({ provider: entry.provider, model: entry.model }));
         settingsPicker = undefined;
-        settingsPickerAgent = undefined;
         composer.blur();
         if (queue.length === 0) {
             showStatusNotice("everything you keep has been probed");
@@ -13990,13 +13559,7 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        poolVerifySweep = {
-            queue,
-            target,
-            total: queue.length,
-            index: 0,
-            answered: 0,
-        };
+        poolVerifySweep = { queue, total: queue.length, index: 0, answered: 0 };
         renderState();
         focusActiveSurface();
         advancePoolVerifySweep();
@@ -14017,13 +13580,7 @@ export async function startTui(
         showStatusNotice(
             `probing ${next.provider}/${next.model} (${sweep.index + 1}/${sweep.total})`,
         );
-        sweep.requestId = requestPoolAdmission(
-            next.provider,
-            next.model,
-            true,
-            false,
-            sweep.target,
-        );
+        sweep.requestId = requestPoolAdmission(next.provider, next.model, true);
     }
 
     /** True when the verdict belonged to the sweep, which then steps on. */
