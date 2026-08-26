@@ -108,14 +108,24 @@ test("timeline picker correlates list, preview, and apply requests", () => {
     }, values("unused")).state);
     expect(state.screen).toBe("confirm");
 
-    transition = handleTuiTimelineKey(state, key("return"), values("unused"));
-    expect(transition.command).toBeUndefined();
-    expect(transition.state).toBe(state);
-
-    transition = handleTuiTimelineKey(state, key("1", "1"), values("apply-1"));
+    const confirmation = state;
+    transition = handleTuiTimelineKey(state, key("return"), values("apply-1"));
     expect(transition.command).toEqual({
         type: "apply_timeline_action",
         requestId: "apply-1",
+        planId: "plan-1",
+    });
+
+    // The old digit remains a compatibility alias, but the dialog no longer
+    // presents it as the way to confirm.
+    const digitTransition = handleTuiTimelineKey(
+        confirmation,
+        key("1", "1"),
+        values("apply-2"),
+    );
+    expect(digitTransition.command).toEqual({
+        type: "apply_timeline_action",
+        requestId: "apply-2",
         planId: "plan-1",
     });
     state = requiredState(transition.state);
@@ -311,6 +321,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(setup.renderer.currentFocusedRenderable).toBe(view.box);
         expect(view.box.zIndex).toBe(DIALOG_CARD_Z_INDEX);
         expect(view.box.screenX).toBeGreaterThan(0);
+        expect(view.box.top).toBe(4.5);
 
         setup.resize(42, 18);
         await setup.flush();
@@ -318,12 +329,26 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(frame).toContain("Search");
         expect(frame).toContain("esc close");
 
+        view.update({
+            screen: "actions",
+            boundaries: [secondBoundary, firstBoundary],
+            query: "",
+            selectedIndex: 0,
+            selectedAction: "rewind",
+        });
+        await setup.flush();
+        frame = setup.captureCharFrame();
+        expect(frame).toContain("Rewind conversation");
+        expect(frame).not.toContain("1  Rewind conversation");
+
         view.update(confirmState());
         await setup.flush();
         frame = setup.captureCharFrame();
         expect(frame).toContain("Confirm rewind");
         expect(frame).toContain("Files         unchanged");
-        expect(frame).toContain("[1] Rewind now");
+        expect(frame).toContain("⏎ rewind · esc back");
+        expect(frame).not.toContain("[1]");
+        expect(view.box.top).toBe(4.5);
     } finally {
         setup.renderer.destroy();
     }

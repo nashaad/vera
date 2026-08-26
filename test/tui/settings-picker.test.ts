@@ -833,6 +833,13 @@ test("every settings picker filters as the user types", async () => {
 });
 
 test("digits quick-select on the short panes and stay search input elsewhere", async () => {
+    const settings = startTuiSettingsMenu("settings");
+    const settingsFrame = await pickerFrame(settings);
+    expect(settingsFrame).toContain("Model");
+    expect(settingsFrame).not.toContain("1. Model");
+    expect(handleTuiSettingsPickerKey(settings, { name: "2" }).selection)
+        .toEqual({ kind: "menu", target: "reasoning" });
+
     const reasoning = startTuiReasoningPicker(REASONING_LEVELS, undefined, "high");
     expect(await pickerFrame(reasoning)).toContain("2. High");
     expect(handleTuiSettingsPickerKey(reasoning, { name: "3" }).selection)

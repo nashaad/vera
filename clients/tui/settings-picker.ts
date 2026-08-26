@@ -73,6 +73,7 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
+    dialogInsetTop,
     attachDialogRowPointer,
     dialogOptionRows,
     dialogRowPointer,
@@ -2820,7 +2821,7 @@ export function createTuiSettingsPickerView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: pickerTopOffset(renderer),
+        top: dialogInsetTop(renderer),
         left: "10%",
         width: "80%",
         height: 8,
@@ -2858,7 +2859,7 @@ export function createTuiSettingsPickerView(
             // starts at the top edge too: an inset card is read against the
             // scrimmed transcript around it, but a full-width panel with a
             // strip of transcript over it reads as a row that leaked through.
-            box.top = state.kind === "session" ? 0 : pickerTopOffset(renderer);
+            box.top = state.kind === "session" ? 0 : dialogInsetTop(renderer);
             box.left = state.kind === "session" ? 0 : "10%";
             box.width = state.kind === "session" ? "100%" : "80%";
             renderListPickerRows(
@@ -2897,17 +2898,10 @@ function pickerMaxRows(
     rowLines = 1,
 ): number {
     const lines = listWindowRows(
-        dialogBoxHeight(renderer, pickerTopOffset(renderer)),
+        dialogBoxHeight(renderer, dialogInsetTop(renderer)),
         DIALOG_CHROME_HEIGHT + extraChrome,
     );
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));
-}
-
-// OpenCode's dialog wrapper starts cards a quarter of the way down the
-// terminal. Using the same measured offset keeps Vera's inset pickers near the
-// visual centre while leaving the full-width session list anchored at row 0.
-function pickerTopOffset(renderer: RenderContext): number {
-    return renderer.height / 4;
 }
 
 // Header, search block, footer with its blank line, and the card's vertical
@@ -2927,7 +2921,7 @@ function themePickerTop(renderer: RenderContext, themeRows: number): number {
     return Math.max(
         APP_PADDING_TOP,
         Math.min(
-            pickerTopOffset(renderer),
+            dialogInsetTop(renderer),
             renderer.height - APP_PADDING_BOTTOM - height,
         ),
     );
@@ -3480,6 +3474,7 @@ function renderListPickerRows(
         row.kind === "option"
             ? [{
                 label: digitQuickSelect(state)
+                        && state.kind !== "settings"
                         && state.query === ""
                         && row.index < 9
                     ? `${row.index + 1}. ${row.option.label}`

@@ -110,10 +110,6 @@ test("real TUI previews and confirms conversation-only rewind", async () => {
         expect(pane).toContain("External work unchanged");
 
         session.sendKey("Enter");
-        await session.settle(100);
-        expect(session.captureVisiblePane()).toContain("Confirm rewind");
-
-        session.sendText("1");
         pane = await session.waitForVisiblePaneWhere(
             (current) => current.includes("FIRST ANSWER")
                 && !current.includes("SECOND ANSWER")

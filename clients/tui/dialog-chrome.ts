@@ -94,6 +94,13 @@ export function dialogBottomOffset(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
 }
 
+/** Shared vertical start for inset dialog cards. */
+export function dialogInsetTop(renderer: RenderContext): number {
+    return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
+        ? 1
+        : renderer.height / 4;
+}
+
 /** Full-screen flex surface that keeps a variable-height dialog card centered. */
 export function centeredDialogSurface(
     renderer: RenderContext,

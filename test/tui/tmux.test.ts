@@ -1762,10 +1762,6 @@ async function exerciseConversationRewind(
     expect(pane).toContain("External work unchanged");
 
     sendKey(socket, session, "Enter");
-    await Bun.sleep(100);
-    expect(capturePane(socket, session)).toContain("Confirm rewind");
-
-    sendText(socket, session, "1");
     pane = await waitForPaneWhere(
         socket,
         session,

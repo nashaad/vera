@@ -14,9 +14,11 @@ import type {
 } from "../../src/engine/protocol.ts";
 import { TUI_NOTICE, TUI_PANEL, TUI_TEXT } from "./state.ts";
 import {
+    APP_PADDING_BOTTOM,
     DIALOG_CARD_Z_INDEX,
     dialogFooterNode,
     dialogHeaderNode,
+    dialogInsetTop,
     dialogRowPointer,
     type DialogRowPointer,
     dialogOptionRow,
@@ -223,11 +225,11 @@ export function createTuiTimelinePickerView(
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
-        top: 1,
+        top: dialogInsetTop(renderer),
         left: "5%",
         width: "90%",
         height: "auto",
-        maxHeight: "90%",
+        maxHeight: renderer.height - dialogInsetTop(renderer) - APP_PADDING_BOTTOM,
         zIndex: DIALOG_CARD_Z_INDEX,
         flexDirection: "column",
         paddingLeft: 2,
@@ -328,13 +330,11 @@ function timelineNodes(
         pushNotice(state.notice);
         nodes.push(dialogOptionRow(renderer, {
             label: "Rewind conversation",
-            leading: "1  ",
             active: state.selectedAction === "rewind",
             ...dialogRowPointer(pointer, 0),
         }));
         nodes.push(dialogOptionRow(renderer, {
             label: "Cancel",
-            leading: "2  ",
             active: state.selectedAction === "cancel",
             ...dialogRowPointer(pointer, 1),
         }));
@@ -364,7 +364,7 @@ function timelineNodes(
         nodes.push(bodyText(renderer, "Rewinding conversation…"));
         return nodes;
     }
-    nodes.push(dialogFooterNode(renderer, "[1] Rewind now · esc back"));
+    nodes.push(dialogFooterNode(renderer, "⏎ rewind · esc back"));
     return nodes;
 }
 
@@ -478,8 +478,12 @@ function handleConfirmKey(
     key: Pick<KeyEvent, "name" | "sequence">,
     createRequestId: () => string,
 ): TuiTimelinePickerTransition {
-    if (key.sequence !== "1" && key.name !== "1") {
-        return unchanged(state, key.name === "return" || key.name === "kpenter");
+    const apply = key.sequence === "1"
+        || key.name === "1"
+        || key.name === "return"
+        || key.name === "kpenter";
+    if (!apply) {
+        return unchanged(state, false);
     }
     const requestId = createRequestId();
     return {
