@@ -97,6 +97,7 @@ export type TuiSettingsPickerKind =
     | "developer_settings"
     | "developer_value"
     | "session"
+    | "configure"
     | "settings"
     | "permission_settings"
     | "reviewer_settings"
@@ -246,6 +247,16 @@ export interface TuiSettingsPickerOption {
      * heading does not.
      */
     readonly inTopPicks?: boolean;
+}
+
+/** A concrete file `/configure` can hand to the user's editor. */
+export interface TuiConfigureFile {
+    readonly label: string;
+    readonly path: string;
+    readonly displayPath: string;
+    readonly scope: "Profile" | "Project";
+    /** Profile config may be created by the editor; optional files may not. */
+    readonly createIfMissing: boolean;
 }
 
 /**
@@ -410,6 +421,8 @@ export interface TuiSettingsPickerState {
      * a question about this visit rather than a setting to carry forward.
      */
     readonly revealAll?: boolean;
+    /** The file identities behind a configure pane's display rows. */
+    readonly configureFiles?: readonly TuiConfigureFile[];
 }
 
 export interface TuiAssignmentParentModel {
@@ -477,6 +490,7 @@ export type TuiSettingsPickerSelection =
         readonly sessionId?: string;
         readonly sourceDisposition: TuiSessionLeaveDisposition;
     }
+    | { readonly kind: "configure"; readonly file: TuiConfigureFile }
     | { readonly kind: "menu"; readonly target: TuiSettingsMenuTarget }
     | {
         readonly kind: "reviewer";
@@ -682,7 +696,7 @@ const THEME_OPTIONS: readonly TuiSettingsPickerOption[] = [
 ];
 
 export function startTuiSettingsPicker(
-    kind: Exclude<TuiSettingsPickerKind, "reasoning">,
+    kind: Exclude<TuiSettingsPickerKind, "reasoning" | "configure">,
     currentModel: string | undefined,
     currentReasoning: ModelReasoningEffort | undefined,
     currentPermissions: ApprovalMode | undefined,
@@ -733,6 +747,35 @@ export function startTuiSettingsPicker(
             ? { initialModel: currentValue }
             : {}),
         ...(kind === "theme" ? { initialTheme: currentTheme } : {}),
+    };
+}
+
+/**
+ * A short list of files that actually exist, plus the profile config the
+ * editor is allowed to create. The caller owns discovery so this picker stays
+ * a pure projection of the filesystem snapshot it was handed.
+ */
+export function startTuiConfigurePicker(
+    files: readonly TuiConfigureFile[],
+): TuiSettingsPickerState {
+    const options = files.map((file) => ({
+        value: file.path,
+        label: file.label,
+        description: file.displayPath,
+        group: file.scope,
+        searchText: `${file.label} ${file.path}`,
+    }));
+    return {
+        kind: "configure",
+        title: "Configure",
+        subtitle:
+            "Choose a configuration file to edit\n"
+            + "To edit another profile, restart with: vera --profile <name>",
+        allOptions: options,
+        options,
+        selectedIndex: 0,
+        query: "",
+        configureFiles: files,
     };
 }
 
@@ -2615,6 +2658,7 @@ export function handleTuiSettingsPickerKey(
         return { handled: true, ...preview };
     }
     if (key.name === "backspace") {
+        if (!pickerIsSearchable(state)) return unchanged(state, true);
         return searched(state, state.query.slice(0, -1));
     }
     // Digits pick the numbered row directly on the short panes. Only while
@@ -2648,6 +2692,7 @@ export function handleTuiSettingsPickerKey(
         && !key.ctrl
         && !key.meta
     ) {
+        if (!pickerIsSearchable(state)) return unchanged(state, true);
         return searched(state, state.query + (key.name === "space" ? " " : key.name));
     }
     // Left and right open and close a section, the shape a tree has everywhere
@@ -3280,11 +3325,7 @@ function renderListPickerRows(
     // the caret, since this page holds nothing to filter.
     // A pane whose whole list is two fixed answers has nothing to filter, and
     // an empty field above them reads as a row the cursor has landed on.
-    const searchable = state.kind !== "extension"
-        && state.kind !== "pool_verify_scope"
-        && state.kind !== "catalog_refresh_scope"
-        && !(state.kind === "model_assignment"
-            && state.modelAssignment === "subagents");
+    const searchable = pickerIsSearchable(state);
     const header = dialogHeaderNode(
         renderer,
         pickerTitle(
@@ -3836,6 +3877,9 @@ function pickerFooterText(
     if (state.kind === "settings") {
         return "↑↓ move · ⏎ open · esc close";
     }
+    if (state.kind === "configure") {
+        return "↑↓ move · ⏎ edit · esc close";
+    }
     if (state.kind === "permission_settings") {
         return "↑↓ move · ⏎ open · esc back";
     }
@@ -4010,6 +4054,7 @@ function listDisplayRows(
     // cursor can reach one and fold the section under it. Everything else has
     // its headings derived here.
     const grouped = state.kind === "provider"
+        || state.kind === "configure"
         || (state.kind === "model" && state.tab === "defaults")
         || (state.kind === "model_assignment"
             && state.modelAssignment === "subagents");
@@ -4495,6 +4540,16 @@ function searched(
         handled: true,
         ...themePreview(next),
     };
+}
+
+/** Fixed action lists do not draw or accept an invisible search query. */
+function pickerIsSearchable(state: TuiAnySettingsPickerState): boolean {
+    return state.kind !== "extension"
+        && state.kind !== "configure"
+        && state.kind !== "pool_verify_scope"
+        && state.kind !== "catalog_refresh_scope"
+        && !(state.kind === "model_assignment"
+            && state.modelAssignment === "subagents");
 }
 
 function themePreview(
@@ -5043,6 +5098,15 @@ function pickerSelection(
                 : { sessionId: option.sessionId }),
         };
     }
+    if (kind === "configure") {
+        const file = state.configureFiles?.find((candidate) =>
+            candidate.path === value
+        );
+        if (file === undefined) {
+            throw new Error("configure picker option is missing file identity");
+        }
+        return { kind, file };
+    }
     if (
         kind === "settings"
         || kind === "permission_settings"
@@ -5128,6 +5192,8 @@ function pickerTitle(
                     ? "Resume"
                     : kind === "settings"
                         ? "Settings"
+                        : kind === "configure"
+                            ? "Configure"
                         : kind === "permission_settings"
                             ? "Permissions"
                             : kind === "reviewer_settings"

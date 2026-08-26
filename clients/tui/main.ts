@@ -18,6 +18,9 @@ import {
     type MouseEvent,
 } from "@opentui/core";
 import { randomUUID } from "node:crypto";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { join } from "node:path";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
@@ -434,6 +437,7 @@ import {
     tuiPickerViewportRows,
     startTuiReviewerMenu,
     startTuiReviewerPicker,
+    startTuiConfigurePicker,
     startTuiSettingsMenu,
     startTuiContextLimitPicker,
     startTuiDeveloperMenu,
@@ -459,6 +463,7 @@ import {
     startTuiCatalogRefreshScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
+    type TuiConfigureFile,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
     type TuiExtensionPickerTransition,
@@ -630,6 +635,7 @@ import {
     saveTuiThemePreference,
     saveTuiWorkspaceSidebarDocked,
     saveTuiWorkspaceSidebarWidth,
+    tuiThemePreferencePath,
 } from "./theme-preference.ts";
 import { createTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
@@ -793,6 +799,8 @@ export interface TuiDependencies {
     readonly client: TuiAgentClient;
     readonly appearance?: TuiAppearance;
     readonly copyText?: (text: string) => Promise<void>;
+    readonly openConfigurationFile?: (path: string) => Promise<void>;
+    /** Compatibility hook for callers that only open the profile config. */
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
     /** One page of the session listing, with the facts the caller named. */
@@ -6399,7 +6407,7 @@ export async function startTui(
         if (commandAction?.type === "open_configure") {
             composer.clearComposer();
             renderCommandSuggestions();
-            void openConfigureEditor();
+            openConfigurePicker();
             return;
         }
         if (commandAction?.type === "open_command_palette") {
@@ -10142,20 +10150,87 @@ export async function startTui(
         return undefined;
     }
 
-    async function openConfigureEditor(): Promise<void> {
+    function configureDisplayPath(path: string): string {
+        const home = homedir();
+        const prefix = home.endsWith("/") ? home : `${home}/`;
+        return path.startsWith(prefix) ? `~/${path.slice(prefix.length)}` : path;
+    }
+
+    function configureFiles(): readonly TuiConfigureFile[] {
+        const profileConfig = veraConfigPath();
+        const files: TuiConfigureFile[] = [{
+            label: "Profile config",
+            path: profileConfig,
+            displayPath: configureDisplayPath(profileConfig),
+            scope: "Profile",
+            createIfMissing: true,
+        }];
+        const tuiPreferences = tuiThemePreferencePath();
+        if (existsSync(tuiPreferences)) {
+            files.push({
+                label: "TUI preferences",
+                path: tuiPreferences,
+                displayPath: configureDisplayPath(tuiPreferences),
+                scope: "Profile",
+                createIfMissing: false,
+            });
+        }
+        const workspace = focusedAgentClient().workspace;
+        if (workspace !== undefined) {
+            const projectConfig = join(workspace, ".vera", "config.json");
+            if (existsSync(projectConfig)) {
+                files.push({
+                    label: "Project config",
+                    path: projectConfig,
+                    displayPath: ".vera/config.json",
+                    scope: "Project",
+                    createIfMissing: false,
+                });
+            }
+        }
+        return files;
+    }
+
+    function openConfigurePicker(): void {
+        settingsPickerAgent = focusedAgentClient();
+        settingsPicker = startTuiConfigurePicker(configureFiles());
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    async function openConfigureEditor(file: TuiConfigureFile): Promise<void> {
+        if (!file.createIfMissing && !existsSync(file.path)) {
+            state = appendTuiError(
+                state,
+                `${file.label} is no longer available: ${file.displayPath}`,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         renderer.suspend();
         try {
-            await (dependencies.openConfigure ?? (() =>
-                openFileInEditor(veraConfigPath())))();
+            if (dependencies.openConfigurationFile !== undefined) {
+                await dependencies.openConfigurationFile(file.path);
+            } else if (
+                file.path === veraConfigPath()
+                && dependencies.openConfigure !== undefined
+            ) {
+                await dependencies.openConfigure();
+            } else {
+                await openFileInEditor(file.path);
+            }
             state = appendTuiNotice(
                 state,
-                "Configure editor closed. Settings apply to new sessions; a"
-                + " changed extension list needs a restart.",
+                `${file.label} editor closed: ${file.displayPath}`,
             );
         } catch (error) {
             state = appendTuiError(
                 state,
-                `Could not open config: ${error instanceof Error ? error.message : String(error)}`,
+                `Could not open ${file.label.toLowerCase()}: ${
+                    error instanceof Error ? error.message : String(error)
+                }`,
             );
         } finally {
             renderer.resume();
@@ -12151,6 +12226,12 @@ export async function startTui(
         if (transition.selection !== undefined) {
             const selection = transition.selection;
             if (selection.kind === "extension") {
+                return;
+            }
+            if (selection.kind === "configure") {
+                closeSettingsPickerSurface();
+                renderState();
+                void openConfigureEditor(selection.file);
                 return;
             }
             if (selection.kind === "model") {
