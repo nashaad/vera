@@ -42,6 +42,10 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 
 /** Rows shown at once before the list windows around the cursor. */
 /**
@@ -82,6 +86,7 @@ export interface TuiPreferencesListTransition {
 export interface TuiPreferencesListView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     pointer?: DialogRowPointer;
     update(state: TuiPreferencesListState): void;
 }
@@ -226,6 +231,10 @@ export function createTuiPreferencesListView(
     const view: TuiPreferencesListView = {
         box,
         surface,
+        themeBindings: [
+            tuiThemeProperties(footer, { fg: "muted" }),
+            tuiThemeProperties(box, { backgroundColor: "panel" }),
+        ],
         update(state): void {
             for (const row of current) {
                 row.destroyRecursively();

@@ -33,6 +33,16 @@ export interface TuiTheme {
     readonly notice: string;
     readonly danger: string;
     readonly success: string;
+    /** Irreversible or unsandboxed action that must stay louder than danger. */
+    readonly critical: string;
+    /** Alternate semantic value, such as read-only access. */
+    readonly secondary: string;
+    /** Active pane or navigation boundary. */
+    readonly focus: string;
+    readonly inactive: string;
+    /** Vera's branded motion trail, separate from success. */
+    readonly activityTrail: string;
+    readonly dangerSurface: string;
     readonly diffAdded: string;
     readonly diffRemoved: string;
     readonly code: string;
@@ -48,7 +58,56 @@ export interface TuiTheme {
     readonly hud?: TuiThemeHud;
 }
 
-export const VERA_TUI_THEME = themeCatalog.themes.vera as TuiTheme;
+type RequiredTuiThemeRole = Exclude<keyof TuiTheme, "hud">;
+
+export const TUI_THEME_REQUIRED_ROLES = [
+    "accent",
+    "text",
+    "muted",
+    "notice",
+    "danger",
+    "success",
+    "critical",
+    "secondary",
+    "focus",
+    "inactive",
+    "activityTrail",
+    "dangerSurface",
+    "diffAdded",
+    "diffRemoved",
+    "code",
+    "background",
+    "panel",
+    "element",
+    "input",
+    "menu",
+    "chrome",
+    "selectionText",
+] as const satisfies readonly RequiredTuiThemeRole[];
+
+type MissingRequiredTuiThemeRole = Exclude<
+    RequiredTuiThemeRole,
+    typeof TUI_THEME_REQUIRED_ROLES[number]
+>;
+const TUI_THEME_ROLES_ARE_EXHAUSTIVE:
+    MissingRequiredTuiThemeRole extends never ? true : never = true;
+void TUI_THEME_ROLES_ARE_EXHAUSTIVE;
+
+function catalogTheme(name: keyof typeof themeCatalog.themes): TuiTheme {
+    const candidate: Record<string, unknown> = themeCatalog.themes[name];
+    for (const role of TUI_THEME_REQUIRED_ROLES) {
+        const value = candidate[role];
+        if (
+            typeof value !== "string"
+            || (role === "chrome" && value !== "plain" && value !== "norton")
+        ) {
+            throw new TypeError(`TUI theme ${name} has no valid ${role} role`);
+        }
+    }
+    return candidate as unknown as TuiTheme;
+}
+
+export const VERA_TUI_THEME = catalogTheme("vera");
 
 // The four palette roles shown as a per-row swatch in the theme picker, so the
 // list is made of the themes it offers rather than a generic select dialog.
@@ -75,7 +134,7 @@ export async function resolveTuiTheme(
     if (name === "system") {
         return resolveSystemTuiTheme(renderer);
     }
-    return themeCatalog.themes[name] as TuiTheme;
+    return catalogTheme(name);
 }
 
 export async function resolveSystemTuiTheme(
@@ -104,6 +163,12 @@ export function themeFromTerminal(colors: TerminalColors): TuiTheme {
         notice: paletteColor(colors, 3, VERA_TUI_THEME.notice),
         danger: paletteColor(colors, 1, VERA_TUI_THEME.danger),
         success: paletteColor(colors, 2, VERA_TUI_THEME.success),
+        critical: VERA_TUI_THEME.critical,
+        secondary: VERA_TUI_THEME.secondary,
+        focus: VERA_TUI_THEME.focus,
+        inactive: VERA_TUI_THEME.inactive,
+        activityTrail: VERA_TUI_THEME.activityTrail,
+        dangerSurface: VERA_TUI_THEME.dangerSurface,
         diffAdded: paletteColor(colors, 2, VERA_TUI_THEME.diffAdded),
         diffRemoved: paletteColor(colors, 1, VERA_TUI_THEME.diffRemoved),
         code: paletteColor(colors, 2, VERA_TUI_THEME.code),

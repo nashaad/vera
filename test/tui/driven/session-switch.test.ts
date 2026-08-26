@@ -1,4 +1,5 @@
 import { expect, test } from "bun:test";
+import { RGBA } from "@opentui/core";
 import { existsSync, mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -16,6 +17,11 @@ import { createTuiRenameDependencies } from "../../support/tui-rename-child.ts";
 import { createTuiResumeScenario, IDLE_TARGET_TRANSCRIPT } from "../../support/tui-resume-child.ts";
 import { createSettingsAnsweringClient } from "../../support/settings-answering-client.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
+import themeCatalog from "../../../config/tui-themes.json" with { type: "json" };
+import { VERA_TUI_THEME } from "../../../clients/tui/theme.ts";
+import {
+    saveTuiPersistedAgentPane,
+} from "../../../clients/tui/theme-preference.ts";
 
 test("idle TUI exit stops the current conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-exit-close-"));
@@ -869,6 +875,84 @@ test("opening a live sidebar row attaches to the running worker", async () => {
                 `${scenario.targetPath}\ndetached\ntarget-session-id`
                     + "\nclosed target-session-id",
             );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("theme preview and cancel repaint an attached sidebar transcript", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-theme-"));
+    const scenario = createTuiResumeScenario({ home });
+    saveTuiPersistedAgentPane(
+        "current-session-id",
+        {
+            mainAgentId: "current-session-id",
+            sidebarAgentId: "theme-sidebar-id",
+            owner: "vera.btw",
+        },
+        join(home, ".vera", "profiles", "default", "tui.json"),
+    );
+    const sidebarClient = createSettingsAnsweringClient({
+        agentId: "theme-sidebar-id",
+        workspace: "/work/vera",
+        model: "sidebar-model",
+        mode: "auto",
+        initialUpdates: [{
+            type: "history",
+            entries: [{ kind: "assistant", text: "SIDEBAR THEME TEXT" }],
+            seq: 0,
+        }],
+    });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => ({
+            ...scenario.dependencies,
+            attachAgent: async () => sidebarClient,
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("SIDEBAR THEME TEXT");
+
+        session.sendText("/themes");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Theme");
+        session.sendText("owl");
+        await session.settle(250);
+        const sidebarTextColor = (): number[] | undefined => {
+            const line = session.captureSpans().lines.find((candidate) =>
+                candidate.spans.map((span) => span.text).join("")
+                    .includes("SIDEBAR THEME TEXT")
+            );
+            return line?.spans.find((span) => span.text.includes("SIDEBAR"))
+                ?.fg.toInts();
+        };
+        const behindScrim = (color: string): number[] => {
+            const [red = 0, green = 0, blue = 0] = RGBA.fromHex(color).toInts();
+            const visible = (channel: number): number =>
+                Math.round(channel * (255 - 150) / 255);
+            return [visible(red), visible(green), visible(blue), 255];
+        };
+        expect(sidebarTextColor()).toEqual(
+            behindScrim(themeCatalog.themes.nightowl.text),
+        );
+        session.sendKey("BSpace");
+        session.sendKey("BSpace");
+        session.sendKey("BSpace");
+        session.sendText("hub");
+        await session.settle(250);
+        expect(sidebarTextColor()).toEqual(
+            behindScrim(themeCatalog.themes.github.text),
+        );
+        session.sendKey("Escape");
+        await session.settle(250);
+        const pane = await session.waitForVisiblePane("SIDEBAR THEME TEXT");
+        expect(pane).toContain("SIDEBAR THEME TEXT");
+        expect(sidebarTextColor()).toEqual(
+            RGBA.fromHex(VERA_TUI_THEME.text).toInts(),
+        );
     } finally {
         await session.close();
     }

@@ -5,6 +5,7 @@ import type { ContextMeasurement } from "../../src/engine/context-measurement.ts
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import {
     TUI_ACCENT,
+    TUI_CRITICAL,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_SUCCESS,
@@ -355,13 +356,11 @@ export function statusToneColor(tone: TuiStatusTone): string {
         case "good":
             return TUI_SUCCESS;
         case "danger":
-            return FULL_ACCESS_RED;
+            return TUI_CRITICAL;
         case "meterEmpty":
             return TUI_ELEMENT;
     }
 }
-
-const FULL_ACCESS_RED = "#ff3b30";
 
 const separator: TuiStatusChunk = { text: " · ", tone: "muted" };
 

@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { BoxRenderable, SyntaxStyle, TextRenderable } from "@opentui/core";
+import {
+    BoxRenderable,
+    RGBA,
+    SyntaxStyle,
+    TextRenderable,
+} from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
@@ -9,8 +14,6 @@ import {
     DEFAULT_SIDEBAR_WIDTH,
     MIN_SIDEBAR_WIDTH,
     MIN_TRANSCRIPT_WIDTH,
-    SIDEBAR_FOCUS_GREEN,
-    SIDEBAR_INACTIVE_GRAY,
 } from "../../clients/tui/sidebar.ts";
 
 test("the divider cannot be dragged past either side's floor", () => {
@@ -66,6 +69,8 @@ async function openSidebar(
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
+            focus: "#22c55e",
+            inactive: "#4b5563",
         },
         syntaxStyle: STYLE,
         ...(onPanelClick === undefined ? {} : { onPanelClick }),
@@ -113,6 +118,8 @@ test("a settled drag reports the width once", async () => {
             handleActive: "#666666",
             muted: "#888888",
             text: "#ffffff",
+            focus: "#22c55e",
+            inactive: "#4b5563",
         },
         syntaxStyle: STYLE,
         onWidthChanged: (columns) => widths.push(columns),
@@ -182,8 +189,6 @@ test("replacing sidebar blocks publishes one completed layout", async () => {
 test("focus rail follows the active pane symmetrically", async () => {
     const { setup, sidebar } = await openSidebar();
     try {
-        expect(SIDEBAR_FOCUS_GREEN).toBe("#22c55e");
-        expect(SIDEBAR_INACTIVE_GRAY).toBe("#4b5563");
         expect(sidebar.isFocused()).toBe(false);
         await setup.flush();
         expect(setup.captureCharFrame()).toContain("━".repeat(75));
@@ -202,6 +207,34 @@ test("focus rail follows the active pane symmetrically", async () => {
         expect(sidebar.isFocused()).toBe(true);
         expect(setup.captureCharFrame()).toContain(
             "━".repeat(DEFAULT_SIDEBAR_WIDTH),
+        );
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("focus rail colors repaint from the active theme", async () => {
+    const { setup, sidebar } = await openSidebar();
+    try {
+        sidebar.setFocused(true);
+        sidebar.setTheme({
+            handle: "#333333",
+            handleActive: "#666666",
+            muted: "#888888",
+            text: "#ffffff",
+            focus: "#123456",
+            inactive: "#654321",
+        }, STYLE);
+
+        const mainRail = sidebar.body.findDescendantById(
+            "main-focus-rail",
+        ) as TextRenderable;
+        const sidebarRail = sidebar.body.findDescendantById(
+            "sidebar-focus-rail",
+        ) as TextRenderable;
+        expect(mainRail.fg.toInts()).toEqual(RGBA.fromHex("#654321").toInts());
+        expect(sidebarRail.fg.toInts()).toEqual(
+            RGBA.fromHex("#123456").toInts(),
         );
     } finally {
         setup.renderer.destroy();

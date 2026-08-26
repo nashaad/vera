@@ -4,9 +4,14 @@ import { DiffRenderable, RGBA, SyntaxStyle } from "@opentui/core";
 
 import {
     createTuiDiff,
+    repaintTuiDiff,
     tuiDiffFiletype,
 } from "../../clients/tui/diff.ts";
-import { tuiDiffBackgroundColors } from "../../clients/tui/theme.ts";
+import { applyTuiTheme } from "../../clients/tui/state.ts";
+import {
+    tuiDiffBackgroundColors,
+    VERA_TUI_THEME,
+} from "../../clients/tui/theme.ts";
 
 test("diff file types cover common source paths", () => {
     expect(tuiDiffFiletype("src/index.ts")).toBe("typescript");
@@ -97,6 +102,48 @@ test("diff tint covers the line-number gutter with a quiet whole-row ground", as
         }
     } finally {
         syntaxStyle.destroy();
+        setup.renderer.destroy();
+    }
+});
+
+test("an existing diff repaints from the current theme", async () => {
+    const setup = await createTestRenderer({ width: 48, height: 10 });
+    const syntaxStyle = SyntaxStyle.fromStyles({});
+    const nextSyntaxStyle = SyntaxStyle.fromStyles({});
+    const diff = createTuiDiff(
+        setup.renderer,
+        "theme-diff",
+        "notes.txt",
+        "@@ -1,1 +1,1 @@\n-old\n+new\n",
+        syntaxStyle,
+    );
+    const nextTheme = {
+        ...VERA_TUI_THEME,
+        background: "#101112",
+        diffAdded: "#234567",
+        diffRemoved: "#765432",
+        muted: "#345678",
+    };
+
+    try {
+        applyTuiTheme(nextTheme);
+        repaintTuiDiff(diff, nextSyntaxStyle);
+        const body = diff.findDescendantById("theme-diff-body") as DiffRenderable;
+        const backgrounds = tuiDiffBackgroundColors(
+            nextTheme.background,
+            nextTheme.diffAdded,
+            nextTheme.diffRemoved,
+        );
+        expect(body.addedBg.toInts()).toEqual(
+            RGBA.fromHex(backgrounds.added).toInts(),
+        );
+        expect(body.removedBg.toInts()).toEqual(
+            RGBA.fromHex(backgrounds.removed).toInts(),
+        );
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
+        syntaxStyle.destroy();
+        nextSyntaxStyle.destroy();
         setup.renderer.destroy();
     }
 });

@@ -31,6 +31,7 @@ import {
     tuiToolRowText,
     TUI_MUTED,
     TUI_ACCENT,
+    TUI_CRITICAL,
     TUI_SUCCESS,
     type TuiState,
     type TuiTranscriptEntry,
@@ -2119,6 +2120,7 @@ test("auto-review approval resolves colors from the current theme", () => {
         muted: "#102030",
         notice: "#304050",
         success: "#506070",
+        critical: "#708090",
     };
     applyTuiTheme(theme);
     try {
@@ -2137,6 +2139,7 @@ test("auto-review approval resolves colors from the current theme", () => {
             .toEqual(parseColor(theme.muted));
         expect(chunkFor("allow")?.fg)
             .toEqual(parseColor(theme.success));
+        expect(TUI_CRITICAL).toBe(theme.critical);
     } finally {
         applyTuiTheme(VERA_TUI_THEME);
     }

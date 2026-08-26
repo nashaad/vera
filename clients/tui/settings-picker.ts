@@ -83,6 +83,10 @@ import {
     type DialogMetaPart,
 } from "./dialog-chrome.ts";
 import { tuiThemeSwatch, type TuiThemeName } from "./theme.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
@@ -5271,6 +5275,7 @@ export interface TuiProviderFormView {
     readonly box: BoxRenderable;
     /** Full-screen centering surface; visibility lives here. */
     readonly surface: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     update(state: TuiProviderFormState): void;
 }
 
@@ -5640,6 +5645,13 @@ export function createTuiProviderFormView(
     return {
         box,
         surface,
+        themeBindings: [
+            tuiThemeProperties(title, { fg: "text" }),
+            tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(error, { fg: "accent" }),
+            tuiThemeProperties(footer, { fg: "muted" }),
+            tuiThemeProperties(box, { backgroundColor: "panel" }),
+        ],
         update(state): void {
             title.content = state.shipped === true
                 ? `Edit ${state.id}`

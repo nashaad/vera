@@ -67,6 +67,32 @@ export function createTuiDiff(
     return container;
 }
 
+export function repaintTuiDiff(
+    container: BoxRenderable,
+    syntaxStyle: SyntaxStyle,
+): void {
+    const backgrounds = tuiDiffBackgroundColors(
+        TUI_BACKGROUND,
+        TUI_DIFF_ADDED,
+        TUI_DIFF_REMOVED,
+    );
+    const path = container.findDescendantById(`${container.id}-path`);
+    if (path instanceof TextRenderable) path.fg = TUI_MUTED;
+    const body = container.findDescendantById(`${container.id}-body`);
+    if (!(body instanceof DiffRenderable)) return;
+    body.syntaxStyle = syntaxStyle;
+    body.fg = TUI_TEXT;
+    body.lineNumberFg = TUI_MUTED;
+    body.lineNumberBg = TUI_BACKGROUND;
+    body.contextBg = TUI_BACKGROUND;
+    body.addedBg = backgrounds.added;
+    body.removedBg = backgrounds.removed;
+    body.addedLineNumberBg = backgrounds.added;
+    body.removedLineNumberBg = backgrounds.removed;
+    body.addedSignColor = TUI_DIFF_ADDED;
+    body.removedSignColor = TUI_DIFF_REMOVED;
+}
+
 export function tuiDiffFiletype(path: string): string | undefined {
     return pathToFiletype(path);
 }

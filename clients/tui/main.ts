@@ -614,6 +614,11 @@ import {
     VERA_TUI_THEME,
 } from "./theme.ts";
 import {
+    applyTuiThemeBindings,
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
+import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
     loadTuiActivityAnimationWidthPreference,
@@ -631,9 +636,9 @@ import {
     saveTuiWorkspaceSidebarDocked,
     saveTuiWorkspaceSidebarWidth,
 } from "./theme-preference.ts";
-import { createTuiDiff } from "./diff.ts";
+import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
-import { createTuiUserEntry } from "./user-entry.ts";
+import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import {
     createTuiToolHeader,
     createTuiToolRow,
@@ -650,6 +655,7 @@ import {
 } from "./markdown-entry.ts";
 import {
     createTuiGutterEntry,
+    repaintTuiGutterEntry,
     tuiGutterContent,
     tuiGutterWidth,
 } from "./gutter.ts";
@@ -696,7 +702,6 @@ const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
 const SHIMMER_FRAME_INTERVAL_MS = 40;
 const DEFAULT_ACTIVITY_FRAME_INTERVAL_MS = 160;
-const ACTIVE_GRID_TRAIL = "#B8B6D9";
 const SESSION_SWITCH_TIMEOUT_MS = 15_000;
 const POINTER_HOVER_DELAY_MS = 25;
 /**
@@ -2437,7 +2442,10 @@ export async function startTui(
         ]),
         emphasis: "doctor",
     });
-    const permissionsConfirmView = createTuiPermissionsConfirmView(renderer);
+    const permissionsConfirmView = createTuiPermissionsConfirmView(
+        renderer,
+        theme,
+    );
     const admissionDialogView = createTuiAdmissionDialogView(renderer);
     const sessionTrashConfirmView =
         createTuiSessionTrashConfirmView(renderer);
@@ -3401,6 +3409,8 @@ export async function startTui(
 
     function renderSidebarAgent(
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
+        requestPaint = true,
+        repaintTheme = false,
     ): void {
         if (pane !== hostedSidebar.pane) return;
         const entries = pane.state.state.entries;
@@ -3418,12 +3428,34 @@ export async function startTui(
             const wrapper = sidebarEntryNodes[index];
             if (wrapper !== undefined) {
                 wrapper.visible = tuiTranscriptEntryIsVisible(entry);
+                if (repaintTheme) {
+                    repaintTuiGutterEntry(wrapper, {
+                        separatorColor: appearance.transcriptSeparatorColor
+                            ?? theme.element,
+                    });
+                }
                 const existing = tuiGutterContent(wrapper);
-                if (
-                    existing instanceof MarkdownRenderable
-                    && existing.content !== tuiMarkdownEntryContent(entry)
+                if (existing instanceof MarkdownRenderable) {
+                    if (repaintTheme) {
+                        existing.syntaxStyle = markdownStyle;
+                        existing.fg = entry.kind === "assistant"
+                            || entry.kind === "notification"
+                            ? TUI_MUTED
+                            : TUI_TEXT;
+                    }
+                    if (existing.content !== tuiMarkdownEntryContent(entry)) {
+                        existing.content = tuiMarkdownEntryContent(entry);
+                    }
+                } else if (
+                    entry.kind === "user"
+                    && existing instanceof BoxRenderable
                 ) {
-                    existing.content = tuiMarkdownEntryContent(entry);
+                    if (repaintTheme) repaintTuiUserEntry(existing);
+                } else if (
+                    entry.kind === "diff"
+                    && existing instanceof BoxRenderable
+                ) {
+                    if (repaintTheme) repaintTuiDiff(existing, markdownStyle);
                 } else if (
                     entry.kind === "tool"
                     && existing instanceof BoxRenderable
@@ -3439,12 +3471,7 @@ export async function startTui(
                     && existing instanceof BoxRenderable
                 ) {
                     updateTuiThinkingWindow(existing, entry);
-                } else if (
-                    (entry.kind === "thought"
-                        || entry.kind === "notice"
-                        || entry.kind === "inbox")
-                    && existing instanceof TextRenderable
-                ) {
+                } else if (existing instanceof TextRenderable) {
                     existing.content = renderTuiEntry(entry);
                 }
                 return;
@@ -3472,7 +3499,16 @@ export async function startTui(
         })));
         for (const node of discarded) node.destroyRecursively();
         renderSidebarJump();
-        renderState();
+        if (requestPaint) {
+            renderState();
+        }
+    }
+
+    function repaintSidebarForTheme(): void {
+        sidebar.setTheme(sidebarTheme(), markdownStyle);
+        const pane = hostedSidebar.pane;
+        if (pane === undefined) return;
+        renderSidebarAgent(pane, false, true);
     }
 
     function handleSidebarAgentUpdate(
@@ -3939,6 +3975,8 @@ export async function startTui(
             handleActive: tuiHandleActiveColor(theme),
             muted: theme.muted,
             text: theme.text,
+            focus: theme.focus,
+            inactive: theme.inactive,
         };
     }
 
@@ -13645,6 +13683,132 @@ export async function startTui(
         );
     }
 
+    const themeBindings: readonly TuiThemeBinding[] = [
+        (activeTheme) => {
+            applyTuiTheme(activeTheme);
+            refreshDialogChrome();
+            experimentalTuiHost.setTheme(activeTheme);
+            clearTranscriptNodes();
+            const retiredMarkdownStyle = markdownStyle;
+            markdownStyle = createMarkdownStyle(activeTheme);
+            repaintSidebarForTheme();
+            retiredMarkdownStyle.destroy();
+        },
+        tuiThemeProperties(placeholder, { fg: "muted" }),
+        tuiThemeProperties(backgroundStatusText, { fg: "muted" }),
+        tuiThemeProperties(activityHintText, { fg: "muted" }),
+        tuiThemeProperties(hostedModeText, { fg: "muted" }),
+        tuiThemeProperties(app, { backgroundColor: "background" }),
+        tuiThemeProperties(quoteText, { fg: "muted" }),
+        tuiThemeProperties(heldAddressText, { fg: "muted" }),
+        tuiThemeProperties(queuedPromptText, { fg: "muted" }),
+        tuiThemeProperties(jumpToBottomText, {
+            fg: "background",
+            bg: "accent",
+        }),
+        tuiThemeProperties(jumpToBottom, { backgroundColor: "accent" }),
+        tuiThemeProperties(sidebarJumpText, {
+            fg: "background",
+            bg: "accent",
+        }),
+        tuiThemeProperties(sidebarJump, { backgroundColor: "accent" }),
+        tuiThemeProperties(modeToastText, {
+            fg: "text",
+            bg: "panel",
+        }),
+        tuiThemeProperties(modeToast, { backgroundColor: "panel" }),
+        tuiThemeProperties(commandSuggestionsText, { fg: "text" }),
+        tuiThemeProperties(commandSuggestionsBox, {
+            backgroundColor: "background",
+        }),
+        tuiThemeProperties(jumpMenuText, { fg: "text" }),
+        tuiThemeProperties(jumpMenuBox, {
+            backgroundColor: "panel",
+            borderColor: "element",
+            focusedBorderColor: "element",
+        }),
+        () => {
+            if (jumpMenu !== undefined) {
+                renderJumpMenu();
+            }
+        },
+        tuiThemeProperties(composerBox, {
+            backgroundColor: "input",
+            borderColor: (activeTheme) =>
+                appearance.composerBoundaryColor ?? activeTheme.element,
+        }),
+        (activeTheme) => resumeOverlay.applyAppearance({
+            marginHorizontal: appearance.composerMarginHorizontal,
+            paddingHorizontal: appearance.composerPaddingHorizontal,
+            boundaryColor: appearance.composerBoundaryColor
+                ?? activeTheme.element,
+            backgroundColor: activeTheme.input,
+            textColor: activeTheme.text,
+            mutedColor: activeTheme.muted,
+        }),
+        tuiThemeProperties(composerStatusText, { fg: "muted" }),
+        tuiThemeProperties(composerRule, {
+            borderColor: (activeTheme) =>
+                appearance.composerBoundaryColor ?? activeTheme.element,
+        }),
+        tuiThemeProperties(workspaceSidebarView.box, {
+            backgroundColor: "panel",
+            borderColor: (activeTheme) =>
+                workspaceRailDragging
+                    ? activeTheme.accent
+                    : activeTheme.element,
+            focusedBorderColor: "element",
+        }),
+        tuiThemeProperties(workTabView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(searchOverlayView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(composer, {
+            backgroundColor: "input",
+            focusedBackgroundColor: "input",
+            textColor: "text",
+            focusedTextColor: "text",
+            cursorColor: "accent",
+        }),
+        tuiThemeProperties(approvalView.box, { backgroundColor: "panel" }),
+        () => approvalView.repaint(),
+        (activeTheme) => permissionsConfirmView.setTheme(activeTheme),
+        () => questionView.repaint(),
+        tuiThemeProperties(timelinePickerView.box, {
+            backgroundColor: "panel",
+        }),
+        () => {
+            if (timelinePicker !== undefined) {
+                timelinePickerView.update(timelinePicker);
+            }
+        },
+        tuiThemeProperties(settingsPickerView.box, {
+            backgroundColor: "panel",
+        }),
+        ...secretPromptView.themeBindings,
+        ...namePromptView.themeBindings,
+        ...providerFormView.themeBindings,
+        ...preferencesListView.themeBindings,
+        tuiThemeProperties(commandPaletteView.box, {
+            backgroundColor: "panel",
+        }),
+        tuiThemeProperties(helpView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(doctorDialogView.box, {
+            backgroundColor: "panel",
+        }),
+        () => doctorDialogView.repaint(),
+        tuiThemeProperties(diagnosticsDialogView.box, {
+            backgroundColor: "panel",
+        }),
+        () => diagnosticsDialogView.repaint(),
+        tuiThemeProperties(extensionsDialogView.box, {
+            backgroundColor: "panel",
+        }),
+        () => extensionsDialogView.repaint(),
+        ...admissionDialogView.themeBindings,
+        ...sessionTrashConfirmView.themeBindings,
+        ...sessionCloseConfirmView.themeBindings,
+        ...providerForgetConfirmView.themeBindings,
+    ];
+
     async function applySelectedTheme(
         selectedTheme: typeof themeName,
         announce: boolean,
@@ -13659,74 +13823,7 @@ export async function startTui(
             return;
         }
         theme = resolvedTheme;
-        applyTuiTheme(theme);
-        refreshDialogChrome();
-        experimentalTuiHost.setTheme(theme);
-        clearTranscriptNodes();
-        markdownStyle.destroy();
-        markdownStyle = createMarkdownStyle(theme);
-
-        placeholder.fg = theme.muted;
-        backgroundStatusText.fg = theme.muted;
-        activityHintText.fg = theme.muted;
-        hostedModeText.fg = theme.muted;
-        app.backgroundColor = theme.background;
-        quoteText.fg = theme.muted;
-        heldAddressText.fg = theme.muted;
-        queuedPromptText.fg = theme.muted;
-        jumpToBottomText.fg = theme.background;
-        jumpToBottomText.bg = theme.accent;
-        jumpToBottom.backgroundColor = theme.accent;
-        sidebarJumpText.fg = theme.background;
-        sidebarJumpText.bg = theme.accent;
-        sidebarJump.backgroundColor = theme.accent;
-        modeToastText.fg = theme.text;
-        modeToastText.bg = theme.panel;
-        modeToast.backgroundColor = theme.panel;
-        commandSuggestionsText.fg = theme.text;
-        commandSuggestionsBox.backgroundColor = theme.background;
-        composerBox.backgroundColor = theme.input ?? theme.background;
-        composerBox.borderColor = appearance.composerBoundaryColor
-            ?? theme.element;
-        resumeOverlay.applyAppearance({
-            marginHorizontal: appearance.composerMarginHorizontal,
-            paddingHorizontal: appearance.composerPaddingHorizontal,
-            boundaryColor: appearance.composerBoundaryColor ?? theme.element,
-            backgroundColor: theme.input ?? theme.background,
-            textColor: theme.text,
-        mutedColor: theme.muted,
-        });
-        composerStatusText.fg = theme.muted;
-        composerRule.borderColor = appearance.composerBoundaryColor
-            ?? theme.element;
-        workspaceSidebarView.box.borderColor = theme.element;
-        workspaceSidebarView.box.focusedBorderColor = theme.element;
-        composer.backgroundColor = theme.input ?? theme.background;
-        composer.focusedBackgroundColor = theme.input ?? theme.background;
-        composer.textColor = theme.text;
-        composer.focusedTextColor = theme.text;
-        composer.cursorColor = theme.accent;
-        approvalView.box.backgroundColor = theme.panel;
-        approvalView.repaint();
-        questionView.box.backgroundColor = theme.panel;
-        questionView.bar.borderColor = theme.accent;
-        questionView.detailsText.fg = theme.text;
-        questionView.choiceAction.fg = theme.muted;
-        questionView.cancelAction.fg = theme.muted;
-        timelinePickerView.box.backgroundColor = theme.panel;
-        if (timelinePicker !== undefined) {
-            timelinePickerView.update(timelinePicker);
-        }
-        settingsPickerView.box.backgroundColor = theme.panel;
-        commandPaletteView.box.backgroundColor = theme.panel;
-        helpView.box.backgroundColor = theme.panel;
-        doctorDialogView.box.backgroundColor = theme.panel;
-        doctorDialogView.repaint();
-        diagnosticsDialogView.box.backgroundColor = theme.panel;
-        diagnosticsDialogView.repaint();
-        // The column is built once and outlives any number of themes, and the
-        // blocks in it were painted when they arrived.
-        sidebar.setTheme(sidebarTheme(), markdownStyle);
+        applyTuiThemeBindings(theme, themeBindings);
 
         if (announce) {
             state = appendTuiNotice(
@@ -14279,7 +14376,7 @@ export async function startTui(
         }
 
         statusText.fg = statusState.approvalMode === "full_access"
-            ? "#ff3b30"
+            ? theme.critical
             : statusNotice !== undefined
             ? TUI_NOTICE
             : statusState.working
@@ -14367,6 +14464,7 @@ export async function startTui(
                 notice: hudNotice,
                 background: hudBg,
                 success: TUI_HUD?.success ?? TUI_SUCCESS,
+                secondary: theme.secondary,
             }).flatMap((spans, index) => [
                 ...spans.map((span) => fg(span.color)(span.text)),
                 ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
@@ -14473,7 +14571,7 @@ export async function startTui(
                 agentHeader,
                 {
                     active: TUI_ACCENT,
-                    trail: ACTIVE_GRID_TRAIL,
+                    trail: theme.activityTrail,
                     inactive: TUI_ELEMENT,
                     text: TUI_MUTED,
                 },
@@ -14544,14 +14642,14 @@ export async function startTui(
                 statusLine,
                 {
                     active: TUI_ACCENT,
-                    // The trail is part of Vera's ActiveGrid identity, not a
-                    // success indicator inherited from the selected theme.
+                    // ActiveGrid has its own theme role instead of borrowing
+                    // the success color.
                     trail: activityAnimation === "shimmer"
                         ? TUI_ELEMENT
-                        : ACTIVE_GRID_TRAIL,
+                        : theme.activityTrail,
                     inactive: TUI_MUTED,
                     text: state.approvalMode === "full_access"
-                        ? "#ff3b30"
+                        ? theme.critical
                         : TUI_ACCENT,
                 },
                 activityAnimationWidth,

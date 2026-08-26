@@ -4,6 +4,7 @@ import type { TerminalColors } from "@opentui/core";
 import themeCatalog from "../../config/tui-themes.json" with { type: "json" };
 import type { TuiThemeName } from "../../clients/tui/theme.ts";
 import {
+    TUI_THEME_REQUIRED_ROLES,
     VERA_TUI_THEME,
     resolveTuiTheme,
     resolveSystemTuiTheme,
@@ -39,6 +40,12 @@ test("TUI system theme uses terminal foreground and ANSI colors", () => {
     expect(theme.notice).toBe("#aa5500");
     expect(theme.danger).toBe("#aa0000");
     expect(theme.success).toBe("#00aa00");
+    expect(theme.critical).toBe("#ff3b30");
+    expect(theme.secondary).toBe("#c586c0");
+    expect(theme.focus).toBe("#22c55e");
+    expect(theme.inactive).toBe("#4b5563");
+    expect(theme.activityTrail).toBe("#B8B6D9");
+    expect(theme.dangerSurface).toBe("#210b0b");
     expect(theme.diffAdded).toBe("#00aa00");
     expect(theme.diffRemoved).toBe("#aa0000");
     expect(theme.code).toBe("#00aa00");
@@ -121,6 +128,12 @@ test("midnight blue maps its editor and syntax palette to TUI roles", async () =
         notice: "#F9D768",
         danger: "#FF5370",
         success: "#C3E88D",
+        critical: "#ff3b30",
+        secondary: "#c586c0",
+        focus: "#22c55e",
+        inactive: "#4b5563",
+        activityTrail: "#B8B6D9",
+        dangerSurface: "#210b0b",
         diffAdded: "#79A85B",
         diffRemoved: "#B94A5E",
         code: "#9b92ea",
@@ -144,6 +157,12 @@ test("Midnight Blue II remixes the source palette around its gold accent", async
         notice: "#F37D3B",
         danger: "#FF5370",
         success: "#C3E88D",
+        critical: "#ff3b30",
+        secondary: "#c586c0",
+        focus: "#22c55e",
+        inactive: "#4b5563",
+        activityTrail: "#B8B6D9",
+        dangerSurface: "#210b0b",
         diffAdded: "#79A85B",
         diffRemoved: "#B94A5E",
         code: "#82AAFF",
@@ -168,6 +187,12 @@ test("muted blue uses Codex transcript, inline code, and detail colors", async (
         notice: "#FEFC59",
         danger: "#FF6B6B",
         success: "#A7E3A1",
+        critical: "#ff3b30",
+        secondary: "#c586c0",
+        focus: "#22c55e",
+        inactive: "#4b5563",
+        activityTrail: "#B8B6D9",
+        dangerSurface: "#210b0b",
         diffAdded: "#4F9A62",
         diffRemoved: "#B95151",
         code: "#74C0FF",
@@ -203,5 +228,13 @@ test("no theme paints a notice in a color it also uses to alarm", async () => {
         // or as a heading, and a confirmation is neither.
         expect([name, theme.notice === theme.danger]).toEqual([name, false]);
         expect([name, theme.notice === theme.accent]).toEqual([name, false]);
+    }
+});
+
+test("every configured theme declares the complete Vera role set", () => {
+    for (const [name, theme] of Object.entries(themeCatalog.themes)) {
+        for (const role of TUI_THEME_REQUIRED_ROLES) {
+            expect([name, role, role in theme]).toEqual([name, role, true]);
+        }
     }
 });
