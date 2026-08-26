@@ -269,7 +269,7 @@ export function dialogFooterNode(
         content: hint,
         fg: TUI_MUTED,
         width: "100%",
-        height: 2,
+        height: Math.max(2, hint.split("\n").length + 1),
         marginTop: 1,
     });
 }

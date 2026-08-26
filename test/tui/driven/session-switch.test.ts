@@ -810,6 +810,48 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
     }
 }, 15_000);
 
+test("slash resume opens the picker from an idle file", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-picker-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("/resume switch");
+
+        // Put focus back in the rail. Slash still belongs to the application.
+        session.sendKey("C-e");
+        session.sendText("/");
+        pane = await session.waitForVisiblePane("/resume");
+        expect(pane).not.toContain("/rewind");
+
+        session.sendKey("BSpace");
+        session.sendText("not a command");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("Only /resume is available");
+        expect(pane).toContain("/resume switch");
+
+        session.sendText("/");
+        session.sendText("resume");
+        session.sendKey("Enter");
+        pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("The one already open");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("/resume switch");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("ctrl+n from an idle file starts a new chat", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-new-"));
     const scenario = createTuiResumeScenario({ home });
@@ -843,7 +885,7 @@ test("ctrl+n from an idle file starts a new chat", async () => {
         session.sendKey("C-n");
         const pane = await session.waitForVisiblePane("fresh-model");
         expect(pane).not.toContain("[resume]");
-        expect(pane).not.toContain("ctrl+n new");
+        expect(pane).not.toContain("/resume switch");
     } finally {
         await session.close();
     }

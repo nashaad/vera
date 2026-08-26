@@ -17,6 +17,7 @@ import { killTmuxServer } from "../support/kill-tmux-server.ts";
  */
 
 const CHILD = "test/support/tui-work-tab-child.ts";
+const RESUME_CHILD = "test/support/tui-resume-child.ts";
 const homes: string[] = [];
 const sockets: string[] = [];
 
@@ -47,8 +48,44 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
     expect(pane).toContain("provider-fall…");
-    // The rail is as narrow as its rows, so it takes the short hint.
-    expect(pane).toContain("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc");
+    expect(pane).toContain("Move  ↑↓  j/k");
+    expect(pane).toContain("Hide  esc");
+    const rows = pane.split("\n");
+    const lastSession = rows.findIndex((line) => line.includes("auth-refactor"));
+    const footerTop = rows.findIndex((line) => line.includes("Move  ↑↓"));
+    const footerBottom = rows.findIndex((line) => line.includes("Hide  esc"));
+    expect(footerTop - lastSession).toBeGreaterThan(5);
+    expect(rows.length - footerBottom).toBeLessThanOrEqual(3);
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("slash resume opens from a file view in a real terminal", async () => {
+    const pane = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        await tui.paneWhere((value) => value.includes("Agent sidebar · 2"));
+        tui.key("Down");
+        tui.key("Enter");
+        await tui.paneWhere((value) =>
+            value.includes("SAVED TRANSCRIPT LOADED")
+            && value.includes("/resume switch")
+        );
+
+        // The slash is global even after focus returns to the rail.
+        tui.bytes(CTRL_E);
+        tui.text("/");
+        await tui.paneWhere((value) =>
+            value.includes("/resume")
+            && !value.includes("[resume]")
+        );
+        tui.text("resume");
+        tui.key("Enter");
+        return await tui.paneWhere((value) =>
+            value.includes("Continue the theme picker")
+            && value.includes("stop & switch")
+        );
+    }, 100, 34, {}, RESUME_CHILD);
+
+    expect(pane).toContain("The one already open");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", async () => {
@@ -291,7 +328,7 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
             && value.includes("provider-fall…")
-            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc")
+            && value.includes("Hide  esc")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
@@ -310,7 +347,7 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc")
+            && value.includes("Hide  esc")
         );
         tui.text("2");
         const opened = await tui.paneWhere((value) =>
@@ -519,6 +556,7 @@ async function withTui<T>(
     width = 100,
     height = 34,
     env: Readonly<Record<string, string>> = {},
+    child = CHILD,
 ): Promise<T> {
     const socket = `vera-work-tab-${process.pid}-${randomUUID()}`;
     const home = mkdtempSync(join(tmpdir(), "vera-work-tab-"));
@@ -543,7 +581,7 @@ async function withTui<T>(
             Object.entries(env)
                 .map(([name, value]) => `${name}=${quote(value)} `)
                 .join("")
-        }exec ${quote(process.execPath)} run ${quote(CHILD)}`,
+        }exec ${quote(process.execPath)} run ${quote(child)}`,
     ]);
     runTmux(socket, ["set-option", "-t", session, "monitor-bell", "on"], true);
 

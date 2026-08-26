@@ -54,6 +54,11 @@ export interface LinesViewLine {
     readonly selected?: boolean;
 }
 
+export interface LinesViewFooterRow {
+    readonly label: string;
+    readonly value: string;
+}
+
 export interface LinesViewState {
     readonly title: string;
     /** Follows the title on the right of the header; "esc" when omitted. */
@@ -65,6 +70,8 @@ export interface LinesViewState {
      */
     readonly cursorLine?: number;
     readonly footer: string;
+    /** Optional label/value presentation for a footer that reads as a table. */
+    readonly footerTable?: readonly LinesViewFooterRow[];
     /** Softer title colour when the surface is visible but not focused. */
     readonly dimmed?: boolean;
 }
@@ -171,6 +178,13 @@ const RAIL_CHROME_HEIGHT = 6;
 /** The row a rail starts on: the blank one the screen keeps above everything. */
 const RAIL_TOP_MARGIN = 1;
 
+function footerContentRows(state: LinesViewState): number {
+    return Math.max(
+        1,
+        state.footerTable?.length ?? state.footer.split("\n").length,
+    );
+}
+
 /**
  * Read per draw, never captured: the theme constants are rebound when the
  * theme changes, so a table built at module load would paint the old colours
@@ -190,6 +204,7 @@ export function createTuiLinesView(
     let nodes: Renderable[] = [];
     let bottomInset = COMPOSER_RESERVE;
     let rail: number | undefined;
+    let footerRows = 1;
     const railPadding = options.railPadding ?? RAIL_PADDING;
     const box = new BoxRenderable(renderer, {
         id,
@@ -241,7 +256,8 @@ export function createTuiLinesView(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
                 ) - bottomInset,
-                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
+                (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
+                    + footerRows - 1,
             );
         },
         setRail(columns): void {
@@ -276,6 +292,7 @@ export function createTuiLinesView(
             box.paddingBottom = 1;
         },
         update(state): void {
+            footerRows = footerContentRows(state);
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
             const add = (node: Renderable): void => {
@@ -312,7 +329,8 @@ export function createTuiLinesView(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
                 ) - bottomInset,
-                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
+                (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
+                    + footerRows - 1,
             );
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
@@ -336,10 +354,56 @@ export function createTuiLinesView(
             }
             const below = state.lines.length - above - visible.length;
             if (below > 0) muted(`… ${below} below`);
-            add(dialogFooterNode(renderer, state.footer));
+            // A dock is a full-height utility column. When its list is short,
+            // keep the controls on the bottom edge instead of gluing them to
+            // the last session row. Centred cards keep their compact height.
+            if (rail !== undefined) {
+                add(new BoxRenderable(renderer, {
+                    width: "100%",
+                    flexGrow: 1,
+                }));
+            }
+            add(state.footerTable === undefined
+                ? dialogFooterNode(renderer, state.footer)
+                : footerTableNode(renderer, state.footerTable));
         },
     };
     return view;
+}
+
+/** A quiet two-column footer, matching the information tables used by TUIs. */
+function footerTableNode(
+    renderer: RenderContext,
+    rows: readonly LinesViewFooterRow[],
+): BoxRenderable {
+    const table = new BoxRenderable(renderer, {
+        width: "100%",
+        height: rows.length,
+        marginTop: 1,
+        flexDirection: "column",
+    });
+    const labelWidth = Math.max(1, ...rows.map((row) => row.label.length + 2));
+    for (const item of rows) {
+        const row = new BoxRenderable(renderer, {
+            width: "100%",
+            height: 1,
+            flexDirection: "row",
+        });
+        row.add(new TextRenderable(renderer, {
+            content: item.label,
+            fg: TUI_MUTED,
+            width: labelWidth,
+            height: 1,
+        }));
+        row.add(new TextRenderable(renderer, {
+            content: item.value,
+            fg: TUI_TEXT,
+            flexGrow: 1,
+            height: 1,
+        }));
+        table.add(row);
+    }
+    return table;
 }
 
 /**

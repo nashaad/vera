@@ -13,7 +13,7 @@ test("the overlay names resume in brackets and enter as the key", () => {
     expect(RESUME_OVERLAY_LABEL).toBe("[resume]");
     expect(RESUME_OVERLAY_HINT).toBe("enter");
     expect(RESUME_OVERLAY_TEXT).toBe("[resume] · enter");
-    expect(RESUME_OVERLAY_NEW_HINT).toBe("ctrl+n new");
+    expect(RESUME_OVERLAY_NEW_HINT).toBe("ctrl+n new · /resume switch");
 });
 
 test("enter resumes when the file view owns the keyboard", () => {
@@ -88,6 +88,13 @@ test("ctrl+n starts a new chat from the file view", () => {
             sidebarFocused: false,
         },
     )).toBe("new_session");
+});
+
+test("slash opens the global command surface even when the rail has focus", () => {
+    expect(jsonlViewKeyAction(
+        { name: "/" },
+        { sidebarFocused: true },
+    )).toBe("command");
 });
 
 test("HUD, palette, and typing are blocked until resume", () => {

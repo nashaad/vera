@@ -2555,6 +2555,7 @@ export async function startTui(
      */
     let composerMarginRows = 2;
     let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
+    let jsonlCommandMode = false;
 
     function composerSlotHeight(): number {
         return isJsonlViewClient(client)
@@ -4248,6 +4249,28 @@ export async function startTui(
         lastIdleEscapeAt = undefined;
         if (
             isJsonlViewClient(client)
+            && jsonlCommandMode
+            && key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !key.super
+            && !key.hyper
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            jsonlCommandMode = false;
+            composer.clearComposer();
+            renderCommandSuggestions();
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        // Once the command composer is open, ordinary composer routing owns
+        // its keys. Submission accepts /resume alone.
+        if (
+            isJsonlViewClient(client)
+            && !jsonlCommandMode
             && parseRawInputEvent(key)?.type !== "interrupt"
         ) {
             const jsonlAction = jsonlViewKeyAction(key, {
@@ -4273,6 +4296,17 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 beginCreateSession("keep_running");
+                return;
+            }
+            if (jsonlAction === "command") {
+                key.preventDefault();
+                key.stopPropagation();
+                jsonlCommandMode = true;
+                workspaceSidebarFocused = false;
+                composer.setComposerText("/");
+                renderCommandSuggestions();
+                renderState();
+                focusActiveSurface();
                 return;
             }
             if (jsonlAction === "toggle_sidebar" || jsonlAction === "cycle_session") {
@@ -4985,7 +5019,7 @@ export async function startTui(
             && !key.hyper
             && !key.shift
         ) {
-            const suggestions = commandRegistry.suggestions("/");
+            const suggestions = availableCommandSuggestions("/");
             if (key.name === "up" || key.name === "k") {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5176,7 +5210,7 @@ export async function startTui(
                 }
                 return;
             }
-            const completion = commandRegistry.completion(composer.plainText);
+            const completion = availableCommandCompletion(composer.plainText);
             if (completion !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5184,7 +5218,7 @@ export async function startTui(
                 renderCommandSuggestions();
                 return;
             }
-            if (commandRegistry.suggestions(composer.plainText).length > 0) {
+            if (availableCommandSuggestions(composer.plainText).length > 0) {
                 // A complete slash command has nothing left to complete. Do
                 // not let the textarea's default Tab behavior move the
                 // cursor or change focus.
@@ -5754,6 +5788,14 @@ export async function startTui(
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
+        if (
+            isJsonlViewClient(client)
+            && jsonlCommandMode
+            && !prompt.startsWith("/")
+        ) {
+            refuseJsonlCommand();
+            return;
+        }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
         composerTip = undefined;
@@ -5782,6 +5824,13 @@ export async function startTui(
         const commandAction = prompt.length === 0
             ? undefined
             : commandRegistry.dispatch(prompt);
+        if (isJsonlViewClient(client) && jsonlCommandMode) {
+            if (commandAction?.type !== "open_resume_picker") {
+                refuseJsonlCommand();
+                return;
+            }
+            jsonlCommandMode = false;
+        }
         if (
             commandAction === undefined
             && (extensionCommandsLoading || skillCommandsLoading)
@@ -6928,6 +6977,18 @@ export async function startTui(
             content: prompt,
             ...(attachmentIds.length === 0 ? {} : { attachmentIds }),
         });
+    }
+
+    function refuseJsonlCommand(): void {
+        composer.clearComposer();
+        jsonlCommandMode = false;
+        state = appendTuiNotice(
+            state,
+            "Only /resume is available while viewing a closed conversation",
+        );
+        renderCommandSuggestions();
+        renderState();
+        focusActiveSurface();
     }
 
     function routeVisibleAgentPrompt(prompt: string): boolean {
@@ -8263,12 +8324,14 @@ export async function startTui(
             ? "overlay"
             : sidebar.isFocused()
             ? "sidebar_composer"
-            : isJsonlViewClient(client)
+            : isJsonlViewClient(client) && !jsonlCommandMode
             ? "resume_overlay"
+            : isJsonlViewClient(client)
+            ? "jsonl_command"
             : "main_composer";
         if (
             overlay === undefined
-            && !isJsonlViewClient(client)
+            && (!isJsonlViewClient(client) || jsonlCommandMode)
             && composer.focused
             && recordedFocusSurface === surface
         ) {
@@ -8281,7 +8344,7 @@ export async function startTui(
             flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
-        if (isJsonlViewClient(client)) {
+        if (isJsonlViewClient(client) && !jsonlCommandMode) {
             resumeOverlay.box.focus();
             flightRecorder?.record({ type: "focus_changed", surface });
             return;
@@ -8292,7 +8355,9 @@ export async function startTui(
 
     function activeFlightSurface(): string {
         if (activeOverlayFocus() !== undefined) return "overlay";
-        if (isJsonlViewClient(client)) return "resume_overlay";
+        if (isJsonlViewClient(client)) {
+            return jsonlCommandMode ? "jsonl_command" : "resume_overlay";
+        }
         return sidebar.isFocused() ? "sidebar_composer" : "main_composer";
     }
 
@@ -9572,9 +9637,10 @@ export async function startTui(
         // Approval and question cards are different: they replace the composer
         // until the pending engine request is answered.
         composerBox.visible = uiRequest === undefined
-            && !isJsonlViewClient(client);
+            && (!isJsonlViewClient(client) || jsonlCommandMode);
         resumeOverlay.box.visible = uiRequest === undefined
-            && isJsonlViewClient(client);
+            && isJsonlViewClient(client)
+            && !jsonlCommandMode;
         renderCommandSuggestions();
         if (
             uiRequest !== undefined
@@ -12633,6 +12699,7 @@ export async function startTui(
         }
         connectionFailed = false;
         connectionFailure = undefined;
+        jsonlCommandMode = false;
         abortRequested = false;
         workingSince = undefined;
         phaseSince = undefined;
@@ -14023,7 +14090,7 @@ export async function startTui(
             return;
         }
         argumentSuggestions = [];
-        const suggestions = commandRegistry.suggestions(composer.plainText);
+        const suggestions = availableCommandSuggestions(composer.plainText);
         if (composer.plainText !== "/") {
             // A list that just opened has a first row, not a chosen one.
             commandSuggestionMoved = false;
@@ -14100,6 +14167,27 @@ export async function startTui(
         }
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
+    }
+
+    /**
+     * A file view exposes one application-level escape hatch, not the session
+     * commands that require a live worker.
+     */
+    function availableCommandSuggestions(
+        input: string,
+    ): readonly TuiCommandCatalogEntry[] {
+        const suggestions = commandRegistry.suggestions(input);
+        return jsonlCommandMode
+            ? suggestions.filter((entry) => entry.name === "resume")
+            : suggestions;
+    }
+
+    function availableCommandCompletion(input: string): string | undefined {
+        if (!jsonlCommandMode) return commandRegistry.completion(input);
+        const suggestions = availableCommandSuggestions(input);
+        return suggestions.length === 1
+            ? `/${suggestions[0]!.name}`
+            : undefined;
     }
 
     /**

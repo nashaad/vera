@@ -1,4 +1,4 @@
-import type { LinesViewState } from "./lines-view.ts";
+import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
 import { renderTuiFocusCaret } from "./activity-pulse.ts";
 import { halfPageCursor } from "./list-window.ts";
 import {
@@ -32,8 +32,6 @@ export const WORKSPACE_JUMP_ROWS = 9;
  * session on screen and any pin are always kept, even when they are idle.
  */
 export const WORKSPACE_RECENT_IDLE = 5;
-
-const NARROW_WIDTH = 64;
 
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
@@ -514,10 +512,21 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  * would push the Transcript scope below the fold, and the only place they are
  * useful is the pane that is already on screen.
  */
-export function workspaceSidebarFooter(width: number): string {
-    return width < NARROW_WIDTH
-        ? "↑↓/jk ^d^u ⏎ 1-9 p i ^n esc"
-        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · ctrl+n new · i chat · esc hide";
+const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
+    { label: "Move", value: "↑↓  j/k" },
+    { label: "Page", value: "ctrl+d/u" },
+    { label: "Open", value: "enter" },
+    { label: "Jump", value: "1–9" },
+    { label: "Pin", value: "p" },
+    { label: "New", value: "ctrl+n" },
+    { label: "Chat", value: "i" },
+    { label: "Hide", value: "esc" },
+];
+
+export function workspaceSidebarFooter(_width: number): string {
+    return WORKSPACE_FOOTER_TABLE
+        .map((row) => `${row.label.padEnd(6)}${row.value}`)
+        .join("\n");
 }
 
 /**
@@ -602,6 +611,7 @@ export function workspaceSidebarViewState(
             ? [{ text: "No other sessions.", tone: "muted" as const }]
             : lines,
         footer: workspaceSidebarFooter(width),
+        footerTable: WORKSPACE_FOOTER_TABLE,
         ...(focused ? {} : { dimmed: true }),
     };
 }

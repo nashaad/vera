@@ -35,8 +35,8 @@ export const RESUME_OVERLAY_HINT = "enter";
 export const RESUME_OVERLAY_TEXT =
     `${RESUME_OVERLAY_LABEL} · ${RESUME_OVERLAY_HINT}`;
 
-/** New chat from a file view, because slash commands are blocked. */
-export const RESUME_OVERLAY_NEW_HINT = "ctrl+n new";
+/** Ways to leave the file without attaching the session on screen. */
+export const RESUME_OVERLAY_NEW_HINT = "ctrl+n new · /resume switch";
 
 export type JsonlViewKeyAction =
     | "resume"
@@ -45,6 +45,7 @@ export type JsonlViewKeyAction =
     | "sidebar"
     | "new_session"
     | "cycle_session"
+    | "command"
     | "block";
 
 export interface JsonlViewKey {
@@ -59,9 +60,9 @@ export interface JsonlViewKey {
 /**
  * What a key does while the on-screen conversation is a session file.
  *
- * Scroll the transcript, resume, start a new chat, leave through the rail,
- * or nothing. The HUD, palette, slash commands, and typing wait until the
- * file is a session again.
+ * Scroll the transcript, resume, start a new chat, open the one global slash
+ * command, leave through the rail, or do nothing. The HUD, palette, ordinary
+ * slash commands, and prompt typing wait until the file is a session again.
  */
 export function jsonlViewKeyAction(
     key: JsonlViewKey,
@@ -87,6 +88,11 @@ export function jsonlViewKeyAction(
     if (options.workspaceBinding === "workspace_new_session") {
         return "new_session";
     }
+    // Global means the rail cannot swallow it while it has focus. The caller
+    // opens a command-only composer whose catalog contains /resume alone.
+    if (isUnmodifiedSlash(key)) {
+        return "command";
+    }
     if (options.sidebarFocused) {
         return "sidebar";
     }
@@ -105,6 +111,15 @@ export function isJsonlViewScrollId(
 
 function isUnmodifiedEnter(key: JsonlViewKey): boolean {
     return (key.name === "return" || key.name === "enter")
+        && key.ctrl !== true
+        && key.shift !== true
+        && key.meta !== true
+        && key.super !== true
+        && key.hyper !== true;
+}
+
+function isUnmodifiedSlash(key: JsonlViewKey): boolean {
+    return key.name === "/"
         && key.ctrl !== true
         && key.shift !== true
         && key.meta !== true

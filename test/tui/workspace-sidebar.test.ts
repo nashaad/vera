@@ -832,8 +832,17 @@ describe("the drawn card", () => {
         // Measured against what is drawn: the card at this width is most of
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
-        expect(view.footer)
-            .toBe("↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · ctrl+n new · i chat · esc hide");
+        expect(view.footer).toBe([
+            "Move  ↑↓  j/k",
+            "Page  ctrl+d/u",
+            "Open  enter",
+            "Jump  1–9",
+            "Pin   p",
+            "New   ctrl+n",
+            "Chat  i",
+            "Hide  esc",
+        ].join("\n"));
+        expect(view.footerTable).toHaveLength(8);
         expect(view.title).toBe("      Agent sidebar · 1");
     });
 
@@ -845,11 +854,25 @@ describe("the drawn card", () => {
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
-        expect(view.footer).toBe("↑↓/jk ^d^u ⏎ 1-9 p i ^n esc");
-        expect(view.footer.length)
-            .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
-        expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).length)
-            .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
+        expect(view.footer).toBe([
+            "Move  ↑↓  j/k",
+            "Page  ctrl+d/u",
+            "Open  enter",
+            "Jump  1–9",
+            "Pin   p",
+            "New   ctrl+n",
+            "Chat  i",
+            "Hide  esc",
+        ].join("\n"));
+        for (const line of view.footer.split("\n")) {
+            expect(line.length)
+                .toBeLessThanOrEqual(workspaceRailColumns(COLUMNS)!);
+        }
+        for (const line of workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n")) {
+            expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
+        }
+        expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
+            .toHaveLength(8);
     });
 
     test("an empty listing says so rather than drawing nothing", () => {
