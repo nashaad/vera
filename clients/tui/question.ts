@@ -88,12 +88,14 @@ export interface TuiQuestionView {
         update: UserQuestionUiRequestUpdate,
         key: TuiQuestionKey,
     ): TuiQuestionKeyResult;
+    repaint(): void;
 }
 
 export function createTuiQuestionView(
     renderer: RenderContext,
 ): TuiQuestionView {
     let currentRequestId: string | undefined;
+    let lastUpdate: UserQuestionUiRequestUpdate | undefined;
     // Highlighted choice for arrow/Enter selection. Purely client-local: it
     // never travels to the engine, which only ever sees the chosen choiceId.
     let selectedIndex = 0;
@@ -352,6 +354,7 @@ export function createTuiQuestionView(
             details.focus();
         },
         update(update): void {
+            lastUpdate = update;
             box.maxHeight = questionMaxHeight(renderer);
             box.left = questionSideInset(renderer);
             box.right = questionSideInset(renderer);
@@ -484,6 +487,18 @@ export function createTuiQuestionView(
             return response === undefined
                 ? { handled: false }
                 : { handled: true, response };
+        },
+        repaint(): void {
+            bar.borderColor = TUI_ACCENT;
+            box.backgroundColor = TUI_PANEL;
+            detailsText.fg = TUI_ACCENT;
+            previewText.fg = TUI_MUTED;
+            notes.fg = TUI_MUTED;
+            choiceAction.fg = TUI_MUTED;
+            cancelAction.fg = TUI_MUTED;
+            if (lastUpdate !== undefined) {
+                renderChoices(lastUpdate);
+            }
         },
     };
     return view;

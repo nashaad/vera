@@ -15,9 +15,6 @@ export const MIN_SIDEBAR_WIDTH = 20;
 /** The transcript keeps at least this much, whatever the divider is dragged to. */
 export const MIN_TRANSCRIPT_WIDTH = 30;
 export const DEFAULT_SIDEBAR_WIDTH = 44;
-/** Pane focus is navigation chrome, so it stays recognizable across themes. */
-export const SIDEBAR_FOCUS_GREEN = "#22c55e";
-export const SIDEBAR_INACTIVE_GRAY = "#4b5563";
 /** The grab strip: one column, so it reads as an edge and not as a bar. */
 const DIVIDER_WIDTH = 1;
 /** One quiet row keeps a pane identity from running into its transcript. */
@@ -38,6 +35,8 @@ export interface TuiSidebarTheme {
     readonly handleActive: string;
     readonly muted: string;
     readonly text: string;
+    readonly focus: string;
+    readonly inactive: string;
 }
 
 export interface TuiSidebarOptions {
@@ -262,7 +261,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         visible: false,
         content: "",
-        fg: SIDEBAR_FOCUS_GREEN,
+        fg: theme.focus,
     });
     sidebarColumn.add(sidebarFocusRail);
     sidebarColumn.add(header);
@@ -296,7 +295,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         flexShrink: 0,
         visible: false,
         content: "",
-        fg: SIDEBAR_FOCUS_GREEN,
+        fg: theme.focus,
     });
     mainColumn.add(mainFocusRail);
     mainColumn.add(mainHeader);
@@ -344,11 +343,11 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         mainFocusRail.content = (focused ? "─" : "━").repeat(mainWidth);
         sidebarFocusRail.content = (focused ? "━" : "─").repeat(width);
         mainFocusRail.fg = focused
-            ? SIDEBAR_INACTIVE_GRAY
-            : SIDEBAR_FOCUS_GREEN;
+            ? theme.inactive
+            : theme.focus;
         sidebarFocusRail.fg = focused
-            ? SIDEBAR_FOCUS_GREEN
-            : SIDEBAR_INACTIVE_GRAY;
+            ? theme.focus
+            : theme.inactive;
     }
 
     function apply(): void {
@@ -559,6 +558,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
             divider.borderColor = dragging
                 ? theme.handleActive
                 : theme.handle;
+            paintFocusRails();
             for (const block of painted) {
                 block.label.fg = theme.muted;
                 block.text.fg = theme.text;

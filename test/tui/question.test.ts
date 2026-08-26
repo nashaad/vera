@@ -8,20 +8,37 @@ import {
     createTuiQuestionView,
     QUESTION_CHOICE_MAX_WIDTH,
 } from "../../clients/tui/question.ts";
+import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
-test("question view exposes every themed text surface", async () => {
+test("question view repaints every persistent themed surface", async () => {
     const setup = await createTestRenderer({ width: 60, height: 20 });
     const view = createTuiQuestionView(setup.renderer);
+    const nextTheme = {
+        ...VERA_TUI_THEME,
+        accent: "#123456",
+        muted: "#654321",
+        panel: "#112233",
+    };
 
     try {
-        view.detailsText.fg = "#123456";
-        view.choiceAction.fg = "#123456";
-        view.cancelAction.fg = "#123456";
-        const expected = RGBA.fromHex("#123456").toInts();
-        expect(view.detailsText.fg.toInts()).toEqual(expected);
-        expect(view.choiceAction.fg.toInts()).toEqual(expected);
-        expect(view.cancelAction.fg.toInts()).toEqual(expected);
+        view.update(request);
+        applyTuiTheme(nextTheme);
+        view.repaint();
+        expect(view.detailsText.fg.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.accent).toInts(),
+        );
+        expect(view.choiceAction.fg.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.muted).toInts(),
+        );
+        expect(view.cancelAction.fg.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.muted).toInts(),
+        );
+        expect(view.box.backgroundColor.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.panel).toInts(),
+        );
     } finally {
+        applyTuiTheme(VERA_TUI_THEME);
         setup.renderer.destroy();
     }
 });

@@ -26,6 +26,7 @@ const THEME: DialPaintTheme = {
     notice: "#ffaa00",
     background: "#000000",
     success: "#00ff00",
+    secondary: "#c586c0",
 };
 /** What a chosen value looks like on a rung the cursor has left. */
 const settled = (hex: string): string => mixHex(THEME.background, hex, 0.45);
@@ -165,7 +166,7 @@ test("each access mode gets its own colour", () => {
         while (state.lane !== "access") state = moveDialLane(state, 1);
         return colorOf(paint(state), `[${mode}]`);
     };
-    expect(modeColor("readonly")).toBe("#c586c0");
+    expect(modeColor("readonly")).toBe(THEME.secondary);
     expect(modeColor("ask")).toBe(THEME.accent);
     expect(modeColor("auto")).toBe(THEME.success);
 
@@ -177,6 +178,7 @@ test("each access mode gets its own colour", () => {
             notice: VERA_TUI_THEME.notice,
             background: VERA_TUI_THEME.background,
             success: VERA_TUI_THEME.success,
+            secondary: VERA_TUI_THEME.secondary,
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
@@ -214,8 +216,13 @@ test("stepping the effort dial keeps the levels on the track colour", () => {
 test("every span carries a colour the theme names", () => {
     const known = new Set<string>([
         ...Object.values(THEME),
-        "#c586c0",
-        ...[THEME.text, THEME.accent, THEME.notice, THEME.success, "#c586c0"]
+        ...[
+            THEME.text,
+            THEME.accent,
+            THEME.notice,
+            THEME.success,
+            THEME.secondary,
+        ]
             .map(settled),
     ]);
     for (const lane of ["effort", "access", "model", "agent"] as const) {

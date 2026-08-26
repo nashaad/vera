@@ -11,12 +11,17 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import { centeredDialogSurface } from "./dialog-chrome.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 
 export type TuiSessionCloseConfirmResult = "confirm" | "cancel" | undefined;
 
 export interface TuiSessionCloseConfirmView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     update(label: string): void;
 }
 
@@ -99,6 +104,13 @@ export function createTuiSessionCloseConfirmView(
     return {
         box,
         surface,
+        themeBindings: [
+            tuiThemeProperties(title, { fg: "notice" }),
+            tuiThemeProperties(name, { fg: "text" }),
+            tuiThemeProperties(detail, { fg: "muted" }),
+            tuiThemeProperties(footer, { fg: "notice" }),
+            tuiThemeProperties(box, { backgroundColor: "panel" }),
+        ],
         update(label): void {
             name.content = label;
         },

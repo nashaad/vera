@@ -14,6 +14,10 @@ import {
 } from "./state.ts";
 import { centeredDialogSurface } from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
@@ -68,6 +72,7 @@ export interface TuiNamePromptTransition {
 export interface TuiNamePromptView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     update(state: TuiNamePromptState): void;
 }
 
@@ -189,6 +194,12 @@ export function createTuiNamePromptView(
     return {
         box,
         surface,
+        themeBindings: [
+            tuiThemeProperties(title, { fg: "text" }),
+            tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(footer, { fg: "muted" }),
+            tuiThemeProperties(box, { backgroundColor: "panel" }),
+        ],
         update(state): void {
             title.content = state.target.kind === "session"
                 ? "Rename conversation"

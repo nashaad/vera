@@ -1,7 +1,13 @@
 import { expect, test } from "bun:test";
+import { RGBA, TextRenderable } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
-import { createTuiUserEntry } from "../../clients/tui/user-entry.ts";
+import {
+    createTuiUserEntry,
+    repaintTuiUserEntry,
+} from "../../clients/tui/user-entry.ts";
+import { applyTuiTheme } from "../../clients/tui/state.ts";
+import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 test("a user message fills the width of the transcript", async () => {
     const setup = await createTestRenderer({ width: 24, height: 8 });
@@ -91,6 +97,46 @@ test("the band leaves out what an extension injected", async () => {
         expect(frame).not.toContain("system-note");
         expect(frame).not.toContain("joined");
     } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("an existing user band repaints without replacing its node", async () => {
+    const setup = await createTestRenderer({ width: 48, height: 8 });
+    const node = createTuiUserEntry(
+        setup.renderer,
+        "entry-theme",
+        { kind: "user", text: "look", attachments: ["shot.png"] },
+        0,
+    );
+    const nextTheme = {
+        ...VERA_TUI_THEME,
+        accent: "#123456",
+        text: "#234567",
+        muted: "#345678",
+        element: "#456789",
+    };
+
+    try {
+        applyTuiTheme(nextTheme);
+        repaintTuiUserEntry(node);
+        expect(node.backgroundColor.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.element).toInts(),
+        );
+        const label = node.findDescendantById(
+            "entry-theme-chip-0-label",
+        ) as TextRenderable;
+        const name = node.findDescendantById(
+            "entry-theme-chip-0-name",
+        ) as TextRenderable;
+        expect(label.fg.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.accent).toInts(),
+        );
+        expect(name.fg.toInts()).toEqual(
+            RGBA.fromHex(nextTheme.muted).toInts(),
+        );
+    } finally {
+        applyTuiTheme(VERA_TUI_THEME);
         setup.renderer.destroy();
     }
 });

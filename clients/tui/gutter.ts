@@ -127,3 +127,21 @@ export function createTuiGutterEntry(
 export function tuiGutterContent(node: Renderable): Renderable {
     return contentNodes.get(node) ?? node;
 }
+
+/** Repaints the chrome around a caller-owned entry without replacing its node. */
+export function repaintTuiGutterEntry(
+    node: Renderable,
+    appearance: TuiGutterAppearance = {},
+): void {
+    const repaint = (current: Renderable): void => {
+        if (current instanceof TextRenderable) {
+            if (current.id.endsWith("-marker")) {
+                current.fg = TUI_MUTED;
+            } else if (current.id.endsWith("-rule")) {
+                current.fg = appearance.separatorColor ?? TUI_ELEMENT;
+            }
+        }
+        for (const child of current.getChildren()) repaint(child);
+    };
+    repaint(node);
+}

@@ -15,6 +15,10 @@ import {
 import { DIALOG_CARD_Z_INDEX } from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 
 /**
  * The API-key line for one provider.
@@ -53,6 +57,7 @@ export interface TuiSecretPromptView {
     readonly box: BoxRenderable;
     /** The visible prompt card inside the centering surface. */
     readonly card: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     update(state: TuiSecretPromptState): void;
 }
 
@@ -211,6 +216,12 @@ export function createTuiSecretPromptView(
     return {
         box,
         card,
+        themeBindings: [
+            tuiThemeProperties(title, { fg: "text" }),
+            tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(footer, { fg: "muted" }),
+            tuiThemeProperties(card, { backgroundColor: "panel" }),
+        ],
         update(state): void {
             title.content = `${state.label} API key`;
             hint.content = state.hint ?? "";

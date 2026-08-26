@@ -24,6 +24,7 @@ export interface DialPaintTheme {
     readonly notice: string;
     readonly background: string;
     readonly success: string;
+    readonly secondary: string;
 }
 
 /** Where each rung's row sits, and how tall the effort block is. */
@@ -35,9 +36,6 @@ export interface DialRowMap {
     readonly modelEnd: number;
     readonly agent: number;
 }
-
-/** The colour of the `readonly` access mode, which no theme token names. */
-const ACCESS_READONLY = "#c586c0";
 
 /**
  * How far an unfocused rung's chosen value is pulled toward the background.
@@ -126,7 +124,7 @@ export function paintDialRow(
     const selectedColor = (part: string): string =>
         index !== rows.access ? settled(theme.text) : settled(
             part.includes("readonly")
-                ? ACCESS_READONLY
+                ? theme.secondary
                 : part.includes("ask")
                 ? theme.accent
                 : part.includes("auto")

@@ -14,6 +14,10 @@ import {
     type TuiAdmissionState,
 } from "./state.ts";
 import { centeredDialogSurface } from "./dialog-chrome.ts";
+import {
+    tuiThemeProperties,
+    type TuiThemeBinding,
+} from "./theme-bindings.ts";
 
 /**
  * The verification run this dialog reports on. It exists only once the probes
@@ -78,6 +82,7 @@ export function handleTuiAdmissionDialogKey(
 export interface TuiAdmissionDialogView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
+    readonly themeBindings: readonly TuiThemeBinding[];
     update(
         dialog: TuiAdmissionDialogState,
         admission: TuiAdmissionState | undefined,
@@ -172,6 +177,12 @@ export function createTuiAdmissionDialogView(
     return {
         box,
         surface,
+        themeBindings: [
+            tuiThemeProperties(title, { fg: "notice" }),
+            tuiThemeProperties(body, { fg: "text" }),
+            tuiThemeProperties(footer, { fg: "muted" }),
+            tuiThemeProperties(box, { backgroundColor: "panel" }),
+        ],
         update(dialog, admission): void {
             const phase = tuiAdmissionDialogPhase(dialog, admission);
             const relevant = admission?.requestId === dialog.requestId

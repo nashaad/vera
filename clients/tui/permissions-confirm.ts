@@ -8,9 +8,7 @@ import {
     DIALOG_CARD_Z_INDEX,
     dialogBottomOffset,
 } from "./dialog-chrome.ts";
-
-const DANGER = "#ff3b30";
-const DANGER_BACKGROUND = "#210b0b";
+import type { TuiTheme } from "./theme.ts";
 
 export interface TuiPermissionsConfirmKey {
     readonly name: string;
@@ -20,6 +18,7 @@ export type TuiPermissionsConfirmResult = "confirm" | "cancel" | undefined;
 
 export interface TuiPermissionsConfirmView {
     readonly box: BoxRenderable;
+    setTheme(theme: TuiTheme): void;
 }
 
 export function handleTuiPermissionsConfirmKey(
@@ -36,11 +35,12 @@ export function handleTuiPermissionsConfirmKey(
 
 export function createTuiPermissionsConfirmView(
     renderer: RenderContext,
+    theme: TuiTheme,
 ): TuiPermissionsConfirmView {
     const header = new TextRenderable(renderer, {
         id: "permissions-confirm-header",
         content: "⚠  DANGER: ENTER FULL-ACCESS RED ZONE",
-        fg: DANGER,
+        fg: theme.critical,
         width: "100%",
         height: 1,
     });
@@ -54,7 +54,7 @@ export function createTuiPermissionsConfirmView(
             "",
             "Only continue if you accept those risks and intend to supervise this session.",
         ].join("\n"),
-        fg: DANGER,
+        fg: theme.critical,
         width: "100%",
         height: "auto",
         wrapMode: "word",
@@ -63,7 +63,7 @@ export function createTuiPermissionsConfirmView(
     const footer = new TextRenderable(renderer, {
         id: "permissions-confirm-actions",
         content: "[1/enter] I understand — ENTER RED ZONE · [esc] keep protections",
-        fg: DANGER,
+        fg: theme.critical,
         width: "100%",
         height: "auto",
         marginTop: 1,
@@ -71,7 +71,7 @@ export function createTuiPermissionsConfirmView(
     const box = new BoxRenderable(renderer, {
         id: "permissions-confirm-box",
         border: false,
-        backgroundColor: DANGER_BACKGROUND,
+        backgroundColor: theme.dangerSurface,
         position: "absolute",
         bottom: dialogBottomOffset(renderer),
         left: 1,
@@ -89,5 +89,13 @@ export function createTuiPermissionsConfirmView(
     box.add(header);
     box.add(warning);
     box.add(footer);
-    return { box };
+    return {
+        box,
+        setTheme(nextTheme): void {
+            header.fg = nextTheme.critical;
+            warning.fg = nextTheme.critical;
+            footer.fg = nextTheme.critical;
+            box.backgroundColor = nextTheme.dangerSurface;
+        },
+    };
 }
