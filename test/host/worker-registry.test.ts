@@ -713,6 +713,95 @@ test("wear queued in a worker is answered by the host over the boundary", async 
     }
 }, 60_000);
 
+test("skill commands list and run through a worker", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-skills-"));
+    const skillDirectory = join(root, ".vera", "skills", "deploy");
+    await mkdir(skillDirectory, { recursive: true });
+    await writeFile(join(skillDirectory, "SKILL.md"), [
+        "---",
+        "name: deploy",
+        "description: Deploy the current service.",
+        "disable-model-invocation: true",
+        "---",
+        "Deploy it.",
+        "",
+    ].join("\n"));
+    const previousWorkerMode = process.env.VERA_WORKER;
+    process.env.VERA_WORKER = "1";
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        workerAdapterSpec: ({ sessionId }) => ({
+            module: ADAPTER,
+            options: {
+                script: [text("deployed"), text("still ready")],
+                pidPath: join(root, `${sessionId}.pid`),
+            },
+        }),
+        model: "faux/test",
+        approvalMode: "full_access",
+    });
+
+    try {
+        const agent = await registry.create({
+            id: "skills",
+            workspace: root,
+            sessionPath: join(root, "skills.jsonl"),
+        });
+        const client = agent.attach();
+        expect((await client.receive()).type).toBe("history");
+
+        client.send({ type: "list_skills", requestId: "skills-1" });
+        expect(await receiveUntil(
+            client,
+            (update) => update.type === "skill_catalog",
+        )).toMatchObject({
+            type: "skill_catalog",
+            requestId: "skills-1",
+            skills: [{ name: "deploy" }],
+            warnings: [],
+        });
+
+        client.send({
+            type: "invoke_skill",
+            requestId: "invoke-1",
+            name: "deploy",
+            argumentsText: "staging",
+        });
+        expect(await receiveUntil(
+            client,
+            (update) => update.type === "skill_invocation_accepted",
+        )).toMatchObject({
+            type: "skill_invocation_accepted",
+            requestId: "invoke-1",
+            prompt: "/deploy staging",
+        });
+        await receiveUntil(
+            client,
+            (update) => update.type === "turn_finished",
+        );
+
+        client.send({ type: "prompt", content: "next prompt" });
+        await receiveUntil(
+            client,
+            (update) => update.type === "turn_finished",
+        );
+        const stored = await SessionStore.open(join(root, "skills.jsonl"));
+        expect(stored.messages().filter((message) => message.role === "user")
+            .map((message) => message.content)).toEqual([
+                [{ type: "text", text: "/deploy staging" }],
+                [{ type: "text", text: "next prompt" }],
+            ]);
+    } finally {
+        await registry.close();
+        if (previousWorkerMode === undefined) {
+            delete process.env.VERA_WORKER;
+        } else {
+            process.env.VERA_WORKER = previousWorkerMode;
+        }
+        await rm(root, { recursive: true, force: true });
+    }
+}, 60_000);
+
 test("a session runs in a worker with nothing set, and in the host at 0", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-default-"));
     const previousWorkerMode = process.env.VERA_WORKER;

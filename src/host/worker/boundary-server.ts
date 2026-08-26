@@ -92,6 +92,25 @@ export function createWorkerBoundaryServer(
                     );
                     return worn === undefined ? {} : { worn };
                 }
+                case "skills.list": {
+                    if (services.router?.listSkills === undefined) {
+                        throw new Error("The host offers no skill catalog");
+                    }
+                    return {
+                        catalog: await services.router.listSkills(),
+                    };
+                }
+                case "skills.invoke": {
+                    if (services.router?.invokeSkill === undefined) {
+                        throw new Error("The host offers no skill invocation");
+                    }
+                    const request = body as { readonly name: string };
+                    return {
+                        decision: await services.router.invokeSkill(
+                            request.name,
+                        ),
+                    };
+                }
                 case "approval.update": {
                     const request = body as { readonly mode: never };
                     const mode = await services.updateApprovalMode?.(

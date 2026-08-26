@@ -41,6 +41,10 @@ import type {
     RegisteredToolDefinition,
     ToolExecutionResult,
 } from "../../tools/types.ts";
+import type {
+    SkillCommandCatalog,
+    SkillInvocationDecision,
+} from "../../skills/commands.ts";
 import type { JsonPipe } from "./pipe.ts";
 import { WorkerSessionStore } from "./session.ts";
 import type {
@@ -287,6 +291,31 @@ export function createRemoteHostBoundary(
                                 };
                             };
                             return reply.worn;
+                        },
+                    }
+                    : {}),
+                ...(capabilities.listSkills
+                    ? {
+                        listSkills: async (): Promise<SkillCommandCatalog> => {
+                            const reply = await pipe.request({
+                                method: "skills.list",
+                            }) as { readonly catalog: SkillCommandCatalog };
+                            return reply.catalog;
+                        },
+                    }
+                    : {}),
+                ...(capabilities.invokeSkill
+                    ? {
+                        invokeSkill: async (
+                            name: string,
+                        ): Promise<SkillInvocationDecision> => {
+                            const reply = await pipe.request({
+                                method: "skills.invoke",
+                                name,
+                            }) as {
+                                readonly decision: SkillInvocationDecision;
+                            };
+                            return reply.decision;
                         },
                     }
                     : {}),

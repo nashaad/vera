@@ -240,6 +240,8 @@ function capabilitiesOf(
 ): WorkerHostCapabilities {
     return {
         wearAgent: services.router?.wearAgent !== undefined,
+        listSkills: services.router?.listSkills !== undefined,
+        invokeSkill: services.router?.invokeSkill !== undefined,
         updateApprovalMode: services.updateApprovalMode !== undefined,
         reviewToolCall: services.reviewToolCall !== undefined,
         applyHostToolEffect: services.applyToolEffect !== undefined,

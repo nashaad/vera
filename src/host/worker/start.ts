@@ -59,6 +59,10 @@ export interface WorkerHostCapabilities {
     readonly hasPendingDeliveryTurn: boolean;
     /** The owner answers `agent.wear`. */
     readonly wearAgent: boolean;
+    /** The owner answers profile-scoped skill catalog reads. */
+    readonly listSkills: boolean;
+    /** The owner revalidates a queued skill invocation. */
+    readonly invokeSkill: boolean;
 }
 
 export interface WorkerStartNotification {
