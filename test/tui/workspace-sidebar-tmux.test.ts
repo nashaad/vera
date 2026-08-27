@@ -40,13 +40,13 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("Agent sidebar"));
+        const open = await tui.paneWhere((value) => value.includes("[ VERA ]"));
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => !value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => !value.includes("[ VERA ] ·"));
         return open;
     });
 
-    expect(pane).toContain("Agent sidebar · 6");
+    expect(pane).toContain("[ VERA ] · 6");
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
@@ -70,7 +70,7 @@ test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", 
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Agent sidebar · 2"));
+        await tui.paneWhere((value) => value.includes("[ VERA ] · 2"));
         tui.key("Down");
         tui.key("Enter");
         await tui.paneWhere((value) =>
@@ -112,36 +112,31 @@ test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", asy
     });
 
     expect(workspaceLine(result.focused))
-        .toMatch(/\[(?: > |   )\] Agent sidebar · 6/);
-    expect(result.chat).not.toContain("Agent sidebar · 6");
+        .toMatch(/\[ VERA \] · 6/);
+    expect(result.chat).not.toContain("[ VERA ] · 6");
     expect(result.chat).toContain("draft after hide");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("a boxed caret blinks while the explorer has focus", async () => {
+test.skipIf(!tmuxAvailable)("the rail's rule and edge say which side has the keyboard", async () => {
     const frames = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const firstPane = await tui.paneWhere(hasFocusedWorkspace);
-        const focusedFirst = workspaceLine(firstPane);
-        await Bun.sleep(520);
-        const secondPane = await tui.paneWhere((value) =>
-            hasFocusedWorkspace(value)
-            && workspaceLine(value) !== focusedFirst
-        );
-        const focusedSecond = workspaceLine(secondPane);
-
+        const rail = await tui.paneWhere(hasFocusedWorkspace);
         tui.key("i");
-        const chatPane = await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
+        const chat = await tui.paneWhere((value) =>
+            value.includes("[ VERA ] ·") && !hasFocusedWorkspace(value)
         );
-        const chatFirst = workspaceLine(chatPane);
-        await Bun.sleep(520);
-        const chatSecond = workspaceLine(tui.pane());
-        return { focusedFirst, focusedSecond, chatFirst, chatSecond };
+        return { rail, chat, title: railTitle(workspaceLine(rail)) };
     });
 
-    expect(frames.focusedFirst).not.toBe(frames.focusedSecond);
-    expect(frames.chatFirst).toBe(frames.chatSecond);
+    // Two glyphs, no colour: the rule under the title and the edge beside it
+    // both thicken while the rail answers keys.
+    expect(frames.rail).toContain("━");
+    expect(frames.rail).toContain("┃");
+    expect(frames.chat).not.toContain("━");
+    expect(frames.chat).toContain("│");
+    // The title itself is the same on both sides, which is the point of it.
+    expect(railTitle(workspaceLine(frames.chat))).toBe(frames.title);
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside the dock", async () => {
@@ -151,11 +146,11 @@ test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside t
         await tui.paneWhere(hasFocusedWorkspace);
         tui.key("i");
         await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·") && !hasFocusedWorkspace(value)
+            value.includes("[ VERA ] ·") && !hasFocusedWorkspace(value)
         );
         tui.text("/");
         return await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·") && value.includes("/rewind")
+            value.includes("[ VERA ] ·") && value.includes("/rewind")
         );
     }, 120, 46);
 
@@ -177,17 +172,17 @@ test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async (
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
         tui.text("i");
         await Bun.sleep(100);
         tui.text("insert beside dock");
         return await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·")
+            value.includes("[ VERA ] ·")
             && value.includes("insert beside dock")
         );
     });
 
-    expect(pane).toContain("Agent sidebar · 6");
+    expect(pane).toContain("[ VERA ] · 6");
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
@@ -199,7 +194,7 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
         tui.key("Escape");
         await Bun.sleep(100);
         tui.text("/model");
@@ -207,15 +202,40 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
         tui.key("Enter");
         return await tui.paneWhere((value) =>
             value.includes("Select model")
-            && !value.includes("Agent sidebar ·")
+            && !value.includes("[ VERA ] ·")
         );
     }, 120, 34);
 
     expect(pane).toContain("Select model");
-    expect(pane).not.toContain("Agent sidebar ·");
+    expect(pane).not.toContain("[ VERA ] ·");
     // Full width again: every tab stop is on screen, not clipped by a card
     // narrowed to fit beside the dock.
     expect(pane).toContain("Providers ^e");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", async () => {
+    const colored = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        await tui.paneWhere((value) => value.includes("Hide    ctrl+e"));
+        tui.click(80, 6);
+        await tui.paneWhere((value) => value.includes("Focus  ctrl+e"));
+        tui.text("/model");
+        await tui.paneWhere((value) => value.includes("/model"));
+        tui.key("Enter");
+        await tui.paneWhere((value) => value.includes("Select model"));
+        return await tui.coloredWhere((value) => value.includes("Select model"));
+    }, 120, 40);
+
+    // The card is centred, so the row under it and the last row of the screen
+    // are both scrim and nothing else. They have to be the same shade: the
+    // scrim used to stop a row short and leave an undimmed strip along the
+    // bottom edge.
+    const grounds = rowGrounds(colored);
+    const last = grounds.findLastIndex((ground) => ground !== "default");
+    expect(last).toBeGreaterThan(0);
+    expect(grounds[last]).toBe(grounds[1]);
+    expect(grounds[last]).not.toBe("default");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", async () => {
@@ -223,9 +243,10 @@ test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", as
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·") && value.includes("│")
+            value.includes("[ VERA ] ·") && value.includes("┃")
         );
-        const divider = column(before, "│");
+        // The rail has the keyboard here, so its edge is the heavy one.
+        const divider = column(before, "┃");
         const chatBefore = column(before, "Start a conversation");
         tui.drag(divider + 1, 5, 65, 5);
         const after = await tui.paneWhere((value) =>
@@ -247,7 +268,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     const { after, opened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
         tui.key("Down");
         const after = await tui.paneWhere(
             (value) => selectedRow(value).includes("auth-race"),
@@ -276,7 +297,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(after).not.toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(opened).toContain("OPENED /sessions/auth-race.");
-    expect(opened).toContain("Agent sidebar ·");
+    expect(opened).toContain("[ VERA ] ·");
 }, 60_000);
 
 /** kitty CSI u for ctrl+shift+] (`]` is codepoint 93, modifiers 6). */
@@ -306,7 +327,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Agent sidebar · 46")
+            value.includes("[ VERA ] · 46")
         );
         const selectedBefore = selectedRow(before);
         tui.bytes(CTRL_D);
@@ -352,6 +373,50 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
     expect(opened).toContain("OPENED /sessions/relay-gui.");
 }, 60_000);
 
+test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press", async () => {
+    const { focused, clicked } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const focused = await tui.paneWhere((value) =>
+            value.includes("Hide    ctrl+e")
+        );
+        // A click in the conversation is the keyboard leaving the rail. The
+        // rail stays on screen, and so do the two chords that answer from
+        // where the cursor now is.
+        tui.click(80, 6);
+        const clicked = await tui.paneWhere((value) =>
+            value.includes("[ VERA ]") && !value.includes("Hide    ctrl+e")
+        );
+        return { focused, clicked };
+    });
+
+    expect(focused).toContain("Move    ↑↓  j/k");
+    expect(focused).toContain("Cycle   ctrl+shift+[ ]");
+    expect(clicked).toContain("[ VERA ]");
+    expect(clicked).toContain("Cycle  ctrl+shift+[ ]");
+    expect(clicked).toContain("Focus  ctrl+e");
+    expect(clicked).not.toContain("Move    ↑↓  j/k");
+    expect(clicked).not.toContain("Pin");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("the closed rail is named under the composer", async () => {
+    const { closed, open } = await withTui(async (tui) => {
+        await tui.settled();
+        const closed = await tui.paneWhere((value) =>
+            value.includes("ctrl+p commands")
+        );
+        tui.bytes(CTRL_E);
+        const open = await tui.paneWhere((value) => value.includes("[ VERA ]"));
+        return { closed, open };
+    });
+
+    // Nothing else on screen says how to reach the rail while it is away.
+    expect(closed).toContain("ctrl+e agent sidebar");
+    // Once it is there it carries its own chords, `ctrl+e` among them.
+    expect(open).not.toContain("ctrl+e agent sidebar");
+    expect(open).toContain("Hide    ctrl+e");
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async () => {
     const { open, opened } = await withTui(async (tui) => {
         await tui.settled();
@@ -381,7 +446,7 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
     const { pinned, reopened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
         // Down twice from the top row lands on relay-gui, which is neither
         // first nor an idle recents row.
         tui.key("Down");
@@ -392,7 +457,7 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
         tui.text("p");
         const pinned = await tui.paneWhere((value) => value.includes("pinned"));
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => !value.includes("Agent sidebar ·"));
+        await tui.paneWhere((value) => !value.includes("[ VERA ] ·"));
         tui.bytes(CTRL_E);
         const reopened = await tui.paneWhere((value) => value.includes("pinned"));
         return { pinned, reopened };
@@ -413,7 +478,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("Agent sidebar ·"));
+        return await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
     });
 
     const row = (title: string): string =>
@@ -441,7 +506,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("Agent sidebar ·")
+            value.includes("[ VERA ] ·")
         );
         // The host registers the session and pushes the index that mentions
         // it. Nothing here reopens the pane.
@@ -452,7 +517,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     }, 120, 34, { VERA_TEST_PUSH_WORK_AFTER_MS: "1500" });
 
     expect(before).not.toContain("late-arrival");
-    expect(after).toContain("Agent sidebar · 7");
+    expect(after).toContain("[ VERA ] · 7");
     // Listed with the status the same push carried, not as an idle row.
     expect(after.split("\n").find((line) => line.includes("late-arrival")))
         .toContain("! late-arrival");
@@ -465,10 +530,10 @@ test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside th
         tui.key("Enter");
         await tui.paneWhere((value) => value.includes("\u203a hello"));
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("Agent sidebar \u00b7"));
+        const open = await tui.paneWhere((value) => value.includes("[ VERA ] \u00b7"));
         tui.bytes(CTRL_E);
         const closed = await tui.paneWhere((value) =>
-            !value.includes("Agent sidebar \u00b7")
+            !value.includes("[ VERA ] \u00b7")
         );
         return { open, closed };
     }, 120, 34);
@@ -494,14 +559,14 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
     const open = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("Agent sidebar \u00b7"));
+        return await tui.paneWhere((value) => value.includes("[ VERA ] \u00b7"));
     }, 70, 34);
 
     expect(open).toContain("auth-race");
     expect(workspaceRailColumns(70)).toBeUndefined();
     // Held off the left edge, which is what a centred card looks like and what
     // a rail never does.
-    expect(column(open, "Agent sidebar \u00b7")).toBeGreaterThan(2);
+    expect(column(open, "[ VERA ] \u00b7")).toBeGreaterThan(2);
 }, 60_000);
 
 /** The column the text starts in, or -1 when the pane does not show it. */
@@ -510,12 +575,41 @@ function column(pane: string, text: string): number {
     return line === undefined ? -1 : line.indexOf(text);
 }
 
-function workspaceLine(pane: string): string {
-    return pane.split("\n").find((line) => line.includes("Agent sidebar")) ?? "";
+/**
+ * The ground each row starts on, read from a coloured capture.
+ *
+ * tmux only writes an escape where a run changes, so a row with none keeps
+ * whatever the row above it left behind.
+ */
+function rowGrounds(colored: string): string[] {
+    let ground = "default";
+    return colored.split("\n").map((line) => {
+        const lead = /^(?:\x1b\[[\d;]*m)*?\x1b\[48;2;(\d+;\d+;\d+)m/
+            .exec(line);
+        if (lead?.[1] !== undefined) ground = lead[1];
+        const runs = line.matchAll(/\x1b\[48;2;(\d+;\d+;\d+)m/g);
+        const started = ground;
+        for (const run of runs) ground = run[1] ?? ground;
+        return started;
+    });
 }
 
+/** The rail's own share of a row, up to whichever edge glyph is drawn. */
+function railTitle(line: string): string {
+    const edge = Math.max(line.indexOf("\u2502"), line.indexOf("\u2503"));
+    return edge === -1 ? line : line.slice(0, edge);
+}
+
+function workspaceLine(pane: string): string {
+    return pane.split("\n").find((line) => line.includes("[ VERA ]")) ?? "";
+}
+
+/**
+ * The rail's title is its name and does not move with focus, so the rule
+ * under it is what says which side the keyboard is on. Heavy is the rail.
+ */
 function hasFocusedWorkspace(pane: string): boolean {
-    return /\[(?: > |   )\] Agent sidebar ·/.test(workspaceLine(pane));
+    return pane.split("\n").some((line) => line.includes("━"));
 }
 
 /** The selected row carries `❯`, so navigation remains testable without color. */

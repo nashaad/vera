@@ -13,6 +13,8 @@ import {
     workspaceJumpTargets,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
+    WORKSPACE_FOOTER_TABLE,
+    WORKSPACE_QUIET_FOOTER_TABLE,
     workspaceSidebarFooter,
     workspaceSidebarHeader,
     workspaceSidebarText,
@@ -32,7 +34,7 @@ import {
     RECENT_GROUP,
 } from "../../clients/tui/workspace-panel.ts";
 import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
-import { tuiBindingId } from "../../clients/tui/keymap.ts";
+import { tuiBindingId, tuiKeyChord } from "../../clients/tui/keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type {
     WorkIndexSnapshot,
@@ -188,7 +190,7 @@ describe("the working set", () => {
         expect(workspaceWorkingSet(sessions).map((entry) => entry.id))
             .toEqual(sessions.map((entry) => entry.id));
         expect(workspaceSidebarHeader(open(sessions)))
-            .toBe("Agent sidebar · 12");
+            .toBe("[ VERA ] · 12");
     });
 
     test("lists idle rows when there are only a few of them", () => {
@@ -223,7 +225,7 @@ describe("the working set", () => {
             WORKSPACE_RECENT_IDLE + 1,
         );
         expect(workspaceSidebarHeader(open(sessions)))
-            .toBe("Agent sidebar · 6");
+            .toBe("[ VERA ] · 6");
     });
 
     test("an older second project stays listed when the session on screen already made the last five", () => {
@@ -468,20 +470,26 @@ describe("the rail", () => {
         expect(titleOnly).not.toContain("[");
     });
 
-    test("marks when the explorer owns keyboard focus", () => {
+    test("says which side has the keyboard without moving its title", () => {
         const state = open([session("a")], [], "a");
 
-        const focused = workspaceSidebarViewState(
-            state,
-            120,
-            NOW,
-            37,
-            true,
-            4,
-        );
-        expect(focused.title).toBe("[   ] Agent sidebar · 1");
+        // The title is the rail's name, so it neither blinks nor shifts with
+        // focus: the frame it is handed changes nothing about it either.
+        for (const frame of [0, 3, 6]) {
+            const focused = workspaceSidebarViewState(
+                state,
+                120,
+                NOW,
+                37,
+                true,
+                frame,
+            );
+            expect(focused.title).toBe("[ VERA ] · 1");
+            expect(focused.focused).toBe(true);
+        }
         const chat = workspaceSidebarViewState(state, 120, NOW, 37, false, 4);
-        expect(chat.title).toBe("      Agent sidebar · 1");
+        expect(chat.title).toBe("[ VERA ] · 1");
+        expect(chat.focused).toBeUndefined();
     });
 
     test("dims when the rail is up and chat has focus", () => {
@@ -887,7 +895,13 @@ describe("the drawn card", () => {
     test("carries its own footer hint, in the pickers' shape", () => {
         // Measured against what is drawn: the card at this width is most of
         // the terminal, so it has room for the words.
-        const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
+        const view = workspaceSidebarViewState(
+            open([session("a")]),
+            70,
+            NOW,
+            undefined,
+            true,
+        );
         expect(view.footer).toBe([
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
@@ -896,12 +910,13 @@ describe("the drawn card", () => {
             "Pin     p",
             "New     ctrl+n",
             "Resume  ctrl+r",
+            "Cycle   ctrl+shift+[ ]",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(8);
+        expect(view.footerTable).toHaveLength(9);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
-        expect(view.title).toBe("      Agent sidebar · 1");
+        expect(view.title).toBe("[ VERA ] · 1");
     });
 
     test("the last recent row is followed by the all-sessions nudge", () => {
@@ -942,6 +957,8 @@ describe("the drawn card", () => {
             open([session("a")]),
             COLUMNS,
             NOW,
+            undefined,
+            true,
         );
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
@@ -953,6 +970,7 @@ describe("the drawn card", () => {
             "Pin     p",
             "New     ctrl+n",
             "Resume  ctrl+r",
+            "Cycle   ctrl+shift+[ ]",
             "Hide    ctrl+e",
         ].join("\n"));
         for (const line of view.footer.split("\n")) {
@@ -963,7 +981,65 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(8);
+            .toHaveLength(9);
+    });
+
+    test("an unfocused rail keeps only the chords that answer from the chat", () => {
+        const idle = workspaceSidebarViewState(
+            open([session("a")]),
+            COLUMNS,
+            NOW,
+        );
+        // Both of these work with the cursor in the composer: the cycle is
+        // global, and ctrl+e is what hands the rail the keys.
+        expect(idle.footerTable).toEqual([
+            { label: "Cycle", value: "ctrl+shift+[ ]" },
+            { label: "Focus", value: "ctrl+e" },
+        ]);
+        expect(idle.footer).toContain("ctrl+shift+[ ]");
+        // The rail's own chords are not offered to a keyboard that is elsewhere.
+        expect(idle.footer).not.toContain("Move");
+        expect(idle.footer).not.toContain("Pin");
+        const focused = workspaceSidebarViewState(
+            open([session("a")]),
+            COLUMNS,
+            NOW,
+            undefined,
+            true,
+        );
+        expect(focused.footer).toContain("Move");
+        // ctrl+e is one chord in both directions, so it says which one it is.
+        expect(focused.footer).toContain("Hide");
+        expect(focused.footer).not.toContain("Focus");
+    });
+
+    test("every quiet chord is repeated by the focused block", () => {
+        // The block grows on focus, it does not swap: a chord that was on
+        // screen a keystroke ago must still be there.
+        for (const row of WORKSPACE_QUIET_FOOTER_TABLE) {
+            const wide = WORKSPACE_FOOTER_TABLE
+                .find((other) => other.value === row.value);
+            expect(wide).toBeDefined();
+        }
+        for (const row of WORKSPACE_QUIET_FOOTER_TABLE) {
+            expect(`${row.label.padEnd(8)}${row.value}`.length)
+                .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
+        }
+    });
+
+    test("the session cycle is named where the other chords are", () => {
+        const cycle = WORKSPACE_FOOTER_TABLE
+            .find((row) => row.label === "Cycle");
+        // Both halves of the chord, spelled the way the keymap spells them,
+        // so the row cannot drift from the keys it names.
+        expect(cycle?.value).toContain(tuiKeyChord("cycle_live_session_prev"));
+        expect(cycle?.value)
+            .toContain(tuiKeyChord("cycle_live_session_next").slice(-1));
+        expect(cycle?.value).not.toContain("/");
+        for (const row of WORKSPACE_FOOTER_TABLE) {
+            expect(`${row.label.padEnd(8)}${row.value}`.length)
+                .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
+        }
     });
 
     test("an empty listing says so rather than drawing nothing", () => {

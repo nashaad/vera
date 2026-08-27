@@ -261,15 +261,20 @@ test("the card centres on what the rail leaves, not on the terminal", async () =
     try {
         await session.waitForVisiblePane("V  E  R  A");
         session.sendKey("C-e");
-        const pane = await session.waitForVisiblePane("Agent sidebar");
+        const pane = await session.waitForVisiblePane("[ VERA ]");
         // The rule is the one line of the card drawn to a known width, so it
         // is what says where the card sits.
         const rule = pane.split("\n").find((line) => line.includes(HOME_RULE));
         expect(rule).toBeDefined();
         if (rule === undefined) throw new Error("no rule row");
         // Everything left of the rail's edge belongs to the rail, so the
-        // space the card has to centre in starts one column past it.
-        const rail = rule.indexOf("\u2502") + 1;
+        // space the card has to centre in starts one column past it. The edge
+        // is heavy while the rail holds the keyboard and light when it does
+        // not, and it is the same column either way.
+        const rail = Math.max(
+            rule.indexOf("\u2502"),
+            rule.indexOf("\u2503"),
+        ) + 1;
         expect(rail).toBeGreaterThan(1);
         const start = rule.indexOf(HOME_RULE);
         const middle = start + HOME_RULE.length / 2;

@@ -60,7 +60,7 @@ export async function createJsonlViewClient(
                 return;
             }
             throw new Error(
-                "This conversation is on disk until it is resumed",
+                "This conversation is idle until something wakes it",
             );
         },
         receive(signal) {

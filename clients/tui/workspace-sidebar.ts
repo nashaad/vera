@@ -1,5 +1,4 @@
 import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
-import { renderTuiFocusCaret } from "./activity-pulse.ts";
 import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
@@ -526,13 +525,18 @@ export function openWorkspaceSelection(
     };
 }
 
+/** The wordmark at the head of the rail. */
+export const WORKSPACE_SIDEBAR_WORDMARK = "[ VERA ]";
+
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
     const listed = workspaceWorkingSet(
         state.sessions,
         state.currentId,
         state.pinnedIds,
     ).length;
-    return listed === 0 ? "Agent sidebar" : `Agent sidebar · ${listed}`;
+    return listed === 0
+        ? WORKSPACE_SIDEBAR_WORDMARK
+        : `${WORKSPACE_SIDEBAR_WORDMARK} · ${listed}`;
 }
 
 /**
@@ -541,8 +545,12 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  * The digits live here rather than in the help card: nine near-identical rows
  * would push the Transcript scope below the fold, and the only place they are
  * useful is the pane that is already on screen.
+ *
+ * Drawn in full only while the rail holds the keyboard. Most of these chords
+ * are the rail's own, and beside a conversation a block the glance cannot use
+ * reads as instructions for the screen it sits next to.
  */
-const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
+export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Move", value: "↑↓  j/k" },
     { label: "Page", value: "ctrl+d/u" },
     { label: "Open", value: "enter" },
@@ -550,14 +558,29 @@ const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Pin", value: "p" },
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
+    { label: "Cycle", value: "ctrl+shift+[ ]" },
     { label: "Hide", value: "ctrl+e" },
 ];
 
-export function workspaceSidebarFooter(_width: number): string {
+/**
+ * What the rail says while the keyboard is in the conversation beside it.
+ *
+ * The two chords that answer from there: the live session cycle, which is
+ * global, and the one that hands the rail the keys.
+ */
+export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
+    { label: "Cycle", value: "ctrl+shift+[ ]" },
+    { label: "Focus", value: "ctrl+e" },
+];
+
+export function workspaceSidebarFooter(
+    _width: number,
+    table: readonly LinesViewFooterRow[] = WORKSPACE_FOOTER_TABLE,
+): string {
     const labelWidth = Math.max(
-        ...WORKSPACE_FOOTER_TABLE.map((row) => row.label.length + 2),
+        ...table.map((row) => row.label.length + 2),
     );
-    return WORKSPACE_FOOTER_TABLE
+    return table
         .map((row) => `${row.label.padEnd(labelWidth)}${row.value}`)
         .join("\n");
 }
@@ -652,19 +675,22 @@ export function workspaceSidebarViewState(
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
+    const footerTable = focused
+        ? WORKSPACE_FOOTER_TABLE
+        : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
-        // Keep a fixed leading slot so focus can blink without moving the
-        // title. Chat focus clears the whole marker, not only its caret.
-        title: `${focused ? renderTuiFocusCaret(animationFrame) : "     "} ${
-            workspaceSidebarHeader(state)
-        }`,
+        // The wordmark is what the rail is called, so it says the same thing
+        // whichever side holds the keyboard. Focus is drawn on the rule under
+        // it and on the edge beside it, where it does not move the title.
+        title: workspaceSidebarHeader(state),
+        ...(focused ? { focused: true } : {}),
         // The rail's footer already names esc. The chip on the title is
         // dialog chrome and crowds a 28-column column.
         ...(railColumns === undefined ? {} : { hint: "" }),
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines,
-        footer: workspaceSidebarFooter(width),
-        footerTable: WORKSPACE_FOOTER_TABLE,
+        footer: workspaceSidebarFooter(width, footerTable),
+        footerTable,
         ...(focused ? {} : { dimmed: true }),
     };
 }

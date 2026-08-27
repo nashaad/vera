@@ -694,6 +694,12 @@ const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const HUD_HINT = tuiKeyHint("dials.open");
+const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
+
+/** Columns the quiet status row needs with the rail's chord in it. */
+function quietHintColumns(): number {
+    return HUD_HINT.length + MODEL_PICKER_HINT.length + SIDEBAR_HINT.length + 6;
+}
 const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
 const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
@@ -2657,14 +2663,14 @@ export async function startTui(
         // Home holds nothing at the foot of the screen at all.
         if (isHomeClient(client)) return 0;
         return isJsonlViewClient(client) && !jsonlCommandMode
-            ? resumeOverlay.box.height
+            ? resumeOverlay.surface.height
             : composerBox.height;
     }
 
     function setComposerMargin(rows: number): void {
         composerMarginRows = rows;
         composerBox.marginBottom = rows;
-        resumeOverlay.box.marginBottom = rows;
+        resumeOverlay.surface.marginBottom = rows;
         workspaceSidebarView.setBottomInset(composerSlotHeight() + rows);
         positionCommandSuggestions();
     }
@@ -2751,8 +2757,10 @@ export async function startTui(
         paddingHorizontal: appearance.composerPaddingHorizontal,
         boundaryColor: appearance.composerBoundaryColor ?? theme.element,
         backgroundColor: theme.input ?? theme.background,
+        noticeColor: theme.panel,
         textColor: theme.text,
         mutedColor: theme.muted,
+        accentColor: theme.accent,
     });
     workspaceSidebarView.setBottomInset(
         composerBox.height + composerMarginRows,
@@ -2835,6 +2843,13 @@ export async function startTui(
                 return;
             }
             if (bodyFocus.release(anyOverlayOpen())) {
+                // A click in the chat is the keyboard leaving the rail. Without
+                // this the rail keeps its focus mark and its chord block while
+                // the cursor sits in the composer.
+                if (workspaceSidebarFocused) {
+                    workspaceSidebarFocused = false;
+                    renderState();
+                }
                 composer.focus();
             }
         },
@@ -3768,15 +3783,15 @@ export async function startTui(
     const overlayScrim = new BoxRenderable(renderer, {
         id: "overlay-scrim",
         position: "absolute",
-        // Stretched from above the app's top padding to the bottom of the
-        // screen. An absolute child is laid out inside its parent's content
-        // box and its height is clamped to it, so top and bottom rather than a
-        // height: either alone leaves an undimmed bar at one end.
+        // Stretched from above the app's top padding to below its bottom one.
+        // An absolute child is laid out inside its parent's content box, so
+        // the edges are pulled back out to the screen. Both edges and no
+        // height: a height is measured against the content box and wins over
+        // `bottom`, which leaves the last row undimmed.
         left: 0,
         top: -APP_PADDING_TOP,
         bottom: -APP_PADDING_BOTTOM,
         width: "100%",
-        height: "100%",
         // Enough to push the transcript behind the card, not enough to erase
         // it. A heavier wash reads fine on paper and fails on the dark themes,
         // where the ground is already near black and the text lands on top of
@@ -4028,7 +4043,7 @@ export async function startTui(
     app.add(dialCard);
     app.add(homeView.surface);
     app.add(composerBox);
-    app.add(resumeOverlay.box);
+    app.add(resumeOverlay.surface);
     app.add(statusBand);
     renderer.root.add(app);
     clientSurfaceReady = true;
@@ -4168,8 +4183,10 @@ export async function startTui(
             paddingHorizontal: appearance.composerPaddingHorizontal,
             boundaryColor: appearance.composerBoundaryColor ?? theme.element,
             backgroundColor: theme.input ?? theme.background,
+            noticeColor: theme.panel,
             textColor: theme.text,
-        mutedColor: theme.muted,
+            mutedColor: theme.muted,
+            accentColor: theme.accent,
         });
         dialCard.marginLeft = appearance.composerMarginHorizontal;
         dialCard.marginRight = appearance.composerMarginHorizontal;
@@ -7133,12 +7150,12 @@ export async function startTui(
     function refuseJsonlCommand(): void {
         state = appendTuiNotice(
             state,
-            "This session is closed. Only /resume, /fresh, /help, and /theme work here; press enter to resume it first.",
+            "This conversation is idle. Only /resume, /fresh, /help, and /theme work until it wakes; press enter to carry on.",
         );
         leaveJsonlCommandMode();
     }
 
-    /** Only the commands a closed file can run are offered while it is open. */
+    /** Only the commands an idle conversation can run are offered here. */
     function availableCommandSuggestions(
         input: string,
     ): readonly TuiCommandCatalogEntry[] {
@@ -9821,7 +9838,7 @@ export async function startTui(
         // until the pending engine request is answered.
         composerBox.visible = uiRequest === undefined
             && (!isWorkerFreeClient(client) || jsonlCommandMode);
-        resumeOverlay.box.visible = uiRequest === undefined
+        resumeOverlay.surface.visible = uiRequest === undefined
             && isJsonlViewClient(client)
             && !jsonlCommandMode;
         homeView.surface.visible = isHomeClient(client);
@@ -9969,10 +9986,16 @@ export async function startTui(
      * host only sends a new index when the work changes, which for a session
      * waiting on an answer is never.
      *
-     * Only these two, and only while open: a full repaint on every tick would
+     * The idle slot's caret rides the same tick, for the same reason: it moves
+     * on the clock and nothing else asks it to.
+     *
+     * Only these, and only while open: a full repaint on every tick would
      * rebuild the transcript to move one word.
      */
     function refreshTimedSurfaces(): void {
+        if (resumeOverlay.surface.visible) {
+            resumeOverlay.blink(Date.now());
+        }
         if (workTab !== undefined) {
             workTabView.update(
                 workTabViewState(workTab, workTabView.contentWidth()),
@@ -11986,6 +12009,14 @@ export async function startTui(
         // the space the rail leaves rather than the whole terminal.
         homeView.surface.left = occupied;
         homeView.surface.width = Math.max(1, renderer.width - occupied);
+        // The idle block breaks its prose to the chat's width, and its
+        // height is part of what the composer slot occupies, so a change in
+        // one has to reach the rows measured off the other.
+        if (
+            resumeOverlay.setColumns(Math.max(1, renderer.width - occupied))
+        ) {
+            setComposerMargin(composerMarginRows);
+        }
         commandSuggestionsBox.left = occupied;
         jumpMenuBox.left = occupied
             + tuiComposerOverlayInset(appearance).paddingLeft;
@@ -14223,8 +14254,10 @@ export async function startTui(
             boundaryColor: appearance.composerBoundaryColor
                 ?? activeTheme.element,
             backgroundColor: activeTheme.input,
+            noticeColor: activeTheme.panel,
             textColor: activeTheme.text,
             mutedColor: activeTheme.muted,
+            accentColor: activeTheme.accent,
         }),
         tuiThemeProperties(composerStatusText, { fg: "muted" }),
         tuiThemeProperties(composerRule, {
@@ -15106,12 +15139,22 @@ export async function startTui(
         setComposerMargin(
             cardRows + 1,
         );
+        // The HUD and the model picker are named here because nothing else on
+        // screen names them. The rail is named too while it is closed, for the
+        // same reason: once it is open it advertises its own chords.
+        const quietHint = [
+            fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
+            fg(TUI_ACCENT)("HUD"),
+            fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
+        ];
+        if (
+            workspaceSidebar === undefined
+            && quietHintColumns() <= renderer.width - composerHorizontalInset
+        ) {
+            quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
+        }
         statusText.content = quietActivity
-            ? new StyledText([
-                fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
-                fg(TUI_ACCENT)("HUD"),
-                fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
-            ])
+            ? new StyledText(quietHint)
             : statusState.working
                 && statusNotice === undefined
                 && uiRequest === undefined

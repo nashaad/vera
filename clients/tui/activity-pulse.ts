@@ -16,7 +16,6 @@ export type TuiActivityAnimation =
 
 const DEFAULT_PULSE_WIDTH = 7;
 const DEFAULT_SYMMETRIC_WAVE_WIDTH = 5;
-const FOCUS_CARET_FRAME_HOLD = 3;
 export const BRAILLE_FRAMES = [
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
 ] as const;
@@ -27,15 +26,6 @@ export function tuiBrailleSpinner(frame: number): string {
 }
 
 const SPOKE_FRAMES = ["│", "/", "─", "\\"] as const;
-
-/** A terminal-native focus caret whose brackets keep the title still. */
-export function renderTuiFocusCaret(frame: number): string {
-    const visible = positiveModulo(
-        Math.floor(frame / FOCUS_CARET_FRAME_HOLD),
-        2,
-    ) === 0;
-    return visible ? "[ > ]" : "[   ]";
-}
 
 export function renderTuiActivityAnimation(
     animation: TuiActivityAnimation,

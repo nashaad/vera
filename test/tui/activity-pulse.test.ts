@@ -4,7 +4,6 @@ import type { StyledText } from "@opentui/core";
 import {
     renderTuiActivityAnimation,
     renderTuiActivityPulse,
-    renderTuiFocusCaret,
     renderTuiSpokes,
 } from "../../clients/tui/activity-pulse.ts";
 
@@ -156,10 +155,6 @@ test("TUI spokes spin a one-cell four-spoke glyph", () => {
     ]);
 });
 
-test("TUI focus caret blinks without changing its width", () => {
-    expect([0, 3, 6].map(renderTuiFocusCaret))
-        .toEqual(["[ > ]", "[   ]", "[ > ]"]);
-});
 
 function plainText(styled: StyledText): string {
     return styled.chunks.map((chunk) => chunk.text).join("");
