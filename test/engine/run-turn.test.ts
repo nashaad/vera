@@ -2501,6 +2501,112 @@ test("a post-tool hook failure preserves the raw result and continues", async ()
     }));
 });
 
+test("a pre-turn hook can restrict tools and change the model before the first request", async () => {
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([assistantText("done")]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({
+        power: "mutate",
+        tools: ["read"],
+        model: "cheap",
+        reasoningEffort: "low",
+    }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "review this" });
+    await runTurn(adapter, "test", state, "high");
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.model).toBe("cheap");
+    expect(requests[0]?.reasoningEffort).toBe("low");
+    expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["read"]);
+});
+
+test("a pre-turn block keeps the prompt and never calls the model", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => ({ power: "block", reason: "not tonight" }));
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "review this" });
+    const turn = runTurn(new FauxAdapter([]), "test", state);
+    await expectUserPrompt(channel, "review this", 1);
+    expect(withoutSessionUsage(await channel.client.receive())).toMatchObject({
+        type: "turn_finished",
+        outcome: "error",
+        error: "pre_turn hook blocked this turn: not tonight",
+    });
+    await turn;
+
+    expect(state.messages[0]).toEqual({
+        role: "user",
+        content: [{ type: "text", text: "review this" }],
+    });
+    expect(withoutCallDuration(state.messages[1])).toMatchObject({
+        role: "assistant",
+        stopReason: "error",
+        errorMessage: "pre_turn hook blocked this turn: not tonight",
+    });
+    expect(observedEvents.some((event) => event.type === "turn_started")).toBe(true);
+});
+
+test("a throwing pre-turn hook fails closed and records the failure", async () => {
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const observedEvents: EngineEvent[] = [];
+    events.subscribe((event) => observedEvents.push(event));
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => {
+        throw new Error("broken prepare");
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "review this" });
+    const result = await runTurn(new FauxAdapter([]), "test", state);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toBe("pre_turn hook failed: broken prepare");
+    expect(observedEvents).toContainEqual({
+        type: "turn_hook_failed",
+        phase: "pre_turn",
+        error: "broken prepare",
+    });
+});
+
 test("a post-tool mutation becomes the durable model-visible result", async () => {
     const toolCallResponse: AssistantMessage = {
         role: "assistant",

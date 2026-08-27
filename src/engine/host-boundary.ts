@@ -82,7 +82,7 @@ export interface HostOwnedObjects {
     readonly modelFailureLedger?: ModelFailureLedger;
     /** Becomes the `reviewLog.append` notification. */
     readonly reviewLog?: ReviewLog;
-    /** Becomes `hook.preToolUse` and `hook.postToolUse`. */
+    /** Becomes `hook.preToolUse`, `hook.postToolUse`, and `hook.preTurn`. */
     readonly hooks?: ToolHooks;
     /** Does not cross. */
     readonly processRegistry?: ManagedProcessRegistry;

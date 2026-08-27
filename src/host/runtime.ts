@@ -796,6 +796,9 @@ export async function startResidentHost(
             for (const hook of extensions.postToolUseHooks()) {
                 hooks.registerPostToolUse(hook);
             }
+            for (const hook of extensions.preTurnHooks()) {
+                hooks.registerPreTurn(hook);
+            }
             return hooks;
         },
         ...(!hasModelRequestHooks ? {} : {

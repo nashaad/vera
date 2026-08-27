@@ -409,6 +409,55 @@ test("Agent.run turns AbortSignal cancellation into an aborted result", async ()
     expect(result.error?.kind).toBe("aborted");
 });
 
+test("Agent.run prepareTurn can restrict tools before the model request", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("read only")], requests);
+    const definition = defineAgent({
+        name: "review-reader",
+        instructions: "Read relevant source.",
+        tools: ["read", "write"],
+        posture: "readonly",
+    });
+    let seenTools: string[] | undefined;
+
+    const result = await vera.agent(definition).run("review", {
+        prepareTurn(payload) {
+            seenTools = [...payload.tools];
+            return { power: "mutate", tools: ["read"] };
+        },
+    });
+
+    expect(seenTools).toContain("read");
+    expect(seenTools).toContain("write");
+    expect(requests[0]?.tools?.map((tool) => tool.name)).toEqual(["read"]);
+    expect(result.outcome).toBe("completed");
+    expect(result.text).toBe("read only");
+});
+
+test("Agent.run prepareTurn can block a turn before any model call", async () => {
+    let adapters = 0;
+    const vera = await Vera.create({
+        config: baseConfig(),
+        createAdapter() {
+            adapters += 1;
+            return new FauxAdapter([]);
+        },
+    });
+
+    const result = await vera.agent(basicDefinition()).run("review", {
+        prepareTurn: () => ({ power: "block", reason: "policy" }),
+    });
+
+    expect(adapters).toBe(1);
+    expect(result).toMatchObject({
+        outcome: "failed",
+        error: {
+            kind: "model",
+            message: "pre_turn hook blocked this turn: policy",
+        },
+    });
+});
+
 interface FindingOutput {
     readonly findings: readonly { readonly summary: string }[];
 }

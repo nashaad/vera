@@ -3,6 +3,7 @@ import type {
     ModelRequestHook,
     PostToolUseHook,
     PreToolUseHook,
+    PreTurnHook,
 } from "./hooks.ts";
 import type { ExtensionCommandBody } from "../extensions/commands.ts";
 import type {
@@ -83,6 +84,7 @@ export interface VeraExtensionAgentSpec {
 export interface VeraExtensionHooks {
     registerPreToolUse(hook: PreToolUseHook): VeraExtensionDisposer;
     registerPostToolUse(hook: PostToolUseHook): VeraExtensionDisposer;
+    registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer;
     registerModelRequest(
         namespace: string,
         hook: ModelRequestHook,

@@ -378,7 +378,7 @@ export function createRemoteHostBoundary(
 }
 
 /**
- * Hooks are registered on the owner's side, so both calls are relayed whole,
+ * Hooks are registered on the owner's side, so every call is relayed whole,
  * options included: the owner runs them and its answer is the outcome.
  */
 function remoteHooks(pipe: JsonPipe): ToolHooks {
@@ -398,6 +398,14 @@ function remoteHooks(pipe: JsonPipe): ToolHooks {
             options,
         }) as { readonly result: never };
         return reply.result;
+    };
+    hooks.runPreTurn = async (payload, options) => {
+        const reply = await pipe.request({
+            method: "hook.preTurn",
+            payload,
+            options,
+        }) as { readonly outcome: never };
+        return reply.outcome;
     };
     return hooks;
 }
