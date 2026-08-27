@@ -1457,6 +1457,11 @@ export async function startTui(
      */
     let workspaceRail: number | undefined;
     let workspaceRailDragging = false;
+    /** The rail width and terminal width the layout below was laid out for. */
+    let workspaceRailLaidOut: number | undefined;
+    let workspaceRailLaidOutColumns: number | undefined;
+    /** The last side bar state handed to the view, as drawn. */
+    let workspaceSidebarDrawn: string | undefined;
     /** Client state. A pin orders one person's list and never reaches a host. */
     let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
@@ -9907,16 +9912,7 @@ export async function startTui(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
         }
-        if (workspaceSidebar !== undefined) {
-            workspaceSidebarView.update(workspaceSidebarViewState(
-                workspaceSidebar,
-                renderer.width,
-                new Date(),
-                workspaceRail,
-                workspaceSidebarFocused,
-                activityFrame(),
-            ));
-        }
+        drawWorkspaceSidebar();
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
                 searchOverlay,
@@ -9995,6 +9991,34 @@ export async function startTui(
     }
 
     /**
+     * Draw the side bar, and only when what it draws has changed.
+     *
+     * The state carries a clock, so it is a fresh object on every timed
+     * refresh even while the rail reads the same. Handing an unchanged state
+     * to the view still repaints, and a repaint re-shows the terminal cursor,
+     * which restarts its blink phase: ten a second and the caret in the
+     * composer never gets to blink at all.
+     */
+    function drawWorkspaceSidebar(): void {
+        if (workspaceSidebar === undefined) {
+            workspaceSidebarDrawn = undefined;
+            return;
+        }
+        const next = workspaceSidebarViewState(
+            workspaceSidebar,
+            renderer.width,
+            new Date(),
+            workspaceRail,
+            workspaceSidebarFocused,
+            activityFrame(),
+        );
+        const drawn = JSON.stringify(next);
+        if (drawn === workspaceSidebarDrawn) return;
+        workspaceSidebarDrawn = drawn;
+        workspaceSidebarView.update(next);
+    }
+
+    /**
      * Redraw the surfaces whose rows state how long ago something happened.
      *
      * Both read the clock rather than a value the host sent, so a tab left
@@ -10018,16 +10042,7 @@ export async function startTui(
             );
         }
         applyWorkspaceRail();
-        if (workspaceSidebar !== undefined) {
-            workspaceSidebarView.update(workspaceSidebarViewState(
-                workspaceSidebar,
-                renderer.width,
-                new Date(),
-                workspaceRail,
-                workspaceSidebarFocused,
-                activityFrame(),
-            ));
-        }
+        drawWorkspaceSidebar();
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
                 searchOverlay,
@@ -12017,6 +12032,16 @@ export async function startTui(
             workspaceSidebarView.setRail(columns);
         }
         const occupied = workspaceSidebarView.railColumns() ?? 0;
+        // Everything below is a function of the width the rail occupies and
+        // the width of the terminal, and re-applying it repaints. Timed
+        // refreshes call this on every tick, so the layout is only laid out
+        // again when one of the two has moved.
+        if (
+            occupied === workspaceRailLaidOut
+            && renderer.width === workspaceRailLaidOutColumns
+        ) return;
+        workspaceRailLaidOut = occupied;
+        workspaceRailLaidOutColumns = renderer.width;
         // The navigator owns a full-height column like an editor sidebar.
         // Reserving that width on the app moves the transcript, composer,
         // status rows and dialogs together; nothing from the chat can run
