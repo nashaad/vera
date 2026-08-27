@@ -610,7 +610,7 @@ test("resuming a session from the list offers no way back", async () => {
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
         expect(pane).not.toContain("/back");
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This conversation is idle.");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -749,7 +749,7 @@ test("opening a sidebar row keeps the source session running", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar · 2");
+        await session.waitForVisiblePane("[ VERA ] · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
@@ -780,23 +780,57 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar · 2");
+        await session.waitForVisiblePane("[ VERA ] · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
-        expect(pane).toContain("[resume]");
+        expect(pane).toContain("This conversation is idle.");
         expect(pane).toContain("ctrl+n new");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain("permissions loading");
+        // The slot is the composer's frame, not a frame of its own: top rule
+        // bottom, seven rows, so nothing about the shape changes when the
+        // conversation wakes into a real composer.
+        const frameTop = pane.split("\n").findIndex((line) =>
+            line.includes("\u256d")
+        );
+        const frame = pane.split("\n").slice(frameTop, frameTop + 7);
+        expect(frame.at(-1)).toContain("\u2570");
+        expect(frame[1]).toContain("Start typing or enter to continue");
+        expect(frame[4]).toMatch(/\u2502 \u2500+ \u2502/);
+        // The block above is a tinted band that runs to both edges, and it is
+        // not the ground a user message uses: this is the room talking.
+        const tinted = session.captureSpans().lines
+            .filter((line) =>
+                line.spans.some((span) =>
+                    span.text.includes("This conversation is idle.")
+                )
+            );
+        expect(tinted).toHaveLength(1);
+        const band = tinted[0]?.spans.at(-1);
+        expect(band?.text.trimEnd()).toBe("");
+        const chatGround = session.captureSpans().lines
+            .find((line) =>
+                line.spans.some((span) => span.text.includes("\u256d"))
+            )?.spans.at(-1);
+        expect(band?.bg?.toInts().toString()).not.toBe(
+            chatGround?.bg?.toInts().toString(),
+        );
         session.sendKey("C-p");
-        await session.settle();
-        pane = session.captureVisiblePane();
-        expect(pane).toContain("[resume]");
+        pane = await session.waitForVisiblePane("Resume this conversation");
+        expect(pane).not.toContain("Stop this conversation");
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("This conversation is idle.")
+                && !visible.includes("Resume this conversation"),
+            "the closed file after the palette closes",
+        );
         expect(pane).toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).toContain("resumed-model");
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This conversation is idle.");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -805,6 +839,43 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
                 `${scenario.targetPath}\ndetached\ntarget-session-id`
                     + "\nclosed target-session-id",
             );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("the sidebar resume action opens the picker from an idle file", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-picker-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("[ VERA ] · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("ctrl+n new");
+
+        // Put focus back in the rail. Its direct key opens the full picker.
+        // Tab is the switch: ctrl+e puts the rail away.
+        session.sendKey("Tab");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("Resume  ctrl+r")
+                && !visible.includes("Resume session"),
+            "the focused rail without a resume row",
+        );
+        session.sendKey("C-r");
+        pane = await session.waitForVisiblePane("Continue the theme picker");
+        expect(pane).toContain("The one already open");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("ctrl+n new");
     } finally {
         await session.close();
     }
@@ -836,14 +907,42 @@ test("ctrl+n from an idle file starts a new chat", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar · 2");
+        await session.waitForVisiblePane("[ VERA ] · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("[resume]");
+        await session.waitForVisiblePane("This conversation is idle.");
         session.sendKey("C-n");
         const pane = await session.waitForVisiblePane("fresh-model");
-        expect(pane).not.toContain("[resume]");
-        expect(pane).not.toContain("ctrl+n new");
+        expect(pane).not.toContain("This conversation is idle.");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("escape from an idle file goes home", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-home-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("[ VERA ] · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("This conversation is idle.");
+        expect(pane).toContain("esc home");
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePane("V  E  R  A");
+        // Backing out of a file is a screen change, not a session change: the
+        // file is still on disk and nothing was started to get here.
+        expect(pane).not.toContain("This conversation is idle.");
+        expect(pane).not.toContain("Message Vera");
     } finally {
         await session.close();
     }
@@ -862,8 +961,10 @@ test("opening a live sidebar row attaches to the running worker", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar · 2");
-        session.sendKey("Down");
+        await session.waitForVisiblePane("[ VERA ] · 2");
+        // The running one heads the listing and the idle file on screen is
+        // filed under recent, so the cursor starts below the row to open.
+        session.sendKey("Up");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
@@ -986,7 +1087,7 @@ test("ctrl+n in the agent sidebar starts a new chat and keeps the source running
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("Agent sidebar ·");
+        await session.waitForVisiblePane("[ VERA ] ·");
         session.sendKey("C-n");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");
@@ -1017,7 +1118,7 @@ test("close command parks the current session as a resume file", async () => {
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This conversation is idle.")
                 && visible.includes("hello from disk"),
             "the parked file with resume overlay",
         );
@@ -1048,7 +1149,7 @@ test("ctrl+w parks the current session as a resume file", async () => {
         session.sendKey("C-w");
         const pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This conversation is idle.")
                 && visible.includes("hello from disk"),
             "the parked file with resume overlay",
         );
@@ -1085,13 +1186,13 @@ test("closing in-flight work asks first", async () => {
                 && !visible.includes("Stop this conversation?"),
             "the in-flight transcript after cancel",
         );
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This conversation is idle.");
         session.sendKey("C-w");
         await session.waitForVisiblePane("[1] close");
         session.sendKey("1");
         pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This conversation is idle.")
                 && visible.includes("hello from disk"),
             "the parked file after confirmed close",
         );

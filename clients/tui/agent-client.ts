@@ -14,6 +14,8 @@ export interface TuiAgentClient {
      * worker. The first command that needs a loop is what activates it.
      */
     readonly viewOnly?: boolean;
+    /** True on the home screen, which has no session behind it at all. */
+    readonly home?: boolean;
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
     readonly capabilities?: AttachedAgentClient["capabilities"];
     supportsHostCapability?: AttachedAgentClient["supportsHostCapability"];

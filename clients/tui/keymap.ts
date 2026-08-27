@@ -288,6 +288,16 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^n new",
     },
     {
+        // A chord rather than a letter: the rail holds the focus while home
+        // is on screen, where a bare key is the first character of a message.
+        id: "workspace_resume_picker",
+        keys: ["ctrl+r"],
+        scope: "workspace",
+        description: "Open the full list of conversations",
+        hint: "^r all sessions",
+        remappable: true,
+    },
+    {
         id: "toggle_tool_details",
         keys: ["ctrl+t"],
         scope: "conversation",

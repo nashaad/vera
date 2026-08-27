@@ -872,7 +872,7 @@ test("vera shortlist add rejects an unknown flag", async () => {
     })).toBe(1);
 });
 
-test("vera interactive commands select create, continue, attach, and resume targets", async () => {
+test("vera interactive commands select home, continue, attach, and resume targets", async () => {
     const targets: unknown[] = [];
     const runTui = async (target: unknown): Promise<void> => {
         targets.push(target);
@@ -883,7 +883,7 @@ test("vera interactive commands select create, continue, attach, and resume targ
     expect(await runCli(["attach", "agent-1"], { runTui })).toBe(0);
     expect(await runCli(["resume", "/sessions/one.jsonl"], { runTui })).toBe(0);
     expect(targets).toEqual([
-        { type: "create", workspace: process.cwd() },
+        { type: "home", workspace: process.cwd() },
         { type: "continue" },
         { type: "attach", agentId: "agent-1" },
         { type: "resume", sessionPath: "/sessions/one.jsonl" },

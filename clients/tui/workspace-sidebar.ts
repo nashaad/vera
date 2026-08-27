@@ -1,9 +1,9 @@
-import type { LinesViewState } from "./lines-view.ts";
-import { renderTuiFocusCaret } from "./activity-pulse.ts";
+import type { LinesViewFooterRow, LinesViewState } from "./lines-view.ts";
 import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
+    RECENT_GROUP,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
@@ -33,7 +33,15 @@ export const WORKSPACE_JUMP_ROWS = 9;
  */
 export const WORKSPACE_RECENT_IDLE = 5;
 
-const NARROW_WIDTH = 64;
+/** The row under the last recent session that points at the full picker. */
+export const WORKSPACE_ALL_SESSIONS_NUDGE = "ctrl+r · all sessions";
+
+/** What the rail says when there is nothing to list. */
+export const WORKSPACE_EMPTY_LINES: readonly string[] = [
+    "No sessions yet.",
+    "ctrl+n new session",
+    "ctrl+r all sessions",
+];
 
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
@@ -103,6 +111,7 @@ export type WorkspaceSidebarAction =
     | { readonly kind: "close" }
     | { readonly kind: "hide" }
     | { readonly kind: "new_session" }
+    | { readonly kind: "resume_picker" }
     | {
         readonly kind: "open_session";
         readonly session_id: string;
@@ -356,7 +365,22 @@ export function workspaceSidebarLayout(
             ? {}
             : { selectedId: state.selectedId }),
         ...(state.currentId === undefined ? {} : { currentId: state.currentId }),
+        // Being on screen is not activity. A session file is read from disk
+        // with no worker behind it, so the row for the one being read belongs
+        // under recent like every other file, and no digit addresses it.
+        isActive: (session) =>
+            isWorkspaceActive(session as WorkspaceSidebarSession),
     });
+}
+
+/** Digits address active rows only, counting from the top of the listing. */
+export function workspaceJumpTargets(
+    layout: WorkspacePanelLayout,
+): readonly string[] {
+    return layout.rows
+        .filter((row) => row.kind === "session" && row.active)
+        .map((row) => (row as { id: string }).id)
+        .slice(0, WORKSPACE_JUMP_ROWS);
 }
 
 /** The session a digit addresses, or nothing past the end of the listing. */
@@ -365,7 +389,7 @@ export function workspaceJumpTarget(
     position: number,
 ): string | undefined {
     if (position < 1 || position > WORKSPACE_JUMP_ROWS) return undefined;
-    return layout.selectable[position - 1];
+    return workspaceJumpTargets(layout)[position - 1];
 }
 
 /** The pin list after toggling one session, order preserved. */
@@ -387,8 +411,8 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * ctrl+n starts a new chat and keeps this one running, i returns to the
- * composer and leaves the rail up, escape hides it, and digits address rows.
+ * ctrl+r opens the full resume picker, ctrl+n starts a new chat and keeps this
+ * one running, and digits address session rows.
  * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
@@ -428,12 +452,15 @@ export function handleWorkspaceSidebarKey(
     if (binding === "workspace_new_session") {
         return { action: { kind: "new_session" }, handled: true };
     }
+    if (binding === "workspace_resume_picker") {
+        return { action: { kind: "resume_picker" }, handled: true };
+    }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
     if (key.name === "escape") {
         return { action: { kind: "hide" }, handled: true };
     }
-    if (key.name === "i") {
+    if (tuiBindingId("unfocused", key) === "focus_composer") {
         return { action: { kind: "close" }, handled: true };
     }
     if (
@@ -498,13 +525,18 @@ export function openWorkspaceSelection(
     };
 }
 
+/** The wordmark at the head of the rail. */
+export const WORKSPACE_SIDEBAR_WORDMARK = "[ VERA ]";
+
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
     const listed = workspaceWorkingSet(
         state.sessions,
         state.currentId,
         state.pinnedIds,
     ).length;
-    return listed === 0 ? "Agent sidebar" : `Agent sidebar · ${listed}`;
+    return listed === 0
+        ? WORKSPACE_SIDEBAR_WORDMARK
+        : `${WORKSPACE_SIDEBAR_WORDMARK} · ${listed}`;
 }
 
 /**
@@ -513,11 +545,46 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  * The digits live here rather than in the help card: nine near-identical rows
  * would push the Transcript scope below the fold, and the only place they are
  * useful is the pane that is already on screen.
+ *
+ * Drawn in full only while the rail holds the keyboard. Most of these chords
+ * are the rail's own, and beside a conversation a block the glance cannot use
+ * reads as instructions for the screen it sits next to.
  */
-export function workspaceSidebarFooter(width: number): string {
-    return width < NARROW_WIDTH
-        ? "↑↓/jk ^d^u ⏎ 1-9 p i ^n esc"
-        : "↑↓/jk ^d^u browse · enter open · 1-9 jump · p pin · ctrl+n new · i chat · esc hide";
+export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
+    { label: "Move", value: "↑↓  j/k" },
+    { label: "Page", value: "ctrl+d/u" },
+    { label: "Open", value: "enter" },
+    { label: "Jump", value: "1–9" },
+    { label: "Pin", value: "p" },
+    { label: "New", value: "ctrl+n" },
+    { label: "Resume", value: "ctrl+r" },
+    { label: "Cycle", value: "ctrl+shift+[ ]" },
+    { label: "Chat", value: "tab" },
+    { label: "Hide", value: "ctrl+e" },
+];
+
+/**
+ * What the rail says while the keyboard is in the conversation beside it.
+ *
+ * The chords that answer from there: the live session cycle, which is global,
+ * the one that hands the rail the keys, and the one that puts it away.
+ */
+export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
+    { label: "Cycle", value: "ctrl+shift+[ ]" },
+    { label: "Focus", value: "tab" },
+    { label: "Hide", value: "ctrl+e" },
+];
+
+export function workspaceSidebarFooter(
+    _width: number,
+    table: readonly LinesViewFooterRow[] = WORKSPACE_FOOTER_TABLE,
+): string {
+    const labelWidth = Math.max(
+        ...table.map((row) => row.label.length + 2),
+    );
+    return table
+        .map((row) => `${row.label.padEnd(labelWidth)}${row.value}`)
+        .join("\n");
 }
 
 /**
@@ -557,7 +624,12 @@ export function workspaceSidebarViewState(
     const width = railColumns ?? columns;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = [];
+    for (const text of layout.rows.length === 0 ? WORKSPACE_EMPTY_LINES : []) {
+        lines.push({ text, tone: "muted" as const });
+    }
     let seenGroup = false;
+    const rowTone = focused ? "text" as const : "muted" as const;
+    const lastRow = layout.rows[layout.rows.length - 1];
     for (const row of layout.rows) {
         if (row.kind === "group") {
             if (seenGroup) {
@@ -570,38 +642,57 @@ export function workspaceSidebarViewState(
             });
             continue;
         }
-        position += 1;
-        // The digit is drawn on the row it addresses. Positional and churning
-        // as the list reorders, which is why it is a shortcut and not the way
-        // a row is picked.
-        const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
+        // The digit is drawn on the active row it addresses. Positional and
+        // churning as the list reorders, which is why it is a shortcut and not
+        // the way a row is picked. Idle rows carry none.
+        if (row.active) position += 1;
+        const digit = row.active && position <= WORKSPACE_JUMP_ROWS
+            ? `${position}`
+            : " ";
         lines.push({
             text: `${digit} ${row.text}`,
-            tone: focused ? "text" as const : "muted" as const,
+            tone: rowTone,
             rowId: row.id,
             // The highlight bar stays on the cursor row even while chat has
             // focus, so the on-screen conversation still reads without wrapping
             // its title in brackets.
             ...(row.selected ? { selected: true } : {}),
         });
+        if (row.detail !== undefined) {
+            lines.push({
+                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${row.detail}`,
+                tone: "muted" as const,
+                rowId: row.id,
+            });
+        }
+        if (row.group === RECENT_GROUP && row === lastRow) {
+            lines.push({
+                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${
+                    WORKSPACE_ALL_SESSIONS_NUDGE
+                }`,
+                tone: "muted" as const,
+            });
+        }
     }
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
+    const footerTable = focused
+        ? WORKSPACE_FOOTER_TABLE
+        : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
-        // Keep a fixed leading slot so focus can blink without moving the
-        // title. Chat focus clears the whole marker, not only its caret.
-        title: `${focused ? renderTuiFocusCaret(animationFrame) : "     "} ${
-            workspaceSidebarHeader(state)
-        }`,
+        // The wordmark is what the rail is called, so it says the same thing
+        // whichever side holds the keyboard. Focus is drawn on the rule under
+        // it and on the edge beside it, where it does not move the title.
+        title: workspaceSidebarHeader(state),
+        ...(focused ? { focused: true } : {}),
         // The rail's footer already names esc. The chip on the title is
         // dialog chrome and crowds a 28-column column.
         ...(railColumns === undefined ? {} : { hint: "" }),
         ...(cursorLine === -1 ? {} : { cursorLine }),
-        lines: lines.length === 0
-            ? [{ text: "No other sessions.", tone: "muted" as const }]
-            : lines,
-        footer: workspaceSidebarFooter(width),
+        lines,
+        footer: workspaceSidebarFooter(width, footerTable),
+        footerTable,
         ...(focused ? {} : { dimmed: true }),
     };
 }

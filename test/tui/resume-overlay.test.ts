@@ -1,19 +1,44 @@
 import { expect, test } from "bun:test";
 
 import {
+    IDLE_NOTICE_CHORD_LINE,
+    IDLE_NOTICE_PROSE,
+    idleNoticeChordsFor,
+    idleNoticeProseLines,
     JSONL_VIEW_SCROLL_IDS,
     jsonlViewKeyAction,
-    RESUME_OVERLAY_HINT,
-    RESUME_OVERLAY_LABEL,
-    RESUME_OVERLAY_NEW_HINT,
+    RESUME_CARET,
+    RESUME_CARET_BLINK_MS,
+    resumeCaretVisible,
     RESUME_OVERLAY_TEXT,
 } from "../../clients/tui/resume-overlay.ts";
 
-test("the overlay names resume in brackets and enter as the key", () => {
-    expect(RESUME_OVERLAY_LABEL).toBe("[resume]");
-    expect(RESUME_OVERLAY_HINT).toBe("enter");
-    expect(RESUME_OVERLAY_TEXT).toBe("[resume] · enter");
-    expect(RESUME_OVERLAY_NEW_HINT).toBe("ctrl+n new");
+test("the composer slot says only how to carry on", () => {
+    // Nothing about being closed, and no chord list: the slot is one line
+    // about the conversation in front of the reader.
+    expect(RESUME_OVERLAY_TEXT)
+        .toBe("Start typing or enter to continue this session");
+    expect(RESUME_OVERLAY_TEXT).not.toContain("closed");
+    expect(RESUME_OVERLAY_TEXT).not.toContain("ctrl+");
+});
+
+test("the block above says idle, and says it ends by typing", () => {
+    expect(IDLE_NOTICE_PROSE).toContain("idle");
+    expect(IDLE_NOTICE_PROSE).toContain("as soon as you type");
+    expect(IDLE_NOTICE_PROSE).not.toContain("closed");
+    expect(IDLE_NOTICE_CHORD_LINE)
+        .toBe("esc home · ctrl+n new · ctrl+r all · ctrl+p commands");
+});
+
+test("the prose breaks to the columns it is given", () => {
+    for (const columns of [24, 48, 72, 200]) {
+        const lines = idleNoticeProseLines(columns);
+        expect(lines.length).toBeGreaterThan(0);
+        for (const line of lines) {
+            expect(line.length).toBeLessThanOrEqual(columns);
+        }
+        expect(lines.join(" ")).toBe(IDLE_NOTICE_PROSE);
+    }
 });
 
 test("enter resumes when the file view owns the keyboard", () => {
@@ -90,17 +115,94 @@ test("ctrl+n starts a new chat from the file view", () => {
     )).toBe("new_session");
 });
 
-test("HUD, palette, and typing are blocked until resume", () => {
+test("slash opens the command composer on a closed file", () => {
+    expect(jsonlViewKeyAction(
+        { name: "/" },
+        { sidebarFocused: false },
+    )).toBe("command");
+});
+
+test("ctrl+p opens the palette from a closed file", () => {
+    expect(jsonlViewKeyAction(
+        { name: "p", ctrl: true },
+        { globalBinding: "open_palette", sidebarFocused: false },
+    )).toBe("palette");
+});
+
+test("a printable key resumes the file with that key as the message", () => {
+    expect(jsonlViewKeyAction({ name: "x" }, { sidebarFocused: false }))
+        .toBe("type");
+    expect(jsonlViewKeyAction({ name: "space" }, { sidebarFocused: false }))
+        .toBe("type");
+    expect(jsonlViewKeyAction(
+        { name: "x", ctrl: true },
+        { sidebarFocused: false },
+    )).toBe("block");
+});
+
+test("the HUD stays blocked until resume", () => {
     expect(jsonlViewKeyAction(
         { name: "tab", shift: true },
         { globalBinding: "dials.open", sidebarFocused: false },
     )).toBe("block");
+});
+
+test("escape leaves the file for home", () => {
+    expect(jsonlViewKeyAction({ name: "escape" }, { sidebarFocused: false }))
+        .toBe("home");
+});
+
+test("a modified escape is not the way home", () => {
+    for (const modifier of ["ctrl", "shift", "meta"] as const) {
+        expect(jsonlViewKeyAction(
+            { name: "escape", [modifier]: true },
+            { sidebarFocused: false },
+        )).toBe("block");
+    }
+});
+
+test("ctrl+r opens the full list from a file, focused rail or not", () => {
     expect(jsonlViewKeyAction(
-        { name: "p", ctrl: true },
-        { globalBinding: "open_palette", sidebarFocused: false },
-    )).toBe("block");
+        { name: "r", ctrl: true },
+        {
+            workspaceBinding: "workspace_resume_picker",
+            sidebarFocused: false,
+        },
+    )).toBe("resume_picker");
+    // A focused rail answers its own chord, so the file view hands it over
+    // rather than opening a second copy of the same list.
     expect(jsonlViewKeyAction(
-        { name: "x" },
-        { sidebarFocused: false },
-    )).toBe("block");
+        { name: "r", ctrl: true },
+        {
+            workspaceBinding: "workspace_resume_picker",
+            sidebarFocused: true,
+        },
+    )).toBe("sidebar");
+});
+
+test("the chord row drops from the right rather than running off the edge", () => {
+    expect(idleNoticeChordsFor(80).map((chord) => chord.key))
+        .toEqual(["esc", "ctrl+n", "ctrl+r", "ctrl+p"]);
+    // Escape leads because it is the chord every other screen also answers.
+    expect(idleNoticeChordsFor(34).map((chord) => chord.key))
+        .toEqual(["esc", "ctrl+n", "ctrl+r"]);
+    expect(idleNoticeChordsFor(6)).toEqual([]);
+    for (const columns of [6, 12, 24, 34, 40, 80]) {
+        const drawn = idleNoticeChordsFor(columns)
+            .map((chord) => `${chord.key} ${chord.label}`)
+            .join(" · ");
+        expect(drawn.length).toBeLessThanOrEqual(columns);
+    }
+});
+
+test("the caret blinks on the clock, so a skipped frame does not stall it", () => {
+    // A composer with nothing typed in it has no cursor of its own, so the
+    // caret is what says the keyboard would land here.
+    expect(RESUME_CARET.trimEnd()).toBe("›");
+    expect(resumeCaretVisible(0)).toBe(true);
+    expect(resumeCaretVisible(RESUME_CARET_BLINK_MS)).toBe(false);
+    expect(resumeCaretVisible(RESUME_CARET_BLINK_MS * 2)).toBe(true);
+    // Two readings a full cycle apart agree however many were missed between.
+    expect(resumeCaretVisible(RESUME_CARET_BLINK_MS * 40 + 7))
+        .toBe(resumeCaretVisible(7));
 });

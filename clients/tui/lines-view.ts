@@ -54,6 +54,11 @@ export interface LinesViewLine {
     readonly selected?: boolean;
 }
 
+export interface LinesViewFooterRow {
+    readonly label: string;
+    readonly value: string;
+}
+
 export interface LinesViewState {
     readonly title: string;
     /** Follows the title on the right of the header; "esc" when omitted. */
@@ -65,8 +70,18 @@ export interface LinesViewState {
      */
     readonly cursorLine?: number;
     readonly footer: string;
+    /** Optional label/value presentation for a footer that reads as a table. */
+    readonly footerTable?: readonly LinesViewFooterRow[];
     /** Softer title colour when the surface is visible but not focused. */
     readonly dimmed?: boolean;
+    /**
+     * Whether this surface owns the keyboard right now.
+     *
+     * A rail is drawn beside the chat rather than over it, so nothing about
+     * being on screen says which of the two a key would reach. Its rule and
+     * its edge are drawn heavier while it does, which reads without colour.
+     */
+    readonly focused?: boolean;
 }
 
 export interface LinesView {
@@ -166,10 +181,21 @@ const CARD_CHROME_HEIGHT = 7;
  * spends on each side would come straight out of the titles.
  */
 const RAIL_PADDING = 1;
-/** The rail's own equivalent of `CARD_CHROME_HEIGHT`, one row less padding. */
-const RAIL_CHROME_HEIGHT = 6;
+/**
+ * Rail header, the rule and blank row under it, edge padding, and the rule
+ * above its fixed help block.
+ */
+const RAIL_CHROME_HEIGHT = 8;
 /** The row a rail starts on: the blank one the screen keeps above everything. */
 const RAIL_TOP_MARGIN = 1;
+
+/** Rows the state's help block will take. */
+function footerContentRows(state: LinesViewState): number {
+    return Math.max(
+        1,
+        state.footerTable?.length ?? state.footer.split("\n").length,
+    );
+}
 
 /**
  * Read per draw, never captured: the theme constants are rebound when the
@@ -190,6 +216,14 @@ export function createTuiLinesView(
     let nodes: Renderable[] = [];
     let bottomInset = COMPOSER_RESERVE;
     let rail: number | undefined;
+    let footerRows = 1;
+    /**
+     * Rows the list does not get. The base counts one help row, so a block of
+     * any other height costs the difference.
+     */
+    const chromeRows = (): number =>
+        (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
+        + footerRows - 1;
     const railPadding = options.railPadding ?? RAIL_PADDING;
     const box = new BoxRenderable(renderer, {
         id,
@@ -240,8 +274,8 @@ export function createTuiLinesView(
                 dialogBoxHeight(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - bottomInset,
-                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
+                ) - (rail === undefined ? bottomInset : 0),
+                chromeRows(),
             );
         },
         setRail(columns): void {
@@ -276,6 +310,7 @@ export function createTuiLinesView(
             box.paddingBottom = 1;
         },
         update(state): void {
+            footerRows = footerContentRows(state);
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
             const add = (node: Renderable): void => {
@@ -290,6 +325,12 @@ export function createTuiLinesView(
                     height: 1,
                 }));
             };
+            // The edge between a rail and the chat beside it thickens with
+            // the rail's focus: the boundary is the one piece of chrome both
+            // sides can see at once.
+            if (options.railDivider === true) {
+                box.borderStyle = state.focused === true ? "heavy" : "single";
+            }
             const hint = state.hint ?? "esc";
             // A docked rail is a column, not a dialog: keep the title, drop
             // the esc chip (the footer already names it), and honour dimming.
@@ -303,7 +344,22 @@ export function createTuiLinesView(
                     state.dimmed === true,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
-            muted("");
+            // A dock uses the row below its title for a rule: the wordmark
+            // above it is a heading, and a heading with nothing under it reads
+            // as the first row of the list. Cards keep the dialog-style
+            // breathing room under the header instead.
+            if (rail === undefined) {
+                muted("");
+            } else {
+                add(new TextRenderable(renderer, {
+                    content: (state.focused === true ? "━" : "─")
+                        .repeat(Math.max(1, view.contentWidth())),
+                    fg: state.focused === true ? TUI_TEXT : TUI_ELEMENT,
+                    width: "100%",
+                    height: 1,
+                }));
+                muted("");
+            }
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
@@ -311,8 +367,8 @@ export function createTuiLinesView(
                 dialogBoxHeight(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - bottomInset,
-                rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT,
+                ) - (rail === undefined ? bottomInset : 0),
+                chromeRows(),
             );
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
@@ -326,20 +382,79 @@ export function createTuiLinesView(
                 room,
             );
             if (above > 0) muted(`… ${above} above`);
+            // A rail without the keyboard draws no selection bar. The bar is
+            // the loudest thing on the pane, so leaving it lit beside a live
+            // conversation puts the brightest mark on screen where the keys
+            // are not. The `❯` in the row's own gutter is what still says
+            // which row a returning keyboard would land on.
+            const selectable = rail === undefined || state.focused === true;
             for (const line of visible) {
                 add(lineNode(
                     renderer,
                     view,
-                    line,
+                    selectable ? line : { ...line, selected: false },
                     options.panelBackground === false,
                 ));
             }
             const below = state.lines.length - above - visible.length;
             if (below > 0) muted(`… ${below} below`);
-            add(dialogFooterNode(renderer, state.footer));
+            // A dock is two regions: the list above, which scrolls, and a
+            // fixed help block on the bottom edge, with an inset rule between
+            // them. Centred cards keep their compact height.
+            if (rail !== undefined) {
+                add(new BoxRenderable(renderer, {
+                    width: "100%",
+                    flexGrow: 1,
+                }));
+                add(new TextRenderable(renderer, {
+                    content: "─".repeat(Math.max(1, rail - 2)),
+                    fg: TUI_ELEMENT,
+                    marginLeft: 1,
+                    width: "100%",
+                    height: 1,
+                }));
+            }
+            add(state.footerTable === undefined
+                ? dialogFooterNode(renderer, state.footer)
+                : footerTableNode(renderer, state.footerTable));
         },
     };
     return view;
+}
+
+/** A quiet two-column footer, matching the information tables used by TUIs. */
+function footerTableNode(
+    renderer: RenderContext,
+    rows: readonly LinesViewFooterRow[],
+): BoxRenderable {
+    const table = new BoxRenderable(renderer, {
+        width: "100%",
+        height: rows.length,
+        marginTop: 1,
+        flexDirection: "column",
+    });
+    const labelWidth = Math.max(1, ...rows.map((row) => row.label.length + 2));
+    for (const item of rows) {
+        const row = new BoxRenderable(renderer, {
+            width: "100%",
+            height: 1,
+            flexDirection: "row",
+        });
+        row.add(new TextRenderable(renderer, {
+            content: item.label,
+            fg: TUI_MUTED,
+            width: labelWidth,
+            height: 1,
+        }));
+        row.add(new TextRenderable(renderer, {
+            content: item.value,
+            fg: TUI_TEXT,
+            flexGrow: 1,
+            height: 1,
+        }));
+        table.add(row);
+    }
+    return table;
 }
 
 /**

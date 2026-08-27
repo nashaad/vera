@@ -60,6 +60,24 @@ const UNSELECTED_MARKER = " ";
  * ordinary row that happens to be listed first.
  */
 export const PINNED_GROUP = "pinned";
+/** Sessions with a worker up: attached, working, waiting, or a named pid. */
+export const ACTIVE_GROUP = "active";
+/** Idle session files, newest first. */
+export const RECENT_GROUP = "recent";
+
+/** Shown in a title's place when a session has no title. The id never is. */
+export const UNTITLED_SESSION = "untitled";
+
+/**
+ * A status as a word, so an active row still says what it is doing when the
+ * marker column is a bare spinner or the render has no colour.
+ */
+export function workspaceStatusWord(status: WorkspaceSessionStatus): string {
+    if (status === "waiting") return "needs you";
+    if (status === "working") return "working";
+    if (status === "completed") return "done";
+    return status;
+}
 
 /**
  * Column one, as text. Colour may ride on top of it and may never replace it:
@@ -143,6 +161,8 @@ export interface WorkspaceSessionRow {
      */
     readonly id: string;
     readonly group: string;
+    /** A running session, whichever group holds it; digits address these. */
+    readonly active: boolean;
     readonly status: WorkspaceSessionStatus;
     readonly marker: WorkspaceRowMarker;
     readonly title: string;
@@ -150,6 +170,12 @@ export interface WorkspaceSessionRow {
     readonly age: string;
     readonly selected: boolean;
     readonly text: string;
+    /**
+     * The second line an active row carries: its status word and the
+     * workspace basename. Absent on pinned and recent rows, which stay one
+     * line.
+     */
+    readonly detail?: string;
 }
 
 export type WorkspaceRow = WorkspaceGroupRow | WorkspaceSessionRow;
@@ -189,6 +215,11 @@ export interface WorkspacePanelInput {
     readonly currentId?: string;
     /** Advances the working spinner. Ignored for every other status. */
     readonly animationFrame?: number;
+    /**
+     * Which sessions have a worker up. Defaults to the session's own `live`,
+     * status, and named worker; the sidebar passes its wider test.
+     */
+    readonly isActive?: (session: WorkspaceSession) => boolean;
 }
 
 /**
@@ -226,7 +257,12 @@ export function layoutWorkspacePanel(
     const contentColumns = input.contentColumns ?? CONTENT_COLUMNS[width];
     const showAge = input.showAge ?? width !== "medium";
     const listed = input.sessions.filter(isSwitchableSession);
-    const groups = groupSessions(listed, new Set(input.pinnedIds ?? []));
+    const isActive = input.isActive ?? defaultActive;
+    const groups = groupSessions(
+        listed,
+        new Set(input.pinnedIds ?? []),
+        isActive,
+    );
     const selectable = groups.flatMap((group) =>
         group.sessions.map((session) => session.id)
     );
@@ -239,7 +275,7 @@ export function layoutWorkspacePanel(
     for (const group of groups) {
         rows.push(groupRow(group, contentColumns));
         for (const session of group.sessions) {
-            rows.push(sessionRow(session, group.group, {
+            rows.push(sessionRow(session, group.group, isActive(session), {
                 contentColumns,
                 showAge,
                 now: input.now,
@@ -283,40 +319,42 @@ interface SessionGroup {
     readonly sessions: readonly WorkspaceSession[];
 }
 
+function defaultActive(session: WorkspaceSession): boolean {
+    return session.live
+        || session.status === "waiting"
+        || session.status === "working"
+        || namedWorker(session);
+}
+
 /**
- * Sessions group by workspace, most recently touched group first. A background
- * child is still a conversation in that workspace, so it sits with its
- * siblings rather than in a separate group.
+ * Sessions split by state, never by workspace: active first, then pins, then
+ * recent files. Each group is most recent first. A pin outranks activity so a
+ * pinned row stays where the reader put it.
  */
 function groupSessions(
     sessions: readonly WorkspaceSession[],
     pinned: ReadonlySet<string>,
+    isActive: (session: WorkspaceSession) => boolean,
 ): readonly SessionGroup[] {
-    const byGroup = new Map<string, WorkspaceSession[]>();
+    const byGroup = new Map<string, WorkspaceSession[]>([
+        [ACTIVE_GROUP, []],
+        [PINNED_GROUP, []],
+        [RECENT_GROUP, []],
+    ]);
     for (const session of sessions) {
         const group = pinned.has(session.id)
             ? PINNED_GROUP
-            : workspaceGroupPath(session.workspace);
-        const existing = byGroup.get(group);
-        if (existing === undefined) byGroup.set(group, [session]);
-        else existing.push(session);
+            : isActive(session)
+            ? ACTIVE_GROUP
+            : RECENT_GROUP;
+        byGroup.get(group)!.push(session);
     }
     const groups: SessionGroup[] = [];
     for (const [group, members] of byGroup) {
+        if (members.length === 0) continue;
         members.sort(byRecency);
         groups.push({ group, sessions: members });
     }
-    groups.sort((left, right) => {
-        if (left.group === PINNED_GROUP) return -1;
-        if (right.group === PINNED_GROUP) return 1;
-        // Compared on the timestamps alone rather than through `byRecency`,
-        // whose id fallback would decide ties by uuid. Two workspaces touched
-        // in the same minute read in name order instead, which is stable to
-        // look at across redraws.
-        const recency = timestamp(right.sessions[0]!.updatedAt)
-            - timestamp(left.sessions[0]!.updatedAt);
-        return recency === 0 ? left.group.localeCompare(right.group) : recency;
-    });
     return groups;
 }
 
@@ -377,14 +415,11 @@ function groupRow(
     group: SessionGroup,
     contentColumns: number,
 ): WorkspaceGroupRow {
-    const label = group.group === PINNED_GROUP
-        ? group.group
-        : basename(group.group);
     return {
         kind: "group",
         group: group.group,
         sessions: group.sessions.length,
-        text: clip(label, Math.max(1, contentColumns)),
+        text: clip(group.group, Math.max(1, contentColumns)),
     };
 }
 
@@ -399,6 +434,7 @@ interface RowContext {
 function sessionRow(
     session: WorkspaceSession,
     group: string,
+    active: boolean,
     context: RowContext,
 ): WorkspaceSessionRow {
     const marker = workspaceStatusMarker(
@@ -408,8 +444,10 @@ function sessionRow(
         session.updatedAt,
         context.now,
     );
-    const title = session.title ?? session.id;
-    const age = context.showAge
+    const title = session.title ?? UNTITLED_SESSION;
+    // An active row says its state and workspace on its second line, so the
+    // age goes to the rows that have nothing else to say.
+    const age = context.showAge && !active
         ? relativeTime(session.updatedAt, context.now, "")
         : "";
     const room = context.contentColumns
@@ -428,10 +466,21 @@ function sessionRow(
         group,
         status: session.status,
         marker,
+        active,
         title: shown,
         age,
         selected: context.selected,
         text,
+        ...(active
+            ? {
+                detail: clip(
+                    `${workspaceStatusWord(session.status)} · ${
+                        basename(workspaceGroupPath(session.workspace))
+                    }`,
+                    Math.max(1, context.contentColumns),
+                ),
+            }
+            : {}),
     };
 }
 

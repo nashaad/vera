@@ -65,63 +65,56 @@ describe("width breakpoints", () => {
 });
 
 describe("grouping", () => {
-    test("orders workspaces touched at the same time by name", () => {
-        const result = layout([
-            session({ id: "z", workspace: "/w/zeta" }),
-            session({ id: "a", workspace: "/w/alpha" }),
-        ]);
-        const headings = result.rows
-            .filter((row) => row.kind === "group")
-            .map((row) => row.text.trim());
-        expect(headings.map((text) => text.split(" ")[0])).toEqual([
-            "alpha",
-            "zeta",
-        ]);
-    });
-
-    test("groups interactive sessions by workspace", () => {
+    test("splits by state, never by workspace", () => {
         const result = layout([
             session({ id: "a", workspace: "/w/one", title: "one a" }),
-            session({ id: "b", workspace: "/w/two", title: "two b" }),
+            session({
+                id: "b",
+                workspace: "/w/two",
+                title: "two b",
+                live: true,
+                status: "working",
+            }),
             session({ id: "c", workspace: "/w/one", title: "one c" }),
         ]);
         const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups.map((row) => row.group)).toEqual(["/w/one", "/w/two"]);
-        expect(groups.map((row) => row.sessions)).toEqual([2, 1]);
+        expect(groups.map((row) => row.group)).toEqual(["active", "recent"]);
+        expect(groups.map((row) => row.sessions)).toEqual([1, 2]);
+        expect(result.selectable).toEqual(["b", "a", "c"]);
     });
 
-    test("a git worktree groups with its parent checkout", () => {
+    test("an active row carries its status word and workspace basename", () => {
         const result = layout([
-            session({
-                id: "main",
-                workspace: "/Users/nash/Projects/vera",
-                title: "on main",
-            }),
             session({
                 id: "aside",
                 workspace: "/Users/nash/Projects/vera/.worktrees/aside",
                 title: "count to 10",
+                live: true,
+                status: "waiting",
             }),
+            session({ id: "old", workspace: "/w/two" }),
         ]);
-        const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups).toHaveLength(1);
-        expect(groups[0]?.group).toBe("/Users/nash/Projects/vera");
-        expect(groups[0]?.text).toBe("vera");
-        expect(result.rows.filter((row) => row.kind === "session")).toHaveLength(
-            2,
-        );
+        const rows = sessionRows(result);
+        expect(rows[0]?.detail).toBe("needs you · vera");
+        expect(rows[0]?.age).toBe("");
+        expect(rows[1]?.detail).toBeUndefined();
+        expect(rows[1]?.age).toBe("1h ago");
     });
 
-    test("background agents sit in their workspace group", () => {
+    test("background agents count as active once they have a worker", () => {
         const result = layout([
-            session({ id: "bg", kind: "background", workspace: "/w/one" }),
+            session({
+                id: "bg",
+                kind: "background",
+                workspace: "/w/one",
+                ...({ workerPid: 41 } as Partial<WorkspaceSession>),
+            }),
             session({ id: "a", workspace: "/w/one" }),
             session({ id: "b", workspace: "/w/two" }),
         ]);
         const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups.map((row) => row.group)).toEqual(["/w/one", "/w/two"]);
-        expect(groups[0]?.sessions).toBe(2);
-        expect(result.selectable).toEqual(["a", "bg", "b"]);
+        expect(groups.map((row) => row.group)).toEqual(["active", "recent"]);
+        expect(result.selectable).toEqual(["bg", "a", "b"]);
     });
 
     test("orders groups by their most recent session", () => {
@@ -317,9 +310,9 @@ describe("row text", () => {
         expect(row.title.length).toBe(37);
     });
 
-    test("falls back to the id when a session has no title", () => {
+    test("reads untitled when a session has no title, never the id", () => {
         const result = layout([session({ id: "abc123" })]);
-        expect(sessionRows(result)[0]?.title).toBe("abc123");
+        expect(sessionRows(result)[0]?.title).toBe("untitled");
     });
 
     test("a session with no usable timestamp shows no age", () => {
@@ -335,7 +328,7 @@ describe("row text", () => {
             session({ id: "b", workspace: "/Users/nash/Projects/vera" }),
         ]);
         const header = result.rows.find((row) => row.kind === "group")!;
-        expect(header.text).toBe("vera");
+        expect(header.text).toBe("recent");
         expect(header.sessions).toBe(2);
     });
 });
@@ -367,7 +360,7 @@ describe("selection", () => {
         const result = layout(three);
         expect(result.selectable).toEqual(["a", "b", "c"]);
         const headers = result.rows.filter((row) => row.kind === "group");
-        expect(headers.length).toBe(2);
+        expect(headers.length).toBe(1);
     });
 
     test("moves across a group boundary without landing on the header", () => {

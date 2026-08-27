@@ -388,6 +388,11 @@ export interface TuiSettingsPickerState {
      */
     readonly enterDisposition?: TuiSessionLeaveDisposition;
     /**
+     * The picker was opened with no conversation on screen, so Enter is not a
+     * switch away from anything: it opens the row and nothing else happens.
+     */
+    readonly nothingToLeave?: boolean;
+    /**
      * The sections the user has closed, by heading. It rides on the pane so a
      * tab switch and back finds the list the way it was left, and it lasts as
      * long as the pane does: which providers are worth hiding is a question
@@ -1941,18 +1946,13 @@ export function startTuiSessionPicker(
     includeUntitled = false,
     sharedAgentGroups: readonly (readonly [string, string])[] = [],
     enterDisposition: TuiSessionLeaveDisposition = "stop",
+    nothingToLeave = false,
 ): TuiSettingsPickerState {
     // The current session is listed rather than hidden. Switching is a
     // re-attach with the screen left up, so its row costs nothing and answers
     // "which one am I in" without the user having to remember.
     const options = agents
-        .filter((agent) => agent.status !== "closed"
-            && agent.status !== "failed"
-            && (includeUntitled
-                || agent.title !== undefined
-                || agent.has_user_content === true
-                || agent.parent_id !== undefined
-                || agent.forked_from !== undefined))
+        .filter((agent) => sessionPickerLists(agent, includeUntitled))
         .toSorted((left, right) =>
             (right.updated_at ?? "").localeCompare(left.updated_at ?? "")
         )
@@ -1989,6 +1989,7 @@ export function startTuiSessionPicker(
         ...(enterDisposition === "keep_running"
             ? { enterDisposition }
             : {}),
+        ...(nothingToLeave ? { nothingToLeave } : {}),
     };
 }
 
@@ -3854,14 +3855,19 @@ function pickerFooterText(
     width = 0,
 ): string {
     if (state.kind === "session") {
+        // With nothing on screen to leave, opening a row in the background
+        // and opening it are the same act, so only one of them is offered.
+        const leavingSomething = state.nothingToLeave !== true;
         return [
             "↑↓ ^d^u move",
-            state.enterDisposition === "keep_running"
+            !leavingSomething
+                ? "⏎ open"
+                : state.enterDisposition === "keep_running"
                 ? "⏎ switch"
                 : "⏎ stop & switch",
-            ...(state.enterDisposition === "keep_running"
-                ? []
-                : [tuiKeyHint("background_switch")]),
+            ...(leavingSomething && state.enterDisposition !== "keep_running"
+                ? [tuiKeyHint("background_switch")]
+                : []),
             tuiKeyHint("rename_session"),
             tuiKeyHint("trash_session"),
             "esc close",
@@ -4332,6 +4338,24 @@ function optionMeta(
         }
     }
     return parts.length === 0 ? undefined : parts;
+}
+
+/**
+ * Whether the session list shows this row.
+ *
+ * A conversation that was opened and never spoken to has no title and no turns
+ * to title it by, so listing it would name something that never happened.
+ * Anything asking whether there is a list worth opening asks this too, or it
+ * offers a way into an empty list.
+ */
+export function sessionPickerLists(
+    agent: RegisteredAgentSummary,
+    includeUntitled = false,
+): boolean {
+    if (agent.status === "closed" || agent.status === "failed") return false;
+    return includeUntitled || agent.title !== undefined
+        || agent.has_user_content === true || agent.parent_id !== undefined
+        || agent.forked_from !== undefined;
 }
 
 function emptyPickerMessage(state: TuiAnySettingsPickerState): string {

@@ -306,7 +306,7 @@ export async function runCli(
     }
 
     if (args.length === 0) {
-        await runTui({ type: "create", workspace: process.cwd() }, tuiOptions);
+        await runTui({ type: "home", workspace: process.cwd() }, tuiOptions);
         return 0;
     }
 

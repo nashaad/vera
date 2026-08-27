@@ -56,7 +56,7 @@ test("a jsonl view paints the stored transcript and does not start work", async 
     });
 
     await expect(client.send({ type: "prompt", content: "again" }))
-        .rejects.toThrow("on disk until it is resumed");
+        .rejects.toThrow("idle until something wakes it");
 
     client.close();
 });
@@ -72,7 +72,7 @@ test("a prompt does not activate a jsonl view", async () => {
 
     const client = await createJsonlViewClient(path);
     await expect(client.send({ type: "prompt", content: "wake up" }))
-        .rejects.toThrow("on disk until it is resumed");
+        .rejects.toThrow("idle until something wakes it");
     client.close();
 });
 

@@ -20,6 +20,16 @@ export interface JsonlViewClient extends TuiAgentClient {
 export function isJsonlViewClient(
     client: TuiAgentClient,
 ): client is JsonlViewClient {
+    return isWorkerFreeClient(client) && client.home !== true;
+}
+
+/**
+ * A client with no worker of its own: a session file, or the home screen.
+ *
+ * Both paint without a composer and neither has a conversation to stop, so
+ * the screen and the leave paths ask this rather than which of the two it is.
+ */
+export function isWorkerFreeClient(client: TuiAgentClient): boolean {
     return client.viewOnly === true;
 }
 
@@ -50,7 +60,7 @@ export async function createJsonlViewClient(
                 return;
             }
             throw new Error(
-                "This conversation is on disk until it is resumed",
+                "This conversation is idle until something wakes it",
             );
         },
         receive(signal) {

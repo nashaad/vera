@@ -45,7 +45,9 @@ test("resume picker switches conversation without restarting the TUI", async () 
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("Down");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        // Enter runs the row rather than previewing it: the file is resumed
+        // and what lands is a conversation, not a transcript read from disk.
+        pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         // The picker is gone when its rows are. Picking a session is where the
         // person meant to go rather than a hop taken to answer something, so
         // nothing offers them a trip back from it.
@@ -54,14 +56,17 @@ test("resume picker switches conversation without restarting the TUI", async () 
         // The pane belongs to the process that started: the transcript was
         // replaced under a TUI that never went away.
         expect(pane).toContain("Message Vera");
-        expect(pane).not.toContain("RESUMED HISTORY LOADED");
+        expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
         expect(readFileSync(join(home, "resume-result.txt"), "utf8"))
             .toBe(
-                "none\ndetached\ntarget-session-id"
-                    + "\nclosed current-session-id",
+                `${scenario.targetPath}\ndetached\ntarget-session-id`
+                    // Quitting closes the session in hand, and after the
+                    // switch that is the resumed one as well as the one it
+                    // replaced.
+                    + "\nclosed current-session-id,target-session-id",
             );
     } finally {
         await session.close();
@@ -216,3 +221,4 @@ test("session trash rejection keeps the picker usable", async () => {
         await session.close();
     }
 }, 15_000);
+

@@ -152,6 +152,11 @@ export interface CreateSessionTuiCommandAction {
     readonly sourceDisposition?: TuiSessionLeaveDisposition;
 }
 
+/** Start a worker for the closed session file on screen. */
+export interface ResumeViewedSessionTuiCommandAction {
+    readonly type: "resume_viewed_session";
+}
+
 export interface UpdateSessionNameTuiCommandAction {
     readonly type: "update_session_name";
     readonly name: string | null;
@@ -220,6 +225,7 @@ export interface InvokeSkillTuiCommandAction {
 }
 
 export type TuiCommandAction =
+    | ResumeViewedSessionTuiCommandAction
     | OpenRewindTuiCommandAction
     | OpenForkTuiCommandAction
     | UpdateModelTuiCommandAction
@@ -270,6 +276,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "wear_agent":
         case "open_configure":
         case "open_resume_picker":
+        case "resume_viewed_session":
         case "open_subagents_picker":
         case "go_to_parent":
         case "go_back":
