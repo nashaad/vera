@@ -206,10 +206,12 @@ test("TUI status snapshot carries facts and no client state", () => {
 });
 
 test("the idle status line reports the background agents still running", () => {
+    // Ready is the place row's to say, and the place row still says it here:
+    // a session waiting on its children is idle.
     expect(renderTuiIdleHint("ready · ctrl+p commands", 2))
-        .toBe("waiting for 2 background agents · ready · ctrl+p commands");
+        .toBe("waiting for 2 background agents");
     expect(renderTuiIdleHint("ready · ctrl+p commands", 1))
-        .toBe("waiting for 1 background agent · ready · ctrl+p commands");
+        .toBe("waiting for 1 background agent");
     // Back to the plain hint once the children are done.
     expect(renderTuiIdleHint("ready · ctrl+p commands", 0))
         .toBe("ready · ctrl+p commands");

@@ -1457,6 +1457,11 @@ export async function startTui(
      */
     let workspaceRail: number | undefined;
     let workspaceRailDragging = false;
+    /** The rail width and terminal width the layout below was laid out for. */
+    let workspaceRailLaidOut: number | undefined;
+    let workspaceRailLaidOutColumns: number | undefined;
+    /** The last side bar state handed to the view, as drawn. */
+    let workspaceSidebarDrawn: string | undefined;
     /** Client state. A pin orders one person's list and never reaches a host. */
     let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
     let searchOverlay: SearchOverlayState | undefined;
@@ -2468,6 +2473,20 @@ export async function startTui(
         visible: false,
     });
 
+    // The lines naming the sessions around this one: a parent to return to,
+    // or the subagents running under it. They read above the composer rather
+    // than under it. The rows under the composer are then fixed in height, so
+    // the composer holds the same distance off the foot of the screen and
+    // these lines take their room from the transcript instead.
+    const agentNoticeText = new TextRenderable(renderer, {
+        id: "agent-notice",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        visible: false,
+    });
+
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
         content: "",
@@ -2652,6 +2671,8 @@ export async function startTui(
      * margin is kept here rather than read back off the box.
      */
     let composerMarginRows = 2;
+    /** Rows the agent notice above the composer is currently drawing. */
+    let agentNoticeRows = 0;
     let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
     /**
      * A slash typed on a closed session file opens the composer for the few
@@ -2685,6 +2706,7 @@ export async function startTui(
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0)
+            + agentNoticeRows
             + 1;
         jumpMenuBox.bottom = commandSuggestionsBox.bottom;
     }
@@ -4042,6 +4064,7 @@ export async function startTui(
     app.add(heldAddressText);
     app.add(dialCard);
     app.add(homeView.surface);
+    app.add(agentNoticeText);
     app.add(composerBox);
     app.add(resumeOverlay.surface);
     app.add(statusBand);
@@ -9907,16 +9930,7 @@ export async function startTui(
                 workTabViewState(workTab, workTabView.contentWidth()),
             );
         }
-        if (workspaceSidebar !== undefined) {
-            workspaceSidebarView.update(workspaceSidebarViewState(
-                workspaceSidebar,
-                renderer.width,
-                new Date(),
-                workspaceRail,
-                workspaceSidebarFocused,
-                activityFrame(),
-            ));
-        }
+        drawWorkspaceSidebar();
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
                 searchOverlay,
@@ -9995,6 +10009,34 @@ export async function startTui(
     }
 
     /**
+     * Draw the side bar, and only when what it draws has changed.
+     *
+     * The state carries a clock, so it is a fresh object on every timed
+     * refresh even while the rail reads the same. Handing an unchanged state
+     * to the view still repaints, and a repaint re-shows the terminal cursor,
+     * which restarts its blink phase: ten a second and the caret in the
+     * composer never gets to blink at all.
+     */
+    function drawWorkspaceSidebar(): void {
+        if (workspaceSidebar === undefined) {
+            workspaceSidebarDrawn = undefined;
+            return;
+        }
+        const next = workspaceSidebarViewState(
+            workspaceSidebar,
+            renderer.width,
+            new Date(),
+            workspaceRail,
+            workspaceSidebarFocused,
+            activityFrame(),
+        );
+        const drawn = JSON.stringify(next);
+        if (drawn === workspaceSidebarDrawn) return;
+        workspaceSidebarDrawn = drawn;
+        workspaceSidebarView.update(next);
+    }
+
+    /**
      * Redraw the surfaces whose rows state how long ago something happened.
      *
      * Both read the clock rather than a value the host sent, so a tab left
@@ -10018,16 +10060,7 @@ export async function startTui(
             );
         }
         applyWorkspaceRail();
-        if (workspaceSidebar !== undefined) {
-            workspaceSidebarView.update(workspaceSidebarViewState(
-                workspaceSidebar,
-                renderer.width,
-                new Date(),
-                workspaceRail,
-                workspaceSidebarFocused,
-                activityFrame(),
-            ));
-        }
+        drawWorkspaceSidebar();
         if (searchOverlay !== undefined) {
             searchOverlayView.update(searchOverlayViewState(
                 searchOverlay,
@@ -12017,6 +12050,16 @@ export async function startTui(
             workspaceSidebarView.setRail(columns);
         }
         const occupied = workspaceSidebarView.railColumns() ?? 0;
+        // Everything below is a function of the width the rail occupies and
+        // the width of the terminal, and re-applying it repaints. Timed
+        // refreshes call this on every tick, so the layout is only laid out
+        // again when one of the two has moved.
+        if (
+            occupied === workspaceRailLaidOut
+            && renderer.width === workspaceRailLaidOutColumns
+        ) return;
+        workspaceRailLaidOut = occupied;
+        workspaceRailLaidOutColumns = renderer.width;
         // The navigator owns a full-height column like an editor sidebar.
         // Reserving that width on the app moves the transcript, composer,
         // status rows and dialogs together; nothing from the chat can run
@@ -15141,26 +15184,35 @@ export async function startTui(
                 ? []
                 : [fg(TUI_MUTED)("\n"), rule("─")]),
         ]);
-        backgroundStatusText.content = new StyledText([
-            ...detailChunks,
-            ...(agentSection.length === 0 ? [] : [
-                fg(TUI_MUTED)("\n"),
+        backgroundStatusText.content = new StyledText(detailChunks);
+        // Text nodes lay their content out from column zero, so the notice
+        // carries the indent the band gets as padding.
+        const noticeIndent = " ".repeat(composerContentIndent);
+        agentNoticeText.content = agentSection.length === 0
+            ? new StyledText([])
+            : new StyledText([
+                fg(TUI_MUTED)(noticeIndent),
                 ...animatedAgentHeader.chunks,
                 fg(TUI_MUTED)(
                     agentSection.length === 1
                         ? ""
-                        : `\n${agentSection.slice(1).join("\n")}`,
+                        : `\n${
+                            agentSection.slice(1)
+                                .map((row) => `${noticeIndent}${row}`)
+                                .join("\n")
+                        }`,
                 ),
-            ]),
-        ]);
-        // A rule separates each pair of status rows under the frame. The
-        // labelled agent section is distinct enough without another divider.
-        const cardRows = Math.max(1, outsideRows.length * 2 - 1)
-            + agentSection.length;
+            ]);
+        agentNoticeRows = agentSection.length;
+        agentNoticeText.height = Math.max(1, agentNoticeRows);
+        agentNoticeText.visible = agentNoticeRows > 0;
+        // A rule separates each pair of status rows under the frame.
+        const cardRows = Math.max(1, outsideRows.length * 2 - 1);
         backgroundStatusText.height = cardRows;
         // The band's own rows, which the composer sits straight on top of with
         // no gutter of its own: the card, its border lines, and whichever
-        // status lines are showing above it.
+        // status lines are showing above it. Nothing here varies, so the
+        // composer keeps one height off the foot of the screen.
         setComposerMargin(
             cardRows + 1,
         );
