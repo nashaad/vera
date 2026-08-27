@@ -79,7 +79,9 @@ test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", 
         );
 
         // The sidebar action remains available while a closed file is shown.
-        tui.bytes(CTRL_E);
+        // Tab is the way in: the file claims every key, and ctrl+e would put
+        // the rail away rather than hand it the keyboard.
+        tui.bytes(["09"]);
         await tui.paneWhere((value) =>
             value.includes("Resume  ctrl+r")
             && !value.includes("Resume session")
@@ -219,7 +221,7 @@ test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", as
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) => value.includes("Hide    ctrl+e"));
         tui.click(80, 6);
-        await tui.paneWhere((value) => value.includes("Focus  ctrl+e"));
+        await tui.paneWhere((value) => value.includes("Focus  tab"));
         tui.text("/model");
         await tui.paneWhere((value) => value.includes("/model"));
         tui.key("Enter");
@@ -236,6 +238,93 @@ test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", as
     expect(last).toBeGreaterThan(0);
     expect(grounds[last]).toBe(grounds[1]);
     expect(grounds[last]).not.toBe("default");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has the keys", async () => {
+    const { focused, quiet, litPane, quietPane } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const litPane = await tui.paneWhere((value) =>
+            value.includes("Hide    ctrl+e")
+        );
+        const focused = await tui.coloredWhere((value) =>
+            value.includes("this one")
+        );
+        // The click puts the keyboard in the conversation. The rail stays on
+        // screen, still showing which row it is on.
+        tui.click(80, 6);
+        const quietPane = await tui.paneWhere((value) =>
+            value.includes("Focus  tab")
+        );
+        const quiet = await tui.coloredWhere((value) =>
+            value.includes("this one")
+        );
+        return { focused, quiet, litPane, quietPane };
+    }, 120, 40);
+
+    // The `\u276f` is the text marker: it says which row without colour, and it
+    // is on the row in both states.
+    expect(rowOf(litPane, "this one")).toContain("\u276f");
+    expect(rowOf(quietPane, "this one")).toContain("\u276f");
+    // Focused, the selected row carries a ground the rows around it do not.
+    const lit = rowRuns(focused, "this one");
+    const neighbour = rowRuns(focused, "auth-race");
+    expect(lit.some((run) => !neighbour.includes(run))).toBe(true);
+    // Unfocused, it is painted like any other row: one bright bar beside a
+    // live conversation reads as the conversation's own.
+    expect(rowRuns(quiet, "this one"))
+        .toEqual(rowRuns(quiet, "auth-race"));
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("tab hands the keyboard across and back", async () => {
+    const { railed, chat, back } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const railed = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        // Out of the rail without opening anything. Enter is the other way
+        // out and it opens the highlighted row, which is a different
+        // conversation whenever the highlight is not the one on screen.
+        tui.bytes(["09"]);
+        const chat = await tui.paneWhere((v) => v.includes("Focus  tab"));
+        tui.bytes(["09"]);
+        const back = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        return { railed, chat, back };
+    });
+
+    // The rail is up throughout: the switch moves the keyboard, not the pane.
+    for (const pane of [railed, chat, back]) {
+        expect(pane).toContain("[ VERA ] · 6");
+    }
+    // Nothing was opened, so the conversation on screen is the one that was
+    // there before the rail took the keys.
+    expect(chat).not.toContain("Move    ↑↓  j/k");
+    expect(back).toContain("Move    ↑↓  j/k");
+}, 60_000);
+
+test.skipIf(!tmuxAvailable)("tab completes a slash command before it reaches the rail", async () => {
+    const { completed, moved } = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        tui.bytes(["09"]);
+        await tui.paneWhere((v) => v.includes("Focus  tab"));
+        // Half a command in the composer is what the key was pressed for.
+        tui.text("/mod");
+        await tui.paneWhere((v) => v.includes("/mod"));
+        tui.bytes(["09"]);
+        const completed = await tui.paneWhere((v) => v.includes("/model"));
+        // Emptied again, the same key is the focus switch.
+        for (let at = 0; at < 6; at += 1) tui.key("Backspace");
+        await tui.paneWhere((v) => !v.includes("/model"));
+        tui.bytes(["09"]);
+        const moved = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
+        return { completed, moved };
+    });
+
+    expect(completed).toContain("/model");
+    // The completion kept the keyboard where it was.
+    expect(completed).toContain("Focus  tab");
+    expect(moved).toContain("Move    ↑↓  j/k");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", async () => {
@@ -394,7 +483,8 @@ test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press"
     expect(focused).toContain("Cycle   ctrl+shift+[ ]");
     expect(clicked).toContain("[ VERA ]");
     expect(clicked).toContain("Cycle  ctrl+shift+[ ]");
-    expect(clicked).toContain("Focus  ctrl+e");
+    expect(clicked).toContain("Focus  tab");
+    expect(clicked).toContain("Hide   ctrl+e");
     expect(clicked).not.toContain("Move    ↑↓  j/k");
     expect(clicked).not.toContain("Pin");
 }, 60_000);
@@ -573,6 +663,26 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
 function column(pane: string, text: string): number {
     const line = pane.split("\n").find((candidate) => candidate.includes(text));
     return line === undefined ? -1 : line.indexOf(text);
+}
+
+/** The first row of a capture holding `marker`. */
+function rowOf(pane: string, marker: string): string {
+    return pane.split("\n").find((row) => row.includes(marker)) ?? "";
+}
+
+/**
+ * The distinct grounds painted along one row.
+ *
+ * Read per row rather than per screen: a selection bar starts after the rail's
+ * padding, so the row's first cell is the pane's ground either way.
+ */
+function rowRuns(colored: string, marker: string): string[] {
+    const line = colored.split("\n").find((row) => row.includes(marker));
+    if (line === undefined) return [];
+    return [...new Set(
+        [...line.matchAll(/\x1b\[48;2;(\d+;\d+;\d+)m/g)]
+            .map((run) => run[1] ?? ""),
+    )];
 }
 
 /**

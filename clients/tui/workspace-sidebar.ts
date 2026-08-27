@@ -460,7 +460,7 @@ export function handleWorkspaceSidebarKey(
     if (key.name === "escape") {
         return { action: { kind: "hide" }, handled: true };
     }
-    if (key.name === "i") {
+    if (tuiBindingId("unfocused", key) === "focus_composer") {
         return { action: { kind: "close" }, handled: true };
     }
     if (
@@ -559,18 +559,20 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
     { label: "Cycle", value: "ctrl+shift+[ ]" },
+    { label: "Chat", value: "tab" },
     { label: "Hide", value: "ctrl+e" },
 ];
 
 /**
  * What the rail says while the keyboard is in the conversation beside it.
  *
- * The two chords that answer from there: the live session cycle, which is
- * global, and the one that hands the rail the keys.
+ * The chords that answer from there: the live session cycle, which is global,
+ * the one that hands the rail the keys, and the one that puts it away.
  */
 export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Focus", value: "ctrl+e" },
+    { label: "Focus", value: "tab" },
+    { label: "Hide", value: "ctrl+e" },
 ];
 
 export function workspaceSidebarFooter(

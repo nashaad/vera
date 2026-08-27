@@ -626,9 +626,17 @@ describe("the cursor", () => {
             .toEqual({ kind: "hide" });
     });
 
-    test("i returns to chat and leaves the rail up", () => {
+    test("tab returns to chat and leaves the rail up", () => {
+        // The chord the block advertises. Enter is the other way out of the
+        // rail and it opens the highlighted row, which is the wrong chat
+        // whenever the highlight is not already the one on screen.
+        expect(press(open([session("a")]), "tab").action)
+            .toEqual({ kind: "close" });
+        // `i` is the same action under the key a vim hand reaches for. It is
+        // not in the block.
         expect(press(open([session("a")]), "i").action)
             .toEqual({ kind: "close" });
+        expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS)).not.toContain(" i");
     });
 
     test("ctrl+n starts a new chat without opening a row", () => {
@@ -911,9 +919,10 @@ describe("the drawn card", () => {
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
+            "Chat    tab",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(9);
+        expect(view.footerTable).toHaveLength(10);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
         expect(view.title).toBe("[ VERA ] · 1");
@@ -971,6 +980,7 @@ describe("the drawn card", () => {
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
+            "Chat    tab",
             "Hide    ctrl+e",
         ].join("\n"));
         for (const line of view.footer.split("\n")) {
@@ -981,7 +991,7 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(9);
+            .toHaveLength(10);
     });
 
     test("an unfocused rail keeps only the chords that answer from the chat", () => {
@@ -994,7 +1004,8 @@ describe("the drawn card", () => {
         // global, and ctrl+e is what hands the rail the keys.
         expect(idle.footerTable).toEqual([
             { label: "Cycle", value: "ctrl+shift+[ ]" },
-            { label: "Focus", value: "ctrl+e" },
+            { label: "Focus", value: "tab" },
+            { label: "Hide", value: "ctrl+e" },
         ]);
         expect(idle.footer).toContain("ctrl+shift+[ ]");
         // The rail's own chords are not offered to a keyboard that is elsewhere.
@@ -1008,8 +1019,8 @@ describe("the drawn card", () => {
             true,
         );
         expect(focused.footer).toContain("Move");
-        // ctrl+e is one chord in both directions, so it says which one it is.
-        expect(focused.footer).toContain("Hide");
+        // Tab is one chord in both directions, so it says which one it is.
+        expect(focused.footer).toContain("Chat    tab");
         expect(focused.footer).not.toContain("Focus");
     });
 

@@ -382,11 +382,17 @@ export function createTuiLinesView(
                 room,
             );
             if (above > 0) muted(`… ${above} above`);
+            // A rail without the keyboard draws no selection bar. The bar is
+            // the loudest thing on the pane, so leaving it lit beside a live
+            // conversation puts the brightest mark on screen where the keys
+            // are not. The `❯` in the row's own gutter is what still says
+            // which row a returning keyboard would land on.
+            const selectable = rail === undefined || state.focused === true;
             for (const line of visible) {
                 add(lineNode(
                     renderer,
                     view,
-                    line,
+                    selectable ? line : { ...line, selected: false },
                     options.panelBackground === false,
                 ));
             }

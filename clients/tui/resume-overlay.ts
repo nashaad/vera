@@ -99,6 +99,7 @@ export type JsonlViewKeyAction =
     | "resume_picker"
     | "scroll"
     | "toggle_sidebar"
+    | "focus_sidebar"
     | "sidebar"
     | "new_session"
     | "cycle_session"
@@ -131,7 +132,10 @@ export function jsonlViewKeyAction(
         readonly conversationBinding?: string;
         readonly globalBinding?: string;
         readonly workspaceBinding?: string;
+        readonly unfocusedBinding?: string;
         readonly sidebarFocused: boolean;
+        /** Whether a rail is drawn beside the file, focused or not. */
+        readonly sidebarVisible?: boolean;
     },
 ): JsonlViewKeyAction {
     if (isJsonlViewScrollId(options.conversationBinding)) {
@@ -154,6 +158,14 @@ export function jsonlViewKeyAction(
     }
     if (options.sidebarFocused) {
         return "sidebar";
+    }
+    // A file claims every key, so the switch into the rail beside it has to be
+    // named here or Tab would be swallowed like any other unhandled key.
+    if (
+        options.sidebarVisible === true
+        && options.unfocusedBinding === "focus_composer"
+    ) {
+        return "focus_sidebar";
     }
     if (options.workspaceBinding === "workspace_resume_picker") {
         return "resume_picker";

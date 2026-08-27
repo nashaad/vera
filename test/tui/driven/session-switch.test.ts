@@ -863,7 +863,8 @@ test("the sidebar resume action opens the picker from an idle file", async () =>
         let pane = await session.waitForVisiblePane("ctrl+n new");
 
         // Put focus back in the rail. Its direct key opens the full picker.
-        session.sendKey("C-e");
+        // Tab is the switch: ctrl+e puts the rail away.
+        session.sendKey("Tab");
         pane = await session.waitForVisiblePaneWhere(
             (visible) =>
                 visible.includes("Resume  ctrl+r")

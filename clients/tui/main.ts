@@ -4463,8 +4463,10 @@ export async function startTui(
                 conversationBinding: tuiBindingId("conversation", key),
                 globalBinding: tuiBindingId("global", key),
                 workspaceBinding: tuiBindingId("workspace", key),
+                unfocusedBinding: tuiBindingId("unfocused", key),
                 sidebarFocused: workspaceSidebarFocused
                     && workspaceSidebar !== undefined,
+                sidebarVisible: workspaceSidebar !== undefined,
             });
             if (jsonlAction === "scroll") {
                 key.preventDefault();
@@ -4500,6 +4502,12 @@ export async function startTui(
                     key.name === "space" ? " " : (key.sequence ?? key.name),
                 );
                 resumeJsonlView();
+                return;
+            }
+            if (jsonlAction === "focus_sidebar") {
+                key.preventDefault();
+                key.stopPropagation();
+                focusWorkspaceSidebar();
                 return;
             }
             if (jsonlAction === "home") {
@@ -5443,23 +5451,31 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
+            // Nothing left to complete, so Tab is the focus switch between the
+            // conversation and the rail beside it. Last in this branch because
+            // a half-typed command is what the key was pressed for.
+            if (
+                workspaceSidebar !== undefined
+                && !workspaceSidebarFocused
+                && !anyOverlayOpen()
+                && !commandPaletteView.surface.visible
+            ) {
+                key.preventDefault();
+                key.stopPropagation();
+                focusWorkspaceSidebar();
+                return;
+            }
         }
 
         // The toggle is one chord in both directions, so the close arm runs
         // before the open arm and before the overlay guard: the pane is not an
         // overlay, and the chord that opened it has to reach back through it.
+        // It shows or hides and nothing else. Tab is what moves the focus.
         if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
             if (workspaceSidebar !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
-                if (workspaceSidebarFocused) {
-                    closeWorkspaceSidebar();
-                } else {
-                    workspaceSidebarFocused = true;
-                    composer.blur();
-                    renderState();
-                    focusActiveSurface();
-                }
+                closeWorkspaceSidebar();
                 return;
             }
             if (!anyOverlayOpen()) {
@@ -11831,6 +11847,15 @@ export async function startTui(
      * The roster is read once here. Status after that arrives on the work
      * index the host pushes on every roster transition, so nothing polls.
      */
+    /** Hands the keyboard to a rail that is already on screen. */
+    function focusWorkspaceSidebar(): void {
+        if (workspaceSidebar === undefined || workspaceSidebarFocused) return;
+        workspaceSidebarFocused = true;
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
     function openWorkspaceSidebar(
         options: { readonly focus?: boolean; readonly persist?: boolean } = {},
     ): void {
