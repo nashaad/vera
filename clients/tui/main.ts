@@ -2473,6 +2473,20 @@ export async function startTui(
         visible: false,
     });
 
+    // The lines naming the sessions around this one: a parent to return to,
+    // or the subagents running under it. They read above the composer rather
+    // than under it. The rows under the composer are then fixed in height, so
+    // the composer holds the same distance off the foot of the screen and
+    // these lines take their room from the transcript instead.
+    const agentNoticeText = new TextRenderable(renderer, {
+        id: "agent-notice",
+        content: "",
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+        visible: false,
+    });
+
     const queuedPromptText = new TextRenderable(renderer, {
         id: "queued-prompt",
         content: "",
@@ -2657,6 +2671,8 @@ export async function startTui(
      * margin is kept here rather than read back off the box.
      */
     let composerMarginRows = 2;
+    /** Rows the agent notice above the composer is currently drawing. */
+    let agentNoticeRows = 0;
     let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
     /**
      * A slash typed on a closed session file opens the composer for the few
@@ -2690,6 +2706,7 @@ export async function startTui(
             + (composerTipText.visible ? 1 : 0)
             + (quoteText.visible ? 1 : 0)
             + (heldAddressText.visible ? 1 : 0)
+            + agentNoticeRows
             + 1;
         jumpMenuBox.bottom = commandSuggestionsBox.bottom;
     }
@@ -4047,6 +4064,7 @@ export async function startTui(
     app.add(heldAddressText);
     app.add(dialCard);
     app.add(homeView.surface);
+    app.add(agentNoticeText);
     app.add(composerBox);
     app.add(resumeOverlay.surface);
     app.add(statusBand);
@@ -15166,26 +15184,35 @@ export async function startTui(
                 ? []
                 : [fg(TUI_MUTED)("\n"), rule("─")]),
         ]);
-        backgroundStatusText.content = new StyledText([
-            ...detailChunks,
-            ...(agentSection.length === 0 ? [] : [
-                fg(TUI_MUTED)("\n"),
+        backgroundStatusText.content = new StyledText(detailChunks);
+        // Text nodes lay their content out from column zero, so the notice
+        // carries the indent the band gets as padding.
+        const noticeIndent = " ".repeat(composerContentIndent);
+        agentNoticeText.content = agentSection.length === 0
+            ? new StyledText([])
+            : new StyledText([
+                fg(TUI_MUTED)(noticeIndent),
                 ...animatedAgentHeader.chunks,
                 fg(TUI_MUTED)(
                     agentSection.length === 1
                         ? ""
-                        : `\n${agentSection.slice(1).join("\n")}`,
+                        : `\n${
+                            agentSection.slice(1)
+                                .map((row) => `${noticeIndent}${row}`)
+                                .join("\n")
+                        }`,
                 ),
-            ]),
-        ]);
-        // A rule separates each pair of status rows under the frame. The
-        // labelled agent section is distinct enough without another divider.
-        const cardRows = Math.max(1, outsideRows.length * 2 - 1)
-            + agentSection.length;
+            ]);
+        agentNoticeRows = agentSection.length;
+        agentNoticeText.height = Math.max(1, agentNoticeRows);
+        agentNoticeText.visible = agentNoticeRows > 0;
+        // A rule separates each pair of status rows under the frame.
+        const cardRows = Math.max(1, outsideRows.length * 2 - 1);
         backgroundStatusText.height = cardRows;
         // The band's own rows, which the composer sits straight on top of with
         // no gutter of its own: the card, its border lines, and whichever
-        // status lines are showing above it.
+        // status lines are showing above it. Nothing here varies, so the
+        // composer keeps one height off the foot of the screen.
         setComposerMargin(
             cardRows + 1,
         );

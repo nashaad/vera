@@ -404,8 +404,9 @@ function permissionsTone(
  * The idle status line, which reports background work when there is any.
  *
  * An idle session with children still out looks identical to a finished one,
- * so the quiet is what needs explaining. The palette hint rides along because
- * the idle line is the only place that chord is advertised.
+ * so the quiet is what needs explaining. The ready hint does not ride along:
+ * a session with background agents is still idle, so the place row under this
+ * one is already carrying it, and two rows saying ready read as two states.
  */
 export function renderTuiIdleHint(
     readyHint: string,
@@ -414,10 +415,9 @@ export function renderTuiIdleHint(
     if (runningBackgroundAgents <= 0) {
         return readyHint;
     }
-    const agents = `${runningBackgroundAgents} background agent${
+    return `waiting for ${runningBackgroundAgents} background agent${
         runningBackgroundAgents === 1 ? "" : "s"
     }`;
-    return `waiting for ${agents} · ${readyHint}`;
 }
 
 /**
