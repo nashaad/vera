@@ -1,5 +1,6 @@
 import {
     BoxRenderable,
+    parseColor,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
@@ -15,6 +16,13 @@ export const HOME_RULE = "─".repeat(23);
 
 /** The last line of the card: the composer is not on screen to say it. */
 export const HOME_TYPING_HINT = "or just start typing";
+
+/** The hint sits under the rows, indented like a row's label. */
+const HOME_HINT_INDENT = "  ";
+
+/** The column the caret parks on: a space past the end of the hint. */
+const HOME_HINT_CARET_COLUMN = HOME_HINT_INDENT.length
+    + HOME_TYPING_HINT.length + 1;
 
 /** Every column the card occupies, rule and rows alike. */
 export const HOME_CARD_COLUMNS = 27;
@@ -86,7 +94,10 @@ export function homeCardLines(state: HomeState): readonly HomeLine[] {
             selected: row.id === selected,
         })),
         { text: "", tone: "rule" },
-        { text: `  ${HOME_TYPING_HINT}`, tone: "hint" as const },
+        {
+            text: `${HOME_HINT_INDENT}${HOME_TYPING_HINT}`,
+            tone: "hint" as const,
+        },
     ];
 }
 
@@ -199,6 +210,37 @@ function isPrintable(key: { readonly name: string }): boolean {
     return key.name.length === 1 || key.name === "space";
 }
 
+/**
+ * The hint line, which parks the terminal's own cursor a space past its end.
+ *
+ * Home draws no composer, so nothing else claims the cursor and it stays in
+ * the corner of the screen. The caret is what says typing works here, so it
+ * belongs beside the line that says so. It is parked only while the card holds
+ * the keyboard, so a rail that has taken focus does not leave a caret sitting
+ * on the card behind it.
+ */
+class HomeHintRenderable extends TextRenderable {
+    holdsKeyboard: () => boolean = () => true;
+
+    protected override renderSelf(
+        buffer: Parameters<TextRenderable["renderSelf"]>[0],
+    ): void {
+        super.renderSelf(buffer);
+        if (!this.holdsKeyboard()) return;
+        // One-based: the terminal counts its own cursor from column and row 1.
+        this._ctx.setCursorPosition(
+            this.x + HOME_HINT_CARET_COLUMN + 1,
+            this.y + 1,
+            true,
+        );
+    }
+
+    protected override destroySelf(): void {
+        this._ctx.setCursorPosition(0, 0, false);
+        super.destroySelf();
+    }
+}
+
 export interface TuiHomeView {
     readonly surface: BoxRenderable;
     readonly box: BoxRenderable;
@@ -247,22 +289,35 @@ export function createTuiHomeView(
         visible: false,
     });
     surface.add(box);
+    renderer.setCursorStyle({
+        style: "block",
+        blinking: true,
+        color: parseColor(TUI_ACCENT),
+    });
     let lines: TextRenderable[] = [];
     let rendered: HomeState | undefined;
     const paint = (state: HomeState): void => {
         for (const line of lines) line.destroyRecursively();
         lines = [];
         for (const [index, line] of homeCardLines(state).entries()) {
-            const text = new TextRenderable(renderer, {
+            const options = {
                 id: `home-line-${index}`,
                 content: line.text,
                 fg: lineColor(line, colors),
-                width: "100%",
+                width: "100%" as const,
                 height: 1,
                 onMouseDown: line.tone === "row"
                     ? () => onRun(rowActionFor(state, index))
                     : undefined,
-            });
+            };
+            let text: TextRenderable;
+            if (line.tone === "hint") {
+                const hint = new HomeHintRenderable(renderer, options);
+                hint.holdsKeyboard = () => box.focused;
+                text = hint;
+            } else {
+                text = new TextRenderable(renderer, options);
+            }
             lines.push(text);
             box.add(text);
         }

@@ -10,7 +10,10 @@ import {
 } from "../../support/settings-answering-client.ts";
 import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
-import { HOME_RULE } from "../../../clients/tui/home-screen.ts";
+import {
+    HOME_RULE,
+    HOME_TYPING_HINT,
+} from "../../../clients/tui/home-screen.ts";
 
 /** Home plus the listing and creation hooks its three rows reach for. */
 function homeDependencies(
@@ -61,6 +64,36 @@ test("home paints the card with no composer behind it", async () => {
         expect(pane).not.toContain("Start a conversation with Vera");
         // The status band still says where the next conversation would run.
         expect(pane).toContain("vera");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("the caret parks one column past the typing hint", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-caret-"));
+    const parked: Array<{ x: number; y: number; visible: boolean }> = [];
+    const session = await startTuiTestSession({
+        home,
+        dependencies: (renderer) => {
+            const park = renderer.setCursorPosition.bind(renderer);
+            renderer.setCursorPosition = (x, y, visible = true) => {
+                parked.push({ x, y, visible });
+                park(x, y, visible);
+            };
+            return homeDependencies(home, true);
+        },
+    });
+
+    try {
+        const pane = await session.waitForVisiblePane("V  E  R  A");
+        const row = pane.split("\n").findIndex((line) =>
+            line.includes(HOME_TYPING_HINT)
+        );
+        const column = pane.split("\n")[row]!.indexOf(HOME_TYPING_HINT)
+            + HOME_TYPING_HINT.length;
+        const last = parked[parked.length - 1];
+        // One-based, and a space past the hint's last character.
+        expect(last).toEqual({ x: column + 2, y: row + 1, visible: true });
     } finally {
         await session.close();
     }
