@@ -610,7 +610,7 @@ test("resuming a session from the list offers no way back", async () => {
         // /resume is navigation, not a hop: the person chose the destination,
         // so there is no trip back to name.
         expect(pane).not.toContain("/back");
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This session is closed.");
         session.sendKey("C-c");
         await session.waitForSessionExit();
     } finally {
@@ -784,19 +784,25 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
         session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
-        expect(pane).toContain("[resume]");
+        expect(pane).toContain("This session is closed.");
         expect(pane).toContain("ctrl+n new");
         expect(pane).not.toContain("RESUMED HISTORY LOADED");
         expect(pane).not.toContain("permissions loading");
         session.sendKey("C-p");
-        await session.settle();
-        pane = session.captureVisiblePane();
-        expect(pane).toContain("[resume]");
+        pane = await session.waitForVisiblePane("Resume this conversation");
+        expect(pane).not.toContain("Stop this conversation");
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("This session is closed.")
+                && !visible.includes("Resume this conversation"),
+            "the closed file after the palette closes",
+        );
         expect(pane).toContain(IDLE_TARGET_TRANSCRIPT);
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).toContain("resumed-model");
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This session is closed.");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -810,7 +816,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
     }
 }, 15_000);
 
-test("slash resume opens the picker from an idle file", async () => {
+test("the sidebar resume action opens the picker from an idle file", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-picker-"));
     const scenario = createTuiResumeScenario({ home });
     const session = await startTuiTestSession({
@@ -826,27 +832,21 @@ test("slash resume opens the picker from an idle file", async () => {
         await session.waitForVisiblePane("Agent sidebar · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
-        let pane = await session.waitForVisiblePane("/resume switch");
+        let pane = await session.waitForVisiblePane("ctrl+n new");
 
-        // Put focus back in the rail. Slash still belongs to the application.
+        // Put focus back in the rail. Its direct key opens the full picker.
         session.sendKey("C-e");
-        session.sendText("/");
-        pane = await session.waitForVisiblePane("/resume");
-        expect(pane).not.toContain("/rewind");
-
-        session.sendKey("BSpace");
-        session.sendText("not a command");
-        session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("Only /resume is available");
-        expect(pane).toContain("/resume switch");
-
-        session.sendText("/");
-        session.sendText("resume");
-        session.sendKey("Enter");
+        pane = await session.waitForVisiblePaneWhere(
+            (visible) =>
+                visible.includes("Resume  ctrl+r")
+                && !visible.includes("Resume session"),
+            "the focused rail without a resume row",
+        );
+        session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Continue the theme picker");
         expect(pane).toContain("The one already open");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("/resume switch");
+        await session.waitForVisiblePane("ctrl+n new");
     } finally {
         await session.close();
     }
@@ -881,11 +881,39 @@ test("ctrl+n from an idle file starts a new chat", async () => {
         await session.waitForVisiblePane("Agent sidebar · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("[resume]");
+        await session.waitForVisiblePane("This session is closed.");
         session.sendKey("C-n");
         const pane = await session.waitForVisiblePane("fresh-model");
-        expect(pane).not.toContain("[resume]");
-        expect(pane).not.toContain("/resume switch");
+        expect(pane).not.toContain("This session is closed.");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("escape from an idle file goes home", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-idle-home-"));
+    const scenario = createTuiResumeScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Agent sidebar · 2");
+        session.sendKey("Down");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("This session is closed.");
+        expect(pane).toContain("esc home");
+        session.sendKey("Escape");
+        pane = await session.waitForVisiblePane("V  E  R  A");
+        // Backing out of a file is a screen change, not a session change: the
+        // file is still on disk and nothing was started to get here.
+        expect(pane).not.toContain("This session is closed.");
+        expect(pane).not.toContain("Message Vera");
     } finally {
         await session.close();
     }
@@ -905,7 +933,9 @@ test("opening a live sidebar row attaches to the running worker", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
         await session.waitForVisiblePane("Agent sidebar · 2");
-        session.sendKey("Down");
+        // The running one heads the listing and the idle file on screen is
+        // filed under recent, so the cursor starts below the row to open.
+        session.sendKey("Up");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane("RESUMED HISTORY LOADED");
         expect(pane).not.toContain(IDLE_TARGET_TRANSCRIPT);
@@ -1059,7 +1089,7 @@ test("close command parks the current session as a resume file", async () => {
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This session is closed.")
                 && visible.includes("hello from disk"),
             "the parked file with resume overlay",
         );
@@ -1090,7 +1120,7 @@ test("ctrl+w parks the current session as a resume file", async () => {
         session.sendKey("C-w");
         const pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This session is closed.")
                 && visible.includes("hello from disk"),
             "the parked file with resume overlay",
         );
@@ -1127,13 +1157,13 @@ test("closing in-flight work asks first", async () => {
                 && !visible.includes("Stop this conversation?"),
             "the in-flight transcript after cancel",
         );
-        expect(pane).not.toContain("[resume]");
+        expect(pane).not.toContain("This session is closed.");
         session.sendKey("C-w");
         await session.waitForVisiblePane("[1] close");
         session.sendKey("1");
         pane = await session.waitForVisiblePaneWhere(
             (visible) =>
-                visible.includes("[resume]")
+                visible.includes("This session is closed.")
                 && visible.includes("hello from disk"),
             "the parked file after confirmed close",
         );

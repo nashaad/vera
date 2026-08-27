@@ -10,6 +10,7 @@ import {
     toggleWorkspacePin,
     workIndexStatus,
     workspaceJumpTarget,
+    workspaceJumpTargets,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
     workspaceSidebarFooter,
@@ -20,10 +21,16 @@ import {
     workspaceCycleTarget,
     MIN_RAIL_COLUMNS,
     WORKSPACE_RECENT_IDLE,
+    WORKSPACE_ALL_SESSIONS_NUDGE,
+    WORKSPACE_EMPTY_LINES,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
-import { PINNED_GROUP } from "../../clients/tui/workspace-panel.ts";
+import {
+    ACTIVE_GROUP,
+    PINNED_GROUP,
+    RECENT_GROUP,
+} from "../../clients/tui/workspace-panel.ts";
 import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
 import { tuiBindingId } from "../../clients/tui/keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
@@ -269,8 +276,7 @@ describe("the working set", () => {
             COLUMNS,
             NOW,
         );
-        expect(text).toContain("test-do-serverless");
-        expect(text).not.toContain("/w/test-do-serverless");
+        expect(text).not.toContain("test-do-serverless");
         expect(text).toContain("please configure");
         expect(text).toContain("we made a bunch");
         expect(text).not.toContain("[ we made a bunch ]");
@@ -448,7 +454,7 @@ describe("the rail", () => {
         const state = open([session("a", {
             title: "a useful descriptive session name",
             updatedAt: "2026-08-22T11:56:00.000Z",
-        })], [], "a");
+        })], []);
         const withAge = workspaceSidebarViewState(state, 120, NOW, 37)
             .lines.find((line) => line.rowId === "a")?.text;
         const titleOnly = workspaceSidebarViewState(state, 120, NOW, 23)
@@ -506,11 +512,13 @@ describe("the rail", () => {
         ], [], "a");
         const focused = workspaceSidebarViewState(state, 120, NOW, 37, true);
         const headings = focused.lines.filter((line) => line.tone === "heading");
-        expect(headings.map((line) => line.text)).toEqual(["one", "two"]);
-        const first = focused.lines.findIndex((line) => line.text === "one");
-        const second = focused.lines.findIndex((line) => line.text === "two");
-        expect(focused.lines[second - 1]?.text).toBe("");
-        expect(second).toBeGreaterThan(first);
+        expect(headings.map((line) => line.text)).toEqual(["active"]);
+        expect(focused.lines.find((line) => line.text.includes("session a"))
+            ?.text.startsWith("1 ")).toBe(true);
+        expect(focused.lines.find((line) => line.text.includes("session b"))
+            ?.text.startsWith("2 ")).toBe(true);
+        expect(focused.lines.filter((line) => line.text.includes("working · ")))
+            .toHaveLength(2);
         expect(focused.hint).toBe("");
     });
 });
@@ -571,6 +579,40 @@ describe("the cursor", () => {
         });
     });
 
+    test("the file on screen is listed as recent, not as active", () => {
+        const state = open(
+            [session("a"), session("b", { live: true })],
+            [],
+            "a",
+        );
+        const layout = workspaceSidebarLayout(state, {
+            columns: COLUMNS,
+            now: NOW,
+        });
+        const groups = layout.rows
+            .filter((row) => row.kind === "group")
+            .map((row) => (row as { group: string }).group);
+        expect(groups).toEqual([ACTIVE_GROUP, RECENT_GROUP]);
+        const active = layout.rows
+            .filter((row) => row.kind === "session" && row.active)
+            .map((row) => (row as { id: string }).id);
+        // Reading a file is not running one, so no digit addresses the row
+        // being read either.
+        expect(active).toEqual(["b"]);
+        expect(workspaceJumpTargets(layout)).toEqual(["b"]);
+    });
+
+    test("ctrl+r opens the resume picker directly", () => {
+        expect(press(open([session("a")]), "r", { ctrl: true }).action)
+            .toEqual({ kind: "resume_picker" });
+    });
+
+    test("a bare r no longer reaches the resume picker", () => {
+        // The rail claims every bare key while it holds the focus. What
+        // changed is that the letter stopped meaning anything.
+        expect(press(open([session("a")]), "r").action).toBeUndefined();
+    });
+
     test("escape hides the rail", () => {
         expect(press(open([session("a")]), "escape").action)
             .toEqual({ kind: "hide" });
@@ -617,6 +659,8 @@ describe("the digits", () => {
             { length: 11 },
             (_unused, at) =>
                 session(`s${at}`, {
+                    live: true,
+                    status: "working",
                     updatedAt: `2026-08-22T1${9 - at}:00:00.000Z`,
                 }),
         );
@@ -635,10 +679,17 @@ describe("the digits", () => {
         expect(press(state, "3").handled).toBe(true);
     });
 
-    test("pressing 2 opens the second row", () => {
+    test("pressing 2 opens the second active row", () => {
         const state = open([
-            session("a", { updatedAt: "2026-08-22T11:59:00.000Z" }),
-            session("b", { updatedAt: "2026-08-22T11:58:00.000Z" }),
+            session("a", {
+                live: true,
+                status: "working",
+                updatedAt: "2026-08-22T11:59:00.000Z",
+            }),
+            session("b", {
+                workerPid: 41,
+                updatedAt: "2026-08-22T11:58:00.000Z",
+            }),
         ]);
         expect(tuiBindingId("workspace", { name: "2" }))
             .toBe("workspace_jump_2");
@@ -646,8 +697,13 @@ describe("the digits", () => {
             kind: "open_session",
             session_id: "b",
             session_path: "/sessions/b.jsonl",
-            active: false,
+            active: true,
         });
+    });
+
+    test("a digit never addresses a recent row", () => {
+        const state = open([session("a"), session("b")]);
+        expect(press(state, "1").action).toBeUndefined();
     });
 });
 
@@ -833,17 +889,52 @@ describe("the drawn card", () => {
         // the terminal, so it has room for the words.
         const view = workspaceSidebarViewState(open([session("a")]), 70, NOW);
         expect(view.footer).toBe([
-            "Move  ↑↓  j/k",
-            "Page  ctrl+d/u",
-            "Open  enter",
-            "Jump  1–9",
-            "Pin   p",
-            "New   ctrl+n",
-            "Chat  i",
-            "Hide  esc",
+            "Move    ↑↓  j/k",
+            "Page    ctrl+d/u",
+            "Open    enter",
+            "Jump    1–9",
+            "Pin     p",
+            "New     ctrl+n",
+            "Resume  ctrl+r",
+            "Hide    ctrl+e",
         ].join("\n"));
         expect(view.footerTable).toHaveLength(8);
+        expect(view.lines.some((line) => line.text.includes("Resume session")))
+            .toBe(false);
         expect(view.title).toBe("      Agent sidebar · 1");
+    });
+
+    test("the last recent row is followed by the all-sessions nudge", () => {
+        const text = workspaceSidebarText(open([session("a")]), COLUMNS, NOW);
+        const lines = text.split("\n");
+        expect(lines[lines.length - 1]?.trim()).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
+    });
+
+    test("an active row is two lines, a recent row one, digits on active only", () => {
+        const text = workspaceSidebarText(
+            open([
+                session("busy", { status: "working", live: true }),
+                session("old"),
+            ]),
+            COLUMNS,
+            NOW,
+        );
+        const lines = text.split("\n");
+        const busy = lines.findIndex((line) => line.includes("session busy"));
+        expect(lines[busy]?.startsWith("1 ")).toBe(true);
+        expect(lines[busy + 1]?.trim()).toBe("working · one");
+        const old = lines.findIndex((line) => line.includes("session old"));
+        expect(lines[old]?.startsWith(" ")).toBe(true);
+    });
+
+    test("a session with no title reads untitled, never its id", () => {
+        const text = workspaceSidebarText(
+            open([{ ...session("bare"), title: undefined } as never]),
+            COLUMNS,
+            NOW,
+        );
+        expect(text).toContain("untitled");
+        expect(text).not.toContain("bare");
     });
 
     test("the rail takes the short hint, wide as the terminal is", () => {
@@ -855,14 +946,14 @@ describe("the drawn card", () => {
         // A rail is as narrow as its rows whatever the terminal is, so the
         // hint is measured against the column and not against the screen.
         expect(view.footer).toBe([
-            "Move  ↑↓  j/k",
-            "Page  ctrl+d/u",
-            "Open  enter",
-            "Jump  1–9",
-            "Pin   p",
-            "New   ctrl+n",
-            "Chat  i",
-            "Hide  esc",
+            "Move    ↑↓  j/k",
+            "Page    ctrl+d/u",
+            "Open    enter",
+            "Jump    1–9",
+            "Pin     p",
+            "New     ctrl+n",
+            "Resume  ctrl+r",
+            "Hide    ctrl+e",
         ].join("\n"));
         for (const line of view.footer.split("\n")) {
             expect(line.length)
@@ -876,8 +967,8 @@ describe("the drawn card", () => {
     });
 
     test("an empty listing says so rather than drawing nothing", () => {
-        expect(workspaceSidebarText(open([]), COLUMNS, NOW))
-            .toBe("No other sessions.");
+        const text = workspaceSidebarText(open([]), COLUMNS, NOW);
+        expect(text.split("\n")).toEqual([...WORKSPACE_EMPTY_LINES]);
     });
 
     test("the cursor line is where the card scrolls to", () => {

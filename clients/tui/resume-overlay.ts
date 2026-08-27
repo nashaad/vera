@@ -26,26 +26,29 @@ export const JSONL_VIEW_SCROLL_IDS = [
 
 export type JsonlViewScrollId = (typeof JSONL_VIEW_SCROLL_IDS)[number];
 
-/** Bracketed so the affordance still reads without color. */
-export const RESUME_OVERLAY_LABEL = "[resume]";
+/** The notice a closed session shows where its composer would be. */
+export const RESUME_OVERLAY_TEXT = "This session is closed.";
 
-/** The key that starts the worker. */
-export const RESUME_OVERLAY_HINT = "enter";
+/** Every way in, in words: the two that resume this file first. */
+export const RESUME_OVERLAY_HINT =
+    "enter to resume it · start typing to resume with your message";
 
-export const RESUME_OVERLAY_TEXT =
-    `${RESUME_OVERLAY_LABEL} · ${RESUME_OVERLAY_HINT}`;
-
-/** Ways to leave the file without attaching the session on screen. */
-export const RESUME_OVERLAY_NEW_HINT = "ctrl+n new · /resume switch";
+/** Ways to start elsewhere without attaching the session on screen. */
+export const RESUME_OVERLAY_NEW_HINT =
+    "esc home · ctrl+n new · ctrl+r all · ctrl+p commands";
 
 export type JsonlViewKeyAction =
     | "resume"
+    | "resume_picker"
     | "scroll"
     | "toggle_sidebar"
     | "sidebar"
     | "new_session"
     | "cycle_session"
+    | "palette"
     | "command"
+    | "type"
+    | "home"
     | "block";
 
 export interface JsonlViewKey {
@@ -60,9 +63,10 @@ export interface JsonlViewKey {
 /**
  * What a key does while the on-screen conversation is a session file.
  *
- * Scroll the transcript, resume, start a new chat, open the one global slash
- * command, leave through the rail, or do nothing. The HUD, palette, ordinary
- * slash commands, and prompt typing wait until the file is a session again.
+ * Scroll the transcript, resume (Enter, or any printable key, which resumes
+ * with that key as the first character), open the full session list, start a
+ * new chat, open the palette, open a slash command, leave through the rail,
+ * go back to home, or do nothing.
  */
 export function jsonlViewKeyAction(
     key: JsonlViewKey,
@@ -88,18 +92,35 @@ export function jsonlViewKeyAction(
     if (options.workspaceBinding === "workspace_new_session") {
         return "new_session";
     }
-    // Global means the rail cannot swallow it while it has focus. The caller
-    // opens a command-only composer whose catalog contains /resume alone.
-    if (isUnmodifiedSlash(key)) {
-        return "command";
+    if (options.globalBinding === "open_palette") {
+        return "palette";
     }
     if (options.sidebarFocused) {
         return "sidebar";
     }
+    if (options.workspaceBinding === "workspace_resume_picker") {
+        return "resume_picker";
+    }
     if (isUnmodifiedEnter(key)) {
         return "resume";
     }
+    if (isPrintable(key)) {
+        return key.name === "/" ? "command" : "type";
+    }
+    // Nothing here is being edited, so Escape has no draft to clear and can
+    // mean the one thing it means everywhere else: back out of this.
+    if (isUnmodified(key) && key.name === "escape") {
+        return "home";
+    }
     return "block";
+}
+
+function isPrintable(key: JsonlViewKey): boolean {
+    return (key.name.length === 1 || key.name === "space")
+        && key.ctrl !== true
+        && key.meta !== true
+        && key.super !== true
+        && key.hyper !== true;
 }
 
 export function isJsonlViewScrollId(
@@ -111,16 +132,11 @@ export function isJsonlViewScrollId(
 
 function isUnmodifiedEnter(key: JsonlViewKey): boolean {
     return (key.name === "return" || key.name === "enter")
-        && key.ctrl !== true
-        && key.shift !== true
-        && key.meta !== true
-        && key.super !== true
-        && key.hyper !== true;
+        && isUnmodified(key);
 }
 
-function isUnmodifiedSlash(key: JsonlViewKey): boolean {
-    return key.name === "/"
-        && key.ctrl !== true
+function isUnmodified(key: JsonlViewKey): boolean {
+    return key.ctrl !== true
         && key.shift !== true
         && key.meta !== true
         && key.super !== true
@@ -166,7 +182,7 @@ export function createTuiResumeOverlayView(
         borderColor: TUI_ELEMENT,
         focusedBorderColor: TUI_ELEMENT,
         backgroundColor: TUI_INPUT,
-        height: 4,
+        height: 5,
         paddingLeft: 1,
         paddingRight: 1,
         marginLeft: 2,
@@ -179,7 +195,15 @@ export function createTuiResumeOverlayView(
             onResume();
         },
     });
+    const ways = new TextRenderable(renderer, {
+        id: "resume-overlay-ways",
+        content: RESUME_OVERLAY_HINT,
+        fg: TUI_MUTED,
+        width: "100%",
+        height: 1,
+    });
     box.add(label);
+    box.add(ways);
     box.add(hint);
     return {
         box,
@@ -194,6 +218,7 @@ export function createTuiResumeOverlayView(
             box.focusedBorderColor = appearance.boundaryColor;
             box.backgroundColor = appearance.backgroundColor;
             label.fg = appearance.textColor;
+            ways.fg = appearance.mutedColor;
             hint.fg = appearance.mutedColor;
         },
     };

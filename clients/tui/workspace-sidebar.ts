@@ -4,6 +4,7 @@ import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
+    RECENT_GROUP,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
@@ -32,6 +33,16 @@ export const WORKSPACE_JUMP_ROWS = 9;
  * session on screen and any pin are always kept, even when they are idle.
  */
 export const WORKSPACE_RECENT_IDLE = 5;
+
+/** The row under the last recent session that points at the full picker. */
+export const WORKSPACE_ALL_SESSIONS_NUDGE = "ctrl+r · all sessions";
+
+/** What the rail says when there is nothing to list. */
+export const WORKSPACE_EMPTY_LINES: readonly string[] = [
+    "No sessions yet.",
+    "ctrl+n new session",
+    "ctrl+r all sessions",
+];
 
 /** The digit and the space after it, drawn before every row. */
 const DIGIT_COLUMNS = 2;
@@ -101,6 +112,7 @@ export type WorkspaceSidebarAction =
     | { readonly kind: "close" }
     | { readonly kind: "hide" }
     | { readonly kind: "new_session" }
+    | { readonly kind: "resume_picker" }
     | {
         readonly kind: "open_session";
         readonly session_id: string;
@@ -354,7 +366,22 @@ export function workspaceSidebarLayout(
             ? {}
             : { selectedId: state.selectedId }),
         ...(state.currentId === undefined ? {} : { currentId: state.currentId }),
+        // Being on screen is not activity. A session file is read from disk
+        // with no worker behind it, so the row for the one being read belongs
+        // under recent like every other file, and no digit addresses it.
+        isActive: (session) =>
+            isWorkspaceActive(session as WorkspaceSidebarSession),
     });
+}
+
+/** Digits address active rows only, counting from the top of the listing. */
+export function workspaceJumpTargets(
+    layout: WorkspacePanelLayout,
+): readonly string[] {
+    return layout.rows
+        .filter((row) => row.kind === "session" && row.active)
+        .map((row) => (row as { id: string }).id)
+        .slice(0, WORKSPACE_JUMP_ROWS);
 }
 
 /** The session a digit addresses, or nothing past the end of the listing. */
@@ -363,7 +390,7 @@ export function workspaceJumpTarget(
     position: number,
 ): string | undefined {
     if (position < 1 || position > WORKSPACE_JUMP_ROWS) return undefined;
-    return layout.selectable[position - 1];
+    return workspaceJumpTargets(layout)[position - 1];
 }
 
 /** The pin list after toggling one session, order preserved. */
@@ -385,8 +412,8 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * ctrl+n starts a new chat and keeps this one running, i returns to the
- * composer and leaves the rail up, escape hides it, and digits address rows.
+ * ctrl+r opens the full resume picker, ctrl+n starts a new chat and keeps this
+ * one running, and digits address session rows.
  * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
@@ -425,6 +452,9 @@ export function handleWorkspaceSidebarKey(
     }
     if (binding === "workspace_new_session") {
         return { action: { kind: "new_session" }, handled: true };
+    }
+    if (binding === "workspace_resume_picker") {
+        return { action: { kind: "resume_picker" }, handled: true };
     }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
@@ -519,13 +549,16 @@ const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Jump", value: "1–9" },
     { label: "Pin", value: "p" },
     { label: "New", value: "ctrl+n" },
-    { label: "Chat", value: "i" },
-    { label: "Hide", value: "esc" },
+    { label: "Resume", value: "ctrl+r" },
+    { label: "Hide", value: "ctrl+e" },
 ];
 
 export function workspaceSidebarFooter(_width: number): string {
+    const labelWidth = Math.max(
+        ...WORKSPACE_FOOTER_TABLE.map((row) => row.label.length + 2),
+    );
     return WORKSPACE_FOOTER_TABLE
-        .map((row) => `${row.label.padEnd(6)}${row.value}`)
+        .map((row) => `${row.label.padEnd(labelWidth)}${row.value}`)
         .join("\n");
 }
 
@@ -566,7 +599,12 @@ export function workspaceSidebarViewState(
     const width = railColumns ?? columns;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = [];
+    for (const text of layout.rows.length === 0 ? WORKSPACE_EMPTY_LINES : []) {
+        lines.push({ text, tone: "muted" as const });
+    }
     let seenGroup = false;
+    const rowTone = focused ? "text" as const : "muted" as const;
+    const lastRow = layout.rows[layout.rows.length - 1];
     for (const row of layout.rows) {
         if (row.kind === "group") {
             if (seenGroup) {
@@ -579,20 +617,37 @@ export function workspaceSidebarViewState(
             });
             continue;
         }
-        position += 1;
-        // The digit is drawn on the row it addresses. Positional and churning
-        // as the list reorders, which is why it is a shortcut and not the way
-        // a row is picked.
-        const digit = position <= WORKSPACE_JUMP_ROWS ? `${position}` : " ";
+        // The digit is drawn on the active row it addresses. Positional and
+        // churning as the list reorders, which is why it is a shortcut and not
+        // the way a row is picked. Idle rows carry none.
+        if (row.active) position += 1;
+        const digit = row.active && position <= WORKSPACE_JUMP_ROWS
+            ? `${position}`
+            : " ";
         lines.push({
             text: `${digit} ${row.text}`,
-            tone: focused ? "text" as const : "muted" as const,
+            tone: rowTone,
             rowId: row.id,
             // The highlight bar stays on the cursor row even while chat has
             // focus, so the on-screen conversation still reads without wrapping
             // its title in brackets.
             ...(row.selected ? { selected: true } : {}),
         });
+        if (row.detail !== undefined) {
+            lines.push({
+                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${row.detail}`,
+                tone: "muted" as const,
+                rowId: row.id,
+            });
+        }
+        if (row.group === RECENT_GROUP && row === lastRow) {
+            lines.push({
+                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${
+                    WORKSPACE_ALL_SESSIONS_NUDGE
+                }`,
+                tone: "muted" as const,
+            });
+        }
     }
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
@@ -607,9 +662,7 @@ export function workspaceSidebarViewState(
         // dialog chrome and crowds a 28-column column.
         ...(railColumns === undefined ? {} : { hint: "" }),
         ...(cursorLine === -1 ? {} : { cursorLine }),
-        lines: lines.length === 0
-            ? [{ text: "No other sessions.", tone: "muted" as const }]
-            : lines,
+        lines,
         footer: workspaceSidebarFooter(width),
         footerTable: WORKSPACE_FOOTER_TABLE,
         ...(focused ? {} : { dimmed: true }),

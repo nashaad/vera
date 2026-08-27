@@ -245,6 +245,32 @@ test("a child picker Enter keeps the source running", async () => {
     expect(frame).not.toContain("keep running");
 });
 
+test("opened from home, Enter just opens the conversation", async () => {
+    const state = startTuiSessionPicker(
+        [{
+            id: "frosty-frost:9f3a:UAT-tester",
+            workspace: "/work/alpha",
+            session_path: "/sessions/one.jsonl",
+            kind: "interactive",
+            status: "idle",
+            live: false,
+            title: "a conversation",
+        }],
+        undefined,
+        false,
+        new Date(),
+        false,
+        [],
+        "stop",
+        true,
+    );
+
+    const frame = await pickerFrame(state);
+    expect(frame).toContain("⏎ open");
+    expect(frame).not.toContain("stop & switch");
+    expect(frame).not.toContain("keep running");
+});
+
 test("session picker threads an async subagent under its parent", async () => {
     const state = startTuiSessionPicker([
         {

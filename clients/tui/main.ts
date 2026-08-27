@@ -381,7 +381,17 @@ import {
 import {
     createJsonlViewClient,
     isJsonlViewClient,
+    isWorkerFreeClient,
 } from "./jsonl-view-client.ts";
+import { createHomeClient, isHomeClient } from "./home-client.ts";
+import {
+    createHomeState,
+    createTuiHomeView,
+    handleHomeKey,
+    homeTypedCharacter,
+    type HomeAction,
+    type HomeState,
+} from "./home-screen.ts";
 import {
     createTuiResumeOverlayView,
     jsonlViewKeyAction,
@@ -447,6 +457,7 @@ import {
     syncTuiModelPicker,
     startTuiReasoningPicker,
     startTuiSessionPicker,
+    sessionPickerLists,
     startTuiExtensionPicker,
     startTuiProviderPicker,
     tuiProviderGroup,
@@ -670,6 +681,16 @@ registerTuiParsers();
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
+/** The palette's first row while a closed session file is on screen. */
+const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
+    name: "resume-this",
+    label: "Resume this conversation",
+    description: "start its worker and keep reading here",
+    group: "Session",
+    keyHint: "enter",
+    action: { type: "resume_viewed_session" },
+};
+
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const HUD_HINT = tuiKeyHint("dials.open");
@@ -808,6 +829,8 @@ export interface TuiDependencies {
     /** Compatibility hook for callers that only open the profile config. */
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    /** False when this machine has no conversations yet: home drops a row. */
+    readonly homeHasSessions?: boolean;
     /** One page of the session listing, with the facts the caller named. */
     readonly listSessionPage?: (
         options: ListAgentsOptions,
@@ -955,10 +978,44 @@ function removeSessionPickerOption(
 
 if (import.meta.main) {
     await startConfiguredTui({
-        type: "create",
+        type: "home",
         workspace: process.cwd(),
     });
 }
+
+/** One row is enough to know the machine is not new. */
+/**
+ * Whether home offers its `All conversations` row.
+ *
+ * It asks what the session list would show, not how many session files exist:
+ * a machine whose only conversations were opened and never spoken to has a
+ * list with nothing in it, and a row that opens an empty list is a dead end.
+ * Pages are walked because the untitled ones sort in among the rest, and
+ * capped because startup waits on this.
+ */
+async function hostHasSessions(socketPath: string): Promise<boolean> {
+    try {
+        let cursor: string | undefined;
+        for (let page = 0; page < HOME_SESSION_PROBE_PAGES; page += 1) {
+            const listed = await listAgentPageThroughHost(socketPath, {
+                limit: 50,
+                order: "recent",
+                ...(cursor === undefined ? {} : { cursor }),
+            });
+            if (listed.agents.some((agent) => sessionPickerLists(agent))) {
+                return true;
+            }
+            cursor = listed.nextCursor;
+            if (cursor === undefined) return false;
+        }
+        return false;
+    } catch {
+        // A listing this client could not read is not proof of a new machine.
+        return true;
+    }
+}
+
+const HOME_SESSION_PROBE_PAGES = 4;
 
 export async function startConfiguredTui(
     target: TuiStartTarget,
@@ -986,7 +1043,9 @@ export async function startConfiguredTui(
             target.sessionPath,
         )
         : target;
-    let agentId = resolvedTarget.type === "create"
+    let agentId = resolvedTarget.type === "home"
+        ? undefined
+        : resolvedTarget.type === "create"
         ? (await createAgentThroughHost(
             host.socket_path,
             resolvedTarget.workspace,
@@ -1001,14 +1060,21 @@ export async function startConfiguredTui(
             )).id
             : resolvedTarget.agentId;
     const agentClients = createConfiguredTuiAgentClients(() => host.socket_path);
-    const client = await agentClients.attach(agentId);
+    // Home starts a worker for nothing: the card is on screen until the user
+    // says which conversation this is.
+    const homeHasSessions = resolvedTarget.type !== "home"
+        ? undefined
+        : await hostHasSessions(host.socket_path);
+    const client = agentId === undefined
+        ? createHomeClient(process.cwd())
+        : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
-    flightRecorder.sessionEntered(agentId);
+    if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
     const rememberSession = (enteredAgentId: string): void => {
         saveTuiRecentSessionId(enteredAgentId);
     };
     try {
-        rememberSession(agentId);
+        if (agentId !== undefined) rememberSession(agentId);
     } catch (error) {
         process.stderr.write(`${recentSessionSaveFailure(error)}\n`);
     }
@@ -1032,6 +1098,7 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
             listAgents,
@@ -1954,7 +2021,32 @@ export async function startTui(
     function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
         // Every command that belongs in the palette declares its own row, so
         // there is nothing left to synthesize from the slash catalog.
-        return commandRegistry.registeredPaletteActions();
+        const entries = commandRegistry.registeredPaletteActions();
+        if (!isWorkerFreeClient(client)) return entries;
+        // A closed file lists only what needs no worker; the rest is absent,
+        // not greyed. Home has no file to resume, so it has no such row.
+        const viewingFile = isJsonlViewClient(client);
+        return [
+            ...(viewingFile ? [RESUME_VIEWED_PALETTE_ENTRY] : []),
+            ...entries.filter((entry) =>
+                workerFreeAction(entry.action, viewingFile)
+            ),
+        ];
+    }
+
+    /** Actions a closed session file can run without starting its worker. */
+    function workerFreeAction(
+        action: TuiCommandAction | undefined,
+        viewingFile: boolean,
+    ): boolean {
+        // Both commands that start a conversation describe what happens to
+        // the one being left, and home is not in one. Its first row is the
+        // way to start a conversation there.
+        if (action?.type === "create_session") return viewingFile;
+        return action?.type === "resume_viewed_session"
+            || action?.type === "open_resume_picker"
+            || action?.type === "open_help"
+            || action?.type === "open_theme_picker";
     }
 
     let markdownStyle = createMarkdownStyle(theme);
@@ -2555,10 +2647,16 @@ export async function startTui(
      */
     let composerMarginRows = 2;
     let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
+    /**
+     * A slash typed on a closed session file opens the composer for the few
+     * commands that need no worker. Escape puts the notice back.
+     */
     let jsonlCommandMode = false;
 
     function composerSlotHeight(): number {
-        return isJsonlViewClient(client)
+        // Home holds nothing at the foot of the screen at all.
+        if (isHomeClient(client)) return 0;
+        return isJsonlViewClient(client) && !jsonlCommandMode
             ? resumeOverlay.box.height
             : composerBox.height;
     }
@@ -2625,6 +2723,29 @@ export async function startTui(
     resumeOverlay = createTuiResumeOverlayView(renderer, () => {
         resumeJsonlView();
     });
+    let homeState: HomeState = createHomeState(
+        dependencies.homeHasSessions ?? true,
+    );
+    /**
+     * What was typed on home, still growing while the conversation it started
+     * is being created. The composer does not exist yet, so nothing else would
+     * catch the rest of the sentence.
+     */
+    let homeTypedText: string | undefined;
+    /**
+     * Enter arrived on home before the conversation it started existed. The
+     * message is sent as soon as there is a composer holding it.
+     */
+    let homeSubmitPending = false;
+    const homeView = createTuiHomeView(renderer, (action) => {
+        runHomeAction(action);
+    });
+    homeView.applyAppearance({
+        textColor: theme.text,
+        mutedColor: theme.muted,
+        accentColor: theme.accent,
+    });
+    homeView.update(homeState);
     resumeOverlay.applyAppearance({
         marginHorizontal: appearance.composerMarginHorizontal,
         paddingHorizontal: appearance.composerPaddingHorizontal,
@@ -2641,7 +2762,7 @@ export async function startTui(
     // opens the work tab. Width zero means no chip is on screen.
     let needsYouChipWidth = 0;
     composerStatusText.onMouseDown = (event) => {
-        if (isJsonlViewClient(client)) return;
+        if (isWorkerFreeClient(client)) return;
         if (needsYouChipWidth === 0) return;
         if (event.x - composerStatusText.x >= needsYouChipWidth) return;
         openWorkTab();
@@ -3905,6 +4026,7 @@ export async function startTui(
     // transcript announces is a mode that scrolls out of sight.
     app.add(heldAddressText);
     app.add(dialCard);
+    app.add(homeView.surface);
     app.add(composerBox);
     app.add(resumeOverlay.box);
     app.add(statusBand);
@@ -4259,18 +4381,65 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            jsonlCommandMode = false;
-            composer.clearComposer();
-            renderCommandSuggestions();
-            renderState();
-            focusActiveSurface();
+            leaveJsonlCommandMode();
             return;
         }
-        // Once the command composer is open, ordinary composer routing owns
-        // its keys. Submission accepts /resume alone.
+        if (
+            isHomeClient(client)
+            && sessionSwitchPending
+            && homeTypedText !== undefined
+            && parseRawInputEvent(key)?.type !== "interrupt"
+        ) {
+            const typed = homeTypedCharacter(key);
+            if (typed !== undefined || key.name === "backspace") {
+                homeTypedText = typed === undefined
+                    ? homeTypedText.slice(0, -1)
+                    : homeTypedText + typed;
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
+            if (
+                (key.name === "return" || key.name === "enter")
+                && !key.ctrl && !key.meta && !key.shift && !key.super
+                && !key.hyper
+            ) {
+                homeSubmitPending = true;
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
+        }
+        if (
+            isHomeClient(client)
+            && !sessionSwitchPending
+            && !commandPaletteView.surface.visible
+            && !anyOverlayOpen()
+            && !(workspaceSidebarFocused && workspaceSidebar !== undefined)
+            && parseRawInputEvent(key)?.type !== "interrupt"
+        ) {
+            const transition = handleHomeKey(homeState, key);
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                if (transition.state !== undefined) {
+                    homeState = transition.state;
+                    homeView.update(homeState);
+                    renderer.requestRender();
+                }
+                if (transition.action !== undefined) {
+                    runHomeAction(transition.action);
+                }
+                return;
+            }
+        }
         if (
             isJsonlViewClient(client)
             && !jsonlCommandMode
+            && !commandPaletteView.surface.visible
+            // A file view claims every key it is handed, so an overlay drawn
+            // over it would get none of them and sit there unable to move.
+            && !anyOverlayOpen()
             && parseRawInputEvent(key)?.type !== "interrupt"
         ) {
             const jsonlAction = jsonlViewKeyAction(key, {
@@ -4292,10 +4461,34 @@ export async function startTui(
                 resumeJsonlView();
                 return;
             }
+            if (jsonlAction === "resume_picker") {
+                key.preventDefault();
+                key.stopPropagation();
+                workspaceSidebarFocused = false;
+                openResumePicker();
+                return;
+            }
             if (jsonlAction === "new_session") {
                 key.preventDefault();
                 key.stopPropagation();
                 beginCreateSession("keep_running");
+                return;
+            }
+            if (jsonlAction === "type") {
+                // The first character is the message's; the worker starts
+                // with it already in the composer.
+                key.preventDefault();
+                key.stopPropagation();
+                composer.setComposerText(
+                    key.name === "space" ? " " : (key.sequence ?? key.name),
+                );
+                resumeJsonlView();
+                return;
+            }
+            if (jsonlAction === "home") {
+                key.preventDefault();
+                key.stopPropagation();
+                returnToHome();
                 return;
             }
             if (jsonlAction === "command") {
@@ -4309,9 +4502,13 @@ export async function startTui(
                 focusActiveSurface();
                 return;
             }
-            if (jsonlAction === "toggle_sidebar" || jsonlAction === "cycle_session") {
-                // Fall through: hide/show the rail, or cycle live sessions,
-                // without starting a worker.
+            if (
+                jsonlAction === "toggle_sidebar"
+                || jsonlAction === "cycle_session"
+                || jsonlAction === "palette"
+            ) {
+                // Fall through: hide/show the rail, cycle live sessions, or
+                // open the palette, none of which starts a worker.
             } else if (
                 jsonlAction === "sidebar"
                 && workspaceSidebar !== undefined
@@ -5144,6 +5341,9 @@ export async function startTui(
             && !key.ctrl
             && !key.shift
             && !key.meta
+            // Home has no conversation to rewind, and a picker that opens on
+            // nothing is a dead end.
+            && !isHomeClient(client)
             && !anyOverlayOpen()
             && !sessionSwitchPending
             && !focusedAgentState().working
@@ -5788,14 +5988,6 @@ export async function startTui(
         if (prompt.length === 0 && pendingImages.length === 0) {
             return;
         }
-        if (
-            isJsonlViewClient(client)
-            && jsonlCommandMode
-            && !prompt.startsWith("/")
-        ) {
-            refuseJsonlCommand();
-            return;
-        }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
         composerTip = undefined;
@@ -5825,7 +6017,7 @@ export async function startTui(
             ? undefined
             : commandRegistry.dispatch(prompt);
         if (isJsonlViewClient(client) && jsonlCommandMode) {
-            if (commandAction?.type !== "open_resume_picker") {
+            if (!workerFreeAction(commandAction, true)) {
                 refuseJsonlCommand();
                 return;
             }
@@ -6529,56 +6721,7 @@ export async function startTui(
         if (commandAction?.type === "open_resume_picker") {
             composer.clearComposer();
             renderCommandSuggestions();
-            if (dependencies.listAgents === undefined) {
-                state = appendTuiError(state, "Session listing is unavailable");
-                renderState();
-                return;
-            }
-            const version = ++resumeListVersion;
-            const targetAgentId = focusedAgentClient().agentId;
-            settingsPicker = startTuiSessionPicker(
-                [],
-                targetAgentId,
-                true,
-            );
-            focusActiveSurface();
-            renderState();
-            void dependencies.listAgents().then((agents) => {
-                if (
-                    shuttingDown
-                    || version !== resumeListVersion
-                    || settingsPicker?.kind !== "session"
-                ) {
-                    return;
-                }
-                settingsPicker = startTuiSessionPicker(
-                    agents,
-                    targetAgentId,
-                    false,
-                    new Date(),
-                    false,
-                    hostedPanePersistence.groups,
-                );
-                focusActiveSurface();
-                renderState();
-            }).catch((error) => {
-                if (
-                    !shuttingDown
-                    && version === resumeListVersion
-                    && settingsPicker?.kind === "session"
-                ) {
-                    const message = error instanceof Error
-                        ? error.message
-                        : String(error);
-                    state = appendTuiError(
-                        state,
-                        `Could not list sessions: ${message}`,
-                    );
-                    settingsPicker = undefined;
-                    focusActiveSurface();
-                    renderState();
-                }
-            });
+            openResumePicker();
             return;
         }
         if (commandAction?.type === "open_subagents_picker") {
@@ -6979,16 +7122,44 @@ export async function startTui(
         });
     }
 
-    function refuseJsonlCommand(): void {
-        composer.clearComposer();
+    function leaveJsonlCommandMode(): void {
         jsonlCommandMode = false;
-        state = appendTuiNotice(
-            state,
-            "Only /resume is available while viewing a closed conversation",
-        );
+        composer.clearComposer();
         renderCommandSuggestions();
         renderState();
         focusActiveSurface();
+    }
+
+    function refuseJsonlCommand(): void {
+        state = appendTuiNotice(
+            state,
+            "This session is closed. Only /resume, /fresh, /help, and /theme work here; press enter to resume it first.",
+        );
+        leaveJsonlCommandMode();
+    }
+
+    /** Only the commands a closed file can run are offered while it is open. */
+    function availableCommandSuggestions(
+        input: string,
+    ): readonly TuiCommandCatalogEntry[] {
+        const suggestions = commandRegistry.suggestions(input);
+        return isJsonlViewClient(client) && jsonlCommandMode
+            ? suggestions.filter((entry) =>
+                workerFreeAction(
+                    commandRegistry.dispatch(`/${entry.name}`),
+                    true,
+                ))
+            : suggestions;
+    }
+
+    function availableCommandCompletion(input: string): string | undefined {
+        if (!(isJsonlViewClient(client) && jsonlCommandMode)) {
+            return commandRegistry.completion(input);
+        }
+        const suggestions = availableCommandSuggestions(input);
+        return suggestions.length === 1
+            ? `/${suggestions[0]!.name}`
+            : undefined;
     }
 
     function routeVisibleAgentPrompt(prompt: string): boolean {
@@ -8324,6 +8495,8 @@ export async function startTui(
             ? "overlay"
             : sidebar.isFocused()
             ? "sidebar_composer"
+            : isHomeClient(client)
+            ? "home"
             : isJsonlViewClient(client) && !jsonlCommandMode
             ? "resume_overlay"
             : isJsonlViewClient(client)
@@ -8331,7 +8504,7 @@ export async function startTui(
             : "main_composer";
         if (
             overlay === undefined
-            && (!isJsonlViewClient(client) || jsonlCommandMode)
+            && (!isWorkerFreeClient(client) || jsonlCommandMode)
             && composer.focused
             && recordedFocusSurface === surface
         ) {
@@ -8341,6 +8514,11 @@ export async function startTui(
         recordedFocusSurface = surface;
         if (overlay !== undefined) {
             overlay();
+            flightRecorder?.record({ type: "focus_changed", surface });
+            return;
+        }
+        if (isHomeClient(client)) {
+            homeView.box.focus();
             flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
@@ -8355,6 +8533,7 @@ export async function startTui(
 
     function activeFlightSurface(): string {
         if (activeOverlayFocus() !== undefined) return "overlay";
+        if (isHomeClient(client)) return "home";
         if (isJsonlViewClient(client)) {
             return jsonlCommandMode ? "jsonl_command" : "resume_overlay";
         }
@@ -8464,7 +8643,7 @@ export async function startTui(
         for (const candidate of [...companions, source]) {
             if (seen.has(candidate)) continue;
             seen.add(candidate);
-            if (isJsonlViewClient(candidate)) {
+            if (isWorkerFreeClient(candidate)) {
                 const result = {
                     sourceOutcome: "detached" as const,
                     remainingInteractiveClients: 0,
@@ -8528,7 +8707,7 @@ export async function startTui(
 
     /** Best-effort terminal departure: stop only the last interactive viewer. */
     async function stopClientForShutdown(source: TuiAgentClient): Promise<void> {
-        if (isJsonlViewClient(source)) {
+        if (isWorkerFreeClient(source)) {
             await source.detach().catch(() => source.close());
             return;
         }
@@ -9413,7 +9592,11 @@ export async function startTui(
             && isConfigurationRequiredUiRequestUpdate(uiRequest);
         experimentalTuiHost.render();
 
-        placeholder.visible = state.entries.length === 0;
+        // Home says what to do in the middle of the screen; the transcript's
+        // own invitation would be a second one, over an empty conversation
+        // that does not exist yet.
+        placeholder.visible = state.entries.length === 0
+            && !isHomeClient(client);
         // The transcript tip appears in the gap after a turn, which is the one
         // moment the user is reading rather than typing, and it is gone by the
         // time the next turn starts. Armed by the turn ending rather than by
@@ -9637,10 +9820,11 @@ export async function startTui(
         // Approval and question cards are different: they replace the composer
         // until the pending engine request is answered.
         composerBox.visible = uiRequest === undefined
-            && (!isJsonlViewClient(client) || jsonlCommandMode);
+            && (!isWorkerFreeClient(client) || jsonlCommandMode);
         resumeOverlay.box.visible = uiRequest === undefined
             && isJsonlViewClient(client)
             && !jsonlCommandMode;
+        homeView.surface.visible = isHomeClient(client);
         renderCommandSuggestions();
         if (
             uiRequest !== undefined
@@ -11417,6 +11601,7 @@ export async function startTui(
     }
 
     function runStandalonePaletteAction(action: TuiCommandAction): void {
+        if (action.type === "resume_viewed_session") return resumeJsonlView();
         if (action.type === "prefill_composer") {
             composer.setComposerText(action.text);
             renderCommandSuggestions();
@@ -11797,6 +11982,10 @@ export async function startTui(
         overlayScrim.width = renderer.width;
         statusBand.left = occupied;
         statusBand.width = Math.max(0, renderer.width - occupied);
+        // The card centres itself inside its surface, so the surface has to be
+        // the space the rail leaves rather than the whole terminal.
+        homeView.surface.left = occupied;
+        homeView.surface.width = Math.max(1, renderer.width - occupied);
         commandSuggestionsBox.left = occupied;
         jumpMenuBox.left = occupied
             + tuiComposerOverlayInset(appearance).paddingLeft;
@@ -11868,6 +12057,11 @@ export async function startTui(
             beginCreateSession("keep_running");
             return;
         }
+        if (action.kind === "resume_picker") {
+            workspaceSidebarFocused = false;
+            openResumePicker();
+            return;
+        }
         workspaceSidebarFocused = false;
         composer.focus();
         renderState();
@@ -11882,6 +12076,69 @@ export async function startTui(
             "keep_running",
             action.active ? "attach" : "jsonl",
         );
+    }
+
+    function openResumePicker(): void {
+        if (dependencies.listAgents === undefined) {
+            state = appendTuiError(state, "Session listing is unavailable");
+            renderState();
+            return;
+        }
+        const version = ++resumeListVersion;
+        const targetAgentId = focusedAgentClient().agentId;
+        // Neither home nor a session file has a worker to stop, so Enter is
+        // not a switch away from anything: it opens the row and that is all.
+        const nothingToLeave = isWorkerFreeClient(client);
+        settingsPicker = startTuiSessionPicker(
+            [],
+            targetAgentId,
+            true,
+            new Date(),
+            false,
+            [],
+            "stop",
+            nothingToLeave,
+        );
+        focusActiveSurface();
+        renderState();
+        void dependencies.listAgents().then((agents) => {
+            if (
+                shuttingDown
+                || version !== resumeListVersion
+                || settingsPicker?.kind !== "session"
+            ) {
+                return;
+            }
+            settingsPicker = startTuiSessionPicker(
+                agents,
+                targetAgentId,
+                false,
+                new Date(),
+                false,
+                hostedPanePersistence.groups,
+                "stop",
+                nothingToLeave,
+            );
+            focusActiveSurface();
+            renderState();
+        }).catch((error) => {
+            if (
+                !shuttingDown
+                && version === resumeListVersion
+                && settingsPicker?.kind === "session"
+            ) {
+                const message = error instanceof Error
+                    ? error.message
+                    : String(error);
+                state = appendTuiError(
+                    state,
+                    `Could not list sessions: ${message}`,
+                );
+                settingsPicker = undefined;
+                focusActiveSurface();
+                renderState();
+            }
+        });
     }
 
     function closeWorkSurfaces(): void {
@@ -12816,7 +13073,7 @@ export async function startTui(
      * `/close` and ctrl+w. Idle parks immediately; in-flight work asks first.
      */
     function requestCloseSession(): void {
-        if (isJsonlViewClient(client) || sessionSwitchPending) {
+        if (isWorkerFreeClient(client) || sessionSwitchPending) {
             return;
         }
         if (
@@ -12840,7 +13097,7 @@ export async function startTui(
      */
     function beginParkToJsonl(): void {
         sessionCloseConfirm = false;
-        if (isJsonlViewClient(client) || sessionSwitchPending) {
+        if (isWorkerFreeClient(client) || sessionSwitchPending) {
             return;
         }
         const sourceClient = client;
@@ -12917,6 +13174,69 @@ export async function startTui(
     /**
      * Start a worker for the file currently on screen.
      */
+    /**
+     * What the home card's rows do.
+     *
+     * Typing is the fourth row in everything but name: the character that
+     * started the conversation is already in the composer when it opens.
+     */
+    function runHomeAction(action: HomeAction): void {
+        if (action.kind === "resume_picker") {
+            openResumePicker();
+            return;
+        }
+        if (action.kind === "palette") {
+            openCommandPalette();
+            return;
+        }
+        if (action.kind !== "type") {
+            beginCreateSession("stop");
+            return;
+        }
+        homeTypedText = action.text;
+        // Read when the new client lands, not now: whatever else was typed
+        // in between has been appended to it by then.
+        beginCreateSession("stop", () => ({
+            text: homeTypedText ?? "",
+            attachmentIds: [],
+        }));
+    }
+
+    /**
+     * Leave a session file for the home card.
+     *
+     * There is nothing running to stop, so this is a screen change and not a
+     * session change: the file is on disk before and after. The row list is
+     * re-asked because a conversation may have been started or closed since
+     * the card was last up.
+     */
+    function returnToHome(): void {
+        if (isHomeClient(client) || sessionSwitchPending) return;
+        homeTypedText = undefined;
+        homeSubmitPending = false;
+        switchToClient(createHomeClient(client.workspace ?? process.cwd()));
+        void refreshHomeSessions();
+    }
+
+    /** Whether home still has a session list worth offering a row for. */
+    async function refreshHomeSessions(): Promise<void> {
+        if (dependencies.listAgents === undefined) return;
+        let agents: readonly RegisteredAgentSummary[];
+        try {
+            agents = await dependencies.listAgents();
+        } catch {
+            // A listing this client could not read says nothing either way,
+            // so the card keeps the answer it already had.
+            return;
+        }
+        if (!isHomeClient(client)) return;
+        homeState = createHomeState(
+            agents.some((agent) => sessionPickerLists(agent)),
+        );
+        homeView.update(homeState);
+        renderer.requestRender();
+    }
+
     function resumeJsonlView(): void {
         if (!isJsonlViewClient(client)) {
             return;
@@ -12967,6 +13287,7 @@ export async function startTui(
      */
     function beginCreateSession(
         sourceDisposition: TuiSessionLeaveDisposition = "stop",
+        draft?: () => TuiDraft | undefined,
     ): void {
         composer.clearComposer();
         const clearingSidebar = sidebar.isFocused()
@@ -13069,7 +13390,11 @@ export async function startTui(
                 sessionSwitchPending = false;
                 return;
             }
-            switchToClient(next);
+            switchToClient(next, draft?.());
+            if (homeSubmitPending) {
+                homeSubmitPending = false;
+                submitPrompt();
+            }
             if (
                 sourceDisposition === "stop"
                 && leaveResult.sourceOutcome === "detached"
@@ -13084,6 +13409,8 @@ export async function startTui(
                 return;
             }
             sessionSwitchPending = false;
+            homeSubmitPending = false;
+            homeTypedText = undefined;
             if (previousState !== undefined) {
                 state = previousState;
                 for (const update of sessionSwitchBufferedUpdates) {
@@ -13885,6 +14212,11 @@ export async function startTui(
             borderColor: (activeTheme) =>
                 appearance.composerBoundaryColor ?? activeTheme.element,
         }),
+        (activeTheme) => homeView.applyAppearance({
+            textColor: activeTheme.text,
+            mutedColor: activeTheme.muted,
+            accentColor: activeTheme.accent,
+        }),
         (activeTheme) => resumeOverlay.applyAppearance({
             marginHorizontal: appearance.composerMarginHorizontal,
             paddingHorizontal: appearance.composerPaddingHorizontal,
@@ -14167,27 +14499,6 @@ export async function startTui(
         }
         commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
-    }
-
-    /**
-     * A file view exposes one application-level escape hatch, not the session
-     * commands that require a live worker.
-     */
-    function availableCommandSuggestions(
-        input: string,
-    ): readonly TuiCommandCatalogEntry[] {
-        const suggestions = commandRegistry.suggestions(input);
-        return jsonlCommandMode
-            ? suggestions.filter((entry) => entry.name === "resume")
-            : suggestions;
-    }
-
-    function availableCommandCompletion(input: string): string | undefined {
-        if (!jsonlCommandMode) return commandRegistry.completion(input);
-        const suggestions = availableCommandSuggestions(input);
-        return suggestions.length === 1
-            ? `/${suggestions[0]!.name}`
-            : undefined;
     }
 
     /**
@@ -14537,7 +14848,7 @@ export async function startTui(
         }
 
         if (
-            isJsonlViewClient(client)
+            isWorkerFreeClient(client)
             && !sessionSwitchPending
             && !connectionFailed
         ) {
@@ -14579,7 +14890,7 @@ export async function startTui(
             && !promptSubmitting
             && !extensionCommandPending
             && pendingImages.length === 0
-            && !isJsonlViewClient(client);
+            && !isWorkerFreeClient(client);
         const hostedModeStatus = tuiPlaceRowModeLine(
             READY_HINT,
             placeIdle,
@@ -14667,7 +14978,7 @@ export async function startTui(
                         : "waiting",
             ),
         );
-        const statusDetailsRows: TuiStatusChunk[][] = isJsonlViewClient(client)
+        const statusDetailsRows: TuiStatusChunk[][] = isWorkerFreeClient(client)
             ? renderTuiFileViewStatusRows(
                 client.workspace ?? process.cwd(),
                 workspaceBranch.current(),

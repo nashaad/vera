@@ -173,7 +173,7 @@ const CARD_CHROME_HEIGHT = 7;
  * spends on each side would come straight out of the titles.
  */
 const RAIL_PADDING = 1;
-/** The rail's own equivalent of `CARD_CHROME_HEIGHT`, one row less padding. */
+/** Rail header, edge padding, and the rule above its fixed help block. */
 const RAIL_CHROME_HEIGHT = 6;
 /** The row a rail starts on: the blank one the screen keeps above everything. */
 const RAIL_TOP_MARGIN = 1;
@@ -255,7 +255,7 @@ export function createTuiLinesView(
                 dialogBoxHeight(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - bottomInset,
+                ) - (rail === undefined ? bottomInset : 0),
                 (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
                     + footerRows - 1,
             );
@@ -320,7 +320,9 @@ export function createTuiLinesView(
                     state.dimmed === true,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
-            muted("");
+            // A dock uses the row below its title for its first action. Cards
+            // keep the dialog-style breathing room under the header.
+            if (rail === undefined) muted("");
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
@@ -328,7 +330,7 @@ export function createTuiLinesView(
                 dialogBoxHeight(
                     renderer,
                     rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - bottomInset,
+                ) - (rail === undefined ? bottomInset : 0),
                 (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
                     + footerRows - 1,
             );
@@ -354,13 +356,20 @@ export function createTuiLinesView(
             }
             const below = state.lines.length - above - visible.length;
             if (below > 0) muted(`… ${below} below`);
-            // A dock is a full-height utility column. When its list is short,
-            // keep the controls on the bottom edge instead of gluing them to
-            // the last session row. Centred cards keep their compact height.
+            // A dock is two regions: the list above, which scrolls, and a
+            // fixed help block on the bottom edge, with an inset rule between
+            // them. Centred cards keep their compact height.
             if (rail !== undefined) {
                 add(new BoxRenderable(renderer, {
                     width: "100%",
                     flexGrow: 1,
+                }));
+                add(new TextRenderable(renderer, {
+                    content: "─".repeat(Math.max(1, rail - 2)),
+                    fg: TUI_ELEMENT,
+                    marginLeft: 1,
+                    width: "100%",
+                    height: 1,
                 }));
             }
             add(state.footerTable === undefined

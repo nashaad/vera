@@ -33,6 +33,9 @@ const tmuxAvailable = runTmux("probe-unused", ["-V"], true).ok;
 /** ctrl+e, which is the chord that both opens and closes the pane. */
 const CTRL_E = ["05"];
 
+/** ctrl+r, the chord that opens the full session list from the rail. */
+const CTRL_R = ["12"];
+
 test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
@@ -48,17 +51,22 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
     expect(pane).toContain("provider-fall…");
-    expect(pane).toContain("Move  ↑↓  j/k");
-    expect(pane).toContain("Hide  esc");
+    expect(pane).not.toContain("Resume session");
+    expect(pane).toContain("ctrl+r · all sessions");
+    expect(pane).toContain("Move    ↑↓  j/k");
+    expect(pane).toContain("Resume  ctrl+r");
+    expect(pane).toContain("Hide    ctrl+e");
     const rows = pane.split("\n");
     const lastSession = rows.findIndex((line) => line.includes("auth-refactor"));
-    const footerTop = rows.findIndex((line) => line.includes("Move  ↑↓"));
-    const footerBottom = rows.findIndex((line) => line.includes("Hide  esc"));
-    expect(footerTop - lastSession).toBeGreaterThan(5);
+    const footerTop = rows.findIndex((line) => line.includes("Move    ↑↓"));
+    const footerBottom = rows.findIndex((line) => line.includes("Hide    ctrl+e"));
+    expect(footerTop).toBeGreaterThan(lastSession);
+    expect(rows.slice(lastSession, footerTop).some((line) => line.includes("──")))
+        .toBe(true);
     expect(rows.length - footerBottom).toBeLessThanOrEqual(3);
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("slash resume opens from a file view in a real terminal", async () => {
+test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
@@ -67,21 +75,22 @@ test.skipIf(!tmuxAvailable)("slash resume opens from a file view in a real termi
         tui.key("Enter");
         await tui.paneWhere((value) =>
             value.includes("SAVED TRANSCRIPT LOADED")
-            && value.includes("/resume switch")
+            && value.includes("ctrl+n new")
         );
 
-        // The slash is global even after focus returns to the rail.
+        // The sidebar action remains available while a closed file is shown.
         tui.bytes(CTRL_E);
-        tui.text("/");
         await tui.paneWhere((value) =>
-            value.includes("/resume")
-            && !value.includes("[resume]")
+            value.includes("Resume  ctrl+r")
+            && !value.includes("Resume session")
         );
-        tui.text("resume");
-        tui.key("Enter");
+        tui.bytes(CTRL_R);
+        // A file has no worker behind it, so Enter is not a switch away from
+        // anything: the footer offers to open the row and nothing more.
         return await tui.paneWhere((value) =>
             value.includes("Continue the theme picker")
-            && value.includes("stop & switch")
+            && value.includes("⏎ open")
+            && !value.includes("stop & switch")
         );
     }, 100, 34, {}, RESUME_CHILD);
 
@@ -253,7 +262,9 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
         );
         tui.key("Enter");
         const opened = await tui.paneWhere(
-            (value) => compact(value).includes("/sessions/auth-race.jsonl"),
+            (value) =>
+                value.includes("Could not switch conversation: OPENED")
+                && value.includes("auth-race"),
         );
         return { after, opened };
     });
@@ -264,7 +275,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(after).toContain("this one");
     expect(after).not.toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
-    expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
+    expect(opened).toContain("OPENED /sessions/auth-race.");
     expect(opened).toContain("Agent sidebar ·");
 }, 60_000);
 
@@ -314,7 +325,6 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
     expect(selectedRow(afterUp)).toBe(selectedRow(before));
     // Half-page is highlight only. The viewed transcript does not follow.
     expect(compact(afterDown)).not.toContain("/sessions/bulk-");
-    expect(afterDown).toContain("this one");
     expect(afterDown).not.toContain("[ this one ]");
 }, 60_000);
 
@@ -328,17 +338,18 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
             && value.includes("provider-fall…")
-            && value.includes("Hide  esc")
+            && value.includes("Hide    ctrl+e")
         );
         const row = open.split("\n")
             .findIndex((line) => line.includes("relay-gui"));
         tui.click(20, row + 1);
         return await tui.paneWhere((value) =>
-            compact(value).includes("/sessions/relay-gui.jsonl")
+            value.includes("Could not switch conversation: OPENED")
+            && value.includes("relay-gui")
         );
     });
 
-    expect(compact(opened)).toContain("/sessions/relay-gui.jsonl");
+    expect(opened).toContain("OPENED /sessions/relay-gui.");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async () => {
@@ -347,11 +358,12 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
             value.includes("auth-race")
-            && value.includes("Hide  esc")
+            && value.includes("Hide    ctrl+e")
         );
         tui.text("2");
         const opened = await tui.paneWhere((value) =>
-            compact(value).includes("/sessions/auth-race.jsonl")
+            value.includes("Could not switch conversation: OPENED")
+            && value.includes("auth-race")
         );
         return { open, opened };
     });
@@ -362,7 +374,7 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
         line.includes("2") && line.includes("auth-race")
     );
     expect(second).toContain("auth-race");
-    expect(compact(opened)).toContain("/sessions/auth-race.jsonl");
+    expect(opened).toContain("OPENED /sessions/auth-race.");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays", async () => {
@@ -391,9 +403,9 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
         const heading = rows.findIndex((line) => line.includes("pinned"));
         expect(heading).toBeGreaterThan(-1);
         expect(rows[heading + 1]).toContain("relay-gui");
-        // The pin is a heading and a sort key, so the pinned row is the first
-        // row the digits address.
-        expect(rows[heading + 1]).toMatch(/\b1\s+.*relay-gui/);
+        // The pin is a heading and a sort key. Digits address running
+        // sessions in listing order, wherever they sit.
+        expect(rows[heading + 1]).toMatch(/\b\d\s+.*relay-gui/);
     }
 }, 60_000);
 

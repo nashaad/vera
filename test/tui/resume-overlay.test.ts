@@ -4,16 +4,16 @@ import {
     JSONL_VIEW_SCROLL_IDS,
     jsonlViewKeyAction,
     RESUME_OVERLAY_HINT,
-    RESUME_OVERLAY_LABEL,
     RESUME_OVERLAY_NEW_HINT,
     RESUME_OVERLAY_TEXT,
 } from "../../clients/tui/resume-overlay.ts";
 
-test("the overlay names resume in brackets and enter as the key", () => {
-    expect(RESUME_OVERLAY_LABEL).toBe("[resume]");
-    expect(RESUME_OVERLAY_HINT).toBe("enter");
-    expect(RESUME_OVERLAY_TEXT).toBe("[resume] · enter");
-    expect(RESUME_OVERLAY_NEW_HINT).toBe("ctrl+n new · /resume switch");
+test("the notice says the session is closed and names every way in", () => {
+    expect(RESUME_OVERLAY_TEXT).toBe("This session is closed.");
+    expect(RESUME_OVERLAY_HINT)
+        .toBe("enter to resume it · start typing to resume with your message");
+    expect(RESUME_OVERLAY_NEW_HINT)
+        .toBe("esc home · ctrl+n new · ctrl+r all · ctrl+p commands");
 });
 
 test("enter resumes when the file view owns the keyboard", () => {
@@ -90,24 +90,67 @@ test("ctrl+n starts a new chat from the file view", () => {
     )).toBe("new_session");
 });
 
-test("slash opens the global command surface even when the rail has focus", () => {
+test("slash opens the command composer on a closed file", () => {
     expect(jsonlViewKeyAction(
         { name: "/" },
-        { sidebarFocused: true },
+        { sidebarFocused: false },
     )).toBe("command");
 });
 
-test("HUD, palette, and typing are blocked until resume", () => {
+test("ctrl+p opens the palette from a closed file", () => {
+    expect(jsonlViewKeyAction(
+        { name: "p", ctrl: true },
+        { globalBinding: "open_palette", sidebarFocused: false },
+    )).toBe("palette");
+});
+
+test("a printable key resumes the file with that key as the message", () => {
+    expect(jsonlViewKeyAction({ name: "x" }, { sidebarFocused: false }))
+        .toBe("type");
+    expect(jsonlViewKeyAction({ name: "space" }, { sidebarFocused: false }))
+        .toBe("type");
+    expect(jsonlViewKeyAction(
+        { name: "x", ctrl: true },
+        { sidebarFocused: false },
+    )).toBe("block");
+});
+
+test("the HUD stays blocked until resume", () => {
     expect(jsonlViewKeyAction(
         { name: "tab", shift: true },
         { globalBinding: "dials.open", sidebarFocused: false },
     )).toBe("block");
+});
+
+test("escape leaves the file for home", () => {
+    expect(jsonlViewKeyAction({ name: "escape" }, { sidebarFocused: false }))
+        .toBe("home");
+});
+
+test("a modified escape is not the way home", () => {
+    for (const modifier of ["ctrl", "shift", "meta"] as const) {
+        expect(jsonlViewKeyAction(
+            { name: "escape", [modifier]: true },
+            { sidebarFocused: false },
+        )).toBe("block");
+    }
+});
+
+test("ctrl+r opens the full list from a file, focused rail or not", () => {
     expect(jsonlViewKeyAction(
-        { name: "p", ctrl: true },
-        { globalBinding: "open_palette", sidebarFocused: false },
-    )).toBe("block");
+        { name: "r", ctrl: true },
+        {
+            workspaceBinding: "workspace_resume_picker",
+            sidebarFocused: false,
+        },
+    )).toBe("resume_picker");
+    // A focused rail answers its own chord, so the file view hands it over
+    // rather than opening a second copy of the same list.
     expect(jsonlViewKeyAction(
-        { name: "x" },
-        { sidebarFocused: false },
-    )).toBe("block");
+        { name: "r", ctrl: true },
+        {
+            workspaceBinding: "workspace_resume_picker",
+            sidebarFocused: true,
+        },
+    )).toBe("sidebar");
 });
