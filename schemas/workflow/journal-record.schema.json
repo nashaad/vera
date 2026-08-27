@@ -1,0 +1,47 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://vera.dev/schemas/workflow/journal-record.schema.json",
+    "title": "Vera workflow journal record",
+    "type": "object",
+    "required": ["seq", "key", "ok"],
+    "properties": {
+        "seq": {
+            "type": "integer",
+            "minimum": 1
+        },
+        "key": {
+            "type": "string",
+            "minLength": 1
+        },
+        "ok": {
+            "const": true
+        },
+        "value": {},
+        "ref": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$"
+        },
+        "bytes": {
+            "type": "integer",
+            "minimum": 8193
+        }
+    },
+    "oneOf": [
+        {
+            "required": ["value"],
+            "not": {
+                "anyOf": [
+                    { "required": ["ref"] },
+                    { "required": ["bytes"] }
+                ]
+            }
+        },
+        {
+            "required": ["ref", "bytes"],
+            "not": {
+                "required": ["value"]
+            }
+        }
+    ],
+    "additionalProperties": false
+}
