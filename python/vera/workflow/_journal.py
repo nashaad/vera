@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,7 +13,9 @@ from ._errors import WorkflowError
 
 
 _RUN_ID = re.compile(r"wf_[0-9a-f]{16}\Z")
+_BLOB_REF = re.compile(r"[0-9a-f]{64}\Z")
 _STATUSES = {"ok", "failed", "suspended", "running"}
+_INLINE_VALUE_MAX_BYTES = 8192
 
 
 def _now() -> str:
@@ -32,6 +35,46 @@ def _parse_json(text: str, source: Path) -> object:
         return json.loads(text, parse_constant=_reject_constant)
     except (ValueError, RecursionError) as error:
         raise _journal_error(f"invalid JSON in {source}") from error
+
+
+def _read_blob(path: Path, reference: str, byte_count: int) -> object:
+    try:
+        encoded = path.read_bytes()
+    except OSError as error:
+        raise _journal_error(f"cannot read {path}") from error
+    if len(encoded) != byte_count:
+        raise _journal_error(f"workflow blob byte count does not match: {reference}")
+    if hashlib.sha256(encoded).hexdigest() != reference:
+        raise _journal_error(f"workflow blob digest does not match: {reference}")
+    try:
+        text = encoded.decode("utf-8")
+    except UnicodeError as error:
+        raise _journal_error(f"workflow blob is not UTF-8: {reference}") from error
+    value = _parse_json(text, path)
+    try:
+        canonical = dumps(value).encode("utf-8")
+    except WorkflowError as error:
+        raise _journal_error(f"workflow blob is not valid JSON: {reference}") from error
+    if canonical != encoded:
+        raise _journal_error(f"workflow blob is not canonical JSON: {reference}")
+    return value
+
+
+def _write_blob(run_dir: Path, encoded: bytes, reference: str) -> None:
+    blob_dir = run_dir / "blobs"
+    blob_path = blob_dir / reference
+    temp_path = blob_dir / f".{reference}.tmp"
+    try:
+        blob_dir.mkdir(exist_ok=True)
+        if blob_path.exists() and blob_path.read_bytes() == encoded:
+            return
+        with temp_path.open("wb") as blob_file:
+            blob_file.write(encoded)
+            blob_file.flush()
+            os.fsync(blob_file.fileno())
+        os.replace(temp_path, blob_path)
+    except OSError as error:
+        raise _journal_error(f"cannot write workflow blob {reference}") from error
 
 
 def _validate_timestamp(value: object, field: str) -> None:
@@ -187,7 +230,10 @@ class Journal:
             if type(raw) is not dict:
                 raise _journal_error("workflow journal record must be an object")
             record: dict[str, object] = raw
-            if set(record) != {"seq", "key", "ok", "value"}:
+            fields = set(record)
+            inline_fields = {"seq", "key", "ok", "value"}
+            blob_fields = {"seq", "key", "ok", "ref", "bytes"}
+            if fields not in (inline_fields, blob_fields):
                 raise _journal_error("workflow journal record has invalid fields")
             if type(record["seq"]) is not int or record["seq"] != expected_seq:
                 raise _journal_error("workflow journal sequence is not contiguous")
@@ -198,13 +244,33 @@ class Journal:
                 raise _journal_error("workflow journal may contain successes only")
             if key in records:
                 raise _journal_error(f"duplicate workflow journal key: {key}")
-            try:
-                dumps(record["value"])
-            except WorkflowError as error:
-                raise _journal_error(
-                    "workflow journal contains an invalid value"
-                ) from error
-            records[key] = record["value"]
+            if fields == inline_fields:
+                value = record["value"]
+                try:
+                    dumps(value)
+                except WorkflowError as error:
+                    raise _journal_error(
+                        "workflow journal contains an invalid value"
+                    ) from error
+            else:
+                reference = record["ref"]
+                byte_count = record["bytes"]
+                if (
+                    type(reference) is not str
+                    or _BLOB_REF.fullmatch(reference) is None
+                ):
+                    raise _journal_error("workflow journal blob ref is invalid")
+                if (
+                    type(byte_count) is not int
+                    or byte_count <= _INLINE_VALUE_MAX_BYTES
+                ):
+                    raise _journal_error("workflow journal blob byte count is invalid")
+                value = _read_blob(
+                    path.parent / "blobs" / reference,
+                    reference,
+                    byte_count,
+                )
+            records[key] = value
         return records, len(lines) + 1
 
     @property
@@ -229,7 +295,19 @@ class Journal:
         return tuple(args), kwargs
 
     def append(self, key: str, value: object) -> None:
-        record = {"seq": self._next_seq, "key": key, "ok": True, "value": value}
+        encoded_value = dumps(value).encode("utf-8")
+        record: dict[str, object] = {
+            "seq": self._next_seq,
+            "key": key,
+            "ok": True,
+        }
+        if len(encoded_value) > _INLINE_VALUE_MAX_BYTES:
+            reference = hashlib.sha256(encoded_value).hexdigest()
+            _write_blob(self.run_dir, encoded_value, reference)
+            record["ref"] = reference
+            record["bytes"] = len(encoded_value)
+        else:
+            record["value"] = value
         try:
             line = json.dumps(
                 record,
