@@ -1,5 +1,3 @@
-"""Durable storage for one serial workflow run."""
-
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -32,7 +30,7 @@ def _reject_constant(value: str) -> object:
 def _parse_json(text: str, source: Path) -> object:
     try:
         return json.loads(text, parse_constant=_reject_constant)
-    except (json.JSONDecodeError, ValueError) as error:
+    except (ValueError, RecursionError) as error:
         raise _journal_error(f"invalid JSON in {source}") from error
 
 
@@ -100,7 +98,7 @@ class Journal:
         cls,
         journal_dir: Path,
         run_id: str,
-        workflow_name: str,
+        workflow_name: str | None,
     ) -> Journal:
         cls._require_journal_dir(journal_dir)
         if _RUN_ID.fullmatch(run_id) is None:
@@ -111,7 +109,7 @@ class Journal:
         header_path = run_dir / "header.json"
         try:
             header_text = header_path.read_text(encoding="utf-8")
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             raise _journal_error(f"cannot read {header_path}") from error
         raw_header = _parse_json(header_text, header_path)
         header = cls._validate_header(raw_header, run_id, workflow_name)
@@ -127,7 +125,7 @@ class Journal:
     def _validate_header(
         raw: object,
         run_id: str,
-        workflow_name: str,
+        workflow_name: str | None,
     ) -> dict[str, object]:
         if type(raw) is not dict:
             raise _journal_error("workflow header must be a JSON object")
@@ -138,9 +136,12 @@ class Journal:
             raise _journal_error(f"workflow header is missing: {', '.join(missing)}")
         if header["run_id"] != run_id:
             raise _journal_error("workflow header run_id does not match its directory")
-        if header["workflow"] != workflow_name:
+        stored_workflow = header["workflow"]
+        if type(stored_workflow) is not str:
+            raise _journal_error("header field workflow must be a string")
+        if workflow_name is not None and stored_workflow != workflow_name:
             raise _journal_error(
-                f"run belongs to workflow {header['workflow']!r}, not {workflow_name!r}"
+                f"run belongs to workflow {stored_workflow!r}, not {workflow_name!r}"
             )
         status = header["status"]
         if type(status) is not str or status not in _STATUSES:
@@ -176,7 +177,7 @@ class Journal:
             return {}, 1
         try:
             lines = path.read_text(encoding="utf-8").splitlines()
-        except OSError as error:
+        except (OSError, UnicodeError) as error:
             raise _journal_error(f"cannot read {path}") from error
         records: dict[str, object] = {}
         for expected_seq, line in enumerate(lines, start=1):

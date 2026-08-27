@@ -8,7 +8,7 @@ import sys
 import tempfile
 import unittest
 
-from vera.workflow.api import current, step, workflow
+from vera.workflow.api import WorkflowError, current, step, workflow
 
 
 CHILD = r"""
@@ -62,6 +62,10 @@ class TestSerialJournal(unittest.TestCase):
         def total() -> int:
             return add(2, 3)
 
+        self.assertEqual(add.__name__, "add")
+        self.assertEqual(add.__wrapped__.__name__, add.__name__)
+        self.assertEqual(total.__name__, "total")
+
         with tempfile.TemporaryDirectory() as temporary_directory:
             journal_dir = Path(temporary_directory)
             run = total.run(journal_dir=journal_dir)
@@ -109,7 +113,18 @@ class TestSerialJournal(unittest.TestCase):
 
         @workflow
         def broken() -> None:
-            fail()
+            try:
+                fail()
+            except Exception:
+                self.fail("workflow glue swallowed a failed step")
+
+        @step
+        def fail_with_workflow_error() -> None:
+            raise WorkflowError("journal", "raised by user code")
+
+        @workflow
+        def also_broken() -> None:
+            fail_with_workflow_error()
 
         with tempfile.TemporaryDirectory() as temporary_directory:
             journal_dir = Path(temporary_directory)
@@ -117,12 +132,17 @@ class TestSerialJournal(unittest.TestCase):
 
             self.assertEqual(run.status, "failed")
             self.assertIsNotNone(run.error)
-            self.assertEqual(run.error["kind"], "step")
+            self.assertEqual(run.error.kind, "step")
             run_dir = journal_dir / run.id
             journal_path = run_dir / "journal.ndjson"
             self.assertFalse(journal_path.exists() and journal_path.read_text())
             header = json.loads((run_dir / "header.json").read_text())
             self.assertEqual(header["status"], "failed")
+
+            user_error_run = also_broken.run(journal_dir=journal_dir)
+            self.assertEqual(user_error_run.status, "failed")
+            self.assertIsNotNone(user_error_run.error)
+            self.assertEqual(user_error_run.error.kind, "step")
 
     def test_resume_retries_failed_step(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -147,10 +167,23 @@ class TestSerialJournal(unittest.TestCase):
 
             self.assertEqual(resumed.status, "ok")
             self.assertEqual(resumed.result, "ok")
-            lines = (
-                journal_dir / first.id / "journal.ndjson"
-            ).read_text().splitlines()
+            run_dir = journal_dir / first.id
+            journal_path = run_dir / "journal.ndjson"
+            header_path = run_dir / "header.json"
+            lines = journal_path.read_text().splitlines()
             self.assertEqual(len(lines), 1)
+
+            journal_bytes = journal_path.read_bytes()
+            journal_path.write_bytes(b"\xff")
+            with self.assertRaises(WorkflowError) as journal_error:
+                wait_for_gate.resume(first.id, journal_dir=journal_dir)
+            self.assertEqual(journal_error.exception.kind, "journal")
+
+            journal_path.write_bytes(journal_bytes)
+            header_path.write_bytes(b"\xff")
+            with self.assertRaises(WorkflowError) as header_error:
+                wait_for_gate.resume(first.id, journal_dir=journal_dir)
+            self.assertEqual(header_error.exception.kind, "journal")
 
     def test_crash_mid_run_then_resume_in_a_child_process(self) -> None:
         python_pkg_root = str(Path(__file__).resolve().parents[1])

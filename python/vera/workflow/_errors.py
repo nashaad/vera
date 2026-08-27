@@ -1,6 +1,10 @@
-"""Public workflow result and error types."""
-
 from dataclasses import dataclass
+
+
+@dataclass(frozen=True)
+class RunError:
+    kind: str
+    message: str
 
 
 @dataclass(frozen=True)
@@ -8,7 +12,7 @@ class Run:
     id: str
     status: str
     result: object | None
-    error: dict[str, str] | None
+    error: RunError | None
 
 
 class WorkflowError(Exception):

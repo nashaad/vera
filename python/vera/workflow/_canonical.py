@@ -1,5 +1,3 @@
-"""Canonical JSON encoding for workflow journal keys and values."""
-
 from __future__ import annotations
 
 import hashlib

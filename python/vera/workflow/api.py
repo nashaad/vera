@@ -7,26 +7,39 @@ into smaller steps.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
+from functools import update_wrapper
 from pathlib import Path
-from typing import Callable, Generic, ParamSpec, TypeVar, cast
+from types import MappingProxyType
+from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, cast
 
 from ._canonical import digest, dumps
-from ._errors import Run, Suspend, WorkflowError
+from ._errors import Run, RunError, Suspend, WorkflowError
 from ._journal import Journal
 
 
 P = ParamSpec("P")
 R = TypeVar("R")
+WorkflowArgs = TypeVarTuple("WorkflowArgs")
 
-__all__ = ["workflow", "step", "Suspend", "WorkflowError", "Run", "current"]
+__all__ = [
+    "workflow",
+    "step",
+    "Suspend",
+    "WorkflowError",
+    "Run",
+    "RunError",
+    "current",
+]
 
 
 @dataclass(frozen=True)
 class _CurrentRun:
     id: str
     journal_dir: Path
+    inbox: Mapping[str, object]
 
 
 class _Current:
@@ -42,10 +55,23 @@ class _Current:
         return False
 
 
-class _StepFailure(Exception):
+class _UserFailure(BaseException):
     def __init__(self, error: Exception) -> None:
         super().__init__(str(error))
         self.error = error
+
+
+class _RuntimeFault(BaseException):
+    def __init__(self, error: WorkflowError) -> None:
+        super().__init__(str(error))
+        self.error = error
+
+
+def _call_user_code(function: Callable[[], R]) -> R:
+    try:
+        return function()
+    except Exception as error:
+        raise _UserFailure(error) from None
 
 
 class _Runtime:
@@ -55,32 +81,36 @@ class _Runtime:
         self.current_run = _CurrentRun(
             id=journal.run_id,
             journal_dir=journal.journal_dir,
+            inbox=MappingProxyType(journal.inbox),
         )
         self._ordinals: dict[str, int] = {}
 
     def call_step(
         self,
         step_name: str,
-        function: Callable[..., object],
-        args: tuple[object, ...],
-        kwargs: dict[str, object],
-    ) -> object:
+        function: Callable[P, R],
+        args: P.args,
+        kwargs: P.kwargs,
+    ) -> R:
         ordinal = self._ordinals.get(step_name, 0)
         self._ordinals[step_name] = ordinal + 1
-        key = (
-            f"{self.workflow_name}/{step_name}#{ordinal}:"
-            f"{digest(args, kwargs)}"
-        )
-        if key in self.journal.records:
-            return self.journal.records[key]
+        positional_args = tuple(args)
+        keyword_args = dict(kwargs)
         try:
-            value = function(*args, **kwargs)
-        except (WorkflowError, _StepFailure):
-            raise
-        except Exception as error:
-            raise _StepFailure(error) from None
-        dumps(value)
-        self.journal.append(key, value)
+            key = (
+                f"{self.workflow_name}/{step_name}#{ordinal}:"
+                f"{digest(positional_args, keyword_args)}"
+            )
+        except WorkflowError as error:
+            raise _RuntimeFault(error) from error
+        if key in self.journal.records:
+            return cast(R, self.journal.records[key])
+        value = _call_user_code(lambda: function(*args, **kwargs))
+        try:
+            dumps(value)
+            self.journal.append(key, value)
+        except WorkflowError as error:
+            raise _RuntimeFault(error) from error
         return value
 
 
@@ -96,6 +126,7 @@ class _Step(Generic[P, R]):
     def __init__(self, function: Callable[P, R]) -> None:
         self._function = function
         self.name = function.__name__
+        update_wrapper(self, function, updated=())
 
     def __call__(self, *args: P.args, **kwargs: P.kwargs) -> R:
         runtime = _runtime.get()
@@ -104,39 +135,44 @@ class _Step(Generic[P, R]):
         value = runtime.call_step(
             self.name,
             self._function,
-            tuple(args),
-            dict(kwargs),
+            args,
+            kwargs,
         )
-        return cast(R, value)
+        return value
 
 
-class _Workflow:
-    def __init__(self, function: Callable[..., object]) -> None:
+class _Workflow(Generic[Unpack[WorkflowArgs], R]):
+    def __init__(self, function: Callable[[Unpack[WorkflowArgs]], R]) -> None:
         self._function = function
         self.name = function.__name__
         self._doc = " ".join((function.__doc__ or "").split())
+        update_wrapper(self, function, updated=())
 
     def run(
         self,
-        *args: object,
+        *args: Unpack[WorkflowArgs],
         journal_dir: Path | str,
-        **kwargs: object,
     ) -> Run:
         path = Path(journal_dir)
-        dumps({"args": list(args), "kwargs": kwargs})
-        journal = Journal.create(path, self.name, self._doc, args, kwargs)
-        return self._execute(journal, args, kwargs, mark_running=False)
+        positional_args = tuple(args)
+        dumps({"args": list(positional_args), "kwargs": {}})
+        journal = Journal.create(path, self.name, self._doc, positional_args, {})
+        return self._execute(journal, positional_args, mark_running=False)
 
     def resume(self, run_id: str, *, journal_dir: Path | str) -> Run:
         journal = Journal.load(Path(journal_dir), run_id, self.name)
         args, kwargs = journal.inputs()
-        return self._execute(journal, args, kwargs, mark_running=True)
+        if kwargs:
+            raise WorkflowError(
+                "journal",
+                "workflow run contains unsupported keyword inputs",
+            )
+        return self._execute(journal, args, mark_running=True)
 
     def _execute(
         self,
         journal: Journal,
         args: tuple[object, ...],
-        kwargs: dict[str, object],
         *,
         mark_running: bool,
     ) -> Run:
@@ -144,44 +180,37 @@ class _Workflow:
             journal.mark_running()
         runtime = _Runtime(journal, self.name)
         token = _runtime.set(runtime)
+        typed_args = cast(tuple[Unpack[WorkflowArgs]], args)
         try:
-            result = self._function(*args, **kwargs)
+            result = _call_user_code(lambda: self._function(*typed_args))
         except Suspend as suspended:
             journal.mark_suspended(suspended.reason)
             return Run(
                 journal.run_id,
                 "suspended",
                 None,
-                {"kind": "suspended", "message": suspended.reason},
+                RunError("suspended", suspended.reason),
             )
-        except _StepFailure as failure:
+        except _UserFailure as failure:
             message = _error_message(failure.error)
             journal.mark_failed("step", message)
             return Run(
                 journal.run_id,
                 "failed",
                 None,
-                {"kind": "step", "message": message},
+                RunError("step", message),
             )
-        except WorkflowError as error:
+        except _RuntimeFault as fault:
+            error = fault.error
             if error.kind != "serialize":
-                raise
+                raise error from fault
             message = _error_message(error)
             journal.mark_failed("serialize", message)
             return Run(
                 journal.run_id,
                 "failed",
                 None,
-                {"kind": "serialize", "message": message},
-            )
-        except Exception as error:
-            message = _error_message(error)
-            journal.mark_failed("step", message)
-            return Run(
-                journal.run_id,
-                "failed",
-                None,
-                {"kind": "step", "message": message},
+                RunError("serialize", message),
             )
         finally:
             _runtime.reset(token)
@@ -193,5 +222,7 @@ def step(function: Callable[P, R]) -> _Step[P, R]:
     return _Step(function)
 
 
-def workflow(function: Callable[..., object]) -> _Workflow:
+def workflow(
+    function: Callable[[Unpack[WorkflowArgs]], R],
+) -> _Workflow[Unpack[WorkflowArgs], R]:
     return _Workflow(function)
