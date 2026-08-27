@@ -7,7 +7,7 @@ into smaller steps.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -18,6 +18,7 @@ from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, 
 from ._canonical import digest, dumps
 from ._errors import Run, RunError, Suspend, WorkflowError
 from ._journal import Journal
+from ._ticket import Ticket
 
 
 P = ParamSpec("P")
@@ -32,6 +33,7 @@ __all__ = [
     "Run",
     "RunError",
     "current",
+    "Ticket",
 ]
 
 
@@ -139,6 +141,13 @@ class _Step(Generic[P, R]):
             kwargs,
         )
         return value
+
+    def submit(self, *args: P.args, **kwargs: P.kwargs) -> Ticket[R]:
+        return Ticket(self(*args, **kwargs))
+
+    def map(self, items: Iterable[object]) -> tuple[R, ...]:
+        one_argument_call = cast(Callable[[object], R], self)
+        return tuple(one_argument_call(item) for item in items)
 
 
 class _Workflow(Generic[Unpack[WorkflowArgs], R]):
