@@ -4,8 +4,12 @@ import {
     type TuiDependencies,
 } from "../../clients/tui/main.ts";
 import { createInProcessChannel } from "../../src/engine/message-channel.ts";
+import type { ClientCommand } from "../../src/engine/protocol.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
-import type { AvailableModel } from "../../src/model/catalog-view.ts";
+import type {
+    AvailableModel,
+    PooledModel,
+} from "../../src/model/catalog-view.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
@@ -16,7 +20,12 @@ const PROVIDER = "openrouter";
  * A fixture whose provider has a list to fetch, so the picker's refresh key
  * has somewhere to go. The second list is what the provider answers with.
  */
-export function createTuiCatalogRefreshDependencies(): TuiDependencies {
+export function createTuiCatalogRefreshDependencies(
+    options: {
+        readonly pooled?: readonly PooledModel[];
+        readonly onCommand?: (command: ClientCommand) => void;
+    } = {},
+): TuiDependencies {
     let availableModels: readonly AvailableModel[] = [
         {
             provider: PROVIDER,
@@ -32,6 +41,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
         model: "one/model",
         availableModels,
         refreshableProviders: [PROVIDER],
+        ...(options.pooled === undefined ? {} : { pooled: options.pooled }),
     });
     const channel = createInProcessChannel();
     void runHeadlessLoop(
@@ -71,6 +81,7 @@ export function createTuiCatalogRefreshDependencies(): TuiDependencies {
 
     const client: TuiAgentClient = {
         async send(command): Promise<void> {
+            options.onCommand?.(command);
             channel.client.send(command);
         },
         receive(signal) {

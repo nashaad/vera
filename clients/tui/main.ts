@@ -455,6 +455,7 @@ import {
     startTuiSettingsPicker,
     switchedModelTab,
     syncTuiModelPicker,
+    mergeTuiModelPickerSettings,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     sessionPickerLists,
@@ -3013,6 +3014,31 @@ export async function startTui(
             : state;
     }
 
+    /** The settings owned by the agent that opened an application picker. */
+    function modelSettingsForAgent(
+        target: TuiAgentClient | undefined,
+    ): TuiState["modelSettings"] {
+        if (target === undefined || target === client) {
+            return state.modelSettings;
+        }
+        return hostedSidebar.pane?.client === target
+            ? hostedSidebar.pane.state.state.modelSettings
+            : undefined;
+    }
+
+    /**
+     * Keep a side agent's running pair while accepting the main host's fresh
+     * global shortlist. A pool edit is sent on the main connection, but that
+     * must not make a picker opened for another agent call Vera's pair
+     * "current" when its reply arrives.
+     */
+    function modelSettingsForOpenPicker(
+        poolSource?: TuiState["modelSettings"],
+    ): TuiState["modelSettings"] {
+        const target = modelSettingsForAgent(settingsPickerAgent);
+        return mergeTuiModelPickerSettings(target, poolSource);
+    }
+
     /** The pool as the strip needs it: identity, name, and published levels. */
     function dialPool(): readonly DialPoolEntry[] {
         return (focusedAgentState().modelSettings?.pooled ?? []).map(
@@ -3431,6 +3457,14 @@ export async function startTui(
         return focused.working || focused.compactingSince !== undefined;
     }
 
+    function composerIsAtLeftBoundary(): boolean {
+        const selection = composer.getSelection();
+        return composer.plainText.length === 0 || (
+            composer.cursorOffset === 0
+            && (selection === null || selection.start === selection.end)
+        );
+    }
+
     function abortFocusedAgent(): void {
         if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
             hostedSidebar.pane.state.abortRequested = true;
@@ -3768,6 +3802,18 @@ export async function startTui(
                 && pane.state.state.modelSettings !== undefined
             ) {
                 notifyExtensionSettings(pane.state.state.modelSettings);
+            }
+            if (
+                settingsPicker?.kind === "model"
+                && settingsPickerAgent === pane.client
+            ) {
+                const pickerSettings = modelSettingsForOpenPicker(
+                    pane.state.state.modelSettings,
+                );
+                settingsPicker = syncTuiModelPicker(settingsPicker, {
+                    ...(pickerSettings ?? {}),
+                    actionOptions: modelPickerActionOptions(pickerSettings),
+                });
             }
         } else if (update.type === "model_settings_rejected") {
             settleExtensionModelSettings(update, pane.client);
@@ -5433,6 +5479,7 @@ export async function startTui(
             && !key.super
             && !key.hyper
             && composer.focused
+            && composerIsAtLeftBoundary()
             && workspaceSidebar !== undefined
             && !workspaceSidebarFocused
             && !anyOverlayOpen()
@@ -6481,14 +6528,19 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            const provider = state.modelSettings?.provider;
-            const model = state.modelSettings?.model;
+            const targetSettings = focusedAgentState().modelSettings;
+            const provider = targetSettings?.provider;
+            const model = targetSettings?.model;
             if (provider === undefined || model === undefined) {
                 state = appendTuiError(
                     state,
                     "No model is running yet, so there is nothing to pin",
                 );
                 renderState();
+                return;
+            }
+            if (isModelShortlisted(targetSettings, provider, model)) {
+                showStatusNotice(`${provider}/${model} is already shortlisted`);
                 return;
             }
             // The same request the picker's pool key sends, so the write, the
@@ -7844,12 +7896,15 @@ export async function startTui(
                     // The same route the permissions list takes below: the
                     // open pane is rebuilt from the snapshot the host sent,
                     // never from a local guess about what the edit did.
+                    const pickerSettings = modelSettingsForOpenPicker(
+                        state.modelSettings,
+                    );
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
                         {
-                            ...(state.modelSettings ?? {}),
+                            ...(pickerSettings ?? {}),
                             actionOptions: modelPickerActionOptions(
-                                state.modelSettings,
+                                pickerSettings,
                             ),
                         },
                     );
@@ -10369,14 +10424,25 @@ export async function startTui(
                         currentModel: {
                             provider,
                             model,
-                            shortlisted: pooled.some((entry) =>
-                                entry.provider === provider
-                                && entry.model === model
+                            shortlisted: isModelShortlisted(
+                                settings,
+                                provider,
+                                model,
                             ),
                         },
                     }),
             },
         );
+    }
+
+    function isModelShortlisted(
+        settings: TuiState["modelSettings"],
+        provider: string,
+        model: string,
+    ): boolean {
+        return settings?.pooled?.some((entry) =>
+            entry.provider === provider && entry.model === model
+        ) === true;
     }
 
     /** The connected providers whose model list can be fetched again. */
@@ -12648,6 +12714,33 @@ export async function startTui(
                 };
             }
             if (toggle.action === "add") {
+                const pickerSettings = modelSettingsForOpenPicker(
+                    state.modelSettings,
+                );
+                if (
+                    isModelShortlisted(
+                        pickerSettings,
+                        toggle.provider,
+                        toggle.model,
+                    )
+                ) {
+                    if (settingsPicker?.kind === "model") {
+                        settingsPicker = syncTuiModelPicker(
+                            settingsPicker,
+                            {
+                                ...(pickerSettings ?? {}),
+                                actionOptions: modelPickerActionOptions(
+                                    pickerSettings,
+                                ),
+                            },
+                        );
+                    }
+                    showStatusNotice(
+                        `${toggle.provider}/${toggle.model} is already shortlisted`,
+                    );
+                    renderState();
+                    return;
+                }
                 // The name prompt follows the verdict, not the keypress: a
                 // model that never made it into the pool cannot be named.
                 const requestId = requestPoolAdmission(

@@ -277,7 +277,7 @@ test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has 
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("arrows hand the keyboard across and back", async () => {
-    const { railed, chat, back } = await withTui(async (tui) => {
+    const { railed, chat, editing, back } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
         const railed = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
@@ -286,9 +286,16 @@ test.skipIf(!tmuxAvailable)("arrows hand the keyboard across and back", async ()
         // conversation whenever the highlight is not the one on screen.
         tui.key("Right");
         const chat = await tui.paneWhere((v) => v.includes("Focus  ←"));
+        tui.text("draft");
+        tui.key("Left");
+        tui.text("X");
+        const editing = await tui.paneWhere((v) => v.includes("drafXt"));
+        tui.key("End");
+        for (let index = 0; index < 6; index += 1) tui.key("BSpace");
+        await tui.paneWhere((v) => !v.includes("drafXt"));
         tui.key("Left");
         const back = await tui.paneWhere((v) => v.includes("Hide    ctrl+e"));
-        return { railed, chat, back };
+        return { railed, chat, editing, back };
     });
 
     // The rail is up throughout: the switch moves the keyboard, not the pane.
@@ -298,6 +305,8 @@ test.skipIf(!tmuxAvailable)("arrows hand the keyboard across and back", async ()
     // Nothing was opened, so the conversation on screen is the one that was
     // there before the rail took the keys.
     expect(chat).not.toContain("Move    ↑↓  j/k");
+    expect(editing).toContain("Focus  ←");
+    expect(editing).not.toContain("Move    ↑↓  j/k");
     expect(back).toContain("Move    ↑↓  j/k");
 }, 60_000);
 
@@ -314,7 +323,7 @@ test.skipIf(!tmuxAvailable)("tab completes commands without focusing the rail", 
         tui.bytes(["09"]);
         const completed = await tui.paneWhere((v) => v.includes("/model"));
         // Emptied again, Tab stays in the composer; Left is the pane switch.
-        for (let at = 0; at < 6; at += 1) tui.key("Backspace");
+        for (let at = 0; at < 6; at += 1) tui.key("BSpace");
         await tui.paneWhere((v) => !v.includes("/model"));
         tui.bytes(["09"]);
         await Bun.sleep(100);

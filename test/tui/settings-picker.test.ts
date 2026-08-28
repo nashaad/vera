@@ -25,6 +25,7 @@ import {
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
     tuiProviderGroup,
+    mergeTuiModelPickerSettings,
     syncTuiModelPicker,
     pickerFooter,
     tuiPickerAfterSelection,
@@ -1570,6 +1571,38 @@ test("Shortlist offers the current model as a visible action row", async () => {
     expect(synced.options.some((option) =>
         option.label === "Add current model to shortlist"
     )).toBe(false);
+});
+
+test("a main shortlist refresh keeps the side agent's current model", () => {
+    const side = {
+        provider: "side-provider",
+        model: "side/model",
+        availableModels: [{
+            provider: "side-provider",
+            model: "side/model",
+            label: "Side",
+            description: "the side agent's catalog model",
+            levels: [],
+        }],
+        pooled: pooledModels,
+    };
+    const refreshed = {
+        provider: "main-provider",
+        model: "main/model",
+        pooled: [{
+            provider: "side-provider",
+            model: "side/model",
+            label: "Side",
+            available: true,
+            verified: false,
+            levels: [],
+        }],
+    };
+
+    expect(mergeTuiModelPickerSettings(side, refreshed)).toEqual({
+        ...side,
+        pooled: refreshed.pooled,
+    });
 });
 
 test("with an empty pool the pane opens on All models, full width", async () => {

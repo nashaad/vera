@@ -74,3 +74,34 @@ test("the palette opens Shortlist with a visible current-model action", async ()
         await session.close();
     }
 }, 15_000);
+
+test("shortlist is idempotent when the current model is already kept", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-idempotent-"));
+    const commands: Array<{ readonly type: string }> = [];
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => createTuiCatalogRefreshDependencies({
+            pooled: [{
+                provider: "openrouter",
+                model: "one/model",
+                label: "One",
+                poolName: "primary",
+                available: true,
+                verified: false,
+                levels: [],
+            }],
+            onCommand: (command) => commands.push(command),
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/shortlist");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("already shortlisted");
+        expect(commands.filter((command) => command.type === "pool_add"))
+            .toHaveLength(0);
+    } finally {
+        await session.close();
+    }
+}, 15_000);

@@ -38,6 +38,7 @@ import {
 import type {
     DeveloperSettings,
     DeveloperSettingsPatch,
+    ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
@@ -872,6 +873,20 @@ export function syncTuiModelPicker(
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
             : selectedIndex,
     };
+}
+
+/**
+ * A shortlist refresh can arrive on the main connection while this picker
+ * belongs to a side agent. Keep that agent's running pair and catalog while
+ * accepting the newly stored global shortlist.
+ */
+export function mergeTuiModelPickerSettings(
+    target: ModelTurnSettings | undefined,
+    poolSource: ModelTurnSettings | undefined,
+): ModelTurnSettings | undefined {
+    if (target === undefined) return poolSource;
+    if (poolSource?.pooled === undefined) return target;
+    return { ...target, pooled: poolSource.pooled };
 }
 
 /**
