@@ -54,7 +54,7 @@ export const TUI_TIPS: readonly TuiTip[] = [
     {
         id: "verify-model",
         text: () =>
-            "Choose Verify current model in Shortlist to probe it again",
+            "Press Enter on the current model in Shortlist to probe it again",
         cooldownLaunches: 8,
         isRelevant: (context) => context.pooledCount > 0 && !context.anyVerified,
     },

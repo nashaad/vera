@@ -1573,30 +1573,17 @@ test("Shortlist offers the current model as a visible action row", async () => {
     )).toBe(false);
 });
 
-test("Shortlist offers a visible action to verify the current model", async () => {
-    const base = modelPickerWithPool(
+test("the current shortlist model exposes verification outside the model list", async () => {
+    const shortlist = modelPickerWithPool(
         pooledModels,
         "z-ai/glm-5.2",
         "openrouter",
     );
-    const withAction = {
-        ...base,
-        actionOptions: tuiModelActionOptions(["openrouter"], {
-            hasPool: true,
-            currentModel: {
-                provider: "openrouter",
-                model: "z-ai/glm-5.2",
-                shortlisted: true,
-            },
-        }),
-    } as TuiSettingsPickerState;
-    const shortlist = {
-        ...switchedModelTab(withAction, "pool"),
-        selectedIndex: 0,
-    };
 
-    expect(shortlist.options[0]?.label).toBe("Verify current model");
-    expect(await pickerFrame(shortlist)).toContain("○ Verify current model");
+    expect(shortlist.options.some((option) =>
+        option.label === "Verify current model"
+    )).toBe(false);
+    expect(await pickerFrame(shortlist)).toContain("⏎ Verify current model");
     expect(pickerFooter(shortlist)).toContain("⏎ verify");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolVerify)
         .toEqual({
@@ -1974,7 +1961,7 @@ test("no model appears twice, because pool membership is a mark on its own row",
     expect(glm?.pooledRank).toBe(1);
 });
 
-test("an unprobed pool row keeps its row clean and offers the verify key", async () => {
+test("an unprobed pool row keeps its row clean and explains the state", async () => {
     const state = modelPickerWithPool([{
         provider: "openrouter",
         model: "z-ai/glm-5.2",
@@ -1982,13 +1969,13 @@ test("an unprobed pool row keeps its row clean and offers the verify key", async
         available: true,
         verified: false,
         levels: [],
-    }]);
+    }], "moonshotai/kimi-k3", "openrouter");
     const frame = await pickerFrame(state);
 
     expect(state.tab).toBe("pool");
     // The row runs like any other and says nothing about the probe it has not
-    // had: the column beside the list carries that, and the footer offers the
-    // probe as a deliberate act. The provider is in that column too.
+    // had: the column beside the list carries that. The provider is in that
+    // column too.
     expect(frame).toMatch(/GLM-5\.2\s+│/);
     expect(frame).toContain("not probed yet");
     expect(frame).toContain("verify");

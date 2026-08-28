@@ -1405,22 +1405,6 @@ export function tuiModelActionOptions(
             model: current.model,
             action: true,
         });
-    } else if (options.currentModel?.shortlisted === true) {
-        const current = options.currentModel;
-        rows.push({
-            value: tuiModelActionValue("verify_current"),
-            label: "Verify current model",
-            description: "enter",
-            note:
-                `Sends a small live request to ${current.provider}/${current.model} and records what the model can do.`,
-            detailTitle: "verify current model",
-            detailFacts: [["Current model", `${current.provider}/${current.model}`]],
-            searchText:
-                `verify check test probe current model ${current.provider} ${current.model}`,
-            provider: current.provider,
-            model: current.model,
-            action: true,
-        });
     }
     if (providers.length > 0) rows.push({
         value: tuiModelActionValue("refresh"),
@@ -2808,6 +2792,16 @@ export function handleTuiSettingsPickerKey(
         if (state.kind === "model" && selected.section !== undefined) {
             return toggledSection(state, selected.section);
         }
+        if (currentPoolModelVerifiesOnEnter(state, selected)) {
+            return {
+                state,
+                handled: true,
+                poolVerify: {
+                    provider: selected.provider!,
+                    model: selected.model!,
+                },
+            };
+        }
         // The same request ctrl+shift+n makes, from a row anyone can see.
         if (state.kind === "provider" && selected.action === true) {
             return { state, handled: true, declareProvider: true };
@@ -3220,6 +3214,12 @@ function modelDetailNode(
             ]);
         }
         line();
+        if (currentPoolModelVerifiesOnEnter(state, option)) {
+            line([
+                fg(TUI_ACCENT)("⏎ "),
+                fg(TUI_TEXT)("Verify current model"),
+            ]);
+        }
     }
     while (drawn < height) {
         line();
@@ -3299,10 +3299,9 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
     ["Keys"],
-    ["⏎", "run this model. On All models it does not add it."],
+    ["⏎", "run this model; on the current Shortlist model, verify it."],
     ["^s", "add the highlighted model to the shortlist, or remove it."],
     ["^n", "give a shortlisted model a short name of your own."],
-    ["Verify", "the Shortlist action probes current; ^v probes many."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -3326,7 +3325,7 @@ function modelDetailHeight(
     const facts = described
         ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts;
+    return facts + (currentPoolModelVerifiesOnEnter(state, option) ? 1 : 0);
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
@@ -4087,13 +4086,10 @@ function pickerFooterText(
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
         const action = tuiModelActionOfValue(selected?.value ?? "");
-        if (action === "shortlist_current" || action === "verify_current") {
+        if (action === "shortlist_current") {
             return fittedHints([
                 { text: "↑↓ move", drop: 0 },
-                {
-                    text: action === "shortlist_current" ? "⏎ add" : "⏎ verify",
-                    drop: 0,
-                },
+                { text: "⏎ add", drop: 0 },
                 { text: "⇥ tabs", drop: 1 },
                 { text: "esc close", drop: 0 },
             ], width);
@@ -4110,7 +4106,12 @@ function pickerFooterText(
             // a separate assignment: they are the same movement, and this footer is
             // already the longest one in the pane.
             { text: "↑↓ ^d^u move", drop: 0 },
-            { text: "⏎ select", drop: 0 },
+            {
+                text: currentPoolModelVerifiesOnEnter(state, selected)
+                    ? "⏎ verify"
+                    : "⏎ select",
+                drop: 0,
+            },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
             ...(state.canUndoPoolChange === true
                 ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
@@ -4319,6 +4320,19 @@ function isCurrentOption(
     return state.kind === "model" && option.value === state.initialModel;
 }
 
+/** Enter has no model switch to perform on the shortlisted model already running. */
+function currentPoolModelVerifiesOnEnter(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption | undefined,
+): boolean {
+    return state.kind === "model"
+        && state.tab === "pool"
+        && option?.provider !== undefined
+        && option.model !== undefined
+        && isCurrentOption(state, option)
+        && isPooled(state, option);
+}
+
 /**
  * The panes short enough that a digit names a row faster than moving to it.
  * The model and session panes stay out: their names carry digits, so a digit
@@ -4341,9 +4355,7 @@ function optionMarker(
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
     if (option.action === true) {
-        return tuiModelActionOfValue(option.value) === "verify_current"
-            ? "○"
-            : "+";
+        return "+";
     }
     if (state.kind === "provider") {
         return undefined;
@@ -4896,11 +4908,10 @@ function modelTabRows(
     const shortlisted = allOptions
         .filter((option) => option.pooledRank !== undefined)
         .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
-    const currentActions = actions.filter((option) =>
+    const addCurrent = actions.filter((option) =>
         tuiModelActionOfValue(option.value) === "shortlist_current"
-        || tuiModelActionOfValue(option.value) === "verify_current"
     );
-    return [...currentActions, ...shortlisted];
+    return [...addCurrent, ...shortlisted];
 }
 
 /** Hides the current-model action as soon as a fresh snapshot includes it. */
@@ -5183,20 +5194,6 @@ function modelActionTransition(
             handled: true,
             poolToggle: {
                 action: "add",
-                provider: option.provider,
-                model: option.model,
-            },
-        };
-    }
-    if (
-        action === "verify_current"
-        && option.provider !== undefined
-        && option.model !== undefined
-    ) {
-        return {
-            state,
-            handled: true,
-            poolVerify: {
                 provider: option.provider,
                 model: option.model,
             },
