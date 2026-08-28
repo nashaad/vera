@@ -1517,6 +1517,61 @@ test("the pane opens on Shortlist even when the running model is not in it", () 
     expect(state.tab).toBe("pool");
 });
 
+test("Shortlist offers the current model as a visible action row", async () => {
+    const base = modelPickerWithPool(
+        pooledModels,
+        "moonshotai/kimi-k3",
+        "openrouter",
+    );
+    const withAction = {
+        ...base,
+        actionOptions: tuiModelActionOptions(["openrouter"], {
+            hasPool: true,
+            currentModel: {
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                shortlisted: false,
+            },
+        }),
+    } as TuiSettingsPickerState;
+    const shortlist = {
+        ...switchedModelTab(withAction, "pool"),
+        selectedIndex: 0,
+    };
+
+    expect(shortlist.options[0]?.label)
+        .toBe("Add current model to shortlist");
+    expect(await pickerFrame(shortlist))
+        .toContain("+ Add current model to shortl");
+    expect(pickerFooter(shortlist)).toContain("⏎ add");
+    expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolToggle)
+        .toEqual({
+            action: "add",
+            provider: "openrouter",
+            model: "moonshotai/kimi-k3",
+        });
+
+    const synced = syncTuiModelPicker(shortlist, {
+        provider: "openrouter",
+        model: "moonshotai/kimi-k3",
+        availableModels,
+        pooled: [
+            ...pooledModels,
+            {
+                provider: "openrouter",
+                model: "moonshotai/kimi-k3",
+                label: "Kimi K3",
+                available: true,
+                verified: false,
+                levels: [],
+            },
+        ],
+    });
+    expect(synced.options.some((option) =>
+        option.label === "Add current model to shortlist"
+    )).toBe(false);
+});
+
 test("with an empty pool the pane opens on All models, full width", async () => {
     // An empty tab answers no question, so the pane falls back to the list that
     // can always answer "which model do I switch to".

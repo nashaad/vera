@@ -188,15 +188,19 @@ test("palette actions can exist without slash command aliases", () => {
 
 test("every builtin command except the palette itself has a palette row", () => {
     const registry = createBuiltinTuiCommandRegistry();
-    const slashNames = new Set(
-        registry.registeredPaletteActions()
-            .map((action) => action.slashName)
-            .filter((name) => name !== undefined),
+    const representedNames = new Set(
+        registry.registeredPaletteActions().flatMap((action) => [
+            action.name,
+            ...(action.slashName === undefined ? [] : [action.slashName]),
+        ]),
     );
 
     // The palette does not list itself: you are already looking at it.
+    // A row may deliberately do something broader than its slash command, as
+    // Shortlist does: the palette opens the page while `/shortlist` adds the
+    // running model. Its stable action name still represents the command.
     expect(BUILTIN_COMMANDS.map((command) => command.name)
-        .filter((name) => !slashNames.has(name))).toEqual(["palette"]);
+        .filter((name) => !representedNames.has(name))).toEqual(["palette"]);
 });
 
 test("the rewind command returns a client-owned action", () => {
@@ -472,6 +476,13 @@ test("model, reasoning, and permissions commands return typed updates", () => {
     expect(registry.dispatch("/model")).toEqual({
         type: "open_settings_destination",
         destination: { kind: "model" },
+    });
+    expect(registry.dispatch("/shortlist")).toEqual({
+        type: "pool_current_model",
+    });
+    // Keep the formerly advertised spelling as a compatibility alias.
+    expect(registry.dispatch("/shortlist add")).toEqual({
+        type: "pool_current_model",
     });
     expect(registry.dispatch("/effort")).toEqual({
         type: "open_settings_destination",

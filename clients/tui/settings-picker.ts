@@ -803,6 +803,7 @@ export function syncTuiModelPicker(
         readonly model?: string;
         readonly availableModels?: readonly SuggestedModel[];
         readonly pooled?: readonly PooledModel[];
+        readonly actionOptions?: readonly TuiSettingsPickerOption[];
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
@@ -828,6 +829,7 @@ export function syncTuiModelPicker(
     // reason the tab is: a snapshot arriving from the host must not reopen
     // them under the user mid-action.
     const collapsed = state.collapsed ?? [];
+    const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
     const onTab = {
         ...rebuilt,
         tab,
@@ -838,9 +840,7 @@ export function syncTuiModelPicker(
         ...(state.assignmentOptions === undefined
             ? {}
             : { assignmentOptions: state.assignmentOptions }),
-        ...(state.actionOptions === undefined
-            ? {}
-            : { actionOptions: state.actionOptions }),
+        ...(actionOptions.length === 0 ? {} : { actionOptions }),
         options: modelPickerOptions(
             rebuilt.allOptions,
             tab,
@@ -848,7 +848,7 @@ export function syncTuiModelPicker(
             "",
             state.revealAll === true,
             state.assignmentOptions ?? [],
-            state.actionOptions ?? [],
+            actionOptions,
         ),
     };
     const options = state.query.length === 0
@@ -1358,11 +1358,35 @@ export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
  */
 export function tuiModelActionOptions(
     providers: readonly string[],
-    options: { readonly hasPool?: boolean } = {},
+    options: {
+        readonly hasPool?: boolean;
+        readonly currentModel?: {
+            readonly provider: string;
+            readonly model: string;
+            readonly shortlisted: boolean;
+        };
+    } = {},
 ): readonly TuiSettingsPickerOption[] {
     // One row, not one per provider: which providers to ask is the second
     // question, and asking it here would repeat the same chord down the list.
-    const rows: TuiSettingsPickerOption[] = providers.length === 0 ? [] : [{
+    const rows: TuiSettingsPickerOption[] = [];
+    if (options.currentModel?.shortlisted === false) {
+        const current = options.currentModel;
+        rows.push({
+            value: tuiModelActionValue("shortlist_current"),
+            label: "Add current model to shortlist",
+            description: "enter",
+            note:
+                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your shortlist.`,
+            detailTitle: "add current model",
+            detailFacts: [["Current model", `${current.provider}/${current.model}`]],
+            searchText: `add pin keep current model shortlist ${current.provider} ${current.model}`,
+            provider: current.provider,
+            model: current.model,
+            action: true,
+        });
+    }
+    if (providers.length > 0) rows.push({
         value: tuiModelActionValue("refresh"),
         label: "Refresh model lists",
         description: tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
@@ -1373,7 +1397,7 @@ export function tuiModelActionOptions(
         searchText: `refresh reload update fetch new models catalog ${
             providers.join(" ")
         }`,
-    }];
+    });
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
@@ -3372,7 +3396,13 @@ function renderListPickerRows(
             renderer,
             stop,
             {
-                pool: modelTabRows(stripPane.allOptions, "pool").length,
+                pool: modelTabRows(
+                    stripPane.allOptions,
+                    "pool",
+                    false,
+                    [],
+                    stripPane.actionOptions ?? [],
+                ).filter((option) => option.action !== true).length,
                 all: modelTabRows(stripPane.allOptions, "all").length,
             },
             pickerContentWidth(renderer, state, railInset),
@@ -3642,7 +3672,7 @@ function modelTabLabel(tab: TuiModelPickerTab): string {
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Models you keep close. ^s pins one here, or unpins it.",
+    pool: "Models you keep close. Add the current model below, or browse All models.",
     all: "Everything your providers offer. Enter runs one without adding it.",
     actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
@@ -3964,6 +3994,14 @@ function pickerFooterText(
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
+        if (tuiModelActionOfValue(selected?.value ?? "") === "shortlist_current") {
+            return fittedHints([
+                { text: "↑↓ move", drop: 0 },
+                { text: "⏎ add", drop: 0 },
+                { text: "⇥ tabs", drop: 1 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
         const pool = selected === undefined || selected.provider === undefined
             ? undefined
             : isPooled(state, selected)
@@ -4209,10 +4247,10 @@ function optionMarker(
     if (option.section !== undefined) {
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
+    if (option.action === true) {
+        return "+";
+    }
     if (state.kind === "provider") {
-        if (option.action === true) {
-            return "+";
-        }
         return undefined;
     }
     // A filled dot, at the weight of the fold arrows it shares a column with.
@@ -4741,11 +4779,12 @@ function modelTabRows(
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
     actionOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
+    const actions = availableModelActionOptions(allOptions, actionOptions);
     if (tab === "help") {
         return [];
     }
     if (tab === "actions") {
-        return actionOptions;
+        return actions;
     }
     if (tab === "defaults") {
         return assignmentOptions;
@@ -4759,9 +4798,30 @@ function modelTabRows(
                 || option.pooledRank !== undefined)
         );
     }
-    return allOptions
+    const shortlisted = allOptions
         .filter((option) => option.pooledRank !== undefined)
         .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
+    const addCurrent = actions.filter((option) =>
+        tuiModelActionOfValue(option.value) === "shortlist_current"
+    );
+    return [...addCurrent, ...shortlisted];
+}
+
+/** Hides the current-model action as soon as a fresh snapshot includes it. */
+function availableModelActionOptions(
+    allOptions: readonly TuiSettingsPickerOption[],
+    actionOptions: readonly TuiSettingsPickerOption[],
+): readonly TuiSettingsPickerOption[] {
+    return actionOptions.filter((action) => {
+        if (tuiModelActionOfValue(action.value) !== "shortlist_current") {
+            return true;
+        }
+        return !allOptions.some((option) =>
+            option.provider === action.provider
+            && option.model === action.model
+            && option.pooledRank !== undefined
+        );
+    });
 }
 
 /** The heading the recommended models are listed under. */
@@ -5016,6 +5076,21 @@ function modelActionTransition(
     }
     if (action === "verify_pool") {
         return { state, handled: true, poolVerifySweep: true };
+    }
+    if (
+        action === "shortlist_current"
+        && option.provider !== undefined
+        && option.model !== undefined
+    ) {
+        return {
+            state,
+            handled: true,
+            poolToggle: {
+                action: "add",
+                provider: option.provider,
+                model: option.model,
+            },
+        };
     }
     if (action === "providers") {
         return { state, handled: true, openProviders: true };

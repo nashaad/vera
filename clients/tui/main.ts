@@ -474,6 +474,7 @@ import {
     startTuiCatalogRefreshScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
+    type TuiSettingsPickerOption,
     type TuiConfigureFile,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
@@ -616,7 +617,6 @@ import {
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
-    tuiPoolListing,
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
@@ -7846,7 +7846,12 @@ export async function startTui(
                     // never from a local guess about what the edit did.
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
-                        state.modelSettings,
+                        {
+                            ...(state.modelSettings ?? {}),
+                            actionOptions: modelPickerActionOptions(
+                                state.modelSettings,
+                            ),
+                        },
                     );
                     if (poolChangeUndo !== undefined) {
                         settingsPicker = {
@@ -10301,6 +10306,15 @@ export async function startTui(
     function openModelPicker(parent?: TuiSettingsPickerState): void {
         if (parent === undefined) settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
+        const currentProvider = targetState.modelSettings?.provider;
+        const currentModel = targetState.modelSettings?.model;
+        const pooled = targetState.modelSettings?.pooled ?? [];
+        const currentShortlisted = currentProvider !== undefined
+            && currentModel !== undefined
+            && pooled.some((entry) =>
+                entry.provider === currentProvider
+                && entry.model === currentModel
+            );
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
             targetState.modelSettings?.model,
@@ -10310,7 +10324,7 @@ export async function startTui(
             undefined,
             targetState.modelSettings?.provider,
             undefined,
-            targetState.modelSettings?.pooled,
+            pooled,
         ), parent);
         settingsPicker = {
             ...settingsPicker,
@@ -10320,23 +10334,49 @@ export async function startTui(
                 targetState.modelSettings?.reasoningEffort,
                 targetState.modelSettings?.contextLimit,
             ),
-            actionOptions: tuiModelActionOptions(
-                refreshableProvidersOf(
-                    targetState.modelSettings?.availableModels,
-                    targetState.modelSettings?.refreshableProviders,
-                ),
-                {
-                    hasPool: (targetState.modelSettings?.pooled?.length ?? 0)
-                        > 0,
-                },
-            ),
+            actionOptions: modelPickerActionOptions(targetState.modelSettings),
         };
+        if (settingsPicker.tab === "pool" && currentShortlisted === false) {
+            settingsPicker = {
+                ...switchedModelTab(settingsPicker, "pool"),
+                selectedIndex: 0,
+            };
+        }
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
         // that was kept underneath the provider picker.
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    function modelPickerActionOptions(
+        settings: TuiState["modelSettings"],
+    ): readonly TuiSettingsPickerOption[] {
+        const provider = settings?.provider;
+        const model = settings?.model;
+        const pooled = settings?.pooled ?? [];
+        return tuiModelActionOptions(
+            refreshableProvidersOf(
+                settings?.availableModels,
+                settings?.refreshableProviders,
+            ),
+            {
+                hasPool: pooled.length > 0,
+                ...(provider === undefined || model === undefined
+                    ? {}
+                    : {
+                        currentModel: {
+                            provider,
+                            model,
+                            shortlisted: pooled.some((entry) =>
+                                entry.provider === provider
+                                && entry.model === model
+                            ),
+                        },
+                    }),
+            },
+        );
     }
 
     /** The connected providers whose model list can be fetched again. */
@@ -11405,7 +11445,6 @@ export async function startTui(
         destination: unknown,
         options: {
             readonly parent?: TuiSettingsPickerState;
-            readonly shortlistView?: "listing" | "picker";
         } = {},
     ): "opened" | "unavailable" {
         const resolution = resolveTuiSettingsDestination(destination, {
@@ -11451,20 +11490,12 @@ export async function startTui(
                     : { selected: route.provider }),
             });
         } else if (route.type === "model_shortlist") {
-            if (options.shortlistView !== "picker") {
-                state = appendTuiNotice(
-                    state,
-                    tuiPoolListing(state.modelSettings?.pooled),
-                );
-                renderState();
-            } else {
-                openModelPicker();
-                settingsPicker = switchedModelTab(
-                    settingsPicker as TuiSettingsPickerState,
-                    "pool",
-                );
-                renderState();
-            }
+            openModelPicker();
+            settingsPicker = switchedModelTab(
+                settingsPicker as TuiSettingsPickerState,
+                "pool",
+            );
+            renderState();
         } else if (route.type === "model_assignments") {
             openModelPicker();
             settingsPicker = switchedModelTab(
@@ -12829,10 +12860,7 @@ export async function startTui(
                 // Keeping a model is what makes it available as a default, so
                 // the row that says so lands on the collection it is kept in
                 // rather than leaving the user to find it.
-                openSettingsDestination(
-                    { kind: "model_shortlist" },
-                    { shortlistView: "picker" },
-                );
+                openSettingsDestination({ kind: "model_shortlist" });
                 return;
             } else if (selection.kind === "model_assignment_open") {
                 // The pane the row was chosen on, which Enter has already
