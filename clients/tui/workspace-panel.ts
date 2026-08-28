@@ -32,22 +32,18 @@ const CONTENT_COLUMNS: Record<WorkspacePanelWidth, number> = {
     narrow: 46,
 };
 
-/** Columns the age reads in, right aligned, on the widths that show it. */
-const AGE_COLUMNS = 8;
-
-/** The selection marker, the status marker, and the space after each. */
-const ROW_MARKER_COLUMNS = 4;
+/** Digit/status metadata and the space after each, below the title. */
+const ROW_METADATA_COLUMNS = 4;
 
 /**
  * Columns the longest row takes at this width, markers included.
  *
- * The widths that show an age take the age out of the title's budget rather
- * than adding to it, so every width is its content budget plus its markers,
- * and a surface that draws the listing in a column of its own can size that
- * column without laying the rows out first.
+ * Metadata has its own line, so every width is its content budget plus the
+ * widest metadata prefix. A surface that draws the listing in a column of its
+ * own can size that column without laying the rows out first.
  */
 export function workspaceRowColumns(width: WorkspacePanelWidth): number {
-    return CONTENT_COLUMNS[width] + ROW_MARKER_COLUMNS;
+    return CONTENT_COLUMNS[width] + ROW_METADATA_COLUMNS;
 }
 
 const UNSELECTED_MARKER = " ";
@@ -174,12 +170,8 @@ export interface WorkspaceSessionRow {
     readonly age: string;
     readonly selected: boolean;
     readonly text: string;
-    /**
-     * The second line an active row carries: its status word and the
-     * workspace basename. Absent on pinned and recent rows, which stay one
-     * line.
-     */
-    readonly detail?: string;
+    /** The muted second line: state/workspace for active, age for history. */
+    readonly detail: string;
 }
 
 export type WorkspaceRow = WorkspaceGroupRow | WorkspaceSessionRow;
@@ -449,21 +441,24 @@ function sessionRow(
         context.now,
     );
     const title = session.title ?? UNTITLED_SESSION;
-    // An active row says its state and workspace on its second line, so the
-    // age goes to the rows that have nothing else to say.
+    // Every row spends its second line on metadata. Active work says state and
+    // workspace; pinned/recent history says age.
     const age = context.showAge && !active
         ? relativeTime(session.updatedAt, context.now, "")
         : "";
-    const room = context.contentColumns
-        - (age.length === 0 ? 0 : AGE_COLUMNS + 1);
-    const shown = clip(title, Math.max(1, room));
+    const shown = clip(title, Math.max(1, context.contentColumns));
     const selectionMarker = context.selected
         ? WORKSPACE_SELECTED_MARKER
         : UNSELECTED_MARKER;
-    const head = `${selectionMarker} ${marker} ${shown}`;
-    const text = age.length === 0
-        ? head
-        : `${pad(head, ROW_MARKER_COLUMNS + room)} ${age.padStart(AGE_COLUMNS)}`;
+    const text = `${selectionMarker} ${shown}`;
+    const detail = active
+        ? clip(
+            `${workspaceStatusWord(session.status)} · ${
+                basename(workspaceGroupPath(session.workspace))
+            }`,
+            Math.max(1, context.contentColumns),
+        )
+        : age;
     return {
         kind: "session",
         id: session.id,
@@ -475,16 +470,7 @@ function sessionRow(
         age,
         selected: context.selected,
         text,
-        ...(active
-            ? {
-                detail: clip(
-                    `${workspaceStatusWord(session.status)} · ${
-                        basename(workspaceGroupPath(session.workspace))
-                    }`,
-                    Math.max(1, context.contentColumns),
-                ),
-            }
-            : {}),
+        detail,
     };
 }
 
@@ -507,8 +493,4 @@ function basename(workspace: string): string {
 
 function clip(text: string, limit: number): string {
     return text.length <= limit ? text : `${text.slice(0, limit - 1)}…`;
-}
-
-function pad(text: string, width: number): string {
-    return text.length >= width ? text : text.padEnd(width);
 }

@@ -50,14 +50,14 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
-    expect(pane).toContain("provider-fall…");
+    expect(pane).toContain("… 2 below");
     expect(pane).not.toContain("Resume session");
-    expect(pane).toContain("ctrl+r · all sessions");
+    expect(pane).toContain("≡  +");
     expect(pane).toContain("Move    ↑↓  j/k");
     expect(pane).toContain("Resume  ctrl+r");
     expect(pane).toContain("Hide    ctrl+e");
     const rows = pane.split("\n");
-    const lastSession = rows.findIndex((line) => line.includes("auth-refactor"));
+    const lastSession = rows.findIndex((line) => line.includes("old chat"));
     const footerTop = rows.findIndex((line) => line.includes("Move    ↑↓"));
     const footerBottom = rows.findIndex((line) => line.includes("Hide    ctrl+e"));
     expect(footerTop).toBeGreaterThan(lastSession);
@@ -465,7 +465,6 @@ test.skipIf(!tmuxAvailable)("a click opens the row the mouse landed on", async (
         // a row read from a half-painted pane clicks the wrong session.
         const open = await tui.paneWhere((value) =>
             value.includes("relay-gui")
-            && value.includes("provider-fall…")
             && value.includes("Hide    ctrl+e")
         );
         const row = open.split("\n")
@@ -543,10 +542,9 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
 
     // The digit is drawn on the row it addresses, so the pane says which
     // session pressing 2 will open before it is pressed.
-    const second = open.split("\n").find((line) =>
-        line.includes("2") && line.includes("auth-race")
-    );
-    expect(second).toContain("auth-race");
+    const rows = open.split("\n");
+    const authRace = rows.findIndex((line) => line.includes("auth-race"));
+    expect(rows[authRace + 1]).toContain("2 ! needs you · one");
     expect(opened).toContain("OPENED /sessions/auth-race.");
 }, 60_000);
 
@@ -577,8 +575,9 @@ test.skipIf(!tmuxAvailable)("p pins the selected session to the top and it stays
         expect(heading).toBeGreaterThan(-1);
         expect(rows[heading + 1]).toContain("relay-gui");
         // The pin is a heading and a sort key. Digits address running
-        // sessions in listing order, wherever they sit.
-        expect(rows[heading + 1]).toMatch(/\b\d\s+.*relay-gui/);
+        // sessions in listing order, wherever they sit. The digit is metadata
+        // below the title rather than a gutter before it.
+        expect(rows[heading + 2]).toMatch(/\b\d\s+[\S]\s+working · one/);
     }
 }, 60_000);
 
@@ -589,22 +588,27 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
         return await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
     });
 
+    const rows = pane.split("\n");
     const row = (title: string): string =>
-        pane.split("\n").find((line) => line.includes(title)) ?? "";
+        rows.find((line) => line.includes(title)) ?? "";
+    const metadata = (title: string): string => {
+        const at = rows.findIndex((line) => line.includes(title));
+        return at < 0 ? "" : rows[at + 1] ?? "";
+    };
     // Waiting and working come from the pushed work index, idle from the
     // roster. Each is a character, never only a colour.
-    expect(row("auth-race")).toContain("! auth-race");
-    expect(row("relay-gui")).toMatch(
-        new RegExp(`[${BRAILLE_FRAMES.join("")}] relay-gui`),
+    expect(metadata("auth-race")).toContain("! needs you · one");
+    expect(metadata("relay-gui")).toMatch(
+        new RegExp(`[${BRAILLE_FRAMES.join("")}] working · one`),
     );
     expect(row("auth-refactor")).toContain("auth-refactor");
     expect(row("auth-refactor")).not.toContain("● auth-refactor");
     // Live idle is a finished turn only while it is still recent.
-    expect(row("this one")).toContain("● this one");
+    expect(metadata("this one")).toContain("● idle · one");
     expect(row("this one")).not.toContain("[ this one ]");
     expect(row("this one")).toContain("❯");
     expect(row("old chat")).toContain("old chat");
-    expect(row("old chat")).not.toContain("● old chat");
+    expect(metadata("old chat")).not.toContain("●");
     expect(pane.split("\n").some((line) => line.trim() === "background"))
         .toBe(false);
 }, 60_000);
@@ -627,8 +631,9 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     expect(before).not.toContain("late-arrival");
     expect(after).toContain("[ VERA ] · 7");
     // Listed with the status the same push carried, not as an idle row.
-    expect(after.split("\n").find((line) => line.includes("late-arrival")))
-        .toContain("! late-arrival");
+    const rows = after.split("\n");
+    const late = rows.findIndex((line) => line.includes("late-arrival"));
+    expect(rows[late + 1]).toContain("! needs you");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside the transcript", async () => {

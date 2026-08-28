@@ -98,7 +98,7 @@ describe("grouping", () => {
         const rows = sessionRows(result);
         expect(rows[0]?.detail).toBe("needs you · vera");
         expect(rows[0]?.age).toBe("");
-        expect(rows[1]?.detail).toBeUndefined();
+        expect(rows[1]?.detail).toBe("1h ago");
         expect(rows[1]?.age).toBe("1h ago");
     });
 
@@ -247,7 +247,7 @@ describe("status markers", () => {
 });
 
 describe("row text", () => {
-    test("wide shows marker, title, and relative age", () => {
+    test("wide gives the title its own line and puts age below", () => {
         const result = layout([
             session({
                 id: "a",
@@ -258,7 +258,8 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(row.age).toBe("2h ago");
         expect(row.text).toContain("fix the composer");
-        expect(row.text.trimEnd().endsWith("2h ago")).toBe(true);
+        expect(row.text).not.toContain("2h ago");
+        expect(row.detail).toBe("2h ago");
     });
 
     test("the session on screen is not wrapped in brackets", () => {
@@ -289,6 +290,7 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(result.width).toBe("medium");
         expect(row.age).toBe("");
+        expect(row.detail).toBe("");
         expect(row.title.endsWith("…")).toBe(true);
         expect(row.title.length).toBe(24);
         expect(row.text).not.toContain("ago");
@@ -299,7 +301,7 @@ describe("row text", () => {
         const result = layout([session({ id: "a", title: long })]);
         const row = sessionRows(result)[0]!;
         expect(row.title.endsWith("…")).toBe(true);
-        expect(row.title.length).toBe(25);
+        expect(row.title.length).toBe(34);
     });
 
     test("narrow keeps the age and gives the title more room", () => {
@@ -308,7 +310,7 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(result.width).toBe("narrow");
         expect(row.age).toBe("1h ago");
-        expect(row.title.length).toBe(37);
+        expect(row.title.length).toBe(46);
     });
 
     test("reads untitled when a session has no title, never the id", () => {
@@ -516,8 +518,8 @@ describe("monochrome render", () => {
             (status) => byStatus.get(status as WorkspaceSessionStatus),
         );
         expect(new Set(marked).size).toBe(3);
-        // The selection marker is column one and the status marker column
-        // three, so neither stands in for the other.
+        // Selection belongs to the title line. Status is independent metadata
+        // for the renderer's second line, so neither stands in for the other.
         const selected = sessionRows(result).filter((row) => row.selected);
         expect(selected).toHaveLength(1);
         for (const row of result.rows) {
@@ -525,7 +527,7 @@ describe("monochrome render", () => {
             expect(row.text.startsWith(
                 row.selected ? `${WORKSPACE_SELECTED_MARKER} ` : "  ",
             )).toBe(true);
-            expect(row.text.slice(2, 3)).toBe(row.marker);
+            expect(row.detail).toBeDefined();
         }
     });
 });

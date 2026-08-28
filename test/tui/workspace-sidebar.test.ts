@@ -455,22 +455,22 @@ describe("the rail", () => {
         expect(workspaceRailColumns(60, 40)).toBeUndefined();
     });
 
-    test("keeps age while squeezing, then gives its space to the title", () => {
+    test("puts age below the title and drops it only when squeezed", () => {
         const state = open([session("a", {
             title: "a useful descriptive session name",
             updatedAt: "2026-08-22T11:56:00.000Z",
         })], []);
         const withAge = workspaceSidebarViewState(state, 120, NOW, 37)
-            .lines.find((line) => line.rowId === "a")?.text;
+            .lines.filter((line) => line.rowId === "a").map((line) => line.text);
         const titleOnly = workspaceSidebarViewState(state, 120, NOW, 23)
-            .lines.find((line) => line.rowId === "a")?.text;
+            .lines.filter((line) => line.rowId === "a").map((line) => line.text);
 
-        expect(withAge).toContain("a useful descriptive…");
-        expect(withAge).toContain("4m ago");
-        expect(withAge).not.toContain("[");
-        expect(titleOnly).not.toContain("ago");
-        expect(titleOnly).toContain("a useful descri…");
-        expect(titleOnly).not.toContain("[");
+        expect(withAge[0]).toContain("a useful descriptive session …");
+        expect(withAge[1]).toContain("· 4m ago");
+        expect(withAge.join("\n")).not.toContain("[");
+        expect(titleOnly.join("\n")).not.toContain("ago");
+        expect(titleOnly[0]).toContain("a useful descri…");
+        expect(titleOnly.join("\n")).not.toContain("[");
     });
 
     test("says which side has the keyboard without moving its title", () => {
@@ -525,9 +525,11 @@ describe("the rail", () => {
         const headings = focused.lines.filter((line) => line.tone === "heading");
         expect(headings.map((line) => line.text)).toEqual(["active"]);
         expect(focused.lines.find((line) => line.text.includes("session a"))
-            ?.text.startsWith("1 ")).toBe(true);
-        expect(focused.lines.find((line) => line.text.includes("session b"))
-            ?.text.startsWith("2 ")).toBe(true);
+            ?.text.startsWith("❯ ")).toBe(true);
+        expect(focused.lines.some((line) => line.text.trimStart().startsWith("1 ")))
+            .toBe(true);
+        expect(focused.lines.some((line) => line.text.trimStart().startsWith("2 ")))
+            .toBe(true);
         expect(focused.lines.filter((line) => line.text.includes("working · ")))
             .toHaveLength(2);
         expect(focused.hint).toBe("");
@@ -830,8 +832,8 @@ describe("status from the pushed work index", () => {
             ]),
         );
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain("! needs you");
-        expect(text).toContain(`${tuiBrailleSpinner(0)} running`);
+        expect(text).toContain("1 ! needs you · one");
+        expect(text).toContain(`2 ${tuiBrailleSpinner(0)} working · one`);
     });
 });
 
@@ -863,7 +865,7 @@ describe("the drawn card", () => {
             COLUMNS,
             NOW,
         );
-        expect(text).toContain("● count to 5");
+        expect(text).toContain("1 ● idle · one");
         expect(text).toContain("❯");
         expect(text).not.toContain("[ count to");
     });
@@ -917,10 +919,12 @@ describe("the drawn card", () => {
                 }),
         );
         const lines = workspaceSidebarText(open(sessions), COLUMNS, NOW)
-            .split("\n").filter((line) => line.includes("session s"));
-        expect(lines[0]?.startsWith("1 ")).toBe(true);
-        expect(lines[8]?.startsWith("9 ")).toBe(true);
-        expect(lines[9]?.startsWith(" ")).toBe(true);
+            .split("\n");
+        const metadata = lines.filter((line) => line.includes("working · one"));
+        expect(metadata[0]?.trimStart().startsWith("1 ")).toBe(true);
+        expect(metadata[8]?.trimStart().startsWith("9 ")).toBe(true);
+        expect(metadata[9]?.trimStart().startsWith(tuiBrailleSpinner(0)))
+            .toBe(true);
     });
 
     test("carries its own footer hint, in the pickers' shape", () => {
@@ -957,7 +961,7 @@ describe("the drawn card", () => {
         expect(lines[lines.length - 1]?.trim()).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
     });
 
-    test("an active row is two lines, a recent row one, digits on active only", () => {
+    test("every row is two lines and digits stay on active metadata", () => {
         const text = workspaceSidebarText(
             open([
                 session("busy", { status: "working", live: true }),
@@ -968,10 +972,11 @@ describe("the drawn card", () => {
         );
         const lines = text.split("\n");
         const busy = lines.findIndex((line) => line.includes("session busy"));
-        expect(lines[busy]?.startsWith("1 ")).toBe(true);
-        expect(lines[busy + 1]?.trim()).toBe("working · one");
+        expect(lines[busy]?.startsWith("❯ ")).toBe(true);
+        expect(lines[busy + 1]?.trim()).toBe(`1 ${tuiBrailleSpinner(0)} working · one`);
         const old = lines.findIndex((line) => line.includes("session old"));
         expect(lines[old]?.startsWith(" ")).toBe(true);
+        expect(lines[old + 1]?.trim()).toBe("· 1h ago");
     });
 
     test("a session with no title reads untitled, never its id", () => {

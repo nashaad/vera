@@ -56,10 +56,10 @@ export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "ctrl+r all sessions",
 ];
 
-/** The digit and the space after it, drawn before every row. */
-const DIGIT_COLUMNS = 2;
-/** Selection/status markers that precede the title inside a panel row. */
-const ROW_MARKER_COLUMNS = 4;
+/** Every title and its metadata line share this inset from the group heading. */
+const ROW_INDENT_COLUMNS = 2;
+/** Digit/status metadata and the spaces after them on an active second line. */
+const ROW_METADATA_COLUMNS = 4;
 /** The divider occupies the rail's final rendered cell. */
 const RAIL_DIVIDER_COLUMNS = 1;
 /** Eight age columns plus the space before them. */
@@ -85,7 +85,7 @@ export function workspaceRailColumns(
 ): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    const natural = DIGIT_COLUMNS + workspaceRowColumns(width);
+    const natural = ROW_INDENT_COLUMNS + workspaceRowColumns(width);
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
@@ -619,8 +619,8 @@ export function workspaceSidebarViewState(
         ? undefined
         : Math.max(
             1,
-            railColumns - DIGIT_COLUMNS
-                - ROW_MARKER_COLUMNS - RAIL_DIVIDER_COLUMNS,
+            railColumns - ROW_INDENT_COLUMNS
+                - ROW_METADATA_COLUMNS - RAIL_DIVIDER_COLUMNS,
         );
     const layout = workspaceSidebarLayout(state, {
         columns,
@@ -663,7 +663,7 @@ export function workspaceSidebarViewState(
             ? `${position}`
             : " ";
         lines.push({
-            text: `${digit} ${row.text}`,
+            text: row.text,
             tone: rowTone,
             rowId: row.id,
             // The highlight bar stays on the cursor row even while chat has
@@ -671,16 +671,17 @@ export function workspaceSidebarViewState(
             // its title in brackets.
             ...(row.selected ? { selected: true } : {}),
         });
-        if (row.detail !== undefined) {
-            lines.push({
-                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${row.detail}`,
-                tone: "muted" as const,
-                rowId: row.id,
-            });
-        }
+        const metadata = row.active
+            ? `${digit} ${row.marker} ${row.detail}`
+            : `${row.marker}${row.detail.length === 0 ? "" : ` ${row.detail}`}`;
+        lines.push({
+            text: `${" ".repeat(ROW_INDENT_COLUMNS)}${metadata}`.trimEnd(),
+            tone: "muted" as const,
+            rowId: row.id,
+        });
         if (row.group === RECENT_GROUP && row === lastRow) {
             lines.push({
-                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${
+                text: `${" ".repeat(ROW_INDENT_COLUMNS)}${
                     WORKSPACE_ALL_SESSIONS_NUDGE
                 }`,
                 tone: "muted" as const,
