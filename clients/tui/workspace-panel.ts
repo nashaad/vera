@@ -86,14 +86,13 @@ export interface WorkspaceSession extends VeraClientSession {
 
 /**
  * Waiting and any other needs-you state. Working spins. A live session whose
- * turn landed in the last ten minutes is a filled circle, whether the roster
- * says completed or idle, so looking at it does not blank the mark. A file
- * view is never that circle, even when the work index still calls it
- * completed. Older live idle returns to the idle dot. Closed and completed
- * files leave the cell blank so the title column does not shift.
+ * turn landed in the last ten minutes is a tick, whether the roster says
+ * completed or idle, so looking at it does not blank the mark. A file view is
+ * never ticked, even when the work index still calls it completed. Older live
+ * idle returns to the idle dot; closed files use the recent middle dot.
  */
 export const WORKSPACE_WAITING_MARKER = "!";
-export const WORKSPACE_COMPLETED_MARKER = "●";
+export const WORKSPACE_COMPLETED_MARKER = "✓";
 export const WORKSPACE_IDLE_MARKER = ".";
 export const WORKSPACE_RECENT_MARKER = "·";
 export const WORKSPACE_COMPLETED_WINDOW_MS = 10 * 60 * 1_000;

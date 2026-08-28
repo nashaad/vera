@@ -213,7 +213,7 @@ describe("status markers", () => {
             }),
         ]);
         expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("a completed file view is not a completed mark", () => {
@@ -227,7 +227,7 @@ describe("status markers", () => {
             }),
         ]);
         expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_RECENT_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("an idle file view is not a completed mark", () => {
@@ -237,7 +237,7 @@ describe("status markers", () => {
             session({ id: "a", status: "idle", live: false, title: "old chat" }),
         ]);
         expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_RECENT_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("working advances through the braille spinner", () => {

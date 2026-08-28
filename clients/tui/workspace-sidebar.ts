@@ -4,6 +4,7 @@ import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
     RECENT_GROUP,
+    WORKSPACE_COMPLETED_MARKER,
     WORKSPACE_PINS_ENABLED,
     workspacePanelWidth,
     workspaceRowColumns,
@@ -19,12 +20,20 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
  * The workspace side bar's presentation model, with no OpenTUI in it.
  *
  * `workspace-panel.ts` decides rows, order and markers. This module holds the
- * little that a drawn side bar adds: which row the cursor is on, which rows the
- * digits address, what a pin does, and the lines the shared card mounts.
+ * little that a drawn side bar adds: which row the cursor is on, dormant jump
+ * and pin behavior, and the lines the shared card mounts.
  */
 
-/** Rows the digit keys can address, counting from the top of the listing. */
+/** Rows the dormant digit-target algorithm retains. */
 export const WORKSPACE_JUMP_ROWS = 9;
+/**
+ * Number jumps are dormant while their global interaction is designed.
+ *
+ * Keep the bindings, target calculation, and focused-pane handler intact. If
+ * they return, the shortcut should work from chat, file view, or a hidden rail
+ * rather than requiring the user to focus the sidebar first.
+ */
+export const WORKSPACE_JUMPS_ENABLED = false;
 
 /**
  * Idle jsonl rows kept in the rail, newest first.
@@ -423,8 +432,9 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * ctrl+r opens the full resume picker, ctrl+n starts a new chat and keeps this
- * one running, and digits address session rows.
+ * ctrl+r opens the full resume picker, and ctrl+n starts a new chat while
+ * keeping this one running. Dormant digit handling remains below for a future
+ * global jump interaction.
  * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
@@ -507,7 +517,11 @@ export function handleWorkspaceSidebarKey(
             handled: true,
         };
     }
-    if (binding !== undefined && binding.startsWith("workspace_jump_")) {
+    if (
+        WORKSPACE_JUMPS_ENABLED
+        && binding !== undefined
+        && binding.startsWith("workspace_jump_")
+    ) {
         const position = Number(binding.slice("workspace_jump_".length));
         const target = workspaceJumpTarget(layout, position);
         if (target === undefined) return { state, handled: true };
@@ -557,10 +571,6 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
 /**
  * The footer hint, in the pickers' shape.
  *
- * The digits live here rather than in the help card: nine near-identical rows
- * would push the Transcript scope below the fold, and the only place they are
- * useful is the pane that is already on screen.
- *
  * Drawn in full only while the rail holds the keyboard. Most of these chords
  * are the rail's own, and beside a conversation a block the glance cannot use
  * reads as instructions for the screen it sits next to.
@@ -569,7 +579,7 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Move", value: "↑↓  j/k" },
     { label: "Page", value: "ctrl+d/u" },
     { label: "Open", value: "enter" },
-    { label: "Jump", value: "1–9" },
+    ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
     ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
@@ -662,10 +672,11 @@ export function workspaceSidebarViewState(
         // The digit is drawn on the active row it addresses. Positional and
         // churning as the list reorders, which is why it is a shortcut and not
         // the way a row is picked. Idle rows carry none.
-        if (row.active) position += 1;
-        const digit = row.active && position <= WORKSPACE_JUMP_ROWS
-            ? `${position}`
-            : " ";
+        if (WORKSPACE_JUMPS_ENABLED && row.active) position += 1;
+        const showDigit = WORKSPACE_JUMPS_ENABLED
+            && row.active
+            && position <= WORKSPACE_JUMP_ROWS;
+        const digit = showDigit ? `${position}` : " ";
         const trailing = row.active
             ? [row.detail, digit.trim()].filter((value) => value.length > 0)
                 .join(" · ")
@@ -674,6 +685,14 @@ export function workspaceSidebarViewState(
             text: rightAlignedRow(row.text, trailing, rowColumns),
             tone: rowTone,
             rowId: row.id,
+            ...(row.marker === WORKSPACE_COMPLETED_MARKER
+                ? {
+                    leading: {
+                        text: WORKSPACE_COMPLETED_MARKER,
+                        tone: "positive" as const,
+                    },
+                }
+                : {}),
             // The highlight bar stays on the cursor row even while chat has
             // focus, so the on-screen conversation still reads without wrapping
             // its title in brackets.

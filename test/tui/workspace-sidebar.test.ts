@@ -28,6 +28,7 @@ import {
     WORKSPACE_EMPTY_LINES,
     WORKSPACE_HEADER_ALL_ACTION,
     WORKSPACE_HEADER_NEW_ACTION,
+    WORKSPACE_JUMPS_ENABLED,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -528,9 +529,9 @@ describe("the rail", () => {
         expect(headings.map((line) => line.text)).toEqual([WORKING_GROUP]);
         expect(focused.lines.find((line) => line.text.includes("session a"))
             ?.text.startsWith(tuiBrailleSpinner(0))).toBe(true);
-        expect(focused.lines.some((line) => line.text.endsWith("one · 1")))
+        expect(focused.lines.some((line) => line.text.endsWith("one")))
             .toBe(true);
-        expect(focused.lines.some((line) => line.text.endsWith("two · 2")))
+        expect(focused.lines.some((line) => line.text.endsWith("two")))
             .toBe(true);
         expect(focused.hint).toBe("");
         expect(focused.headerActions).toEqual([
@@ -694,8 +695,8 @@ describe("clicking the branded header", () => {
     });
 });
 
-describe("the digits", () => {
-    test("address the top nine visible rows in listing order", () => {
+describe("dormant digit jumps", () => {
+    test("retains the top-nine target calculation", () => {
         const sessions = Array.from(
             { length: 11 },
             (_unused, at) =>
@@ -720,7 +721,7 @@ describe("the digits", () => {
         expect(press(state, "3").handled).toBe(true);
     });
 
-    test("pressing 2 opens the second active row", () => {
+    test("keeps the binding but does not open a row", () => {
         const state = open([
             session("a", {
                 live: true,
@@ -734,12 +735,8 @@ describe("the digits", () => {
         ]);
         expect(tuiBindingId("workspace", { name: "2" }))
             .toBe("workspace_jump_2");
-        expect(press(state, "2").action).toEqual({
-            kind: "open_session",
-            session_id: "b",
-            session_path: "/sessions/b.jsonl",
-            active: true,
-        });
+        expect(WORKSPACE_JUMPS_ENABLED).toBe(false);
+        expect(press(state, "2").action).toBeUndefined();
     });
 
     test("a digit never addresses a recent row", () => {
@@ -848,27 +845,26 @@ describe("the drawn card", () => {
         expect(text).toContain("session b");
         expect(text).not.toContain("[ session b ]");
         expect(text).not.toContain("(here)");
-        expect(text).not.toContain("● session b");
+        expect(text).not.toContain("✓ session b");
     });
 
     test("an idle session you are looking at still reads as completed", () => {
-        const text = workspaceSidebarText(
-            open(
-                [session("a", {
-                    title: "count to 5",
-                    status: "idle",
-                    live: true,
-                    updatedAt: "2026-08-22T11:55:00.000Z",
-                })],
-                [],
-                "a",
-            ),
-            COLUMNS,
-            NOW,
+        const state = open(
+            [session("a", {
+                title: "count to 5",
+                status: "idle",
+                live: true,
+                updatedAt: "2026-08-22T11:55:00.000Z",
+            })],
+            [],
+            "a",
         );
-        expect(text).toContain("● count to 5");
-        expect(text).toContain("1");
+        const text = workspaceSidebarText(state, COLUMNS, NOW);
+        expect(text).toContain("✓ count to 5");
         expect(text).not.toContain("[ count to");
+        expect(workspaceSidebarViewState(state, COLUMNS, NOW).lines.find(
+            (line) => line.rowId === "a",
+        )?.leading).toEqual({ text: "✓", tone: "positive" });
     });
 
     test("an idle file view is not marked completed", () => {
@@ -886,7 +882,7 @@ describe("the drawn card", () => {
             NOW,
         );
         expect(text).toContain("do you know");
-        expect(text).not.toContain("● do you know");
+        expect(text).not.toContain("✓ do you know");
         expect(text).toContain("· do you know");
     });
 
@@ -906,10 +902,10 @@ describe("the drawn card", () => {
             NOW,
         );
         expect(text).toContain("count to 5");
-        expect(text).not.toContain("● count to 5");
+        expect(text).not.toContain("✓ count to 5");
     });
 
-    test("numbers the top nine rows and stops", () => {
+    test("does not draw dormant digit shortcuts", () => {
         const sessions = Array.from(
             { length: 10 },
             (_unused, at) =>
@@ -924,9 +920,8 @@ describe("the drawn card", () => {
         const rows = lines.filter((line) =>
             line.startsWith(tuiBrailleSpinner(0))
         );
-        expect(rows[0]?.endsWith("1")).toBe(true);
-        expect(rows[8]?.endsWith("9")).toBe(true);
-        expect(rows[9]).not.toMatch(/\s{2,}\d$/);
+        expect(rows).toHaveLength(10);
+        expect(rows.every((row) => !/\s{2,}\d$/.test(row))).toBe(true);
     });
 
     test("carries its own footer hint, in the pickers' shape", () => {
@@ -943,14 +938,13 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
-            "Jump    1–9",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
             "Chat    tab",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(9);
+        expect(view.footerTable).toHaveLength(8);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
         expect(view.title).toBe("[ VERA ] · 1");
@@ -974,7 +968,7 @@ describe("the drawn card", () => {
         const lines = text.split("\n");
         const busy = lines.findIndex((line) => line.includes("session busy"));
         expect(lines[busy]?.startsWith(`${tuiBrailleSpinner(0)} `)).toBe(true);
-        expect(lines[busy]?.endsWith("1")).toBe(true);
+        expect(lines[busy]).not.toMatch(/\s{2,}\d$/);
         const old = lines.findIndex((line) => line.includes("session old"));
         expect(lines[old]?.startsWith("· ")).toBe(true);
         expect(lines[old]?.endsWith("1h ago")).toBe(true);
@@ -1005,7 +999,6 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
-            "Jump    1–9",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
@@ -1020,7 +1013,7 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(9);
+            .toHaveLength(8);
     });
 
     test("an unfocused rail keeps only the chords that answer from the chat", () => {

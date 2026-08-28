@@ -12,8 +12,13 @@ const STATE: LinesViewState = {
     title: "[ VERA ]",
     hint: "",
     lines: [
-        { text: "1 ❯ ● this one", rowId: "a", selected: true },
-        { text: "2   ○ that one", rowId: "b" },
+        {
+            text: "✓ this one",
+            leading: { text: "✓", tone: "positive" },
+            rowId: "a",
+            selected: true,
+        },
+        { text: "· that one", rowId: "b" },
     ],
     cursorLine: 0,
     footer: "Focus  ctrl+e",
@@ -39,8 +44,8 @@ test("a rail draws its selection bar only while it holds the keyboard", async ()
         view.update({ ...STATE, focused: true });
         expect(accentRows(view.box)).toHaveLength(1);
 
-        // Nothing about the rows changed, so the `❯` still says where a
-        // returning keyboard would land. Only the bar behind it is gone.
+        // Nothing about the rows changed, so the session-state glyph remains.
+        // Only the selection bar behind it is gone.
         view.update({ ...STATE, dimmed: true });
         expect(accentRows(view.box)).toHaveLength(0);
 

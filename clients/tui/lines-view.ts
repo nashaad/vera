@@ -1,5 +1,7 @@
 import {
     BoxRenderable,
+    fg,
+    StyledText,
     TextAttributes,
     TextRenderable,
     type Renderable,
@@ -21,6 +23,7 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
+    TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 
@@ -44,6 +47,11 @@ export type LinesViewTone = "text" | "muted" | "accent" | "heading";
 export interface LinesViewLine {
     readonly text: string;
     readonly tone?: LinesViewTone;
+    /** A separately toned prefix that is also present at the start of text. */
+    readonly leading?: {
+        readonly text: string;
+        readonly tone: "positive";
+    };
     /**
      * What the surface calls this line when the mouse lands on it. Absent on a
      * line there is nothing to select, so a click on a heading or a blank does
@@ -395,8 +403,8 @@ export function createTuiLinesView(
             // A rail without the keyboard draws no selection bar. The bar is
             // the loudest thing on the pane, so leaving it lit beside a live
             // conversation puts the brightest mark on screen where the keys
-            // are not. The `❯` in the row's own gutter is what still says
-            // which row a returning keyboard would land on.
+            // are not. The row's state glyph remains visible without making
+            // it double as a second selection marker.
             const selectable = rail === undefined || state.focused === true;
             for (const line of visible) {
                 add(lineNode(
@@ -512,18 +520,39 @@ function lineNode(
         });
         attachRowPointer(row, pointer);
         row.add(new TextRenderable(renderer, {
-            content: line.text,
+            content: lineContent(line, toneColor(line.tone)),
             fg: toneColor(line.tone),
             width: "100%",
             height: 1,
         }));
         return row;
     }
+    const leading = line.leading?.text ?? "";
+    const label = leading.length > 0 && line.text.startsWith(leading)
+        ? line.text.slice(leading.length)
+        : line.text;
     return dialogOptionRow(renderer, {
-        label: line.text,
+        label,
+        ...(leading.length === 0
+            ? {}
+            : { leading, leadingTone: line.leading?.tone }),
         active: line.selected === true,
         ...pointer,
     });
+}
+
+function lineContent(
+    line: LinesViewLine,
+    color: string,
+): string | StyledText {
+    const leading = line.leading?.text ?? "";
+    if (leading.length === 0 || !line.text.startsWith(leading)) {
+        return line.text;
+    }
+    return new StyledText([
+        fg(TUI_SUCCESS)(leading),
+        fg(color)(line.text.slice(leading.length)),
+    ]);
 }
 
 /** Header chrome on the app ground: structure without a filled panel band. */

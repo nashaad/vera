@@ -68,6 +68,35 @@ function chunkFor(
     return chunks.find((chunk) => chunk.text.toString() === text);
 }
 
+test("a positive leading mark uses success green", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const row = dialogOptionRow(setup.renderer, {
+            leading: "✓",
+            leadingTone: "positive",
+            label: " finished",
+            active: false,
+        });
+        const leading = row.getChildren()[0] as TextRenderable;
+        const chunks = (leading.content as StyledText).chunks;
+        expect(chunkFor(chunks, "✓")?.fg).toEqual(parseColor(TUI_SUCCESS));
+
+        const selected = dialogOptionRow(setup.renderer, {
+            leading: "✓",
+            leadingTone: "positive",
+            label: " finished",
+            active: true,
+        });
+        const selectedLeading = selected.getChildren()[0] as TextRenderable;
+        expect(chunkFor(
+            (selectedLeading.content as StyledText).chunks,
+            "✓",
+        )?.fg).toEqual(parseColor(TUI_BACKGROUND));
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("an affirmative fact in the meta column is toned apart from the rest", async () => {
     const setup = await createTestRenderer({ width: 80, height: 24 });
     try {

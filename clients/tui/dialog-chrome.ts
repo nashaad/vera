@@ -325,7 +325,7 @@ export interface DialogRowContent {
     // number, a group name). Accent-toned unless the row is active, or muted
     // when the gutter names something the eye should pass over.
     readonly leading?: string;
-    readonly leadingTone?: "accent" | "muted";
+    readonly leadingTone?: "accent" | "muted" | "positive";
     // A blank line above the row, for lists that separate runs of rows with a
     // gap rather than a heading.
     readonly spaced?: boolean;
@@ -659,11 +659,14 @@ export function dialogOptionRow(
     // Only when there is leading text to draw: an empty text node still takes
     // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
+        const leadingColor = content.leadingTone === "muted"
+            ? detail
+            : content.leadingTone === "positive"
+            ? content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS
+            : accent;
         row.add(new TextRenderable(renderer, {
             content: new StyledText([
-                fg(content.leadingTone === "muted" ? detail : accent)(
-                    content.leading,
-                ),
+                fg(leadingColor)(content.leading),
             ]),
             bg: background,
             flexShrink: 0,

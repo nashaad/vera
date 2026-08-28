@@ -282,8 +282,8 @@ test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has 
 
     // Selection is a full-row treatment rather than a second text marker. The
     // session's own state glyph remains present in both focus states.
-    expect(rowOf(litPane, "this one")).toContain("● this one");
-    expect(rowOf(quietPane, "this one")).toContain("● this one");
+    expect(rowOf(litPane, "this one")).toContain("✓ this one");
+    expect(rowOf(quietPane, "this one")).toContain("✓ this one");
     // Focused, the selected row carries a ground the rows around it do not.
     const lit = rowRuns(focused, "this one");
     const neighbour = rowRuns(focused, "auth-race");
@@ -515,8 +515,8 @@ test.skipIf(!tmuxAvailable)("the closed rail is named under the composer", async
     expect(open).toContain("Hide    ctrl+e");
 }, 60_000);
 
-test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async () => {
-    const { open, opened } = await withTui(async (tui) => {
+test.skipIf(!tmuxAvailable)("digit jumping stays dormant", async () => {
+    const after = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
         const open = await tui.paneWhere((value) =>
@@ -524,22 +524,19 @@ test.skipIf(!tmuxAvailable)("a digit opens the row it is drawn beside", async ()
             && value.includes("Hide    ctrl+e")
         );
         tui.text("2");
-        const opened = await tui.paneWhere((value) =>
-            value.includes("Could not switch conversation: OPENED")
-            && value.includes("relay-gui")
-        );
-        return { open, opened };
+        await Bun.sleep(100);
+        expect(open).not.toContain("Jump    1–9");
+        return tui.pane();
     });
 
-    // The digit is drawn on the row it addresses, so the pane says which
-    // session pressing 2 will open before it is pressed.
-    const rows = open.split("\n");
+    const rows = after.split("\n");
     const relayGui = rows.findIndex((line) => line.includes("relay-gui"));
     expect(rows[relayGui]).toMatch(
         new RegExp(`[${BRAILLE_FRAMES.join("")}] relay-gui`),
     );
-    expect(rows[relayGui]).toContain("one · 2");
-    expect(opened).toContain("OPENED /sessions/relay-gui.");
+    expect(rows[relayGui]).not.toContain("one · 2");
+    expect(after).not.toContain("Could not switch conversation: OPENED");
+    expect(after).toContain("[ VERA ] · 6");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("p leaves dormant pinning unchanged", async () => {
@@ -575,12 +572,12 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
         new RegExp(`[${BRAILLE_FRAMES.join("")}] relay-gui`),
     );
     expect(row("auth-refactor")).toContain("auth-refactor");
-    expect(row("auth-refactor")).not.toContain("● auth-refactor");
+    expect(row("auth-refactor")).not.toContain("✓ auth-refactor");
     // Live idle is a finished turn only while it is still recent.
-    expect(row("this one")).toContain("● this one");
+    expect(row("this one")).toContain("✓ this one");
     expect(row("this one")).not.toContain("[ this one ]");
     expect(row("old chat")).toContain("old chat");
-    expect(row("old chat")).not.toContain("●");
+    expect(row("old chat")).not.toContain("✓");
     expect(pane.split("\n").some((line) => line.trim() === "background"))
         .toBe(false);
 }, 60_000);
@@ -647,8 +644,8 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
         return await tui.paneWhere((value) => value.includes("[ VERA ] \u00b7"));
     }, 70, 34);
 
-    expect(open).toContain("● this one");
-    expect(open).toContain("… 5 above");
+    expect(open).toContain("✓ this one");
+    expect(open).toContain("… 4 above");
     expect(workspaceRailColumns(70)).toBeUndefined();
     // Held off the left edge, which is what a centred card looks like and what
     // a rail never does.
