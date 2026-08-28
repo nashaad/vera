@@ -97,6 +97,12 @@ test("shortlist is idempotent when the current model is already kept", async () 
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/shortlist");
+        await session.waitForVisiblePaneWhere(
+            (pane) => pane.split("\n").some((line) =>
+                line.includes("│ /shortlist")
+            ),
+            "the complete /shortlist command in the composer",
+        );
         session.sendKey("Enter");
         await session.waitForVisiblePane("already shortlisted");
         expect(commands.filter((command) => command.type === "pool_add"))
@@ -106,7 +112,7 @@ test("shortlist is idempotent when the current model is already kept", async () 
     }
 }, 15_000);
 
-test("shortlist verification stays visible above the dimmed prose", async () => {
+test("shortlist verification runs in a console inside the model dialog", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-toast-"));
     const session = await startTuiTestSession({
         home,
@@ -128,25 +134,26 @@ test("shortlist verification stays visible above the dimmed prose", async () => 
         session.sendKey("Enter");
 
         const verifying = await session.waitForVisiblePane(
-            "Verifying openrouter/one/model…",
+            "❯ verify openrouter/one/model",
         );
-        const verifyingLines = verifying.split("\n").filter((line) =>
+        const lines = verifying.split("\n");
+        const consoleLine = lines.findIndex((line) =>
+            line.includes("❯ verify openrouter/one/model")
+        );
+        expect(consoleLine).toBeGreaterThan(0);
+        expect(lines[consoleLine]).toContain("⠋ running");
+        expect(lines[consoleLine - 1]).toContain("╭");
+        expect(lines[consoleLine + 1]).toContain("╰");
+        expect(lines.filter((line) =>
             line.includes("Verifying openrouter/one/model")
-        );
-        expect(verifyingLines).toHaveLength(2);
-        expect(verifyingLines.some((line) =>
-            line.indexOf("Verifying") > 50
-        )).toBe(true);
-        expect(verifyingLines.some((line) =>
-            line.indexOf("Verifying") < 20
-        )).toBe(true);
+        )).toHaveLength(1);
 
         const finished = await session.waitForVisiblePane(
             "Name shortlisted model",
         );
         expect(finished).toContain("Pinned to your shortlist");
-        expect(finished).not.toContain("Verifying openrouter/one/model…");
-        // The durable admission prose remains after the live toast clears.
+        expect(finished).not.toContain("❯ verify openrouter/one/model");
+        // The durable admission prose remains after the live console clears.
         expect(finished).toContain("Verifying openrouter/one/model");
     } finally {
         await session.close();

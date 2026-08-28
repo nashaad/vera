@@ -646,6 +646,10 @@ export interface TuiSettingsPickerView {
      * the pane redraws from scratch on every update and reads it then.
      */
     tip?: string;
+    /** A live model check drawn as an inset console above the footer. */
+    verification?: {
+        readonly subject: string;
+    };
     /** What clicking a tab chip does, in the same terms as the ⇥ key. */
     onTab?: (tab: TuiModelPickerTab) => void;
     /** Opens provider connection without changing which model tab is active. */
@@ -2909,6 +2913,7 @@ export function createTuiSettingsPickerView(
                 nodes,
                 view.pointer,
                 view.tip,
+                view.verification,
                 view.onTab,
                 view.onConfigure,
                 railInset,
@@ -2977,11 +2982,13 @@ function themePickerTop(renderer: RenderContext, themeRows: number): number {
 export function tuiPickerViewportRows(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
+    extraChrome = 0,
 ): number {
     const rows = pickerMaxRows(
         renderer,
         (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
+            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
+            + extraChrome,
     );
     return state.kind === "model" && state.tab === "all"
         ? Math.min(rows, MODEL_ALL_MAX_ROWS)
@@ -3351,6 +3358,7 @@ function renderListPickerRows(
     nodes: Renderable[],
     pointer?: DialogRowPointer,
     tip?: string,
+    verification?: { readonly subject: string },
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
     railInset = 0,
@@ -3476,7 +3484,9 @@ function renderListPickerRows(
 
     const availableRows = pickerMaxRows(
         renderer,
-        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
+        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+            + subtitleLines
+            + (verification === undefined ? 0 : VERIFICATION_CONSOLE_LINES),
     );
     const rows = windowedDisplayRows(
         listDisplayRows(state),
@@ -3622,6 +3632,15 @@ function renderListPickerRows(
         nodes.push(tipNode);
     }
 
+    if (verification !== undefined) {
+        const consoleBox = verificationConsoleNode(
+            renderer,
+            verification.subject,
+        );
+        box.add(consoleBox);
+        nodes.push(consoleBox);
+    }
+
     const footer = dialogFooterNode(
         renderer,
         pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
@@ -3636,6 +3655,52 @@ function renderListPickerRows(
 // attached to either the tabs above or the list below.
 const MODEL_TAB_STRIP_HEIGHT = 4;
 const MODEL_ALL_MAX_ROWS = 28;
+const VERIFICATION_CONSOLE_LINES = 4;
+
+/** A small terminal inside the picker for the live provider check. */
+function verificationConsoleNode(
+    renderer: RenderContext,
+    subject: string,
+): BoxRenderable {
+    const consoleBox = new BoxRenderable(renderer, {
+        width: "100%",
+        height: 3,
+        marginTop: 1,
+        flexShrink: 0,
+        border: true,
+        borderStyle: "rounded",
+        borderColor: TUI_ELEMENT,
+        backgroundColor: TUI_BACKGROUND,
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
+    const row = new BoxRenderable(renderer, {
+        width: "100%",
+        height: 1,
+        flexDirection: "row",
+        justifyContent: "space-between",
+        backgroundColor: TUI_BACKGROUND,
+    });
+    row.add(new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(TUI_ACCENT)("❯ "),
+            fg(TUI_TEXT)("verify "),
+            fg(TUI_MUTED)(subject),
+        ]),
+        bg: TUI_BACKGROUND,
+        height: 1,
+    }));
+    row.add(new TextRenderable(renderer, {
+        content: new StyledText([
+            fg(TUI_ACCENT)("⠋ "),
+            fg(TUI_MUTED)("running"),
+        ]),
+        bg: TUI_BACKGROUND,
+        height: 1,
+    }));
+    consoleBox.add(row);
+    return consoleBox;
+}
 
 /**
  * Where the strip's highlight sits. The connect pane is a stop on it rather

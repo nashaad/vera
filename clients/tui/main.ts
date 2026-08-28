@@ -2739,7 +2739,10 @@ export async function startTui(
     });
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
-    let verificationToastRequestId: string | undefined;
+    let verificationConsole: {
+        readonly requestId: string;
+        readonly subject: string;
+    } | undefined;
 
     const {
         panel: composerBox,
@@ -5009,7 +5012,14 @@ export async function startTui(
         }
 
         if (settingsPicker !== undefined) {
-            const viewportRows = tuiPickerViewportRows(renderer, settingsPicker);
+            const viewportRows = tuiPickerViewportRows(
+                renderer,
+                settingsPicker,
+                verificationConsole === undefined
+                    || settingsPicker.kind !== "model"
+                    ? 0
+                    : 4,
+            );
             const transition = settingsPicker.kind === "extension"
                 ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
                 : handleTuiSettingsPickerKey(settingsPicker, key, viewportRows);
@@ -7762,7 +7772,7 @@ export async function startTui(
                     }
                 }
                 if (update.type === "pool_admission_result") {
-                    hideVerificationToast(update.requestId);
+                    hideVerificationConsole(update.requestId);
                 }
                 observeActivity(update);
                 if (
@@ -9973,6 +9983,7 @@ export async function startTui(
         if (settingsPicker === undefined) {
             pickerTipKind = undefined;
             settingsPickerView.tip = undefined;
+            settingsPickerView.verification = undefined;
         } else if (tipsEnabled && pickerTipKind !== settingsPicker.kind) {
             // One tip per pane, chosen when the pane opens. Rechoosing on
             // every keystroke would make the line flicker under the search
@@ -9981,6 +9992,9 @@ export async function startTui(
             settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
         }
         if (settingsPicker !== undefined) {
+            settingsPickerView.verification = settingsPicker.kind === "model"
+                ? verificationConsole
+                : undefined;
             settingsPickerView.update(settingsPicker);
         }
         if (secretPrompt !== undefined) {
@@ -14116,7 +14130,7 @@ export async function startTui(
         const requestId = randomUUID();
         poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
-        showVerificationToast(requestId, `${provider}/${model}`);
+        showVerificationConsole(requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
             requestId,
@@ -14834,43 +14848,30 @@ export async function startTui(
         }, COPY_NOTICE_DURATION_MS);
     }
 
-    function displayModeToast(message: string): number {
+    function showModeToast(message: string): void {
         modeToastVersion += 1;
+        const version = modeToastVersion;
         modeToastText.content = message;
         modeToast.width = message.length + 4;
         // Above the overlay when one is open, so the toast is not painted
         // behind the card that prompted it.
         modeToast.visible = true;
-        return modeToastVersion;
-    }
-
-    function showModeToast(message: string): void {
-        // Admission state is the actionable live notice. A transient mode
-        // change must not cover it and then leave the corner empty while the
-        // verification is still running.
-        if (verificationToastRequestId !== undefined) return;
-        const version = displayModeToast(message);
         setTimeout(() => {
             if (modeToastVersion !== version) return;
             modeToast.visible = false;
         }, MODE_TOAST_DURATION_MS);
     }
 
-    function showVerificationToast(
+    function showVerificationConsole(
         requestId: string,
-        model: string,
+        subject: string,
     ): void {
-        verificationToastRequestId = requestId;
-        displayModeToast(`Verifying ${model}…`);
+        verificationConsole = { requestId, subject };
     }
 
-    function hideVerificationToast(requestId: string): void {
-        if (verificationToastRequestId !== requestId) return;
-        verificationToastRequestId = undefined;
-        // Invalidates any transient timer that belonged to the content this
-        // persistent toast replaced.
-        modeToastVersion += 1;
-        modeToast.visible = false;
+    function hideVerificationConsole(requestId: string): void {
+        if (verificationConsole?.requestId !== requestId) return;
+        verificationConsole = undefined;
     }
 
     /**
