@@ -297,6 +297,13 @@ export interface SearchOverlayLine {
     readonly selected?: boolean;
     /** Left over from the previous query, while its replacement is in flight. */
     readonly stale?: boolean;
+    /**
+     * Where the query sits inside the line, so the row can draw it heavier.
+     *
+     * Absent when the snippet was cut before the match: a run pointing past
+     * the end of the line would mark whatever text ended up there instead.
+     */
+    readonly emphasis?: { readonly start: number; readonly length: number };
 }
 
 /** A hit's identity as one string, because a pointer can only carry one. */
@@ -353,6 +360,7 @@ export function searchOverlayLines(
         lines.push({ kind: "notice", text: "Type to search past work." });
         return lines;
     }
+    const needle = state.query.trim().toLowerCase();
     const results = state.results?.results ?? [];
     if (state.searching && results.length === 0) {
         lines.push({ kind: "notice", text: "Searching…" });
@@ -379,12 +387,14 @@ export function searchOverlayLines(
         result.hits.forEach((hit, hitIndex) => {
             const selected = state.selected?.sessionId === result.session_id
                 && state.selected.hitIndex === hitIndex;
+            const text = clip(
+                `    ${HIT_PREFIXES[hit.kind]} ${hit.snippet}`,
+                layout.width,
+            );
+            const emphasis = matchRun(text, needle);
             lines.push({
                 kind: "hit",
-                text: clip(
-                    `    ${HIT_PREFIXES[hit.kind]} ${hit.snippet}`,
-                    layout.width,
-                ),
+                text,
                 session_id: result.session_id,
                 row_id: searchRowId({
                     sessionId: result.session_id,
@@ -392,6 +402,7 @@ export function searchOverlayLines(
                 }),
                 selected,
                 stale,
+                ...(emphasis === undefined ? {} : { emphasis }),
             });
         });
     }
@@ -412,6 +423,24 @@ export function searchOverlayText(
     return searchOverlayLines(state, layout)
         .map((line) => line.text)
         .join("\n");
+}
+
+/**
+ * Where the query lands in a drawn line, if it is still on it.
+ *
+ * The host matches case-insensitively and the snippet keeps the transcript's
+ * own case, so the run is found the same way rather than assumed to be where
+ * the query's characters were typed.
+ */
+function matchRun(
+    text: string,
+    needle: string,
+): { readonly start: number; readonly length: number } | undefined {
+    if (needle.length === 0) return undefined;
+    const at = text.toLowerCase().indexOf(needle);
+    return at === -1 || at + needle.length > text.length
+        ? undefined
+        : { start: at, length: needle.length };
 }
 
 function clip(value: string, columns: number): string {
@@ -439,6 +468,7 @@ export function searchOverlayViewState(
             text: line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
             ...(line.selected === true ? { selected: true } : {}),
+            ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
             tone: line.stale === true
                 ? "muted" as const
                 : line.kind === "result" || line.kind === "query"

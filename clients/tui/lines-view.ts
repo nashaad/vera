@@ -1,7 +1,11 @@
 import {
+    bold,
     BoxRenderable,
+    fg,
+    StyledText,
     TextAttributes,
     TextRenderable,
+    underline,
     type Renderable,
     type RenderContext,
 } from "@opentui/core";
@@ -52,6 +56,12 @@ export interface LinesViewLine {
     readonly rowId?: string;
     /** Draws the highlight bar, the same one every picker's cursor draws. */
     readonly selected?: boolean;
+    /**
+     * A run of the line drawn heavier than the rest, given as a start column
+     * and a length. What a surface uses it for is its own: search marks the
+     * text that matched, so the eye lands on the reason the row is listed.
+     */
+    readonly emphasis?: { readonly start: number; readonly length: number };
 }
 
 export interface LinesViewFooterRow {
@@ -148,6 +158,16 @@ export interface LinesViewOptions {
      * later docks does not suddenly eat title space.
      */
     readonly railPadding?: number;
+    /**
+     * A card that keeps the height its list may window to, rather than
+     * shrinking to the rows it happens to have.
+     *
+     * For a surface whose list changes under the person's hands: a card that
+     * grows a row per keystroke moves its own header, its footer and every row
+     * already read. The rows it can show are the same either way; this is only
+     * whether the frame around them holds still.
+     */
+    readonly fillHeight?: boolean;
 }
 
 export interface LinesViewPointer {
@@ -225,6 +245,12 @@ export function createTuiLinesView(
         (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
         + footerRows - 1;
     const railPadding = options.railPadding ?? RAIL_PADDING;
+    /** The height a centred card's list is windowed to, rail aside. */
+    const cardHeight = (): number =>
+        dialogBoxHeight(
+            renderer,
+            rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
+        ) - (rail === undefined ? bottomInset : 0);
     const box = new BoxRenderable(renderer, {
         id,
         border: false,
@@ -270,13 +296,7 @@ export function createTuiLinesView(
             applyBottomInset();
         },
         visibleRows(): number {
-            return listWindowRows(
-                dialogBoxHeight(
-                    renderer,
-                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - (rail === undefined ? bottomInset : 0),
-                chromeRows(),
-            );
+            return listWindowRows(cardHeight(), chromeRows());
         },
         setRail(columns): void {
             if (rail === columns) return;
@@ -288,7 +308,9 @@ export function createTuiLinesView(
                 surface.alignItems = "center";
                 surface.justifyContent = "center";
                 box.width = `${CARD_WIDTH_FRACTION * 100}%`;
-                box.height = "auto";
+                box.height = options.fillHeight === true
+                    ? Math.max(1, cardHeight())
+                    : "auto";
                 box.paddingLeft = DIALOG_CARD_PADDING;
                 box.paddingRight = DIALOG_CARD_PADDING;
                 box.paddingTop = 2;
@@ -363,13 +385,13 @@ export function createTuiLinesView(
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
-            const room = listWindowRows(
-                dialogBoxHeight(
-                    renderer,
-                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - (rail === undefined ? bottomInset : 0),
-                chromeRows(),
-            );
+            const height = cardHeight();
+            const room = listWindowRows(height, chromeRows());
+            // A card told to keep its height takes the one its list is
+            // windowed to, so the frame is the same whether the list fills it.
+            if (options.fillHeight === true && rail === undefined) {
+                box.height = Math.max(1, height);
+            }
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
                     (state.cursorLine ?? 0) - Math.floor(room / 2),
@@ -401,11 +423,13 @@ export function createTuiLinesView(
             // A dock is two regions: the list above, which scrolls, and a
             // fixed help block on the bottom edge, with an inset rule between
             // them. Centred cards keep their compact height.
-            if (rail !== undefined) {
+            if (rail !== undefined || options.fillHeight === true) {
                 add(new BoxRenderable(renderer, {
                     width: "100%",
                     flexGrow: 1,
                 }));
+            }
+            if (rail !== undefined) {
                 add(new TextRenderable(renderer, {
                     content: "─".repeat(Math.max(1, rail - 2)),
                     fg: TUI_ELEMENT,
@@ -479,12 +503,7 @@ function lineNode(
         }
         return line.tone === "accent" && line.text.length > 0
             ? dialogGroupHeaderNode(renderer, line.text, false)
-            : new TextRenderable(renderer, {
-                content: line.text,
-                fg: toneColor(line.tone),
-                width: "100%",
-                height: 1,
-            });
+            : plainLineNode(renderer, line);
     }
     const rowId = line.rowId;
     const pointer = {
@@ -501,19 +520,46 @@ function lineNode(
             height: 1,
         });
         attachRowPointer(row, pointer);
-        row.add(new TextRenderable(renderer, {
-            content: line.text,
-            fg: toneColor(line.tone),
-            width: "100%",
-            height: 1,
-        }));
+        row.add(plainLineNode(renderer, line));
         return row;
     }
     return dialogOptionRow(renderer, {
         label: line.text,
         active: line.selected === true,
+        ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
         ...pointer,
     });
+}
+
+/** A line with no row of its own, emphasised run included. */
+function plainLineNode(
+    renderer: RenderContext,
+    line: LinesViewLine,
+): TextRenderable {
+    return new TextRenderable(renderer, {
+        content: emphasised(line.text, toneColor(line.tone), line.emphasis),
+        width: "100%",
+        height: 1,
+    });
+}
+
+/** The line as one chunk, or as three when a run of it is emphasised. */
+function emphasised(
+    text: string,
+    color: string,
+    emphasis: { readonly start: number; readonly length: number } | undefined,
+): StyledText {
+    if (emphasis === undefined || emphasis.length <= 0) {
+        return new StyledText([fg(color)(text)]);
+    }
+    const start = Math.max(0, Math.min(emphasis.start, text.length));
+    const end = Math.min(text.length, start + emphasis.length);
+    if (end <= start) return new StyledText([fg(color)(text)]);
+    return new StyledText([
+        ...(start > 0 ? [fg(color)(text.slice(0, start))] : []),
+        underline(bold(fg(color)(text.slice(start, end)))),
+        ...(end < text.length ? [fg(color)(text.slice(end))] : []),
+    ]);
 }
 
 /** Header chrome on the app ground: structure without a filled panel band. */

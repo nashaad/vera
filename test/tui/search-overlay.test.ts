@@ -367,3 +367,80 @@ test("the footer shortens with the terminal", () => {
     expect(searchOverlayFooter(78)).toContain("enter open at match");
     expect(searchOverlayFooter(42)).toBe("↑↓ enter tab ^w esc");
 });
+
+test("the hit marks where the query sits in the line", () => {
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        results(),
+    );
+    const line = searchOverlayLines(state, { width: 78, now: NOW })
+        .find((candidate) => candidate.text.includes("the fallback ladder"));
+
+    expect(line).toBeDefined();
+    if (line === undefined) throw new Error("no hit line");
+    expect(line.emphasis).toBeDefined();
+    const run = line.emphasis!;
+    expect(line.text.slice(run.start, run.start + run.length))
+        .toBe("fallback");
+});
+
+test("a snippet cut before the match marks nothing", () => {
+    const state = applySearchResults(
+        typing("ladder"),
+        { query: "ladder", workspace: "/work/one" },
+        {
+            truncated: false,
+            results: [{
+                session_id: "memory-retrieval",
+                session_path: "/sessions/memory.jsonl",
+                title: "memory-retrieval",
+                workspace: "/work/one",
+                updated_at: "2026-08-09T10:00:00.000Z",
+                hits: [{
+                    kind: "agent_message",
+                    // The host cut its snippet around a different occurrence,
+                    // so the query is not on the line the reader sees.
+                    snippet: "the degrade path stays inside the family",
+                    entry_id: "entry-1",
+                }],
+            }],
+        },
+    );
+    const line = searchOverlayLines(state, { width: 78, now: NOW })
+        .find((candidate) => candidate.text.includes("degrade path"));
+
+    expect(line).toBeDefined();
+    expect(line?.emphasis).toBeUndefined();
+});
+
+test("the match is found whatever case the transcript wrote it in", () => {
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        {
+            truncated: false,
+            results: [{
+                session_id: "caps",
+                session_path: "/sessions/caps.jsonl",
+                title: "caps",
+                workspace: "/work/one",
+                updated_at: "2026-08-09T10:00:00.000Z",
+                hits: [{
+                    kind: "agent_message",
+                    snippet: "the Fallback ladder degrades in place",
+                    entry_id: "entry-1",
+                }],
+            }],
+        },
+    );
+    const line = searchOverlayLines(state, { width: 78, now: NOW })
+        .find((candidate) => candidate.text.includes("Fallback"));
+
+    expect(line).toBeDefined();
+    if (line === undefined) throw new Error("no hit line");
+    expect(line.text.slice(
+        line.emphasis!.start,
+        line.emphasis!.start + line.emphasis!.length,
+    )).toBe("Fallback");
+});
