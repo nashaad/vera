@@ -51,9 +51,7 @@ export function updateTuiToolHeader(
     parts.header.content = renderTuiEntry({
         ...entry,
         hint: false,
-        ...(entry.inlineDetailPreview === true
-            ? {}
-            : { detailPreview: undefined }),
+        detailPreview: undefined,
     });
     parts.hint.content = entry.hint === true
         ? new StyledText([
@@ -62,7 +60,6 @@ export function updateTuiToolHeader(
         : "";
     for (const row of parts.preview) row.destroyRecursively();
     parts.preview.length = 0;
-    if (entry.inlineDetailPreview === true) return;
     for (const line of entry.detailPreview?.split("\n") ?? []) {
         const row = createCompactPreviewRow(node, line);
         parts.preview.push(row);

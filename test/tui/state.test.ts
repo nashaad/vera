@@ -129,6 +129,12 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     );
     expect(liveResult?.text).toBe("Answered: Preview (notes: ship after lunch)");
     expect(liveResult?.text).not.toContain("choice_id");
+    const liveHeader = live.entries.find((entry) =>
+        entry.kind === "tool_header"
+    );
+    expect(plainText(renderTuiEntry(liveHeader!))).toContain(
+        "\n  └ Answered: Preview (notes: ship after lunch)",
+    );
 
     const replayed = applyAgentUpdate(createTuiState(), {
         type: "history",
@@ -1420,7 +1426,7 @@ test("a folded multi-file preview distinguishes matching filenames", () => {
     });
 });
 
-test("a short completed tool group uses the same compact header", () => {
+test("a short completed tool result stays under its header", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
         tool: "edit",
@@ -1440,11 +1446,13 @@ test("a short completed tool group uses the same compact header", () => {
         command: "Edit /workspace/note.txt",
         detailLines: 2,
         detailPreview: "  └ ok",
-        inlineDetailPreview: true,
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("  Edited  Edit /workspace/note.txt  └ ok  ctrl+t details");
+        .toBe([
+            "  Edited  Edit /workspace/note.txt  ctrl+t details",
+            "  └ ok",
+        ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
