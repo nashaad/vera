@@ -66,7 +66,10 @@ export async function runWorktreeTui(
             env: {
                 ...process.env,
                 VERA_RUNTIME_DIR: runtimeDirectory,
-                [VERA_WORKTREE_RUNTIME_ENV]: "1",
+                // Carry the runtime identity, not a boolean. Child tools
+                // inherit this environment; if one overrides its runtime,
+                // doctor must not mistake that nested host for this launcher.
+                [VERA_WORKTREE_RUNTIME_ENV]: runtimeDirectory,
             },
             stdin: "inherit",
             stdout: "inherit",

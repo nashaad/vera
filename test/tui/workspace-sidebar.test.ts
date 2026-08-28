@@ -29,6 +29,7 @@ import {
     WORKSPACE_HEADER_ALL_ACTION,
     WORKSPACE_HEADER_NEW_ACTION,
     WORKSPACE_JUMPS_ENABLED,
+    WORKSPACE_SELECTION_MARKER,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -977,6 +978,24 @@ describe("the drawn card", () => {
         expect(lines[old]?.startsWith("· ")).toBe(true);
         expect(lines[old]?.endsWith("1h ago")).toBe(true);
         expect(lines[old + 1]).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
+    });
+
+    test("selection stays text-readable without a left gutter", () => {
+        const text = workspaceSidebarText(
+            open([
+                session("selected", { title: "selected row" }),
+                session("other", { title: "other row" }),
+            ], [], "selected"),
+            COLUMNS,
+            NOW,
+        );
+        const selected = text.split("\n").find((line) =>
+            line.includes("selected row")
+        );
+        const other = text.split("\n").find((line) => line.includes("other row"));
+        expect(selected).toContain(`· selected row ${WORKSPACE_SELECTION_MARKER}`);
+        expect(other).toContain("· other row");
+        expect(other).not.toContain(WORKSPACE_SELECTION_MARKER);
     });
 
     test("a session with no title reads untitled, never its id", () => {

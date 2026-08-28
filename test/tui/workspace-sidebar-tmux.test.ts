@@ -279,6 +279,30 @@ test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", as
         .toBeGreaterThanOrEqual(rail);
 }, 60_000);
 
+test.skipIf(!tmuxAvailable)("rail controls stay inert during a session question", async () => {
+    const pane = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const question = await tui.paneWhere((value) =>
+            value.includes("What should this session work on next?")
+            && value.includes("≡  +")
+        );
+        const row = question.split("\n").findIndex((line) => line.includes("≡  +"));
+        tui.click(column(question, "≡") + 1, row + 1);
+        await Bun.sleep(150);
+        expect(tui.pane()).toContain("What should this session work on next?");
+        return await tui.paneWhere((value) =>
+            !value.includes("What should this session work on next?")
+            && value.includes("Message Vera…")
+        );
+    }, 120, 40, {
+        VERA_TEST_QUESTION_AFTER_MS: "800",
+        VERA_TEST_QUESTION_CLOSE_AFTER_MS: "600",
+    });
+
+    expect(pane).not.toContain("Resume session");
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has the keys", async () => {
     const { focused, quiet, litPane, quietPane } = await withTui(async (tui) => {
         await tui.settled();
@@ -301,10 +325,10 @@ test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has 
         return { focused, quiet, litPane, quietPane };
     }, 120, 40);
 
-    // Selection is a full-row treatment rather than a second text marker. The
-    // session's own state glyph remains present in both focus states.
-    expect(rowOf(litPane, "this one")).toContain("✓ this one");
-    expect(rowOf(quietPane, "this one")).toContain("✓ this one");
+    // Status and selection both survive a plain-text capture without adding a
+    // blank left gutter to every other row.
+    expect(rowOf(litPane, "this one")).toContain("✓ this one ›");
+    expect(rowOf(quietPane, "this one")).toContain("✓ this one ›");
     // Focused, the selected row carries a ground the rows around it do not.
     const lit = rowRuns(focused, "this one");
     const neighbour = rowRuns(focused, "auth-race");

@@ -412,11 +412,21 @@ test("doctor preserves a launcher-owned worktree runtime", async () => {
 
 test("process environment identifies a deliberate worktree runtime", () => {
     expect(veraRuntimeFromPsLine(
-        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol VERA_WORKTREE_RUNTIME=1",
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol VERA_WORKTREE_RUNTIME=/tmp/aspol",
     )).toEqual({
         isolated: true,
         runtimeDir: "/tmp/aspol",
         worktreeRuntime: true,
+    });
+});
+
+test("an inherited worktree marker does not own a nested runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/nested VERA_WORKTREE_RUNTIME=/tmp/aspol",
+    )).toEqual({
+        isolated: true,
+        runtimeDir: "/tmp/nested",
+        worktreeRuntime: false,
     });
 });
 

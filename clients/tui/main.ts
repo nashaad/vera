@@ -3965,12 +3965,17 @@ export async function startTui(
     // can reach.
     workspaceSidebarView.pointer = {
         hover: (rowId) => {
+            if (focusedUiRequest() !== undefined) return;
             if (workspaceSidebar === undefined) return;
             if (workspaceSidebar.selectedId === rowId) return;
             workspaceSidebar = { ...workspaceSidebar, selectedId: rowId };
             renderState();
         },
         activate: (rowId) => {
+            // A question or approval owns this session pane. The rail stays
+            // visible for context, but its dimmed controls must not queue a
+            // hidden picker or start a session transition behind the request.
+            if (focusedUiRequest() !== undefined) return;
             if (workspaceSidebar === undefined) return;
             const headerAction = workspaceHeaderAction(rowId);
             if (headerAction !== undefined) {

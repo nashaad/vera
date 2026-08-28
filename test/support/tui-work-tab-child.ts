@@ -369,6 +369,15 @@ if (process.env.VERA_TEST_QUESTION_AFTER_MS !== undefined) {
             },
             seq: 10_000,
         });
+        if (process.env.VERA_TEST_QUESTION_CLOSE_AFTER_MS !== undefined) {
+            setTimeout(() => {
+                channel.engine.send({
+                    type: "ui_request_closed",
+                    requestId: "workspace-question",
+                    seq: 10_001,
+                });
+            }, Number(process.env.VERA_TEST_QUESTION_CLOSE_AFTER_MS));
+        }
     }, Number(process.env.VERA_TEST_QUESTION_AFTER_MS));
 }
 const client: TuiAgentClient = {

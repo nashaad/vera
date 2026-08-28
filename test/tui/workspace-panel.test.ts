@@ -164,7 +164,7 @@ describe("status markers", () => {
         waiting: WORKSPACE_WAITING_MARKER,
         working: tuiBrailleSpinner(0),
         completed: WORKSPACE_RECENT_MARKER,
-        failed: WORKSPACE_WAITING_MARKER,
+        failed: WORKSPACE_RECENT_MARKER,
         closed: WORKSPACE_RECENT_MARKER,
         idle: WORKSPACE_RECENT_MARKER,
     };
@@ -252,6 +252,31 @@ describe("status markers", () => {
             animationFrame: 1,
         });
         expect(sessionRows(spinning)[0]?.marker).toBe(tuiBrailleSpinner(1));
+    });
+
+    test("only an actionable failed session needs the user", () => {
+        const actionable = layout([
+            session({ id: "live", status: "failed", live: true }),
+        ]);
+        expect(sessionRows(actionable)[0]).toMatchObject({
+            group: NEEDS_YOU_GROUP,
+            marker: WORKSPACE_WAITING_MARKER,
+        });
+
+        const parked = layout([
+            session({ id: "parked", status: "failed", live: false }),
+            session({
+                id: "background",
+                kind: "background",
+                status: "failed",
+                live: true,
+            }),
+        ]);
+        expect(sessionRows(parked).map((row) => [row.id, row.group, row.marker]))
+            .toEqual([
+                ["background", RECENT_GROUP, WORKSPACE_RECENT_MARKER],
+                ["parked", RECENT_GROUP, WORKSPACE_RECENT_MARKER],
+            ]);
     });
 });
 
@@ -523,7 +548,7 @@ describe("monochrome render", () => {
         expect(byStatus.get("working")).toBe(tuiBrailleSpinner(0));
         expect(byStatus.get("completed")).toBe(WORKSPACE_COMPLETED_MARKER);
         expect(byStatus.get("idle")).toBe(WORKSPACE_IDLE_MARKER);
-        expect(byStatus.get("failed")).toBe(WORKSPACE_WAITING_MARKER);
+        expect(byStatus.get("failed")).toBe(WORKSPACE_RECENT_MARKER);
         expect(byStatus.get("closed")).toBe(WORKSPACE_RECENT_MARKER);
         const marked = ["waiting", "working", "completed"].map(
             (status) => byStatus.get(status as WorkspaceSessionStatus),

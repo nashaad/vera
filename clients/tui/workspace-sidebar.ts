@@ -34,6 +34,8 @@ export const WORKSPACE_JUMP_ROWS = 9;
  * rather than requiring the user to focus the sidebar first.
  */
 export const WORKSPACE_JUMPS_ENABLED = false;
+/** Text-readable cursor/current mark, appended so row titles stay flush-left. */
+export const WORKSPACE_SELECTION_MARKER = "›";
 
 /**
  * Idle jsonl rows kept in the rail, newest first.
@@ -681,8 +683,11 @@ export function workspaceSidebarViewState(
             ? [row.detail, digit.trim()].filter((value) => value.length > 0)
                 .join(" · ")
             : row.detail;
+        const selectedText = row.selected
+            ? `${row.text} ${WORKSPACE_SELECTION_MARKER}`
+            : row.text;
         lines.push({
-            text: rightAlignedRow(row.text, trailing, rowColumns),
+            text: rightAlignedRow(selectedText, trailing, rowColumns),
             tone: rowTone,
             rowId: row.id,
             ...(row.marker === WORKSPACE_COMPLETED_MARKER
@@ -693,9 +698,9 @@ export function workspaceSidebarViewState(
                     },
                 }
                 : {}),
-            // The highlight bar stays on the cursor row even while chat has
-            // focus, so the on-screen conversation still reads without wrapping
-            // its title in brackets.
+            // The background helps while the rail owns the keyboard. The
+            // suffix above remains in plain-text captures and while chat has
+            // focus, without adding the empty left gutter this layout removed.
             ...(row.selected ? { selected: true } : {}),
         });
         if (row.group === RECENT_GROUP && row === lastRow) {

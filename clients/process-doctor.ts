@@ -519,10 +519,15 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
     const runtimeDir = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
     const isolated = runtimeDir !== undefined || home !== undefined;
-    const worktreeRuntime = firstEnvValue(
+    const worktreeRuntimeDirectory = firstEnvValue(
         commandAndEnv,
         VERA_WORKTREE_RUNTIME_ENV,
-    ) === "1";
+    );
+    // The launcher marker is inherited by workers and their tools. It owns
+    // only the runtime it names: a nested Vera that overrides
+    // VERA_RUNTIME_DIR must remain eligible for cleanup.
+    const worktreeRuntime = runtimeDir !== undefined
+        && worktreeRuntimeDirectory === runtimeDir;
     return {
         isolated,
         worktreeRuntime,

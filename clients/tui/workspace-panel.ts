@@ -104,7 +104,7 @@ export function workspaceStatusMarker(
     updatedAt?: string,
     now?: Date,
 ): WorkspaceRowMarker {
-    if (status === "waiting" || status === "failed") {
+    if (status === "waiting" || (status === "failed" && live)) {
         return WORKSPACE_WAITING_MARKER;
     }
     if (status === "working") return tuiBrailleSpinner(frame);
@@ -311,6 +311,16 @@ function defaultActive(session: WorkspaceSession): boolean {
         || namedWorker(session);
 }
 
+/** A failed row needs the user only where the failure can still be acted on. */
+function actionableFailure(
+    session: WorkspaceSession,
+    isActive: (session: WorkspaceSession) => boolean,
+): boolean {
+    return session.status === "failed"
+        && session.kind === "interactive"
+        && isActive(session);
+}
+
 /**
  * Sessions split by attention state, never by workspace. Each group is most
  * recent first. The dormant pin branch stays here so restoring pins does not
@@ -331,7 +341,11 @@ function groupSessions(
     for (const session of sessions) {
         const group = WORKSPACE_PINS_ENABLED && pinned.has(session.id)
             ? PINNED_GROUP
-            : session.status === "waiting" || session.status === "failed"
+            : session.status === "failed"
+            ? actionableFailure(session, isActive)
+                ? NEEDS_YOU_GROUP
+                : RECENT_GROUP
+            : session.status === "waiting"
             ? NEEDS_YOU_GROUP
             : session.status === "working"
             ? WORKING_GROUP
@@ -432,7 +446,7 @@ function sessionRow(
     const marker = workspaceStatusMarker(
         session.status,
         context.animationFrame,
-        active,
+        session.status === "failed" ? group === NEEDS_YOU_GROUP : active,
         session.updatedAt,
         context.now,
     );
