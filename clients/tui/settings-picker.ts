@@ -3747,15 +3747,17 @@ function renderListPickerRows(
         nodes.push(node);
     });
     if (listAction !== undefined) {
-        const gap = new TextRenderable(renderer, {
-            content: "",
-            width: "100%",
+        const divider = new TextRenderable(renderer, {
+            content: new StyledText([
+                fg(TUI_ELEMENT)("─".repeat(rowWidth)),
+            ]),
+            width: rowWidth,
             height: 1,
         });
-        listColumn.add(gap);
-        nodes.push(gap);
+        listColumn.add(divider);
+        nodes.push(divider);
         const action = new TextRenderable(renderer, {
-            content: new StyledText(modelActionLineChunks(
+            content: new StyledText(modelListActionLineChunks(
                 listAction,
                 rowWidth,
                 state.kind === "model" && state.modelFocus === "list_action",
@@ -4585,6 +4587,27 @@ function modelActionLineChunks(
         fg(TUI_TEXT)(label),
         fg(TUI_PANEL)(" "),
         fg(TUI_ACCENT)(action.chord),
+    ];
+}
+
+/** Collection actions sit on their own quiet band below the model list. */
+function modelListActionLineChunks(
+    action: ModelListAction,
+    width: number,
+    active: boolean,
+): TextChunk[] {
+    const prefix = active ? "› " : "  ";
+    const chordWidth = Bun.stringWidth(action.chord);
+    const labelWidth = Math.max(0, width - 3 - chordWidth);
+    const label = labelWidth === 0
+        ? ""
+        : clippedTo(action.label, labelWidth).padEnd(labelWidth);
+    const background = active ? TUI_ELEMENT : TUI_INPUT;
+    return [
+        fg(active ? TUI_ACCENT : TUI_MUTED)(bg(background)(prefix)),
+        fg(TUI_TEXT)(bg(background)(label)),
+        fg(TUI_TEXT)(bg(background)(" ")),
+        fg(TUI_ACCENT)(bg(background)(action.chord)),
     ];
 }
 

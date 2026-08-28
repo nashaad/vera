@@ -1586,6 +1586,10 @@ test("the current shortlist model exposes an inspector and list action", async (
     )).toBe(false);
     const frame = await pickerFrame(shortlist);
     expect(frame).toMatch(/Verify all \(2\)\s+\^v/);
+    const verifyLine = frame.split("\n").findIndex((line) =>
+        line.includes("Verify all (2)")
+    );
+    expect(frame.split("\n")[verifyLine - 1]).toContain("────");
     expect(frame).toContain("Actions");
     expect(frame).toMatch(/Verify this model\s+\^⇧f/);
     expect(frame).toMatch(/Remove from shortlist\s+\^s/);
@@ -1648,7 +1652,12 @@ test("the shortlist footer is reachable by arrows and every clickable row", asyn
     };
     const footer = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
     expect(footer.modelFocus).toBe("list_action");
-    expect(await pickerFrame(footer)).toMatch(/› Verify all \(2\)\s+\^v/);
+    const focusedFrame = await pickerFrame(footer);
+    expect(focusedFrame).toMatch(/› Verify all \(2\)\s+\^v/);
+    const focusedLine = focusedFrame.split("\n").findIndex((line) =>
+        line.includes("› Verify all (2)")
+    );
+    expect(focusedFrame.split("\n")[focusedLine - 1]).toContain("────");
     expect(handleTuiSettingsPickerKey(footer, { name: "enter" }).poolVerifySweep)
         .toBe(true);
     expect(handleTuiSettingsPickerKey(footer, { name: "up" }).state?.modelFocus)
