@@ -4,6 +4,7 @@ import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
     WORKSPACE_COMPLETED_MARKER,
+    WORKSPACE_IDLE_MARKER,
     WORKSPACE_COMPLETED_WINDOW_MS,
     WORKSPACE_QUIET_MARKER,
     WORKSPACE_SELECTED_MARKER,
@@ -154,9 +155,9 @@ describe("status markers", () => {
         waiting: WORKSPACE_WAITING_MARKER,
         working: tuiBrailleSpinner(0),
         completed: WORKSPACE_QUIET_MARKER,
-        failed: WORKSPACE_QUIET_MARKER,
+        failed: WORKSPACE_WAITING_MARKER,
         closed: WORKSPACE_QUIET_MARKER,
-        idle: WORKSPACE_QUIET_MARKER,
+        idle: WORKSPACE_IDLE_MARKER,
     };
 
     for (const [status, marker] of Object.entries(expected)) {
@@ -190,9 +191,9 @@ describe("status markers", () => {
             .toBe(WORKSPACE_COMPLETED_MARKER);
     });
 
-    test("a live finished turn older than ten minutes is blank", () => {
+    test("a live finished turn older than ten minutes returns to idle", () => {
         expect(workspaceStatusMarker("idle", 0, true, ELEVEN_MINUTES_AGO, NOW))
-            .toBe(WORKSPACE_QUIET_MARKER);
+            .toBe(WORKSPACE_IDLE_MARKER);
         const result = layout([
             session({
                 id: "a",
@@ -202,7 +203,7 @@ describe("status markers", () => {
                 updatedAt: ELEVEN_MINUTES_AGO,
             }),
         ]);
-        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
         expect(sessionRows(result)[0]?.text).not.toContain("●");
     });
 
@@ -222,11 +223,11 @@ describe("status markers", () => {
 
     test("an idle file view is not a completed mark", () => {
         expect(workspaceStatusMarker("idle", 0, false))
-            .toBe(WORKSPACE_QUIET_MARKER);
+            .toBe(WORKSPACE_IDLE_MARKER);
         const result = layout([
             session({ id: "a", status: "idle", live: false, title: "old chat" }),
         ]);
-        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
         expect(sessionRows(result)[0]?.text).not.toContain("●");
     });
 
@@ -508,8 +509,8 @@ describe("monochrome render", () => {
         expect(byStatus.get("waiting")).toBe(WORKSPACE_WAITING_MARKER);
         expect(byStatus.get("working")).toBe(tuiBrailleSpinner(0));
         expect(byStatus.get("completed")).toBe(WORKSPACE_COMPLETED_MARKER);
-        expect(byStatus.get("idle")).toBe(WORKSPACE_QUIET_MARKER);
-        expect(byStatus.get("failed")).toBe(WORKSPACE_QUIET_MARKER);
+        expect(byStatus.get("idle")).toBe(WORKSPACE_IDLE_MARKER);
+        expect(byStatus.get("failed")).toBe(WORKSPACE_WAITING_MARKER);
         expect(byStatus.get("closed")).toBe(WORKSPACE_QUIET_MARKER);
         const marked = ["waiting", "working", "completed"].map(
             (status) => byStatus.get(status as WorkspaceSessionStatus),

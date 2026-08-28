@@ -53,3 +53,40 @@ test("a rail draws its selection bar only while it holds the keyboard", async ()
         renderer.destroy();
     }
 });
+
+test("rail header actions are visible text and activate by id", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 34 });
+    const { renderer } = setup;
+    try {
+        const activated: string[] = [];
+        const view = createTuiLinesView(renderer, "rail-actions", {
+            railDivider: true,
+            railPadding: 2,
+        });
+        view.pointer = { activate: (id) => activated.push(id) };
+        view.setRail(28);
+        view.update({
+            ...STATE,
+            headerActions: [
+                { id: "all", text: "≡" },
+                { id: "new", text: "+" },
+            ],
+        });
+        renderer.root.add(view.surface);
+        view.surface.visible = true;
+        await setup.flush();
+
+        const frame = setup.captureCharFrame();
+        expect(frame).toContain("[ VERA ]");
+        expect(frame).toContain("≡");
+        expect(frame).toContain("+");
+
+        const line = frame.split("\n").findIndex((row) => row.includes("≡"));
+        const column = frame.split("\n")[line]!.indexOf("≡");
+        await setup.mockMouse.click(column, line);
+        await setup.flush();
+        expect(activated).toEqual(["all"]);
+    } finally {
+        renderer.destroy();
+    }
+});

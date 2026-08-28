@@ -59,10 +59,18 @@ export interface LinesViewFooterRow {
     readonly value: string;
 }
 
+/** A compact text control drawn at the right edge of a rail header. */
+export interface LinesViewHeaderAction {
+    readonly id: string;
+    readonly text: string;
+}
+
 export interface LinesViewState {
     readonly title: string;
     /** Follows the title on the right of the header; "esc" when omitted. */
     readonly hint?: string;
+    /** Clickable rail controls. Text remains meaningful without colour. */
+    readonly headerActions?: readonly LinesViewHeaderAction[];
     readonly lines: readonly LinesViewLine[];
     /**
      * Which line the cursor is on, so a list too long for the card scrolls
@@ -342,6 +350,8 @@ export function createTuiLinesView(
                     state.title,
                     hint,
                     state.dimmed === true,
+                    state.headerActions,
+                    view.pointer,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
             // A dock uses the row below its title for a rule: the wordmark
@@ -522,6 +532,8 @@ function groundHeaderNode(
     title: string,
     hint: string,
     dimmed = false,
+    actions: readonly LinesViewHeaderAction[] = [],
+    pointer?: LinesViewPointer,
 ): BoxRenderable {
     const header = new BoxRenderable(renderer, {
         width: "100%",
@@ -534,7 +546,31 @@ function groundHeaderNode(
         fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
     }));
-    if (hint.length > 0) {
+    if (actions.length > 0) {
+        const controls = new BoxRenderable(renderer, {
+            height: 1,
+            flexDirection: "row",
+        });
+        for (const [index, action] of actions.entries()) {
+            const control = new BoxRenderable(renderer, {
+                width: action.text.length,
+                height: 1,
+                ...(index === 0 ? {} : { marginLeft: 2 }),
+            });
+            attachRowPointer(control, {
+                onSelect: () => pointer?.activate?.(action.id),
+            });
+            control.add(new TextRenderable(renderer, {
+                content: action.text,
+                fg: dimmed ? TUI_MUTED : TUI_TEXT,
+                attributes: TextAttributes.BOLD,
+                width: action.text.length,
+                height: 1,
+            }));
+            controls.add(control);
+        }
+        header.add(controls);
+    } else if (hint.length > 0) {
         header.add(new TextRenderable(renderer, {
             content: hint,
             fg: TUI_MUTED,

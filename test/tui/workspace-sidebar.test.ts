@@ -21,10 +21,13 @@ import {
     workspaceSidebarViewState,
     workspaceWorkingSet,
     workspaceCycleTarget,
+    workspaceHeaderAction,
     MIN_RAIL_COLUMNS,
     WORKSPACE_RECENT_IDLE,
     WORKSPACE_ALL_SESSIONS_NUDGE,
     WORKSPACE_EMPTY_LINES,
+    WORKSPACE_HEADER_ALL_ACTION,
+    WORKSPACE_HEADER_NEW_ACTION,
     type WorkspaceSidebarSession,
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
@@ -528,6 +531,10 @@ describe("the rail", () => {
         expect(focused.lines.filter((line) => line.text.includes("working · ")))
             .toHaveLength(2);
         expect(focused.hint).toBe("");
+        expect(focused.headerActions).toEqual([
+            { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
+            { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },
+        ]);
     });
 });
 
@@ -666,6 +673,22 @@ describe("clicking a row", () => {
     test("a row id that is not listed activates nothing", () => {
         expect(openWorkspaceSelection(open([session("a")]), "gone"))
             .toBeUndefined();
+    });
+});
+
+describe("clicking the branded header", () => {
+    test("the list control opens all conversations", () => {
+        expect(workspaceHeaderAction(WORKSPACE_HEADER_ALL_ACTION))
+            .toEqual({ kind: "resume_picker" });
+    });
+
+    test("the plus control starts a new conversation", () => {
+        expect(workspaceHeaderAction(WORKSPACE_HEADER_NEW_ACTION))
+            .toEqual({ kind: "new_session" });
+    });
+
+    test("a session id is not a header action", () => {
+        expect(workspaceHeaderAction("session-a")).toBeUndefined();
     });
 });
 
@@ -864,7 +887,7 @@ describe("the drawn card", () => {
         expect(text).toContain("❯");
     });
 
-    test("a live finished turn older than ten minutes is blank", () => {
+    test("a live finished turn older than ten minutes returns to idle", () => {
         const text = workspaceSidebarText(
             open(
                 [session("a", {

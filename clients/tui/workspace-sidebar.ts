@@ -36,6 +36,19 @@ export const WORKSPACE_RECENT_IDLE = 5;
 /** The row under the last recent session that points at the full picker. */
 export const WORKSPACE_ALL_SESSIONS_NUDGE = "ctrl+r · all sessions";
 
+/** Text-safe controls at the right edge of the branded rail header. */
+export const WORKSPACE_HEADER_ALL_ACTION = "workspace:all-sessions";
+export const WORKSPACE_HEADER_NEW_ACTION = "workspace:new-session";
+
+/** Resolves a header hit without letting its synthetic id become a row id. */
+export function workspaceHeaderAction(
+    id: string,
+): WorkspaceSidebarAction | undefined {
+    if (id === WORKSPACE_HEADER_ALL_ACTION) return { kind: "resume_picker" };
+    if (id === WORKSPACE_HEADER_NEW_ACTION) return { kind: "new_session" };
+    return undefined;
+}
+
 /** What the rail says when there is nothing to list. */
 export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "No sessions yet.",
@@ -685,6 +698,10 @@ export function workspaceSidebarViewState(
         // whichever side holds the keyboard. Focus is drawn on the rule under
         // it and on the edge beside it, where it does not move the title.
         title: workspaceSidebarHeader(state),
+        headerActions: [
+            { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
+            { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },
+        ],
         ...(focused ? { focused: true } : {}),
         // The rail's footer already names esc. The chip on the title is
         // dialog chrome and crowds a 28-column column.

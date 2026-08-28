@@ -81,8 +81,8 @@ export function workspaceStatusWord(status: WorkspaceSessionStatus): string {
 
 /**
  * Column one, as text. Colour may ride on top of it and may never replace it:
- * waiting, working, and completed have to survive a monochrome render. Closed
- * and failed share a blank cell.
+ * waiting, working, completed, and idle have to survive a monochrome render.
+ * Closed and completed files share a blank cell.
  */
 export type WorkspaceRowMarker = string;
 
@@ -105,11 +105,12 @@ export interface WorkspaceSession extends VeraClientSession {
  * turn landed in the last ten minutes is a filled circle, whether the roster
  * says completed or idle, so looking at it does not blank the mark. A file
  * view is never that circle, even when the work index still calls it
- * completed. Older live idle, closed, and failed leave the cell blank so the
- * title column does not shift.
+ * completed. Older live idle returns to the idle dot. Closed and completed
+ * files leave the cell blank so the title column does not shift.
  */
 export const WORKSPACE_WAITING_MARKER = "!";
 export const WORKSPACE_COMPLETED_MARKER = "●";
+export const WORKSPACE_IDLE_MARKER = "·";
 export const WORKSPACE_QUIET_MARKER = " ";
 export const WORKSPACE_SELECTED_MARKER = "❯";
 export const WORKSPACE_COMPLETED_WINDOW_MS = 10 * 60 * 1_000;
@@ -121,7 +122,9 @@ export function workspaceStatusMarker(
     updatedAt?: string,
     now?: Date,
 ): WorkspaceRowMarker {
-    if (status === "waiting") return WORKSPACE_WAITING_MARKER;
+    if (status === "waiting" || status === "failed") {
+        return WORKSPACE_WAITING_MARKER;
+    }
     if (status === "working") return tuiBrailleSpinner(frame);
     if (
         live
@@ -130,6 +133,7 @@ export function workspaceStatusMarker(
     ) {
         return WORKSPACE_COMPLETED_MARKER;
     }
+    if (status === "idle") return WORKSPACE_IDLE_MARKER;
     return WORKSPACE_QUIET_MARKER;
 }
 

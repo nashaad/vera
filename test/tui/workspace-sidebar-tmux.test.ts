@@ -66,6 +66,24 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     expect(rows.length - footerBottom).toBeLessThanOrEqual(3);
 }, 60_000);
 
+test.skipIf(!tmuxAvailable)("the header list control opens all conversations", async () => {
+    const picker = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        const rail = await tui.paneWhere((value) =>
+            value.includes("[ VERA ] ·") && value.includes("≡  +")
+        );
+        const row = rail.split("\n").findIndex((line) => line.includes("≡  +"));
+        tui.click(column(rail, "≡") + 1, row + 1);
+        return await tui.paneWhere((value) =>
+            value.includes("Resume") && value.includes("⏎ stop & switch")
+        );
+    });
+
+    expect(picker).toContain("auth-race");
+    expect(picker).not.toContain("[ VERA ] ·");
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
@@ -680,7 +698,7 @@ function rowRuns(colored: string, marker: string): string[] {
     const line = colored.split("\n").find((row) => row.includes(marker));
     if (line === undefined) return [];
     return [...new Set(
-        [...line.matchAll(/\x1b\[48;2;(\d+;\d+;\d+)m/g)]
+        [...line.matchAll(/\x1b\[48;(2;\d+;\d+;\d+|5;\d+)m/g)]
             .map((run) => run[1] ?? ""),
     )];
 }
@@ -694,10 +712,10 @@ function rowRuns(colored: string, marker: string): string[] {
 function rowGrounds(colored: string): string[] {
     let ground = "default";
     return colored.split("\n").map((line) => {
-        const lead = /^(?:\x1b\[[\d;]*m)*?\x1b\[48;2;(\d+;\d+;\d+)m/
+        const lead = /^(?:\x1b\[[\d;]*m)*?\x1b\[48;(2;\d+;\d+;\d+|5;\d+)m/
             .exec(line);
         if (lead?.[1] !== undefined) ground = lead[1];
-        const runs = line.matchAll(/\x1b\[48;2;(\d+;\d+;\d+)m/g);
+        const runs = line.matchAll(/\x1b\[48;(2;\d+;\d+;\d+|5;\d+)m/g);
         const started = ground;
         for (const run of runs) ground = run[1] ?? ground;
         return started;

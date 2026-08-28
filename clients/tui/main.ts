@@ -371,6 +371,7 @@ import {
     refreshWorkspaceSidebarSessions,
     startWorkspaceSidebar,
     workspaceCycleTarget,
+    workspaceHeaderAction,
     workspaceRailColumns,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
@@ -3964,6 +3965,11 @@ export async function startTui(
         },
         activate: (rowId) => {
             if (workspaceSidebar === undefined) return;
+            const headerAction = workspaceHeaderAction(rowId);
+            if (headerAction !== undefined) {
+                runWorkspaceSidebarAction(headerAction);
+                return;
+            }
             const open = { ...workspaceSidebar, selectedId: rowId };
             workspaceSidebar = open;
             const action = openWorkspaceSelection(open, rowId);
