@@ -164,15 +164,19 @@ test("shortlist verification runs in a console inside the model dialog", async (
         expect(finished).toContain("Verifying openrouter/one/model");
 
         session.sendKey("Escape");
-        await session.waitForVisiblePane("^v Verify this model");
+        await session.waitForVisiblePane("^v Verify shortlist");
         session.sendKey("C-v");
-        await session.waitForVisiblePane("❯ verify openrouter/one/model");
-        await session.waitForVisiblePaneWhere(
-            (pane) =>
-                pane.includes("^v Verify this model")
-                && !pane.includes("❯ verify openrouter/one/model"),
-            "repeat verification from the visible Shortlist action to finish",
+        const verifyScope = await session.waitForVisiblePane(
+            "Verify shortlisted models",
         );
+        expect(verifyScope).toContain("Everything on your shortlist");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("^f Refresh model lists…");
+        session.sendKey("C-f");
+        const refreshScope = await session.waitForVisiblePane(
+            "Refresh model lists",
+        );
+        expect(refreshScope).toContain("openrouter");
     } finally {
         await session.close();
     }

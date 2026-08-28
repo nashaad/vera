@@ -12671,7 +12671,11 @@ export async function startTui(
             "refreshCatalog" in transition
             && transition.refreshCatalog !== undefined
         ) {
-            requestCatalogRefresh(transition.refreshCatalog);
+            if (previousPicker?.kind === "model") {
+                openCatalogRefreshScopePicker();
+            } else {
+                requestCatalogRefresh(transition.refreshCatalog);
+            }
             return;
         }
         if (

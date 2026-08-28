@@ -1763,14 +1763,14 @@ export function startTuiPoolVerifyScopePicker(
         },
         {
             value: POOL_VERIFY_ALL_VALUE,
-            label: `Everything you keep (${total})`,
+            label: `Everything on your shortlist (${total})`,
             description: "re-probes models that already answered",
         },
     ];
     return {
         kind: "pool_verify_scope",
-        title: "Probe the models you keep",
-        subtitle: "each one is a live call to its provider",
+        title: "Verify shortlisted models",
+        subtitle: "each model is one live call to its provider",
         allOptions: options,
         options,
         selectedIndex: unverified === 0 ? 1 : 0,
@@ -3204,10 +3204,10 @@ function modelDetailNode(
             ]);
         }
         line();
-        if (modelOptionCanVerify(state, option)) {
+        for (const [chord, label] of modelDetailActions(state, option)) {
             line([
-                fg(TUI_ACCENT)("^v "),
-                fg(TUI_TEXT)("Verify this model"),
+                fg(TUI_ACCENT)(`${chord} `),
+                fg(TUI_TEXT)(label),
             ]);
         }
     }
@@ -3290,7 +3290,7 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     [""],
     ["Keys"],
     ["⏎", "run this model. On All models it does not add it."],
-    ["^v", "verify the highlighted model."],
+    ["Checks", "^⇧f one · ^v shortlist · ^f refresh lists."],
     ["^s", "add the highlighted model to the shortlist, or remove it."],
     ["^n", "give a shortlisted model a short name of your own."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
@@ -3316,7 +3316,7 @@ function modelDetailHeight(
     const facts = described
         ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts + (modelOptionCanVerify(state, option) ? 1 : 0);
+    return facts + modelDetailActions(state, option).length;
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
@@ -4105,6 +4105,9 @@ function pickerFooterText(
             ...(modelOptionCanVerify(state, selected)
                 ? [{ text: tuiKeyHint("verify_model"), drop: 2 }]
                 : []),
+            ...(state.tab === "pool"
+                ? [{ text: tuiKeyHint("verify_pool"), drop: 3 }]
+                : []),
             ...(selected?.refreshable === true
                 ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
                 : []),
@@ -4316,6 +4319,29 @@ function modelOptionCanVerify(
         && option.provider !== undefined
         && option.model !== undefined
         && option.value !== SESSION_MODEL_VALUE;
+}
+
+/** Page-level actions for the highlighted model, kept out of the model list. */
+function modelDetailActions(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption | undefined,
+): readonly (readonly [string, string])[] {
+    if (!modelOptionCanVerify(state, option)) return [];
+    return [
+        [tuiKeyHint("verify_model").split(" ")[0] ?? "", "Verify this model"],
+        ...(state.kind === "model" && state.tab === "pool"
+            ? [[
+                tuiKeyHint("verify_pool").split(" ")[0] ?? "",
+                "Verify shortlist",
+            ] as const]
+            : []),
+        ...(option?.refreshable === true
+            ? [[
+                tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
+                "Refresh model lists…",
+            ] as const]
+            : []),
+    ];
 }
 
 /**

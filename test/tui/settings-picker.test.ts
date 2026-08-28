@@ -1583,8 +1583,12 @@ test("the current shortlist model exposes verification outside the model list", 
     expect(shortlist.options.some((option) =>
         option.label === "Verify current model"
     )).toBe(false);
-    expect(await pickerFrame(shortlist)).toContain("^v Verify this model");
-    expect(pickerFooter(shortlist)).toContain("^v verify");
+    const frame = await pickerFrame(shortlist);
+    expect(frame).toContain("^⇧f Verify this model");
+    expect(frame).toContain("^v Verify shortlist");
+    expect(frame).toContain("^f Refresh model lists…");
+    expect(pickerFooter(shortlist)).toContain("^⇧f verify");
+    expect(pickerFooter(shortlist)).toContain("^v verify all");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).selection)
         .toEqual({
             kind: "model",
@@ -1592,11 +1596,7 @@ test("the current shortlist model exposes verification outside the model list", 
             model: "z-ai/glm-5.2",
         });
     expect(handleTuiSettingsPickerKey(shortlist, { name: "v", ctrl: true })
-        .poolVerify)
-        .toEqual({
-            provider: "openrouter",
-            model: "z-ai/glm-5.2",
-        });
+        .poolVerifySweep).toBe(true);
 });
 
 test("a main shortlist refresh keeps the side agent's current model", () => {
@@ -2046,8 +2046,6 @@ test("the verify key asks for a probe of the selected pool row", () => {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
     };
-    expect(handleTuiSettingsPickerKey(state, { name: "v", ctrl: true })
-        .poolVerify).toEqual(expected);
     expect(
         handleTuiSettingsPickerKey(state, { name: "f", ctrl: true, shift: true })
             .poolVerify,
@@ -3543,7 +3541,7 @@ test("the sweep scope pane offers the cheaper answer first", () => {
     const pane = startTuiPoolVerifyScopePicker(2, 9);
     expect(pane.options.map((option) => option.label)).toEqual([
         "Only the ones never probed (2)",
-        "Everything you keep (9)",
+        "Everything on your shortlist (9)",
     ]);
     // Nothing left unprobed makes the first row a no-op, so the cursor starts
     // on the one that would actually do something.
