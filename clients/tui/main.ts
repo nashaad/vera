@@ -456,6 +456,7 @@ import {
     switchedModelTab,
     syncTuiModelPicker,
     mergeTuiModelPickerSettings,
+    moveTuiSettingsPickerPointer,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     sessionPickerLists,
@@ -3898,7 +3899,7 @@ export async function startTui(
     });
     settingsPickerView.pointer = rowPointer((index) => {
         if (settingsPicker === undefined) return;
-        settingsPicker = { ...settingsPicker, selectedIndex: index };
+        settingsPicker = moveTuiSettingsPickerPointer(settingsPicker, index);
     });
     settingsPickerView.onTab = (tab) => {
         // The strip is on screen on the connect pane too, and a chip on it

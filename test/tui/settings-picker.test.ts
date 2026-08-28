@@ -26,6 +26,7 @@ import {
     createTuiSettingsPickerView,
     tuiProviderGroup,
     mergeTuiModelPickerSettings,
+    moveTuiSettingsPickerPointer,
     syncTuiModelPicker,
     pickerFooter,
     tuiPickerAfterSelection,
@@ -1573,7 +1574,7 @@ test("Shortlist offers the current model as a visible action row", async () => {
     )).toBe(false);
 });
 
-test("the current shortlist model exposes verification outside the model list", async () => {
+test("the current shortlist model exposes an inspector and list action", async () => {
     const shortlist = modelPickerWithPool(
         pooledModels,
         "z-ai/glm-5.2",
@@ -1584,11 +1585,14 @@ test("the current shortlist model exposes verification outside the model list", 
         option.label === "Verify current model"
     )).toBe(false);
     const frame = await pickerFrame(shortlist);
-    expect(frame).toContain("^⇧f Verify this model");
-    expect(frame).toContain("^v Verify shortlist");
-    expect(frame).toContain("^f Refresh model lists…");
+    expect(frame).toMatch(/Verify all \(2\)\s+\^v/);
+    expect(frame).toContain("Actions");
+    expect(frame).toMatch(/Verify this model\s+\^⇧f/);
+    expect(frame).toMatch(/Remove from shortlist\s+\^s/);
+    expect(frame).toMatch(/Name this model\s+\^n/);
+    expect(frame).not.toContain("Refresh model lists…");
     expect(pickerFooter(shortlist)).toContain("^⇧f verify");
-    expect(pickerFooter(shortlist)).toContain("^v verify all");
+    expect(pickerFooter(shortlist)).toContain("→ actions");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).selection)
         .toEqual({
             kind: "model",
@@ -1597,6 +1601,90 @@ test("the current shortlist model exposes verification outside the model list", 
         });
     expect(handleTuiSettingsPickerKey(shortlist, { name: "v", ctrl: true })
         .poolVerifySweep).toBe(true);
+});
+
+test("right and left move between a model row and its inspector", async () => {
+    const shortlist = modelPickerWithPool(
+        pooledModels,
+        "z-ai/glm-5.2",
+        "openrouter",
+    );
+    const detail = handleTuiSettingsPickerKey(shortlist, { name: "right" })
+        .state!;
+    expect(detail.modelFocus).toBe("detail");
+    expect(detail.modelActionIndex).toBe(0);
+    expect(await pickerFrame(detail)).toMatch(/│  › Verify this model/);
+    expect(handleTuiSettingsPickerKey(detail, { name: "enter" }).poolVerify)
+        .toEqual({ provider: "openrouter", model: "z-ai/glm-5.2" });
+
+    const remove = handleTuiSettingsPickerKey(detail, { name: "down" }).state!;
+    expect(await pickerFrame(remove)).toMatch(/│  › Remove from shortlist/);
+    expect(handleTuiSettingsPickerKey(remove, { name: "enter" }).poolToggle)
+        .toEqual({
+            action: "remove",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+
+    const named = handleTuiSettingsPickerKey(remove, { name: "down" }).state!;
+    expect(handleTuiSettingsPickerKey(named, { name: "enter" }).poolName)
+        .toEqual({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+            label: "GLM-5.2",
+        });
+    expect(handleTuiSettingsPickerKey(named, { name: "left" }).state?.modelFocus)
+        .toBe("list");
+
+    const nextTab = handleTuiSettingsPickerKey(detail, { name: "tab" }).state!;
+    expect(nextTab.tab).toBe("all");
+    expect(nextTab.modelFocus).toBe("list");
+});
+
+test("the shortlist footer is reachable by arrows and every clickable row", async () => {
+    const shortlist = {
+        ...modelPickerWithPool(),
+        selectedIndex: 1,
+    };
+    const footer = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
+    expect(footer.modelFocus).toBe("list_action");
+    expect(await pickerFrame(footer)).toMatch(/› Verify all \(2\)\s+\^v/);
+    expect(handleTuiSettingsPickerKey(footer, { name: "enter" }).poolVerifySweep)
+        .toBe(true);
+    expect(handleTuiSettingsPickerKey(footer, { name: "up" }).state?.modelFocus)
+        .toBe("list");
+
+    const footerClick = moveTuiSettingsPickerPointer(
+        shortlist,
+        shortlist.options.length,
+    ) as TuiSettingsPickerState;
+    expect(footerClick.modelFocus).toBe("list_action");
+    expect(handleTuiSettingsPickerKey(footerClick, { name: "enter" })
+        .poolVerifySweep).toBe(true);
+
+    const inspectorClick = moveTuiSettingsPickerPointer(
+        shortlist,
+        shortlist.options.length + 1,
+    ) as TuiSettingsPickerState;
+    expect(inspectorClick.modelFocus).toBe("detail");
+    expect(handleTuiSettingsPickerKey(inspectorClick, { name: "enter" })
+        .poolVerify).toEqual({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+
+    const modelClick = moveTuiSettingsPickerPointer(
+        shortlist,
+        0,
+    ) as TuiSettingsPickerState;
+    expect(modelClick.modelFocus).toBe("list");
+    expect(modelClick.selectedIndex).toBe(0);
+    expect(handleTuiSettingsPickerKey(modelClick, { name: "enter" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "openai-codex",
+            model: "gpt-5.6-sol",
+        });
 });
 
 test("a main shortlist refresh keeps the side agent's current model", () => {
@@ -2811,16 +2899,16 @@ test("a named pool row reads by its name and keeps the model id on the row", asy
         .toContain("gpt-5.6-sol");
 });
 
-test("the footer offers the name key on a pooled row and not on an unpooled one", () => {
+test("the inspector offers naming on a pooled row only", async () => {
     const pooled = modelPickerWithPool(
         pooledModels,
         "gpt-5.6-sol",
         "openai-codex",
     );
-    expect(pickerFooter(pooled)).toContain("name");
+    expect(await pickerFrame(pooled)).toMatch(/Name this model\s+\^n/);
 
     const unpooled = modelPickerWithPool([], "moonshotai/kimi-k3");
-    expect(pickerFooter(unpooled)).not.toContain("name");
+    expect(await pickerFrame(unpooled)).not.toContain("Name this model");
 });
 
 test("an old session stays on the relative clock instead of a calendar date", async () => {
@@ -3658,6 +3746,38 @@ test("an unsearched model list lists models only", () => {
     expect(all.options.some((option) =>
         option.label.startsWith("Refresh openrouter")
     )).toBe(false);
+});
+
+test("All models puts its collection action under the list", async () => {
+    const picker = startTuiSettingsPicker(
+        "model",
+        "z-ai/glm-5.2",
+        "high",
+        "auto",
+        [...availableModels, {
+            provider: "openrouter",
+            model: "old/model",
+            label: "Old model",
+            description: "rarely used",
+            hiddenByDefault: "old" as const,
+        }],
+        "default",
+        "openrouter",
+    );
+    const all = switchedModelTab(picker, "all");
+    expect(await pickerFrame(all)).toMatch(/Show every model\s+\^a/);
+
+    const footer = moveTuiSettingsPickerPointer(
+        all,
+        all.options.length,
+    ) as TuiSettingsPickerState;
+    const revealed = handleTuiSettingsPickerKey(footer, { name: "enter" })
+        .state!;
+    expect(revealed.revealAll).toBe(true);
+    expect(revealed.modelFocus).toBe("list_action");
+    expect(await pickerFrame(revealed)).toMatch(
+        /› Hide rarely used models\s+\^a/,
+    );
 });
 
 test("the show-or-hide row lands on the list it changed", () => {
