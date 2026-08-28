@@ -4,6 +4,7 @@ import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
     RECENT_GROUP,
+    WORKSPACE_PINS_ENABLED,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
@@ -56,10 +57,8 @@ export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "ctrl+r all sessions",
 ];
 
-/** Every title and its metadata line share this inset from the group heading. */
-const ROW_INDENT_COLUMNS = 2;
-/** Digit/status metadata and the spaces after them on an active second line. */
-const ROW_METADATA_COLUMNS = 4;
+/** Status glyph and the space before every title. */
+const ROW_PREFIX_COLUMNS = 2;
 /** The divider occupies the rail's final rendered cell. */
 const RAIL_DIVIDER_COLUMNS = 1;
 /** Eight age columns plus the space before them. */
@@ -85,7 +84,7 @@ export function workspaceRailColumns(
 ): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    const natural = ROW_INDENT_COLUMNS + workspaceRowColumns(width);
+    const natural = workspaceRowColumns(width);
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
@@ -194,7 +193,7 @@ export function workspaceWorkingSet(
     currentId?: string,
     pinnedIds: readonly string[] = [],
 ): readonly WorkspaceSidebarSession[] {
-    const pinned = new Set(pinnedIds);
+    const pinned = new Set(WORKSPACE_PINS_ENABLED ? pinnedIds : []);
     const kept = new Set<string>();
     for (const session of sessions) {
         if (
@@ -495,7 +494,10 @@ export function handleWorkspaceSidebarKey(
             ? { state, handled: true }
             : { action, handled: true };
     }
-    if (tuiBindingId("workspace", key) === "toggle_workspace_pin") {
+    if (
+        WORKSPACE_PINS_ENABLED
+        && tuiBindingId("workspace", key) === "toggle_workspace_pin"
+    ) {
         const selectedId = layout.selectedId;
         if (selectedId === undefined) return { state, handled: true };
         const pinnedIds = toggleWorkspacePin(state.pinnedIds, selectedId);
@@ -568,7 +570,7 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Page", value: "ctrl+d/u" },
     { label: "Open", value: "enter" },
     { label: "Jump", value: "1–9" },
-    { label: "Pin", value: "p" },
+    ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
     { label: "Cycle", value: "ctrl+shift+[ ]" },
@@ -619,8 +621,7 @@ export function workspaceSidebarViewState(
         ? undefined
         : Math.max(
             1,
-            railColumns - ROW_INDENT_COLUMNS
-                - ROW_METADATA_COLUMNS - RAIL_DIVIDER_COLUMNS,
+            railColumns - ROW_PREFIX_COLUMNS - RAIL_DIVIDER_COLUMNS,
         );
     const layout = workspaceSidebarLayout(state, {
         columns,
@@ -635,6 +636,9 @@ export function workspaceSidebarViewState(
             }),
     });
     const width = railColumns ?? columns;
+    const rowColumns = railColumns === undefined
+        ? workspaceRowColumns(layout.width)
+        : railColumns - RAIL_DIVIDER_COLUMNS;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = [];
     for (const text of layout.rows.length === 0 ? WORKSPACE_EMPTY_LINES : []) {
@@ -662,8 +666,12 @@ export function workspaceSidebarViewState(
         const digit = row.active && position <= WORKSPACE_JUMP_ROWS
             ? `${position}`
             : " ";
+        const trailing = row.active
+            ? [row.detail, digit.trim()].filter((value) => value.length > 0)
+                .join(" · ")
+            : row.detail;
         lines.push({
-            text: row.text,
+            text: rightAlignedRow(row.text, trailing, rowColumns),
             tone: rowTone,
             rowId: row.id,
             // The highlight bar stays on the cursor row even while chat has
@@ -671,19 +679,9 @@ export function workspaceSidebarViewState(
             // its title in brackets.
             ...(row.selected ? { selected: true } : {}),
         });
-        const metadata = row.active
-            ? `${digit} ${row.marker} ${row.detail}`
-            : `${row.marker}${row.detail.length === 0 ? "" : ` ${row.detail}`}`;
-        lines.push({
-            text: `${" ".repeat(ROW_INDENT_COLUMNS)}${metadata}`.trimEnd(),
-            tone: "muted" as const,
-            rowId: row.id,
-        });
         if (row.group === RECENT_GROUP && row === lastRow) {
             lines.push({
-                text: `${" ".repeat(ROW_INDENT_COLUMNS)}${
-                    WORKSPACE_ALL_SESSIONS_NUDGE
-                }`,
+                text: WORKSPACE_ALL_SESSIONS_NUDGE,
                 tone: "muted" as const,
             });
         }
@@ -713,6 +711,24 @@ export function workspaceSidebarViewState(
         footerTable,
         ...(focused ? {} : { dimmed: true }),
     };
+}
+
+function rightAlignedRow(
+    left: string,
+    right: string,
+    columns: number,
+): string {
+    if (right.length === 0) return clipRow(left, columns);
+    const leftColumns = Math.max(1, columns - right.length - 1);
+    const shown = clipRow(left, leftColumns);
+    const gap = Math.max(1, columns - shown.length - right.length);
+    return `${shown}${" ".repeat(gap)}${right}`;
+}
+
+function clipRow(text: string, columns: number): string {
+    if (text.length <= columns) return text;
+    if (columns <= 1) return text.slice(0, columns);
+    return `${text.slice(0, columns - 1)}…`;
 }
 
 /** The lines as one block of text, for the headless renderer and for tests. */

@@ -32,9 +32,11 @@ import {
     type WorkspaceSidebarState,
 } from "../../clients/tui/workspace-sidebar.ts";
 import {
-    ACTIVE_GROUP,
+    IDLE_GROUP,
     PINNED_GROUP,
     RECENT_GROUP,
+    WORKING_GROUP,
+    WORKSPACE_PINS_ENABLED,
 } from "../../clients/tui/workspace-panel.ts";
 import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
 import { tuiBindingId, tuiKeyChord } from "../../clients/tui/keymap.ts";
@@ -318,7 +320,7 @@ describe("the working set", () => {
             .not.toContain("session idle-1");
     });
 
-    test("keeps a pinned idle session that is older than the last five", () => {
+    test("saved pins do not expand the working set while dormant", () => {
         const sessions = Array.from({ length: 6 }, (_unused, at) =>
             session(`idle-${at}`, {
                 updatedAt: `2026-08-22T11:0${at}:00.000Z`,
@@ -326,7 +328,6 @@ describe("the working set", () => {
         expect(workspaceWorkingSet(sessions, undefined, ["idle-0"]).map(
             (entry) => entry.id,
         )).toEqual([
-            "idle-0",
             "idle-1",
             "idle-2",
             "idle-3",
@@ -334,7 +335,7 @@ describe("the working set", () => {
             "idle-5",
         ]);
         expect(workspaceSidebarText(open(sessions, ["idle-0"]), COLUMNS, NOW))
-            .toContain("session idle-0");
+            .not.toContain("session idle-0");
     });
 });
 
@@ -455,21 +456,22 @@ describe("the rail", () => {
         expect(workspaceRailColumns(60, 40)).toBeUndefined();
     });
 
-    test("puts age below the title and drops it only when squeezed", () => {
+    test("puts age at the right and drops it only when squeezed", () => {
         const state = open([session("a", {
             title: "a useful descriptive session name",
             updatedAt: "2026-08-22T11:56:00.000Z",
         })], []);
         const withAge = workspaceSidebarViewState(state, 120, NOW, 37)
             .lines.filter((line) => line.rowId === "a").map((line) => line.text);
-        const titleOnly = workspaceSidebarViewState(state, 120, NOW, 23)
+        const titleOnly = workspaceSidebarViewState(state, 120, NOW, 15)
             .lines.filter((line) => line.rowId === "a").map((line) => line.text);
 
-        expect(withAge[0]).toContain("a useful descriptive session …");
-        expect(withAge[1]).toContain("· 4m ago");
+        expect(withAge).toHaveLength(1);
+        expect(withAge[0]?.startsWith("· a useful descriptive")).toBe(true);
+        expect(withAge[0]?.endsWith("4m ago")).toBe(true);
         expect(withAge.join("\n")).not.toContain("[");
         expect(titleOnly.join("\n")).not.toContain("ago");
-        expect(titleOnly[0]).toContain("a useful descri…");
+        expect(titleOnly[0]?.startsWith("· a useful")).toBe(true);
         expect(titleOnly.join("\n")).not.toContain("[");
     });
 
@@ -506,12 +508,12 @@ describe("the rail", () => {
         expect(chat.dimmed).toBe(true);
         expect(chat.lines.some((line) => line.selected === true)).toBe(true);
         expect(chat.lines.every((line) => line.tone === "muted")).toBe(true);
-        expect(chat.lines.find((line) => line.rowId === "a")?.text)
-            .toContain("❯");
+        expect(chat.lines.find((line) => line.rowId === "a")?.text
+            .startsWith("· ")).toBe(true);
         expect(chat.cursorLine).toBe(focused.cursorLine);
     });
 
-    test("draws folder headings in the heading tone and gaps the groups", () => {
+    test("draws state headings and disambiguates mixed workspaces", () => {
         const state = open([
             session("a", { workspace: "/w/one", live: true, status: "working" }),
             session("b", {
@@ -523,15 +525,13 @@ describe("the rail", () => {
         ], [], "a");
         const focused = workspaceSidebarViewState(state, 120, NOW, 37, true);
         const headings = focused.lines.filter((line) => line.tone === "heading");
-        expect(headings.map((line) => line.text)).toEqual(["active"]);
+        expect(headings.map((line) => line.text)).toEqual([WORKING_GROUP]);
         expect(focused.lines.find((line) => line.text.includes("session a"))
-            ?.text.startsWith("❯ ")).toBe(true);
-        expect(focused.lines.some((line) => line.text.trimStart().startsWith("1 ")))
+            ?.text.startsWith(tuiBrailleSpinner(0))).toBe(true);
+        expect(focused.lines.some((line) => line.text.endsWith("one · 1")))
             .toBe(true);
-        expect(focused.lines.some((line) => line.text.trimStart().startsWith("2 ")))
+        expect(focused.lines.some((line) => line.text.endsWith("two · 2")))
             .toBe(true);
-        expect(focused.lines.filter((line) => line.text.includes("working · ")))
-            .toHaveLength(2);
         expect(focused.hint).toBe("");
         expect(focused.headerActions).toEqual([
             { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
@@ -609,7 +609,7 @@ describe("the cursor", () => {
         const groups = layout.rows
             .filter((row) => row.kind === "group")
             .map((row) => (row as { group: string }).group);
-        expect(groups).toEqual([ACTIVE_GROUP, RECENT_GROUP]);
+        expect(groups).toEqual([IDLE_GROUP, RECENT_GROUP]);
         const active = layout.rows
             .filter((row) => row.kind === "session" && row.active)
             .map((row) => (row as { id: string }).id);
@@ -749,12 +749,12 @@ describe("the digits", () => {
 });
 
 describe("pinning", () => {
-    test("p toggles the pin on the selected session", () => {
+    test("the pin key is dormant during the state-grouped trial", () => {
         const state = open([session("a"), session("b")], [], "a");
         const pinned = press(state, "p");
-        expect(pinned.action).toEqual({ kind: "pin", pinnedIds: ["a"] });
-        expect(pinned.state?.pinnedIds).toEqual(["a"]);
-        expect(press(pinned.state!, "p").state?.pinnedIds).toEqual([]);
+        expect(WORKSPACE_PINS_ENABLED).toBe(false);
+        expect(pinned.action).toBeUndefined();
+        expect(pinned.state?.pinnedIds).toEqual([]);
     });
 
     test("toggling keeps the order of the pins it did not touch", () => {
@@ -762,7 +762,7 @@ describe("pinning", () => {
         expect(toggleWorkspacePin(["a"], "b")).toEqual(["a", "b"]);
     });
 
-    test("a pinned session sorts to the top under its own heading", () => {
+    test("saved pins do not change state grouping while dormant", () => {
         const layout = workspaceSidebarLayout(
             open([
                 session("a", { updatedAt: "2026-08-22T11:59:00.000Z" }),
@@ -770,11 +770,10 @@ describe("pinning", () => {
             ], ["b"]),
             { columns: COLUMNS, now: NOW },
         );
-        expect(layout.selectable[0]).toBe("b");
-        expect(layout.rows[0]).toMatchObject({
-            kind: "group",
-            group: PINNED_GROUP,
-        });
+        expect(layout.selectable).toEqual(["a", "b"]);
+        expect(layout.rows.some((row) =>
+            row.kind === "group" && row.group === PINNED_GROUP
+        )).toBe(false);
     });
 });
 
@@ -832,8 +831,10 @@ describe("status from the pushed work index", () => {
             ]),
         );
         const text = workspaceSidebarText(state, COLUMNS, NOW);
-        expect(text).toContain("1 ! needs you · one");
-        expect(text).toContain(`2 ${tuiBrailleSpinner(0)} working · one`);
+        expect(text).toContain("! needs you");
+        expect(text).toContain(`${tuiBrailleSpinner(0)} running`);
+        expect(text).toContain("NEEDS YOU");
+        expect(text).toContain(WORKING_GROUP);
     });
 });
 
@@ -865,8 +866,8 @@ describe("the drawn card", () => {
             COLUMNS,
             NOW,
         );
-        expect(text).toContain("1 ● idle · one");
-        expect(text).toContain("❯");
+        expect(text).toContain("● count to 5");
+        expect(text).toContain("1");
         expect(text).not.toContain("[ count to");
     });
 
@@ -886,7 +887,7 @@ describe("the drawn card", () => {
         );
         expect(text).toContain("do you know");
         expect(text).not.toContain("● do you know");
-        expect(text).toContain("❯");
+        expect(text).toContain("· do you know");
     });
 
     test("a live finished turn older than ten minutes returns to idle", () => {
@@ -920,11 +921,12 @@ describe("the drawn card", () => {
         );
         const lines = workspaceSidebarText(open(sessions), COLUMNS, NOW)
             .split("\n");
-        const metadata = lines.filter((line) => line.includes("working · one"));
-        expect(metadata[0]?.trimStart().startsWith("1 ")).toBe(true);
-        expect(metadata[8]?.trimStart().startsWith("9 ")).toBe(true);
-        expect(metadata[9]?.trimStart().startsWith(tuiBrailleSpinner(0)))
-            .toBe(true);
+        const rows = lines.filter((line) =>
+            line.startsWith(tuiBrailleSpinner(0))
+        );
+        expect(rows[0]?.endsWith("1")).toBe(true);
+        expect(rows[8]?.endsWith("9")).toBe(true);
+        expect(rows[9]).not.toMatch(/\s{2,}\d$/);
     });
 
     test("carries its own footer hint, in the pickers' shape", () => {
@@ -942,14 +944,13 @@ describe("the drawn card", () => {
             "Page    ctrl+d/u",
             "Open    enter",
             "Jump    1–9",
-            "Pin     p",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
             "Chat    tab",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(10);
+        expect(view.footerTable).toHaveLength(9);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
         expect(view.title).toBe("[ VERA ] · 1");
@@ -961,7 +962,7 @@ describe("the drawn card", () => {
         expect(lines[lines.length - 1]?.trim()).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
     });
 
-    test("every row is two lines and digits stay on active metadata", () => {
+    test("every row is one flush-left marked line", () => {
         const text = workspaceSidebarText(
             open([
                 session("busy", { status: "working", live: true }),
@@ -972,11 +973,12 @@ describe("the drawn card", () => {
         );
         const lines = text.split("\n");
         const busy = lines.findIndex((line) => line.includes("session busy"));
-        expect(lines[busy]?.startsWith("❯ ")).toBe(true);
-        expect(lines[busy + 1]?.trim()).toBe(`1 ${tuiBrailleSpinner(0)} working · one`);
+        expect(lines[busy]?.startsWith(`${tuiBrailleSpinner(0)} `)).toBe(true);
+        expect(lines[busy]?.endsWith("1")).toBe(true);
         const old = lines.findIndex((line) => line.includes("session old"));
-        expect(lines[old]?.startsWith(" ")).toBe(true);
-        expect(lines[old + 1]?.trim()).toBe("· 1h ago");
+        expect(lines[old]?.startsWith("· ")).toBe(true);
+        expect(lines[old]?.endsWith("1h ago")).toBe(true);
+        expect(lines[old + 1]).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
     });
 
     test("a session with no title reads untitled, never its id", () => {
@@ -1004,7 +1006,6 @@ describe("the drawn card", () => {
             "Page    ctrl+d/u",
             "Open    enter",
             "Jump    1–9",
-            "Pin     p",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
@@ -1019,7 +1020,7 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(10);
+            .toHaveLength(9);
     });
 
     test("an unfocused rail keeps only the chords that answer from the chat", () => {

@@ -32,53 +32,41 @@ const CONTENT_COLUMNS: Record<WorkspacePanelWidth, number> = {
     narrow: 46,
 };
 
-/** Digit/status metadata and the space after each, below the title. */
-const ROW_METADATA_COLUMNS = 4;
+/** One status glyph and the space between it and the title. */
+const ROW_PREFIX_COLUMNS = 2;
 
 /**
  * Columns the longest row takes at this width, markers included.
  *
- * Metadata has its own line, so every width is its content budget plus the
- * widest metadata prefix. A surface that draws the listing in a column of its
- * own can size that column without laying the rows out first.
+ * A surface that draws the listing in a column of its own can size that column
+ * without laying the rows out first.
  */
 export function workspaceRowColumns(width: WorkspacePanelWidth): number {
-    return CONTENT_COLUMNS[width] + ROW_METADATA_COLUMNS;
+    return CONTENT_COLUMNS[width] + ROW_PREFIX_COLUMNS;
 }
 
-const UNSELECTED_MARKER = " ";
-
+/** The dormant group pinned sessions collect under when pinning returns. */
+export const PINNED_GROUP = "PINNED";
 /**
- * The group pinned sessions collect under, kept first in the listing.
+ * Pinning is deliberately dormant during the state-grouped rail trial.
  *
- * A pin is one person's opinion about their own list, so it never reaches the
- * host. It is a sort key and a heading, not a mode: a pinned session is an
- * ordinary row that happens to be listed first.
+ * Keep the pin state, toggle, persistence, and grouping branch intact: pins
+ * return later once their relationship to attention-state groups is settled.
  */
-export const PINNED_GROUP = "pinned";
-/** Sessions with a worker up: attached, working, waiting, or a named pid. */
-export const ACTIVE_GROUP = "active";
-/** Idle session files, newest first. */
-export const RECENT_GROUP = "recent";
+export const WORKSPACE_PINS_ENABLED = false;
+export const NEEDS_YOU_GROUP = "NEEDS YOU";
+export const WORKING_GROUP = "WORKING";
+export const IDLE_GROUP = "IDLE";
+/** Session files with no worker, newest first. */
+export const RECENT_GROUP = "RECENT";
 
 /** Shown in a title's place when a session has no title. The id never is. */
 export const UNTITLED_SESSION = "untitled";
 
 /**
- * A status as a word, so an active row still says what it is doing when the
- * marker column is a bare spinner or the render has no colour.
- */
-export function workspaceStatusWord(status: WorkspaceSessionStatus): string {
-    if (status === "waiting") return "needs you";
-    if (status === "working") return "working";
-    if (status === "completed") return "done";
-    return status;
-}
-
-/**
  * Column one, as text. Colour may ride on top of it and may never replace it:
  * waiting, working, completed, and idle have to survive a monochrome render.
- * Closed and completed files share a blank cell.
+ * Every row gets a visible glyph so none reserve an empty left rail.
  */
 export type WorkspaceRowMarker = string;
 
@@ -106,9 +94,8 @@ export interface WorkspaceSession extends VeraClientSession {
  */
 export const WORKSPACE_WAITING_MARKER = "!";
 export const WORKSPACE_COMPLETED_MARKER = "●";
-export const WORKSPACE_IDLE_MARKER = "·";
-export const WORKSPACE_QUIET_MARKER = " ";
-export const WORKSPACE_SELECTED_MARKER = "❯";
+export const WORKSPACE_IDLE_MARKER = ".";
+export const WORKSPACE_RECENT_MARKER = "·";
 export const WORKSPACE_COMPLETED_WINDOW_MS = 10 * 60 * 1_000;
 
 export function workspaceStatusMarker(
@@ -129,8 +116,7 @@ export function workspaceStatusMarker(
     ) {
         return WORKSPACE_COMPLETED_MARKER;
     }
-    if (status === "idle") return WORKSPACE_IDLE_MARKER;
-    return WORKSPACE_QUIET_MARKER;
+    return live ? WORKSPACE_IDLE_MARKER : WORKSPACE_RECENT_MARKER;
 }
 
 function recentlyFinished(
@@ -170,7 +156,7 @@ export interface WorkspaceSessionRow {
     readonly age: string;
     readonly selected: boolean;
     readonly text: string;
-    /** The muted second line: state/workspace for active, age for history. */
+    /** Right-side metadata: workspace when needed, or age for history. */
     readonly detail: string;
 }
 
@@ -254,6 +240,9 @@ export function layoutWorkspacePanel(
     const showAge = input.showAge ?? width !== "medium";
     const listed = input.sessions.filter(isSwitchableSession);
     const isActive = input.isActive ?? defaultActive;
+    const showWorkspace = new Set(
+        listed.map((session) => workspaceGroupPath(session.workspace)),
+    ).size > 1;
     const groups = groupSessions(
         listed,
         new Set(input.pinnedIds ?? []),
@@ -277,6 +266,7 @@ export function layoutWorkspacePanel(
                 now: input.now,
                 selected: session.id === selectedId,
                 animationFrame: input.animationFrame ?? 0,
+                showWorkspace,
             }));
         }
     }
@@ -323,9 +313,9 @@ function defaultActive(session: WorkspaceSession): boolean {
 }
 
 /**
- * Sessions split by state, never by workspace: active first, then pins, then
- * recent files. Each group is most recent first. A pin outranks activity so a
- * pinned row stays where the reader put it.
+ * Sessions split by attention state, never by workspace. Each group is most
+ * recent first. The dormant pin branch stays here so restoring pins does not
+ * require reconstructing their ordering behavior.
  */
 function groupSessions(
     sessions: readonly WorkspaceSession[],
@@ -333,15 +323,21 @@ function groupSessions(
     isActive: (session: WorkspaceSession) => boolean,
 ): readonly SessionGroup[] {
     const byGroup = new Map<string, WorkspaceSession[]>([
-        [ACTIVE_GROUP, []],
+        [NEEDS_YOU_GROUP, []],
+        [WORKING_GROUP, []],
+        [IDLE_GROUP, []],
         [PINNED_GROUP, []],
         [RECENT_GROUP, []],
     ]);
     for (const session of sessions) {
-        const group = pinned.has(session.id)
+        const group = WORKSPACE_PINS_ENABLED && pinned.has(session.id)
             ? PINNED_GROUP
+            : session.status === "waiting" || session.status === "failed"
+            ? NEEDS_YOU_GROUP
+            : session.status === "working"
+            ? WORKING_GROUP
             : isActive(session)
-            ? ACTIVE_GROUP
+            ? IDLE_GROUP
             : RECENT_GROUP;
         byGroup.get(group)!.push(session);
     }
@@ -425,6 +421,7 @@ interface RowContext {
     readonly now: Date;
     readonly selected: boolean;
     readonly animationFrame: number;
+    readonly showWorkspace: boolean;
 }
 
 function sessionRow(
@@ -436,29 +433,21 @@ function sessionRow(
     const marker = workspaceStatusMarker(
         session.status,
         context.animationFrame,
-        session.live || namedWorker(session),
+        active,
         session.updatedAt,
         context.now,
     );
     const title = session.title ?? UNTITLED_SESSION;
-    // Every row spends its second line on metadata. Active work says state and
-    // workspace; pinned/recent history says age.
-    const age = context.showAge && !active
+    const age = context.showAge && group === RECENT_GROUP
         ? relativeTime(session.updatedAt, context.now, "")
         : "";
     const shown = clip(title, Math.max(1, context.contentColumns));
-    const selectionMarker = context.selected
-        ? WORKSPACE_SELECTED_MARKER
-        : UNSELECTED_MARKER;
-    const text = `${selectionMarker} ${shown}`;
-    const detail = active
-        ? clip(
-            `${workspaceStatusWord(session.status)} · ${
-                basename(workspaceGroupPath(session.workspace))
-            }`,
-            Math.max(1, context.contentColumns),
-        )
-        : age;
+    const text = `${marker} ${shown}`;
+    const detail = group === RECENT_GROUP
+        ? age
+        : context.showWorkspace
+        ? basename(workspaceGroupPath(session.workspace))
+        : "";
     return {
         kind: "session",
         id: session.id,
