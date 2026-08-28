@@ -86,6 +86,9 @@ test("opening a hit lands on the match, not on the end of the session", async ()
 
     try {
         await session.waitForVisiblePane("V  E  R  A");
+        // The card offers ctrl+shift+f, which only a kitty-protocol terminal
+        // encodes. Everywhere else, this one included, it arrives as ctrl+f
+        // and opens the same pane: home has no conversation to narrow to.
         session.sendKey("C-f");
         await session.waitForVisiblePane("Search");
         session.sendText("regenerates");
@@ -100,6 +103,12 @@ test("opening a hit lands on the match, not on the end of the session", async ()
         const lines = pane.split("\n");
         const at = lines.findIndex((line) => line.includes(MATCH));
         expect(at).toBeLessThan(lines.length / 2);
+
+        // This is a transcript-only view, but it is still the conversation on
+        // screen and its search chord must not be swallowed by resume routing.
+        session.sendKey("C-f");
+        const search = await session.waitForVisiblePane("Search ·");
+        expect(search).toContain("this conversation");
     } finally {
         await session.close();
     }

@@ -1,5 +1,6 @@
 import { connectHost } from "./connection.ts";
 import {
+    MAX_HITS_IN_ONE_SESSION,
     MAX_HITS_PER_SESSION,
     MAX_SEARCH_RESULTS,
     type SessionSearchHit,
@@ -19,8 +20,8 @@ export class SessionSearchUnavailableError extends Error {
  * Ask the host to scan its transcripts.
  *
  * A one-shot request on the host socket, the same shape as the agent listing,
- * rather than anything on an attachment: a search spans every session on the
- * machine, so belonging to the attached one would be a lie about its scope.
+ * rather than anything on an attachment: even a search narrowed to one session
+ * reads durable transcript data owned by the host, not an agent attachment.
  */
 export async function searchSessionsThroughHost(
     socketPath: string,
@@ -43,7 +44,13 @@ export async function searchSessionsThroughHost(
             throw new SessionSearchUnavailableError();
         }
         const results = response?.type === "session_search_results"
-            ? parseSearchResults(response.results)
+            ? parseSearchResults(
+                response.results,
+                query.session_id === undefined
+                    ? MAX_HITS_PER_SESSION
+                    : MAX_HITS_IN_ONE_SESSION,
+                query.session_id,
+            )
             : undefined;
         if (results === undefined) {
             throw new Error("Host returned invalid session search results");
@@ -62,6 +69,8 @@ export async function searchSessionsThroughHost(
  */
 export function parseSearchResults(
     value: unknown,
+    maxHitsPerSession = MAX_HITS_PER_SESSION,
+    expectedSessionId?: string,
 ): SessionSearchResults | undefined {
     const snapshot = asRecord(value);
     if (
@@ -74,14 +83,21 @@ export function parseSearchResults(
     }
     const results: SessionSearchResult[] = [];
     for (const candidate of snapshot.results) {
-        const result = parseSearchResult(candidate);
-        if (result === undefined) return undefined;
+        const result = parseSearchResult(candidate, maxHitsPerSession);
+        if (result === undefined
+            || (expectedSessionId !== undefined
+                && result.session_id !== expectedSessionId)) {
+            return undefined;
+        }
         results.push(result);
     }
     return { results, truncated: snapshot.truncated };
 }
 
-function parseSearchResult(value: unknown): SessionSearchResult | undefined {
+function parseSearchResult(
+    value: unknown,
+    maxHitsPerSession: number,
+): SessionSearchResult | undefined {
     const result = asRecord(value);
     if (
         result === undefined
@@ -93,7 +109,7 @@ function parseSearchResult(value: unknown): SessionSearchResult | undefined {
         || Number.isNaN(Date.parse(result.updated_at as string))
         || !Array.isArray(result.hits)
         || result.hits.length === 0
-        || result.hits.length > MAX_HITS_PER_SESSION
+        || result.hits.length > maxHitsPerSession
     ) {
         return undefined;
     }

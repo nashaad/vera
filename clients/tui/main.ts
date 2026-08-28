@@ -406,6 +406,7 @@ import {
     searchSelections,
     startSearchOverlay,
     type SearchOverlayState,
+    type SearchScope,
 } from "./search-overlay.ts";
 import {
     attentionNotice,
@@ -4566,9 +4567,10 @@ export async function startTui(
                 jsonlAction === "toggle_sidebar"
                 || jsonlAction === "cycle_session"
                 || jsonlAction === "palette"
+                || jsonlAction === "search"
             ) {
-                // Fall through: hide/show the rail, cycle live sessions, or
-                // open the palette, none of which starts a worker.
+                // Fall through: rail and session controls, the palette, and
+                // search all live below without starting a worker.
             } else if (
                 jsonlAction === "sidebar"
                 && workspaceSidebar !== undefined
@@ -5584,6 +5586,26 @@ export async function startTui(
             key.preventDefault();
             key.stopPropagation();
             openDials();
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "search_conversation"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openSearchOverlay("conversation");
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "search_sessions"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openSearchOverlay("workspace");
             return;
         }
 
@@ -6783,7 +6805,9 @@ export async function startTui(
         if (commandAction?.type === "open_search") {
             composer.clearComposer();
             renderCommandSuggestions();
-            openSearchOverlay();
+            // `/search` is named for past work, so it opens across sessions
+            // whatever conversation it was typed into.
+            openSearchOverlay("workspace");
             return;
         }
         if (commandAction?.type === "open_resume_picker") {
@@ -11711,7 +11735,7 @@ export async function startTui(
         }
         if (action.type === "open_work_tab") return openWorkTab();
         if (action.type === "go_back") return runBack();
-        if (action.type === "open_search") return openSearchOverlay();
+        if (action.type === "open_search") return openSearchOverlay("workspace");
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
@@ -12398,8 +12422,21 @@ export async function startTui(
         }).finally(finish);
     }
 
-    function openSearchOverlay(): void {
-        searchOverlay = startSearchOverlay(client.workspace ?? process.cwd());
+    /**
+     * The search pane, opened at a scope.
+     *
+     * The conversation on screen is what `conversation` scope means, so a pane
+     * opened with no session behind it starts at the workspace instead of at a
+     * scope that would search nothing.
+     */
+    function openSearchOverlay(scope?: SearchScope): void {
+        const target = focusedAgentClient();
+        searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {
+            ...(target.agentId === undefined
+                ? {}
+                : { sessionId: target.agentId }),
+            ...(scope === undefined ? {} : { scope }),
+        });
         composer.blur();
         renderState();
         focusActiveSurface();

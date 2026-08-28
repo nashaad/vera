@@ -323,6 +323,25 @@ test("results for a query that has moved on are dropped", () => {
     expect(stale).toEqual(state);
 });
 
+test("results from another scope are dropped even when the text matches", () => {
+    let state = startSearchOverlay("/work/one", {
+        scope: "conversation",
+        sessionId: "current-session",
+    });
+    for (const character of "fallback") {
+        state = handleSearchOverlayKey(state, { name: character }).state ?? state;
+    }
+
+    const stale = applySearchResults(
+        state,
+        { query: "fallback" },
+        results(),
+    );
+
+    expect(stale.results).toBeUndefined();
+    expect(stale).toEqual(state);
+});
+
 test("a failure states itself instead of showing an empty result", () => {
     const state = applySearchFailure(
         typing("fallback"),
@@ -443,4 +462,68 @@ test("the match is found whatever case the transcript wrote it in", () => {
         line.emphasis!.start,
         line.emphasis!.start + line.emphasis!.length,
     )).toBe("Fallback");
+});
+
+/** Typing into a pane opened from inside a conversation. */
+function typingInside(query: string): SearchOverlayState {
+    let state = startSearchOverlay("/work/one", {
+        sessionId: "relay-gui",
+        scope: "conversation",
+    });
+    for (const character of query) {
+        state = handleSearchOverlayKey(state, {
+            name: character === " " ? "space" : character,
+        }).state ?? state;
+    }
+    return state;
+}
+
+test("a search opened inside a conversation asks about that conversation", () => {
+    const state = typingInside("fallback");
+
+    // One session is narrower than any workspace it sits in, so the id is the
+    // whole question and the directory adds nothing to it.
+    expect(searchOverlayQuery(state)).toEqual({
+        query: "fallback",
+        session_id: "relay-gui",
+    });
+    expect(searchOverlayHeader(state)).toBe("Search · all · this conversation");
+});
+
+test("widening from a conversation reaches the workspace, then everywhere", () => {
+    let state = typingInside("fallback");
+    const seen: string[] = [state.scope];
+    for (let press = 0; press < 3; press += 1) {
+        state = handleSearchOverlayKey(state, { name: "w", ctrl: true })
+            .state ?? state;
+        seen.push(state.scope);
+    }
+
+    expect(seen).toEqual([
+        "conversation",
+        "workspace",
+        "everywhere",
+        "conversation",
+    ]);
+    // The session only rides along while the pane is asking about it.
+    expect(searchOverlayQuery({ ...state, scope: "workspace" }))
+        .toEqual({ query: "fallback", workspace: "/work/one" });
+});
+
+test("with no conversation behind it the pane starts on the workspace", () => {
+    const state = typing("fallback");
+    expect(state.scope).toBe("workspace");
+
+    // `ctrl+w` has two stops here, not three: there is no conversation to
+    // narrow to, so the cycle never offers one.
+    const widened = handleSearchOverlayKey(state, { name: "w", ctrl: true })
+        .state ?? state;
+    const wrapped = handleSearchOverlayKey(widened, { name: "w", ctrl: true })
+        .state ?? widened;
+    expect([widened.scope, wrapped.scope]).toEqual(["everywhere", "workspace"]);
+});
+
+test("a conversation scope asked for without a conversation is ignored", () => {
+    const state = startSearchOverlay("/work/one", { scope: "conversation" });
+    expect(state.scope).toBe("workspace");
 });

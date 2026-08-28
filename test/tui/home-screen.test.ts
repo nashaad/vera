@@ -27,12 +27,12 @@ describe("the home card", () => {
     test("names itself, rules under it, and lists the ways on", () => {
         expect(rendered(home())).toBe(
             [
-                "         V  E  R  A",
-                "  ─────────────────────────",
+                "            V  E  R  A",
+                "  ───────────────────────────────",
                 "",
                 "❯ New conversation   enter",
                 "  All conversations  ctrl+r",
-                "  Search past work   ctrl+f",
+                "  Search past work   ctrl+shift+f",
                 "  Commands           ctrl+p",
                 "",
                 "  or just start typing",
@@ -101,13 +101,14 @@ describe("home keys", () => {
             .toEqual({ handled: false });
     });
 
-    test("ctrl+f searches what is already on disk", () => {
-        expect(handleHomeKey(home(), { name: "f", ctrl: true })).toEqual({
-            action: { kind: "search" },
-            handled: true,
-        });
-        // Nothing recorded is nothing to search, and the row is gone with it.
-        expect(handleHomeKey(home(false), { name: "f", ctrl: true }))
+    test("the search chords belong to the client, not to the card", () => {
+        // `ctrl+shift+f` searches from anywhere and `ctrl+f` finds in the
+        // conversation, so home answers neither itself and lets both fall
+        // through to the one place that owns them. Enter on the row still
+        // opens the pane, which is what the row is for.
+        expect(handleHomeKey(home(), { name: "f", ctrl: true }))
+            .toEqual({ handled: false });
+        expect(handleHomeKey(home(), { name: "f", ctrl: true, shift: true }))
             .toEqual({ handled: false });
     });
 

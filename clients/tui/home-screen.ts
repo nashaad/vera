@@ -26,7 +26,7 @@ export interface HomeRow {
 const HOME_ROWS: readonly HomeRow[] = [
     { id: "new", label: "New conversation", keyHint: "enter" },
     { id: "all", label: "All conversations", keyHint: "ctrl+r" },
-    { id: "search", label: "Search past work", keyHint: "ctrl+f" },
+    { id: "search", label: "Search past work", keyHint: "ctrl+shift+f" },
     { id: "commands", label: "Commands", keyHint: "ctrl+p" },
 ];
 
@@ -86,11 +86,11 @@ const HOME_PAST_ROWS: readonly HomeRowId[] = ["all", "search"];
 /**
  * The chords the card answers itself.
  *
- * `Commands` is on the card as well, but `ctrl+p` is a global binding: home
- * lets it fall through to the one place that owns it rather than becoming a
- * second way to open the palette.
+ * `Commands` and `Search past work` are on the card as well, but `ctrl+p` and
+ * `ctrl+shift+f` are global bindings: home lets them fall through to the one
+ * place that owns them rather than becoming a second way in.
  */
-const HOME_OWN_CHORDS: readonly HomeRowId[] = ["all", "search"];
+const HOME_OWN_CHORDS: readonly HomeRowId[] = ["all"];
 
 /**
  * The rows on offer.
