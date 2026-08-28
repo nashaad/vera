@@ -73,6 +73,7 @@ import {
     dialogFooterNode,
     dialogGroupHeaderNode,
     dialogHeaderNode,
+    dialogInsetBottomOffset,
     dialogInsetTop,
     attachDialogRowPointer,
     dialogOptionRows,
@@ -2899,7 +2900,11 @@ function pickerMaxRows(
     rowLines = 1,
 ): number {
     const lines = listWindowRows(
-        dialogBoxHeight(renderer, dialogInsetTop(renderer)),
+        dialogBoxHeight(
+            renderer,
+            dialogInsetTop(renderer),
+            dialogInsetBottomOffset(renderer),
+        ),
         DIALOG_CHROME_HEIGHT + extraChrome,
     );
     return Math.max(LIST_MIN_ROWS, Math.floor(lines / rowLines));

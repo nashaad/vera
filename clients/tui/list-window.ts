@@ -23,8 +23,12 @@ export const LIST_MIN_ROWS = 4;
  * How tall an overlay anchored `top` rows down may grow without covering the
  * composer.
  */
-export function dialogBoxHeight(renderer: RenderContext, top: number): number {
-    return renderer.height - top - dialogBottomOffset(renderer);
+export function dialogBoxHeight(
+    renderer: RenderContext,
+    top: number,
+    bottom = dialogBottomOffset(renderer),
+): number {
+    return renderer.height - top - bottom;
 }
 
 /**

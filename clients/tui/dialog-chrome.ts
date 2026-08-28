@@ -100,7 +100,13 @@ export function dialogBottomOffset(renderer: RenderContext): number {
 export function dialogInsetTop(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
         ? 1
-        : renderer.height / 4;
+        : Math.max(APP_PADDING_TOP, renderer.height / 4 - 3);
+}
+
+/** Clear rows kept below an inset card when the terminal has room. */
+export function dialogInsetBottomOffset(renderer: RenderContext): number {
+    if (renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT) return 1;
+    return Math.min(5, Math.max(2, Math.floor(renderer.height / 8) + 1));
 }
 
 /** Full-screen flex surface that keeps a variable-height dialog card centered. */

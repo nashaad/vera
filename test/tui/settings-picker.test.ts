@@ -84,7 +84,7 @@ async function pickerFrame(
     }
 }
 
-test("inset pickers start one quarter down the terminal", async () => {
+test("inset pickers sit three rows above the quarter line", async () => {
     const { renderer } = await createTestRenderer({ width: 100, height: 40 });
     try {
         const view = createTuiSettingsPickerView(renderer);
@@ -96,7 +96,7 @@ test("inset pickers start one quarter down the terminal", async () => {
             availableModels,
             "default",
         ));
-        expect(view.box.top).toBe(10);
+        expect(view.box.top).toBe(7);
 
         view.update(startTuiSessionPicker([], undefined, false));
         expect(view.box.top).toBe(0);
@@ -1553,9 +1553,12 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     view.box.visible = true;
     view.update(state);
     try {
+        await setup.flush();
         expect(state.tab).toBe("all");
         expect(tuiPickerViewportRows(setup.renderer, state)).toBe(22);
         expect(view.box.height).toBeLessThan(40);
+        expect(setup.renderer.height - view.box.screenY - view.box.height)
+            .toBeGreaterThanOrEqual(4);
     } finally {
         setup.renderer.destroy();
     }
