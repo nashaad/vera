@@ -782,6 +782,56 @@ test("session names reject empty, oversized, and malformed values", async () => 
     );
 });
 
+test("session identity is durable, immutable, and model-visible only", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    await store.appendIdentity({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+        env: {
+            ARC_SESSION: "calm-wren:0001",
+            COORD_SESSION: "calm-wren:0001",
+        },
+        context: "This session is named calm-wren:0001.",
+    });
+    await store.appendMessage(userMessage("visible request"));
+
+    const identityMessage: ModelMessage = {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: "This session is named calm-wren:0001.",
+        }],
+    };
+    expect(store.identity()).toMatchObject({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+    });
+    expect(store.messages()).toEqual([
+        identityMessage,
+        userMessage("visible request"),
+    ]);
+    expect(store.modelContext()).toEqual([
+        identityMessage,
+        userMessage("visible request"),
+    ]);
+    expect(store.activeEntries()).toHaveLength(1);
+    await expect(store.appendIdentity({
+        name: "other-wren:0002",
+        key: "other-wren:0002",
+        env: {},
+    })).rejects.toThrow("Session identity is already recorded");
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.identity()).toEqual(store.identity());
+    expect(reopened.modelContext()[0]).toEqual(identityMessage);
+});
+
 test("permission records restore the latest mode outside message history", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "session.jsonl");
@@ -1680,6 +1730,43 @@ test("a compaction replaces the model context without touching the transcript", 
     expect(store.modelContext()).toEqual([summary, second, secondAnswer]);
     expect((await SessionStore.open(path)).modelContext())
         .toEqual([summary, second, secondAnswer]);
+});
+
+test("session identity remains in model context after compaction", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    await store.appendIdentity({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+        env: { ARC_SESSION: "calm-wren:0001" },
+        context: "Your session identity is calm-wren:0001.",
+    });
+    await store.appendMessage(userMessage("first request"));
+    await store.appendMessage(assistantMessage("first answer"));
+    await store.appendMessage(userMessage("second request"));
+    await store.appendMessage(assistantMessage("second answer"));
+    const summary = assistantMessage("summary of the first exchange");
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [summary],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    expect(store.modelContext()).toEqual([
+        {
+            role: "user",
+            internal: true,
+            content: [{
+                type: "text",
+                text: "Your session identity is calm-wren:0001.",
+            }],
+        },
+        summary,
+        userMessage("second request"),
+        assistantMessage("second answer"),
+    ]);
 });
 
 test("aged tool results inside a compaction projection are assembled too", async () => {

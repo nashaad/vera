@@ -18,6 +18,8 @@ import {
     type VeraProviderId,
     type VeraConfig,
 } from "../config.ts";
+import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
+import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -309,7 +311,12 @@ export async function startResidentHost(
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
-            extensions: options.config.extensions ?? [],
+            extensions: [
+                ...defaultHostExtensionConfigs(
+                    options.config.disabled_builtin_extensions ?? [],
+                ),
+                ...(options.config.extensions ?? []),
+            ],
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -783,6 +790,9 @@ export async function startResidentHost(
             return config.extensions ?? [];
         },
         registeredAgents: extensions.agents(),
+        sessionIdentity: extensions.sessionIdentity(),
+        reserveSessionIdentity: (sessionId, key) =>
+            reserveSessionIdentity(sessionDirectory, sessionId, key),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [
             ...await loadSkillContribution(instructionRoot, allowedSkills),
             ...startupFindings.contributions(),

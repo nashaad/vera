@@ -152,6 +152,20 @@ export interface SessionNameEntry {
     readonly name: string | null;
 }
 
+/**
+ * Opaque session identity minted by an extension. Distinct from
+ * `session_name`, which is the optional human `/rename` label.
+ */
+export interface SessionIdentityEntry {
+    readonly type: "session_identity";
+    readonly timestamp: string;
+    readonly name: string;
+    readonly key: string;
+    readonly env: Readonly<Record<string, string>>;
+    /** Model-visible context kept outside the user-visible conversation. */
+    readonly context?: string;
+}
+
 export interface SessionPermissionGrantsEntry {
     readonly type: "permission_grants";
     readonly id: string;
@@ -450,12 +464,17 @@ export class SessionStore {
     }
 
     messages(): readonly ModelMessage[] {
-        return this.activeEntries().map((entry) => entry.message);
+        const identity = this.identityContextMessage();
+        return [
+            ...(identity === undefined ? [] : [identity]),
+            ...this.activeEntries().map((entry) => entry.message),
+        ];
     }
 
     /**
-     * Pairs each active message with its stored ID. Keyed by the same object
-     * `messages()` returns, so a projection built from either stays aligned.
+     * Pairs each durable conversation message with its stored ID. The
+     * synthetic identity context has no timeline ID and is intentionally
+     * absent.
      */
     activeMessageIds(): ReadonlyMap<ModelMessage, string> {
         const ids = new Map<ModelMessage, string>();
@@ -594,6 +613,11 @@ export class SessionStore {
         return this.projection.nameEntries.at(-1)?.name ?? undefined;
     }
 
+    identity(): SessionIdentityEntry | undefined {
+        const entry = this.projection.identityEntries[0];
+        return entry === undefined ? undefined : { ...entry, env: { ...entry.env } };
+    }
+
     permissionGrants(): readonly PermissionGrant[] {
         const revoked = new Set(
             this.projection.permissionGrantRevocationEntries.flatMap((entry) => entry.ids),
@@ -708,6 +732,23 @@ export class SessionStore {
         return result;
     }
 
+    appendIdentity(identity: {
+        readonly name: string;
+        readonly key: string;
+        readonly env: Readonly<Record<string, string>>;
+        readonly context?: string;
+    }): Promise<SessionIdentityEntry> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitIdentity(identity);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
     appendPermissionGrants(
         proposals: readonly PermissionGrantProposal[],
     ): Promise<SessionPermissionGrantsEntry> {
@@ -809,8 +850,8 @@ export class SessionStore {
 
     /**
      * What the model should be sent: the accepted projection followed by the
-     * messages kept verbatim after it. Distinct from `messages()`, which stays
-     * the original transcript so clients keep showing what was really said.
+     * messages kept verbatim after it. Distinct from `messages()`, whose
+     * conversation portion stays original so clients show what was said.
      *
      * The suffix is everything past the boundary as the branch stands now, not
      * a span fixed when the record was written. A record is a statement about
@@ -824,18 +865,34 @@ export class SessionStore {
     }
 
     private modelContextEntries(): readonly ToolResultHistoryEntry[] {
+        const identity = this.identityContextMessage();
+        const identityEntries = identity === undefined
+            ? []
+            : [{ message: identity }];
         const compaction = this.latestCompaction();
         const active = this.activeEntries();
         if (compaction === undefined) {
-            return active;
+            return [...identityEntries, ...active];
         }
         const boundary = active.findIndex(
             (entry) => entry.id === compaction.boundaryMessageId,
         );
         return [
+            ...identityEntries,
             ...compaction.projection.map((message) => ({ message })),
             ...active.slice(boundary + 1),
         ];
+    }
+
+    private identityContextMessage(): ModelMessage | undefined {
+        const context = this.projection.identityEntries[0]?.context;
+        return context === undefined
+            ? undefined
+            : {
+                role: "user",
+                internal: true,
+                content: [{ type: "text", text: context }],
+            };
     }
 
     rewindBefore(userMessageId: string): Promise<SessionRewindEntry> {
@@ -997,6 +1054,35 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.nameEntries.push(entry);
+        return entry;
+    }
+
+    private async commitIdentity(identity: {
+        readonly name: string;
+        readonly key: string;
+        readonly env: Readonly<Record<string, string>>;
+        readonly context?: string;
+    }): Promise<SessionIdentityEntry> {
+        if (this.projection.identityEntries.length > 0) {
+            throw new Error("Session identity is already recorded");
+        }
+        const entry: SessionIdentityEntry = {
+            type: "session_identity",
+            timestamp: this.now().toISOString(),
+            name: validIdentityField(identity.name, "identity name"),
+            key: validIdentityField(identity.key, "identity key"),
+            env: validIdentityEnv(identity.env),
+            ...(identity.context === undefined
+                ? {}
+                : {
+                    context: validIdentityField(
+                        identity.context,
+                        "identity context",
+                    ),
+                }),
+        };
+        await this.appendRecord(entry);
+        this.projection.identityEntries.push(entry);
         return entry;
     }
 
@@ -1479,6 +1565,7 @@ export interface SessionProjectionState {
     readonly permissionsEntries: SessionPermissionsEntry[];
     readonly harnessMessageEntries: SessionHarnessMessageEntry[];
     readonly nameEntries: SessionNameEntry[];
+    readonly identityEntries: SessionIdentityEntry[];
     readonly permissionGrantEntries: SessionPermissionGrantsEntry[];
     readonly permissionGrantRevocationEntries:
         SessionPermissionGrantRevocationEntry[];
@@ -1502,6 +1589,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         permissionsEntries: [],
         harnessMessageEntries: [],
         nameEntries: [],
+        identityEntries: [],
         permissionGrantEntries: [],
         permissionGrantRevocationEntries: [],
         attachmentEntries: [],
@@ -1537,6 +1625,7 @@ export function ingestSessionRecord(
         permissionsEntries,
         harnessMessageEntries,
         nameEntries,
+        identityEntries,
         permissionGrantEntries,
         permissionGrantRevocationEntries,
         attachmentEntries,
@@ -1698,6 +1787,18 @@ export function ingestSessionRecord(
     if (value.type === "session_name") {
         nameEntries.push(
             parseSessionNameEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "session_identity") {
+        if (identityEntries.length > 0) {
+            throw invalidSession(
+                path,
+                `line ${lineNumber} repeats session identity`,
+            );
+        }
+        identityEntries.push(
+            parseSessionIdentityEntry(path, lineNumber, value),
         );
         return;
     }
@@ -2216,6 +2317,42 @@ function parseSessionNameEntry(
         type: "session_name",
         timestamp: value.timestamp,
         name: value.name,
+    };
+}
+
+function parseSessionIdentityEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionIdentityEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || Number.isNaN(Date.parse(value.timestamp))
+        || typeof value.name !== "string"
+        || !isValidIdentityField(value.name)
+        || typeof value.key !== "string"
+        || !isValidIdentityField(value.key)
+        || !isIdentityEnv(value.env)
+        || (
+            value.context !== undefined
+            && (
+                typeof value.context !== "string"
+                || !isValidIdentityField(value.context)
+            )
+        )
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid session identity entry`,
+        );
+    }
+    return {
+        type: "session_identity",
+        timestamp: value.timestamp,
+        name: value.name,
+        key: value.key,
+        env: { ...value.env },
+        ...(value.context === undefined ? {} : { context: value.context }),
     };
 }
 
@@ -2763,6 +2900,42 @@ function isValidSessionName(value: string): boolean {
         && value === value.trim()
         && !value.includes("\0")
         && Buffer.byteLength(value, "utf8") <= 200;
+}
+
+function validIdentityField(value: string, label: string): string {
+    if (!isValidIdentityField(value)) {
+        throw new Error(`${label} must be 1 to 200 UTF-8 bytes`);
+    }
+    return value;
+}
+
+function isValidIdentityField(value: string): boolean {
+    return value.length > 0
+        && value === value.trim()
+        && !value.includes("\0")
+        && !value.includes("\n")
+        && Buffer.byteLength(value, "utf8") <= 200;
+}
+
+function validIdentityEnv(
+    env: Readonly<Record<string, string>>,
+): Readonly<Record<string, string>> {
+    if (!isIdentityEnv(env)) {
+        throw new Error("identity env must be a string map");
+    }
+    return { ...env };
+}
+
+function isIdentityEnv(value: unknown): value is Readonly<Record<string, string>> {
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    return Object.entries(value).every(([key, mapped]) =>
+        /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+        && typeof mapped === "string"
+        && !mapped.includes("\0")
+        && Buffer.byteLength(mapped, "utf8") <= 200
+    );
 }
 
 function nonEmpty(value: string, name: string): string {

@@ -24,6 +24,7 @@ import type {
     VeraExtensionToolHandler,
     VeraExtensionAgentSpec,
     VeraExtensionToolSpec,
+    SessionIdentityProvider,
 } from "../sdk/extensions.ts";
 import type {
     ModelRequestHook,
@@ -69,6 +70,7 @@ const MAX_EXTENSION_DIFF_LINES = 400;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
 const MODEL_REQUEST_HOOK_CAPABILITY = "hooks.model_request";
+const SESSION_IDENTITY_CAPABILITY = "sessions.identity";
 
 export interface StartExtensionRegistryOptions {
     readonly extensions: readonly VeraExtensionConfig[];
@@ -103,6 +105,7 @@ export interface ExtensionRegistry {
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
+    sessionIdentity(): SessionIdentityProvider | undefined;
     contributions(): HostContributionSet;
     invokeCommand(
         name: string,
@@ -133,6 +136,7 @@ interface LoadedRegistryExtension {
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
+    readonly identityProvider?: SessionIdentityProvider;
     readonly disposers: readonly VeraExtensionDisposer[];
     readonly activeInvocations: Set<ActiveExtensionInvocation>;
     disposing: boolean;
@@ -162,6 +166,7 @@ export async function startExtensionRegistry(
     const commands = new Map<string, RegisteredCommandOwner>();
     const tools = new Map<string, LoadedRegistryExtension>();
     const modelRequestNamespaces = new Set<string>();
+    let identityOwner: string | undefined;
     const contributions = createHostContributionSet();
     let closing: Promise<void> | undefined;
 
@@ -231,6 +236,14 @@ export async function startExtensionRegistry(
                     );
                 }
             }
+            if (
+                extension.identityProvider !== undefined
+                && identityOwner !== undefined
+            ) {
+                throw new Error(
+                    `Duplicate session identity provider: ${identityOwner}`,
+                );
+            }
             loaded.push(extension);
             activationOutcome = "loaded";
             owners.set(extension.id, extension);
@@ -245,6 +258,9 @@ export async function startExtensionRegistry(
             }
             for (const hook of extension.modelRequestHooks) {
                 modelRequestNamespaces.add(hook.namespace);
+            }
+            if (extension.identityProvider !== undefined) {
+                identityOwner = extension.id;
             }
         } catch (error) {
             let message = errorMessage(error);
@@ -301,6 +317,13 @@ export async function startExtensionRegistry(
         },
         modelRequestHooks(): readonly RegisteredModelRequestHook[] {
             return loaded.flatMap((extension) => extension.modelRequestHooks);
+        },
+        sessionIdentity(): SessionIdentityProvider | undefined {
+            return loaded.find(
+                (extension) =>
+                    extension.identityProvider !== undefined
+                    && !extension.disposing,
+            )?.identityProvider;
         },
         async invokeCommand(
             name: string,
@@ -415,6 +438,7 @@ async function activateExtension(
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
+    let identityProvider: SessionIdentityProvider | undefined;
     const toolNames = new Set<string>();
     const disposers: VeraExtensionDisposer[] = [];
     const activeInvocations = new Set<ActiveExtensionInvocation>();
@@ -480,6 +504,40 @@ async function activateExtension(
                 }
                 agentNames.add(definition.name);
                 agents.push(definition);
+            },
+        }),
+        sessions: Object.freeze({
+            registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension session identity must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes(SESSION_IDENTITY_CAPABILITY)) {
+                    throw new Error(
+                        `Extension did not declare ${SESSION_IDENTITY_CAPABILITY}`,
+                    );
+                }
+                if (
+                    typeof provider !== "object"
+                    || provider === null
+                    || typeof provider.mint !== "function"
+                    || (
+                        provider.keyOf !== undefined
+                        && typeof provider.keyOf !== "function"
+                    )
+                ) {
+                    throw new Error("Invalid session identity registration");
+                }
+                if (identityProvider !== undefined) {
+                    throw new Error("Duplicate session identity provider");
+                }
+                identityProvider = provider;
+                return () => {
+                    if (identityProvider === provider) {
+                        identityProvider = undefined;
+                    }
+                };
             },
         }),
         hooks: Object.freeze({
@@ -621,6 +679,9 @@ async function activateExtension(
             preToolUseHooks,
             postToolUseHooks,
             modelRequestHooks,
+            ...(identityProvider === undefined
+                ? {}
+                : { identityProvider }),
             disposers,
             activeInvocations,
             disposing: false,

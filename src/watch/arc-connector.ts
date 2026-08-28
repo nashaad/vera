@@ -1,4 +1,4 @@
-import { agentNameKey } from "../host/agent-name.ts";
+import { agentNameKey } from "../../extensions/session-identity/names.ts";
 import type { JsonObject, JsonValue } from "../extensions/contributions.ts";
 import {
     WatchFatalError,

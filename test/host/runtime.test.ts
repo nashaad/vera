@@ -71,6 +71,8 @@ import {
                 (agent) => agent.id === created.id,
             );
             expect(listed?.session_path).toBeDefined();
+            expect(listed?.name).toMatch(/^[a-z0-9-]+:[0-9a-f]{4}$/);
+            const identity = listed!.name!;
 
             expect(await closeAgentThroughHost(socketPath, created.id))
                 .toEqual({ status: "closed", sessionRetained: true });
@@ -83,8 +85,14 @@ import {
 
             const stored = await SessionStore.open(listed!.session_path);
             expect(stored.header.id).toBe(created.id);
+            expect(stored.identity()?.name).toBe(identity);
             expect(await resumeAgentThroughHost(socketPath, listed!.session_path))
                 .toMatchObject({ id: created.id });
+            expect(
+                (await listAgentsThroughHost(socketPath)).find(
+                    (agent) => agent.id === created.id,
+                )?.name,
+            ).toBe(identity);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

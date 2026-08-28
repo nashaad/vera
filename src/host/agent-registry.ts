@@ -174,8 +174,11 @@ import type { ConsultMessage } from "../engine/protocol.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
 import type { LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
+import type {
+    SessionIdentity,
+    SessionIdentityProvider,
+} from "../sdk/extensions.ts";
 import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
-import { agentNameKey, mintAgentName } from "./agent-name.ts";
 import { workspaceKey } from "../workspace-key.ts";
 import type {
     InboxDeliveryCoordinator,
@@ -252,9 +255,9 @@ const PEER_WAKE_WINDOW_MS = 60_000;
 export interface RegisteredAgentSummary {
     readonly id: string;
     /**
-     * The identity name this session posts under, `slug:hex4:purpose`. Carried
-     * on the listing because a list keyed by uuid is unreadable; the id stays
-     * because it is what every other command takes.
+     * The identity name this session posts under, when an identity extension
+     * minted one. Carried on the listing because a list keyed by uuid is
+     * unreadable; the id stays because it is what every other command takes.
      */
     readonly name?: string;
     readonly workspace: string;
@@ -384,6 +387,17 @@ export interface AgentRegistryOptions {
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
     /** Agents an extension registered, the lowest-precedence source. */
     readonly registeredAgents?: readonly AgentDefinition[];
+    /**
+     * How a session is named. Absent means the session has no spoken identity
+     * and shells do not get ARC_SESSION. The bundled session-identity
+     * extension supplies the default.
+     */
+    readonly sessionIdentity?: SessionIdentityProvider;
+    /** Durably reserves one identity key for one session. */
+    readonly reserveSessionIdentity?: (
+        sessionId: string,
+        key: string,
+    ) => Promise<"reserved" | "owned" | "taken">;
     /** Resolved once at startup, bound per agent to that agent's adapter. */
     readonly compaction?: ResolvedCompactionProfile;
     /** What a strategy slot the profile did not name falls back to. */
@@ -1032,11 +1046,11 @@ interface RegisteredAgentEntry {
     readonly ephemeral: boolean;
     pendingPublication: boolean;
     /**
-     * The identity name this session posts and is addressed under, minted at
-     * registration and stable for the entry's lifetime. Changing it
-     * mid-session would break self-echo suppression on the next arc post.
+     * The identity this session posts and is addressed under. Minted once,
+     * persisted, and stable for the session. Changing it mid-session would
+     * break self-echo suppression on the next arc post.
      */
-    readonly arcName: string;
+    readonly identity?: SessionIdentity;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
@@ -1500,7 +1514,7 @@ export class AgentRegistry {
                 }
             }
             this.requireOpen();
-            return this.start(
+            return await this.start(
                 store,
                 kind,
                 options.eventLogPath,
@@ -1554,8 +1568,8 @@ export class AgentRegistry {
             const parentId = store.header.delegation?.parentId
                 ?? store.header.parentId;
             return parentId === undefined
-                ? this.start(store, "interactive", options.eventLogPath)
-                : this.start(
+                ? await this.start(store, "interactive", options.eventLogPath)
+                : await this.start(
                     store,
                     "background",
                     options.eventLogPath,
@@ -1644,7 +1658,7 @@ export class AgentRegistry {
             }
             this.requireOpen();
             return {
-                agent: this.start(
+                agent: await this.start(
                     store,
                     "interactive",
                     options.eventLogPath,
@@ -1720,7 +1734,7 @@ export class AgentRegistry {
         } catch {
             try {
                 const store = await SessionStore.open(entry.store.path);
-                this.start(store, entry.kind, entry.eventLogPath);
+                await this.start(store, entry.kind, entry.eventLogPath);
             } catch {
                 // A partial trash failure can leave the session unavailable.
             }
@@ -1826,38 +1840,146 @@ export class AgentRegistry {
     /** The identity name a live session posts under, `undefined` when gone. */
     arcNameOf(id: string): string | undefined {
         const entry = this.agents.get(id);
-        return entry?.agent.closed === false ? entry.arcName : undefined;
+        return entry?.agent.closed === false ? entry.identity?.name : undefined;
     }
 
     /**
-     * Resolves an arc `session` value to the live session it names. Names
-     * match on `slug:hex4` so a purpose tail never changes addressing; a
-     * value that is not a name still resolves as a raw agent id, because
-     * entries recorded before naming carry ids.
+     * Resolves an identity `session` value to the live session it names.
+     * Matching uses the identity extension's key when one is loaded, so a
+     * purpose tail does not change addressing; a value that is not a name
+     * still resolves as a raw agent id, because entries recorded before
+     * naming carry ids.
      */
     agentIdForArcSession(value: string): string | undefined {
-        const key = agentNameKey(value);
-        if (key !== null) {
-            for (const [id, entry] of this.agents) {
-                if (
-                    !entry.agent.closed
-                    && agentNameKey(entry.arcName) === key
-                ) {
-                    return id;
-                }
+        for (const [id, entry] of this.agents) {
+            if (entry.agent.closed) {
+                continue;
             }
-            return undefined;
+            const identity = entry.identity;
+            if (identity === undefined) {
+                continue;
+            }
+            if (value === identity.name || value === identity.key) {
+                return id;
+            }
+            const incoming = this.options.sessionIdentity?.keyOf?.(value);
+            if (incoming != null && incoming === identity.key) {
+                return id;
+            }
         }
         return this.find(value)?.id;
     }
 
-    private arcNameKeyTaken(key: string): boolean {
+    private readonly identityKeyOwners = new Map<string, string>();
+    private readonly unavailableIdentityKeys = new Set<string>();
+
+    private identityKeyTaken(key: string): boolean {
+        if (
+            this.identityKeyOwners.has(key)
+            || this.unavailableIdentityKeys.has(key)
+        ) {
+            return true;
+        }
         for (const entry of this.agents.values()) {
-            if (agentNameKey(entry.arcName) === key) {
+            if (entry.identity?.key === key) {
                 return true;
             }
         }
         return false;
+    }
+
+    private async bindSessionIdentity(
+        store: SessionStore,
+    ): Promise<SessionIdentity | undefined> {
+        const stored = store.identity();
+        if (stored !== undefined) {
+            const claimed = await this.claimSessionIdentityKey(
+                store.header.id,
+                stored.key,
+            );
+            if (!claimed) {
+                throw new Error(
+                    `Session identity ${stored.name} is already owned by another session`,
+                );
+            }
+            return {
+                name: stored.name,
+                key: stored.key,
+                env: stored.env,
+                ...(stored.context === undefined
+                    ? {}
+                    : { context: { text: stored.context } }),
+            };
+        }
+        // The append-only format forbids records after a terminal failure.
+        // Legacy failed sessions therefore remain unnamed rather than being
+        // made unreadable by an impossible migration.
+        if (store.agentFailure() !== undefined) {
+            return undefined;
+        }
+        const provider = this.options.sessionIdentity;
+        if (provider === undefined) {
+            return undefined;
+        }
+        let minted: SessionIdentity | undefined;
+        for (let attempt = 0; attempt < 1_024; attempt += 1) {
+            minted = provider.mint({
+                taken: (key) => this.identityKeyTaken(key),
+            });
+            if (!isSessionIdentity(minted)) {
+                throw new Error(
+                    "Session identity provider returned an invalid identity",
+                );
+            }
+            if (await this.claimSessionIdentityKey(store.header.id, minted.key)) {
+                break;
+            }
+            minted = undefined;
+        }
+        if (minted === undefined) {
+            throw new Error("Session identity provider exhausted its name space");
+        }
+        await store.appendIdentity({
+            name: minted.name,
+            key: minted.key,
+            env: minted.env,
+            ...(minted.context === undefined
+                ? {}
+                : { context: minted.context.text }),
+        });
+        return minted;
+    }
+
+    private async claimSessionIdentityKey(
+        sessionId: string,
+        key: string,
+    ): Promise<boolean> {
+        const owner = this.identityKeyOwners.get(key);
+        if (owner !== undefined) {
+            return owner === sessionId;
+        }
+        if (this.unavailableIdentityKeys.has(key)) {
+            return false;
+        }
+        // Reserve locally before awaiting the durable claim. Concurrent
+        // creates in this host must not both offer the same candidate.
+        this.identityKeyOwners.set(key, sessionId);
+        const reserve = this.options.reserveSessionIdentity;
+        if (reserve === undefined) {
+            return true;
+        }
+        try {
+            const outcome = await reserve(sessionId, key);
+            if (outcome === "reserved" || outcome === "owned") {
+                return true;
+            }
+            this.identityKeyOwners.delete(key);
+            this.unavailableIdentityKeys.add(key);
+            return false;
+        } catch (error) {
+            this.identityKeyOwners.delete(key);
+            throw error;
+        }
     }
 
     private reviewerDefault(): ReviewerModelDefault {
@@ -2798,7 +2920,7 @@ export class AgentRegistry {
                 }) ?? { count: 0, oldestAgeMs: null };
                 const compact = {
                     participant_id: id,
-                    name: entry.arcName,
+                    name: entry.identity?.name,
                     status: entryStatus(entry),
                     live: entryIsLive(entry),
                 };
@@ -3331,7 +3453,7 @@ export class AgentRegistry {
                 const size = sizeOnDisk(entry.store.path);
                 return {
                     id: entry.agent.id,
-                    name: entry.arcName,
+                    name: entry.identity?.name,
                     workspace: entry.agent.workspace,
                     session_path: entry.store.path,
                     kind: entry.kind,
@@ -3513,7 +3635,7 @@ export class AgentRegistry {
             })));
     }
 
-    private start(
+    private async start(
         store: SessionStore,
         kind: RegisteredAgentKind,
         eventLogPath = this.options.eventLogPathForId?.(
@@ -3524,7 +3646,8 @@ export class AgentRegistry {
         clientPromptRefusal?: string,
         ephemeral = false,
         pendingPublication = false,
-    ): ResidentAgent {
+    ): Promise<ResidentAgent> {
+        const identity = await this.bindSessionIdentity(store);
         const startupProfile = store.header.startupProfile ?? "default";
         const extensionTools = startupProfile === "default"
             ? this.options.extensionTools
@@ -3585,7 +3708,7 @@ export class AgentRegistry {
             kind,
             ephemeral,
             pendingPublication,
-            arcName: mintAgentName((key) => this.arcNameKeyTaken(key)),
+            ...(identity === undefined ? {} : { identity }),
             events,
             eventLogPath,
             ...(parentId === undefined
@@ -3820,7 +3943,7 @@ export class AgentRegistry {
                 // Every shell this session spawns carries its identity name,
                 // so arc stamps the session's posts with it and self-echo
                 // suppression matches with no manual export.
-                toolEnv: { ARC_SESSION: entry.arcName },
+                toolEnv: entry.identity?.env ?? {},
                 instructionRoot,
                 enabledToolEffects: kind === "interactive"
                     ? [
@@ -4080,7 +4203,7 @@ export class AgentRegistry {
                 // The minted name, not the agent id: arc stamps posts with
                 // the ARC_SESSION the shell carries, which is this name, so
                 // the self-echo pair must hold the same value.
-                session: entry.arcName,
+                session: entry.identity?.name ?? agent.id,
                 notify: (notice) => {
                     if (!agent.closed && !agent.failed) {
                         events.emit({
@@ -5611,4 +5734,30 @@ function workerOutcomeDetail(outcome: WorkerOutcome): string {
         default:
             return "The agent process stopped";
     }
+}
+
+function isSessionIdentity(value: unknown): value is SessionIdentity {
+    if (typeof value !== "object" || value === null) {
+        return false;
+    }
+    const identity = value as SessionIdentity;
+    if (
+        typeof identity.name !== "string"
+        || identity.name.trim().length === 0
+        || typeof identity.key !== "string"
+        || identity.key.trim().length === 0
+        || typeof identity.env !== "object"
+        || identity.env === null
+        || Array.isArray(identity.env)
+        || !Object.entries(identity.env).every(([key, mapped]) =>
+            /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
+            && typeof mapped === "string"
+        )
+    ) {
+        return false;
+    }
+    if (identity.context === undefined) {
+        return true;
+    }
+    return typeof identity.context.text === "string";
 }

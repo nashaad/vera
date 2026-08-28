@@ -5,7 +5,7 @@ import {
     agentNameKey,
     mintAgentName,
     parseAgentName,
-} from "../../src/host/agent-name.ts";
+} from "../../extensions/session-identity/names.ts";
 
 describe("agent name format", () => {
     test("a bare name parses into slug and hex4", () => {

@@ -1506,6 +1506,7 @@ export async function startTui(
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
     let diagnosticsScope: TuiDiagnosticsScope = "session";
     let diagnosticsSessionPath: string | undefined;
+    let diagnosticsSessionIdentity: string | undefined;
     let diagnosticsWorkerPid: number | undefined;
     let diagnosticsSupervisorPid: number | undefined;
     let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
@@ -5168,6 +5169,7 @@ export async function startTui(
                     diagnosticsGeneration += 1;
                     diagnosticsDialog = undefined;
                     diagnosticsSessionPath = undefined;
+                    diagnosticsSessionIdentity = undefined;
                     diagnosticsSessionPathResolved = false;
                     focusActiveSurface();
                     renderState();
@@ -5876,6 +5878,8 @@ export async function startTui(
             elapsed: elapsedWorkingTime(),
             scope: diagnosticsScope,
             sessionId: client.agentId,
+            sessionIdentity: diagnosticsSessionIdentity,
+            sessionPath: diagnosticsSessionPath,
             workspace: client.workspace ?? process.cwd(),
             runningBackgroundAgents,
             processes: [
@@ -6289,6 +6293,7 @@ export async function startTui(
             renderCommandSuggestions();
             diagnosticsScope = "session";
             diagnosticsSessionPath = undefined;
+            diagnosticsSessionIdentity = undefined;
             diagnosticsWorkerPid = undefined;
             diagnosticsSupervisorPid = undefined;
             diagnosticsProcessMemory = new Map();
@@ -6316,8 +6321,16 @@ export async function startTui(
                         || client.agentId !== agentId
                     ) return;
                     diagnosticsSessionPathResolved = true;
+                    diagnosticsSessionIdentity = listed?.name;
+                    diagnosticsSessionPath = sessionPath;
                     diagnosticsWorkerPid = listed?.worker_pid;
                     diagnosticsSupervisorPid = listed?.supervisor_pid;
+                    diagnosticsDialog = {
+                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                        scope: diagnosticsScope,
+                        copyReady: true,
+                    };
+                    renderState();
                     const processPids = [
                         process.pid,
                         dependencies.build?.hostPid,
@@ -6330,21 +6343,8 @@ export async function startTui(
                         || diagnosticsGeneration !== generation
                         || client.agentId !== agentId
                     ) return;
-                    if (sessionPath === undefined) {
-                        diagnosticsDialog = {
-                            text: renderTuiDiagnostics(diagnosticsSnapshot()),
-                            scope: diagnosticsScope,
-                            copyReady: true,
-                        };
-                        renderState();
-                        return;
-                    }
-                    diagnosticsSessionPath = sessionPath;
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics({
-                            ...diagnosticsSnapshot(),
-                            sessionPath,
-                        }),
+                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
                         scope: diagnosticsScope,
                         copyReady: true,
                     };

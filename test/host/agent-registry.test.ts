@@ -27,8 +27,11 @@ import {
 } from "../../src/engine/protocol.ts";
 import {
     agentNameKey,
+    mintAgentName,
     parseAgentName,
-} from "../../src/host/agent-name.ts";
+} from "../../extensions/session-identity/names.ts";
+import type { SessionIdentityProvider } from "../../src/sdk/extensions.ts";
+import { reserveSessionIdentity } from "../../src/host/session-identity-reservation.ts";
 import type { ToolReviewerSettings } from "../../src/engine/reviewer.ts";
 import { configuredProviders } from "../../src/providers/registry.ts";
 import { AgentRegistry } from "../../src/host/agent-registry.ts";
@@ -458,7 +461,10 @@ test("agent_roster reports the workspace's other live sessions", async () => {
     await mkdir(here);
     await mkdir(elsewhere);
 
-    const registry = createRegistry(() => agentRosterScript());
+    const registry = createRegistry(
+        () => agentRosterScript(),
+        slugIdentityProvider(),
+    );
     const callerSession = join(root, "caller.jsonl");
 
     try {
@@ -4207,12 +4213,38 @@ test("the registry reports every roster change to its listeners", async () => {
     }
 });
 
-function createRegistry(script: () => AssistantMessage[]): AgentRegistry {
+function createRegistry(
+    script: () => AssistantMessage[],
+    sessionIdentity?: SessionIdentityProvider,
+    reserveIdentity?: (
+        sessionId: string,
+        key: string,
+    ) => Promise<"reserved" | "owned" | "taken">,
+): AgentRegistry {
     return new AgentRegistry({
         createAdapter: () => new FauxAdapter(script()),
         model: "faux/test",
         approvalMode: "auto",
+        ...(sessionIdentity === undefined ? {} : { sessionIdentity }),
+        ...(reserveIdentity === undefined
+            ? {}
+            : { reserveSessionIdentity: reserveIdentity }),
     });
+}
+
+function slugIdentityProvider(): SessionIdentityProvider {
+    return {
+        mint({ taken }) {
+            const name = mintAgentName(taken);
+            return {
+                name,
+                key: agentNameKey(name)!,
+                env: { ARC_SESSION: name, COORD_SESSION: name },
+                context: { text: `Your session identity is ${name}.` },
+            };
+        },
+        keyOf: agentNameKey,
+    };
 }
 
 function readMarkerScript(): AssistantMessage[] {
@@ -5023,7 +5055,10 @@ test("an admitted inbox entry starts a real delivery turn", async () => {
 test("every session gets a stable identity name the host can resolve", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-name-"));
     await writeFile(join(root, "marker.txt"), "workspace marker");
-    const registry = createRegistry(() => readMarkerScript());
+    const registry = createRegistry(
+        () => readMarkerScript(),
+        slugIdentityProvider(),
+    );
 
     try {
         const first = await registry.create({
@@ -5070,7 +5105,7 @@ test("a session's shells carry its minted name as ARC_SESSION", async () => {
             stopReason: "tool_use",
         },
         textResponse("done"),
-    ]);
+    ], slugIdentityProvider());
     const firstSession = join(root, "first.jsonl");
     const secondSession = join(root, "second.jsonl");
 
@@ -5091,6 +5126,121 @@ test("a session's shells carry its minted name as ARC_SESSION", async () => {
             .toBe(registry.arcNameOf(first.id)!);
         expect(await toolResultText(secondSession))
             .toBe(registry.arcNameOf(second.id)!);
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a minted identity persists across resume and tells the model internally", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-identity-resume-"));
+    const sessionPath = join(root, "agent.jsonl");
+    const firstRegistry = createRegistry(
+        () => [textResponse("done")],
+        slugIdentityProvider(),
+        (sessionId, key) => reserveSessionIdentity(root, sessionId, key),
+    );
+    let name: string;
+    try {
+        const agent = await firstRegistry.create({
+            workspace: root,
+            sessionPath,
+        });
+        name = firstRegistry.arcNameOf(agent.id)!;
+        const store = await SessionStore.open(sessionPath);
+        expect(store.identity()?.name).toBe(name);
+        const [note] = store.messages();
+        expect(note?.internal).toBe(true);
+        expect(note?.role).toBe("user");
+        expect(note && "content" in note && note.content[0]).toEqual({
+            type: "text",
+            text: `Your session identity is ${name}.`,
+        });
+        expect(projectTranscript(store.messages()).some((entry) =>
+            entry.kind === "user"
+            && entry.text.includes(name)
+        )).toBe(false);
+    } finally {
+        await firstRegistry.close();
+    }
+
+    const secondRegistry = createRegistry(
+        () => [textResponse("done")],
+        slugIdentityProvider(),
+        (sessionId, key) => reserveSessionIdentity(root, sessionId, key),
+    );
+    try {
+        const resumed = await secondRegistry.resume({ sessionPath });
+        expect(secondRegistry.arcNameOf(resumed.id)).toBe(name);
+        expect(secondRegistry.agentIdForArcSession(`${name}:UAT-tester`))
+            .toBe(resumed.id);
+    } finally {
+        await secondRegistry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("durable identity reservations prevent reuse across registries", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-identity-unique-"));
+    const names = ["calm-wren:0001", "calm-wren:0002"];
+    const provider = (): SessionIdentityProvider => ({
+        mint({ taken }) {
+            const name = names.find((candidate) => !taken(candidate));
+            if (name === undefined) throw new Error("identity names exhausted");
+            return {
+                name,
+                key: name,
+                env: { ARC_SESSION: name, COORD_SESSION: name },
+                context: { text: `Your session identity is ${name}.` },
+            };
+        },
+        keyOf: agentNameKey,
+    });
+    const reserve = (sessionId: string, key: string) =>
+        reserveSessionIdentity(root, sessionId, key);
+    const first = createRegistry(
+        () => [textResponse("done")],
+        provider(),
+        reserve,
+    );
+    const second = createRegistry(
+        () => [textResponse("done")],
+        provider(),
+        reserve,
+    );
+    try {
+        const [firstAgent, secondAgent] = await Promise.all([
+            first.create({
+                id: "first",
+                workspace: root,
+                sessionPath: join(root, "first.jsonl"),
+            }),
+            second.create({
+                id: "second",
+                workspace: root,
+                sessionPath: join(root, "second.jsonl"),
+            }),
+        ]);
+        expect(new Set([
+            first.arcNameOf(firstAgent.id),
+            second.arcNameOf(secondAgent.id),
+        ])).toEqual(new Set(names));
+    } finally {
+        await first.close();
+        await second.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a session without an identity extension has no spoken name", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-agent-unnamed-"));
+    const registry = createRegistry(() => [textResponse("done")]);
+    try {
+        const agent = await registry.create({
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        expect(registry.arcNameOf(agent.id)).toBeUndefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });

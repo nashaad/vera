@@ -6,10 +6,8 @@ import { randomBytes } from "node:crypto";
  * only; purpose is display decoration. Colons are the separator and are
  * banned inside fields; they mangle to `-` only at filename boundaries.
  *
- * The host mints a name mechanically when it registers a session and the name
- * never changes for that session's live lifetime. Real uniqueness comes from
- * the session UUID underneath and the node id on the transport; hex4 only
- * disambiguates the spoken name, so it stays small.
+ * hex4 only disambiguates the spoken name, so it stays small. Real uniqueness
+ * comes from the session UUID underneath and the node id on the transport.
  */
 
 const ADJECTIVES = [
@@ -72,7 +70,7 @@ export function agentNameKey(value: string): string | null {
     return parsed === null ? null : `${parsed.slug}:${parsed.hex4}`;
 }
 
-/** Colons mangle to `-` at filename boundaries and nowhere else. */
+/** Colons mangle to hyphens at filename boundaries and nowhere else. */
 export function agentNameForFilename(name: string): string {
     return name.replaceAll(":", "-");
 }
