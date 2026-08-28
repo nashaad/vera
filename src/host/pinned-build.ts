@@ -1,18 +1,14 @@
+import { execFileSync } from "node:child_process";
 import {
     existsSync,
     mkdirSync,
     readFileSync,
+    realpathSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
-import {
-    cleanGitCheckoutCommit,
-    cleanlyMatchesGitCommit,
-    gitCheckoutRoot,
-    materializeGitWorktree,
-} from "../dev/git-checkout.ts";
 import { veraMachineDirectory } from "../profile-paths.ts";
 
 /**
@@ -23,6 +19,8 @@ export const PINNED_BUILD_ENV = "VERA_PINNED_BUILD";
 
 /** Where the pinned checkout is materialized, relative to the repository. */
 const PINNED_WORKTREE_PATH = join(".worktrees", "pinned");
+
+const GIT_TIMEOUT_MS = 20_000;
 
 export interface PinnedBuildRecord {
     /** The commit whose host was last seen to boot cleanly. */
@@ -38,6 +36,48 @@ export interface PinnedBuildRecord {
  */
 function pinPath(): string {
     return join(veraMachineDirectory(), "pinned-build.json");
+}
+
+function git(repository: string, args: readonly string[]): string {
+    return execFileSync("git", ["-C", repository, ...args], {
+        encoding: "utf8",
+        stdio: ["ignore", "pipe", "ignore"],
+        timeout: GIT_TIMEOUT_MS,
+    }).trim();
+}
+
+/**
+ * The repository that tracks a file, or undefined when it belongs to none.
+ * Checking that the entrypoint is tracked prevents an installed package from
+ * claiming a consuming project's repository merely because it sits below it.
+ */
+function checkoutRoot(path: string): string | undefined {
+    try {
+        const canonicalPath = realpathSync(path);
+        const repository = git(dirname(canonicalPath), [
+            "rev-parse",
+            "--show-toplevel",
+        ]);
+        const entry = relative(repository, canonicalPath);
+        if (
+            entry === ""
+            || entry === ".."
+            || isAbsolute(entry)
+            || entry.startsWith(`..${sep}`)
+        ) {
+            return undefined;
+        }
+        git(repository, ["ls-files", "--error-unmatch", "--", entry]);
+        return repository;
+    } catch {
+        return undefined;
+    }
+}
+
+/** Whether a checkout's tracked files match its commit. */
+function isClean(repository: string): boolean {
+    return git(repository, ["status", "--porcelain", "--untracked-files=no"])
+        === "";
 }
 
 export function readPinnedBuild(): PinnedBuildRecord | undefined {
@@ -70,13 +110,13 @@ export function recordCleanBoot(
 ): void {
     if (env[PINNED_BUILD_ENV] !== undefined) return;
     try {
-        const repository = gitCheckoutRoot(entrypoint);
+        const repository = checkoutRoot(entrypoint);
         if (repository === undefined) return;
         // A commit does not describe a tree with uncommitted edits in it, so
         // there is nothing here that could be checked out again later. An
         // older pin that does boot beats a new one that cannot be reproduced.
-        const commit = cleanGitCheckoutCommit(repository);
-        if (commit === undefined) return;
+        if (!isClean(repository)) return;
+        const commit = git(repository, ["rev-parse", "HEAD"]);
         const existing = readPinnedBuild();
         if (existing?.commit === commit && existing.repository === repository) {
             return;
@@ -113,23 +153,44 @@ export function pinnedCliEntrypoint(
     if (env[PINNED_BUILD_ENV] !== undefined) return undefined;
     const pin = readPinnedBuild();
     if (pin === undefined) return undefined;
-    const repository = gitCheckoutRoot(entrypoint);
+    const repository = checkoutRoot(entrypoint);
     // A pin recorded from a different installation describes a tree this one
     // has no claim on, so it is ignored rather than reached into.
     if (repository === undefined || repository !== pin.repository) {
         return undefined;
     }
-    // An unreadable HEAD is not proof the pin is unnecessary; carry on and
-    // let worktree materialization decide whether the pin can be used.
-    if (cleanlyMatchesGitCommit(repository, pin.commit) === true) {
+    try {
+        // A dirty tree at the pinned commit is not the pinned build: the
+        // edits in it are the likeliest thing to have broken the host, and
+        // they are exactly what the pinned worktree does not carry.
+        if (
+            git(repository, ["rev-parse", "HEAD"]) === pin.commit
+            && isClean(repository)
+        ) {
+            return undefined;
+        }
+    } catch {
+        // An unreadable HEAD is not proof the pin is unnecessary; carry on and
+        // let the checkout below decide.
+    }
+    const worktree = join(repository, PINNED_WORKTREE_PATH);
+    try {
+        if (existsSync(join(worktree, ".git"))) {
+            if (git(worktree, ["rev-parse", "HEAD"]) !== pin.commit) {
+                git(worktree, ["checkout", "--detach", pin.commit]);
+            }
+        } else {
+            git(repository, [
+                "worktree",
+                "add",
+                "--detach",
+                worktree,
+                pin.commit,
+            ]);
+        }
+    } catch {
         return undefined;
     }
-    const worktree = materializeGitWorktree(
-        repository,
-        PINNED_WORKTREE_PATH,
-        pin.commit,
-    );
-    if (worktree === undefined) return undefined;
     const cli = join(worktree, "clients", "cli", "main.ts");
     return existsSync(cli) ? cli : undefined;
 }
