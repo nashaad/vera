@@ -20,6 +20,7 @@ import {
 } from "../config.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
+import { veraMachineDirectory } from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -292,6 +293,12 @@ export async function startResidentHost(
     const currentReachability = () => poolReachability(loadPoolFile({}).merged);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
+    // Production profiles share the machine tier, so a complete identity is
+    // unique across every profile. Explicit test/session roots remain
+    // self-contained and never write into the developer's real machine tier.
+    const sessionIdentityReservationRoot = options.sessionDirectory === undefined
+        ? veraMachineDirectory()
+        : sessionDirectory;
     const eventLogDirectory = options.eventLogDirectory;
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
@@ -795,7 +802,7 @@ export async function startResidentHost(
         registeredAgents: extensions.agents(),
         sessionIdentity: extensions.sessionIdentity(),
         reserveSessionIdentity: (sessionId, key) =>
-            reserveSessionIdentity(sessionDirectory, sessionId, key),
+            reserveSessionIdentity(sessionIdentityReservationRoot, sessionId, key),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [
             ...await loadSkillContribution(instructionRoot, allowedSkills),
             ...startupFindings.contributions(),
