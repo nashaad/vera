@@ -189,6 +189,17 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
             options: { timeoutMs: 1000 },
         },
         {
+            method: "hook.preTurn",
+            payload: {
+                type: "pre_turn",
+                workspace: "/w",
+                prompt: "review this",
+                model: "m",
+                tools: ["read"],
+            },
+            options: { timeoutMs: 1000 },
+        },
+        {
             method: "compaction.complete",
             callId: "c6",
             role: "summarizer",

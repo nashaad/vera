@@ -213,8 +213,8 @@ export interface RunHeadlessLoopServices {
     /** JSON form: a `reviewLog { ... }` notification to the owner. */
     readonly reviewLog?: ReviewLog;
     /**
-     * JSON form: `hook.preToolUse` and `hook.postToolUse` requests with JSON
-     * replies, since the hook payloads are already plain data.
+     * JSON form: `hook.preToolUse`, `hook.postToolUse`, and `hook.preTurn`
+     * requests with JSON replies, since the hook payloads are already plain data.
      */
     readonly hooks?: ToolHooks;
     /**

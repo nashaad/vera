@@ -96,6 +96,35 @@ export type PostToolUseHook = (
     payload: PostToolUseHookPayload,
 ) => PostToolUseHookResult | Promise<PostToolUseHookResult>;
 
+export interface PreTurnHookPayload {
+    readonly type: "pre_turn";
+    /** Present for host-run sessions; direct engine fixtures may omit it. */
+    readonly sessionId?: string;
+    readonly workspace: string;
+    readonly prompt: string;
+    readonly model: string;
+    /** Tool names this turn would offer before the hook runs. */
+    readonly tools: readonly string[];
+    readonly reasoningEffort?: string;
+}
+
+export interface MutatePreTurnHookResult {
+    readonly power: "mutate";
+    /** Restrict to a subset of `payload.tools`. An empty list offers none. */
+    readonly tools?: readonly string[];
+    readonly model?: string;
+    readonly reasoningEffort?: string;
+}
+
+export type PreTurnHookResult =
+    | ObserveHookResult
+    | MutatePreTurnHookResult
+    | BlockHookResult;
+
+export type PreTurnHook = (
+    payload: PreTurnHookPayload,
+) => PreTurnHookResult | Promise<PreTurnHookResult>;
+
 export interface ModelRequestHookPayload {
     readonly type: "model_request";
     readonly provider: string;

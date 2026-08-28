@@ -32,6 +32,7 @@ import type {
     HookToolCall,
     HookToolResult,
     PreToolUseHookResult,
+    PreTurnHookPayload,
 } from "../sdk/hooks.ts";
 import type { MessageChannel } from "./message-channel.ts";
 import type { AgentUpdate } from "./protocol.ts";
@@ -175,6 +176,7 @@ import {
 } from "./model-settings.ts";
 
 const PRE_TOOL_HOOK_TIMEOUT_MS = 60_000;
+const PRE_TURN_HOOK_TIMEOUT_MS = 60_000;
 const POST_TOOL_HOOK_TIMEOUT_MS = 5_000;
 const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
@@ -1347,7 +1349,8 @@ export async function runTurn(
         const denialBreaker = createToolDenialBreaker();
         // Fixed here, with the rest of the agent's snapshot, so the turn runs
         // under exactly one agent from the tools it is offered to the skills
-        // its scripts can reach.
+        // its scripts can reach. A pre-turn hook may then only narrow that
+        // snapshot for this user turn.
         const wear = state.readAgentWear?.();
         state.firedNudges?.clear();
         state.toolRuntime.allowedTools = turnToolExecutionScope(wear);
@@ -1366,7 +1369,10 @@ export async function runTurn(
         // A tool the agent does not offer is not described to the model, so
         // the ordinary case is that it is never called. Gate A is what makes
         // the extraordinary case safe.
-        const scopedTools = wear?.tools === undefined
+        // Wear and the offered catalog are the ceiling. A pre-turn hook may
+        // only narrow this snapshot; it cannot add a tool the agent does not
+        // already have.
+        let scopedTools = wear?.tools === undefined
             ? offered
             : offered.filter((tool) => turnAllowsTool(wear, tool.name));
         const userMessage: UserMessage | undefined = turn.triggeredByDelivery
@@ -1444,6 +1450,40 @@ export async function runTurn(
         } else {
             await commitMessage(state, userMessage);
             state.events.emit({ type: "turn_started", message: userMessage });
+            const applied = await applyPreTurnHook(
+                state,
+                {
+                    type: "pre_turn",
+                    ...(state.sessionId === undefined
+                        ? {}
+                        : { sessionId: state.sessionId }),
+                    workspace: state.toolRuntime.workspace,
+                    prompt: turn.prompt.content,
+                    model: activeModel,
+                    tools: scopedTools.map((tool) => tool.name),
+                    ...(turnReasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: turnReasoningEffort }),
+                },
+            );
+            if (applied.blocked !== undefined) {
+                assistantMessage = preTurnBlockedMessage(
+                    applied.activeModel,
+                    applied.blocked,
+                );
+                await commitMessage(state, assistantMessage);
+                state.events.emit({
+                    type: "turn_finished",
+                    message: assistantMessage,
+                });
+                return assistantMessage;
+            }
+            activeModel = applied.activeModel;
+            turnReasoningEffort = applied.turnReasoningEffort;
+            scopedTools = scopedTools.filter((tool) =>
+                applied.tools.includes(tool.name)
+            );
+            state.toolRuntime.allowedTools = applied.allowedTools;
         }
 
         // Read once for the turn rather than per model round: the catalog is
@@ -2085,6 +2125,73 @@ function attachmentErrorMessage(model: string, detail: string): AssistantMessage
     };
 }
 
+function preTurnBlockedMessage(model: string, detail: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [],
+        source: { provider: "vera", api: "hook", model },
+        usage: emptyUsage(),
+        stopReason: "error",
+        errorMessage: detail,
+    };
+}
+
+interface AppliedPreTurn {
+    readonly activeModel: string;
+    readonly turnReasoningEffort: ModelReasoningEffort | undefined;
+    readonly tools: readonly string[];
+    readonly allowedTools: readonly string[] | undefined;
+    readonly blocked?: string;
+}
+
+async function applyPreTurnHook(
+    state: RunTurnState,
+    payload: PreTurnHookPayload,
+): Promise<AppliedPreTurn> {
+    const unchanged = {
+        activeModel: payload.model,
+        turnReasoningEffort: payload.reasoningEffort as ModelReasoningEffort | undefined,
+        tools: payload.tools,
+        allowedTools: state.toolRuntime.allowedTools,
+    };
+    let outcome;
+    try {
+        outcome = await state.hooks.runPreTurn(payload, {
+            timeoutMs: PRE_TURN_HOOK_TIMEOUT_MS,
+        });
+    } catch (error) {
+        const message = errorMessage(error);
+        state.events.emit({
+            type: "turn_hook_failed",
+            phase: "pre_turn",
+            error: message,
+        });
+        return {
+            ...unchanged,
+            blocked: `pre_turn hook failed: ${message}`,
+        };
+    }
+    if (outcome.result.power === "block") {
+        return {
+            ...unchanged,
+            blocked: `pre_turn hook blocked this turn: ${outcome.result.reason}`,
+        };
+    }
+    const next = outcome.payload;
+    const toolsChanged = next.tools.length !== payload.tools.length
+        || next.tools.some((name, index) => name !== payload.tools[index]);
+    return {
+        activeModel: next.model,
+        turnReasoningEffort: next.reasoningEffort as ModelReasoningEffort | undefined,
+        tools: next.tools,
+        allowedTools: toolsChanged
+            ? (next.tools.length === 0
+                ? []
+                : turnToolExecutionScope({ tools: next.tools }))
+            : state.toolRuntime.allowedTools,
+    };
+}
+
 async function drainPendingDeliveries(state: RunTurnState): Promise<void> {
     const inbox = state.deliveryInbox;
     if (inbox === undefined) {
@@ -2182,7 +2289,7 @@ function turnAllowsTool(
 }
 
 function turnToolExecutionScope(
-    wear: AgentWearSnapshot | undefined,
+    wear: { readonly tools?: readonly string[] } | undefined,
 ): readonly string[] | undefined {
     if (wear?.tools === undefined) return undefined;
     if (!wear.tools.includes("bash") || wear.tools.includes("process")) {
@@ -2203,13 +2310,26 @@ async function prepareAssistantToolCalls(
         const original = hookToolCall(block);
         // Gate A, on the name, before anything else touches the call. A
         // pre-tool hook cannot rename a call, so the name checked here is the
-        // name that would execute.
+        // name that would execute. A pre-turn restriction is the same gate:
+        // a tool dropped from this turn's offer is not a call to rewrite.
         if (!turnAllowsTool(state.readAgentWear?.(), block.name)) {
             preparedById.set(block.id, {
                 toolCall: block,
                 hookResult: { power: "observe" },
                 scopeDenial:
                     `The agent you are wearing does not offer the ${block.name} tool.`,
+            });
+            continue;
+        }
+        if (
+            state.toolRuntime.allowedTools !== undefined
+            && !state.toolRuntime.allowedTools.includes(block.name)
+        ) {
+            preparedById.set(block.id, {
+                toolCall: block,
+                hookResult: { power: "observe" },
+                scopeDenial:
+                    `This turn does not offer the ${block.name} tool.`,
             });
             continue;
         }
