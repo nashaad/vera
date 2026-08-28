@@ -258,6 +258,27 @@ test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", as
     expect(grounds[last]).not.toBe("default");
 }, 60_000);
 
+test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", async () => {
+    const pane = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        await tui.paneWhere((value) =>
+            value.includes("[ VERA ] ·") && value.includes("this one")
+        );
+        return await tui.paneWhere((value) =>
+            value.includes("What should this session work on next?")
+            && value.includes("1. Code work")
+        );
+    }, 120, 40, { VERA_TEST_QUESTION_AFTER_MS: "800" });
+
+    const rail = workspaceRailColumns(120)!;
+    expect(pane).toContain("[ VERA ] · 6");
+    expect(pane).toContain("NEEDS YOU");
+    expect(rowOf(pane, "this one")).toContain("! this one");
+    expect(column(pane, "What should this session work on next?"))
+        .toBeGreaterThanOrEqual(rail);
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("the selection bar is drawn only while the rail has the keys", async () => {
     const { focused, quiet, litPane, quietPane } = await withTui(async (tui) => {
         await tui.settled();

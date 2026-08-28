@@ -335,6 +335,42 @@ if (process.env.VERA_TEST_PUSH_WORK_AFTER_MS !== undefined) {
         for (const listener of workIndexListeners) listener(LATER);
     }, Number(process.env.VERA_TEST_PUSH_WORK_AFTER_MS));
 }
+
+if (process.env.VERA_TEST_QUESTION_AFTER_MS !== undefined) {
+    setTimeout(() => {
+        const question = "What should this session work on next?";
+        for (const listener of workIndexListeners) {
+            listener(buildWorkIndex([{
+                id: "work-tab-child",
+                session_path: "/sessions/work-tab-child.jsonl",
+                title: "this one",
+                workspace: "/work/one",
+                kind: "interactive",
+                status: "waiting",
+                live: true,
+                updated_at: minutesAgo(0),
+                pending_request: {
+                    type: "user_question",
+                    question,
+                    choices: [],
+                },
+            }], [], { now }));
+        }
+        channel.engine.send({
+            type: "ui_request",
+            requestId: "workspace-question",
+            request: {
+                type: "user_question",
+                question,
+                choices: [
+                    { id: "code", label: "Code work" },
+                    { id: "research", label: "Research" },
+                ],
+            },
+            seq: 10_000,
+        });
+    }, Number(process.env.VERA_TEST_QUESTION_AFTER_MS));
+}
 const client: TuiAgentClient = {
     agentId: "work-tab-child",
     workspace: "/work/one",

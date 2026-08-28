@@ -3345,10 +3345,10 @@ export async function startTui(
     }
 
     /**
-     * A ui_request from the agent (approval, question) owns the screen. Any
-     * picker or menu the user had open locally is not part of answering it,
-     * and activeOverlayFocus() ranks several of them above the request, so
-     * left open they paint over or steal focus from it instead of yielding.
+     * A ui_request from the agent (approval, question) owns the session pane.
+     * Pickers and menus are not part of answering it, so they close rather
+     * than painting over or stealing focus from the request. A docked agent
+     * rail is navigation outside that pane: it yields focus but stays visible.
      */
     function closeTransientOverlaysForUiRequest(): void {
         dialStrip = undefined;
@@ -3356,11 +3356,17 @@ export async function startTui(
         commandPalette = undefined;
         help = undefined;
         workTab = undefined;
-        workspaceSidebar = undefined;
+        if (workspaceRail === undefined) {
+            workspaceSidebar = undefined;
+        } else {
+            workspaceSidebarFocused = false;
+        }
         searchOverlay = undefined;
         queuedSearch = undefined;
         workTabView.surface.visible = false;
-        workspaceSidebarView.surface.visible = false;
+        if (workspaceRail === undefined) {
+            workspaceSidebarView.surface.visible = false;
+        }
         searchOverlayView.surface.visible = false;
         doctorDialog = undefined;
         diagnosticsDialog = undefined;
@@ -9764,7 +9770,16 @@ export async function startTui(
             && commandPalette === undefined
             && workTab !== undefined;
         applyWorkspaceRail();
-        workspaceSidebarView.surface.visible = uiRequest === undefined
+        const sessionRequestVisible = approvalView.box.visible
+            || questionView.box.visible;
+        /*
+         * A session-owned request replaces that session's composer, not the
+         * navigator beside it. Narrow terminals still have a sidebar card
+         * rather than a rail, so the request keeps the screen there.
+         */
+        const workspaceSidebarAllowed = uiRequest === undefined
+            || (sessionRequestVisible && workspaceRail !== undefined);
+        workspaceSidebarView.surface.visible = workspaceSidebarAllowed
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
@@ -9877,6 +9892,13 @@ export async function startTui(
         // needs no attenuation of its own. Fading it a second time left the
         // composer and status band darker than the transcript beside them.
         overlayScrim.visible = overlayVisible;
+        const requestUsesRail = sessionRequestVisible
+            && workspaceSidebarView.surface.visible;
+        const requestRailColumns = requestUsesRail
+            ? workspaceSidebarView.railColumns() ?? 0
+            : 0;
+        overlayScrim.left = requestRailColumns;
+        overlayScrim.width = Math.max(1, renderer.width - requestRailColumns);
         // Ordinary modals leave the conversation and composer in place as
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
@@ -9900,6 +9922,11 @@ export async function startTui(
         ) {
             questionView.update(uiRequest);
         }
+        // Approval and question boxes are absolute children, so app padding
+        // does not move them with the transcript. Seat session-owned cards in
+        // the transcript column explicitly when the docked rail stays up.
+        approvalView.box.left = requestRailColumns;
+        questionView.box.left = requestRailColumns;
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
         }
@@ -12072,9 +12099,9 @@ export async function startTui(
         // underneath the dock.
         app.paddingLeft = occupied;
         workspaceSidebarView.surface.left = 0;
-        // Every dialog, settings picker included, hides the rail rather than
-        // sitting beside it (see the workspaceSidebarView.surface.visible
-        // gate below), so the scrim always covers the whole terminal.
+        // Global dialogs still hide the rail. Session-owned approval and
+        // question cards stay in the chat column; renderState narrows their
+        // scrim to that column after it knows which kind of overlay is open.
         overlayScrim.left = 0;
         overlayScrim.width = renderer.width;
         statusBand.left = occupied;
