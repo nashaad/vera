@@ -10,7 +10,7 @@ import { fileURLToPath } from "node:url";
 import {
     PINNED_BUILD_ENV,
     pinnedCliEntrypoint,
-} from "../../src/pinned-build.ts";
+} from "../../src/host/pinned-build.ts";
 
 import {
     isVeraProviderId,

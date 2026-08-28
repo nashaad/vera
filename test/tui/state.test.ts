@@ -12,6 +12,7 @@ import {
     appendTuiNotice,
     appendTuiThought,
     toggleTuiThinking,
+    transcriptMessageId,
     toggleTuiToolDetails,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
@@ -2817,4 +2818,15 @@ test("a breaker trip reads as text, with no colour carrying the state", () => {
         expect(entry.kind).toBe("notice");
         expect((entry as { tone?: string }).tone).toBeUndefined();
     }
+});
+
+test("a row's id names the message it came from, not the row", () => {
+    // One stored message becomes several rows, numbered after a hash.
+    expect(transcriptMessageId("abc#0")).toBe("abc");
+    expect(transcriptMessageId("abc#12")).toBe("abc");
+    // A store id with a hash of its own keeps everything up to the last one.
+    expect(transcriptMessageId("a#b#3")).toBe("a#b");
+    // Rows that were never numbered, and rows with no id at all.
+    expect(transcriptMessageId("abc")).toBe("abc");
+    expect(transcriptMessageId(undefined)).toBeUndefined();
 });

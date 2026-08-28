@@ -102,6 +102,38 @@ test("rail header actions are visible text and activate by id", async () => {
     }
 });
 
+test("a card told to fill keeps its height as its list changes", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 34 });
+    const { renderer } = setup;
+    try {
+        const view = createTuiLinesView(renderer, "search", {
+            fillHeight: true,
+        });
+
+        renderer.root.add(view.surface);
+        view.surface.visible = true;
+        const height = async (): Promise<number> => {
+            await setup.flush();
+            return view.box.height;
+        };
+        view.update({ ...STATE, lines: [] });
+        const empty = await height();
+        view.update(STATE);
+        expect(await height()).toBe(empty);
+
+        // The rows a list can show shrink with the room under it, so the
+        // frame does too. It is only the list's own length it ignores.
+        view.setBottomInset(4);
+        view.update(STATE);
+        const shallow = await height();
+        view.setBottomInset(14);
+        view.update(STATE);
+        expect(await height()).toBe(shallow - 10);
+    } finally {
+        renderer.destroy();
+    }
+});
+
 test("a focused rail accents only its title wordmark", async () => {
     const { renderer } = await createTestRenderer({ width: 100, height: 34 });
     try {
@@ -125,6 +157,27 @@ test("a focused rail accents only its title wordmark", async () => {
         const dimmedChunks = (dimmedTitle.content as StyledText).chunks;
         expect(dimmedChunks).toHaveLength(1);
         expect(dimmedChunks[0]?.text.toString()).toBe("VERA · 2");
+    } finally {
+        renderer.destroy();
+    }
+});
+
+test("a card left to itself is as tall as the rows it has", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 34 });
+    const { renderer } = setup;
+    try {
+        const view = createTuiLinesView(renderer, "picker", {});
+
+        renderer.root.add(view.surface);
+        view.surface.visible = true;
+        const height = async (): Promise<number> => {
+            await setup.flush();
+            return view.box.height;
+        };
+        view.update({ ...STATE, lines: [] });
+        const empty = await height();
+        view.update(STATE);
+        expect(await height()).toBeGreaterThan(empty);
     } finally {
         renderer.destroy();
     }
