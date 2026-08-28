@@ -40,13 +40,13 @@ test.skipIf(!tmuxAvailable)("ctrl+e opens the side bar and ctrl+e closes it", as
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("[ VERA ]"));
+        const open = await tui.paneWhere((value) => value.includes("VERA"));
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => !value.includes("[ VERA ] ·"));
+        await tui.paneWhere((value) => !value.includes("VERA ·"));
         return open;
     });
 
-    expect(pane).toContain("[ VERA ] · 6");
+    expect(pane).toContain("VERA · 6");
     expect(pane).toContain("this one");
     expect(pane).toContain("auth-race");
     expect(pane).toContain("relay-gui");
@@ -71,7 +71,7 @@ test.skipIf(!tmuxAvailable)("the header list control opens all conversations", a
         await tui.settled();
         tui.bytes(CTRL_E);
         const rail = await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && value.includes("≡  +")
+            value.includes("VERA ·") && value.includes("≡  +")
         );
         const row = rail.split("\n").findIndex((line) => line.includes("≡  +"));
         tui.click(column(rail, "≡") + 1, row + 1);
@@ -81,14 +81,14 @@ test.skipIf(!tmuxAvailable)("the header list control opens all conversations", a
     });
 
     expect(picker).toContain("auth-race");
-    expect(picker).not.toContain("[ VERA ] ·");
+    expect(picker).not.toContain("VERA ·");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("the sidebar resume action opens from a file view", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("[ VERA ] · 2"));
+        await tui.paneWhere((value) => value.includes("VERA · 2"));
         tui.key("Down");
         tui.key("Enter");
         await tui.paneWhere((value) =>
@@ -132,8 +132,8 @@ test.skipIf(!tmuxAvailable)("escape hides the side bar and returns to chat", asy
     });
 
     expect(workspaceLine(result.focused))
-        .toMatch(/\[ VERA \] · 6/);
-    expect(result.chat).not.toContain("[ VERA ] · 6");
+        .toMatch(/VERA · 6/);
+    expect(result.chat).not.toContain("VERA · 6");
     expect(result.chat).toContain("draft after hide");
 }, 60_000);
 
@@ -144,7 +144,7 @@ test.skipIf(!tmuxAvailable)("the rail's rule and edge say which side has the key
         const rail = await tui.paneWhere(hasFocusedWorkspace);
         tui.key("i");
         const chat = await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && !hasFocusedWorkspace(value)
+            value.includes("VERA ·") && !hasFocusedWorkspace(value)
         );
         return { rail, chat, title: railTitle(workspaceLine(rail)) };
     });
@@ -166,11 +166,11 @@ test.skipIf(!tmuxAvailable)("slash suggestions stay one command per row beside t
         await tui.paneWhere(hasFocusedWorkspace);
         tui.key("i");
         await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && !hasFocusedWorkspace(value)
+            value.includes("VERA ·") && !hasFocusedWorkspace(value)
         );
         tui.text("/");
         return await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && value.includes("/rewind")
+            value.includes("VERA ·") && value.includes("/rewind")
         );
     }, 120, 46);
 
@@ -192,17 +192,17 @@ test.skipIf(!tmuxAvailable)("i returns to chat without hiding the dock", async (
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
+        await tui.paneWhere((value) => value.includes("VERA ·"));
         tui.text("i");
         await Bun.sleep(100);
         tui.text("insert beside dock");
         return await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·")
+            value.includes("VERA ·")
             && value.includes("insert beside dock")
         );
     });
 
-    expect(pane).toContain("[ VERA ] · 6");
+    expect(pane).toContain("VERA · 6");
     expect(pane).toContain("insert beside dock");
 }, 60_000);
 
@@ -214,7 +214,7 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
+        await tui.paneWhere((value) => value.includes("VERA ·"));
         tui.key("Escape");
         await Bun.sleep(100);
         tui.text("/model");
@@ -222,12 +222,12 @@ test.skipIf(!tmuxAvailable)("the model picker covers the dock like every other d
         tui.key("Enter");
         return await tui.paneWhere((value) =>
             value.includes("Select model")
-            && !value.includes("[ VERA ] ·")
+            && !value.includes("VERA ·")
         );
     }, 120, 34);
 
     expect(pane).toContain("Select model");
-    expect(pane).not.toContain("[ VERA ] ·");
+    expect(pane).not.toContain("VERA ·");
     // Full width again: every tab stop is on screen, not clipped by a card
     // narrowed to fit beside the dock.
     expect(pane).toContain("Providers ^e");
@@ -263,7 +263,7 @@ test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", as
         await tui.settled();
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && value.includes("this one")
+            value.includes("VERA ·") && value.includes("this one")
         );
         return await tui.paneWhere((value) =>
             value.includes("What should this session work on next?")
@@ -272,7 +272,7 @@ test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", as
     }, 120, 40, { VERA_TEST_QUESTION_AFTER_MS: "800" });
 
     const rail = workspaceRailColumns(120)!;
-    expect(pane).toContain("[ VERA ] · 6");
+    expect(pane).toContain("VERA · 6");
     expect(pane).toContain("NEEDS YOU");
     expect(rowOf(pane, "this one")).toContain("! this one");
     expect(column(pane, "What should this session work on next?"))
@@ -332,7 +332,7 @@ test.skipIf(!tmuxAvailable)("tab hands the keyboard across and back", async () =
 
     // The rail is up throughout: the switch moves the keyboard, not the pane.
     for (const pane of [railed, chat, back]) {
-        expect(pane).toContain("[ VERA ] · 6");
+        expect(pane).toContain("VERA · 6");
     }
     // Nothing was opened, so the conversation on screen is the one that was
     // there before the rail took the keys.
@@ -371,7 +371,7 @@ test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", as
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && value.includes("┃")
+            value.includes("VERA ·") && value.includes("┃")
         );
         // The rail has the keyboard here, so its edge is the heavy one.
         const divider = column(before, "┃");
@@ -396,7 +396,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     const { after, opened } = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
+        await tui.paneWhere((value) => value.includes("VERA ·"));
         tui.key("Up");
         await Bun.sleep(100);
         const after = tui.pane();
@@ -419,7 +419,7 @@ test.skipIf(!tmuxAvailable)("the arrows and j/k move the cursor and enter opens 
     expect(after).not.toContain("[ this one ]");
     expect(compact(after)).not.toContain("/sessions/auth-race.jsonl");
     expect(opened).toContain("OPENED /sessions/relay-gui.");
-    expect(opened).toContain("[ VERA ] ·");
+    expect(opened).toContain("VERA ·");
 }, 60_000);
 
 /** kitty CSI u for ctrl+shift+] (`]` is codepoint 93, modifiers 6). */
@@ -449,7 +449,7 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("[ VERA ] · 46")
+            value.includes("VERA · 46")
         );
         tui.bytes(CTRL_D);
         await Bun.sleep(100);
@@ -462,8 +462,8 @@ test.skipIf(!tmuxAvailable)("ctrl+d and ctrl+u jump half a page without opening"
 
     // Half-page movement is highlight only. The viewed transcript does not
     // follow in either direction, and neither key closes the rail.
-    expect(afterDown).toContain("[ VERA ] · 46");
-    expect(afterUp).toContain("[ VERA ] · 46");
+    expect(afterDown).toContain("VERA · 46");
+    expect(afterUp).toContain("VERA · 46");
     expect(compact(afterDown)).not.toContain("/sessions/bulk-");
     expect(afterDown).not.toContain("[ this one ]");
 }, 60_000);
@@ -503,14 +503,14 @@ test.skipIf(!tmuxAvailable)("the chord block narrows to what the chat can press"
         // where the cursor now is.
         tui.click(80, 6);
         const clicked = await tui.paneWhere((value) =>
-            value.includes("[ VERA ]") && !value.includes("Hide    ctrl+e")
+            value.includes("VERA") && !value.includes("Hide    ctrl+e")
         );
         return { focused, clicked };
     });
 
     expect(focused).toContain("Move    ↑↓  j/k");
     expect(focused).toContain("Cycle   ctrl+shift+[ ]");
-    expect(clicked).toContain("[ VERA ]");
+    expect(clicked).toContain("VERA");
     expect(clicked).toContain("Cycle  ctrl+shift+[ ]");
     expect(clicked).toContain("Focus  tab");
     expect(clicked).toContain("Hide   ctrl+e");
@@ -525,7 +525,7 @@ test.skipIf(!tmuxAvailable)("the closed rail is named under the composer", async
             value.includes("ctrl+p commands")
         );
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("[ VERA ]"));
+        const open = await tui.paneWhere((value) => value.includes("VERA"));
         return { closed, open };
     });
 
@@ -557,7 +557,7 @@ test.skipIf(!tmuxAvailable)("digit jumping stays dormant", async () => {
     );
     expect(rows[relayGui]).not.toContain("one · 2");
     expect(after).not.toContain("Could not switch conversation: OPENED");
-    expect(after).toContain("[ VERA ] · 6");
+    expect(after).toContain("VERA · 6");
 }, 60_000);
 
 test.skipIf(!tmuxAvailable)("p leaves dormant pinning unchanged", async () => {
@@ -565,7 +565,7 @@ test.skipIf(!tmuxAvailable)("p leaves dormant pinning unchanged", async () => {
         await tui.settled();
         tui.bytes(CTRL_E);
         await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·") && value.includes("WORKING")
+            value.includes("VERA ·") && value.includes("WORKING")
         );
         tui.text("p");
         await Bun.sleep(100);
@@ -580,7 +580,7 @@ test.skipIf(!tmuxAvailable)("every state the side bar shows has a text marker", 
     const pane = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("[ VERA ] ·"));
+        return await tui.paneWhere((value) => value.includes("VERA ·"));
     });
 
     const rows = pane.split("\n");
@@ -608,7 +608,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
         await tui.settled();
         tui.bytes(CTRL_E);
         const before = await tui.paneWhere((value) =>
-            value.includes("[ VERA ] ·")
+            value.includes("VERA ·")
         );
         // The host registers the session and pushes the index that mentions
         // it. Nothing here reopens the pane.
@@ -619,7 +619,7 @@ test.skipIf(!tmuxAvailable)("a session created while the pane is open appears in
     }, 120, 34, { VERA_TEST_PUSH_WORK_AFTER_MS: "1500" });
 
     expect(before).not.toContain("late-arrival");
-    expect(after).toContain("[ VERA ] · 7");
+    expect(after).toContain("VERA · 7");
     // Listed with the status the same push carried, not as an idle row.
     const rows = after.split("\n");
     const late = rows.findIndex((line) => line.includes("late-arrival"));
@@ -633,10 +633,10 @@ test.skipIf(!tmuxAvailable)("at a wide size the listing is a left rail beside th
         tui.key("Enter");
         await tui.paneWhere((value) => value.includes("\u203a hello"));
         tui.bytes(CTRL_E);
-        const open = await tui.paneWhere((value) => value.includes("[ VERA ] \u00b7"));
+        const open = await tui.paneWhere((value) => value.includes("VERA \u00b7"));
         tui.bytes(CTRL_E);
         const closed = await tui.paneWhere((value) =>
-            !value.includes("[ VERA ] \u00b7")
+            !value.includes("VERA \u00b7")
         );
         return { open, closed };
     }, 120, 34);
@@ -662,7 +662,7 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
     const open = await withTui(async (tui) => {
         await tui.settled();
         tui.bytes(CTRL_E);
-        return await tui.paneWhere((value) => value.includes("[ VERA ] \u00b7"));
+        return await tui.paneWhere((value) => value.includes("VERA \u00b7"));
     }, 70, 34);
 
     expect(open).toContain("✓ this one");
@@ -670,7 +670,7 @@ test.skipIf(!tmuxAvailable)("at a narrow size the listing stays a card over the 
     expect(workspaceRailColumns(70)).toBeUndefined();
     // Held off the left edge, which is what a centred card looks like and what
     // a rail never does.
-    expect(column(open, "[ VERA ] \u00b7")).toBeGreaterThan(2);
+    expect(column(open, "VERA \u00b7")).toBeGreaterThan(2);
 }, 60_000);
 
 /** The column the text starts in, or -1 when the pane does not show it. */
@@ -725,7 +725,7 @@ function railTitle(line: string): string {
 }
 
 function workspaceLine(pane: string): string {
-    return pane.split("\n").find((line) => line.includes("[ VERA ]")) ?? "";
+    return pane.split("\n").find((line) => line.includes("VERA")) ?? "";
 }
 
 /**

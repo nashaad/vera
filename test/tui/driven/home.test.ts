@@ -294,7 +294,7 @@ test("the card centres on what the rail leaves, not on the terminal", async () =
     try {
         await session.waitForVisiblePane("V  E  R  A");
         session.sendKey("C-e");
-        const pane = await session.waitForVisiblePane("[ VERA ]");
+        const pane = await session.waitForVisiblePane("VERA");
         // The rule is the one line of the card drawn to a known width, so it
         // is what says where the card sits.
         const rule = pane.split("\n").find((line) => line.includes(HOME_RULE));

@@ -628,6 +628,7 @@ import {
     resolveTuiTheme,
     tuiHandleActiveColor,
     tuiHandleColor,
+    tuiRecessColor,
     VERA_TUI_THEME,
 } from "./theme.ts";
 import {
@@ -14366,7 +14367,7 @@ export async function startTui(
                 appearance.composerBoundaryColor ?? activeTheme.element,
         }),
         tuiThemeProperties(workspaceSidebarView.box, {
-            backgroundColor: "panel",
+            backgroundColor: tuiRecessColor,
             borderColor: (activeTheme) =>
                 workspaceRailDragging
                     ? activeTheme.accent

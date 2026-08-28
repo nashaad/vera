@@ -555,7 +555,7 @@ export function openWorkspaceSelection(
 }
 
 /** The wordmark at the head of the rail. */
-export const WORKSPACE_SIDEBAR_WORDMARK = "[ VERA ]";
+export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
     const listed = workspaceWorkingSet(
@@ -713,9 +713,13 @@ export function workspaceSidebarViewState(
         : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
         // The wordmark is what the rail is called, so it says the same thing
-        // whichever side holds the keyboard. Focus is drawn on the rule under
-        // it and on the edge beside it, where it does not move the title.
+        // whichever side holds the keyboard. Focus accents the wordmark, the
+        // rule under it, and the edge beside it without moving the title.
         title: workspaceSidebarHeader(state),
+        titleLeading: {
+            text: WORKSPACE_SIDEBAR_WORDMARK,
+            tone: "accent",
+        },
         headerActions: [
             { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
             { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },

@@ -1,6 +1,11 @@
 import { expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
-import { parseColor, type BoxRenderable } from "@opentui/core";
+import {
+    parseColor,
+    type BoxRenderable,
+    type StyledText,
+    type TextRenderable,
+} from "@opentui/core";
 
 import {
     createTuiLinesView,
@@ -9,7 +14,8 @@ import {
 import { TUI_ACCENT } from "../../clients/tui/state.ts";
 
 const STATE: LinesViewState = {
-    title: "[ VERA ]",
+    title: "VERA",
+    titleLeading: { text: "VERA", tone: "accent" },
     hint: "",
     lines: [
         {
@@ -82,7 +88,7 @@ test("rail header actions are visible text and activate by id", async () => {
         await setup.flush();
 
         const frame = setup.captureCharFrame();
-        expect(frame).toContain("[ VERA ]");
+        expect(frame).toContain("VERA");
         expect(frame).toContain("≡");
         expect(frame).toContain("+");
 
@@ -91,6 +97,34 @@ test("rail header actions are visible text and activate by id", async () => {
         await setup.mockMouse.click(column, line);
         await setup.flush();
         expect(activated).toEqual(["all"]);
+    } finally {
+        renderer.destroy();
+    }
+});
+
+test("a focused rail accents only its title wordmark", async () => {
+    const { renderer } = await createTestRenderer({ width: 100, height: 34 });
+    try {
+        const view = createTuiLinesView(renderer, "rail-title", {
+            railDivider: true,
+            railPadding: 2,
+        });
+        view.setRail(28);
+        view.update({ ...STATE, title: "VERA · 2", focused: true });
+
+        const header = view.box.getChildren()[0] as BoxRenderable;
+        const title = header.getChildren()[0] as TextRenderable;
+        const chunks = (title.content as StyledText).chunks;
+        expect(chunks[0]?.text.toString()).toBe("VERA");
+        expect(chunks[0]?.fg).toEqual(parseColor(TUI_ACCENT));
+        expect(chunks[1]?.text.toString()).toBe(" · 2");
+
+        view.update({ ...STATE, title: "VERA · 2", dimmed: true });
+        const dimmedHeader = view.box.getChildren()[0] as BoxRenderable;
+        const dimmedTitle = dimmedHeader.getChildren()[0] as TextRenderable;
+        const dimmedChunks = (dimmedTitle.content as StyledText).chunks;
+        expect(dimmedChunks).toHaveLength(1);
+        expect(dimmedChunks[0]?.text.toString()).toBe("VERA · 2");
     } finally {
         renderer.destroy();
     }

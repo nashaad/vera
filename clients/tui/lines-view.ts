@@ -75,6 +75,11 @@ export interface LinesViewHeaderAction {
 
 export interface LinesViewState {
     readonly title: string;
+    /** A separately toned prefix that is also present at the start of title. */
+    readonly titleLeading?: {
+        readonly text: string;
+        readonly tone: "accent";
+    };
     /** Follows the title on the right of the header; "esc" when omitted. */
     readonly hint?: string;
     /** Clickable rail controls. Text remains meaningful without colour. */
@@ -360,6 +365,7 @@ export function createTuiLinesView(
                     state.dimmed === true,
                     state.headerActions,
                     view.pointer,
+                    state.titleLeading,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
             // A dock uses the row below its title for a rule: the wordmark
@@ -563,6 +569,7 @@ function groundHeaderNode(
     dimmed = false,
     actions: readonly LinesViewHeaderAction[] = [],
     pointer?: LinesViewPointer,
+    leading?: LinesViewState["titleLeading"],
 ): BoxRenderable {
     const header = new BoxRenderable(renderer, {
         width: "100%",
@@ -571,7 +578,7 @@ function groundHeaderNode(
         justifyContent: "space-between",
     });
     header.add(new TextRenderable(renderer, {
-        content: title,
+        content: headerTitleContent(title, dimmed, leading),
         fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
     }));
@@ -606,4 +613,22 @@ function groundHeaderNode(
         }));
     }
     return header;
+}
+
+function headerTitleContent(
+    title: string,
+    dimmed: boolean,
+    leading?: LinesViewState["titleLeading"],
+): string | StyledText {
+    if (
+        dimmed
+        || leading === undefined
+        || !title.startsWith(leading.text)
+    ) {
+        return title;
+    }
+    return new StyledText([
+        fg(TUI_ACCENT)(leading.text),
+        fg(TUI_TEXT)(title.slice(leading.text.length)),
+    ]);
 }

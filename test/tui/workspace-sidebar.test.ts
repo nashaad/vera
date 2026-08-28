@@ -196,7 +196,7 @@ describe("the working set", () => {
         expect(workspaceWorkingSet(sessions).map((entry) => entry.id))
             .toEqual(sessions.map((entry) => entry.id));
         expect(workspaceSidebarHeader(open(sessions)))
-            .toBe("[ VERA ] · 12");
+            .toBe("VERA · 12");
     });
 
     test("lists idle rows when there are only a few of them", () => {
@@ -231,7 +231,7 @@ describe("the working set", () => {
             WORKSPACE_RECENT_IDLE + 1,
         );
         expect(workspaceSidebarHeader(open(sessions)))
-            .toBe("[ VERA ] · 6");
+            .toBe("VERA · 6");
     });
 
     test("an older second project stays listed when the session on screen already made the last five", () => {
@@ -490,11 +490,15 @@ describe("the rail", () => {
                 true,
                 frame,
             );
-            expect(focused.title).toBe("[ VERA ] · 1");
+            expect(focused.title).toBe("VERA · 1");
+            expect(focused.titleLeading).toEqual({
+                text: "VERA",
+                tone: "accent",
+            });
             expect(focused.focused).toBe(true);
         }
         const chat = workspaceSidebarViewState(state, 120, NOW, 37, false, 4);
-        expect(chat.title).toBe("[ VERA ] · 1");
+        expect(chat.title).toBe("VERA · 1");
         expect(chat.focused).toBeUndefined();
     });
 
@@ -947,7 +951,7 @@ describe("the drawn card", () => {
         expect(view.footerTable).toHaveLength(8);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
-        expect(view.title).toBe("[ VERA ] · 1");
+        expect(view.title).toBe("VERA · 1");
     });
 
     test("the last recent row is followed by the all-sessions nudge", () => {
