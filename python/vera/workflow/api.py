@@ -11,7 +11,6 @@ from collections.abc import Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import update_wrapper
-import json
 from pathlib import Path
 from types import MappingProxyType
 from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, cast
@@ -25,7 +24,14 @@ from ._hooks import (
     normalize_prepare_step,
     run_pre_step_chain,
 )
-from ._journal import Journal
+from ._sql import SqliteJournalStore
+from ._store import (
+    FileJournalStore,
+    JournalStore,
+    RunJournal,
+    capture_entry,
+    resolve_store,
+)
 from ._ticket import Ticket
 
 
@@ -43,6 +49,8 @@ __all__ = [
     "current",
     "Ticket",
     "CommandHook",
+    "FileJournalStore",
+    "SqliteJournalStore",
 ]
 
 
@@ -88,7 +96,7 @@ def _call_user_code(function: Callable[[], R]) -> R:
 class _Runtime:
     def __init__(
         self,
-        journal: Journal,
+        journal: RunJournal,
         workflow_name: str,
         prepare_step: list[PrepareStepHook],
         inbox: dict[str, object],
@@ -215,15 +223,22 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
     def run(
         self,
         *args: Unpack[WorkflowArgs],
-        journal_dir: Path | str,
+        journal_dir: Path | str | None = None,
+        journal: JournalStore | None = None,
         prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
     ) -> Run:
-        path = Path(journal_dir)
+        store = resolve_store(journal_dir=journal_dir, journal=journal)
         positional_args = tuple(args)
         dumps({"args": list(positional_args), "kwargs": {}})
-        journal = Journal.create(path, self.name, self._doc, positional_args, {})
+        handle = store.create(
+            self.name,
+            self._doc,
+            positional_args,
+            {},
+            capture_entry(self.name, self._function),
+        )
         return self._execute(
-            journal,
+            handle,
             positional_args,
             normalize_prepare_step(prepare_step),
             mark_running=False,
@@ -233,18 +248,20 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         self,
         run_id: str,
         *,
-        journal_dir: Path | str,
+        journal_dir: Path | str | None = None,
+        journal: JournalStore | None = None,
         prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
     ) -> Run:
-        journal = Journal.load(Path(journal_dir), run_id, self.name)
-        args, kwargs = journal.inputs()
+        store = resolve_store(journal_dir=journal_dir, journal=journal)
+        handle = store.load(run_id, self.name)
+        args, kwargs = handle.inputs()
         if kwargs:
             raise WorkflowError(
                 "journal",
                 "workflow run contains unsupported keyword inputs",
             )
         return self._execute(
-            journal,
+            handle,
             args,
             normalize_prepare_step(prepare_step),
             mark_running=True,
@@ -252,7 +269,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
 
     def _execute(
         self,
-        journal: Journal,
+        journal: RunJournal,
         args: tuple[object, ...],
         prepare_step: list[PrepareStepHook],
         *,
@@ -269,7 +286,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
         try:
             result = _call_user_code(lambda: self._function(*typed_args))
         except Suspend as suspended:
-            _adopt_disk_inbox(journal)
+            journal.reload_inbox()
             journal.mark_suspended(suspended.reason)
             return Run(
                 journal.run_id,
@@ -279,7 +296,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         except _UserFailure as failure:
             message = _error_message(failure.error)
-            _adopt_disk_inbox(journal)
+            journal.reload_inbox()
             journal.mark_failed("step", message)
             return Run(
                 journal.run_id,
@@ -292,7 +309,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             if error.kind not in ("serialize", "hook"):
                 raise error from fault
             message = _error_message(error)
-            _adopt_disk_inbox(journal)
+            journal.reload_inbox()
             journal.mark_failed(error.kind, message)
             return Run(
                 journal.run_id,
@@ -302,7 +319,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         finally:
             _runtime.reset(token)
-        _adopt_disk_inbox(journal)
+        journal.reload_inbox()
         journal.mark_ok()
         return Run(journal.run_id, "ok", result, None)
 
@@ -321,18 +338,3 @@ def _hook_fault(error: WorkflowError) -> WorkflowError:
     if error.kind in ("serialize", "hook"):
         return error
     return WorkflowError("hook", _error_message(error))
-
-
-def _adopt_disk_inbox(journal: Journal) -> None:
-    # Status writes dump the in-memory header. A hook may have already written
-    # inbox for the next resume; this execute's snapshot stays the old copy.
-    header_path = journal.run_dir / "header.json"
-    try:
-        raw = json.loads(header_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeError, json.JSONDecodeError):
-        return
-    if type(raw) is not dict:
-        return
-    inbox = raw.get("inbox")
-    if type(inbox) is dict:
-        journal.header["inbox"] = inbox

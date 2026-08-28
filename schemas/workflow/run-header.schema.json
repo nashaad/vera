@@ -54,6 +54,16 @@
         },
         "reason": {
             "type": "string"
+        },
+        "entry": {
+            "type": "object",
+            "required": ["file", "workflow", "cwd"],
+            "additionalProperties": false,
+            "properties": {
+                "file": { "type": "string", "minLength": 1 },
+                "workflow": { "type": "string", "minLength": 1 },
+                "cwd": { "type": "string", "minLength": 1 }
+            }
         }
     },
     "additionalProperties": false
