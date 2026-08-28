@@ -2,7 +2,7 @@ import { afterEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
     PINNED_BUILD_ENV,
@@ -10,7 +10,6 @@ import {
     readPinnedBuild,
     recordCleanBoot,
 } from "../src/host/pinned-build.ts";
-import { gitCheckoutRoot } from "../src/dev/git-checkout.ts";
 import { VERA_HOME_ENV } from "../src/profile-paths.ts";
 
 const previousHome = process.env[VERA_HOME_ENV];
@@ -65,9 +64,49 @@ function cliPath(repository: string): string {
 }
 
 test("a file outside any checkout has no repository to pin", () => {
+    useTemporaryHome();
     const loose = temporaryDirectory("vera-pin-loose-");
     writeFileSync(join(loose, "main.ts"), "");
-    expect(gitCheckoutRoot(join(loose, "main.ts"))).toBeUndefined();
+    recordCleanBoot(join(loose, "main.ts"), {});
+    expect(readPinnedBuild()).toBeUndefined();
+});
+
+test("an installed entrypoint does not claim its containing repository", () => {
+    const home = useTemporaryHome();
+    const repository = temporaryDirectory("vera-pin-consumer-");
+    git(repository, ["init", "-q", "-b", "main"]);
+    git(repository, ["config", "user.email", "test@example.com"]);
+    git(repository, ["config", "user.name", "test"]);
+    git(repository, ["config", "commit.gpgsign", "false"]);
+    writeFileSync(join(repository, ".gitignore"), "node_modules/\n");
+    git(repository, ["add", ".gitignore"]);
+    git(repository, ["commit", "-q", "-m", "consumer"]);
+    const entrypoint = join(
+        repository,
+        "node_modules",
+        "@nashaad",
+        "vera",
+        "clients",
+        "cli",
+        "main.ts",
+    );
+    mkdirSync(dirname(entrypoint), { recursive: true });
+    writeFileSync(entrypoint, "installed build");
+
+    recordCleanBoot(entrypoint, {});
+
+    expect(readPinnedBuild()).toBeUndefined();
+    mkdirSync(join(home, "machine"), { recursive: true });
+    writeFileSync(
+        join(home, "machine", "pinned-build.json"),
+        JSON.stringify({
+            commit: git(repository, ["rev-parse", "HEAD"]),
+            repository: git(repository, ["rev-parse", "--show-toplevel"]),
+            recorded_at: new Date().toISOString(),
+        }),
+    );
+    expect(pinnedCliEntrypoint(entrypoint, {})).toBeUndefined();
+    expect(existsSync(join(repository, ".worktrees", "pinned"))).toBe(false);
 });
 
 test("a clean boot pins the commit it booted from", () => {
@@ -114,7 +153,7 @@ test("rescue runs the pinned commit after the checkout moved on", () => {
     expect(entrypoint).toBeDefined();
     expect(existsSync(entrypoint as string)).toBe(true);
     const worktree = join(
-        gitCheckoutRoot(cliPath(repository)) as string,
+        readPinnedBuild()?.repository as string,
         ".worktrees",
         "pinned",
     );
@@ -138,7 +177,7 @@ test("a stale pinned worktree is moved to the recorded commit", () => {
 
     expect(pinnedCliEntrypoint(cliPath(repository), {})).toBeDefined();
     const worktree = join(
-        gitCheckoutRoot(cliPath(repository)) as string,
+        readPinnedBuild()?.repository as string,
         ".worktrees",
         "pinned",
     );
