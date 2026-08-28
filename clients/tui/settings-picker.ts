@@ -1405,6 +1405,22 @@ export function tuiModelActionOptions(
             model: current.model,
             action: true,
         });
+    } else if (options.currentModel?.shortlisted === true) {
+        const current = options.currentModel;
+        rows.push({
+            value: tuiModelActionValue("verify_current"),
+            label: "Verify current model",
+            description: "enter",
+            note:
+                `Sends a small live request to ${current.provider}/${current.model} and records what the model can do.`,
+            detailTitle: "verify current model",
+            detailFacts: [["Current model", `${current.provider}/${current.model}`]],
+            searchText:
+                `verify check test probe current model ${current.provider} ${current.model}`,
+            provider: current.provider,
+            model: current.model,
+            action: true,
+        });
     }
     if (providers.length > 0) rows.push({
         value: tuiModelActionValue("refresh"),
@@ -3286,7 +3302,7 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["⏎", "run this model. On All models it does not add it."],
     ["^s", "add the highlighted model to the shortlist, or remove it."],
     ["^n", "give a shortlisted model a short name of your own."],
-    ["^⇧f ^v", "probe a model, or every model you keep."],
+    ["Verify", "the Shortlist action probes current; ^v probes many."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -4070,10 +4086,14 @@ function pickerFooterText(
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
-        if (tuiModelActionOfValue(selected?.value ?? "") === "shortlist_current") {
+        const action = tuiModelActionOfValue(selected?.value ?? "");
+        if (action === "shortlist_current" || action === "verify_current") {
             return fittedHints([
                 { text: "↑↓ move", drop: 0 },
-                { text: "⏎ add", drop: 0 },
+                {
+                    text: action === "shortlist_current" ? "⏎ add" : "⏎ verify",
+                    drop: 0,
+                },
                 { text: "⇥ tabs", drop: 1 },
                 { text: "esc close", drop: 0 },
             ], width);
@@ -4095,9 +4115,6 @@ function pickerFooterText(
             ...(state.canUndoPoolChange === true
                 ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
                 : []),
-            ...(selected?.provider === undefined
-                ? []
-                : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
             ...(selected?.refreshable === true
                 ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
                 : []),
@@ -4324,7 +4341,9 @@ function optionMarker(
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
     if (option.action === true) {
-        return "+";
+        return tuiModelActionOfValue(option.value) === "verify_current"
+            ? "↻"
+            : "+";
     }
     if (state.kind === "provider") {
         return undefined;
@@ -4877,10 +4896,11 @@ function modelTabRows(
     const shortlisted = allOptions
         .filter((option) => option.pooledRank !== undefined)
         .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
-    const addCurrent = actions.filter((option) =>
+    const currentActions = actions.filter((option) =>
         tuiModelActionOfValue(option.value) === "shortlist_current"
+        || tuiModelActionOfValue(option.value) === "verify_current"
     );
-    return [...addCurrent, ...shortlisted];
+    return [...currentActions, ...shortlisted];
 }
 
 /** Hides the current-model action as soon as a fresh snapshot includes it. */
@@ -5163,6 +5183,20 @@ function modelActionTransition(
             handled: true,
             poolToggle: {
                 action: "add",
+                provider: option.provider,
+                model: option.model,
+            },
+        };
+    }
+    if (
+        action === "verify_current"
+        && option.provider !== undefined
+        && option.model !== undefined
+    ) {
+        return {
+            state,
+            handled: true,
+            poolVerify: {
                 provider: option.provider,
                 model: option.model,
             },

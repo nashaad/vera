@@ -1573,6 +1573,38 @@ test("Shortlist offers the current model as a visible action row", async () => {
     )).toBe(false);
 });
 
+test("Shortlist offers a visible action to verify the current model", async () => {
+    const base = modelPickerWithPool(
+        pooledModels,
+        "z-ai/glm-5.2",
+        "openrouter",
+    );
+    const withAction = {
+        ...base,
+        actionOptions: tuiModelActionOptions(["openrouter"], {
+            hasPool: true,
+            currentModel: {
+                provider: "openrouter",
+                model: "z-ai/glm-5.2",
+                shortlisted: true,
+            },
+        }),
+    } as TuiSettingsPickerState;
+    const shortlist = {
+        ...switchedModelTab(withAction, "pool"),
+        selectedIndex: 0,
+    };
+
+    expect(shortlist.options[0]?.label).toBe("Verify current model");
+    expect(await pickerFrame(shortlist)).toContain("↻ Verify current model");
+    expect(pickerFooter(shortlist)).toContain("⏎ verify");
+    expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolVerify)
+        .toEqual({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+});
+
 test("a main shortlist refresh keeps the side agent's current model", () => {
     const side = {
         provider: "side-provider",
@@ -1909,7 +1941,7 @@ test("the footer names the fold keys the highlighted row answers to", async () =
     // slot to the row's own keys when the footer runs short.
     expect(await pickerFrame({ ...state, selectedIndex: 1 }, 130))
         .toContain("⇧←→ fold all");
-    expect(await pickerFrame({ ...state, selectedIndex: 1 }, 100))
+    expect(await pickerFrame({ ...state, selectedIndex: 1 }, 80))
         .not.toContain("⇧←→ fold all");
 });
 

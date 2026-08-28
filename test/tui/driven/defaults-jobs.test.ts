@@ -162,6 +162,17 @@ test("shortlist verification runs in a console inside the model dialog", async (
         expect(finished).not.toContain("❯ verify openrouter/one/model");
         // The durable admission prose remains after the live console clears.
         expect(finished).toContain("Verifying openrouter/one/model");
+
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("Verify current model");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("❯ verify openrouter/one/model");
+        await session.waitForVisiblePaneWhere(
+            (pane) =>
+                pane.includes("Verify current model")
+                && !pane.includes("❯ verify openrouter/one/model"),
+            "repeat verification from the visible Shortlist action to finish",
+        );
     } finally {
         await session.close();
     }
