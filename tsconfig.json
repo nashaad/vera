@@ -29,6 +29,7 @@
   "include": [
     "index.ts",
     "src/**/*.ts",
+    "python/**/*.ts",
     "clients/tui/**/*.ts",
     "examples/sdk-reviewer/**/*.ts",
     "examples/extensions/adversarial-review/**/*.ts",
