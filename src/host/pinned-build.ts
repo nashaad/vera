@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
 import {
     existsSync,
     mkdirSync,
@@ -11,31 +12,21 @@ import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { veraMachineDirectory } from "../profile-paths.ts";
 
-/**
- * Set on a client that was already re-executed from the pinned checkout, so
- * it runs in place instead of re-executing forever.
- */
+/** Set after re-executing from the pinned checkout to prevent recursion. */
 export const PINNED_BUILD_ENV = "VERA_PINNED_BUILD";
 
-/** Where the pinned checkout is materialized, relative to the repository. */
-const PINNED_WORKTREE_PATH = join(".worktrees", "pinned");
-
 const GIT_TIMEOUT_MS = 20_000;
+const DEPENDENCY_INSTALL_TIMEOUT_MS = 60_000;
 
-export interface PinnedBuildRecord {
-    /** The commit whose host was last seen to boot cleanly. */
+export interface PinnedBuildCandidate {
+    /** The commit present immediately before host startup began. */
     readonly commit: string;
-    /** The checkout that commit was booted from. */
+    /** The checkout that supplied the host. */
     readonly repository: string;
-    readonly recorded_at: string;
 }
 
-/**
- * The pin belongs to the installation, not to a profile: a rescue running
- * under its own profile has to read the pin a `default` host recorded.
- */
-function pinPath(): string {
-    return join(veraMachineDirectory(), "pinned-build.json");
+export interface PinnedBuildRecord extends PinnedBuildCandidate {
+    readonly recorded_at: string;
 }
 
 function git(repository: string, args: readonly string[]): string {
@@ -80,10 +71,30 @@ function isClean(repository: string): boolean {
         === "";
 }
 
-export function readPinnedBuild(): PinnedBuildRecord | undefined {
+function installationKey(repository: string): string {
+    return createHash("sha256").update(repository).digest("hex");
+}
+
+function installationDirectory(repository: string): string {
+    return join(
+        veraMachineDirectory(),
+        "pinned-builds",
+        installationKey(repository),
+    );
+}
+
+function pinPath(repository: string): string {
+    return join(installationDirectory(repository), "record.json");
+}
+
+function pinnedWorktreePath(repository: string): string {
+    return join(installationDirectory(repository), "checkout");
+}
+
+function parsePinnedBuild(path: string): PinnedBuildRecord | undefined {
     let parsed: unknown;
     try {
-        parsed = JSON.parse(readFileSync(pinPath(), "utf8"));
+        parsed = JSON.parse(readFileSync(path, "utf8"));
     } catch {
         return undefined;
     }
@@ -99,33 +110,55 @@ export function readPinnedBuild(): PinnedBuildRecord | undefined {
     return record as unknown as PinnedBuildRecord;
 }
 
-/**
- * Records the commit a host just booted from. Called only after the host is
- * serving, which is what makes the pin mean "this build boots" rather than
- * "this build is newest". Advancing it is the only way it ever moves.
- */
-export function recordCleanBoot(
+function readPinnedBuildFor(repository: string): PinnedBuildRecord | undefined {
+    const current = parsePinnedBuild(pinPath(repository));
+    if (current?.repository === repository) return current;
+
+    // Preserve a usable pin from the former machine-global layout. A later
+    // clean boot writes it into the installation-scoped location.
+    const legacy = parsePinnedBuild(join(veraMachineDirectory(), "pinned-build.json"));
+    return legacy?.repository === repository ? legacy : undefined;
+}
+
+export function readPinnedBuild(entrypoint: string): PinnedBuildRecord | undefined {
+    const repository = checkoutRoot(entrypoint);
+    return repository === undefined ? undefined : readPinnedBuildFor(repository);
+}
+
+/** Capture the reproducible checkout state before host startup begins. */
+export function capturePinnedBuild(
     entrypoint: string,
     env: NodeJS.ProcessEnv = process.env,
-): void {
-    if (env[PINNED_BUILD_ENV] !== undefined) return;
+): PinnedBuildCandidate | undefined {
+    if (env[PINNED_BUILD_ENV] !== undefined) return undefined;
     try {
         const repository = checkoutRoot(entrypoint);
-        if (repository === undefined) return;
-        // A commit does not describe a tree with uncommitted edits in it, so
-        // there is nothing here that could be checked out again later. An
-        // older pin that does boot beats a new one that cannot be reproduced.
-        if (!isClean(repository)) return;
+        if (repository === undefined) return undefined;
         const commit = git(repository, ["rev-parse", "HEAD"]);
-        const existing = readPinnedBuild();
-        if (existing?.commit === commit && existing.repository === repository) {
+        if (!isClean(repository)) return undefined;
+        // Refuse a capture that raced with a checkout change.
+        if (git(repository, ["rev-parse", "HEAD"]) !== commit) return undefined;
+        return { commit, repository };
+    } catch {
+        return undefined;
+    }
+}
+
+/** Persist a captured build only after its host has begun serving. */
+export function recordCleanBoot(candidate: PinnedBuildCandidate | undefined): void {
+    if (candidate === undefined) return;
+    try {
+        const existing = parsePinnedBuild(pinPath(candidate.repository));
+        if (
+            existing?.commit === candidate.commit
+            && existing.repository === candidate.repository
+        ) {
             return;
         }
-        const path = pinPath();
+        const path = pinPath(candidate.repository);
         mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
         const record: PinnedBuildRecord = {
-            commit,
-            repository,
+            ...candidate,
             recorded_at: new Date().toISOString(),
         };
         const temporary = `${path}.${process.pid}.tmp`;
@@ -135,34 +168,80 @@ export function recordCleanBoot(
         });
         renameSync(temporary, path);
     } catch {
-        // The pin is a convenience for a later rescue. Failing to advance it
-        // must never fail the boot that would have advanced it.
+        // A pin is a convenience for later rescue. Recording failure must not
+        // fail the healthy boot that would have advanced it.
+    }
+}
+
+function gitCommonDirectory(repository: string): string {
+    return realpathSync(git(repository, [
+        "rev-parse",
+        "--path-format=absolute",
+        "--git-common-dir",
+    ]));
+}
+
+function isOwnedWorktree(repository: string, worktree: string): boolean {
+    try {
+        return realpathSync(worktree) === git(worktree, [
+            "rev-parse",
+            "--show-toplevel",
+        ])
+            && gitCommonDirectory(worktree) === gitCommonDirectory(repository);
+    } catch {
+        return false;
+    }
+}
+
+function installPinnedDependencies(worktree: string): boolean {
+    const packagePath = join(worktree, "package.json");
+    if (!existsSync(packagePath)) return false;
+    if (!existsSync(join(worktree, "bun.lock"))) {
+        try {
+            const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
+                readonly dependencies?: Record<string, unknown>;
+                readonly optionalDependencies?: Record<string, unknown>;
+            };
+            return Object.keys(manifest.dependencies ?? {}).length === 0
+                && Object.keys(manifest.optionalDependencies ?? {}).length === 0;
+        } catch {
+            return false;
+        }
+    }
+    try {
+        execFileSync(process.execPath, [
+            "install",
+            "--frozen-lockfile",
+            "--production",
+            "--ignore-scripts",
+            "--prefer-offline",
+            "--no-progress",
+            "--no-summary",
+        ], {
+            cwd: worktree,
+            stdio: ["ignore", "ignore", "ignore"],
+            timeout: DEPENDENCY_INSTALL_TIMEOUT_MS,
+        });
+        return true;
+    } catch {
+        return false;
     }
 }
 
 /**
- * The CLI entrypoint of the pinned checkout, materializing that checkout if
- * it is missing or sitting on the wrong commit. Undefined whenever the pinned
- * build cannot be produced or would be the running build anyway, which leaves
- * the caller running in place.
+ * Materialize the last build captured before a successful host start. Returns
+ * undefined when no installation-scoped pin can be reproduced safely.
  */
 export function pinnedCliEntrypoint(
     entrypoint: string,
     env: NodeJS.ProcessEnv = process.env,
 ): string | undefined {
     if (env[PINNED_BUILD_ENV] !== undefined) return undefined;
-    const pin = readPinnedBuild();
-    if (pin === undefined) return undefined;
     const repository = checkoutRoot(entrypoint);
-    // A pin recorded from a different installation describes a tree this one
-    // has no claim on, so it is ignored rather than reached into.
-    if (repository === undefined || repository !== pin.repository) {
-        return undefined;
-    }
+    if (repository === undefined) return undefined;
+    const pin = readPinnedBuildFor(repository);
+    if (pin === undefined) return undefined;
     try {
-        // A dirty tree at the pinned commit is not the pinned build: the
-        // edits in it are the likeliest thing to have broken the host, and
-        // they are exactly what the pinned worktree does not carry.
         if (
             git(repository, ["rev-parse", "HEAD"]) === pin.commit
             && isClean(repository)
@@ -170,16 +249,18 @@ export function pinnedCliEntrypoint(
             return undefined;
         }
     } catch {
-        // An unreadable HEAD is not proof the pin is unnecessary; carry on and
-        // let the checkout below decide.
+        // Let worktree materialization decide whether the pin remains usable.
     }
-    const worktree = join(repository, PINNED_WORKTREE_PATH);
+
+    const worktree = pinnedWorktreePath(repository);
     try {
         if (existsSync(join(worktree, ".git"))) {
+            if (!isOwnedWorktree(repository, worktree)) return undefined;
             if (git(worktree, ["rev-parse", "HEAD"]) !== pin.commit) {
                 git(worktree, ["checkout", "--detach", pin.commit]);
             }
         } else {
+            mkdirSync(dirname(worktree), { recursive: true, mode: 0o700 });
             git(repository, [
                 "worktree",
                 "add",
@@ -192,5 +273,6 @@ export function pinnedCliEntrypoint(
         return undefined;
     }
     const cli = join(worktree, "clients", "cli", "main.ts");
-    return existsSync(cli) ? cli : undefined;
+    if (!existsSync(cli) || !installPinnedDependencies(worktree)) return undefined;
+    return cli;
 }
