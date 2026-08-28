@@ -3,7 +3,6 @@ import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
-    RECENT_GROUP,
     WORKSPACE_COMPLETED_MARKER,
     WORKSPACE_PINS_ENABLED,
     workspacePanelWidth,
@@ -44,9 +43,6 @@ export const WORKSPACE_SELECTION_MARKER = "›";
  * session on screen and any pin are always kept, even when they are idle.
  */
 export const WORKSPACE_RECENT_IDLE = 5;
-
-/** The row under the last recent session that points at the full picker. */
-export const WORKSPACE_ALL_SESSIONS_NUDGE = "ctrl+r · all sessions";
 
 /** Text-safe controls at the right edge of the branded rail header. */
 export const WORKSPACE_HEADER_ALL_ACTION = "workspace:all-sessions";
@@ -658,7 +654,6 @@ export function workspaceSidebarViewState(
     }
     let seenGroup = false;
     const rowTone = focused ? "text" as const : "muted" as const;
-    const lastRow = layout.rows[layout.rows.length - 1];
     for (const row of layout.rows) {
         if (row.kind === "group") {
             if (seenGroup) {
@@ -703,12 +698,6 @@ export function workspaceSidebarViewState(
             // focus, without adding the empty left gutter this layout removed.
             ...(row.selected ? { selected: true } : {}),
         });
-        if (row.group === RECENT_GROUP && row === lastRow) {
-            lines.push({
-                text: WORKSPACE_ALL_SESSIONS_NUDGE,
-                tone: "muted" as const,
-            });
-        }
     }
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId

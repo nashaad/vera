@@ -24,7 +24,6 @@ import {
     workspaceHeaderAction,
     MIN_RAIL_COLUMNS,
     WORKSPACE_RECENT_IDLE,
-    WORKSPACE_ALL_SESSIONS_NUDGE,
     WORKSPACE_EMPTY_LINES,
     WORKSPACE_HEADER_ALL_ACTION,
     WORKSPACE_HEADER_NEW_ACTION,
@@ -955,10 +954,11 @@ describe("the drawn card", () => {
         expect(view.title).toBe("VERA · 1");
     });
 
-    test("the last recent row is followed by the all-sessions nudge", () => {
+    test("recent history ends without a command-looking row", () => {
         const text = workspaceSidebarText(open([session("a")]), COLUMNS, NOW);
         const lines = text.split("\n");
-        expect(lines[lines.length - 1]?.trim()).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
+        expect(lines[lines.length - 1]).toContain("session a");
+        expect(text).not.toContain("all sessions");
     });
 
     test("every row is one flush-left marked line", () => {
@@ -977,7 +977,7 @@ describe("the drawn card", () => {
         const old = lines.findIndex((line) => line.includes("session old"));
         expect(lines[old]?.startsWith("· ")).toBe(true);
         expect(lines[old]?.endsWith("1h ago")).toBe(true);
-        expect(lines[old + 1]).toBe(WORKSPACE_ALL_SESSIONS_NUDGE);
+        expect(lines[old + 1]).toBeUndefined();
     });
 
     test("selection stays text-readable without a left gutter", () => {
