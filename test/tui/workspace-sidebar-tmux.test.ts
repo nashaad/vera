@@ -258,6 +258,30 @@ test.skipIf(!tmuxAvailable)("the scrim behind a dialog reaches the last row", as
     expect(grounds[last]).not.toBe("default");
 }, 60_000);
 
+test.skipIf(!tmuxAvailable)("the shared dialog scrim dims the dock", async () => {
+    const frames = await withTui(async (tui) => {
+        await tui.settled();
+        tui.bytes(CTRL_E);
+        await tui.paneWhere(hasFocusedWorkspace);
+        tui.text("i");
+        await tui.paneWhere((value) => value.includes("Focus  tab"));
+        const rail = tui.colored();
+        tui.text("/diagnostics");
+        tui.key("Enter");
+        await tui.paneWhere((value) =>
+            value.includes("Diagnostics") && value.includes("[Session]")
+        );
+        return { rail, dialog: tui.colored() };
+    }, 120, 40);
+
+    // Row one is above the inset card and starts inside the dock. The only
+    // surface that changes there is the shared full-screen scrim.
+    const railGround = rowGrounds(frames.rail)[1];
+    const dialogGround = rowGrounds(frames.dialog)[1];
+    expect(railGround).not.toBe("default");
+    expect(dialogGround).not.toBe(railGround);
+}, 60_000);
+
 test.skipIf(!tmuxAvailable)("a session question stays beside the agent rail", async () => {
     const pane = await withTui(async (tui) => {
         await tui.settled();

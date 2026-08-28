@@ -11,6 +11,11 @@ import {
     createTuiLinesView,
     type LinesViewState,
 } from "../../clients/tui/lines-view.ts";
+import {
+    DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_CARD_Z_INDEX,
+    DIALOG_SCRIM_Z_INDEX,
+} from "../../clients/tui/dialog-chrome.ts";
 import { TUI_ACCENT } from "../../clients/tui/state.ts";
 
 const STATE: LinesViewState = {
@@ -60,6 +65,26 @@ test("a rail draws its selection bar only while it holds the keyboard", async ()
         view.setRail(undefined);
         view.update(STATE);
         expect(accentRows(view.box)).toHaveLength(1);
+    } finally {
+        renderer.destroy();
+    }
+});
+
+test("a rail sits below the dialog scrim and a card above it", async () => {
+    const { renderer } = await createTestRenderer({ width: 100, height: 34 });
+    try {
+        const view = createTuiLinesView(renderer, "rail-layer", {
+            railDivider: true,
+            railPadding: 2,
+        });
+
+        expect(view.surface.zIndex).toBe(DIALOG_CARD_Z_INDEX);
+        expect(view.surface.zIndex).toBeGreaterThan(DIALOG_SCRIM_Z_INDEX);
+        view.setRail(28);
+        expect(view.surface.zIndex).toBe(DIALOG_BACKGROUND_Z_INDEX);
+        expect(view.surface.zIndex).toBeLessThan(DIALOG_SCRIM_Z_INDEX);
+        view.setRail(undefined);
+        expect(view.surface.zIndex).toBe(DIALOG_CARD_Z_INDEX);
     } finally {
         renderer.destroy();
     }

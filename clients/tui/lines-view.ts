@@ -13,6 +13,8 @@ import {
 import {
     attachRowPointer,
     centeredDialogSurface,
+    DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     dialogFooterNode,
     dialogGroupHeaderNode,
@@ -320,6 +322,13 @@ export function createTuiLinesView(
         setRail(columns): void {
             if (rail === columns) return;
             rail = columns;
+            // A dock is part of the screen behind a modal, while this same
+            // surface becomes the modal card on a narrow terminal. Keep that
+            // distinction in the shared transition so every dialog's scrim
+            // covers every rail without dialog-specific visibility rules.
+            surface.zIndex = columns === undefined
+                ? DIALOG_CARD_Z_INDEX
+                : DIALOG_BACKGROUND_Z_INDEX;
             applyBottomInset();
             if (columns === undefined) {
                 box.border = false;
