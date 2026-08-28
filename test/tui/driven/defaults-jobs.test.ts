@@ -164,12 +164,12 @@ test("shortlist verification runs in a console inside the model dialog", async (
         expect(finished).toContain("Verifying openrouter/one/model");
 
         session.sendKey("Escape");
-        await session.waitForVisiblePane("Verify current model");
-        session.sendKey("Enter");
+        await session.waitForVisiblePane("^v Verify this model");
+        session.sendKey("C-v");
         await session.waitForVisiblePane("❯ verify openrouter/one/model");
         await session.waitForVisiblePaneWhere(
             (pane) =>
-                pane.includes("Verify current model")
+                pane.includes("^v Verify this model")
                 && !pane.includes("❯ verify openrouter/one/model"),
             "repeat verification from the visible Shortlist action to finish",
         );

@@ -474,21 +474,19 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "verify_pool",
-        keys: ["ctrl+v"],
+        keys: ["ctrl+shift+v"],
         scope: "model_picker",
         description: "Probe the models you keep, and record what they can do",
-        hint: "^v verify all",
     },
     {
-        // Shifted control letters need the kitty keyboard protocol to remain
-        // distinct. Keep the old R chord as an alias, but lead with F: it sits
-        // beside refresh conceptually, while the shift makes this the live
-        // model check rather than a catalog refresh.
+        // Plain ctrl+v survives every terminal path. The shifted aliases stay
+        // for people who already learned them, but are not advertised because
+        // many terminals collapse them before Vera sees the key.
         id: "verify_model",
-        keys: ["ctrl+shift+f", "ctrl+shift+r"],
+        keys: ["ctrl+v", "ctrl+shift+f", "ctrl+shift+r"],
         scope: "model_picker",
         description: "Probe the selected model and record what it can do",
-        hint: "^⇧f verify",
+        hint: "^v verify",
     },
     {
         id: "move_pooled_up",

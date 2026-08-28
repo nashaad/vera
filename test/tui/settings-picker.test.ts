@@ -1583,9 +1583,16 @@ test("the current shortlist model exposes verification outside the model list", 
     expect(shortlist.options.some((option) =>
         option.label === "Verify current model"
     )).toBe(false);
-    expect(await pickerFrame(shortlist)).toContain("⏎ Verify current model");
-    expect(pickerFooter(shortlist)).toContain("⏎ verify");
-    expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolVerify)
+    expect(await pickerFrame(shortlist)).toContain("^v Verify this model");
+    expect(pickerFooter(shortlist)).toContain("^v verify");
+    expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).selection)
+        .toEqual({
+            kind: "model",
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+    expect(handleTuiSettingsPickerKey(shortlist, { name: "v", ctrl: true })
+        .poolVerify)
         .toEqual({
             provider: "openrouter",
             model: "z-ai/glm-5.2",
@@ -2039,6 +2046,8 @@ test("the verify key asks for a probe of the selected pool row", () => {
         provider: "openrouter",
         model: "z-ai/glm-5.2",
     };
+    expect(handleTuiSettingsPickerKey(state, { name: "v", ctrl: true })
+        .poolVerify).toEqual(expected);
     expect(
         handleTuiSettingsPickerKey(state, { name: "f", ctrl: true, shift: true })
             .poolVerify,
@@ -3517,17 +3526,14 @@ test("the Defaults row reports the subagent assignment instead of generic set", 
     }])[2]?.description).toBe("parent fallback");
 });
 
-test("the sweep key asks how much of the kept collection it covers", () => {
+test("the verify-shortlist action asks how much of the collection it covers", () => {
+    const actions = switchedModelTab(pickerWithActions(), "actions");
+    const selectedIndex = actions.options.findIndex((option) =>
+        option.label === "Verify shortlisted models"
+    );
     const transition = handleTuiSettingsPickerKey(
-        {
-            kind: "model",
-            allOptions: [],
-            options: [],
-            selectedIndex: 0,
-            query: "",
-            tab: "pool",
-        },
-        { name: "v", ctrl: true },
+        { ...actions, selectedIndex },
+        { name: "enter" },
     );
     expect(transition.handled).toBe(true);
     expect(transition.poolVerifySweep).toBe(true);
@@ -3560,7 +3566,7 @@ test("the Actions tab lists what the pane can do in words", () => {
 
     expect(actions.options.map((option) => option.label)).toEqual([
         "Refresh model lists",
-        "Check that shortlisted models work",
+        "Verify shortlisted models",
         "Show or hide the rarely used models",
         "Connect, edit or forget a provider",
     ]);

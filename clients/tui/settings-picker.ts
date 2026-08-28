@@ -1421,11 +1421,11 @@ export function tuiModelActionOptions(
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
-            label: "Check that shortlisted models work",
-            description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
+            label: "Verify shortlisted models",
+            description: "enter",
             note:
-                "Sends one small request to each model on the shortlist and marks the ones that answer.",
-            detailTitle: "check the shortlist",
+                "Choose unverified models or the whole shortlist, then send one small request to each and mark the ones that answer.",
+            detailTitle: "verify shortlist",
             detailFacts: [],
             searchText: "verify check test probe working broken shortlist pool",
         });
@@ -2792,16 +2792,6 @@ export function handleTuiSettingsPickerKey(
         if (state.kind === "model" && selected.section !== undefined) {
             return toggledSection(state, selected.section);
         }
-        if (currentPoolModelVerifiesOnEnter(state, selected)) {
-            return {
-                state,
-                handled: true,
-                poolVerify: {
-                    provider: selected.provider!,
-                    model: selected.model!,
-                },
-            };
-        }
         // The same request ctrl+shift+n makes, from a row anyone can see.
         if (state.kind === "provider" && selected.action === true) {
             return { state, handled: true, declareProvider: true };
@@ -3214,10 +3204,10 @@ function modelDetailNode(
             ]);
         }
         line();
-        if (currentPoolModelVerifiesOnEnter(state, option)) {
+        if (modelOptionCanVerify(state, option)) {
             line([
-                fg(TUI_ACCENT)("⏎ "),
-                fg(TUI_TEXT)("Verify current model"),
+                fg(TUI_ACCENT)("^v "),
+                fg(TUI_TEXT)("Verify this model"),
             ]);
         }
     }
@@ -3299,7 +3289,8 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
     ["Keys"],
-    ["⏎", "run this model; on the current Shortlist model, verify it."],
+    ["⏎", "run this model. On All models it does not add it."],
+    ["^v", "verify the highlighted model."],
     ["^s", "add the highlighted model to the shortlist, or remove it."],
     ["^n", "give a shortlisted model a short name of your own."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
@@ -3325,7 +3316,7 @@ function modelDetailHeight(
     const facts = described
         ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts + (currentPoolModelVerifiesOnEnter(state, option) ? 1 : 0);
+    return facts + (modelOptionCanVerify(state, option) ? 1 : 0);
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
@@ -4106,23 +4097,16 @@ function pickerFooterText(
             // a separate assignment: they are the same movement, and this footer is
             // already the longest one in the pane.
             { text: "↑↓ ^d^u move", drop: 0 },
-            {
-                text: currentPoolModelVerifiesOnEnter(state, selected)
-                    ? "⏎ verify"
-                    : "⏎ select",
-                drop: 0,
-            },
+            { text: "⏎ select", drop: 0 },
             ...(pool === undefined ? [] : [{ text: pool, drop: 1 }]),
             ...(state.canUndoPoolChange === true
                 ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
                 : []),
+            ...(modelOptionCanVerify(state, selected)
+                ? [{ text: tuiKeyHint("verify_model"), drop: 2 }]
+                : []),
             ...(selected?.refreshable === true
                 ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
-                : []),
-            // Behind the single-model key, since the sweep is the rarer of the
-            // two and the one that costs a call per row.
-            ...(state.tab === "pool"
-                ? [{ text: tuiKeyHint("verify_pool"), drop: 3 }]
                 : []),
             // Naming belongs to a pool entry, so the hint appears on the same
             // rows the key works on and nowhere else.
@@ -4320,17 +4304,18 @@ function isCurrentOption(
     return state.kind === "model" && option.value === state.initialModel;
 }
 
-/** Enter has no model switch to perform on the shortlisted model already running. */
-function currentPoolModelVerifiesOnEnter(
+/** A concrete model row can be probed without changing the active model. */
+function modelOptionCanVerify(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption | undefined,
 ): boolean {
     return state.kind === "model"
-        && state.tab === "pool"
-        && option?.provider !== undefined
+        && option !== undefined
+        && option.section === undefined
+        && option.action !== true
+        && option.provider !== undefined
         && option.model !== undefined
-        && isCurrentOption(state, option)
-        && isPooled(state, option);
+        && option.value !== SESSION_MODEL_VALUE;
 }
 
 /**
