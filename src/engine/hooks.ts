@@ -7,6 +7,9 @@ import type {
     PreToolUseHook,
     PreToolUseHookPayload,
     PreToolUseHookResult,
+    PreTurnHook,
+    PreTurnHookPayload,
+    PreTurnHookResult,
 } from "../sdk/hooks.ts";
 
 export interface HookCallOptions {
@@ -18,9 +21,15 @@ export interface PreToolUseOutcome {
     readonly result: PreToolUseHookResult;
 }
 
+export interface PreTurnOutcome {
+    readonly payload: PreTurnHookPayload;
+    readonly result: PreTurnHookResult;
+}
+
 export class ToolHooks {
     private readonly preToolUse: PreToolUseHook[] = [];
     private readonly postToolUse: PostToolUseHook[] = [];
+    private readonly preTurn: PreTurnHook[] = [];
 
     registerPreToolUse(hook: PreToolUseHook): () => void {
         this.preToolUse.push(hook);
@@ -30,6 +39,11 @@ export class ToolHooks {
     registerPostToolUse(hook: PostToolUseHook): () => void {
         this.postToolUse.push(hook);
         return () => removeHook(this.postToolUse, hook);
+    }
+
+    registerPreTurn(hook: PreTurnHook): () => void {
+        this.preTurn.push(hook);
+        return () => removeHook(this.preTurn, hook);
     }
 
     async runPreToolUse(
@@ -113,6 +127,92 @@ export class ToolHooks {
         }
         return currentPayload.result;
     }
+
+    async runPreTurn(
+        payload: PreTurnHookPayload,
+        options: HookCallOptions,
+    ): Promise<PreTurnOutcome> {
+        const deadline = hookDeadline(options.timeoutMs);
+        let currentPayload = cloneHookData(payload);
+        let currentResult: PreTurnHookResult = { power: "observe" };
+        remainingTime(deadline, options.timeoutMs, payload.type);
+        for (const hook of this.preTurn) {
+            const result = await callHook(
+                async () => cloneHookData(
+                    await hook(cloneHookData(currentPayload)),
+                ),
+                remainingTime(deadline, options.timeoutMs, payload.type),
+                options.timeoutMs,
+                payload.type,
+            );
+            assertPreTurnHookResult(result);
+            remainingTime(deadline, options.timeoutMs, payload.type);
+            if (result.power === "mutate") {
+                currentPayload = applyPreTurnMutate(currentPayload, result);
+                currentResult = {
+                    power: "mutate",
+                    ...(result.tools === undefined
+                        ? {}
+                        : { tools: [...result.tools] }),
+                    ...(result.model === undefined ? {} : { model: result.model }),
+                    ...(result.reasoningEffort === undefined
+                        ? {}
+                        : { reasoningEffort: result.reasoningEffort }),
+                };
+                continue;
+            }
+            if (result.power === "block") {
+                return {
+                    payload: currentPayload,
+                    result,
+                };
+            }
+        }
+        return {
+            payload: currentPayload,
+            result: currentResult,
+        };
+    }
+}
+
+function applyPreTurnMutate(
+    payload: PreTurnHookPayload,
+    result: Extract<PreTurnHookResult, { power: "mutate" }>,
+): PreTurnHookPayload {
+    const tools = result.tools === undefined
+        ? payload.tools
+        : restrictOfferedToolNames(payload.tools, result.tools);
+    return {
+        ...payload,
+        tools,
+        ...(result.model === undefined ? {} : { model: result.model }),
+        ...(result.reasoningEffort === undefined
+            ? {}
+            : { reasoningEffort: result.reasoningEffort }),
+    };
+}
+
+/**
+ * A named subset keeps only tools this turn already offered. An empty list
+ * is an explicit "none". Names that were never offered are dropped; if that
+ * leaves nothing from a non-empty request, the offer is unchanged.
+ */
+export function restrictOfferedToolNames(
+    offered: readonly string[],
+    requested: readonly string[],
+): readonly string[] {
+    if (requested.length === 0) {
+        return [];
+    }
+    const allowed = new Set(offered);
+    const kept = requested.filter((name) => allowed.has(name));
+    if (kept.length === 0) {
+        return offered;
+    }
+    if (kept.includes("bash") && offered.includes("process")) {
+        return kept.includes("process") ? kept : [...kept, "process"];
+    }
+    return kept;
 }
 
 function assertPreToolUseHookResult(
@@ -158,6 +258,47 @@ function assertPostToolUseHookResult(
         && typeof result.patch.isError !== "boolean"
     ) {
         throw new Error("post_tool_use mutate patch isError must be a boolean");
+    }
+}
+
+function assertPreTurnHookResult(
+    result: unknown,
+): asserts result is PreTurnHookResult {
+    assertHookResultObject(result, "pre_turn");
+    if (result.power === "observe") {
+        return;
+    }
+    if (result.power === "block") {
+        if (typeof result.reason !== "string" || result.reason.length === 0) {
+            throw new Error("pre_turn block reason must be a non-empty string");
+        }
+        return;
+    }
+    if (result.power !== "mutate") {
+        throw new Error(`pre_turn returned unsupported power: ${String(result.power)}`);
+    }
+    if (result.tools !== undefined) {
+        if (
+            !Array.isArray(result.tools)
+            || result.tools.some((name) => typeof name !== "string" || name.length === 0)
+        ) {
+            throw new Error("pre_turn mutate tools must be an array of non-empty strings");
+        }
+    }
+    if (result.model !== undefined) {
+        if (typeof result.model !== "string" || result.model.length === 0) {
+            throw new Error("pre_turn mutate model must be a non-empty string");
+        }
+    }
+    if (result.reasoningEffort !== undefined) {
+        if (
+            typeof result.reasoningEffort !== "string"
+            || result.reasoningEffort.length === 0
+        ) {
+            throw new Error(
+                "pre_turn mutate reasoningEffort must be a non-empty string",
+            );
+        }
     }
 }
 

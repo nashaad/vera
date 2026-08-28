@@ -151,3 +151,5 @@ vera-one-archived/
 .vera/
 .vera-test-home/
 !.env.test
+__pycache__/
+*.py[cod]

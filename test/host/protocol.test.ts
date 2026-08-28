@@ -14,6 +14,7 @@ import {
 } from "../../src/host/protocol.ts";
 
 test("host protocol parses identity requests and encodes responses", () => {
+    expect(HOST_MIN_COMPATIBLE_PROTOCOL_VERSION).toBe(HOST_PROTOCOL_VERSION);
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",
     });

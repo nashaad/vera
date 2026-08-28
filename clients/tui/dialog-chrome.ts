@@ -1,4 +1,5 @@
 import {
+    bold,
     BoxRenderable,
     fg,
     type MouseEvent,
@@ -7,6 +8,7 @@ import {
     StyledText,
     type TextChunk,
     TextRenderable,
+    underline,
     type RenderContext,
 } from "@opentui/core";
 
@@ -325,7 +327,7 @@ export interface DialogRowContent {
     // number, a group name). Accent-toned unless the row is active, or muted
     // when the gutter names something the eye should pass over.
     readonly leading?: string;
-    readonly leadingTone?: "accent" | "muted";
+    readonly leadingTone?: "accent" | "muted" | "positive";
     // A blank line above the row, for lists that separate runs of rows with a
     // gap rather than a heading.
     readonly spaced?: boolean;
@@ -336,6 +338,11 @@ export interface DialogRowContent {
     readonly marker?: string;
     // Follows the label inline in the muted tone.
     readonly description?: string;
+    // A run inside the label drawn heavier than the rest, given as a start
+    // column and a length. Bold and underlined rather than coloured: every
+    // tone collapses into the highlight bar on the active row, and the whole
+    // label is bold there, so the underline is what is left to mark it with.
+    readonly emphasis?: { readonly start: number; readonly length: number };
     // Right-aligned trailing column in the muted tone (e.g. a provider name).
     // A list of parts lets one fact in the column carry its own tone.
     readonly meta?: DialogMeta;
@@ -360,6 +367,30 @@ export interface DialogRowContent {
     // what makes the row look clickable, since these dialogs have no other
     // hover state.
     readonly onHover?: () => void;
+}
+
+/**
+ * The label as one chunk, or as three when a run of it is emphasised.
+ *
+ * A run past the end of the label draws nothing: the label is clipped to the
+ * pane before it gets here, so a match beyond the cut has no columns left.
+ */
+function labelWithEmphasis(
+    label: string,
+    color: string,
+    emphasis: { readonly start: number; readonly length: number } | undefined,
+): TextChunk[] {
+    if (emphasis === undefined || emphasis.length <= 0) {
+        return [fg(color)(label)];
+    }
+    const start = Math.max(0, Math.min(emphasis.start, label.length));
+    const end = Math.min(label.length, start + emphasis.length);
+    if (end <= start) return [fg(color)(label)];
+    return [
+        ...(start > 0 ? [fg(color)(label.slice(0, start))] : []),
+        underline(bold(fg(color)(label.slice(start, end)))),
+        ...(end < label.length ? [fg(color)(label.slice(end))] : []),
+    ];
 }
 
 /**
@@ -659,17 +690,24 @@ export function dialogOptionRow(
     // Only when there is leading text to draw: an empty text node still takes
     // a column, which would push every label one off the title above it.
     if (content.leading !== undefined && content.leading.length > 0) {
+        const leadingColor = content.leadingTone === "muted"
+            ? detail
+            : content.leadingTone === "positive"
+            ? content.active ? TUI_SELECTION_TEXT : TUI_SUCCESS
+            : accent;
         row.add(new TextRenderable(renderer, {
             content: new StyledText([
-                fg(content.leadingTone === "muted" ? detail : accent)(
-                    content.leading,
-                ),
+                fg(leadingColor)(content.leading),
             ]),
             bg: background,
             flexShrink: 0,
         }));
     }
-    const labelChunks: TextChunk[] = [fg(label)(content.label)];
+    const labelChunks: TextChunk[] = labelWithEmphasis(
+        content.label,
+        label,
+        content.emphasis,
+    );
     if (content.description !== undefined) {
         labelChunks.push(fg(detail)(`  ${content.description}`));
     }

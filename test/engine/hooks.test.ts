@@ -191,6 +191,87 @@ test("hook boundaries reject non-JSON and invalid result data", async () => {
     ).rejects.toThrow("post_tool_use returned unsupported power: replace");
 });
 
+const preTurnPayload = {
+    type: "pre_turn" as const,
+    workspace: "/work/vera",
+    prompt: "review this patch",
+    model: "reviewer",
+    tools: ["read", "write", "bash"],
+    reasoningEffort: "high",
+};
+
+test("pre-turn mutations accumulate in order and cannot add tools", async () => {
+    const hooks = new ToolHooks();
+    const seen: string[][] = [];
+    hooks.registerPreTurn((payload) => {
+        seen.push([...payload.tools]);
+        (payload as { model: string }).model = "hidden";
+        return { power: "mutate", tools: ["read", "bash"], model: "cheap" };
+    });
+    hooks.registerPreTurn((payload) => {
+        seen.push([...payload.tools]);
+        return { power: "mutate", tools: ["bash", "write"] };
+    });
+
+    const outcome = await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 });
+
+    expect(seen).toEqual([
+        ["read", "write", "bash"],
+        ["read", "bash"],
+    ]);
+    expect(outcome.payload).toEqual({
+        type: "pre_turn",
+        workspace: "/work/vera",
+        prompt: "review this patch",
+        model: "cheap",
+        tools: ["bash"],
+        reasoningEffort: "high",
+    });
+    expect(outcome.result).toMatchObject({ power: "mutate", tools: ["bash", "write"] });
+    expect(roundTrip(preTurnPayload)).toEqual(preTurnPayload);
+});
+
+test("pre-turn block stops later handlers", async () => {
+    const hooks = new ToolHooks();
+    let afterBlock = false;
+    hooks.registerPreTurn(() => ({ power: "mutate", model: "cheap" }));
+    hooks.registerPreTurn(() => ({ power: "block", reason: "not this turn" }));
+    hooks.registerPreTurn(() => {
+        afterBlock = true;
+        return { power: "observe" };
+    });
+    expect(await hooks.runPreTurn(preTurnPayload, { timeoutMs: 100 })).toEqual({
+        payload: {
+            ...preTurnPayload,
+            model: "cheap",
+        },
+        result: { power: "block", reason: "not this turn" },
+    });
+    expect(afterBlock).toBe(false);
+});
+
+test("an empty pre-turn tools list offers none, and unknown names are ignored", async () => {
+    const empty = new ToolHooks();
+    empty.registerPreTurn(() => ({ power: "mutate", tools: [] }));
+    expect(
+        (await empty.runPreTurn(preTurnPayload, { timeoutMs: 100 })).payload.tools,
+    ).toEqual([]);
+
+    const unknown = new ToolHooks();
+    unknown.registerPreTurn(() => ({ power: "mutate", tools: ["not-a-tool"] }));
+    expect(
+        (await unknown.runPreTurn(preTurnPayload, { timeoutMs: 100 })).payload.tools,
+    ).toEqual(preTurnPayload.tools);
+});
+
+test("pre-turn hooks share the declared timeout budget", async () => {
+    const hooks = new ToolHooks();
+    hooks.registerPreTurn(() => new Promise(() => {}));
+    await expect(hooks.runPreTurn(preTurnPayload, { timeoutMs: 5 })).rejects.toThrow(
+        "pre_turn hooks timed out after 5ms",
+    );
+});
+
 function roundTrip<Value>(value: Value): Value {
     return JSON.parse(JSON.stringify(value)) as Value;
 }

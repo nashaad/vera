@@ -288,6 +288,72 @@ test("public hook capabilities register in order, carry plain identity, and isol
     await registry.close();
 });
 
+test("pre-turn hook registration is capability-gated and can mutate the payload", async () => {
+    const failures: ExtensionRegistryFailure[] = [];
+    const denied = createExtension("denied-pre-turn.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreTurn(() => ({ power: "observe" }));
+        }
+    `);
+    const deniedRegistry = await startExtensionRegistry({
+        extensions: [configured(denied)],
+        onFailure: (failure) => failures.push(failure),
+    });
+    expect(deniedRegistry.preTurnHooks()).toEqual([]);
+    expect(failures[0]?.message).toContain("hooks.pre_turn");
+    await deniedRegistry.close();
+
+    const extension = createExtension("pre-turn.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreTurn((payload) => {
+                if (payload.prompt !== "review this" || payload.workspace !== "/work") {
+                    return { power: "block", reason: "identity missing" };
+                }
+                return { power: "mutate", tools: ["read"], model: "cheap" };
+            });
+        }
+    `, ["hooks.pre_turn"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook);
+    const outcome = await hooks.runPreTurn({
+        type: "pre_turn",
+        sessionId: "session-1",
+        workspace: "/work",
+        prompt: "review this",
+        model: "reviewer",
+        tools: ["read", "write"],
+    }, { timeoutMs: 100 });
+    expect(outcome.payload.tools).toEqual(["read"]);
+    expect(outcome.payload.model).toBe("cheap");
+    await registry.close();
+});
+
+test("a throwing extension pre-turn hook does not break the engine chain", async () => {
+    const extension = createExtension("broken-pre-turn.extension", `
+        export function activate(vera) {
+            vera.hooks.registerPreTurn(() => { throw new Error("broken"); });
+            vera.hooks.registerPreTurn(() => ({ power: "mutate", model: "after-broken" }));
+        }
+    `, ["hooks.pre_turn"]);
+    const registry = await startExtensionRegistry({
+        extensions: [configured(extension)],
+    });
+    const hooks = new ToolHooks();
+    for (const hook of registry.preTurnHooks()) hooks.registerPreTurn(hook);
+    const outcome = await hooks.runPreTurn({
+        type: "pre_turn",
+        workspace: "/work",
+        prompt: "review this",
+        model: "reviewer",
+        tools: ["read"],
+    }, { timeoutMs: 100 });
+    expect(outcome.payload.model).toBe("after-broken");
+    await registry.close();
+});
+
 test("a model request hook contributes one namespaced plain value", async () => {
     const extension = createExtension("strata.extension", `
         export function activate(vera) {

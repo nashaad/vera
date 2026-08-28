@@ -23,6 +23,8 @@ export interface SessionSearchQuery {
     readonly kind?: SessionSearchFilter;
     /** Directory path. Omitted searches every workspace. */
     readonly workspace?: string;
+    /** One session, by id. Omitted searches every session. */
+    readonly session_id?: string;
 }
 
 export interface SessionSearchHit {
@@ -53,6 +55,14 @@ export interface SessionSearchResults {
 
 export const MAX_SEARCH_RESULTS = 20;
 export const MAX_HITS_PER_SESSION = 3;
+/**
+ * The cap when the query names one session.
+ *
+ * Three hits keeps a list of twenty sessions readable, because the session is
+ * what is being chosen there. A search of one session is the list, so every
+ * match is a row worth having and the pane scrolls them.
+ */
+export const MAX_HITS_IN_ONE_SESSION = 50;
 export const MAX_SNIPPET_LENGTH = 96;
 const MAX_LINE_BYTES = 512 * 1_024;
 const SNIPPET_LEAD = 24;
@@ -65,6 +75,8 @@ export const NO_SEARCH_RESULTS: SessionSearchResults = Object.freeze({
 export interface SessionSearchOptions {
     readonly maxResults?: number;
     readonly maxHitsPerSession?: number;
+    /** Authoritative transcript path when the query names one session. */
+    readonly sessionPath?: string;
 }
 
 /**
@@ -81,20 +93,36 @@ export async function searchSessions(
     const needle = query.query.trim().toLowerCase();
     if (needle.length === 0) return NO_SEARCH_RESULTS;
     const maxResults = options.maxResults ?? MAX_SEARCH_RESULTS;
-    const maxHits = options.maxHitsPerSession ?? MAX_HITS_PER_SESSION;
+    const maxHits = options.maxHitsPerSession
+        ?? (query.session_id === undefined
+            ? MAX_HITS_PER_SESSION
+            : MAX_HITS_IN_ONE_SESSION);
 
-    let names: readonly string[];
-    try {
-        names = await readdir(sessionDirectory);
-    } catch {
-        return NO_SEARCH_RESULTS;
+    const sessionPath = query.session_id === undefined
+        ? undefined
+        : options.sessionPath;
+    let names: readonly string[] = [];
+    if (sessionPath === undefined) {
+        try {
+            names = await readdir(sessionDirectory);
+        } catch {
+            return NO_SEARCH_RESULTS;
+        }
     }
 
-    const files = (await Promise.all(
-        names
+    // The runtime resolves named sessions through its index because a
+    // resumed transcript may not be named after its id. The conventional
+    // filename remains the fallback for direct store callers.
+    const paths = sessionPath === undefined
+        ? names
             .filter((name) => name.endsWith(".jsonl"))
-            .map(async (name) => {
-                const path = join(sessionDirectory, name);
+            .filter((name) => query.session_id === undefined
+                || name === `${query.session_id}.jsonl`)
+            .map((name) => join(sessionDirectory, name))
+        : [sessionPath];
+    const files = (await Promise.all(
+        paths
+            .map(async (path) => {
                 const info = await stat(path).catch(() => undefined);
                 return info === undefined
                     ? undefined

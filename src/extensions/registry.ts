@@ -34,6 +34,9 @@ import type {
     PreToolUseHook,
     PreToolUseHookPayload,
     PreToolUseHookResult,
+    PreTurnHook,
+    PreTurnHookPayload,
+    PreTurnHookResult,
     RegisteredModelRequestHook,
 } from "../sdk/hooks.ts";
 import { createCommandHook, type CommandHookSpec } from "./command-hook.ts";
@@ -69,6 +72,7 @@ const MAX_EXTENSION_HOOK_BYTES = 64 * 1024;
 const MAX_EXTENSION_DIFF_LINES = 400;
 const PRE_TOOL_HOOK_CAPABILITY = "hooks.pre_tool_use";
 const POST_TOOL_HOOK_CAPABILITY = "hooks.post_tool_use";
+const PRE_TURN_HOOK_CAPABILITY = "hooks.pre_turn";
 const MODEL_REQUEST_HOOK_CAPABILITY = "hooks.model_request";
 const SESSION_IDENTITY_CAPABILITY = "sessions.identity";
 
@@ -104,6 +108,7 @@ export interface ExtensionRegistry {
     agents(): readonly AgentDefinition[];
     preToolUseHooks(): readonly PreToolUseHook[];
     postToolUseHooks(): readonly PostToolUseHook[];
+    preTurnHooks(): readonly PreTurnHook[];
     modelRequestHooks(): readonly RegisteredModelRequestHook[];
     sessionIdentity(): SessionIdentityProvider | undefined;
     contributions(): HostContributionSet;
@@ -135,6 +140,7 @@ interface LoadedRegistryExtension {
     readonly agents: readonly AgentDefinition[];
     readonly preToolUseHooks: readonly PreToolUseHook[];
     readonly postToolUseHooks: readonly PostToolUseHook[];
+    readonly preTurnHooks: readonly PreTurnHook[];
     readonly modelRequestHooks: readonly RegisteredModelRequestHook[];
     readonly identityProvider?: SessionIdentityProvider;
     readonly disposers: readonly VeraExtensionDisposer[];
@@ -315,6 +321,9 @@ export async function startExtensionRegistry(
         postToolUseHooks(): readonly PostToolUseHook[] {
             return loaded.flatMap((extension) => extension.postToolUseHooks);
         },
+        preTurnHooks(): readonly PreTurnHook[] {
+            return loaded.flatMap((extension) => extension.preTurnHooks);
+        },
         modelRequestHooks(): readonly RegisteredModelRequestHook[] {
             return loaded.flatMap((extension) => extension.modelRequestHooks);
         },
@@ -437,6 +446,7 @@ async function activateExtension(
     const agentNames = new Set<string>();
     const preToolUseHooks: PreToolUseHook[] = [];
     const postToolUseHooks: PostToolUseHook[] = [];
+    const preTurnHooks: PreTurnHook[] = [];
     const modelRequestHooks: RegisteredModelRequestHook[] = [];
     let identityProvider: SessionIdentityProvider | undefined;
     const toolNames = new Set<string>();
@@ -577,6 +587,24 @@ async function activateExtension(
                 postToolUseHooks.push(safe);
                 return () => removeHook(postToolUseHooks, safe);
             },
+            registerPreTurn(hook: PreTurnHook): VeraExtensionDisposer {
+                if (phase !== "activating") {
+                    throw new Error(
+                        "Extension hooks must be registered during activation",
+                    );
+                }
+                if (!loaded.manifest.capabilities.includes(PRE_TURN_HOOK_CAPABILITY)) {
+                    throw new Error(
+                        `Extension did not declare ${PRE_TURN_HOOK_CAPABILITY}`,
+                    );
+                }
+                if (typeof hook !== "function") {
+                    throw new Error("Invalid pre-turn hook registration");
+                }
+                const safe = safePreTurnHook(hook);
+                preTurnHooks.push(safe);
+                return () => removeHook(preTurnHooks, safe);
+            },
             registerModelRequest(
                 namespace: string,
                 hook: ModelRequestHook,
@@ -678,6 +706,7 @@ async function activateExtension(
             agents,
             preToolUseHooks,
             postToolUseHooks,
+            preTurnHooks,
             modelRequestHooks,
             ...(identityProvider === undefined
                 ? {}
@@ -1132,6 +1161,17 @@ function safePostToolHook(hook: PostToolUseHook): PostToolUseHook {
     };
 }
 
+function safePreTurnHook(hook: PreTurnHook): PreTurnHook {
+    return async (payload: PreTurnHookPayload): Promise<PreTurnHookResult> => {
+        try {
+            const result = await hook(structuredClone(payload));
+            return isPreTurnResult(result) ? structuredClone(result) : { power: "observe" };
+        } catch {
+            return { power: "observe" };
+        }
+    };
+}
+
 function isPreToolUseResult(value: unknown): value is PreToolUseHookResult {
     if (!isPlainObject(value) || typeof value.power !== "string") return false;
     if (value.power === "observe") return true;
@@ -1157,6 +1197,40 @@ function isPostToolUseResult(value: unknown): value is PostToolUseHookResult {
     return (patch.content === undefined || isHookTextContentArray(patch.content))
         && (patch.content === undefined || boundedHookData(patch.content))
         && (patch.isError === undefined || typeof patch.isError === "boolean");
+}
+
+function isPreTurnResult(value: unknown): value is PreTurnHookResult {
+    if (!isPlainObject(value) || typeof value.power !== "string") return false;
+    if (value.power === "observe") return true;
+    if (value.power === "block") {
+        return typeof value.reason === "string"
+            && value.reason.length > 0
+            && boundedHookData(value.reason);
+    }
+    if (value.power !== "mutate") return false;
+    if (value.tools !== undefined) {
+        if (
+            !Array.isArray(value.tools)
+            || value.tools.some((name) => typeof name !== "string" || name.length === 0)
+            || !boundedHookData(value.tools)
+        ) {
+            return false;
+        }
+    }
+    if (value.model !== undefined) {
+        if (typeof value.model !== "string" || value.model.length === 0) {
+            return false;
+        }
+    }
+    if (value.reasoningEffort !== undefined) {
+        if (
+            typeof value.reasoningEffort !== "string"
+            || value.reasoningEffort.length === 0
+        ) {
+            return false;
+        }
+    }
+    return true;
 }
 
 function boundedHookData(value: unknown): boolean {

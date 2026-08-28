@@ -8,7 +8,7 @@ import { startResidentHost } from "../../src/host/runtime.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { installHostCrashGuard } from "./crash-guard.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
-import { recordCleanBoot } from "../../src/pinned-build.ts";
+import { recordCleanBoot } from "../../src/host/pinned-build.ts";
 import {
     anotherHostIsServing,
     isSupervisedHost,

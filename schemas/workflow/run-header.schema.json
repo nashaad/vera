@@ -1,0 +1,60 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "$id": "https://vera.dev/schemas/workflow/run-header.schema.json",
+    "title": "Vera workflow run header",
+    "type": "object",
+    "required": [
+        "run_id",
+        "workflow",
+        "status",
+        "started_at",
+        "inbox",
+        "doc"
+    ],
+    "properties": {
+        "run_id": {
+            "type": "string",
+            "pattern": "^wf_[0-9a-f]{16}$"
+        },
+        "workflow": {
+            "type": "string",
+            "minLength": 1
+        },
+        "status": {
+            "enum": ["ok", "failed", "suspended", "running"]
+        },
+        "started_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "finished_at": {
+            "type": "string",
+            "format": "date-time"
+        },
+        "inbox": {
+            "type": "object"
+        },
+        "doc": {
+            "type": "string"
+        },
+        "args": {
+            "type": "array"
+        },
+        "kwargs": {
+            "type": "object"
+        },
+        "error": {
+            "type": "object",
+            "required": ["kind", "message"],
+            "properties": {
+                "kind": { "type": "string" },
+                "message": { "type": "string" }
+            },
+            "additionalProperties": false
+        },
+        "reason": {
+            "type": "string"
+        }
+    },
+    "additionalProperties": false
+}

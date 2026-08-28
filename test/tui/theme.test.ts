@@ -9,6 +9,7 @@ import {
     resolveTuiTheme,
     resolveSystemTuiTheme,
     themeFromTerminal,
+    tuiRecessColor,
 } from "../../clients/tui/theme.ts";
 
 function terminalColors(): TerminalColors {
@@ -62,6 +63,14 @@ test("TUI uses Vera colors by default", async () => {
     expect(theme).toBe(VERA_TUI_THEME);
     expect(theme.success).toBe("#9ECE6A");
     expect(theme.code).toBe("#B8B6D9");
+});
+
+test("recessed surfaces sit behind the transcript ground", () => {
+    expect(tuiRecessColor(VERA_TUI_THEME)).toBe("#08090c");
+    expect(tuiRecessColor({
+        ...VERA_TUI_THEME,
+        background: "#000000",
+    })).toBe("#000000");
 });
 
 test("TUI system theme falls back to Vera colors when detection fails", async () => {

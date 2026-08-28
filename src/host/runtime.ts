@@ -151,7 +151,10 @@ import {
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
 import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
-import { searchSessions } from "../store/session-search.ts";
+import {
+    NO_SEARCH_RESULTS,
+    searchSessions,
+} from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
 import {
     startSchedulerRuntime,
@@ -806,6 +809,9 @@ export async function startResidentHost(
             for (const hook of extensions.postToolUseHooks()) {
                 hooks.registerPostToolUse(hook);
             }
+            for (const hook of extensions.preTurnHooks()) {
+                hooks.registerPreTurn(hook);
+            }
             return hooks;
         },
         ...(!hasModelRequestHooks ? {} : {
@@ -1005,7 +1011,21 @@ export async function startResidentHost(
                 });
                 return workIndexThisTurn;
             },
-            searchSessions: (query) => searchSessions(sessionDirectory, query),
+            searchSessions: async (query) => {
+                if (query.session_id === undefined) {
+                    return searchSessions(sessionDirectory, query);
+                }
+                const resident = registry.list().find(
+                    (session) => session.id === query.session_id,
+                );
+                const stored = resident === undefined
+                    ? (await storedSessions).get(query.session_id)
+                    : undefined;
+                const sessionPath = resident?.session_path ?? stored?.session_path;
+                return sessionPath === undefined
+                    ? NO_SEARCH_RESULTS
+                    : searchSessions(sessionDirectory, query, { sessionPath });
+            },
             ...(scheduler === null ? {} : {
                 runScheduleOperation: (operation) => scheduler!.execute(operation),
             }),

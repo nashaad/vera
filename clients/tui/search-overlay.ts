@@ -26,7 +26,21 @@ export const SEARCH_FILTERS: readonly (SessionSearchFilter | undefined)[] = [
     "files",
 ];
 
-export type SearchScope = "workspace" | "everywhere";
+/**
+ * How wide the search reaches, narrowest first.
+ *
+ * `ctrl+w` steps through these in order and wraps. A pane opened over a
+ * conversation starts at the narrowest, which is the conversation itself; one
+ * opened where there is no conversation starts at the workspace and never
+ * offers `conversation`, because there is nothing for it to mean.
+ */
+export type SearchScope = "conversation" | "workspace" | "everywhere";
+
+const SEARCH_SCOPES: readonly SearchScope[] = [
+    "conversation",
+    "workspace",
+    "everywhere",
+];
 
 export interface SearchOverlayState {
     readonly query: string;
@@ -34,6 +48,11 @@ export interface SearchOverlayState {
     readonly scope: SearchScope;
     /** The session's own workspace, which is what `workspace` scope means. */
     readonly workspace: string;
+    /**
+     * The conversation on screen, which is what `conversation` scope means.
+     * Absent when the pane was opened with no conversation behind it.
+     */
+    readonly sessionId?: string;
     readonly results?: SessionSearchResults;
     /** Set when the host refused or could not answer. */
     readonly notice?: string;
@@ -54,8 +73,35 @@ export interface SearchSelection {
     readonly hitIndex: number;
 }
 
-export function startSearchOverlay(workspace: string): SearchOverlayState {
-    return { query: "", scope: "workspace", workspace, searching: false };
+export interface SearchOverlayStart {
+    /** The conversation to search first, when the pane has one behind it. */
+    readonly sessionId?: string;
+    /** Where to start. Narrowed to what the pane can actually reach. */
+    readonly scope?: SearchScope;
+}
+
+export function startSearchOverlay(
+    workspace: string,
+    start: SearchOverlayStart = {},
+): SearchOverlayState {
+    const scopes = availableScopes(start.sessionId);
+    const scope = start.scope !== undefined && scopes.includes(start.scope)
+        ? start.scope
+        : scopes[0]!;
+    return {
+        query: "",
+        scope,
+        workspace,
+        ...(start.sessionId === undefined ? {} : { sessionId: start.sessionId }),
+        searching: false,
+    };
+}
+
+/** The scopes this pane can offer, narrowest first. */
+function availableScopes(sessionId?: string): readonly SearchScope[] {
+    return sessionId === undefined
+        ? SEARCH_SCOPES.filter((scope) => scope !== "conversation")
+        : SEARCH_SCOPES;
 }
 
 /** The query to send for a state, or nothing when there is nothing to ask. */
@@ -68,6 +114,9 @@ export function searchOverlayQuery(
         query,
         ...(state.filter === undefined ? {} : { kind: state.filter }),
         ...(state.scope === "workspace" ? { workspace: state.workspace } : {}),
+        ...(state.scope === "conversation" && state.sessionId !== undefined
+            ? { session_id: state.sessionId }
+            : {}),
     };
 }
 
@@ -96,8 +145,8 @@ export interface SearchOverlayKey {
 }
 
 /**
- * Every key the overlay owns. Ctrl and meta chords are passed through
- * untouched so the global bindings, ctrl+c above all, still reach the client.
+ * Every key the overlay owns. Modifier chords it does not claim are passed
+ * through so global bindings, ctrl+c above all, still reach the client.
  */
 export function handleSearchOverlayKey(
     state: SearchOverlayState,
@@ -108,10 +157,7 @@ export function handleSearchOverlayKey(
         return requery({ ...state, filter: nextFilter(state.filter) });
     }
     if (binding === "toggle_search_scope") {
-        return requery({
-            ...state,
-            scope: state.scope === "workspace" ? "everywhere" : "workspace",
-        });
+        return requery({ ...state, scope: widerScope(state) });
     }
     if (key.ctrl || key.meta || key.shift) return { state, handled: false };
     if (key.name === "escape") {
@@ -160,6 +206,9 @@ function typed(
         scope: state.scope,
         workspace: state.workspace,
         searching,
+        ...(state.sessionId === undefined
+            ? {}
+            : { sessionId: state.sessionId }),
         ...(state.filter === undefined ? {} : { filter: state.filter }),
         ...(searching && state.results !== undefined
             ? { results: state.results, ...(state.selected === undefined
@@ -230,7 +279,8 @@ function sameQuery(
 ): boolean {
     return left.query === right.query
         && left.kind === right.kind
-        && left.workspace === right.workspace;
+        && left.workspace === right.workspace
+        && left.session_id === right.session_id;
 }
 
 /** Every hit in the order it is drawn, which is the order the arrows walk. */
@@ -297,6 +347,13 @@ export interface SearchOverlayLine {
     readonly selected?: boolean;
     /** Left over from the previous query, while its replacement is in flight. */
     readonly stale?: boolean;
+    /**
+     * Where the query sits inside the line, so the row can draw it heavier.
+     *
+     * Absent when the snippet was cut before the match: a run pointing past
+     * the end of the line would mark whatever text ended up there instead.
+     */
+    readonly emphasis?: { readonly start: number; readonly length: number };
 }
 
 /** A hit's identity as one string, because a pointer can only carry one. */
@@ -322,10 +379,21 @@ const HIT_PREFIXES: Readonly<Record<SessionSearchHit["kind"], string>> = {
     file_edit: "edited:",
 };
 
+/** The next scope out, wrapping back to the narrowest one on offer. */
+function widerScope(state: SearchOverlayState): SearchScope {
+    const scopes = availableScopes(state.sessionId);
+    const at = scopes.indexOf(state.scope);
+    return scopes[(at + 1) % scopes.length]!;
+}
+
+const SCOPE_WORDS: Readonly<Record<SearchScope, string>> = {
+    conversation: "this conversation",
+    workspace: "this workspace",
+    everywhere: "everywhere",
+};
+
 export function searchOverlayHeader(state: SearchOverlayState): string {
-    const scope = state.scope === "workspace"
-        ? "this workspace"
-        : "everywhere";
+    const scope = SCOPE_WORDS[state.scope];
     const filter = state.filter ?? "all";
     return `Search · ${filter} · ${scope}`;
 }
@@ -353,6 +421,7 @@ export function searchOverlayLines(
         lines.push({ kind: "notice", text: "Type to search past work." });
         return lines;
     }
+    const needle = state.query.trim().toLowerCase();
     const results = state.results?.results ?? [];
     if (state.searching && results.length === 0) {
         lines.push({ kind: "notice", text: "Searching…" });
@@ -379,12 +448,14 @@ export function searchOverlayLines(
         result.hits.forEach((hit, hitIndex) => {
             const selected = state.selected?.sessionId === result.session_id
                 && state.selected.hitIndex === hitIndex;
+            const text = clip(
+                `    ${HIT_PREFIXES[hit.kind]} ${hit.snippet}`,
+                layout.width,
+            );
+            const emphasis = matchRun(text, needle);
             lines.push({
                 kind: "hit",
-                text: clip(
-                    `    ${HIT_PREFIXES[hit.kind]} ${hit.snippet}`,
-                    layout.width,
-                ),
+                text,
                 session_id: result.session_id,
                 row_id: searchRowId({
                     sessionId: result.session_id,
@@ -392,6 +463,7 @@ export function searchOverlayLines(
                 }),
                 selected,
                 stale,
+                ...(emphasis === undefined ? {} : { emphasis }),
             });
         });
     }
@@ -412,6 +484,24 @@ export function searchOverlayText(
     return searchOverlayLines(state, layout)
         .map((line) => line.text)
         .join("\n");
+}
+
+/**
+ * Where the query lands in a drawn line, if it is still on it.
+ *
+ * The host matches case-insensitively and the snippet keeps the transcript's
+ * own case, so the run is found the same way rather than assumed to be where
+ * the query's characters were typed.
+ */
+function matchRun(
+    text: string,
+    needle: string,
+): { readonly start: number; readonly length: number } | undefined {
+    if (needle.length === 0) return undefined;
+    const at = text.toLowerCase().indexOf(needle);
+    return at === -1 || at + needle.length > text.length
+        ? undefined
+        : { start: at, length: needle.length };
 }
 
 function clip(value: string, columns: number): string {
@@ -439,6 +529,7 @@ export function searchOverlayViewState(
             text: line.text,
             ...(line.row_id === undefined ? {} : { rowId: line.row_id }),
             ...(line.selected === true ? { selected: true } : {}),
+            ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
             tone: line.stale === true
                 ? "muted" as const
                 : line.kind === "result" || line.kind === "query"

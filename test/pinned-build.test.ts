@@ -5,12 +5,12 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    checkoutRoot,
     PINNED_BUILD_ENV,
     pinnedCliEntrypoint,
     readPinnedBuild,
     recordCleanBoot,
-} from "../src/pinned-build.ts";
+} from "../src/host/pinned-build.ts";
+import { gitCheckoutRoot } from "../src/dev/git-checkout.ts";
 import { VERA_HOME_ENV } from "../src/profile-paths.ts";
 
 const previousHome = process.env[VERA_HOME_ENV];
@@ -67,7 +67,7 @@ function cliPath(repository: string): string {
 test("a file outside any checkout has no repository to pin", () => {
     const loose = temporaryDirectory("vera-pin-loose-");
     writeFileSync(join(loose, "main.ts"), "");
-    expect(checkoutRoot(join(loose, "main.ts"))).toBeUndefined();
+    expect(gitCheckoutRoot(join(loose, "main.ts"))).toBeUndefined();
 });
 
 test("a clean boot pins the commit it booted from", () => {
@@ -114,7 +114,7 @@ test("rescue runs the pinned commit after the checkout moved on", () => {
     expect(entrypoint).toBeDefined();
     expect(existsSync(entrypoint as string)).toBe(true);
     const worktree = join(
-        checkoutRoot(cliPath(repository)) as string,
+        gitCheckoutRoot(cliPath(repository)) as string,
         ".worktrees",
         "pinned",
     );
@@ -138,7 +138,7 @@ test("a stale pinned worktree is moved to the recorded commit", () => {
 
     expect(pinnedCliEntrypoint(cliPath(repository), {})).toBeDefined();
     const worktree = join(
-        checkoutRoot(cliPath(repository)) as string,
+        gitCheckoutRoot(cliPath(repository)) as string,
         ".worktrees",
         "pinned",
     );

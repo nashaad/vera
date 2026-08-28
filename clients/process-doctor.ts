@@ -9,6 +9,7 @@ import {
 import {
     VERA_HOME_ENV,
     VERA_RUNTIME_DIR_ENV,
+    VERA_WORKTREE_RUNTIME_ENV,
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
 import { sweepStaleTmuxSockets } from "./tmux-socket-doctor.ts";
@@ -36,11 +37,13 @@ export interface VeraProcessSample {
     readonly kind: VeraProcessKind;
     /**
      * Set when this process overrode the profile runtime (`VERA_RUNTIME_DIR`
-     * or `VERA_HOME`). Isolated worktree and UAT hosts use that override, and
-     * it is what makes them leftovers instead of the daily resident.
+     * or `VERA_HOME`). Tests and UAT use that override. A launcher-owned
+     * worktree runtime carries its separate marker and is not a leftover.
      */
     readonly isolated?: boolean;
     readonly runtimeDir?: string;
+    /** Deliberate linked-worktree runtime, not disposable test isolation. */
+    readonly worktreeRuntime?: boolean;
 }
 
 export interface DiagnosedVeraProcess extends VeraProcessSample {
@@ -76,7 +79,7 @@ export interface VeraDoctorOptions {
     /**
      * Runtime directory a caller is about to use. Processes in that runtime
      * stay; everything else that is leftover is stray. Doctor omits this so
-     * forgotten isolated TUIs are swept too.
+     * forgotten unmarked isolated TUIs are swept too.
      */
     readonly preserveRuntimeDir?: string;
     /**
@@ -179,6 +182,7 @@ export async function diagnoseVeraProcesses(
         sample.kind === "host"
         && !sample.currentHost
         && !sample.knownProfileHost
+        && sample.worktreeRuntime !== true
     );
     return {
         healthy: !currentHostMissing
@@ -201,17 +205,26 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     const knownProfileHosts = extraHosts.filter((process) =>
         process.knownProfileHost
     );
+    const worktreeHosts = extraHosts.filter((process) =>
+        process.worktreeRuntime === true
+    );
     const unrecognizedHosts = extraHosts.filter((process) =>
         !process.knownProfileHost
+        && process.worktreeRuntime !== true
     );
     const highCpu = report.processes.filter((process) =>
         process.sustainedHighCpu
     );
+    const worktreeSummary = worktreeHosts.length === 0
+        ? ""
+        : `, ${worktreeHosts.length} worktree${
+            worktreeHosts.length === 1 ? "" : "s"
+        }`;
     const lines = [
         "Vera doctor",
         "",
         "Process summary",
-        `  Resident hosts: ${hosts.length} (${unrecognizedHosts.length} unrecognized, ${knownProfileHosts.length} other profile${knownProfileHosts.length === 1 ? "" : "s"})`,
+        `  Resident hosts: ${hosts.length} (${unrecognizedHosts.length} unrecognized, ${knownProfileHosts.length} other profile${knownProfileHosts.length === 1 ? "" : "s"}${worktreeSummary})`,
         `  Vera clients: ${clients.length}`,
         `  Current profile host: ${report.currentHostPid === undefined
             ? "not running"
@@ -303,8 +316,9 @@ export function stopStrayVeraProcesses(
 /**
  * Diagnose and immediately SIGKILL leftovers. Used when a client is about
  * to start, so the next `vera` run clears isolated UAT hosts without a
- * separate doctor invocation. Pass `preserveRuntimeDir` so the runtime this
- * client is attaching to is not treated as leftover.
+ * separate doctor invocation. Deliberate worktree runtimes carry a marker and
+ * stay. Pass `preserveRuntimeDir` so the runtime this client is attaching to
+ * is not treated as leftover.
  */
 export async function sweepStrayVeraProcesses(
     options: Pick<
@@ -376,6 +390,7 @@ interface HostStrayInput {
     readonly knownProfileHost: boolean;
     readonly isolated?: boolean;
     readonly runtimeDir?: string;
+    readonly worktreeRuntime?: boolean;
 }
 
 function strayHost(
@@ -383,6 +398,7 @@ function strayHost(
     preserveRuntimeDir: string | undefined,
 ): boolean {
     if (sample.currentHost) return false;
+    if (sample.worktreeRuntime === true) return false;
     if (
         preserveRuntimeDir !== undefined
         && sample.runtimeDir === preserveRuntimeDir
@@ -418,7 +434,8 @@ function strayProcess(
         return sample.ppid === 1 || strayHostPids.has(sample.ppid);
     }
     if (sample.kind === "client" || sample.kind === "watchdog") {
-        return sample.isolated === true || sample.ppid === 1;
+        return sample.ppid === 1
+            || (sample.isolated === true && sample.worktreeRuntime !== true);
     }
     return false;
 }
@@ -468,6 +485,7 @@ async function enrichRuntimeIdentity(
     const runtimeByPid = new Map<number, {
         readonly isolated: boolean;
         readonly runtimeDir?: string;
+        readonly worktreeRuntime: boolean;
     }>();
     for (const line of output.split("\n")) {
         const match = line.match(/^\s*(\d+)\s+(.*)$/);
@@ -481,6 +499,7 @@ async function enrichRuntimeIdentity(
         return {
             ...sample,
             isolated: runtime.isolated,
+            ...(runtime.worktreeRuntime ? { worktreeRuntime: true } : {}),
             ...(runtime.runtimeDir === undefined
                 ? {}
                 : { runtimeDir: runtime.runtimeDir }),
@@ -492,15 +511,26 @@ async function enrichRuntimeIdentity(
  * Pull only Vera runtime overrides out of a `ps eww` command line. The rest
  * of the environment can hold credentials; this function must not return it.
  */
-function veraRuntimeFromPsLine(commandAndEnv: string): {
+export function veraRuntimeFromPsLine(commandAndEnv: string): {
     readonly isolated: boolean;
     readonly runtimeDir?: string;
+    readonly worktreeRuntime: boolean;
 } {
     const runtimeDir = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
     const isolated = runtimeDir !== undefined || home !== undefined;
+    const worktreeRuntimeDirectory = firstEnvValue(
+        commandAndEnv,
+        VERA_WORKTREE_RUNTIME_ENV,
+    );
+    // The launcher marker is inherited by workers and their tools. It owns
+    // only the runtime it names: a nested Vera that overrides
+    // VERA_RUNTIME_DIR must remain eligible for cleanup.
+    const worktreeRuntime = runtimeDir !== undefined
+        && worktreeRuntimeDirectory === runtimeDir;
     return {
         isolated,
+        worktreeRuntime,
         ...(runtimeDir === undefined ? {} : { runtimeDir }),
     };
 }

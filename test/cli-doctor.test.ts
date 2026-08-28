@@ -7,6 +7,7 @@ import {
     parseVeraProcessList,
     renderVeraDoctor,
     stopStrayVeraProcesses,
+    veraRuntimeFromPsLine,
     type DiagnosedVeraProcess,
     type VeraProcessKind,
     type VeraProcessSample,
@@ -368,6 +369,65 @@ test("doctor flags an isolated client even when its shell parent is alive", asyn
     expect(strayByPid.get(200)).toBe(false);
     expect(strayByPid.get(500)).toBe(true);
     expect(strayByPid.get(501)).toBe(true);
+});
+
+test("doctor preserves a launcher-owned worktree runtime", async () => {
+    const sample = [
+        processSample(200, "host", 0),
+        {
+            ...processSample(500, "client", 0),
+            ppid: 499,
+            isolated: true,
+            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
+            worktreeRuntime: true,
+        },
+        {
+            ...processSample(501, "host", 0),
+            pid: 501,
+            ppid: 1,
+            pgid: 501,
+            isolated: true,
+            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
+            worktreeRuntime: true,
+        },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(true);
+    expect(new Map(
+        report.processes.map((process) => [process.pid, process.stray]),
+    )).toEqual(new Map([[200, false], [500, false], [501, false]]));
+    expect(renderVeraDoctor(report)).toContain(
+        "Resident hosts: 2 (0 unrecognized, 0 other profiles, 1 worktree)",
+    );
+});
+
+test("process environment identifies a deliberate worktree runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol VERA_WORKTREE_RUNTIME=/tmp/aspol",
+    )).toEqual({
+        isolated: true,
+        runtimeDir: "/tmp/aspol",
+        worktreeRuntime: true,
+    });
+});
+
+test("an inherited worktree marker does not own a nested runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/nested VERA_WORKTREE_RUNTIME=/tmp/aspol",
+    )).toEqual({
+        isolated: true,
+        runtimeDir: "/tmp/nested",
+        worktreeRuntime: false,
+    });
 });
 
 test("doctor treats a worktree checkout of another profile as leftover", async () => {

@@ -23,6 +23,8 @@ import {
 } from "../engine/permissions.ts";
 import type { SessionModelUsage } from "../engine/protocol.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
+import { ToolHooks } from "../engine/hooks.ts";
+import type { PreTurnHook } from "./hooks.ts";
 import {
     ResidentAgent,
     ResidentAgentClosedError,
@@ -73,6 +75,12 @@ export interface AgentOutputSchema<Output> {
 export interface AgentRunOptions<Output = never> {
     readonly signal?: AbortSignal;
     readonly output?: AgentOutputSchema<Output>;
+    /**
+     * Once per user turn, after the prompt is committed and before the first
+     * model call. May observe, restrict tools, change model or effort, or
+     * block the turn. It cannot rewrite messages or the system prompt.
+     */
+    readonly prepareTurn?: PreTurnHook;
 }
 
 export type AgentRunOutcome = "completed" | "failed" | "aborted";
@@ -220,6 +228,10 @@ export class Agent {
                 resolved.workspace,
             );
             const wear = resolveAgentSnapshot(resolved.definition);
+            const hooks = new ToolHooks();
+            if (options.prepareTurn !== undefined) {
+                hooks.registerPreTurn(options.prepareTurn);
+            }
             loop = runHeadlessLoop(
                 resident.engine,
                 adapter,
@@ -253,6 +265,7 @@ export class Agent {
                             }),
                     }),
                     readAgentWear: () => wear,
+                    ...(options.prepareTurn === undefined ? {} : { hooks }),
                 },
             ).catch((caught: unknown) => {
                 loopFailure = caught;

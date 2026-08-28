@@ -39,6 +39,7 @@ import type {
 import type {
     PostToolUseHookPayload,
     PreToolUseHookPayload,
+    PreTurnHookPayload,
 } from "../sdk/hooks.ts";
 import type {
     ToolEffect,
@@ -320,6 +321,12 @@ export interface PostToolUseHookRequest {
     readonly options: HookCallOptions;
 }
 
+export interface PreTurnHookRequest {
+    readonly method: "hook.preTurn";
+    readonly payload: PreTurnHookPayload;
+    readonly options: HookCallOptions;
+}
+
 /** Cancellable. One call to a compaction-bound model. */
 export interface CompactionCompleteRequest {
     readonly method: "compaction.complete";
@@ -350,6 +357,7 @@ export type WorkerRequest =
     | ExecuteToolRequest
     | PreToolUseHookRequest
     | PostToolUseHookRequest
+    | PreTurnHookRequest
     | CompactionCompleteRequest;
 
 export interface WearAgentReply {
@@ -485,6 +493,7 @@ export const HOST_PROTOCOL_METHODS = [
     "tool.execute",
     "hook.preToolUse",
     "hook.postToolUse",
+    "hook.preTurn",
     "compaction.complete",
     "event.emit",
     "reviewLog.append",

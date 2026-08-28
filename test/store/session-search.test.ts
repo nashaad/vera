@@ -1,5 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, utimesSync } from "node:fs";
+import {
+    mkdtempSync,
+    renameSync,
+    rmSync,
+    writeFileSync,
+    utimesSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -308,4 +314,75 @@ test("a snippet is centred on the match and marks what it cut", () => {
 
 test("whitespace in a snippet is collapsed to one line", () => {
     expect(snippetAround("one\n  two\tthree", "two")).toBe("one two three");
+});
+
+test("naming a session searches that one and no other", async () => {
+    const directory = root();
+    writeSession(directory, {
+        id: "one",
+        entries: [message("m1", "user", [text("provider fallback")])],
+    });
+    writeSession(directory, {
+        id: "two",
+        entries: [message("m2", "user", [text("provider fallback")])],
+    });
+
+    const results =
+        (await searchSessions(directory, { query: "fallback", session_id: "two" }))
+            .results;
+    expect(results.map((result) => result.session_id)).toEqual(["two"]);
+});
+
+test("a session that names nothing on disk finds nothing", async () => {
+    const directory = root();
+    writeSession(directory, {
+        id: "one",
+        entries: [message("m1", "user", [text("provider fallback")])],
+    });
+
+    expect(await searchSessions(directory, {
+        query: "fallback",
+        session_id: "gone",
+    })).toEqual({ results: [], truncated: false });
+});
+
+test("a named session can live at a path unrelated to its id", async () => {
+    const directory = root();
+    writeSession(directory, {
+        id: "actual-id",
+        entries: [message("m1", "user", [text("provider fallback")])],
+    });
+    const sessionPath = join(directory, "actual-id.jsonl");
+    const unrelatedPath = join(directory, "imported-transcript.jsonl");
+    renameSync(sessionPath, unrelatedPath);
+
+    const found = await searchSessions(directory, {
+        query: "fallback",
+        session_id: "actual-id",
+    }, { sessionPath: unrelatedPath });
+
+    expect(found.results.map((result) => result.session_id))
+        .toEqual(["actual-id"]);
+});
+
+test("one session carries every match, not the three a list would", async () => {
+    const directory = root();
+    const many = Array.from(
+        { length: 12 },
+        (_unused, index) =>
+            message(`m${index}`, "user", [text(`fallback number ${index}`)]),
+    );
+    writeSession(directory, { id: "one", entries: many });
+
+    // Three hits is what keeps a list of sessions readable, because the
+    // session is what is being chosen there. Searching one session makes the
+    // hits themselves the list.
+    const listed = (await searchSessions(directory, { query: "fallback" }))
+        .results[0]?.hits.length;
+    expect(listed).toBe(3);
+    const alone = (await searchSessions(directory, {
+        query: "fallback",
+        session_id: "one",
+    })).results[0]?.hits.length;
+    expect(alone).toBe(12);
 });

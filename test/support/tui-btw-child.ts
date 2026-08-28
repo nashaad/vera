@@ -268,6 +268,21 @@ await startTui({
         if (client === undefined) throw new Error(`unknown session ${sessionPath}`);
         return client;
     },
+    searchSessions: async (query) => ({
+        truncated: false,
+        results: [{
+            session_id: query.session_id ?? "everywhere",
+            session_path: `/sessions/${query.session_id ?? "everywhere"}.jsonl`,
+            title: `SEARCH ${query.session_id ?? query.workspace ?? "everywhere"}`,
+            workspace: process.cwd(),
+            updated_at: "2026-08-28T12:00:00.000Z",
+            hits: [{
+                kind: "user_message",
+                snippet: query.query,
+                entry_id: "search-hit",
+            }],
+        }],
+    }),
     clientExtensions: [{ path: EXTENSION, enabled: true, config: null }],
 });
 

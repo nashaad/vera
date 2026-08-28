@@ -371,6 +371,7 @@ import {
     refreshWorkspaceSidebarSessions,
     startWorkspaceSidebar,
     workspaceCycleTarget,
+    workspaceHeaderAction,
     workspaceRailColumns,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
@@ -406,6 +407,7 @@ import {
     searchSelections,
     startSearchOverlay,
     type SearchOverlayState,
+    type SearchScope,
 } from "./search-overlay.ts";
 import {
     attentionNotice,
@@ -620,6 +622,7 @@ import {
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
+    transcriptMessageId,
     type TuiState,
     type TuiTranscriptEntry,
 } from "./state.ts";
@@ -627,6 +630,7 @@ import {
     resolveTuiTheme,
     tuiHandleActiveColor,
     tuiHandleColor,
+    tuiRecessColor,
     VERA_TUI_THEME,
 } from "./theme.ts";
 import {
@@ -2543,7 +2547,11 @@ export async function startTui(
         "workspace-sidebar",
         { railDivider: true, railPadding: 2 },
     );
-    const searchOverlayView = createTuiLinesView(renderer, "search-overlay");
+    // The search list changes with every keystroke, so its card keeps the
+    // height it windows to rather than growing and shrinking under the typing.
+    const searchOverlayView = createTuiLinesView(renderer, "search-overlay", {
+        fillHeight: true,
+    });
     const helpView = createTuiHelpView(renderer);
     const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
         showScopeTabs: true,
@@ -2689,11 +2697,22 @@ export async function startTui(
             : composerBox.height;
     }
 
+    /**
+     * Hold every full-height surface off whatever the foot of the screen holds.
+     *
+     * Home has no composer, so a card that reserved one anyway would stop a
+     * third of the way up a screen with nothing under it.
+     */
+    function setSurfaceBottomInsets(rows: number): void {
+        workspaceSidebarView.setBottomInset(rows);
+        searchOverlayView.setBottomInset(rows);
+    }
+
     function setComposerMargin(rows: number): void {
         composerMarginRows = rows;
         composerBox.marginBottom = rows;
         resumeOverlay.surface.marginBottom = rows;
-        workspaceSidebarView.setBottomInset(composerSlotHeight() + rows);
+        setSurfaceBottomInsets(composerSlotHeight() + rows);
         positionCommandSuggestions();
     }
 
@@ -2785,9 +2804,7 @@ export async function startTui(
         mutedColor: theme.muted,
         accentColor: theme.accent,
     });
-    workspaceSidebarView.setBottomInset(
-        composerBox.height + composerMarginRows,
-    );
+    setSurfaceBottomInsets(composerBox.height + composerMarginRows);
     // The attention chip at the head of the status row is a click target,
     // and it does what its label says: the hint reads /work, so the click
     // opens the work tab. Width zero means no chip is on screen.
@@ -2815,9 +2832,7 @@ export async function startTui(
         composerTextRows = nextRows;
         composer.height = nextRows;
         composerBox.height = tuiComposerPanelRows(nextRows);
-        workspaceSidebarView.setBottomInset(
-            composerSlotHeight() + composerMarginRows,
-        );
+        setSurfaceBottomInsets(composerSlotHeight() + composerMarginRows);
         positionCommandSuggestions();
         renderer.requestRender();
     }
@@ -3345,10 +3360,10 @@ export async function startTui(
     }
 
     /**
-     * A ui_request from the agent (approval, question) owns the screen. Any
-     * picker or menu the user had open locally is not part of answering it,
-     * and activeOverlayFocus() ranks several of them above the request, so
-     * left open they paint over or steal focus from it instead of yielding.
+     * A ui_request from the agent (approval, question) owns the session pane.
+     * Pickers and menus are not part of answering it, so they close rather
+     * than painting over or stealing focus from the request. A docked agent
+     * rail is navigation outside that pane: it yields focus but stays visible.
      */
     function closeTransientOverlaysForUiRequest(): void {
         dialStrip = undefined;
@@ -3356,11 +3371,17 @@ export async function startTui(
         commandPalette = undefined;
         help = undefined;
         workTab = undefined;
-        workspaceSidebar = undefined;
+        if (workspaceRail === undefined) {
+            workspaceSidebar = undefined;
+        } else {
+            workspaceSidebarFocused = false;
+        }
         searchOverlay = undefined;
         queuedSearch = undefined;
         workTabView.surface.visible = false;
-        workspaceSidebarView.surface.visible = false;
+        if (workspaceRail === undefined) {
+            workspaceSidebarView.surface.visible = false;
+        }
         searchOverlayView.surface.visible = false;
         doctorDialog = undefined;
         diagnosticsDialog = undefined;
@@ -3958,13 +3979,23 @@ export async function startTui(
     // can reach.
     workspaceSidebarView.pointer = {
         hover: (rowId) => {
+            if (focusedUiRequest() !== undefined) return;
             if (workspaceSidebar === undefined) return;
             if (workspaceSidebar.selectedId === rowId) return;
             workspaceSidebar = { ...workspaceSidebar, selectedId: rowId };
             renderState();
         },
         activate: (rowId) => {
+            // A question or approval owns this session pane. The rail stays
+            // visible for context, but its dimmed controls must not queue a
+            // hidden picker or start a session transition behind the request.
+            if (focusedUiRequest() !== undefined) return;
             if (workspaceSidebar === undefined) return;
+            const headerAction = workspaceHeaderAction(rowId);
+            if (headerAction !== undefined) {
+                runWorkspaceSidebarAction(headerAction);
+                return;
+            }
             const open = { ...workspaceSidebar, selectedId: rowId };
             workspaceSidebar = open;
             const action = openWorkspaceSelection(open, rowId);
@@ -4555,9 +4586,10 @@ export async function startTui(
                 jsonlAction === "toggle_sidebar"
                 || jsonlAction === "cycle_session"
                 || jsonlAction === "palette"
+                || jsonlAction === "search"
             ) {
-                // Fall through: hide/show the rail, cycle live sessions, or
-                // open the palette, none of which starts a worker.
+                // Fall through: rail and session controls, the palette, and
+                // search all live below without starting a worker.
             } else if (
                 jsonlAction === "sidebar"
                 && workspaceSidebar !== undefined
@@ -5574,6 +5606,26 @@ export async function startTui(
             key.preventDefault();
             key.stopPropagation();
             openDials();
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "search_conversation"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openSearchOverlay("conversation");
+            return;
+        }
+
+        if (
+            tuiBindingId("global", key) === "search_sessions"
+            && !anyOverlayOpen()
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            openSearchOverlay("workspace");
             return;
         }
 
@@ -6771,7 +6823,9 @@ export async function startTui(
         if (commandAction?.type === "open_search") {
             composer.clearComposer();
             renderCommandSuggestions();
-            openSearchOverlay();
+            // `/search` is named for past work, so it opens across sessions
+            // whatever conversation it was typed into.
+            openSearchOverlay("workspace");
             return;
         }
         if (commandAction?.type === "open_resume_picker") {
@@ -9758,7 +9812,16 @@ export async function startTui(
             && commandPalette === undefined
             && workTab !== undefined;
         applyWorkspaceRail();
-        workspaceSidebarView.surface.visible = uiRequest === undefined
+        const sessionRequestVisible = approvalView.box.visible
+            || questionView.box.visible;
+        /*
+         * A session-owned request replaces that session's composer, not the
+         * navigator beside it. Narrow terminals still have a sidebar card
+         * rather than a rail, so the request keeps the screen there.
+         */
+        const workspaceSidebarAllowed = uiRequest === undefined
+            || (sessionRequestVisible && workspaceRail !== undefined);
+        workspaceSidebarView.surface.visible = workspaceSidebarAllowed
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
@@ -9871,6 +9934,13 @@ export async function startTui(
         // needs no attenuation of its own. Fading it a second time left the
         // composer and status band darker than the transcript beside them.
         overlayScrim.visible = overlayVisible;
+        const requestUsesRail = sessionRequestVisible
+            && workspaceSidebarView.surface.visible;
+        const requestRailColumns = requestUsesRail
+            ? workspaceSidebarView.railColumns() ?? 0
+            : 0;
+        overlayScrim.left = requestRailColumns;
+        overlayScrim.width = Math.max(1, renderer.width - requestRailColumns);
         // Ordinary modals leave the conversation and composer in place as
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
@@ -9894,6 +9964,11 @@ export async function startTui(
         ) {
             questionView.update(uiRequest);
         }
+        // Approval and question boxes are absolute children, so app padding
+        // does not move them with the transcript. Seat session-owned cards in
+        // the transcript column explicitly when the docked rail stays up.
+        approvalView.box.left = requestRailColumns;
+        questionView.box.left = requestRailColumns;
         if (timelinePicker !== undefined) {
             timelinePickerView.update(timelinePicker);
         }
@@ -9985,7 +10060,8 @@ export async function startTui(
             return;
         }
         const index = state.entries.findIndex((entry) =>
-            entry.kind !== "diff" && entry.entryId === target.entryId
+            entry.kind !== "diff"
+            && transcriptMessageId(entry.entryId) === target.entryId
         );
         // Nothing on screen yet means the session is still loading, so the
         // target waits. A drawn transcript without the row means the row is
@@ -9995,7 +10071,8 @@ export async function startTui(
             if (state.entries.length > 0) pendingSearchTarget = undefined;
             return;
         }
-        if (entryNodes[index] === undefined) {
+        const node = entryNodes[index];
+        if (node === undefined) {
             // Built in one step rather than a batch a frame: the target stays
             // outside the window until the scroll reaches it, and the window
             // would release each batch again before the next one arrived.
@@ -10004,8 +10081,18 @@ export async function startTui(
             // scroll waits a frame for one.
             return;
         }
+        // A row built this frame has no position yet, and the frame that gives
+        // it one also claims the bottom for a session that just opened. So the
+        // scroll waits for the measurement, which is the frame after both.
+        if (measuredEntryRows[index] === undefined) return;
         pendingSearchTarget = undefined;
-        transcript.scrollChildIntoView(`entry-${index}`);
+        // The row goes to the top of the pane rather than merely on screen: a
+        // message taller than the pane would otherwise be shown by its end,
+        // which is not where the match is, and one already on screen would not
+        // move at all even though the reader came here to look at it.
+        transcript.scrollTo(
+            transcript.scrollTop + node.screenY - transcript.viewport.screenY,
+        );
     }
 
     /**
@@ -11687,7 +11774,7 @@ export async function startTui(
         }
         if (action.type === "open_work_tab") return openWorkTab();
         if (action.type === "go_back") return runBack();
-        if (action.type === "open_search") return openSearchOverlay();
+        if (action.type === "open_search") return openSearchOverlay("workspace");
         if (action.type === "open_theme_picker") return openThemePicker();
         if (action.type === "open_preferences_list") {
             return openPreferencesList();
@@ -12066,9 +12153,9 @@ export async function startTui(
         // underneath the dock.
         app.paddingLeft = occupied;
         workspaceSidebarView.surface.left = 0;
-        // Every dialog, settings picker included, hides the rail rather than
-        // sitting beside it (see the workspaceSidebarView.surface.visible
-        // gate below), so the scrim always covers the whole terminal.
+        // Global dialogs still hide the rail. Session-owned approval and
+        // question cards stay in the chat column; renderState narrows their
+        // scrim to that column after it knows which kind of overlay is open.
         overlayScrim.left = 0;
         overlayScrim.width = renderer.width;
         statusBand.left = occupied;
@@ -12374,8 +12461,21 @@ export async function startTui(
         }).finally(finish);
     }
 
-    function openSearchOverlay(): void {
-        searchOverlay = startSearchOverlay(client.workspace ?? process.cwd());
+    /**
+     * The search pane, opened at a scope.
+     *
+     * The conversation on screen is what `conversation` scope means, so a pane
+     * opened with no session behind it starts at the workspace instead of at a
+     * scope that would search nothing.
+     */
+    function openSearchOverlay(scope?: SearchScope): void {
+        const target = focusedAgentClient();
+        searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {
+            ...(target.agentId === undefined
+                ? {}
+                : { sessionId: target.agentId }),
+            ...(scope === undefined ? {} : { scope }),
+        });
         composer.blur();
         renderState();
         focusActiveSurface();
@@ -13282,6 +13382,10 @@ export async function startTui(
     function runHomeAction(action: HomeAction): void {
         if (action.kind === "resume_picker") {
             openResumePicker();
+            return;
+        }
+        if (action.kind === "search") {
+            openSearchOverlay();
             return;
         }
         if (action.kind === "palette") {
@@ -14333,7 +14437,7 @@ export async function startTui(
                 appearance.composerBoundaryColor ?? activeTheme.element,
         }),
         tuiThemeProperties(workspaceSidebarView.box, {
-            backgroundColor: "panel",
+            backgroundColor: tuiRecessColor,
             borderColor: (activeTheme) =>
                 workspaceRailDragging
                     ? activeTheme.accent
