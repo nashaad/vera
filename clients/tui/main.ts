@@ -2739,6 +2739,7 @@ export async function startTui(
     });
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
+    let verificationToastRequestId: string | undefined;
 
     const {
         panel: composerBox,
@@ -7759,6 +7760,9 @@ export async function startTui(
                             rejectionNotice(change.subject, update.reason),
                         );
                     }
+                }
+                if (update.type === "pool_admission_result") {
+                    hideVerificationToast(update.requestId);
                 }
                 observeActivity(update);
                 if (
@@ -14112,6 +14116,7 @@ export async function startTui(
         const requestId = randomUUID();
         poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
+        showVerificationToast(requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
             requestId,
@@ -14829,18 +14834,43 @@ export async function startTui(
         }, COPY_NOTICE_DURATION_MS);
     }
 
-    function showModeToast(message: string): void {
+    function displayModeToast(message: string): number {
         modeToastVersion += 1;
-        const version = modeToastVersion;
         modeToastText.content = message;
         modeToast.width = message.length + 4;
         // Above the overlay when one is open, so the toast is not painted
         // behind the card that prompted it.
         modeToast.visible = true;
+        return modeToastVersion;
+    }
+
+    function showModeToast(message: string): void {
+        // Admission state is the actionable live notice. A transient mode
+        // change must not cover it and then leave the corner empty while the
+        // verification is still running.
+        if (verificationToastRequestId !== undefined) return;
+        const version = displayModeToast(message);
         setTimeout(() => {
             if (modeToastVersion !== version) return;
             modeToast.visible = false;
         }, MODE_TOAST_DURATION_MS);
+    }
+
+    function showVerificationToast(
+        requestId: string,
+        model: string,
+    ): void {
+        verificationToastRequestId = requestId;
+        displayModeToast(`Verifying ${model}…`);
+    }
+
+    function hideVerificationToast(requestId: string): void {
+        if (verificationToastRequestId !== requestId) return;
+        verificationToastRequestId = undefined;
+        // Invalidates any transient timer that belonged to the content this
+        // persistent toast replaced.
+        modeToastVersion += 1;
+        modeToast.visible = false;
     }
 
     /**

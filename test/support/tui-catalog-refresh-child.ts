@@ -23,9 +23,11 @@ const PROVIDER = "openrouter";
 export function createTuiCatalogRefreshDependencies(
     options: {
         readonly pooled?: readonly PooledModel[];
+        readonly poolAdmissionDelayMs?: number;
         readonly onCommand?: (command: ClientCommand) => void;
     } = {},
 ): TuiDependencies {
+    let pooled = options.pooled ?? [];
     let availableModels: readonly AvailableModel[] = [
         {
             provider: PROVIDER,
@@ -41,7 +43,10 @@ export function createTuiCatalogRefreshDependencies(
         model: "one/model",
         availableModels,
         refreshableProviders: [PROVIDER],
-        ...(options.pooled === undefined ? {} : { pooled: options.pooled }),
+        ...(options.pooled === undefined
+            && options.poolAdmissionDelayMs === undefined
+            ? {}
+            : { pooled }),
     });
     const channel = createInProcessChannel();
     void runHeadlessLoop(
@@ -58,6 +63,31 @@ export function createTuiCatalogRefreshDependencies(
             updateApprovalMode: async () => "auto",
             router: {
                 updateModelSettings: async () => settings(),
+                ...(options.poolAdmissionDelayMs === undefined
+                    ? {}
+                    : {
+                        poolAdd: async (entry: {
+                            readonly provider: string;
+                            readonly model: string;
+                        }) => {
+                            await Bun.sleep(options.poolAdmissionDelayMs ?? 0);
+                            pooled = [{
+                                provider: entry.provider,
+                                model: entry.model,
+                                label: entry.model,
+                                available: true,
+                                verified: false,
+                                levels: [],
+                            }, ...pooled.filter((candidate) =>
+                                candidate.provider !== entry.provider
+                                || candidate.model !== entry.model
+                            )];
+                            return {
+                                verdict: "added" as const,
+                                settings: settings(),
+                            };
+                        },
+                    }),
                 refreshCatalog: async (provider) => {
                     if (provider !== PROVIDER) {
                         return undefined;

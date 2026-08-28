@@ -105,3 +105,50 @@ test("shortlist is idempotent when the current model is already kept", async () 
         await session.close();
     }
 }, 15_000);
+
+test("shortlist verification stays visible above the dimmed prose", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-toast-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 40,
+        dependencies: () => createTuiCatalogRefreshDependencies({
+            poolAdmissionDelayMs: 750,
+        }),
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-p");
+        await session.waitForVisiblePane("Commands");
+        session.sendText("shortlist");
+        await session.waitForVisiblePane("Open your shortlist");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("Add current model to shortl");
+        session.sendKey("Enter");
+
+        const verifying = await session.waitForVisiblePane(
+            "Verifying openrouter/one/model…",
+        );
+        const verifyingLines = verifying.split("\n").filter((line) =>
+            line.includes("Verifying openrouter/one/model")
+        );
+        expect(verifyingLines).toHaveLength(2);
+        expect(verifyingLines.some((line) =>
+            line.indexOf("Verifying") > 50
+        )).toBe(true);
+        expect(verifyingLines.some((line) =>
+            line.indexOf("Verifying") < 20
+        )).toBe(true);
+
+        const finished = await session.waitForVisiblePane(
+            "Name shortlisted model",
+        );
+        expect(finished).toContain("Pinned to your shortlist");
+        expect(finished).not.toContain("Verifying openrouter/one/model…");
+        // The durable admission prose remains after the live toast clears.
+        expect(finished).toContain("Verifying openrouter/one/model");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
