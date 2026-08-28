@@ -343,6 +343,26 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "ctrl+end",
     },
     {
+        id: "search_conversation",
+        keys: ["ctrl+f"],
+        scope: "global",
+        description: "Find in this conversation",
+        hint: "ctrl+f find",
+        remappable: true,
+    },
+    {
+        id: "search_sessions",
+        // Only the kitty-protocol encoding carries the shift. Elsewhere it
+        // arrives as plain ctrl+f, which opens the same pane on the
+        // conversation, and ctrl+w widens it from there: the narrower thing
+        // opens and one key reaches the wider one.
+        keys: ["ctrl+shift+f"],
+        scope: "global",
+        description: "Search every session",
+        hint: "ctrl+shift+f search",
+        remappable: true,
+    },
+    {
         id: "open_model_picker",
         // Only the kitty-protocol encoding of ctrl+shift+m is bound. Plain
         // ctrl+m is byte-identical to Enter, so binding it would take the
@@ -471,6 +491,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "model_picker",
         description: "Ask the highlighted row's provider for its model list now",
         hint: "^f refresh",
+        overrides: ["search_conversation"],
     },
     {
         id: "verify_pool",
@@ -669,7 +690,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "toggle_search_scope",
         keys: ["ctrl+w"],
         scope: "search",
-        description: "Search this workspace or everywhere",
+        description: "Cycle the search scope",
         hint: "ctrl+w scope",
     },
     {

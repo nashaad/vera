@@ -15,6 +15,7 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
+import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -113,7 +114,7 @@ test("stdio frames updates after its attached marker", async () => {
             type: "stdio_attached",
             agent_id: "agent-1",
             workspace: "/workspace",
-            protocol_version: 32,
+            protocol_version: HOST_PROTOCOL_VERSION,
         },
         {
             type: "background_agents",
@@ -283,7 +284,7 @@ test("stdio forwards extension command responses", async () => {
             type: "stdio_attached",
             agent_id: "agent-1",
             workspace: "/workspace",
-            protocol_version: 32,
+            protocol_version: HOST_PROTOCOL_VERSION,
         },
         {
             type: "background_agents",
@@ -395,7 +396,7 @@ test("stdio drives a real resident host turn and leaves the agent running", asyn
                 type: "stdio_attached",
                 agent_id: created.id,
                 workspace,
-                protocol_version: 32,
+                protocol_version: HOST_PROTOCOL_VERSION,
             });
             expect(frames.some((frame) => frame.type === "context"
                 && typeof (frame.measurement as { capacity?: unknown })?.capacity === "number"))
@@ -518,7 +519,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
         expect(createdFrames[0]).toMatchObject({
             type: "stdio_attached",
             workspace: process.cwd(),
-            protocol_version: 32,
+            protocol_version: HOST_PROTOCOL_VERSION,
         });
         expect(createdFrames).toContainEqual(expect.objectContaining({
             type: "stdio_rejected",

@@ -8,14 +8,20 @@ import { createHomeClient } from "../../../clients/tui/home-client.ts";
 import {
     createSettingsAnsweringClient,
 } from "../../support/settings-answering-client.ts";
-import { createTuiResumeScenario } from "../../support/tui-resume-child.ts";
+import {
+    createTuiResumeScenario,
+    IDLE_TARGET_TRANSCRIPT,
+} from "../../support/tui-resume-child.ts";
+import { searchSessions } from "../../../src/store/session-search.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import {
+    HOME_CARD_COLUMNS,
+    HOME_CONTENT_INDENT,
     HOME_RULE,
     HOME_TYPING_HINT,
 } from "../../../clients/tui/home-screen.ts";
 
-/** Home plus the listing and creation hooks its three rows reach for. */
+/** Home plus the listing, search, and creation hooks its rows reach for. */
 function homeDependencies(
     home: string,
     hasSessions: boolean,
@@ -26,6 +32,9 @@ function homeDependencies(
         ...scenario.dependencies,
         client: createHomeClient("/work/vera"),
         homeHasSessions: hasSessions,
+        // The real scan over the transcripts the scenario wrote: home reads
+        // what is on disk, and it has no session of its own to read it for.
+        searchSessions: (query) => searchSessions(join(home, "sessions"), query),
         createSession: async () => {
             if (createDelayMs > 0) await Bun.sleep(createDelayMs);
             return createSettingsAnsweringClient({
@@ -309,12 +318,40 @@ test("the card centres on what the rail leaves, not on the terminal", async () =
             rule.indexOf("\u2503"),
         ) + 1;
         expect(rail).toBeGreaterThan(1);
-        const start = rule.indexOf(HOME_RULE);
-        const middle = start + HOME_RULE.length / 2;
+        // The rule starts at the card's content column, not its left edge.
+        const start = rule.indexOf(HOME_RULE) - HOME_CONTENT_INDENT;
+        const middle = start + HOME_CARD_COLUMNS / 2;
         // A column of slack: an odd remainder cannot be split evenly.
         expect(Math.abs(middle - (rail + (columns - rail) / 2)))
             .toBeLessThanOrEqual(1);
         expect(start).toBeGreaterThan(rail);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("ctrl+f searches the transcripts without opening a session", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-search-"));
+    const session = await startTuiTestSession({
+        home,
+        dependencies: () => homeDependencies(home, true),
+    });
+
+    try {
+        await session.waitForVisiblePane("Search past work");
+        session.sendKey("C-f");
+        await session.waitForVisiblePane("Search · all · this workspace");
+        session.sendText("transcript");
+        // The hit comes from the seeded session file, so the scan is the real
+        // one over real transcripts rather than a stubbed answer.
+        const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
+        expect(pane).not.toContain("Message Vera");
+        session.sendKey("Escape");
+        const card = await session.waitForVisiblePane("V  E  R  A");
+        // Back on the card, and still no conversation: searching costs no
+        // worker, the same as landing on home does.
+        expect(card).toContain("Search past work");
+        expect(card).not.toContain("Message Vera");
     } finally {
         await session.close();
     }

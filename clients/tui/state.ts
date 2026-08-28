@@ -2499,6 +2499,21 @@ function withStoreEntryId(
         : { ...converted, entryId: id };
 }
 
+/**
+ * The store's own message id for a row, without the row's place in it.
+ *
+ * One stored message becomes several rows (its text, the tools it called), so
+ * the transcript numbers them `<id>#<row>`. Search, resume and rewind all name
+ * the message, so a lookup by one of their ids compares against this.
+ */
+export function transcriptMessageId(
+    entryId: string | undefined,
+): string | undefined {
+    if (entryId === undefined) return undefined;
+    const suffix = entryId.lastIndexOf("#");
+    return suffix === -1 ? entryId : entryId.slice(0, suffix);
+}
+
 function toSingleTuiTranscriptEntry(
     entry: Exclude<TranscriptEntry, { kind: "tool" | "tool_result" }>,
 ): TuiTranscriptEntry {
