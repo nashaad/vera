@@ -6,8 +6,8 @@ import { randomBytes } from "node:crypto";
  * only; purpose is display decoration. Colons are the separator and are
  * banned inside fields; they mangle to `-` only at filename boundaries.
  *
- * hex4 only disambiguates the spoken name, so it stays small. Real uniqueness
- * comes from the session UUID underneath and the node id on the transport.
+ * The complete `slug:hex4` key is durably reserved to one session and never
+ * recycled. The optional purpose never participates in identity or matching.
  */
 
 const ADJECTIVES = [
@@ -76,9 +76,9 @@ export function agentNameForFilename(name: string): string {
 }
 
 /**
- * Mints a fresh `slug:hex4` name whose key is not currently taken. The
- * caller's predicate closes over the live sessions, which is what makes a
- * key collision among them impossible by construction rather than unlikely.
+ * Mints a fresh `slug:hex4` name whose key is not already reserved. The host
+ * persists the reservation, including after close or trash, so another
+ * session can never receive the same complete key.
  */
 export function mintAgentName(
     isTaken: (key: string) => boolean,
