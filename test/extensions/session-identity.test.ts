@@ -45,9 +45,7 @@ test("the bundled namer uses the public sessions.identity seam", async () => {
     const identity = provider!.mint({ taken: () => false });
     expect(parseAgentName(identity.name)).not.toBeNull();
     expect(identity.key).toBe(agentNameKey(identity.name)!);
-    expect(identity.env.ARC_SESSION).toBe(identity.name);
-    expect(identity.env.COORD_SESSION).toBe(identity.name);
-    expect(identity.context?.text).toContain(identity.name);
+    expect(Object.keys(identity).sort()).toEqual(["key", "name"]);
     expect(provider!.keyOf?.(`${identity.name}:UAT-tester`)).toBe(identity.key);
     await registry.close();
 });

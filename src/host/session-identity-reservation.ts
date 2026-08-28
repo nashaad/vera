@@ -33,6 +33,7 @@ export async function reserveSessionIdentity(
 ): Promise<SessionIdentityReservationOutcome> {
     const directory = join(sessionDirectory, ".identities");
     await mkdir(directory, { recursive: true, mode: 0o700 });
+    await syncDirectory(sessionDirectory);
     const digest = createHash("sha256").update(key).digest("hex");
     const reservationPath = join(directory, `${digest}.json`);
     const temporaryPath = join(
@@ -53,6 +54,7 @@ export async function reserveSessionIdentity(
     }
     try {
         await link(temporaryPath, reservationPath);
+        await syncDirectory(directory);
         return "reserved";
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code !== "EEXIST") {
@@ -67,6 +69,15 @@ export async function reserveSessionIdentity(
             : "taken";
     } finally {
         await rm(temporaryPath, { force: true });
+    }
+}
+
+async function syncDirectory(path: string): Promise<void> {
+    const handle = await open(path, "r");
+    try {
+        await handle.sync();
+    } finally {
+        await handle.close();
     }
 }
 

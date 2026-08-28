@@ -33,17 +33,8 @@ export interface VeraExtensionApi {
  */
 export interface SessionIdentity {
     readonly name: string;
-    /** Addressing key. Live sessions may not share one. */
+    /** Addressing key. The host reserves it permanently to one session. */
     readonly key: string;
-    /** Extra environment variables for every shell this session starts. */
-    readonly env: Readonly<Record<string, string>>;
-    /**
-     * Optional model-visible note. The host records it as an internal user
-     * message, so the transcript does not show it unless a client chooses to.
-     */
-    readonly context?: {
-        readonly text: string;
-    };
 }
 
 export interface SessionIdentityMintRequest {

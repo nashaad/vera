@@ -1039,6 +1039,10 @@ function samePair(
  */
 const RESUME_WEAR_REQUEST_ID = "resume";
 
+interface BoundSessionIdentity extends SessionIdentity {
+    readonly env: Readonly<Record<string, string>>;
+}
+
 interface RegisteredAgentEntry {
     readonly agent: ResidentAgent;
     readonly store: SessionStore;
@@ -1050,7 +1054,7 @@ interface RegisteredAgentEntry {
      * persisted, and stable for the session. Changing it mid-session would
      * break self-echo suppression on the next arc post.
      */
-    readonly identity?: SessionIdentity;
+    readonly identity?: BoundSessionIdentity;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
@@ -1890,7 +1894,7 @@ export class AgentRegistry {
 
     private async bindSessionIdentity(
         store: SessionStore,
-    ): Promise<SessionIdentity | undefined> {
+    ): Promise<BoundSessionIdentity | undefined> {
         const stored = store.identity();
         if (stored !== undefined) {
             const claimed = await this.claimSessionIdentityKey(
@@ -1902,14 +1906,7 @@ export class AgentRegistry {
                     `Session identity ${stored.name} is already owned by another session`,
                 );
             }
-            return {
-                name: stored.name,
-                key: stored.key,
-                env: stored.env,
-                ...(stored.context === undefined
-                    ? {}
-                    : { context: { text: stored.context } }),
-            };
+            return materializeSessionIdentity(stored.name, stored.key);
         }
         // The append-only format forbids records after a terminal failure.
         // Legacy failed sessions therefore remain unnamed rather than being
@@ -1942,12 +1939,8 @@ export class AgentRegistry {
         await store.appendIdentity({
             name: minted.name,
             key: minted.key,
-            env: minted.env,
-            ...(minted.context === undefined
-                ? {}
-                : { context: minted.context.text }),
         });
-        return minted;
+        return materializeSessionIdentity(minted.name, minted.key);
     }
 
     private async claimSessionIdentityKey(
@@ -5742,22 +5735,31 @@ function isSessionIdentity(value: unknown): value is SessionIdentity {
     }
     const identity = value as SessionIdentity;
     if (
-        typeof identity.name !== "string"
-        || identity.name.trim().length === 0
-        || typeof identity.key !== "string"
-        || identity.key.trim().length === 0
-        || typeof identity.env !== "object"
-        || identity.env === null
-        || Array.isArray(identity.env)
-        || !Object.entries(identity.env).every(([key, mapped]) =>
-            /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-            && typeof mapped === "string"
-        )
+        !isValidSessionIdentityField(identity.name)
+        || !isValidSessionIdentityField(identity.key)
     ) {
         return false;
     }
-    if (identity.context === undefined) {
-        return true;
-    }
-    return typeof identity.context.text === "string";
+    return true;
+}
+
+function isValidSessionIdentityField(value: unknown): value is string {
+    return typeof value === "string"
+        && value.trim().length > 0
+        && !value.includes("\0")
+        && Buffer.byteLength(value, "utf8") <= 200;
+}
+
+function materializeSessionIdentity(
+    name: string,
+    key: string,
+): BoundSessionIdentity {
+    return {
+        name,
+        key,
+        env: {
+            ARC_SESSION: name,
+            COORD_SESSION: name,
+        },
+    };
 }

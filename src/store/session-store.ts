@@ -161,9 +161,6 @@ export interface SessionIdentityEntry {
     readonly timestamp: string;
     readonly name: string;
     readonly key: string;
-    readonly env: Readonly<Record<string, string>>;
-    /** Model-visible context kept outside the user-visible conversation. */
-    readonly context?: string;
 }
 
 export interface SessionPermissionGrantsEntry {
@@ -464,18 +461,10 @@ export class SessionStore {
     }
 
     messages(): readonly ModelMessage[] {
-        const identity = this.identityContextMessage();
-        return [
-            ...(identity === undefined ? [] : [identity]),
-            ...this.activeEntries().map((entry) => entry.message),
-        ];
+        return this.activeEntries().map((entry) => entry.message);
     }
 
-    /**
-     * Pairs each durable conversation message with its stored ID. The
-     * synthetic identity context has no timeline ID and is intentionally
-     * absent.
-     */
+    /** Pairs each durable conversation message with its stored ID. */
     activeMessageIds(): ReadonlyMap<ModelMessage, string> {
         const ids = new Map<ModelMessage, string>();
         for (const entry of this.activeEntries()) {
@@ -615,7 +604,7 @@ export class SessionStore {
 
     identity(): SessionIdentityEntry | undefined {
         const entry = this.projection.identityEntries[0];
-        return entry === undefined ? undefined : { ...entry, env: { ...entry.env } };
+        return entry === undefined ? undefined : { ...entry };
     }
 
     permissionGrants(): readonly PermissionGrant[] {
@@ -735,8 +724,6 @@ export class SessionStore {
     appendIdentity(identity: {
         readonly name: string;
         readonly key: string;
-        readonly env: Readonly<Record<string, string>>;
-        readonly context?: string;
     }): Promise<SessionIdentityEntry> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
@@ -885,13 +872,16 @@ export class SessionStore {
     }
 
     private identityContextMessage(): ModelMessage | undefined {
-        const context = this.projection.identityEntries[0]?.context;
-        return context === undefined
+        const identity = this.projection.identityEntries[0];
+        return identity === undefined
             ? undefined
             : {
                 role: "user",
                 internal: true,
-                content: [{ type: "text", text: context }],
+                content: [{
+                    type: "text",
+                    text: `Your session identity is ${identity.name}.`,
+                }],
             };
     }
 
@@ -1060,8 +1050,6 @@ export class SessionStore {
     private async commitIdentity(identity: {
         readonly name: string;
         readonly key: string;
-        readonly env: Readonly<Record<string, string>>;
-        readonly context?: string;
     }): Promise<SessionIdentityEntry> {
         if (this.projection.identityEntries.length > 0) {
             throw new Error("Session identity is already recorded");
@@ -1071,15 +1059,6 @@ export class SessionStore {
             timestamp: this.now().toISOString(),
             name: validIdentityField(identity.name, "identity name"),
             key: validIdentityField(identity.key, "identity key"),
-            env: validIdentityEnv(identity.env),
-            ...(identity.context === undefined
-                ? {}
-                : {
-                    context: validIdentityField(
-                        identity.context,
-                        "identity context",
-                    ),
-                }),
         };
         await this.appendRecord(entry);
         this.projection.identityEntries.push(entry);
@@ -2332,14 +2311,6 @@ function parseSessionIdentityEntry(
         || !isValidIdentityField(value.name)
         || typeof value.key !== "string"
         || !isValidIdentityField(value.key)
-        || !isIdentityEnv(value.env)
-        || (
-            value.context !== undefined
-            && (
-                typeof value.context !== "string"
-                || !isValidIdentityField(value.context)
-            )
-        )
     ) {
         throw invalidSession(
             path,
@@ -2351,8 +2322,6 @@ function parseSessionIdentityEntry(
         timestamp: value.timestamp,
         name: value.name,
         key: value.key,
-        env: { ...value.env },
-        ...(value.context === undefined ? {} : { context: value.context }),
     };
 }
 
@@ -2915,27 +2884,6 @@ function isValidIdentityField(value: string): boolean {
         && !value.includes("\0")
         && !value.includes("\n")
         && Buffer.byteLength(value, "utf8") <= 200;
-}
-
-function validIdentityEnv(
-    env: Readonly<Record<string, string>>,
-): Readonly<Record<string, string>> {
-    if (!isIdentityEnv(env)) {
-        throw new Error("identity env must be a string map");
-    }
-    return { ...env };
-}
-
-function isIdentityEnv(value: unknown): value is Readonly<Record<string, string>> {
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return false;
-    }
-    return Object.entries(value).every(([key, mapped]) =>
-        /^[A-Za-z_][A-Za-z0-9_]*$/.test(key)
-        && typeof mapped === "string"
-        && !mapped.includes("\0")
-        && Buffer.byteLength(mapped, "utf8") <= 200
-    );
 }
 
 function nonEmpty(value: string, name: string): string {

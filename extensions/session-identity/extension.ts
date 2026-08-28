@@ -9,13 +9,6 @@ export function activate(vera: VeraExtensionApi): void {
             return {
                 name,
                 key: agentNameKey(name)!,
-                env: {
-                    ARC_SESSION: name,
-                    COORD_SESSION: name,
-                },
-                context: {
-                    text: `Your session identity is ${name}.`,
-                },
             };
         },
         keyOf: agentNameKey,

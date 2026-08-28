@@ -356,6 +356,13 @@ export async function startResidentHost(
             }),
         }),
     );
+    const sessionIdentity = extensions.sessionIdentity();
+    if (sessionIdentity === undefined) {
+        await extensions.close();
+        throw new Error(
+            "Resident host requires one sessions.identity provider",
+        );
+    }
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
     const createAdapter = options.createAdapter
@@ -800,7 +807,7 @@ export async function startResidentHost(
             return config.extensions ?? [];
         },
         registeredAgents: extensions.agents(),
-        sessionIdentity: extensions.sessionIdentity(),
+        sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
             reserveSessionIdentity(sessionIdentityReservationRoot, sessionId, key),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [

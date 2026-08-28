@@ -17,6 +17,7 @@ import {
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -792,11 +793,6 @@ test("session identity is durable, immutable, and model-visible only", async () 
     await store.appendIdentity({
         name: "calm-wren:0001",
         key: "calm-wren:0001",
-        env: {
-            ARC_SESSION: "calm-wren:0001",
-            COORD_SESSION: "calm-wren:0001",
-        },
-        context: "This session is named calm-wren:0001.",
     });
     await store.appendMessage(userMessage("visible request"));
 
@@ -805,17 +801,14 @@ test("session identity is durable, immutable, and model-visible only", async () 
         internal: true,
         content: [{
             type: "text",
-            text: "This session is named calm-wren:0001.",
+            text: "Your session identity is calm-wren:0001.",
         }],
     };
     expect(store.identity()).toMatchObject({
         name: "calm-wren:0001",
         key: "calm-wren:0001",
     });
-    expect(store.messages()).toEqual([
-        identityMessage,
-        userMessage("visible request"),
-    ]);
+    expect(store.messages()).toEqual([userMessage("visible request")]);
     expect(store.modelContext()).toEqual([
         identityMessage,
         userMessage("visible request"),
@@ -824,8 +817,18 @@ test("session identity is durable, immutable, and model-visible only", async () 
     await expect(store.appendIdentity({
         name: "other-wren:0002",
         key: "other-wren:0002",
-        env: {},
     })).rejects.toThrow("Session identity is already recorded");
+
+    await store.appendHarnessMessage("After the request.", "soft");
+    expect(projectTranscript(
+        store.messages(),
+        undefined,
+        store.activeMessageIds(),
+        store.projectedHarnessMessages(),
+    )).toMatchObject([
+        { kind: "user", text: "visible request" },
+        { kind: "harness", text: "After the request.", tone: "soft" },
+    ]);
 
     const reopened = await SessionStore.open(path);
     expect(reopened.identity()).toEqual(store.identity());
@@ -1739,8 +1742,6 @@ test("session identity remains in model context after compaction", async () => {
     await store.appendIdentity({
         name: "calm-wren:0001",
         key: "calm-wren:0001",
-        env: { ARC_SESSION: "calm-wren:0001" },
-        context: "Your session identity is calm-wren:0001.",
     });
     await store.appendMessage(userMessage("first request"));
     await store.appendMessage(assistantMessage("first answer"));

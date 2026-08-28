@@ -47,6 +47,31 @@ import type { HostLogEntry } from "../../src/host/host-log.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
+import { SESSION_IDENTITY_EXTENSION_ID } from "../../src/extensions/bundled-host.ts";
+
+test("the resident host fails closed without an identity provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-host-no-identity-"));
+    try {
+        await expect(startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+                disabled_builtin_extensions: [SESSION_IDENTITY_EXTENSION_ID],
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            permissionPreferencesPath: join(root, "preferences.json"),
+        })).rejects.toThrow(
+            "Resident host requires one sessions.identity provider",
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "hard close through the resident host retains a resumable session",
