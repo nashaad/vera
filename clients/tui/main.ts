@@ -4486,7 +4486,6 @@ export async function startTui(
                 conversationBinding: tuiBindingId("conversation", key),
                 globalBinding: tuiBindingId("global", key),
                 workspaceBinding: tuiBindingId("workspace", key),
-                unfocusedBinding: tuiBindingId("unfocused", key),
                 sidebarFocused: workspaceSidebarFocused
                     && workspaceSidebar !== undefined,
                 sidebarVisible: workspaceSidebar !== undefined,
@@ -5426,6 +5425,25 @@ export async function startTui(
             return;
         }
 
+        if (
+            key.name === "left"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && composer.focused
+            && workspaceSidebar !== undefined
+            && !workspaceSidebarFocused
+            && !anyOverlayOpen()
+            && !commandPaletteView.surface.visible
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            focusWorkspaceSidebar();
+            return;
+        }
+
         if (tuiBindingId("composer", key) === "complete_command") {
             const completing = activeCompletion();
             if (completing !== undefined) {
@@ -5474,26 +5492,17 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
-            // Nothing left to complete, so Tab is the focus switch between the
-            // conversation and the rail beside it. Last in this branch because
-            // a half-typed command is what the key was pressed for.
-            if (
-                workspaceSidebar !== undefined
-                && !workspaceSidebarFocused
-                && !anyOverlayOpen()
-                && !commandPaletteView.surface.visible
-            ) {
-                key.preventDefault();
-                key.stopPropagation();
-                focusWorkspaceSidebar();
-                return;
-            }
+            // Tab is command completion only. With nothing to complete it is
+            // a no-op; pane focus belongs to Left and Right.
+            key.preventDefault();
+            key.stopPropagation();
+            return;
         }
 
         // The toggle is one chord in both directions, so the close arm runs
         // before the open arm and before the overlay guard: the pane is not an
         // overlay, and the chord that opened it has to reach back through it.
-        // It shows or hides and nothing else. Tab is what moves the focus.
+        // It shows or hides and nothing else. Left and right move the focus.
         if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
             if (workspaceSidebar !== undefined) {
                 key.preventDefault();

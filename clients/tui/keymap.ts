@@ -428,7 +428,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "focus_composer",
-        keys: ["i", "tab"],
+        keys: ["i", "right"],
         scope: "unfocused",
         description: "Put the cursor back in the composer",
     },

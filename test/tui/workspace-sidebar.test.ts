@@ -626,12 +626,13 @@ describe("the cursor", () => {
             .toEqual({ kind: "hide" });
     });
 
-    test("tab returns to chat and leaves the rail up", () => {
+    test("right returns to chat and leaves the rail up", () => {
         // The chord the block advertises. Enter is the other way out of the
         // rail and it opens the highlighted row, which is the wrong chat
         // whenever the highlight is not already the one on screen.
-        expect(press(open([session("a")]), "tab").action)
+        expect(press(open([session("a")]), "right").action)
             .toEqual({ kind: "close" });
+        expect(press(open([session("a")]), "tab").action).toBeUndefined();
         // `i` is the same action under the key a vim hand reaches for. It is
         // not in the block.
         expect(press(open([session("a")]), "i").action)
@@ -919,7 +920,7 @@ describe("the drawn card", () => {
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
-            "Chat    tab",
+            "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
         expect(view.footerTable).toHaveLength(10);
@@ -980,7 +981,7 @@ describe("the drawn card", () => {
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
-            "Chat    tab",
+            "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
         for (const line of view.footer.split("\n")) {
@@ -1000,11 +1001,11 @@ describe("the drawn card", () => {
             COLUMNS,
             NOW,
         );
-        // Both of these work with the cursor in the composer: the cycle is
-        // global, and ctrl+e is what hands the rail the keys.
+        // All three work with the cursor in the composer: cycle is global,
+        // Left hands the rail the keys, and ctrl+e hides it.
         expect(idle.footerTable).toEqual([
             { label: "Cycle", value: "ctrl+shift+[ ]" },
-            { label: "Focus", value: "tab" },
+            { label: "Focus", value: "←" },
             { label: "Hide", value: "ctrl+e" },
         ]);
         expect(idle.footer).toContain("ctrl+shift+[ ]");
@@ -1019,15 +1020,16 @@ describe("the drawn card", () => {
             true,
         );
         expect(focused.footer).toContain("Move");
-        // Tab is one chord in both directions, so it says which one it is.
-        expect(focused.footer).toContain("Chat    tab");
+        expect(focused.footer).toContain("Chat    →");
         expect(focused.footer).not.toContain("Focus");
     });
 
-    test("every quiet chord is repeated by the focused block", () => {
-        // The block grows on focus, it does not swap: a chord that was on
-        // screen a keystroke ago must still be there.
-        for (const row of WORKSPACE_QUIET_FOOTER_TABLE) {
+    test("global quiet chords remain in the focused block", () => {
+        // Cycle and hide work from either pane. The focus row changes because
+        // directional navigation names the destination from each side.
+        for (const row of WORKSPACE_QUIET_FOOTER_TABLE.filter(
+            (candidate) => candidate.label !== "Focus",
+        )) {
             const wide = WORKSPACE_FOOTER_TABLE
                 .find((other) => other.value === row.value);
             expect(wide).toBeDefined();

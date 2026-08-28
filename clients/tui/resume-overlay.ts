@@ -148,7 +148,6 @@ export function jsonlViewKeyAction(
         readonly conversationBinding?: string;
         readonly globalBinding?: string;
         readonly workspaceBinding?: string;
-        readonly unfocusedBinding?: string;
         readonly sidebarFocused: boolean;
         /** Whether a rail is drawn beside the file, focused or not. */
         readonly sidebarVisible?: boolean;
@@ -176,10 +175,11 @@ export function jsonlViewKeyAction(
         return "sidebar";
     }
     // A file claims every key, so the switch into the rail beside it has to be
-    // named here or Tab would be swallowed like any other unhandled key.
+    // named here or Left would be swallowed like any other unhandled key.
     if (
         options.sidebarVisible === true
-        && options.unfocusedBinding === "focus_composer"
+        && isUnmodified(key)
+        && key.name === "left"
     ) {
         return "focus_sidebar";
     }

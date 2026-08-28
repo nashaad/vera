@@ -120,6 +120,20 @@ test("the rail can still take focus so you can leave without resuming", () => {
         { name: "down" },
         { sidebarFocused: true },
     )).toBe("sidebar");
+    expect(jsonlViewKeyAction(
+        { name: "left" },
+        {
+            sidebarFocused: false,
+            sidebarVisible: true,
+        },
+    )).toBe("focus_sidebar");
+    expect(jsonlViewKeyAction(
+        { name: "left" },
+        {
+            sidebarFocused: false,
+            sidebarVisible: false,
+        },
+    )).toBe("block");
 });
 
 test("ctrl+n starts a new chat from the file view", () => {
