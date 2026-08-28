@@ -10,6 +10,7 @@ import {
     RESUME_CARET,
     RESUME_CARET_BLINK_MS,
     resumeCaretVisible,
+    resumeOverlayLabelText,
     RESUME_OVERLAY_TEXT,
 } from "../../clients/tui/resume-overlay.ts";
 
@@ -22,12 +23,28 @@ test("the composer slot says only how to carry on", () => {
     expect(RESUME_OVERLAY_TEXT).not.toContain("ctrl+");
 });
 
+test("the resume actions stand out from the muted explanation", () => {
+    const label = resumeOverlayLabelText("#ffffff", "#777777");
+    expect(label.chunks.map((chunk) => chunk.text)).toEqual([
+        "Start typing",
+        " or ",
+        "enter",
+        " to continue this session",
+    ]);
+    const colors = label.chunks.map((chunk) => String(chunk.fg));
+    expect(colors[0]).toBe(colors[2]);
+    expect(colors[1]).toBe(colors[3]);
+    expect(colors[0]).not.toBe(colors[1]);
+});
+
 test("the block above says idle, and says it ends by typing", () => {
     expect(IDLE_NOTICE_PROSE).toContain("idle");
     expect(IDLE_NOTICE_PROSE).toContain("as soon as you type");
     expect(IDLE_NOTICE_PROSE).not.toContain("closed");
     expect(IDLE_NOTICE_CHORD_LINE)
-        .toBe("esc home · ctrl+n new · ctrl+r all · ctrl+p commands");
+        .toBe(
+            "enter continue · esc home · ctrl+n new · ctrl+r all · ctrl+p commands",
+        );
 });
 
 test("the prose breaks to the columns it is given", () => {
@@ -182,10 +199,10 @@ test("ctrl+r opens the full list from a file, focused rail or not", () => {
 
 test("the chord row drops from the right rather than running off the edge", () => {
     expect(idleNoticeChordsFor(80).map((chord) => chord.key))
-        .toEqual(["esc", "ctrl+n", "ctrl+r", "ctrl+p"]);
-    // Escape leads because it is the chord every other screen also answers.
+        .toEqual(["enter", "esc", "ctrl+n", "ctrl+r", "ctrl+p"]);
+    // Enter remains visible first when the row gets tight.
     expect(idleNoticeChordsFor(34).map((chord) => chord.key))
-        .toEqual(["esc", "ctrl+n", "ctrl+r"]);
+        .toEqual(["enter", "esc"]);
     expect(idleNoticeChordsFor(6)).toEqual([]);
     for (const columns of [6, 12, 24, 34, 40, 80]) {
         const drawn = idleNoticeChordsFor(columns)

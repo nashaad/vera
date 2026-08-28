@@ -1,5 +1,7 @@
 import {
     BoxRenderable,
+    fg,
+    StyledText,
     TextRenderable,
     type RenderContext,
     type Renderable,
@@ -43,6 +45,19 @@ export type JsonlViewScrollId = (typeof JSONL_VIEW_SCROLL_IDS)[number];
 export const RESUME_OVERLAY_TEXT =
     "Start typing or enter to continue this session";
 
+/** The active ways to resume stand out; the explanation stays quiet. */
+export function resumeOverlayLabelText(
+    textColor: string,
+    mutedColor: string,
+): StyledText {
+    return new StyledText([
+        fg(textColor)("Start typing"),
+        fg(mutedColor)(" or "),
+        fg(textColor)("enter"),
+        fg(mutedColor)(" to continue this session"),
+    ]);
+}
+
 /**
  * Why the screen looks quieter than a live one.
  *
@@ -58,8 +73,9 @@ export interface IdleNoticeChord {
     readonly label: string;
 }
 
-/** Ways to start elsewhere without waking the conversation on screen. */
+/** Actions available while the conversation on screen is idle. */
 export const IDLE_NOTICE_CHORDS: readonly IdleNoticeChord[] = [
+    { key: "enter", label: "continue" },
     { key: "esc", label: "home" },
     { key: "ctrl+n", label: "new" },
     { key: "ctrl+r", label: "all" },
@@ -273,8 +289,8 @@ function chordColumns(chord: IdleNoticeChord, first: boolean): number {
  * The chords that fit, in order, dropping from the right.
  *
  * A row that runs off its own edge reads as a chord that was cut in half, so
- * the last ones are left out rather than half-drawn. Escape leads because it
- * is the one every other screen also answers.
+ * the last ones are left out rather than half-drawn. Enter leads because it
+ * is the direct action for the conversation on screen.
  */
 export function idleNoticeChordsFor(
     columns: number,
@@ -316,7 +332,7 @@ export function createTuiResumeOverlayView(
     });
     const label = new TextRenderable(renderer, {
         id: "resume-overlay-label",
-        content: RESUME_OVERLAY_TEXT,
+        content: resumeOverlayLabelText(TUI_TEXT, TUI_MUTED),
         fg: TUI_TEXT,
         bg: TUI_INPUT,
         flexGrow: 1,
@@ -507,6 +523,10 @@ export function createTuiResumeOverlayView(
             }
             label.fg = appearance.textColor;
             label.bg = appearance.backgroundColor;
+            label.content = resumeOverlayLabelText(
+                appearance.textColor,
+                appearance.mutedColor,
+            );
             caret.fg = appearance.accentColor;
             caret.bg = appearance.backgroundColor;
             status.fg = appearance.mutedColor;
