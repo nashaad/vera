@@ -5,6 +5,8 @@ import { mkdirSync, realpathSync, statSync } from "node:fs";
 import { basename, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { VERA_WORKTREE_RUNTIME_ENV } from "../src/profile-paths.ts";
+
 const CLI_ENTRYPOINT = fileURLToPath(
     new URL("../clients/cli/main.ts", import.meta.url),
 );
@@ -64,6 +66,7 @@ export async function runWorktreeTui(
             env: {
                 ...process.env,
                 VERA_RUNTIME_DIR: runtimeDirectory,
+                [VERA_WORKTREE_RUNTIME_ENV]: "1",
             },
             stdin: "inherit",
             stdout: "inherit",
