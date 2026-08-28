@@ -1596,7 +1596,7 @@ test("Shortlist offers a visible action to verify the current model", async () =
     };
 
     expect(shortlist.options[0]?.label).toBe("Verify current model");
-    expect(await pickerFrame(shortlist)).toContain("↻ Verify current model");
+    expect(await pickerFrame(shortlist)).toContain("○ Verify current model");
     expect(pickerFooter(shortlist)).toContain("⏎ verify");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolVerify)
         .toEqual({

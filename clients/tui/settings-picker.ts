@@ -4342,7 +4342,7 @@ function optionMarker(
     }
     if (option.action === true) {
         return tuiModelActionOfValue(option.value) === "verify_current"
-            ? "↻"
+            ? "○"
             : "+";
     }
     if (state.kind === "provider") {
