@@ -104,7 +104,12 @@ test("shortlist is idempotent when the current model is already kept", async () 
             "the complete /shortlist command in the composer",
         );
         session.sendKey("Enter");
-        await session.waitForVisiblePane("already shortlisted");
+        await session.waitForVisiblePaneWhere(
+            (pane) => !pane.split("\n").some((line) =>
+                line.includes("│ /shortlist")
+            ),
+            "the idempotent /shortlist command to clear the composer",
+        );
         expect(commands.filter((command) => command.type === "pool_add"))
             .toHaveLength(0);
     } finally {
@@ -141,9 +146,11 @@ test("shortlist verification runs in a console inside the model dialog", async (
             line.includes("❯ verify openrouter/one/model")
         );
         expect(consoleLine).toBeGreaterThan(0);
-        expect(lines[consoleLine]).toContain("⠋ running");
-        expect(lines[consoleLine - 1]).toContain("╭");
-        expect(lines[consoleLine + 1]).toContain("╰");
+        expect(lines[consoleLine + 1]).toContain(
+            "⠋ waiting for provider response…",
+        );
+        expect(lines[consoleLine - 1]).not.toContain("╭");
+        expect(lines[consoleLine + 2]).not.toContain("╰");
         expect(lines.filter((line) =>
             line.includes("Verifying openrouter/one/model")
         )).toHaveLength(1);

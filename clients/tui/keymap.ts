@@ -480,15 +480,15 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^v verify all",
     },
     {
-        // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
-        // same caveat the half-page chords above carry. Elsewhere the shift is
-        // dropped and it arrives as plain ctrl+r, which this scope binds to the
-        // endpoint form, so the probe is out of reach there.
+        // Shifted control letters need the kitty keyboard protocol to remain
+        // distinct. Keep the old R chord as an alias, but lead with F: it sits
+        // beside refresh conceptually, while the shift makes this the live
+        // model check rather than a catalog refresh.
         id: "verify_model",
-        keys: ["ctrl+shift+r"],
+        keys: ["ctrl+shift+f", "ctrl+shift+r"],
         scope: "model_picker",
         description: "Probe the selected model and record what it can do",
-        hint: "^⇧r verify",
+        hint: "^⇧f verify",
     },
     {
         id: "move_pooled_up",

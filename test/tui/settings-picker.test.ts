@@ -2016,15 +2016,21 @@ test("the verify key asks for a probe of the selected pool row", () => {
         levels: [],
     }]);
 
+    const expected = {
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+    };
+    expect(
+        handleTuiSettingsPickerKey(state, { name: "f", ctrl: true, shift: true })
+            .poolVerify,
+    ).toEqual(expected);
+    // Keep the former chord working for people who already learned it.
     expect(
         handleTuiSettingsPickerKey(state, { name: "r", ctrl: true, shift: true })
             .poolVerify,
-    ).toEqual({
-        provider: "openrouter",
-        model: "z-ai/glm-5.2",
-    });
+    ).toEqual(expected);
     // Without the shift the chord means nothing here, so nothing is probed.
-    expect(handleTuiSettingsPickerKey(state, { name: "r", ctrl: true })
+    expect(handleTuiSettingsPickerKey(state, { name: "f", ctrl: true })
         .poolVerify).toBeUndefined();
 });
 

@@ -48,6 +48,7 @@ import {
     TUI_BACKGROUND,
     TUI_CHROME,
     TUI_ELEMENT,
+    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_SUCCESS,
@@ -3285,7 +3286,7 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["⏎", "run this model. On All models it does not add it."],
     ["^s", "add the highlighted model to the shortlist, or remove it."],
     ["^n", "give a shortlisted model a short name of your own."],
-    ["^⇧r ^v", "probe a model, or every model you keep."],
+    ["^⇧f ^v", "probe a model, or every model you keep."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -3655,50 +3656,45 @@ function renderListPickerRows(
 // attached to either the tabs above or the list below.
 const MODEL_TAB_STRIP_HEIGHT = 4;
 const MODEL_ALL_MAX_ROWS = 28;
-const VERIFICATION_CONSOLE_LINES = 4;
+const VERIFICATION_CONSOLE_LINES = 3;
 
-/** A small terminal inside the picker for the live provider check. */
+/** A full-width terminal log inside the picker for the live provider check. */
 function verificationConsoleNode(
     renderer: RenderContext,
     subject: string,
 ): BoxRenderable {
     const consoleBox = new BoxRenderable(renderer, {
         width: "100%",
-        height: 3,
+        height: 2,
         marginTop: 1,
         flexShrink: 0,
-        border: true,
-        borderStyle: "rounded",
-        borderColor: TUI_ELEMENT,
-        backgroundColor: TUI_BACKGROUND,
+        flexDirection: "column",
+        border: false,
+        backgroundColor: TUI_INPUT,
         paddingLeft: 1,
         paddingRight: 1,
     });
-    const row = new BoxRenderable(renderer, {
-        width: "100%",
-        height: 1,
-        flexDirection: "row",
-        justifyContent: "space-between",
-        backgroundColor: TUI_BACKGROUND,
-    });
-    row.add(new TextRenderable(renderer, {
+    const command = new TextRenderable(renderer, {
         content: new StyledText([
             fg(TUI_ACCENT)("❯ "),
             fg(TUI_TEXT)("verify "),
             fg(TUI_MUTED)(subject),
         ]),
-        bg: TUI_BACKGROUND,
+        bg: TUI_INPUT,
+        width: "100%",
         height: 1,
-    }));
-    row.add(new TextRenderable(renderer, {
+    });
+    const progress = new TextRenderable(renderer, {
         content: new StyledText([
             fg(TUI_ACCENT)("⠋ "),
-            fg(TUI_MUTED)("running"),
+            fg(TUI_MUTED)("waiting for provider response…"),
         ]),
-        bg: TUI_BACKGROUND,
+        bg: TUI_INPUT,
+        width: "100%",
         height: 1,
-    }));
-    consoleBox.add(row);
+    });
+    consoleBox.add(command);
+    consoleBox.add(progress);
     return consoleBox;
 }
 

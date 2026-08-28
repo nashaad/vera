@@ -5018,7 +5018,7 @@ export async function startTui(
                 verificationConsole === undefined
                     || settingsPicker.kind !== "model"
                     ? 0
-                    : 4,
+                    : 3,
             );
             const transition = settingsPicker.kind === "extension"
                 ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
@@ -12686,7 +12686,7 @@ export async function startTui(
             return;
         }
         if ("poolVerify" in transition && transition.poolVerify !== undefined) {
-            openVerifyDialog(
+            verifyModelInPicker(
                 transition.poolVerify.provider,
                 transition.poolVerify.model,
             );
@@ -14354,13 +14354,10 @@ export async function startTui(
         return true;
     }
 
-    function openVerifyDialog(provider: string, model: string): void {
-        admissionReturnPicker = settingsPicker?.kind === "model"
-            ? settingsPicker
-            : undefined;
-        settingsPicker = undefined;
-        const requestId = requestPoolAdmission(provider, model, true);
-        admissionDialog = startTuiAdmissionDialog(provider, model, requestId);
+    function verifyModelInPicker(provider: string, model: string): void {
+        // Keep the model pane in place: its full-width console is the live
+        // verification surface, including for a model being checked again.
+        requestPoolAdmission(provider, model, true);
         composer.blur();
         renderState();
         focusActiveSurface();
