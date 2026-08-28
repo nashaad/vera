@@ -1443,11 +1443,11 @@ export function tuiModelActionOptions(
     }
     if (providers.length > 0) rows.push({
         value: tuiModelActionValue("refresh"),
-        label: "Refresh model lists",
+        label: "Refresh model catalog from providers",
         description: tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
         note:
             "Asks the providers for their models again, so anything released since the last check shows up here. Which ones to ask comes next.",
-        detailTitle: "refresh model lists",
+        detailTitle: "refresh model catalog from providers",
         detailFacts: [],
         searchText: `refresh reload update fetch new models catalog ${
             providers.join(" ")
@@ -1847,7 +1847,7 @@ export function startTuiCatalogRefreshScopePicker(
         ];
     return {
         kind: "catalog_refresh_scope",
-        title: "Refresh model lists",
+        title: "Refresh model catalog from providers",
         subtitle: "each provider is one call over the network",
         allOptions: options,
         options,
@@ -3147,7 +3147,7 @@ function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
 }
 
 /** The narrowest the detail column is worth drawing at. */
-const MODEL_DETAIL_MIN_WIDTH = 26;
+const MODEL_DETAIL_MIN_WIDTH = 30;
 
 /** The narrowest the list column may be squeezed to. */
 const MODEL_LIST_MIN_WIDTH = 28;
@@ -3442,8 +3442,8 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["Keys"],
     ["⏎", "run this model. On All models it does not add it."],
     ["→ / mouse", "focus or click model actions. ← returns to the list."],
-    ["Checks", "^⇧f verifies one · ^v verifies the shortlist."],
-    ["^s · ^n", "shortlist toggle · name a shortlisted model."],
+    ["Verify", "^v this model · ^⇧v all shortlisted models."],
+    ["Refresh", "^f refresh model catalog from providers."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -4571,22 +4571,26 @@ function modelActionLineChunks(
 ): TextChunk[] {
     const prefix = active ? "› " : "  ";
     const chordWidth = Bun.stringWidth(action.chord);
-    const labelWidth = Math.max(0, width - 3 - chordWidth);
+    const labelWidth = Math.max(0, width - 7 - chordWidth);
     const label = labelWidth === 0
         ? ""
         : clippedTo(action.label, labelWidth).padEnd(labelWidth);
     if (active) {
         return [
             fg(TUI_BACKGROUND)(
-                bg(TUI_ACCENT)(`${prefix}${label} ${action.chord}`.padEnd(width)),
+                bg(TUI_ACCENT)(
+                    `${prefix}[ ${label} ${action.chord} ]`.padEnd(width),
+                ),
             ),
         ];
     }
     return [
         fg(TUI_PANEL)(prefix),
+        fg(TUI_ACCENT)("[ "),
         fg(TUI_TEXT)(label),
         fg(TUI_PANEL)(" "),
         fg(TUI_ACCENT)(action.chord),
+        fg(TUI_ACCENT)(" ]"),
     ];
 }
 
@@ -4639,7 +4643,7 @@ function modelDetailActions(
         {
             id: "toggle_pool",
             chord: tuiKeyHint("toggle_pooled").split(" ")[0] ?? "",
-            label: pooled ? "Remove from shortlist" : "Add to shortlist",
+            label: pooled ? "Unpin" : "Add to shortlist",
         },
         ...(pooled
             ? [{

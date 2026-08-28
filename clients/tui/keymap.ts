@@ -469,24 +469,22 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         id: "refresh_catalog",
         keys: ["ctrl+f"],
         scope: "model_picker",
-        description: "Ask the highlighted row's provider for its model list now",
-        hint: "^f refresh",
+        description: "Refresh the model catalog from providers",
+        hint: "^f refresh catalog",
     },
     {
         id: "verify_pool",
-        keys: ["ctrl+v"],
+        keys: ["ctrl+shift+v"],
         scope: "model_picker",
         description: "Probe the models you keep, and record what they can do",
-        hint: "^v verify all",
+        hint: "^⇧v verify all",
     },
     {
-        // Keep R as a compatibility alias, but the visible chord is F: verify
-        // this model is the shifted counterpart to refreshing model lists.
         id: "verify_model",
-        keys: ["ctrl+shift+f", "ctrl+shift+r"],
+        keys: ["ctrl+v"],
         scope: "model_picker",
         description: "Probe the selected model and record what it can do",
-        hint: "^⇧f verify",
+        hint: "^v verify",
     },
     {
         id: "move_pooled_up",

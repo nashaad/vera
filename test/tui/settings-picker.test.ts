@@ -1544,7 +1544,7 @@ test("Shortlist offers the current model as a visible action row", async () => {
     expect(shortlist.options[0]?.label)
         .toBe("Add current model to shortlist");
     expect(await pickerFrame(shortlist))
-        .toContain("+ Add current model to shortl");
+        .toContain("+ Add current model to sh…");
     expect(pickerFooter(shortlist)).toContain("⏎ add");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolToggle)
         .toEqual({
@@ -1585,17 +1585,17 @@ test("the current shortlist model exposes an inspector and list action", async (
         option.label === "Verify current model"
     )).toBe(false);
     const frame = await pickerFrame(shortlist);
-    expect(frame).toMatch(/Verify all \(2\)\s+\^v/);
+    expect(frame).toMatch(/Verify all \(2\)\s+\^⇧v/);
     const verifyLine = frame.split("\n").findIndex((line) =>
         line.includes("Verify all (2)")
     );
     expect(frame.split("\n")[verifyLine - 1]).toContain("────");
     expect(frame).toContain("Actions");
-    expect(frame).toMatch(/Verify this model\s+\^⇧f/);
-    expect(frame).toMatch(/Remove from shortlist\s+\^s/);
-    expect(frame).toMatch(/Name this model\s+\^n/);
-    expect(frame).not.toContain("Refresh model lists…");
-    expect(pickerFooter(shortlist)).toContain("^⇧f verify");
+    expect(frame).toMatch(/\[ Verify this model\s+\^v \]/);
+    expect(frame).toMatch(/\[ Unpin\s+\^s \]/);
+    expect(frame).toMatch(/\[ Name this model\s+\^n \]/);
+    expect(frame).not.toContain("Refresh model catalog from providers");
+    expect(pickerFooter(shortlist)).toContain("^v verify");
     expect(pickerFooter(shortlist)).toContain("→ actions");
     expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).selection)
         .toEqual({
@@ -1604,7 +1604,14 @@ test("the current shortlist model exposes an inspector and list action", async (
             model: "z-ai/glm-5.2",
         });
     expect(handleTuiSettingsPickerKey(shortlist, { name: "v", ctrl: true })
-        .poolVerifySweep).toBe(true);
+        .poolVerify).toEqual({
+            provider: "openrouter",
+            model: "z-ai/glm-5.2",
+        });
+    expect(handleTuiSettingsPickerKey(
+        shortlist,
+        { name: "v", ctrl: true, shift: true },
+    ).poolVerifySweep).toBe(true);
 });
 
 test("right and left move between a model row and its inspector", async () => {
@@ -1617,12 +1624,12 @@ test("right and left move between a model row and its inspector", async () => {
         .state!;
     expect(detail.modelFocus).toBe("detail");
     expect(detail.modelActionIndex).toBe(0);
-    expect(await pickerFrame(detail)).toMatch(/│  › Verify this model/);
+    expect(await pickerFrame(detail)).toMatch(/│  › \[ Verify this model/);
     expect(handleTuiSettingsPickerKey(detail, { name: "enter" }).poolVerify)
         .toEqual({ provider: "openrouter", model: "z-ai/glm-5.2" });
 
     const remove = handleTuiSettingsPickerKey(detail, { name: "down" }).state!;
-    expect(await pickerFrame(remove)).toMatch(/│  › Remove from shortlist/);
+    expect(await pickerFrame(remove)).toMatch(/│  › \[ Unpin/);
     expect(handleTuiSettingsPickerKey(remove, { name: "enter" }).poolToggle)
         .toEqual({
             action: "remove",
@@ -1653,7 +1660,7 @@ test("the shortlist footer is reachable by arrows and every clickable row", asyn
     const footer = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
     expect(footer.modelFocus).toBe("list_action");
     const focusedFrame = await pickerFrame(footer);
-    expect(focusedFrame).toMatch(/› Verify all \(2\)\s+\^v/);
+    expect(focusedFrame).toMatch(/› Verify all \(2\)\s+\^⇧v/);
     const focusedLine = focusedFrame.split("\n").findIndex((line) =>
         line.includes("› Verify all (2)")
     );
@@ -2144,17 +2151,20 @@ test("the verify key asks for a probe of the selected pool row", () => {
         model: "z-ai/glm-5.2",
     };
     expect(
-        handleTuiSettingsPickerKey(state, { name: "f", ctrl: true, shift: true })
+        handleTuiSettingsPickerKey(state, { name: "v", ctrl: true })
             .poolVerify,
     ).toEqual(expected);
-    // Keep the former chord working for people who already learned it.
-    expect(
-        handleTuiSettingsPickerKey(state, { name: "r", ctrl: true, shift: true })
-            .poolVerify,
-    ).toEqual(expected);
-    // Without the shift the chord means nothing here, so nothing is probed.
+    expect(handleTuiSettingsPickerKey(
+        state,
+        { name: "v", ctrl: true, shift: true },
+    ).poolVerifySweep).toBe(true);
+    // F is reserved for refreshing provider catalogs, never verification.
     expect(handleTuiSettingsPickerKey(state, { name: "f", ctrl: true })
         .poolVerify).toBeUndefined();
+    expect(handleTuiSettingsPickerKey(
+        state,
+        { name: "f", ctrl: true, shift: true },
+    ).poolVerify).toBeUndefined();
 });
 
 test("a model row is the name alone, with no description beside it", async () => {
@@ -2668,7 +2678,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     expect(frame).toMatch(
         /Shortlist \(2\)\s+All \(\d+\)\s+Actions\s+Defaults\s+Help\s+Providers \^e/,
     );
-    expect(frame).toContain("⇥ tabs");
+    expect(frame).toContain("^f refresh catalog");
     expect(frame).toContain("OpenRouter");
 });
 
@@ -3660,7 +3670,7 @@ test("the Actions tab lists what the pane can do in words", () => {
     const actions = switchedModelTab(pickerWithActions(), "actions");
 
     expect(actions.options.map((option) => option.label)).toEqual([
-        "Refresh model lists",
+        "Refresh model catalog from providers",
         "Verify shortlisted models",
         "Show or hide the rarely used models",
         "Connect, edit or forget a provider",
@@ -3680,7 +3690,7 @@ test("an action is found by word from the model list, above the models", () => {
 
     const labels = state.options.map((option) => option.label);
     expect(labels[0]).toBe("Actions");
-    expect(labels[1]).toBe("Refresh model lists");
+    expect(labels[1]).toBe("Refresh model catalog from providers");
 });
 
 test("the refresh row asks which providers before asking any", () => {

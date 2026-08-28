@@ -149,8 +149,16 @@ test("shortlist verification runs in a console inside the model dialog", async (
         expect(lines[consoleLine + 1]).toContain(
             "⠋ waiting for provider response…",
         );
-        expect(lines[consoleLine - 1]).not.toContain("╭");
-        expect(lines[consoleLine + 2]).not.toContain("╰");
+        const consoleColumn = lines[consoleLine]!.indexOf("❯");
+        const consoleWidth = "❯ verify openrouter/one/model".length;
+        expect(lines[consoleLine - 1]?.slice(
+            consoleColumn,
+            consoleColumn + consoleWidth,
+        )).not.toMatch(/[╭─]/);
+        expect(lines[consoleLine + 2]?.slice(
+            consoleColumn,
+            consoleColumn + consoleWidth,
+        )).not.toMatch(/[╰─]/);
         expect(lines.filter((line) =>
             line.includes("Verifying openrouter/one/model")
         )).toHaveLength(1);
@@ -166,12 +174,12 @@ test("shortlist verification runs in a console inside the model dialog", async (
         session.sendKey("Escape");
         await session.waitForVisiblePane("Verify all (1)");
         session.sendKey("Right");
-        await session.waitForVisiblePane("› Verify this model");
+        await session.waitForVisiblePane("› [ Verify this model");
         session.sendKey("Enter");
         await session.waitForVisiblePane("❯ verify openrouter/one/model");
         await session.waitForVisiblePaneWhere(
             (pane) =>
-                pane.includes("› Verify this model")
+                pane.includes("› [ Verify this model")
                 && !pane.includes("❯ verify openrouter/one/model"),
             "inspector verification to finish",
         );
@@ -187,10 +195,10 @@ test("shortlist verification runs in a console inside the model dialog", async (
         await session.waitForVisiblePane("Verify all (1)");
         session.sendKey("Tab");
         session.sendKey("Tab");
-        await session.waitForVisiblePane("Refresh model lists");
+        await session.waitForVisiblePane("Refresh model catalog from pr");
         session.sendKey("Enter");
         const refreshScope = await session.waitForVisiblePane(
-            "Refresh model lists",
+            "Refresh model catalog from providers",
         );
         expect(refreshScope).toContain("openrouter");
     } finally {
