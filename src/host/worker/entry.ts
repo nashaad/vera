@@ -18,6 +18,7 @@ import { createJsonPipe, type JsonPipe } from "./pipe.ts";
 import { startExtensionRegistry } from "../../extensions/registry.ts";
 import { createRemoteHostBoundary } from "./remote-boundary.ts";
 import type { WorkerAdapterSpec, WorkerStartNotification } from "./start.ts";
+import { installLiveProcess } from "../../live-process.ts";
 
 export async function runWorker(
     input: NodeJS.ReadableStream,
@@ -151,6 +152,7 @@ async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
 }
 
 if (import.meta.main) {
+    installLiveProcess("worker");
     await runWorker(process.stdin, process.stdout);
     // The last write has to reach the reader before the process goes.
     await new Promise<void>((resolve) => {

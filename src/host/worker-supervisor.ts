@@ -30,6 +30,8 @@
  * signal below, and nothing else.
  */
 
+import { installLiveProcess } from "../live-process.ts";
+
 const PROTOCOL_VERSION = 1;
 
 /** A deadline that never arrives. Any negative value behaves the same way. */
@@ -287,6 +289,7 @@ function sleep(ms: number): Promise<void> {
 }
 
 if (import.meta.main) {
+    installLiveProcess("supervisor");
     await runSupervisor({
         input: process.stdin,
         emit: (line) => {

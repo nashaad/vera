@@ -3,6 +3,7 @@
 // This is the installed command dispatcher; the interactive client lives in ../tui.
 
 import { spawn } from "node:child_process";
+import { join } from "node:path";
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -63,6 +64,7 @@ import {
     assertProfileLayout,
     unrecognisedHomeEntries,
     veraHomeDirectory,
+    veraRuntimeDirectory,
     VERA_PROFILE_ENV,
     VeraProfileError,
     veraProfileName,
@@ -106,12 +108,19 @@ import type { StartupProfile } from "../../src/startup-profile.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import {
     diagnoseVeraProcesses,
+    livePidFromHostLockFile,
     renderVeraDoctor,
     colorizeVeraDoctor,
     stopStrayVeraProcesses,
     type DiagnosedVeraProcess,
     type VeraDoctorReport,
 } from "../process-doctor.ts";
+import {
+    listLiveProcesses,
+    renderVeraPrune,
+    stopLivePid,
+    type LiveProcessRecord,
+} from "../../src/live-process.ts";
 import {
     diagnoseProviders,
     renderProviderDoctor,
@@ -220,6 +229,12 @@ export interface CliDependencies {
     readonly stopHost?: () => Promise<number | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    readonly prune?: () => Promise<readonly LiveProcessRecord[]>;
+    readonly confirmPruneProcess?: (
+        process: LiveProcessRecord,
+        currentHostPid?: number,
+    ) => boolean | Promise<boolean>;
+    readonly stopPruneProcess?: (pid: number) => number | Promise<number>;
     readonly tmuxSockets?: () => Promise<TmuxSocketReport>;
     readonly confirmStopStrayProcesses?: (
         strays: readonly DiagnosedVeraProcess[],
@@ -549,6 +564,47 @@ export async function runCli(
             return 1;
         }
         await (dependencies.runStdio ?? runStdioProcess)(target);
+        return 0;
+    }
+
+    if (args[0] === "prune") {
+        if (args.length !== 1) {
+            errorOutput.write(renderCliUsage());
+            return 1;
+        }
+        const records = (await (dependencies.prune ?? (async () =>
+            listLiveProcesses()
+        ))()).filter((record) => record.pid !== process.pid);
+        const currentHostPid = await livePidFromHostLockFile(
+            join(veraRuntimeDirectory(), "host.json"),
+        );
+        output.write(renderVeraPrune(records, currentHostPid));
+        if (records.length === 0) return 0;
+        const confirm = dependencies.confirmPruneProcess;
+        if (confirm === undefined && (!process.stdin.isTTY || !process.stdout.isTTY)) {
+            errorOutput.write(
+                "Prune needs a terminal to ask about each process.\n",
+            );
+            return 1;
+        }
+        let stopped = 0;
+        for (const candidate of records) {
+            const approved = await (confirm ?? confirmPruneProcess)(
+                candidate,
+                currentHostPid,
+            );
+            if (!approved) continue;
+            const didStop = await (
+                dependencies.stopPruneProcess ?? ((pid: number) =>
+                    stopLivePid(pid) ? 1 : 0)
+            )(candidate.pid);
+            stopped += didStop;
+        }
+        output.write(
+            stopped === 0
+                ? "Left every listed process running.\n"
+                : `Stopped ${stopped} process${stopped === 1 ? "" : "es"}.\n`,
+        );
         return 0;
     }
 
@@ -1305,6 +1361,26 @@ async function confirmResidentHostStop(): Promise<boolean> {
     try {
         const answer = await prompt.question(
             "Stop the resident Vera host and disconnect attached clients? [y/N] ",
+        );
+        return answer.trim().toLowerCase() === "y"
+            || answer.trim().toLowerCase() === "yes";
+    } finally {
+        prompt.close();
+    }
+}
+
+async function confirmPruneProcess(
+    candidate: LiveProcessRecord,
+    currentHostPid?: number,
+): Promise<boolean> {
+    if (!process.stdin.isTTY || !process.stdout.isTTY) return false;
+    const prompt = createInterface({ input: process.stdin, output: process.stdout });
+    try {
+        const current = candidate.pid === currentHostPid
+            ? " (this shell's current host)"
+            : "";
+        const answer = await prompt.question(
+            `Stop PID ${candidate.pid} ${candidate.kind} ${candidate.runtime_dir}${current}? [y/N] `,
         );
         return answer.trim().toLowerCase() === "y"
             || answer.trim().toLowerCase() === "yes";

@@ -22,6 +22,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera doctor", description: "Check this runtime's resident host, Vera process health, leftover tmux sockets, and providers; stops leftovers in this runtime after asking; does not stop other profiles, worktrees, SDK instances, or live tmux servers" },
     { usage: "vera doctor --yes", description: "Stop leftovers in this runtime without asking first; does not stop other profiles, worktrees, SDK instances, or live tmux servers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
+    { usage: "vera prune", description: "List this home's Vera processes and stop them one at a time" },
     { usage: "vera models refresh", description: "Fetch each provider's model list now, instead of waiting out the cache" },
     { usage: "vera shortlist list", description: "List the models you keep" },
     { usage: "vera shortlist add <provider/model> [--verify]", description: "Pin a model to your shortlist" },

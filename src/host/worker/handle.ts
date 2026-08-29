@@ -104,6 +104,7 @@ export async function startWorker(
     const command = options.command ?? ["bun", WORKER_ENTRY];
     const [executable, ...args] = command;
     const child: ChildProcess = spawn(executable as string, args, {
+        argv0: "vera-worker",
         stdio: ["pipe", "pipe", "inherit"],
         // The worker leads its own process group so a kill can contain tools
         // and other descendants it started, not only the JavaScript loop.

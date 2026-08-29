@@ -148,6 +148,7 @@ function spawnDetachedResidentHost(): Promise<void> {
     }
     const spawnedAt = Date.now();
     const child = spawn(process.execPath, [residentHostEntrypoint()], {
+        argv0: "vera-host",
         detached: true,
         stdio: "ignore",
     });

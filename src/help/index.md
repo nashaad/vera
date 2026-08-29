@@ -61,7 +61,22 @@ provider endpoints. Add `--check-providers` to test provider reachability
 and credentials. Doctor reports problems. Leftovers in this runtime can be
 removed after a confirm; `--yes` skips the confirmation. Other profiles,
 worktree runtimes, SDK instances, and live tmux servers are left alone.
-Doctor only unlinks dead Vera socket files.
+Doctor only unlinks dead Vera socket files. To stop Vera-owned processes
+across this home's runtimes one by one, use `vera prune`.
+
+## prune — Stopping Vera processes
+
+Aliases: `pruning`
+
+`vera prune` lists Vera's own processes for this home: host, TUI, worker,
+supervisor, and watchdog. Each row shows the pid, kind, and the runtime
+directory it started from. Worktrees that share this home appear together.
+A relocated `VERA_HOME` is a different list.
+
+It asks `[y/N]` before stopping each process. `--yes` does not skip that.
+Without a terminal it prints the list and refuses to kill. A process that
+has been running since before this command existed will not appear until
+it is started again.
 
 ## sessions — Continuing and exporting work
 
@@ -72,8 +87,10 @@ exports Markdown by default; add `--format json` for structured output.
 ## recovery — When Vera is stuck or work is at risk
 
 If the resident host is not answering, run `vera host stop --force` and then
-start Vera again. If the default profile's host is wedged but you need a
-working client, run `vera rescue`; it uses the isolated `rescue` profile.
+start Vera again. If leftover Vera processes sit in other runtimes, run
+`vera prune` and answer each `[y/N]`. If the default profile's host is wedged
+but you need a working client, run `vera rescue`; it uses the isolated
+`rescue` profile.
 
 Before destructive recovery, preserve the session and workspace state. Vera
 does not currently provide a general file restore or checkpoint command.

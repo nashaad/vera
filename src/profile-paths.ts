@@ -23,9 +23,9 @@ export function veraHomeDirectory(home?: string): string {
 
 /**
  * State that is one picture per machine rather than per installation, so it
- * sits outside every profile and stays in one copy: credentials, and coord's
- * presence store. This is also what makes a profile directory shareable with
- * nothing to strip.
+ * sits outside every profile and stays in one copy: credentials, coord's
+ * presence store, and the live process board `vera prune` reads. This is also
+ * what makes a profile directory shareable with nothing to strip.
  */
 export function veraMachineDirectory(home?: string): string {
     return join(veraHomeDirectory(home), "machine");
