@@ -387,6 +387,9 @@ import {
 } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
 import {
+    readModelSettingsThroughHost,
+} from "../../src/host/model-settings-client.ts";
+import {
     createHomeState,
     createTuiHomeView,
     handleHomeKey,
@@ -456,6 +459,7 @@ import {
     startTuiDeveloperMenu,
     startTuiDeveloperValuePicker,
     startTuiSettingsPicker,
+    verificationConsoleLines,
     switchedModelTab,
     syncTuiModelPicker,
     mergeTuiModelPickerSettings,
@@ -842,6 +846,10 @@ export interface TuiDependencies {
     /** Compatibility hook for callers that only open the profile config. */
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    /** Host-held model state for a client with no session, used by home. */
+    readonly readHostModelSettings?: (
+        workspace: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     /** False when this machine has no conversations yet: home drops a row. */
     readonly homeHasSessions?: boolean;
     /** One page of the session listing, with the facts the caller named. */
@@ -1080,7 +1088,10 @@ export async function startConfiguredTui(
         ? undefined
         : await hostHasSessions(host.socket_path);
     const client = agentId === undefined
-        ? createHomeClient(process.cwd())
+        ? createHomeClient(process.cwd(), {
+            readModelSettings: (workspace) =>
+                readModelSettingsThroughHost(host.socket_path, workspace),
+        })
         : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
@@ -1112,6 +1123,8 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            readHostModelSettings: (workspace) =>
+                readModelSettingsThroughHost(host.socket_path, workspace),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -1223,6 +1236,9 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
+    const homeClientOptions = dependencies.readHostModelSettings === undefined
+        ? {}
+        : { readModelSettings: dependencies.readHostModelSettings };
     const flightRecorder = dependencies.flightRecorder;
     flightRecorder?.sessionEntered(client.agentId ?? "unknown");
     const configuredAppearance = dependencies.appearance
@@ -5051,10 +5067,7 @@ export async function startTui(
             const viewportRows = tuiPickerViewportRows(
                 renderer,
                 settingsPicker,
-                verificationConsole === undefined
-                    || settingsPicker.kind !== "model"
-                    ? 0
-                    : 3,
+                verificationConsoleRows(),
             );
             const transition = settingsPicker.kind === "extension"
                 ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
@@ -5895,13 +5908,23 @@ export async function startTui(
     const MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     function requestAgentSettings(target: TuiAgentClient): void {
-        if (target.failed === true || target.viewOnly === true) {
+        if (target.failed === true) {
+            return;
+        }
+        // Home has no session but the model pane still reads the catalog and
+        // the shortlist, which are the host's. Every other view-only client
+        // has nothing to answer with.
+        const home = isHomeClient(target);
+        if (target.viewOnly === true && !home) {
             return;
         }
         void target.send({
             type: "get_model_settings",
             requestId: randomUUID(),
         }).catch(reportConnectionError);
+        if (home) {
+            return;
+        }
         void target.send({
             type: "get_permissions",
             requestId: randomUUID(),
@@ -5946,6 +5969,10 @@ export async function startTui(
     if (client.failed !== true && client.viewOnly !== true) {
         void loadExtensionCommands();
         requestSkillCommands();
+        requestSessionSettings();
+    } else if (isHomeClient(client)) {
+        // The model pane is reachable from home, and what it shows is the
+        // host's, so it is asked for at once rather than on first open.
         requestSessionSettings();
     }
     void restorePersistedAgentPane();
@@ -7831,6 +7858,7 @@ export async function startTui(
                 if (update.type === "pool_admission_result") {
                     hideVerificationConsole(update.requestId);
                 }
+                dropSettledVerificationConsole();
                 observeActivity(update);
                 if (
                     update.type === "pool_admission_result"
@@ -9093,6 +9121,14 @@ export async function startTui(
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        // Home answers reads and refuses everything else. A write it cannot
+        // carry says something about this screen, not about a host that went
+        // away, so it is reported and the connection is left alone.
+        if (isHomeClient(client)) {
+            state = appendTuiError(state, message);
+            renderState();
+            return;
+        }
         // A jsonl view and a session that already died are not a dropped host.
         // Restarting the host here is what froze the TUI in a reconnect loop.
         if (
@@ -10062,6 +10098,10 @@ export async function startTui(
             pickerTipKind = undefined;
             settingsPickerView.tip = undefined;
             settingsPickerView.verification = undefined;
+            // The run reports itself in the transcript. Closing the pane is
+            // the end of the console, so reopening it does not bring back a
+            // check that finished a while ago.
+            verificationConsole = undefined;
         } else if (tipsEnabled && pickerTipKind !== settingsPicker.kind) {
             // One tip per pane, chosen when the pane opens. Rechoosing on
             // every keystroke would make the line flicker under the search
@@ -10071,7 +10111,7 @@ export async function startTui(
         }
         if (settingsPicker !== undefined) {
             settingsPickerView.verification = settingsPicker.kind === "model"
-                ? verificationConsole
+                ? liveVerificationConsole()
                 : undefined;
             settingsPickerView.update(settingsPicker);
         }
@@ -10498,6 +10538,12 @@ export async function startTui(
                 targetState.modelSettings?.contextLimit,
             ),
             actionOptions: modelPickerActionOptions(targetState.modelSettings),
+            // Home reads the catalog from the host, so it usually has one.
+            // When the read failed there is no chord that would fill the list,
+            // and saying so beats an empty list that looks like a provider
+            // problem the user could go and fix.
+            modelCatalogUnavailable: targetState.modelSettings === undefined
+                && isHomeClient(focusedAgentClient()),
         };
         if (settingsPicker.tab === "pool" && currentShortlisted === false) {
             settingsPicker = {
@@ -12774,11 +12820,10 @@ export async function startTui(
             "refreshCatalog" in transition
             && transition.refreshCatalog !== undefined
         ) {
-            if (previousPicker?.kind === "model") {
-                openCatalogRefreshScopePicker();
-            } else {
-                requestCatalogRefresh(transition.refreshCatalog);
-            }
+            // The chord names a row, and a row names one provider, so it asks
+            // that one. Choosing which providers to ask is what the More page
+            // action is for.
+            requestCatalogRefresh(transition.refreshCatalog);
             return;
         }
         if (
@@ -13572,7 +13617,10 @@ export async function startTui(
         if (isHomeClient(client) || sessionSwitchPending) return;
         homeTypedText = undefined;
         homeSubmitPending = false;
-        switchToClient(createHomeClient(client.workspace ?? process.cwd()));
+        switchToClient(createHomeClient(
+            client.workspace ?? process.cwd(),
+            homeClientOptions,
+        ));
         void refreshHomeSessions();
     }
 
@@ -14977,9 +15025,53 @@ export async function startTui(
         verificationConsole = { requestId, subject };
     }
 
+    /**
+     * How many rows the console is taking from the list right now.
+     *
+     * Half-page movement is measured against what is on screen, so it has to
+     * ask the console rather than assume a size it no longer has.
+     */
+    function verificationConsoleRows(): number {
+        if (settingsPicker?.kind !== "model") return 0;
+        const shown = liveVerificationConsole();
+        return shown === undefined ? 0 : verificationConsoleLines(shown);
+    }
+
     function hideVerificationConsole(requestId: string): void {
         if (verificationConsole?.requestId !== requestId) return;
         verificationConsole = undefined;
+    }
+
+    /**
+     * A settled run has nothing left to report, so the console goes with it
+     * rather than sitting on a spinner that will never turn again.
+     */
+    function dropSettledVerificationConsole(): void {
+        if (verificationConsole === undefined) return;
+        const admission = state.admission;
+        if (
+            admission?.requestId === verificationConsole.requestId
+            && admission.settled === true
+        ) {
+            verificationConsole = undefined;
+        }
+    }
+
+    /** The checks reported so far for the run the console is showing. */
+    function liveVerificationConsole() {
+        const shown = verificationConsole;
+        if (shown === undefined) return undefined;
+        const admission = state.admission?.requestId === shown.requestId
+            ? state.admission
+            : undefined;
+        if (admission?.settled === true) return undefined;
+        return {
+            subject: shown.subject,
+            steps: (admission?.steps ?? []).map((step) => ({
+                label: step.label,
+                status: step.status,
+            })),
+        };
     }
 
     /**

@@ -1447,6 +1447,67 @@ function modelPickerWithPool(
     );
 }
 
+function typedInto(
+    start: TuiSettingsPickerState,
+    text: string,
+): TuiSettingsPickerState {
+    let state = start;
+    for (const name of text.split("")) {
+        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
+    }
+    return state;
+}
+
+test("an empty model list says which emptiness it is", async () => {
+    const searched = typedInto(modelPickerWithPool(), "zzqq");
+    expect(searched.options).toHaveLength(0);
+    const searchedFrame = await pickerFrame(searched);
+    expect(searchedFrame).toContain("No shortlisted models match");
+    expect(searchedFrame).toContain("Tab switches to All models");
+
+    // Nothing shortlisted and no current model leaves More with no actions to
+    // hold, so the copy must not send the user to a row that is not drawn.
+    const bare = switchedModelTab(modelPickerWithPool([], "", ""), "pool");
+    const bareFrame = await pickerFrame(bare);
+    expect(bareFrame).toContain("Nothing shortlisted yet");
+    expect(bareFrame).toContain("Tab switches to All models");
+    expect(bareFrame).not.toMatch(/More\s+.*\u203a/);
+
+    const withMore = {
+        ...switchedModelTab(
+            modelPickerWithPool([], "z-ai/glm-5.2", "openrouter"),
+            "pool",
+        ),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    };
+    const moreFrame = await pickerFrame(withMore);
+    expect(moreFrame).toMatch(/More\s+.*\u203a/);
+    expect(moreFrame).toContain("More above adds the current");
+
+    const noCatalog = { ...bare, modelCatalogUnavailable: true };
+    const noCatalogFrame = await pickerFrame(noCatalog);
+    expect(noCatalogFrame).toContain("Models arrive with a conversation");
+    expect(noCatalogFrame).not.toContain("Nothing shortlisted yet");
+});
+
+test("a search that matches no model says so on All models", async () => {
+    const empty = startTuiSettingsPicker(
+        "model",
+        "",
+        undefined,
+        "auto",
+        [],
+        "default",
+        "",
+        undefined,
+        [],
+    );
+    const all = switchedModelTab(empty, "all");
+    expect(all.tab).toBe("all");
+    expect(await pickerFrame(typedInto(all, "zzqq")))
+        .toContain("No models match that search");
+});
+
 test("the model pane opens on Shortlist, in the order the user's own use produced", async () => {
     const state = modelPickerWithPool();
     const frame = await pickerFrame(state);
@@ -1541,17 +1602,20 @@ test("Shortlist offers the current model as a visible action row", async () => {
         selectedIndex: 0,
     };
 
-    expect(shortlist.options[0]?.label)
-        .toBe("Add current model to shortlist");
-    expect(await pickerFrame(shortlist))
-        .toContain("+ Add current model to sh…");
-    expect(pickerFooter(shortlist)).toContain("⏎ add");
-    expect(handleTuiSettingsPickerKey(shortlist, { name: "enter" }).poolToggle)
-        .toEqual({
-            action: "add",
-            provider: "openrouter",
-            model: "moonshotai/kimi-k3",
-        });
+    // The shortlist column holds models and nothing else. Adding the current
+    // one is something the list can do, so it lives on the More page above.
+    expect(shortlist.options.every((option) =>
+        option.label !== "Add current model to shortlist"
+    )).toBe(true);
+    const shortlistFrame = await pickerFrame(shortlist);
+    expect(shortlistFrame).toMatch(/More\s+.*\u203a/);
+    expect(shortlistFrame).not.toContain("Add current model to sh");
+
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(shortlist, { name: "up" }).state!,
+        { name: "return" },
+    ).state!;
+    expect(await pickerFrame(page)).toContain("Add current model");
 
     const synced = syncTuiModelPicker(shortlist, {
         provider: "openrouter",
@@ -1585,15 +1649,13 @@ test("the current shortlist model exposes an inspector and list action", async (
         option.label === "Verify current model"
     )).toBe(false);
     const frame = await pickerFrame(shortlist);
-    expect(frame).toMatch(/Verify all \(2\)\s+\^⇧v/);
-    const verifyLine = frame.split("\n").findIndex((line) =>
-        line.includes("Verify all (2)")
-    );
-    expect(frame.split("\n")[verifyLine - 1]).toContain("────");
+    // Verifying the whole shortlist is something the list does, so it sits on
+    // the More page with the rest rather than on a band of its own.
+    expect(frame).not.toContain("Verify all");
     expect(frame).toContain("Actions");
-    expect(frame).toMatch(/\[ Verify this model\s+\^v \]/);
-    expect(frame).toMatch(/\[ Unpin\s+\^s \]/);
-    expect(frame).toMatch(/\[ Name this model\s+\^n \]/);
+    expect(frame).toMatch(/Verify this model\s+\^v/);
+    expect(frame).toMatch(/Unpin\s+\^s/);
+    expect(frame).toMatch(/Name this model\s+\^n/);
     expect(frame).not.toContain("Refresh model catalog from providers");
     expect(pickerFooter(shortlist)).toContain("^v verify");
     expect(pickerFooter(shortlist)).toContain("→ actions");
@@ -1624,12 +1686,12 @@ test("right and left move between a model row and its inspector", async () => {
         .state!;
     expect(detail.modelFocus).toBe("detail");
     expect(detail.modelActionIndex).toBe(0);
-    expect(await pickerFrame(detail)).toMatch(/│  › \[ Verify this model/);
+    expect(await pickerFrame(detail)).toMatch(/│  Verify this model/);
     expect(handleTuiSettingsPickerKey(detail, { name: "enter" }).poolVerify)
         .toEqual({ provider: "openrouter", model: "z-ai/glm-5.2" });
 
     const remove = handleTuiSettingsPickerKey(detail, { name: "down" }).state!;
-    expect(await pickerFrame(remove)).toMatch(/│  › \[ Unpin/);
+    expect(await pickerFrame(remove)).toMatch(/│  Unpin/);
     expect(handleTuiSettingsPickerKey(remove, { name: "enter" }).poolToggle)
         .toEqual({
             action: "remove",
@@ -1652,31 +1714,38 @@ test("right and left move between a model row and its inspector", async () => {
     expect(nextTab.modelFocus).toBe("list");
 });
 
-test("the shortlist footer is reachable by arrows and every clickable row", async () => {
+test("verifying the shortlist lives on More, and every row is clickable", async () => {
     const shortlist = {
         ...modelPickerWithPool(),
         selectedIndex: 1,
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
     };
-    const footer = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
-    expect(footer.modelFocus).toBe("list_action");
-    const focusedFrame = await pickerFrame(footer);
-    expect(focusedFrame).toMatch(/› Verify all \(2\)\s+\^⇧v/);
-    const focusedLine = focusedFrame.split("\n").findIndex((line) =>
-        line.includes("› Verify all (2)")
-    );
-    expect(focusedFrame.split("\n")[focusedLine - 1]).toContain("────");
-    expect(handleTuiSettingsPickerKey(footer, { name: "enter" }).poolVerifySweep)
-        .toBe(true);
-    expect(handleTuiSettingsPickerKey(footer, { name: "up" }).state?.modelFocus)
-        .toBe("list");
+    // The last row is the end of the list. There is nothing below it to fall
+    // onto any more.
+    const below = handleTuiSettingsPickerKey(shortlist, { name: "down" }).state!;
+    expect(below.modelFocus ?? "list").toBe("list");
 
-    const footerClick = moveTuiSettingsPickerPointer(
-        shortlist,
-        shortlist.options.length,
-    ) as TuiSettingsPickerState;
-    expect(footerClick.modelFocus).toBe("list_action");
-    expect(handleTuiSettingsPickerKey(footerClick, { name: "enter" })
-        .poolVerifySweep).toBe(true);
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(
+            { ...shortlist, selectedIndex: 0 },
+            { name: "up" },
+        ).state!,
+        { name: "return" },
+    ).state!;
+    expect(page.modelFocus).toBe("page");
+    const pageFrame = await pickerFrame(page);
+    expect(pageFrame).toMatch(/Verify shortlisted models\s+\^⇧v/);
+    // The sign follows the pane: shut it offers to open, open it offers to
+    // close, whichever row the cursor is on.
+    expect(await pickerFrame(shortlist)).toContain("+ More");
+    expect(pageFrame).toContain("- More");
+    const sweep = [0, 1, 2].map((index) =>
+        handleTuiSettingsPickerKey(
+            { ...page, modelPageIndex: index },
+            { name: "return" },
+        ).poolVerifySweep
+    );
+    expect(sweep).toContain(true);
 
     const inspectorClick = moveTuiSettingsPickerPointer(
         shortlist,
@@ -2681,7 +2750,7 @@ test("the connect pane opened from the model pane draws in the same card", async
     expect(frame).toMatch(
         /Shortlist \(2\)\s+All \(\d+\)\s+Actions\s+Defaults\s+Help\s+Providers \^e/,
     );
-    expect(frame).toContain("^f refresh catalog");
+    expect(frame).toContain("^f refresh");
     expect(frame).toContain("OpenRouter");
 });
 
@@ -3691,9 +3760,11 @@ test("an action is found by word from the model list, above the models", () => {
         state = handleTuiSettingsPickerKey(state, { name }).state!;
     }
 
+    // Searching the shortlist narrows models. Actions are not models, so they
+    // never appear in the column and never bring a heading with them.
     const labels = state.options.map((option) => option.label);
-    expect(labels[0]).toBe("Actions");
-    expect(labels[1]).toBe("Refresh model catalog from providers");
+    expect(labels).not.toContain("Actions");
+    expect(labels).not.toContain("Refresh model catalog from providers");
 });
 
 test("the refresh row asks which providers before asking any", () => {
@@ -3786,20 +3857,35 @@ test("All models puts its collection action under the list", async () => {
         "default",
         "openrouter",
     );
-    const all = switchedModelTab(picker, "all");
-    expect(await pickerFrame(all)).toMatch(/Show every model\s+\^a/);
+    const all = {
+        ...switchedModelTab(picker, "all"),
+        actionOptions: tuiModelActionOptions(["openrouter"]),
+    };
+    // Showing every model is something the list does, so All models names it
+    // on the same entry row the shortlist uses.
+    const frame = await pickerFrame(all);
+    expect(frame).toContain("show every model");
+    expect(frame).toMatch(/More\s+.*\u203a/);
 
-    const footer = moveTuiSettingsPickerPointer(
-        all,
-        all.options.length,
-    ) as TuiSettingsPickerState;
-    const revealed = handleTuiSettingsPickerKey(footer, { name: "enter" })
-        .state!;
-    expect(revealed.revealAll).toBe(true);
-    expect(revealed.modelFocus).toBe("list_action");
-    expect(await pickerFrame(revealed)).toMatch(
-        /› Hide rarely used models\s+\^a/,
-    );
+    const page = handleTuiSettingsPickerKey(
+        handleTuiSettingsPickerKey(
+            { ...all, selectedIndex: 0 },
+            { name: "up" },
+        ).state!,
+        { name: "return" },
+    ).state!;
+    expect(page.modelFocus).toBe("page");
+    const pageFrame = await pickerFrame(page);
+    expect(pageFrame).toMatch(/Show or hide the rarely used models\s+\^a/);
+    const revealed = [0, 1, 2]
+        .map((index) =>
+            handleTuiSettingsPickerKey(
+                { ...page, modelPageIndex: index },
+                { name: "return" },
+            ).state
+        )
+        .find((next) => next?.revealAll === true);
+    expect(revealed?.tab).toBe("all");
 });
 
 test("the show-or-hide row lands on the list it changed", () => {

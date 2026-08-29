@@ -64,11 +64,17 @@ test("the palette opens Shortlist with a visible current-model action", async ()
         session.sendText("shortlist");
         await session.waitForVisiblePane("Open your shortlist");
         session.sendKey("Enter");
+        const opened = await session.waitForVisiblePane("Shortlist (0)");
+        // An empty shortlist is not a dead end: More is the row above it.
+        expect(opened).toContain("More");
+        expect(opened).not.toContain("Add current model to shortl");
+
+        session.sendKey("Up");
+        session.sendKey("Right");
         const pane = await session.waitForVisiblePane(
-            "Add current model to shortl",
+            "Add current model",
         );
         expect(pane).toContain("Shortlist (0)");
-        expect(pane).toContain("⏎ add");
         expect(pane).not.toContain("^s pin");
     } finally {
         await session.close();
@@ -135,65 +141,79 @@ test("shortlist verification runs in a console inside the model dialog", async (
         session.sendText("shortlist");
         await session.waitForVisiblePane("Open your shortlist");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Add current model to shortl");
+        await session.waitForVisiblePane("Shortlist (0)");
+        session.sendKey("Up");
+        session.sendKey("Right");
+        await session.waitForVisiblePane("Add current model");
         session.sendKey("Enter");
 
-        const verifying = await session.waitForVisiblePane(
-            "❯ verify openrouter/one/model",
+        const subject = "Verifying openrouter/one/model";
+        // Two of them while the check runs: the transcript's record of it, and
+        // the console inside the pane.
+        const verifying = await session.waitForVisiblePaneWhere(
+            (pane) =>
+                pane.split("\n").filter((line) => line.includes(subject))
+                    .length === 2,
+            "the verification console to open",
         );
         const lines = verifying.split("\n");
-        const consoleLine = lines.findIndex((line) =>
-            line.includes("❯ verify openrouter/one/model")
+        const consoleLine = lines.findLastIndex((line) =>
+            line.includes(subject)
         );
         expect(consoleLine).toBeGreaterThan(0);
-        expect(lines[consoleLine + 1]).toContain(
-            "⠋ waiting for provider response…",
-        );
-        const consoleColumn = lines[consoleLine]!.indexOf("❯");
-        const consoleWidth = "❯ verify openrouter/one/model".length;
+        // The running check carries the spinner; nothing else does.
+        expect(lines[consoleLine + 1]).toContain("⠋ ");
+        const consoleColumn = lines[consoleLine]!.indexOf("Verifying");
+        const consoleWidth = subject.length;
         expect(lines[consoleLine - 1]?.slice(
             consoleColumn,
             consoleColumn + consoleWidth,
         )).not.toMatch(/[╭─]/);
-        expect(lines[consoleLine + 2]?.slice(
-            consoleColumn,
-            consoleColumn + consoleWidth,
-        )).not.toMatch(/[╰─]/);
-        expect(lines.filter((line) =>
-            line.includes("Verifying openrouter/one/model")
-        )).toHaveLength(1);
 
         const finished = await session.waitForVisiblePane(
             "Name shortlisted model",
         );
         expect(finished).toContain("Pinned to your shortlist");
-        expect(finished).not.toContain("❯ verify openrouter/one/model");
         // The durable admission prose remains after the live console clears.
-        expect(finished).toContain("Verifying openrouter/one/model");
+        expect(finished.split("\n").filter((line) => line.includes(subject)))
+            .toHaveLength(1);
 
         session.sendKey("Escape");
-        await session.waitForVisiblePane("Verify all (1)");
+        await session.waitForVisiblePane("More");
+        // Leaving More returns to the entry row; Down steps onto the model.
+        session.sendKey("Left");
+        session.sendKey("Down");
         session.sendKey("Right");
-        await session.waitForVisiblePane("› [ Verify this model");
+        await session.waitForVisiblePane("Verify this model");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("❯ verify openrouter/one/model");
         await session.waitForVisiblePaneWhere(
             (pane) =>
-                pane.includes("› [ Verify this model")
-                && !pane.includes("❯ verify openrouter/one/model"),
+                pane.split("\n").filter((line) => line.includes(subject))
+                    .length === 3,
+            "the console to reopen for the second check",
+        );
+        await session.waitForVisiblePaneWhere(
+            (pane) =>
+                pane.includes("Verify this model")
+                && pane.split("\n").filter((line) => line.includes(subject))
+                        .length === 2,
             "inspector verification to finish",
         );
         session.sendKey("Left");
-        session.sendKey("Down");
-        await session.waitForVisiblePane("› Verify all (1)");
+        await session.waitForVisiblePane("^d^u move");
+        session.sendKey("Up");
+        await session.waitForVisiblePane("→ open");
         session.sendKey("Enter");
-        const verifyScope = await session.waitForVisiblePane(
+        const page = await session.waitForVisiblePane(
             "Verify shortlisted models",
         );
-        expect(verifyScope).toContain("Everything on your shortlist");
+        // Verifying the whole shortlist is a thing the list does, so More is
+        // where it is now reached from.
+        expect(page).not.toContain("Verify all (1)");
         session.sendKey("Escape");
-        await session.waitForVisiblePane("Verify all (1)");
+        await session.waitForVisiblePane("→ open");
         session.sendKey("Tab");
+        await session.waitForVisiblePane("Everything your providers offer");
         session.sendKey("Tab");
         await session.waitForVisiblePane("Refresh model catalog from pr");
         session.sendKey("Enter");

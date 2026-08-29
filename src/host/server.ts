@@ -1,3 +1,4 @@
+import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import { createServer, type Server, type Socket } from "node:net";
 import { chmod, mkdir, stat, unlink } from "node:fs/promises";
 import { dirname } from "node:path";
@@ -133,6 +134,10 @@ export interface StartHostServerOptions {
     readonly listAgents?: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
+    /** Catalog, shortlist and defaults for a client with no session. */
+    readonly readModelSettings?: (
+        workspace?: string,
+    ) => ModelTurnSettings | undefined;
     /**
      * Fills in the optional facts named by `include`, for one page of rows.
      * Injected rather than computed here: the server knows how to page a
@@ -427,6 +432,7 @@ export async function startHostServer(
             options.searchSessions,
             interactiveAttachments,
             options.readAgentTree ?? ((agentId) => [agentId]),
+            options.readModelSettings ?? (() => undefined),
             resolveHostLimits(options.limits),
         );
     });
@@ -555,6 +561,7 @@ function receiveConnection(
         | undefined,
     interactiveAttachments: InteractiveAttachmentRegistry,
     readAgentTree: (rootAgentId: string) => readonly string[],
+    readModelSettings: (workspace?: string) => ModelTurnSettings | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1057,6 +1064,20 @@ function receiveConnection(
                 }
                 socket.end();
             }, () => socket.destroy());
+            return;
+        }
+        if (request?.type === "model_settings") {
+            clearDeadline();
+            finished = true;
+            const settings = readModelSettings(request.workspace);
+            void send(
+                settings === undefined
+                    ? {
+                        type: "protocol_error",
+                        reason: "unsupported_or_invalid_command",
+                    }
+                    : { type: "model_settings", settings },
+            ).then(() => socket.end(), () => socket.destroy());
             return;
         }
         if (request?.type === "list_agents") {
