@@ -5,7 +5,7 @@ import { join } from "node:path";
 export const VERA_HOME_ENV = "VERA_HOME";
 export const VERA_PROFILE_ENV = "VERA_PROFILE";
 export const VERA_RUNTIME_DIR_ENV = "VERA_RUNTIME_DIR";
-/** Names the deliberate worktree runtime so startup cleanup leaves only it running. */
+/** Names the deliberate worktree runtime so another island can leave it alone. */
 export const VERA_WORKTREE_RUNTIME_ENV = "VERA_WORKTREE_RUNTIME";
 
 export const DEFAULT_PROFILE_NAME = "default";

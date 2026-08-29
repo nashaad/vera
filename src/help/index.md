@@ -55,13 +55,13 @@ profile file, and they do not imply that a profile is currently editable.
 
 ## doctor — Checking Vera
 
-`vera doctor` checks resident Vera processes, leftover Vera tmux sockets,
-configuration, and providers without contacting provider endpoints. Add
-`--check-providers` to test provider reachability and credentials. Doctor
-reports problems. Leftover isolated hosts, their workers, test fixtures,
-forgotten clients, and stale Vera tmux sockets are stray and can be
-removed; `--yes` skips the confirmation. The user's `default` tmux socket
-and non-Vera tmux servers are left alone.
+`vera doctor` checks this runtime's resident host, leftover processes,
+leftover Vera tmux sockets, configuration, and providers without contacting
+provider endpoints. Add `--check-providers` to test provider reachability
+and credentials. Doctor reports problems. Leftovers in this runtime can be
+removed after a confirm; `--yes` skips the confirmation. Other profiles,
+worktree runtimes, SDK instances, and live tmux servers are left alone.
+Doctor only unlinks dead Vera socket files.
 
 ## sessions — Continuing and exporting work
 

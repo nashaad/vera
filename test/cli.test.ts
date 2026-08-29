@@ -485,17 +485,17 @@ test("vera doctor --yes removes leftover tmux sockets without asking", async () 
             sweptNames = report.sockets
                 .filter((socket) => socket.stray)
                 .map((socket) => socket.name);
-            return { killedServers: 1, unlinkedFiles: 2 };
+            return { killedServers: 0, unlinkedFiles: 1 };
         },
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(1);
     expect(confirmCalled).toBe(false);
-    expect(sweptNames).toEqual(["otps", "vera-work-tab-1"]);
-    expect(output).toContain("2 leftover Vera sockets");
-    expect(output).toContain("Leftover live Vera servers: otps");
-    expect(output).toContain("stopped 1 leftover tmux server; removed 2 leftover tmux sockets.");
+    expect(sweptNames).toEqual(["vera-work-tab-1"]);
+    expect(output).toContain("1 leftover Vera socket");
+    expect(output).not.toContain("Leftover live Vera servers");
+    expect(output).toContain("removed 1 leftover tmux socket.");
 });
 
 function leftoverTmuxSocketReport() {
@@ -504,7 +504,7 @@ function leftoverTmuxSocketReport() {
         directory: "/tmp/tmux-501",
         sockets: [
             { name: "default", live: false, veraOwned: false, stray: false },
-            { name: "otps", live: true, veraOwned: true, stray: true },
+            { name: "otps", live: true, veraOwned: true, stray: false },
             { name: "pimem", live: true, veraOwned: false, stray: false },
             { name: "vera-work-tab-1", live: false, veraOwned: true, stray: true },
         ],

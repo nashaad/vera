@@ -1,16 +1,22 @@
-import { readdir, readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 import { listAgentPageThroughHost } from "../src/host/agent-list-client.ts";
 import {
     createHostLockfile,
-    HostProtocolMismatchError,
+    readHostLockRecordFile,
 } from "../src/host/lockfile.ts";
 import {
+    processIsAlive,
+    recordMatchesRunningProcess,
+} from "../src/host/process-identity.ts";
+import {
+    DEFAULT_PROFILE_NAME,
     VERA_HOME_ENV,
+    VERA_PROFILE_ENV,
     VERA_RUNTIME_DIR_ENV,
     VERA_WORKTREE_RUNTIME_ENV,
     veraHomeDirectory,
+    veraRuntimeDirectory,
 } from "../src/profile-paths.ts";
 import { sweepStaleTmuxSockets } from "./tmux-socket-doctor.ts";
 
@@ -77,11 +83,11 @@ export interface VeraDoctorOptions {
     readonly highCpuPercent?: number;
     readonly doctorPid?: number;
     /**
-     * Runtime directory a caller is about to use. Processes in that runtime
-     * stay; everything else that is leftover is stray. Doctor omits this so
-     * forgotten unmarked isolated TUIs are swept too.
+     * Runtime island this doctor is allowed to inspect and stop. Defaults to
+     * the invoking process's runtime. Processes in any other directory are
+     * foreign: listed by their own doctor, never stopped by this one.
      */
-    readonly preserveRuntimeDir?: string;
+    readonly runtimeIsland?: string;
     /**
      * Running sessions from the current host listing, used to title workers.
      * Tests inject this. Live doctor reads the host when sampling real
@@ -107,7 +113,9 @@ export interface VeraHostOwnership {
 export async function diagnoseVeraProcesses(
     options: VeraDoctorOptions = {},
 ): Promise<VeraDoctorReport> {
-    const readHostOwnership = options.readHostOwnership ?? hostOwnership;
+    const island = options.runtimeIsland ?? veraRuntimeDirectory();
+    const readHostOwnership = options.readHostOwnership
+        ?? (() => hostOwnership(island));
     const sampleProcesses = options.sampleProcesses ?? sampleVeraProcesses;
     const wait = options.wait ?? waitFor;
     const interval = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
@@ -132,7 +140,6 @@ export async function diagnoseVeraProcesses(
             .filter((sample) => sample.pid !== doctorPid)
             .map((sample) => [sample.pid, sample]),
     );
-    const preserveRuntimeDir = options.preserveRuntimeDir;
     const annotated = secondSample
         .filter((sample) => sample.pid !== doctorPid)
         .map((sample) => {
@@ -154,22 +161,24 @@ export async function diagnoseVeraProcesses(
                     ),
             };
         });
+    const host = annotated.find((sample) => sample.pid === currentHostPid);
+    const tuiPid = host !== undefined && host.ppid > 1 ? host.ppid : undefined;
+    const scoped = annotated.filter((sample) =>
+        belongsToRuntimeIsland(sample, island, currentHostPid, tuiPid)
+    );
     const strayHostPids = new Set(
-        annotated
+        scoped
             .filter((sample) =>
                 sample.kind === "host"
-                && strayHost(
-                    sample,
-                    preserveRuntimeDir,
-                )
+                && strayHost(sample)
             )
             .map((sample) => sample.pid),
     );
     const processes = withSessionLabels(
-        annotated
+        scoped
             .map((sample): DiagnosedVeraProcess => ({
                 ...sample,
-                stray: strayProcess(sample, strayHostPids, preserveRuntimeDir),
+                stray: strayProcess(sample, strayHostPids),
             }))
             .sort(compareProcesses),
         await listWorkerSessions(),
@@ -314,16 +323,14 @@ export function stopStrayVeraProcesses(
 }
 
 /**
- * Diagnose and immediately SIGKILL leftovers. Used when a client is about
- * to start, so the next `vera` run clears isolated UAT hosts without a
- * separate doctor invocation. Deliberate worktree runtimes carry a marker and
- * stay. Pass `preserveRuntimeDir` so the runtime this client is attaching to
- * is not treated as leftover.
+ * Unattended SIGKILL of leftovers. Launch must not call this. The only
+ * supported path is `vera doctor` after the caller confirms, or
+ * `vera doctor --yes`.
  */
 export async function sweepStrayVeraProcesses(
     options: Pick<
         VeraDoctorOptions,
-        "preserveRuntimeDir" | "sampleIntervalMs" | "doctorPid"
+        "runtimeIsland" | "sampleIntervalMs" | "doctorPid"
     > = {},
 ): Promise<number> {
     const report = await diagnoseVeraProcesses({
@@ -393,23 +400,41 @@ interface HostStrayInput {
     readonly worktreeRuntime?: boolean;
 }
 
-function strayHost(
-    sample: HostStrayInput,
-    preserveRuntimeDir: string | undefined,
+/**
+ * A process belongs here when its env names this runtime, or when it is the
+ * lockfile host (or in that host's bun tree) and has no runtime env at all.
+ * Missing env must not mean "this island": that would let a worktree doctor
+ * SIGKILL a default-profile host that never set VERA_RUNTIME_DIR.
+ */
+function belongsToRuntimeIsland(
+    sample: {
+        readonly pid: number;
+        readonly ppid: number;
+        readonly runtimeDir?: string;
+    },
+    island: string,
+    currentHostPid: number | undefined,
+    tuiPid: number | undefined,
 ): boolean {
+    if (sample.runtimeDir !== undefined) {
+        return sample.runtimeDir === island;
+    }
+    if (currentHostPid === undefined) return false;
+    if (sample.pid === currentHostPid || sample.ppid === currentHostPid) {
+        return true;
+    }
+    if (tuiPid !== undefined && (sample.pid === tuiPid || sample.ppid === tuiPid)) {
+        return true;
+    }
+    return false;
+}
+
+function strayHost(sample: HostStrayInput): boolean {
     if (sample.currentHost) return false;
     if (sample.worktreeRuntime === true) return false;
-    if (
-        preserveRuntimeDir !== undefined
-        && sample.runtimeDir === preserveRuntimeDir
-    ) {
-        return false;
-    }
     if (sample.isolated === true) return true;
     if (!sample.knownProfileHost) return true;
-    // A second profile from a worktree checkout is leftover UAT, not the
-    // daily resident. Two real profiles from the main checkout stay.
-    return /(?:^|\s)\S*\/\.worktrees\//.test(sample.command);
+    return false;
 }
 
 function strayProcess(
@@ -418,14 +443,7 @@ function strayProcess(
         readonly ppid: number;
     },
     strayHostPids: ReadonlySet<number>,
-    preserveRuntimeDir: string | undefined,
 ): boolean {
-    if (
-        preserveRuntimeDir !== undefined
-        && sample.runtimeDir === preserveRuntimeDir
-    ) {
-        return false;
-    }
     if (sample.kind === "host") return strayHostPids.has(sample.pid);
     if (sample.kind === "test_fixture") {
         return sample.ppid === 1 || sample.isolated === true;
@@ -434,8 +452,7 @@ function strayProcess(
         return sample.ppid === 1 || strayHostPids.has(sample.ppid);
     }
     if (sample.kind === "client" || sample.kind === "watchdog") {
-        return sample.ppid === 1
-            || (sample.isolated === true && sample.worktreeRuntime !== true);
+        return sample.ppid === 1;
     }
     return false;
 }
@@ -516,18 +533,30 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
     readonly runtimeDir?: string;
     readonly worktreeRuntime: boolean;
 } {
-    const runtimeDir = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
+    const runtimeOverride = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
-    const isolated = runtimeDir !== undefined || home !== undefined;
+    const profile = firstEnvValue(commandAndEnv, VERA_PROFILE_ENV);
+    const isolated = runtimeOverride !== undefined || home !== undefined;
     const worktreeRuntimeDirectory = firstEnvValue(
         commandAndEnv,
         VERA_WORKTREE_RUNTIME_ENV,
     );
     // The launcher marker is inherited by workers and their tools. It owns
     // only the runtime it names: a nested Vera that overrides
-    // VERA_RUNTIME_DIR must remain eligible for cleanup.
-    const worktreeRuntime = runtimeDir !== undefined
-        && worktreeRuntimeDirectory === runtimeDir;
+    // VERA_RUNTIME_DIR must remain eligible for cleanup inside that nested
+    // island, not from a doctor invoked against a different one.
+    const worktreeRuntime = runtimeOverride !== undefined
+        && worktreeRuntimeDirectory === runtimeOverride;
+    const runtimeDir = runtimeOverride
+        ?? worktreeRuntimeDirectory
+        ?? ((home !== undefined || profile !== undefined)
+            ? join(
+                home ?? veraHomeDirectory(),
+                "profiles",
+                profile ?? DEFAULT_PROFILE_NAME,
+                "runtime",
+            )
+            : undefined);
     return {
         isolated,
         worktreeRuntime,
@@ -541,91 +570,32 @@ function firstEnvValue(source: string, name: string): string | undefined {
     return value === undefined || value.length === 0 ? undefined : value;
 }
 
-async function hostOwnership(): Promise<VeraHostOwnership> {
-    const [currentHostPid, knownProfileHostPids] = await Promise.all([
-        currentProfileHostPid(),
-        knownProfileHosts(),
-    ]);
-    if (currentHostPid !== undefined) knownProfileHostPids.add(currentHostPid);
-    return { currentHostPid, knownProfileHostPids };
-}
-
-async function currentProfileHostPid(): Promise<number | undefined> {
-    try {
-        return (await createHostLockfile().read())?.pid;
-    } catch (error) {
-        if (error instanceof HostProtocolMismatchError) return error.pid;
-        throw error;
-    }
-}
-
-async function knownProfileHosts(): Promise<Set<number>> {
-    const profilesPath = join(veraHomeDirectory(), "profiles");
-    let entries;
-    try {
-        entries = await readdir(profilesPath, { withFileTypes: true });
-    } catch (error) {
-        if (isMissingFileError(error)) return new Set();
-        throw error;
-    }
-    const pids = await Promise.all(
-        entries
-            .filter((entry) => entry.isDirectory())
-            .map((entry) => activeProfileHostPid(
-                join(profilesPath, entry.name, "runtime", "host.json"),
-            )),
+async function hostOwnership(island: string): Promise<VeraHostOwnership> {
+    const currentHostPid = await livePidFromHostLockFile(
+        join(island, "host.json"),
     );
-    return new Set(pids.filter((pid): pid is number => pid !== undefined));
-}
-
-async function activeProfileHostPid(
-    lockPath: string,
-): Promise<number | undefined> {
-    let serialized;
-    try {
-        serialized = await readFile(lockPath, "utf8");
-    } catch (error) {
-        if (isMissingFileError(error)) return undefined;
-        throw error;
-    }
-    const record = parseHostLockStub(serialized);
-    if (record === undefined) return undefined;
-    try {
-        return (await createHostLockfile({
-            path: lockPath,
-            socketPath: record.socketPath,
-        }).read())?.pid;
-    } catch (error) {
-        if (error instanceof HostProtocolMismatchError) return error.pid;
-        throw error;
-    }
-}
-
-function parseHostLockStub(
-    source: string,
-): { readonly pid: number; readonly socketPath: string } | undefined {
-    let value: unknown;
-    try {
-        value = JSON.parse(source);
-    } catch {
-        return undefined;
-    }
-    if (typeof value !== "object" || value === null || Array.isArray(value)) {
-        return undefined;
-    }
-    const record = value as Record<string, unknown>;
-    if (
-        !Number.isInteger(record.pid)
-        || (record.pid as number) <= 0
-        || typeof record.socket_path !== "string"
-        || record.socket_path.length === 0
-    ) {
-        return undefined;
-    }
     return {
-        pid: record.pid as number,
-        socketPath: record.socket_path,
+        ...(currentHostPid === undefined ? {} : { currentHostPid }),
+        knownProfileHostPids: currentHostPid === undefined
+            ? new Set()
+            : new Set([currentHostPid]),
     };
+}
+
+/**
+ * The pid a lockfile names, if that process is still the one that wrote it.
+ * This does not talk to the socket: a busy or wedged host still owns its
+ * runtime, and treating silence as absence is what made launch sweep SIGKILL
+ * the resident host mid-turn.
+ */
+export async function livePidFromHostLockFile(
+    path: string,
+): Promise<number | undefined> {
+    const record = await readHostLockRecordFile(path);
+    if (record === undefined) return undefined;
+    if (!processIsAlive(record.pid)) return undefined;
+    if (!recordMatchesRunningProcess(record)) return undefined;
+    return record.pid;
 }
 
 function classifyVeraProcess(command: string): VeraProcessKind | undefined {
@@ -986,10 +956,6 @@ async function listCurrentHostWorkerSessions(): Promise<
     } catch {
         return [];
     }
-}
-
-function isMissingFileError(error: unknown): boolean {
-    return (error as NodeJS.ErrnoException).code === "ENOENT";
 }
 
 function waitFor(delayMs: number): Promise<void> {
