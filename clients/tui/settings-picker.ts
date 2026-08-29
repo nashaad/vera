@@ -3424,8 +3424,9 @@ function modelDetailNode(
     const line = (
         chunks: readonly TextChunk[] = [],
         pointerIndex?: number,
+        limit = height,
     ): void => {
-        if (drawn >= height) return;
+        if (drawn >= height || drawn >= limit) return;
         drawn += 1;
         const node = new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_ELEMENT)(MODEL_DETAIL_RULE), ...chunks]),
@@ -3496,7 +3497,16 @@ function modelDetailNode(
         return pane;
     }
     if (described) {
-        line([fg(TUI_TEXT)(clippedTo(option.label, width))]);
+        const actions = modelDetailActions(state, option);
+        const factLimit = Math.max(
+            0,
+            height - (actions.length === 0 ? 0 : actions.length + 1),
+        );
+        line(
+            [fg(TUI_TEXT)(clippedTo(option.label, width))],
+            undefined,
+            factLimit,
+        );
         line([
             fg(TUI_MUTED)(clippedTo(
                 option.model === undefined || option.poolName === undefined
@@ -3504,20 +3514,22 @@ function modelDetailNode(
                     : `${option.provider ?? ""} · ${option.model}`,
                 width,
             )),
-        ]);
-        line();
+        ], undefined, factLimit);
+        line([], undefined, factLimit);
         for (const fact of modelDetailFacts(state, option)) {
             const [label, value, tone] = fact;
-            line([fg(TUI_MUTED)(label)]);
+            line([fg(TUI_MUTED)(label)], undefined, factLimit);
             line([
                 fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
                     clippedTo(value, width),
                 ),
-            ]);
+            ], undefined, factLimit);
         }
-        line();
-        const actions = modelDetailActions(state, option);
+        line([], undefined, factLimit);
         if (actions.length > 0) {
+            while (drawn < factLimit) {
+                line();
+            }
             // The heading says how to get here. Without it the column reads as
             // a list of chords rather than somewhere the cursor can go.
             const inside = state.kind === "model"
@@ -3851,6 +3863,7 @@ function renderListPickerRows(
             + pageEntryLines
             + stackedLines,
     );
+    const detailMaxLines = availableRows + listActionLines + pageEntryLines;
     const rows = windowedDisplayRows(
         listDisplayRows(state),
         state.selectedIndex,
@@ -4004,9 +4017,11 @@ function renderListPickerRows(
         lines += listActionLines;
     }
     if (split !== undefined && body !== undefined) {
-        // The facts fill a column as tall as the list beside them, so a model
-        // that carries more of them never moves a row.
-        lines = Math.max(lines, modelDetailHeight(state, split.detailWidth));
+        const detailLines = Math.min(
+            modelDetailHeight(state, split.detailWidth),
+            detailMaxLines,
+        );
+        lines = Math.max(lines, detailLines);
         listColumn.height = lines;
         const detail = modelDetailNode(
             renderer,

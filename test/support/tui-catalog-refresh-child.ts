@@ -24,6 +24,12 @@ export function createTuiCatalogRefreshDependencies(
     options: {
         readonly pooled?: readonly PooledModel[];
         readonly poolAdmissionDelayMs?: number;
+        readonly poolAdmissionSteps?: readonly {
+            readonly step: string;
+            readonly label: string;
+            readonly status: "running" | "passed" | "failed" | "skipped";
+            readonly detail?: string;
+        }[];
         readonly onCommand?: (command: ClientCommand) => void;
     } = {},
 ): TuiDependencies {
@@ -66,10 +72,21 @@ export function createTuiCatalogRefreshDependencies(
                 ...(options.poolAdmissionDelayMs === undefined
                     ? {}
                     : {
-                        poolAdd: async (entry: {
-                            readonly provider: string;
-                            readonly model: string;
-                        }) => {
+                        poolAdd: async (
+                            entry: {
+                                readonly provider: string;
+                                readonly model: string;
+                            },
+                            onStep,
+                            admission,
+                        ) => {
+                            if (admission?.verify === true) {
+                                for (
+                                    const step of options.poolAdmissionSteps ?? []
+                                ) {
+                                    onStep(step);
+                                }
+                            }
                             await Bun.sleep(options.poolAdmissionDelayMs ?? 0);
                             pooled = [{
                                 provider: entry.provider,
