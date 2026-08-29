@@ -913,10 +913,11 @@ function appliesIn(binding: TuiBinding, scope: TuiKeyScope): boolean {
     if (binding.scope === "picker" && PICKER_SCOPES.includes(scope)) {
         return true;
     }
-    // The workspace rail is a list, not a settings pane, so it inherits only
-    // half-page movement. Stuffing it into PICKER_SCOPES would also inherit
-    // every later picker chord.
-    return HALF_PAGE_IDS.has(binding.id) && scope === "workspace";
+    // The workspace rail and the search pane are lists, not settings panes, so
+    // they inherit only half-page movement. Stuffing them into PICKER_SCOPES
+    // would also inherit every later picker chord.
+    return HALF_PAGE_IDS.has(binding.id)
+        && (scope === "workspace" || scope === "search");
 }
 
 /** Whether two scopes can be active at once, so a chord in both is ambiguous. */

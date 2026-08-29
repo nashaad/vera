@@ -159,6 +159,34 @@ test("a card told to fill keeps its height as its list changes", async () => {
     }
 });
 
+test("an input box is chrome, and the list pays for the rows it takes", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 34 });
+    const { renderer } = setup;
+    try {
+        const view = createTuiLinesView(renderer, "search-input", {});
+        renderer.root.add(view.surface);
+        view.surface.visible = true;
+
+        view.update(STATE);
+        const bare = view.visibleRows();
+        view.update({ ...STATE, input: { text: "fallback" } });
+        const framed = view.visibleRows();
+
+        // The field and the blank row under it come out of the list, so
+        // adding the chrome never pushes results off the bottom of the card.
+        expect(framed).toBe(bare - 4);
+        await setup.flush();
+
+        const framedText = view.box.getChildren()
+            .flatMap((child) => child.getChildren())
+            .filter((row) => row.id.endsWith("-input"))
+            .map((row) => (row as TextRenderable).plainText ?? "");
+        expect(framedText).toContain("fallback");
+    } finally {
+        renderer.destroy();
+    }
+});
+
 test("a focused rail accents only its title wordmark", async () => {
     const { renderer } = await createTestRenderer({ width: 100, height: 34 });
     try {

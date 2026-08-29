@@ -18,6 +18,16 @@ import type {
 
 export const SEARCH_NARROW_WIDTH = 64;
 
+/**
+ * Hits a half-page chord travels.
+ *
+ * A constant rather than the drawn height: the card measures itself at paint
+ * time and the key arrives before that, so a height threaded into the state
+ * would be the previous frame's. Results are grouped, so a page of hits is
+ * already more rows than it looks.
+ */
+export const SEARCH_PAGE = 5;
+
 /** Cycled on tab, in this order, starting at everything. */
 export const SEARCH_FILTERS: readonly (SessionSearchFilter | undefined)[] = [
     undefined,
@@ -142,6 +152,13 @@ export interface SearchOverlayKey {
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly shift?: boolean;
+    /**
+     * The characters the terminal actually sent.
+     *
+     * The name of a shifted letter key is its lower case, so the capital is
+     * only recoverable from what arrived.
+     */
+    readonly sequence?: string;
 }
 
 /**
@@ -159,7 +176,19 @@ export function handleSearchOverlayKey(
     if (binding === "toggle_search_scope") {
         return requery({ ...state, scope: widerScope(state) });
     }
-    if (key.ctrl || key.meta || key.shift) return { state, handled: false };
+    if (binding === "half_page_down" || binding === "half_page_up") {
+        const selected = moveSearchSelection(
+            state,
+            binding === "half_page_up" ? -SEARCH_PAGE : SEARCH_PAGE,
+        );
+        return {
+            state: selected === undefined ? state : { ...state, selected },
+            handled: true,
+        };
+    }
+    // Shift is not a chord here: it is how a capital is typed. Only ctrl and
+    // meta pass through to the client's own bindings.
+    if (key.ctrl || key.meta) return { state, handled: false };
     if (key.name === "escape") {
         return { action: { kind: "close" }, handled: true };
     }
@@ -185,8 +214,16 @@ export function handleSearchOverlayKey(
     if (key.name === "space") {
         return requery(typed(state, `${state.query} `));
     }
-    if (key.name.length === 1) {
-        return requery(typed(state, state.query + key.name));
+    // The character as the terminal sent it, so a shifted key types its
+    // capital rather than the letter its name carries. Keys that are not
+    // characters arrive as escape sequences and are left alone.
+    const character = key.sequence?.length === 1 && key.sequence >= " "
+        ? key.sequence
+        : key.name.length === 1 && !key.shift
+            ? key.name
+            : undefined;
+    if (character !== undefined) {
+        return requery(typed(state, state.query + character));
     }
     return { state, handled: false };
 }
@@ -339,7 +376,7 @@ export function openSelected(
 }
 
 export interface SearchOverlayLine {
-    readonly kind: "query" | "result" | "hit" | "blank" | "notice";
+    readonly kind: "result" | "hit" | "blank" | "notice";
     readonly text: string;
     readonly session_id?: string;
     /** Present on the lines a mouse may select, which is the hits. */
@@ -400,8 +437,8 @@ export function searchOverlayHeader(state: SearchOverlayState): string {
 
 export function searchOverlayFooter(width: number): string {
     return width < SEARCH_NARROW_WIDTH
-        ? "↑↓ enter tab ^w esc"
-        : "↑↓ select   enter open at match"
+        ? "↑↓ ^u^d enter tab ^w esc"
+        : "↑↓ ^u ^d move   enter open at match"
             + "   tab filter   ctrl+w scope   esc back";
 }
 
@@ -410,9 +447,7 @@ export function searchOverlayLines(
     layout: { readonly width: number; readonly now?: Date },
 ): readonly SearchOverlayLine[] {
     const now = layout.now ?? new Date();
-    const lines: SearchOverlayLine[] = [
-        { kind: "query", text: `> ${state.query}` },
-    ];
+    const lines: SearchOverlayLine[] = [];
     if (state.notice !== undefined) {
         lines.push({ kind: "notice", text: state.notice });
         return lines;
@@ -481,9 +516,10 @@ export function searchOverlayText(
     state: SearchOverlayState,
     layout: { readonly width: number; readonly now?: Date },
 ): string {
-    return searchOverlayLines(state, layout)
-        .map((line) => line.text)
-        .join("\n");
+    return [
+        `> ${state.query}`,
+        ...searchOverlayLines(state, layout).map((line) => line.text),
+    ].join("\n");
 }
 
 /**
@@ -524,6 +560,7 @@ export function searchOverlayViewState(
     const cursorLine = lines.findIndex((line) => line.selected === true);
     return {
         title: searchOverlayHeader(state),
+        input: { text: `${state.query}▏` },
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.map((line) => ({
             text: line.text,
@@ -532,7 +569,7 @@ export function searchOverlayViewState(
             ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
             tone: line.stale === true
                 ? "muted" as const
-                : line.kind === "result" || line.kind === "query"
+                : line.kind === "result"
                     ? "text" as const
                     : "muted" as const,
         })),

@@ -160,6 +160,14 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
     // Inherited from every picker rather than repeated per pane.
     expect(tuiBindingId("session_picker", { name: "d", ctrl: true }))
         .toBe("half_page_down");
+    // The search pane is a list too, so it takes the same half-page chords
+    // without inheriting the rest of the picker's keys.
+    expect(tuiBindingId("search", { name: "d", ctrl: true }))
+        .toBe("half_page_down");
+    expect(tuiBindingId("search", { name: "u", ctrl: true }))
+        .toBe("half_page_up");
+    expect(tuiBindingId("search", { name: "s", ctrl: true }))
+        .toBeUndefined();
     // Global reaches everywhere, which is what makes ctrl+c an escape hatch.
     expect(tuiBindingId("secret_prompt", { name: "c", ctrl: true }))
         .toBe("interrupt");

@@ -25,6 +25,7 @@ import { dialogBoxHeight, listWindowRows, listWindowSlice } from "./list-window.
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
+    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_SUCCESS,
@@ -94,6 +95,15 @@ export interface LinesViewState {
     readonly hint?: string;
     /** Clickable rail controls. Text remains meaningful without colour. */
     readonly headerActions?: readonly LinesViewHeaderAction[];
+    /**
+     * Text the surface is being typed into, drawn in a bordered box between
+     * the header and the list.
+     *
+     * Chrome around the input rather than a line in the list: a surface that
+     * types is the same kind of place as the composer and is framed the same
+     * way, and the list stays a list of results.
+     */
+    readonly input?: { readonly text: string };
     readonly lines: readonly LinesViewLine[];
     /**
      * Which line the cursor is on, so a list too long for the card scrolls
@@ -230,6 +240,16 @@ const RAIL_CHROME_HEIGHT = 8;
 /** The row a rail starts on: the blank one the screen keeps above everything. */
 const RAIL_TOP_MARGIN = 1;
 
+/**
+ * The input field: the row typed into, with a band of tint above and below.
+ *
+ * The tint is the frame. A border would draw a second rule inside a card that
+ * already has one, and the field reads as its own place without it.
+ */
+const INPUT_BOX_ROWS = 3;
+/** The field plus the blank row that separates it from the list under it. */
+const INPUT_BLOCK_ROWS = INPUT_BOX_ROWS + 1;
+
 /** Rows the state's help block will take. */
 function footerContentRows(state: LinesViewState): number {
     return Math.max(
@@ -262,9 +282,10 @@ export function createTuiLinesView(
      * Rows the list does not get. The base counts one help row, so a block of
      * any other height costs the difference.
      */
+    let inputRows = 0;
     const chromeRows = (): number =>
         (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
-        + footerRows - 1;
+        + footerRows - 1 + inputRows;
     const railPadding = options.railPadding ?? RAIL_PADDING;
     /** The height a centred card's list is windowed to, rail aside. */
     const cardHeight = (): number =>
@@ -361,6 +382,7 @@ export function createTuiLinesView(
         },
         update(state): void {
             footerRows = footerContentRows(state);
+            inputRows = state.input === undefined ? 0 : INPUT_BLOCK_ROWS;
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
             const add = (node: Renderable): void => {
@@ -411,6 +433,27 @@ export function createTuiLinesView(
                     width: "100%",
                     height: 1,
                 }));
+                muted("");
+            }
+            if (state.input !== undefined) {
+                const field = new BoxRenderable(renderer, {
+                    border: false,
+                    backgroundColor: TUI_INPUT,
+                    width: "100%",
+                    height: INPUT_BOX_ROWS,
+                    justifyContent: "center",
+                    paddingLeft: 2,
+                    paddingRight: 2,
+                });
+                field.add(new TextRenderable(renderer, {
+                    id: `${id}-input`,
+                    content: state.input.text,
+                    fg: TUI_TEXT,
+                    bg: TUI_INPUT,
+                    width: "100%",
+                    height: 1,
+                }));
+                add(field);
                 muted("");
             }
             // The card is a fixed height, so a longer list is windowed around

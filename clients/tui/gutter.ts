@@ -10,6 +10,7 @@ import {
 import {
     TUI_ELEMENT,
     TUI_MUTED,
+    TUI_NOTICE,
     type TuiTranscriptEntry,
 } from "./state.ts";
 
@@ -17,6 +18,8 @@ import {
 export const TUI_GUTTER_WIDTH = 2;
 
 const contentNodes = new WeakMap<Renderable, Renderable>();
+/** Rows drawn with the landing marker, so a repaint does not clear it. */
+const markedRows = new WeakSet<Renderable>();
 
 export interface TuiGutterAppearance {
     readonly width?: number;
@@ -24,6 +27,8 @@ export interface TuiGutterAppearance {
     readonly separatorColor?: string;
     readonly separatorSpacingBefore?: number;
     readonly separatorSpacingAfter?: number;
+    /** Whether this block is the one a search landed on. */
+    readonly marked?: boolean;
 }
 
 /** Tool rows already reserve the two columns every activity needs internally. */
@@ -42,9 +47,7 @@ export function tuiGutterWidth(
  * leading glyph. A blank marker still reserves the column so every block in the
  * transcript shares one left margin.
  */
-function entryMarker(
-    entry: TuiTranscriptEntry,
-): {
+function entryMarker(entry: TuiTranscriptEntry): {
     readonly glyph: string;
     readonly color: string;
     readonly attributes?: number;
@@ -80,14 +83,34 @@ export function createTuiGutterEntry(
         flexDirection: "row",
         marginTop: ruled ? appearance.separatorSpacingAfter ?? 1 : marginTop,
     });
-    row.add(new TextRenderable(renderer, {
+    const markerColumn = new BoxRenderable(renderer, {
+        id: `${id}-marker-column`,
+        width,
+        flexShrink: 0,
+    });
+    markerColumn.add(new TextRenderable(renderer, {
         id: `${id}-marker`,
         content: marker.glyph,
         fg: marker.color,
         attributes: marker.attributes,
-        width,
+        width: "100%",
         flexShrink: 0,
     }));
+    // A landing paints a single column down the height of the block. It sits
+    // over the marker column rather than beside it, so the block's own marker
+    // keeps the position it holds when nothing is marked.
+    markerColumn.add(new BoxRenderable(renderer, {
+        id: `${id}-marker-rule`,
+        position: "absolute",
+        left: 0,
+        top: 0,
+        width: 1,
+        height: "100%",
+        backgroundColor: appearance.marked === true
+            ? TUI_NOTICE
+            : "transparent",
+    }));
+    row.add(markerColumn);
     // The content must size to the space left of the marker column; at 100%
     // of the row it overhangs the right edge by the marker width and clips.
     content.width = "auto";
@@ -98,6 +121,7 @@ export function createTuiGutterEntry(
     if (content instanceof MarkdownRenderable) content.marginRight = 1;
     row.add(content);
     contentNodes.set(row, content);
+    if (appearance.marked === true) markedRows.add(row);
     if (!ruled) return row;
 
     // The rule marks the break, so it takes a row of its own with an empty
@@ -120,7 +144,45 @@ export function createTuiGutterEntry(
     }
     column.add(row);
     contentNodes.set(column, content);
+    if (appearance.marked === true) markedRows.add(column);
     return column;
+}
+
+/**
+ * Draws the landing rule on an already-built row, in place.
+ *
+ * In place rather than by rebuilding: the caller is about to scroll to this
+ * row and a fresh node has no measured position until the next layout.
+ *
+ * Reports whether it found a rule to paint, so a landing that cannot be shown
+ * is a failure rather than a silent no-op.
+ */
+export function markTuiGutterEntry(node: Renderable): boolean {
+    markedRows.add(node);
+    return paintGutterRule(node, TUI_NOTICE);
+}
+
+/** Clears a row's landing rule. */
+export function unmarkTuiGutterEntry(
+    node: Renderable,
+    _entry: TuiTranscriptEntry,
+): void {
+    markedRows.delete(node);
+    paintGutterRule(node, "transparent");
+}
+
+function paintGutterRule(node: Renderable, color: string): boolean {
+    let found = false;
+    const paint = (current: Renderable): void => {
+        if (current instanceof BoxRenderable
+            && current.id.endsWith("-marker-rule")) {
+            current.backgroundColor = color;
+            found = true;
+        }
+        for (const child of current.getChildren()) paint(child);
+    };
+    paint(node);
+    return found;
 }
 
 /** The rendered entry inside a gutter row, or the node itself when bare. */
@@ -133,7 +195,12 @@ export function repaintTuiGutterEntry(
     node: Renderable,
     appearance: TuiGutterAppearance = {},
 ): void {
+    const marked = markedRows.has(node);
     const repaint = (current: Renderable): void => {
+        if (current instanceof BoxRenderable
+            && current.id.endsWith("-marker-rule")) {
+            current.backgroundColor = marked ? TUI_NOTICE : "transparent";
+        }
         if (current instanceof TextRenderable) {
             if (current.id.endsWith("-marker")) {
                 current.fg = TUI_MUTED;

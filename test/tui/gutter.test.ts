@@ -4,12 +4,17 @@ import {
     SyntaxStyle,
     TextAttributes,
     TextRenderable,
+    type BoxRenderable,
+    type Renderable,
 } from "@opentui/core";
 import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     createTuiGutterEntry,
+    markTuiGutterEntry,
+    tuiGutterContent,
     tuiGutterWidth,
+    unmarkTuiGutterEntry,
 } from "../../clients/tui/gutter.ts";
 import { createTuiMarkdownEntry } from "../../clients/tui/markdown-entry.ts";
 import {
@@ -20,6 +25,8 @@ import {
     renderTuiEntry,
     TUI_ELEMENT,
     TUI_MUTED,
+    TUI_NOTICE,
+    TUI_PANEL,
 } from "../../clients/tui/state.ts";
 import { resolveTuiDiagnostic } from "../../clients/tui/diagnostic-severity.ts";
 
@@ -226,6 +233,88 @@ test("the assistant marker is a muted weighted bullet", async () => {
             : false).toBe(true);
         expect(marker instanceof TextRenderable ? marker.attributes : undefined)
             .toBe(TextAttributes.BOLD);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("a searched-to block carries a rule down its marker column", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 6 });
+    const entry = { kind: "assistant" as const, text: "Final answer" };
+    const build = (marked: boolean) =>
+        createTuiGutterEntry(
+            setup.renderer,
+            marked ? "landed" : "plain",
+            entry,
+            new TextRenderable(setup.renderer, {
+                id: marked ? "landed-content" : "plain-content",
+                content: "Final answer",
+            }),
+            0,
+            false,
+            marked ? { marked: true } : {},
+        );
+    const landed = build(true);
+    const plain = build(false);
+    setup.renderer.root.add(landed);
+    setup.renderer.root.add(plain);
+
+    try {
+        const glyph = (node: Renderable, id: string): string | undefined => {
+            const marker = node.findDescendantById(id);
+            return marker instanceof TextRenderable
+                ? marker.plainText
+                : undefined;
+        };
+        // The mark is the rule alone, so the block keeps the marker it would
+        // have had either way.
+        expect(glyph(landed, "landed-marker")).toBe("•");
+        expect(glyph(plain, "plain-marker")).toBe("•");
+
+        const rule = (node: Renderable, id: string): BoxRenderable =>
+            node.findDescendantById(id) as BoxRenderable;
+        expect(rule(landed, "landed-marker-rule").backgroundColor?.toString())
+            .toBe(parseColor(TUI_NOTICE).toString());
+        // One column wide, so it reads as a bar beside the block rather than
+        // as a filled gutter.
+        expect(rule(landed, "landed-marker-rule").width).toBe(1);
+        expect(rule(plain, "plain-marker-rule").backgroundColor?.toString())
+            .toBe(parseColor("transparent").toString());
+
+        unmarkTuiGutterEntry(landed, entry);
+        expect(rule(landed, "landed-marker-rule").backgroundColor?.toString())
+            .toBe(parseColor("transparent").toString());
+        const restored = landed.findDescendantById("landed-marker");
+        expect(restored instanceof TextRenderable
+            ? restored.fg.equals(parseColor(TUI_MUTED))
+            : false).toBe(true);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("marking an already-drawn row does not replace it", async () => {
+    const setup = await createTestRenderer({ width: 30, height: 6 });
+    const node = createTuiGutterEntry(
+        setup.renderer,
+        "answer",
+        { kind: "assistant", text: "Final answer" },
+        new TextRenderable(setup.renderer, {
+            id: "content",
+            content: "Final answer",
+        }),
+        0,
+    );
+    setup.renderer.root.add(node);
+
+    try {
+        // In place, because the caller is about to scroll to this node and a
+        // freshly built one has no measured position until the next layout.
+        markTuiGutterEntry(node);
+        const rule = node.findDescendantById("answer-marker-rule");
+        expect((rule as BoxRenderable).backgroundColor?.toString())
+            .toBe(parseColor(TUI_NOTICE).toString());
+        expect(tuiGutterContent(node).id).toBe("content");
     } finally {
         setup.renderer.destroy();
     }

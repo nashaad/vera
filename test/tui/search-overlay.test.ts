@@ -8,6 +8,8 @@ import {
     searchOverlayHeader,
     searchOverlayLines,
     searchOverlayQuery,
+    searchOverlayViewState,
+    SEARCH_PAGE,
     searchSelections,
     searchOverlayText,
     startSearchOverlay,
@@ -384,7 +386,7 @@ test("a truncated result set says it was truncated", () => {
 
 test("the footer shortens with the terminal", () => {
     expect(searchOverlayFooter(78)).toContain("enter open at match");
-    expect(searchOverlayFooter(42)).toBe("↑↓ enter tab ^w esc");
+    expect(searchOverlayFooter(42)).toBe("↑↓ ^u^d enter tab ^w esc");
 });
 
 test("the hit marks where the query sits in the line", () => {
@@ -526,4 +528,92 @@ test("with no conversation behind it the pane starts on the workspace", () => {
 test("a conversation scope asked for without a conversation is ignored", () => {
     const state = startSearchOverlay("/work/one", { scope: "conversation" });
     expect(state.scope).toBe("workspace");
+});
+
+test("ctrl+d and ctrl+u move the cursor a page of hits at a time", () => {
+    const state = {
+        ...applySearchResults(
+            typing("fallback"),
+            { query: "fallback", workspace: "/work/one" },
+            results(),
+        ),
+        selected: { sessionId: "relay-gui", hitIndex: 0 },
+    };
+    const all = searchSelections(state);
+    expect(all.length).toBeLessThan(SEARCH_PAGE);
+
+    // A page longer than the list lands on its last hit rather than nothing.
+    const down = handleSearchOverlayKey(state, { name: "d", ctrl: true });
+    expect(down.handled).toBe(true);
+    expect(down.state?.selected).toEqual(all[all.length - 1]!);
+
+    // And another press stays there: the list clamps rather than wrapping.
+    const again = handleSearchOverlayKey(down.state!, { name: "d", ctrl: true });
+    expect(again.state?.selected).toEqual(all[all.length - 1]!);
+
+    const up = handleSearchOverlayKey(down.state!, { name: "u", ctrl: true });
+    expect(up.state?.selected).toEqual(all[0]!);
+});
+
+test("paging asks for nothing and leaves the filter and scope alone", () => {
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        results(),
+    );
+
+    const paged = handleSearchOverlayKey(state, { name: "d", ctrl: true });
+    expect(paged.action).toBeUndefined();
+    expect(paged.state?.query).toBe("fallback");
+    expect(paged.state?.filter).toBe(state.filter);
+    expect(paged.state?.scope).toBe(state.scope);
+});
+
+test("a chord the pane does not claim is passed through untouched", () => {
+    const state = typing("fallback");
+
+    // The escape hatch is never swallowed, and the chord's letter is never
+    // typed into the query either.
+    const interrupt = handleSearchOverlayKey(state, { name: "c", ctrl: true });
+    expect(interrupt.handled).toBe(false);
+    expect(interrupt.state?.query ?? state.query).toBe("fallback");
+});
+
+test("a capital is typed, not treated as a chord", () => {
+    // Shift arrives on every capital letter, so a pane that passes shift
+    // through cannot be typed a name, a path, or a sentence that starts one.
+    const state = handleSearchOverlayKey(typing("fall"), {
+        name: "b",
+        shift: true,
+        sequence: "B",
+    });
+    expect(state.handled).toBe(true);
+    expect(state.state?.query).toBe("fallB");
+
+    // Shifted keys that are not characters still belong to whoever owns them.
+    const shiftTab = handleSearchOverlayKey(typing("fall"), {
+        name: "tab",
+        shift: true,
+        sequence: "[Z",
+    });
+    expect(shiftTab.state?.query ?? "fall").toBe("fall");
+});
+
+test("the query is drawn in the card's input box, not as a result row", () => {
+    const state = applySearchResults(
+        typing("fallback"),
+        { query: "fallback", workspace: "/work/one" },
+        results(),
+    );
+    const view = searchOverlayViewState(state, 78, NOW);
+
+    expect(view.input?.text).toContain("fallback");
+    // The list is results only, so nothing in it depends on the query's row.
+    for (const line of view.lines) {
+        expect(line.text.startsWith("> ")).toBe(false);
+    }
+    // The text form still opens with the query: it is the whole pane written
+    // out, and the box is a drawing of the same thing.
+    expect(searchOverlayText(state, { width: 78, now: NOW }))
+        .toStartWith("> fallback\n");
 });

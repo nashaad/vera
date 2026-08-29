@@ -666,7 +666,12 @@ import {
 } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
-import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
+import {
+    createTuiUserEntry,
+    markTuiUserEntry,
+    repaintTuiUserEntry,
+    unmarkTuiUserEntry,
+} from "./user-entry.ts";
 import {
     createTuiToolHeader,
     createTuiToolRow,
@@ -683,7 +688,9 @@ import {
 } from "./markdown-entry.ts";
 import {
     createTuiGutterEntry,
+    markTuiGutterEntry,
     repaintTuiGutterEntry,
+    unmarkTuiGutterEntry,
     tuiGutterContent,
     tuiGutterWidth,
 } from "./gutter.ts";
@@ -1525,6 +1532,56 @@ export async function startTui(
         readonly sessionId: string;
         readonly entryId: string;
     } | undefined;
+    /**
+     * The block a search last landed on, marked in its gutter so the reader
+     * can see which one answered the query.
+     *
+     * Held rather than painted once: the row is rebuilt whenever the window
+     * moves, and a mark that survived only until the next scroll would be gone
+     * by the time the reader looked for it.
+     */
+    let searchLanding: {
+        readonly sessionId: string;
+        readonly entryId: string;
+    } | undefined;
+
+    /** Whether a rebuilt row is the one the last search landed on. */
+    function isSearchLanding(entry: TuiTranscriptEntry): boolean {
+        return searchLanding !== undefined
+            && client.agentId === searchLanding.sessionId
+            && entry.kind !== "diff"
+            && transcriptMessageId(entry.entryId) === searchLanding.entryId;
+    }
+
+    /**
+     * Draws the landing marker on a built row, whatever kind it is.
+     *
+     * The user band owns its whole width and so has no gutter column; it
+     * carries the marker in its own caret instead.
+     */
+    function markSearchLanding(
+        entry: TuiTranscriptEntry,
+        node: Renderable,
+    ): boolean {
+        return entry.kind === "user"
+            ? markTuiUserEntry(node as BoxRenderable)
+            : markTuiGutterEntry(node);
+    }
+
+    /** Drops the landing mark and restores the marked row's own marker. */
+    function clearSearchLanding(): void {
+        if (searchLanding === undefined) return;
+        const index = state.entries.findIndex(isSearchLanding);
+        searchLanding = undefined;
+        const entry = state.entries[index];
+        const node = entryNodes[index];
+        if (entry === undefined || node === undefined) return;
+        if (entry.kind === "user") {
+            unmarkTuiUserEntry(node as BoxRenderable);
+        } else {
+            unmarkTuiGutterEntry(node, entry);
+        }
+    }
     let queuedSearch: SessionSearchQuery | undefined;
     let help: TuiHelpState | undefined;
     let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
@@ -3590,6 +3647,7 @@ export async function startTui(
         streaming = false,
     ): TextRenderable | MarkdownRenderable | BoxRenderable {
         const inner = entry.kind === "user" ? marginTop : 0;
+        const marked = isSearchLanding(entry);
         const markdownNode = entry.kind === "diff"
             ? undefined
             : createTuiMarkdownEntry(
@@ -3610,7 +3668,7 @@ export async function startTui(
             : entry.kind === "tool_header"
             ? createTuiToolHeader(renderer, id, entry, inner)
             : entry.kind === "user"
-            ? createTuiUserEntry(renderer, id, entry, inner)
+            ? createTuiUserEntry(renderer, id, entry, inner, marked)
             : entry.kind === "diff"
             ? createTuiDiff(
                 renderer,
@@ -3649,6 +3707,7 @@ export async function startTui(
                     separatorSpacingBefore:
                         appearance.separatorSpacingBefore,
                     separatorSpacingAfter: appearance.separatorSpacingAfter,
+                    ...(marked ? { marked: true } : {}),
                 },
             );
     }
@@ -6162,6 +6221,8 @@ export async function startTui(
         // Reached from awaited continuations that can resolve after the
         // renderer is destroyed, when the composer's EditBuffer is gone.
         if (shuttingDown) return;
+        // A new turn is a new question; the mark pointed at the old one.
+        clearSearchLanding();
         flightRecorder?.record({
             type: "submit_requested",
             characters: Array.from(
@@ -10216,6 +10277,14 @@ export async function startTui(
         // scroll waits for the measurement, which is the frame after both.
         if (measuredEntryRows[index] === undefined) return;
         pendingSearchTarget = undefined;
+        searchLanding = {
+            sessionId: target.sessionId,
+            entryId: target.entryId,
+        };
+        // The node exists already and is about to be scrolled to, so the
+        // glyph goes on in place; later rebuilds of this row read the id.
+        const landed = state.entries[index];
+        if (landed !== undefined) markSearchLanding(landed, node);
         // The row goes to the top of the pane rather than merely on screen: a
         // message taller than the pane would otherwise be shown by its end,
         // which is not where the match is, and one already on screen would not
@@ -12642,6 +12711,10 @@ export async function startTui(
      * scope that would search nothing.
      */
     function openSearchOverlay(scope?: SearchScope): void {
+        // The previous landing answered the previous question. Clearing it on
+        // open, not on close, keeps the mark visible for as long as the reader
+        // is still looking at what the last search found.
+        clearSearchLanding();
         const target = focusedAgentClient();
         searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {
             ...(target.agentId === undefined
