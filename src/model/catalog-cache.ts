@@ -1,7 +1,6 @@
 import {
     mkdirSync,
     readdirSync,
-    readFileSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
@@ -11,6 +10,7 @@ import { dirname, join, resolve } from "node:path";
 import type { ProviderCatalog } from "./catalog-shape.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import { isSafeProviderId } from "../providers/provider-id.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface ProviderCatalogCacheOptions {
     readonly cacheDir?: string;
@@ -104,7 +104,7 @@ export function readProviderCatalogSnapshot(
     const path = providerCatalogCachePath(provider, options.cacheDir);
 
     try {
-        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        const value: unknown = JSON.parse(readRegularFileTextSync(path));
         return isProviderCatalog(value) ? value : emptyCatalog(provider);
     } catch {
         return emptyCatalog(provider);

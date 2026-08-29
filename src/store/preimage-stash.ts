@@ -1,9 +1,10 @@
 import { createHash } from "node:crypto";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { readdirSync, statSync } from "node:fs";
 import { mkdir, readdir, rm, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { join } from "node:path";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import { readRegularFileTextSync } from "./regular-file.ts";
 
 const MAX_PREIMAGE_BYTES = 50 * 1024 * 1024;
 const MAX_AGE_DAYS = 30;
@@ -176,7 +177,7 @@ export function summarizeStash(
 
 function readSidecar(path: string): StashEntry | undefined {
     try {
-        const parsed: unknown = JSON.parse(readFileSync(path, "utf8"));
+        const parsed: unknown = JSON.parse(readRegularFileTextSync(path));
         if (typeof parsed !== "object" || parsed === null) {
             return undefined;
         }

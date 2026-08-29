@@ -1,9 +1,10 @@
-import { appendFileSync, chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import type { AssistantMessage } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import { readRegularFileTextSync } from "./regular-file.ts";
 
 /**
  * What went wrong, at the grain a user can act on. A provider serving a model
@@ -272,7 +273,7 @@ export function modelFailureNudge(
 function readLedgerLines(path: string): string[] {
     if (!existsSync(path)) return [];
     try {
-        return readFileSync(path, "utf8")
+        return readRegularFileTextSync(path)
             .split("\n")
             .filter((line) => line.trim().length > 0);
     } catch {

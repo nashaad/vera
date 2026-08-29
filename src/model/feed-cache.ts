@@ -11,7 +11,6 @@
  * probing instead of vouching forever.
  */
 
-import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 import { ladderLevelForWire } from "./admission.ts";
@@ -27,6 +26,7 @@ import {
     type ModelFeed,
     type ModelFeedRow,
 } from "./feed-shape.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 /** One missed two-day cadence: the point a hit stops counting as fresh. */
 export const FEED_FRESHNESS_MS = 4 * 24 * 60 * 60 * 1_000;
@@ -133,7 +133,7 @@ export function loadShippedModelFeed(
     path = SHIPPED_FEED_PATH,
 ): ModelFeed | undefined {
     try {
-        return parseModelFeed(JSON.parse(readFileSync(path, "utf8")));
+        return parseModelFeed(JSON.parse(readRegularFileTextSync(path)));
     } catch {
         return undefined;
     }

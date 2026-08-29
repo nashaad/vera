@@ -1,9 +1,10 @@
-import { mkdirSync, readFileSync, renameSync, statSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, statSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { ConsumerRegistry } from "./consumers.ts";
 import type { Inbox, InboxEntry } from "../store/inbox.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 import { SOURCE_GAP_KIND } from "../watch/source.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
 
@@ -526,7 +527,7 @@ export function defaultSpawnConsentPath(): string {
 function readConfirmedAt(path: string): string | null {
     let text: string;
     try {
-        text = readFileSync(path, "utf8");
+        text = readRegularFileTextSync(path);
     } catch {
         return null;
     }

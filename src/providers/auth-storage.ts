@@ -1,6 +1,5 @@
 import {
     mkdirSync,
-    readFileSync,
     renameSync,
     unlinkSync,
     writeFileSync,
@@ -9,6 +8,7 @@ import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { createHash, randomUUID } from "node:crypto";
 import { veraMachineDirectory } from "../profile-paths.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export const AUTH_STORAGE_SCHEMA_VERSION = 2;
 
@@ -198,7 +198,7 @@ function readForWrite(
 function readStoredAuth(path: string): StoredAuth {
     let contents: string;
     try {
-        contents = readFileSync(path, "utf8");
+        contents = readRegularFileTextSync(path);
     } catch (error) {
         if (isMissingFileError(error)) {
             return emptyStoredAuth();

@@ -1,6 +1,6 @@
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 /**
  * The arc identity this host's sessions post under.
@@ -50,7 +50,7 @@ export function readArcToken(
 function readQuotedValue(configPath: string, line: RegExp): string | null {
     let text: string;
     try {
-        text = readFileSync(configPath, "utf8");
+        text = readRegularFileTextSync(configPath);
     } catch {
         return null;
     }

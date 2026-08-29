@@ -16,7 +16,7 @@
  * not in the declared half: it was Vera's conclusion, never the user's claim.
  */
 
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -31,6 +31,7 @@ import {
 import { userPoolFilePath } from "./pool-file-loader.ts";
 import { addPoolModel, recordLearned } from "./pool-file-store.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface PoolMigrationOptions {
     /** Overrides `~/.vera/config.json`. */
@@ -97,7 +98,7 @@ interface LegacyEntry {
 function readConfig(path: string): Record<string, unknown> | undefined {
     let text: string;
     try {
-        text = readFileSync(path, "utf8");
+        text = readRegularFileTextSync(path);
     } catch {
         return undefined;
     }

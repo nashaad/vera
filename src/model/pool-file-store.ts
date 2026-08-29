@@ -13,7 +13,7 @@
  */
 
 import { randomUUID } from "node:crypto";
-import { mkdirSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { mkdirSync, renameSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 import {
@@ -31,6 +31,7 @@ import {
     parsePoolFileText,
 } from "./pool-file.ts";
 import { userPoolFilePath } from "./pool-file-loader.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface PoolStoreOptions {
     /** Overrides `~/.vera/pool.json`. */
@@ -81,7 +82,7 @@ export function readUserPoolFile(options: PoolStoreOptions = {}): PoolFile {
 function readForUpdate(path: string): ParsedPoolFile {
     let text: string;
     try {
-        text = readFileSync(path, "utf8");
+        text = readRegularFileTextSync(path);
     } catch {
         return {
             file: EMPTY_POOL_FILE,

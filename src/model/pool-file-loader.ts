@@ -10,7 +10,6 @@
  * empty contribution plus issues, so one broken scope never erases the other.
  */
 
-import { readFileSync } from "node:fs";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -25,6 +24,7 @@ import {
     parsePoolFileText,
 } from "./pool-file.ts";
 import { veraProfileDirectory } from "../profile-paths.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export type PoolScope = "user" | "project";
 
@@ -178,7 +178,7 @@ function readScope(
 ): PoolFile {
     let text: string;
     try {
-        text = readFileSync(path, "utf8");
+        text = readRegularFileTextSync(path);
     } catch {
         return EMPTY_POOL_FILE;
     }

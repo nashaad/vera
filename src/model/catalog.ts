@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-
 import {
     providerCatalogCacheDir,
     providerCatalogCachePath,
@@ -13,6 +11,7 @@ import {
     loadRecommendedModels,
     type RecommendedModel,
 } from "./recommended-models.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 interface SourceModel {
     readonly id: string;
@@ -129,7 +128,9 @@ function loadDiscoverySource(
 ): SourceCatalog | undefined {
     try {
         const value: unknown = JSON.parse(
-            readFileSync(providerCatalogCachePath(provider, cacheDir), "utf8"),
+            readRegularFileTextSync(
+                providerCatalogCachePath(provider, cacheDir),
+            ),
         );
         const catalog = parseCatalog(value);
         return catalog?.provider === provider ? catalog : undefined;

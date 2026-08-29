@@ -1,7 +1,6 @@
 import {
     existsSync,
     mkdirSync,
-    readFileSync,
     renameSync,
     statSync,
     writeFileSync,
@@ -10,6 +9,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 import { dirname, isAbsolute, resolve, sep } from "node:path";
 import { randomUUID } from "node:crypto";
+import { readRegularFileTextSync } from "./store/regular-file.ts";
 
 import {
     builtInPermissionMode,
@@ -422,7 +422,7 @@ export function loadVeraConfig(
     let source: string;
 
     try {
-        source = readFileSync(path, "utf8");
+        source = readRegularFileTextSync(path);
     } catch (error) {
         if ((error as NodeJS.ErrnoException).code === "ENOENT") {
             throw new Error(
@@ -867,7 +867,7 @@ function patchedProviderEndpoints(
 function foreignConfigEntries(path: string): Record<string, unknown> {
     let raw: Record<string, unknown>;
     try {
-        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        const value: unknown = JSON.parse(readRegularFileTextSync(path));
         if (typeof value !== "object" || value === null || Array.isArray(value)) {
             return {};
         }
@@ -890,7 +890,7 @@ function foreignConfigEntries(path: string): Record<string, unknown> {
  */
 function writtenHooks(path: string): Record<string, unknown> {
     try {
-        const value: unknown = JSON.parse(readFileSync(path, "utf8"));
+        const value: unknown = JSON.parse(readRegularFileTextSync(path));
         if (typeof value !== "object" || value === null || Array.isArray(value)) {
             return {};
         }

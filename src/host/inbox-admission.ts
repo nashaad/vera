@@ -1,7 +1,6 @@
 import {
     existsSync,
     mkdirSync,
-    readFileSync,
     renameSync,
     writeFileSync,
 } from "node:fs";
@@ -14,6 +13,7 @@ import {
     type VeraConfig,
 } from "../config.ts";
 import type { InboxEntry } from "../store/inbox.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 /** Source-family names are the stable, narrow part of an event kind. */
 export const INBOX_SOURCE_FAMILY_PATTERN = /^[a-z][a-z0-9_-]*$/;
@@ -195,7 +195,7 @@ export function loadProjectInboxAdmission(
 
     let value: unknown;
     try {
-        value = JSON.parse(readFileSync(path, "utf8"));
+        value = JSON.parse(readRegularFileTextSync(path));
     } catch {
         return [];
     }
@@ -243,7 +243,7 @@ function writeProjectInboxAdmission(
 function readUserInboxAdmission(path: string): readonly string[] | undefined {
     if (!existsSync(path)) return undefined;
     try {
-        const raw = JSON.parse(readFileSync(path, "utf8"));
+        const raw = JSON.parse(readRegularFileTextSync(path));
         const record = asRecord(raw);
         const inbox = asRecord(record?.inbox);
         return parseInboxAdmissionList(inbox?.admit);
@@ -256,7 +256,7 @@ function readJsonRecord(path: string): Record<string, unknown> {
     if (!existsSync(path)) return {};
     let value: unknown;
     try {
-        value = JSON.parse(readFileSync(path, "utf8"));
+        value = JSON.parse(readRegularFileTextSync(path));
     } catch {
         throw new Error(`Project Vera config at ${path} is not valid JSON`);
     }

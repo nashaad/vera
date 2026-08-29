@@ -1,4 +1,3 @@
-import { readFileSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
 
@@ -8,6 +7,7 @@ import type {
     ProviderCatalog,
     ReasoningLevel,
 } from "./catalog-shape.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 const PROVIDER = "openai-codex";
 
@@ -40,7 +40,9 @@ export function refreshCodexCatalog(
     let raw: unknown;
     try {
         raw = JSON.parse(
-            readFileSync(options.cachePath ?? codexModelCachePath(), "utf8"),
+            readRegularFileTextSync(
+                options.cachePath ?? codexModelCachePath(),
+            ),
         );
     } catch {
         return undefined;

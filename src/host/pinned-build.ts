@@ -3,7 +3,6 @@ import { createHash } from "node:crypto";
 import {
     existsSync,
     mkdirSync,
-    readFileSync,
     realpathSync,
     renameSync,
     writeFileSync,
@@ -11,6 +10,7 @@ import {
 import { dirname, isAbsolute, join, relative, sep } from "node:path";
 
 import { veraMachineDirectory } from "../profile-paths.ts";
+import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 /** Set after re-executing from the pinned checkout to prevent recursion. */
 export const PINNED_BUILD_ENV = "VERA_PINNED_BUILD";
@@ -94,7 +94,7 @@ function pinnedWorktreePath(repository: string): string {
 function parsePinnedBuild(path: string): PinnedBuildRecord | undefined {
     let parsed: unknown;
     try {
-        parsed = JSON.parse(readFileSync(path, "utf8"));
+        parsed = JSON.parse(readRegularFileTextSync(path));
     } catch {
         return undefined;
     }
@@ -198,7 +198,9 @@ function installPinnedDependencies(worktree: string): boolean {
     if (!existsSync(packagePath)) return false;
     if (!existsSync(join(worktree, "bun.lock"))) {
         try {
-            const manifest = JSON.parse(readFileSync(packagePath, "utf8")) as {
+            const manifest = JSON.parse(
+                readRegularFileTextSync(packagePath),
+            ) as {
                 readonly dependencies?: Record<string, unknown>;
                 readonly optionalDependencies?: Record<string, unknown>;
             };
