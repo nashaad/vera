@@ -61,7 +61,7 @@ test("stray sockets are Vera-owned leftovers; default and live pi stay", () => {
     });
     expect(classifyTmuxSocket("otps", live)).toMatchObject({
         live: true,
-        stray: true,
+        stray: false,
         veraOwned: true,
     });
     expect(classifyTmuxSocket("vera-work-tab-1", live)).toMatchObject({
@@ -89,14 +89,14 @@ test("doctor reports leftover Vera sockets without listing every file", async ()
     expect(report.healthy).toBe(false);
     expect(report.sockets.filter((socket) => socket.stray).map((socket) =>
         socket.name
-    )).toEqual(["otps", "vera-work-tab-1"]);
+    )).toEqual(["vera-work-tab-1"]);
     const output = renderTmuxSocketDoctor(report);
-    expect(output).toContain("Files: 4 (2 live servers, 2 leftover Vera sockets)");
-    expect(output).toContain("Leftover live Vera servers: otps");
+    expect(output).toContain("Files: 4 (2 live servers, 1 leftover Vera socket)");
+    expect(output).not.toContain("Leftover live Vera servers");
     expect(output).not.toContain("pimem");
 });
 
-test("sweep kills leftover Vera servers and unlinks leftover files, keeping default and pimem", async () => {
+test("sweep unlinks dead Vera socket files, keeping live Vera servers", async () => {
     const killed: string[] = [];
     const unlinked: string[] = [];
     const result = await sweepStaleTmuxSockets({
@@ -116,12 +116,11 @@ test("sweep kills leftover Vera servers and unlinks leftover files, keeping defa
         },
     });
 
-    expect(killed).toEqual(["otps"]);
+    expect(killed).toEqual([]);
     expect(unlinked).toEqual([
-        "/tmp/tmux-501/otps",
         "/tmp/tmux-501/vera-work-tab-1",
     ]);
-    expect(result).toEqual({ killedServers: 1, unlinkedFiles: 2 });
+    expect(result).toEqual({ killedServers: 0, unlinkedFiles: 1 });
 });
 
 test("sweep unlinks leftover files in a real directory without touching default", async () => {

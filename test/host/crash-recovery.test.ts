@@ -65,7 +65,15 @@ test("the external watchdog restores the terminal after SIGKILL", async () => {
         heartbeatPath,
         logPath,
         "test-instance",
-    ], { stdin: "ignore", stdout: "pipe", stderr: "pipe" });
+    ], {
+        stdin: "ignore",
+        stdout: "pipe",
+        stderr: "pipe",
+        env: {
+            ...process.env,
+            VERA_HOME: join(root, ".vera"),
+        },
+    });
 
     try {
         process.kill(targetPid, "SIGKILL");

@@ -52,6 +52,7 @@ export function superviseWorker(
     const command = options.command ?? ["bun", SUPERVISOR_ENTRY];
     const [executable, ...args] = command;
     const child = spawn(executable as string, args, {
+        argv0: "vera-supervisor",
         stdio: ["pipe", "pipe", "inherit"],
     });
 

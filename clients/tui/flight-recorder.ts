@@ -117,7 +117,12 @@ export function createTuiFlightRecorder(
             heartbeatPath,
             logPath,
             instanceId,
-        ], { stdin: "inherit", stdout: "inherit", stderr: "ignore" });
+        ], {
+            argv0: "vera-watchdog",
+            stdin: "inherit",
+            stdout: "inherit",
+            stderr: "ignore",
+        });
     watchdog?.unref();
 
     const onUncaught = (error: Error): void => {

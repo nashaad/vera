@@ -24,6 +24,7 @@ import { join } from "node:path";
 
 import { AsyncLocalStorage } from "node:async_hooks";
 import { sourceVersion } from "../../src/build-info.ts";
+import { installLiveProcess } from "../../src/live-process.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
 import {
@@ -1031,6 +1032,7 @@ export async function startConfiguredTui(
     target: TuiStartTarget,
     options: TuiStartOptions = {},
 ): Promise<void> {
+    installLiveProcess("tui");
     installTerminalRestoreOnExit();
     // Optional on purpose: the host owns the config, and the only fields read
     // here are the client's own extension lists. Requiring the file made

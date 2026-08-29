@@ -42,6 +42,7 @@ test("vera help and version are available without starting a client", async () =
     expect(output).toContain("vera inspect <session-path>");
     expect(output).toContain("vera configure");
     expect(output).toContain("vera doctor");
+    expect(output).toContain("vera prune");
     expect(output).toContain("vera models refresh");
     expect(output).toContain("vera shortlist list");
     expect(output).toContain("vera shortlist add <provider/model>");
@@ -485,17 +486,17 @@ test("vera doctor --yes removes leftover tmux sockets without asking", async () 
             sweptNames = report.sockets
                 .filter((socket) => socket.stray)
                 .map((socket) => socket.name);
-            return { killedServers: 1, unlinkedFiles: 2 };
+            return { killedServers: 0, unlinkedFiles: 1 };
         },
         stdout: { write: (text) => output += text },
     });
 
     expect(exitCode).toBe(1);
     expect(confirmCalled).toBe(false);
-    expect(sweptNames).toEqual(["otps", "vera-work-tab-1"]);
-    expect(output).toContain("2 leftover Vera sockets");
-    expect(output).toContain("Leftover live Vera servers: otps");
-    expect(output).toContain("stopped 1 leftover tmux server; removed 2 leftover tmux sockets.");
+    expect(sweptNames).toEqual(["vera-work-tab-1"]);
+    expect(output).toContain("1 leftover Vera socket");
+    expect(output).not.toContain("Leftover live Vera servers");
+    expect(output).toContain("removed 1 leftover tmux socket.");
 });
 
 function leftoverTmuxSocketReport() {
@@ -504,12 +505,132 @@ function leftoverTmuxSocketReport() {
         directory: "/tmp/tmux-501",
         sockets: [
             { name: "default", live: false, veraOwned: false, stray: false },
-            { name: "otps", live: true, veraOwned: true, stray: true },
+            { name: "otps", live: true, veraOwned: true, stray: false },
             { name: "pimem", live: true, veraOwned: false, stray: false },
             { name: "vera-work-tab-1", live: false, veraOwned: true, stray: true },
         ],
     };
 }
+
+test("vera prune lists posted processes and stops only the ones confirmed", async () => {
+    let output = "";
+    const asked: number[] = [];
+    const stopped: number[] = [];
+    const posted = [
+        {
+            schema_version: 1 as const,
+            pid: 501,
+            kind: "host" as const,
+            started_at: "2026-08-29T12:00:00.000Z",
+            runtime_dir: "/tmp/vera-daily",
+        },
+        {
+            schema_version: 1 as const,
+            pid: 502,
+            kind: "tui" as const,
+            started_at: "2026-08-29T12:00:01.000Z",
+            runtime_dir: "/tmp/vera-work",
+        },
+    ];
+    const exitCode = await runCli(["prune"], {
+        prune: async () => posted,
+        confirmPruneProcess: async (record) => {
+            asked.push(record.pid);
+            return record.pid === 502;
+        },
+        stopPruneProcess: async (pid) => {
+            stopped.push(pid);
+            return 1;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(asked).toEqual([501, 502]);
+    expect(stopped).toEqual([502]);
+    expect(output).toContain("Vera prune");
+    expect(output).toContain("PID 501");
+    expect(output).toContain("PID 502");
+    expect(output).toContain("/tmp/vera-work");
+    expect(output).toContain("Stopped 1 process.");
+});
+
+test("vera prune leaves every listed process running when each stop is declined", async () => {
+    let output = "";
+    let stopCalled = false;
+    const exitCode = await runCli(["prune"], {
+        prune: async () => [{
+            schema_version: 1,
+            pid: 601,
+            kind: "worker",
+            started_at: "2026-08-29T12:00:00.000Z",
+            runtime_dir: "/tmp/vera-daily",
+        }],
+        confirmPruneProcess: async () => false,
+        stopPruneProcess: async () => {
+            stopCalled = true;
+            return 0;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(stopCalled).toBe(false);
+    expect(output).toContain("Left every listed process running.");
+});
+
+test("vera --yes prune still asks about each process", async () => {
+    let confirmCalled = false;
+    let stopCalled = false;
+    const exitCode = await runCli(["--yes", "prune"], {
+        prune: async () => [{
+            schema_version: 1,
+            pid: 701,
+            kind: "host",
+            started_at: "2026-08-29T12:00:00.000Z",
+            runtime_dir: "/tmp/vera-daily",
+        }],
+        confirmPruneProcess: async () => {
+            confirmCalled = true;
+            return false;
+        },
+        stopPruneProcess: async () => {
+            stopCalled = true;
+            return 0;
+        },
+        stdout: { write() {} },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(confirmCalled).toBe(true);
+    expect(stopCalled).toBe(false);
+});
+
+test("vera prune with extra arguments prints usage", async () => {
+    let error = "";
+    expect(await runCli(["prune", "--yes"], {
+        stderr: { write: (text) => error += text },
+        stdout: { write() {} },
+    })).toBe(1);
+    expect(error).toContain("vera --help");
+});
+
+test("vera prune with an empty board does not ask", async () => {
+    let output = "";
+    let confirmCalled = false;
+    const exitCode = await runCli(["prune"], {
+        prune: async () => [],
+        confirmPruneProcess: async () => {
+            confirmCalled = true;
+            return true;
+        },
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(0);
+    expect(confirmCalled).toBe(false);
+    expect(output).toContain("No Vera processes listed.");
+});
 
 test("vera doctor --check-providers asks for the network probe", async () => {
     let output = "";
@@ -741,6 +862,7 @@ test("vera help separates stopping a turn from closing an agent", async () => {
     const help = renderCliHelp(await loadHelpCorpus());
     expect(help).toContain("vera abort <agent-id>");
     expect(help).toContain("vera close <agent-id>");
+    expect(help).toContain("vera prune");
     expect(help).toContain("the agent stays live and keeps its queued prompts");
     expect(help).toContain("the session is kept and can be resumed");
 });
