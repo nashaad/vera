@@ -3230,9 +3230,12 @@ export function tuiPickerViewportRows(
     state: TuiAnySettingsPickerState,
     extraChrome = 0,
 ): number {
+    const stripHeight = modelStripStop(state) === undefined
+        ? 0
+        : modelTabStripHeight(pickerContentWidth(renderer, state));
     const rows = pickerMaxRows(
         renderer,
-        (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+        stripHeight
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
             + extraChrome,
     );
@@ -3777,6 +3780,7 @@ function renderListPickerRows(
         box.add(search);
         nodes.push(search);
     }
+    let tabStripHeight = 0;
     if (stop !== undefined && stripPane !== undefined) {
         const strip = modelTabStripNode(
             renderer,
@@ -3796,8 +3800,9 @@ function renderListPickerRows(
             onTab,
             onConfigure,
         );
-        box.add(strip);
-        nodes.push(strip);
+        tabStripHeight = strip.height;
+        box.add(strip.node);
+        nodes.push(strip.node);
     }
 
     if (tab === "help") {
@@ -3853,8 +3858,7 @@ function renderListPickerRows(
 
     const availableRows = pickerMaxRows(
         renderer,
-        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-            + subtitleLines
+        tabStripHeight + subtitleLines
             + (verification === undefined
                 ? 0
                 : verificationConsoleLines(verification))
@@ -4168,10 +4172,9 @@ function renderListPickerRows(
     box.height = "auto";
 }
 
-// The strip, breathing room, its one-line collection explanation, and another
-// blank before the rows. The explanation is content of its own, not a label
-// attached to either the tabs above or the list below.
-const MODEL_TAB_STRIP_HEIGHT = 4;
+// Breathing room, the one-line collection explanation, and another blank
+// before the rows. The tab rows themselves are added to this fixed chrome.
+const MODEL_TAB_STRIP_CHROME_HEIGHT = 3;
 /** Said in words under the chords, because the chords are a legend. */
 const MODEL_ARROW_HINT =
     "Arrow keys move you: ↑↓ the list, → into the details, ← back";
@@ -4298,6 +4301,68 @@ const MODEL_TAB_LABELS: readonly (readonly [TuiModelPickerTab, string])[] = [
     ["help", "Help"],
 ];
 
+const MODEL_TAB_COMPACT_LABELS = MODEL_TAB_LABELS.map(([, label]) =>
+    label === "Shortlist"
+        ? "Short"
+        : label === "All models"
+        ? "All"
+        : label === "Defaults"
+        ? "Defs"
+        : label
+);
+
+function modelTabStripItemWidths(
+    names: readonly string[],
+    gap: number,
+    pad: number,
+    configurePad: number,
+): readonly number[] {
+    const tabs = names.map((name, index) =>
+        Bun.stringWidth(name) + pad * (index === 0 ? 1 : 2) + gap
+    );
+    return [
+        ...tabs,
+        Bun.stringWidth("Providers ^e") + configurePad * 2,
+    ];
+}
+
+function modelTabStripRowCount(
+    width: number,
+    names: readonly string[],
+    gap: number,
+    pad: number,
+    configurePad: number,
+): number {
+    const limit = Math.max(1, width);
+    let rows = 1;
+    let used = 0;
+    for (const rawWidth of modelTabStripItemWidths(
+        names,
+        gap,
+        pad,
+        configurePad,
+    )) {
+        const itemWidth = Math.min(rawWidth, limit);
+        if (used > 0 && used + itemWidth > limit) {
+            rows += 1;
+            used = itemWidth;
+        } else {
+            used += itemWidth;
+        }
+    }
+    return rows;
+}
+
+function modelTabStripHeight(width: number): number {
+    return MODEL_TAB_STRIP_CHROME_HEIGHT + modelTabStripRowCount(
+        width,
+        MODEL_TAB_COMPACT_LABELS,
+        1,
+        0,
+        0,
+    );
+}
+
 /**
  * The name a tab is drawn with, read from the one list that names them, so
  * prose that points at a tab cannot drift from the tab's own label.
@@ -4329,30 +4394,27 @@ function modelTabStripNode(
     note?: string,
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
-): BoxRenderable {
-    const strip = new BoxRenderable(renderer, {
-        width: "100%",
-        height: MODEL_TAB_STRIP_HEIGHT,
-        flexDirection: "column",
-    });
-    const chips = new BoxRenderable(renderer, {
-        width: "100%",
-        height: 1,
-        flexDirection: "row",
-    });
+): { readonly node: BoxRenderable; readonly height: number } {
     const fullNames = MODEL_TAB_LABELS.map(([id, label]) => {
         const count = counts[id];
         return count === undefined ? label : `${label} (${count})`;
     });
     const namesWithoutCounts = MODEL_TAB_LABELS.map(([, label]) => label);
-    const stripWidth = (names: readonly string[], gap: number, pad = 1) =>
+    const stripWidth = (
+        names: readonly string[],
+        gap: number,
+        pad = 1,
+        configurePad = 1,
+    ) =>
         names.reduce(
             (total, name) => total + Bun.stringWidth(name) + pad * 2,
             0,
         )
         + gap * MODEL_TAB_LABELS.length
         // The active Providers stop carries padding on both sides.
-        + Bun.stringWidth(" Providers ^e ");
+        + Bun.stringWidth(
+            `${" ".repeat(configurePad)}Providers ^e${" ".repeat(configurePad)}`,
+        );
     const shortened = (names: readonly string[]) =>
         names.map((name) =>
             name.startsWith("All models")
@@ -4362,21 +4424,48 @@ function modelTabStripNode(
     // How many models a collection holds is the first thing asked of a
     // shortlist, so the counts are the last thing given up: the strip tightens
     // its gaps and shortens its longest name before it drops them.
-    const rungs: readonly (readonly [readonly string[], number, number])[] = [
-        [fullNames, 2, 1],
-        [fullNames, 1, 1],
-        [shortened(fullNames), 1, 1],
-        [namesWithoutCounts, 2, 1],
-        [namesWithoutCounts, 1, 1],
-        [shortened(namesWithoutCounts), 1, 1],
-        // The last rung gives up the padding inside the chips, which costs the
-        // highlight its margin but keeps every stop on the strip. A stop the
-        // user cannot see is a stop they cannot reach.
-        [shortened(namesWithoutCounts), 1, 0],
+    const rungs: readonly (
+        readonly [readonly string[], number, number, number]
+    )[] = [
+        [fullNames, 2, 1, 1],
+        [fullNames, 1, 1, 1],
+        [shortened(fullNames), 1, 1, 1],
+        [namesWithoutCounts, 2, 1, 1],
+        [namesWithoutCounts, 1, 1, 1],
+        [shortened(namesWithoutCounts), 1, 1, 1],
+        [shortened(namesWithoutCounts), 1, 0, 1],
+        [shortened(namesWithoutCounts), 1, 0, 0],
+        // The narrowest rung abbreviates two labels rather than painting a
+        // reachable stop outside the card.
+        [MODEL_TAB_COMPACT_LABELS, 1, 0, 0],
     ];
-    const [names, gap, pad] = rungs.find(([candidate, spacing, padding]) =>
-        stripWidth(candidate, spacing, padding) <= width
-    ) ?? rungs.at(-1)!;
+    const [names, gap, pad, configurePad] = rungs.find(([
+        candidate,
+        spacing,
+        padding,
+        providerPadding,
+    ]) => stripWidth(candidate, spacing, padding, providerPadding) <= width)
+        ?? rungs.at(-1)!;
+    const tabRows = modelTabStripRowCount(
+        width,
+        names,
+        gap,
+        pad,
+        configurePad,
+    );
+    const height = MODEL_TAB_STRIP_CHROME_HEIGHT + tabRows;
+    const strip = new BoxRenderable(renderer, {
+        width: "100%",
+        height,
+        flexDirection: "column",
+    });
+    const chips = new BoxRenderable(renderer, {
+        width: "100%",
+        height: tabRows,
+        flexDirection: "row",
+        flexWrap: "wrap",
+    });
+    const itemLimit = Math.max(1, width);
     MODEL_TAB_LABELS.forEach(([id], index) => {
         // The active tab is a filled chip, as the help card's tabs are: a tab
         // that differs from its neighbour only in colour reads as a heading
@@ -4391,12 +4480,15 @@ function modelTabStripNode(
         const text = index === 0
             ? `${named}${margin}`
             : `${margin}${named}${margin}`;
+        const gapText = " ".repeat(gap);
         const chip = new TextRenderable(renderer, {
             content: new StyledText([
                 id === tab
                     ? fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(text))
                     : fg(TUI_ACCENT)(text),
+                fg(TUI_PANEL)(gapText),
             ]),
+            width: Math.min(Bun.stringWidth(text + gapText), itemLimit),
             flexShrink: 0,
             height: 1,
         });
@@ -4410,22 +4502,22 @@ function modelTabStripNode(
             };
         }
         chips.add(chip);
-        chips.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_PANEL)(" ".repeat(gap))]),
-            flexShrink: 0,
-            height: 1,
-        }));
     });
     // The last stop on the strip. It swaps what the card lists rather than
     // what the model list shows, so it keeps a key of its own as well, but it
     // highlights and answers to ⇥ like the chips before it.
     const chord = tuiKeyHint("open_providers").split(" ")[0] ?? "";
+    const configureMargin = " ".repeat(configurePad);
+    const configureText = `${configureMargin}Providers ${chord}${configureMargin}`;
     const configure = new TextRenderable(renderer, {
         content: new StyledText(
             tab === "providers"
-                ? [fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(` Providers ${chord} `))]
+                ? [fg(TUI_BACKGROUND)(bg(TUI_ACCENT)(
+                    `${configureMargin}Providers ${chord}${configureMargin}`,
+                ))]
                 : [fg(TUI_ACCENT)("Providers "), fg(TUI_MUTED)(chord)],
         ),
+        width: Math.min(Bun.stringWidth(configureText), itemLimit),
         flexShrink: 0,
         height: 1,
     });
@@ -4454,7 +4546,7 @@ function modelTabStripNode(
         width: "100%",
         height: 1,
     }));
-    return strip;
+    return { node: strip, height };
 }
 
 /**

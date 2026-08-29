@@ -1552,14 +1552,30 @@ test("the model pane opens on Shortlist, in the order the user's own use produce
     );
 });
 
-test("the model tab strip keeps every stop at narrow widths", async () => {
-    for (const width of [70, 60]) {
+test("the model tab strip keeps every stop inside the card at narrow widths", async () => {
+    for (const width of [70, 60, 40]) {
         const frame = await pickerFrame(modelPickerWithPool(), width, 40);
-        expect(frame).toContain("Shortlist");
+        expect(frame).toContain(width <= 60 ? "Short" : "Shortlist");
         expect(frame).toContain("All");
-        expect(frame).toContain("Defaults");
+        expect(frame).toContain(width <= 60 ? "Defs" : "Defaults");
         expect(frame).toContain("Help");
         expect(frame).toContain("Providers ^e");
+
+        const strip = frame.split("\n")
+            .find((line) => line.includes("Providers ^e"))!;
+        const providersEnd = strip.indexOf("Providers ^e")
+            + Bun.stringWidth("Providers ^e");
+        const cardRightEdge = Math.floor(width * 0.9);
+        expect(providersEnd).toBeLessThanOrEqual(cardRightEdge);
+        if (width === 40) {
+            const lines = frame.split("\n");
+            const firstTabRow = lines.findIndex((line) => line.includes("Short"));
+            const providersRow = lines.findIndex((line) =>
+                line.includes("Providers ^e")
+            );
+            expect(providersRow).toBeGreaterThan(firstTabRow);
+            expect(frame).toContain("Arrow keys move you");
+        }
     }
 });
 
