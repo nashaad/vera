@@ -17,6 +17,7 @@ import {
 import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 import { emptyUsage, type ModelMessage } from "../../src/model/types.ts";
 import type { SessionImageAttachmentMetadata } from "../../src/store/session-store.ts";
+import { projectTranscript } from "../../src/engine/protocol.ts";
 
 const temporaryDirectories: string[] = [];
 
@@ -780,6 +781,58 @@ test("session names reject empty, oversized, and malformed values", async () => 
     await expect(SessionStore.open(path)).rejects.toThrow(
         "line 2 is not a valid session name entry",
     );
+});
+
+test("session identity is durable, immutable, and model-visible only", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: directory,
+    });
+    await store.appendIdentity({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+    });
+    await store.appendMessage(userMessage("visible request"));
+
+    const identityMessage: ModelMessage = {
+        role: "user",
+        internal: true,
+        content: [{
+            type: "text",
+            text: "Your session identity is calm-wren:0001.",
+        }],
+    };
+    expect(store.identity()).toMatchObject({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+    });
+    expect(store.messages()).toEqual([userMessage("visible request")]);
+    expect(store.modelContext()).toEqual([
+        identityMessage,
+        userMessage("visible request"),
+    ]);
+    expect(store.activeEntries()).toHaveLength(1);
+    await expect(store.appendIdentity({
+        name: "other-wren:0002",
+        key: "other-wren:0002",
+    })).rejects.toThrow("Session identity is already recorded");
+
+    await store.appendHarnessMessage("After the request.", "soft");
+    expect(projectTranscript(
+        store.messages(),
+        undefined,
+        store.activeMessageIds(),
+        store.projectedHarnessMessages(),
+    )).toMatchObject([
+        { kind: "user", text: "visible request" },
+        { kind: "harness", text: "After the request.", tone: "soft" },
+    ]);
+
+    const reopened = await SessionStore.open(path);
+    expect(reopened.identity()).toEqual(store.identity());
+    expect(reopened.modelContext()[0]).toEqual(identityMessage);
 });
 
 test("permission records restore the latest mode outside message history", async () => {
@@ -1680,6 +1733,41 @@ test("a compaction replaces the model context without touching the transcript", 
     expect(store.modelContext()).toEqual([summary, second, secondAnswer]);
     expect((await SessionStore.open(path)).modelContext())
         .toEqual([summary, second, secondAnswer]);
+});
+
+test("session identity remains in model context after compaction", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "session.jsonl");
+    const store = await countedStore(path, directory);
+    await store.appendIdentity({
+        name: "calm-wren:0001",
+        key: "calm-wren:0001",
+    });
+    await store.appendMessage(userMessage("first request"));
+    await store.appendMessage(assistantMessage("first answer"));
+    await store.appendMessage(userMessage("second request"));
+    await store.appendMessage(assistantMessage("second answer"));
+    const summary = assistantMessage("summary of the first exchange");
+    await store.appendCompaction({
+        boundaryMessageId: "message-2",
+        firstRetainedMessageId: "message-3",
+        projection: [summary],
+        measured: { inputTokens: 40, contextWindow: 1_000, estimated: true },
+    });
+
+    expect(store.modelContext()).toEqual([
+        {
+            role: "user",
+            internal: true,
+            content: [{
+                type: "text",
+                text: "Your session identity is calm-wren:0001.",
+            }],
+        },
+        summary,
+        userMessage("second request"),
+        assistantMessage("second answer"),
+    ]);
 });
 
 test("aged tool results inside a compaction projection are assembled too", async () => {

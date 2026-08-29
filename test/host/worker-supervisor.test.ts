@@ -1,5 +1,8 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { superviseWorker } from "../../src/host/worker-supervisor-handle.ts";
@@ -18,6 +21,19 @@ const WEDGED_WORKER = fileURLToPath(
 const CRASHING_HOST = fileURLToPath(
     new URL("./fixtures/crashing-host.ts", import.meta.url),
 );
+
+const liveHome = mkdtempSync(join(tmpdir(), "vera-supervisor-live-"));
+const previousVeraHome = process.env.VERA_HOME;
+
+beforeAll(() => {
+    process.env.VERA_HOME = join(liveHome, ".vera");
+});
+
+afterAll(() => {
+    if (previousVeraHome === undefined) delete process.env.VERA_HOME;
+    else process.env.VERA_HOME = previousVeraHome;
+    rmSync(liveHome, { recursive: true, force: true });
+});
 
 interface StartedWorker {
     readonly child: ChildProcess;

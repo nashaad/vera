@@ -160,6 +160,15 @@ test("ctrl+p opens the palette from a closed file", () => {
     )).toBe("palette");
 });
 
+test("search chords pass through a closed file to the global handlers", () => {
+    for (const globalBinding of ["search_conversation", "search_sessions"]) {
+        expect(jsonlViewKeyAction(
+            { name: "f", ctrl: true },
+            { globalBinding, sidebarFocused: false },
+        )).toBe("search");
+    }
+});
+
 test("a printable key resumes the file with that key as the message", () => {
     expect(jsonlViewKeyAction({ name: "x" }, { sidebarFocused: false }))
         .toBe("type");

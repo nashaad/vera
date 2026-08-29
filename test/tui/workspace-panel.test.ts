@@ -3,10 +3,14 @@ import {
     isSwitchableSession,
     layoutWorkspacePanel,
     moveWorkspaceSelection,
+    IDLE_GROUP,
+    NEEDS_YOU_GROUP,
+    RECENT_GROUP,
+    WORKING_GROUP,
     WORKSPACE_COMPLETED_MARKER,
+    WORKSPACE_IDLE_MARKER,
     WORKSPACE_COMPLETED_WINDOW_MS,
-    WORKSPACE_QUIET_MARKER,
-    WORKSPACE_SELECTED_MARKER,
+    WORKSPACE_RECENT_MARKER,
     WORKSPACE_WAITING_MARKER,
     type WorkspacePanelLayout,
     type WorkspaceSession,
@@ -78,12 +82,15 @@ describe("grouping", () => {
             session({ id: "c", workspace: "/w/one", title: "one c" }),
         ]);
         const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups.map((row) => row.group)).toEqual(["active", "recent"]);
+        expect(groups.map((row) => row.group)).toEqual([
+            WORKING_GROUP,
+            RECENT_GROUP,
+        ]);
         expect(groups.map((row) => row.sessions)).toEqual([1, 2]);
         expect(result.selectable).toEqual(["b", "a", "c"]);
     });
 
-    test("an active row carries its status word and workspace basename", () => {
+    test("a live row carries workspace only when workspaces differ", () => {
         const result = layout([
             session({
                 id: "aside",
@@ -95,9 +102,9 @@ describe("grouping", () => {
             session({ id: "old", workspace: "/w/two" }),
         ]);
         const rows = sessionRows(result);
-        expect(rows[0]?.detail).toBe("needs you · vera");
+        expect(rows[0]?.detail).toBe("vera");
         expect(rows[0]?.age).toBe("");
-        expect(rows[1]?.detail).toBeUndefined();
+        expect(rows[1]?.detail).toBe("1h ago");
         expect(rows[1]?.age).toBe("1h ago");
     });
 
@@ -113,11 +120,14 @@ describe("grouping", () => {
             session({ id: "b", workspace: "/w/two" }),
         ]);
         const groups = result.rows.filter((row) => row.kind === "group");
-        expect(groups.map((row) => row.group)).toEqual(["active", "recent"]);
+        expect(groups.map((row) => row.group)).toEqual([
+            IDLE_GROUP,
+            RECENT_GROUP,
+        ]);
         expect(result.selectable).toEqual(["bg", "a", "b"]);
     });
 
-    test("orders groups by their most recent session", () => {
+    test("orders recent sessions by recency across workspaces", () => {
         const result = layout([
             session({
                 id: "old",
@@ -153,10 +163,10 @@ describe("status markers", () => {
     const expected: Record<WorkspaceSessionStatus, string> = {
         waiting: WORKSPACE_WAITING_MARKER,
         working: tuiBrailleSpinner(0),
-        completed: WORKSPACE_QUIET_MARKER,
-        failed: WORKSPACE_QUIET_MARKER,
-        closed: WORKSPACE_QUIET_MARKER,
-        idle: WORKSPACE_QUIET_MARKER,
+        completed: WORKSPACE_RECENT_MARKER,
+        failed: WORKSPACE_RECENT_MARKER,
+        closed: WORKSPACE_RECENT_MARKER,
+        idle: WORKSPACE_RECENT_MARKER,
     };
 
     for (const [status, marker] of Object.entries(expected)) {
@@ -190,9 +200,9 @@ describe("status markers", () => {
             .toBe(WORKSPACE_COMPLETED_MARKER);
     });
 
-    test("a live finished turn older than ten minutes is blank", () => {
+    test("a live finished turn older than ten minutes returns to idle", () => {
         expect(workspaceStatusMarker("idle", 0, true, ELEVEN_MINUTES_AGO, NOW))
-            .toBe(WORKSPACE_QUIET_MARKER);
+            .toBe(WORKSPACE_IDLE_MARKER);
         const result = layout([
             session({
                 id: "a",
@@ -202,8 +212,8 @@ describe("status markers", () => {
                 updatedAt: ELEVEN_MINUTES_AGO,
             }),
         ]);
-        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_IDLE_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("a completed file view is not a completed mark", () => {
@@ -216,18 +226,18 @@ describe("status markers", () => {
                 updatedAt: RECENT,
             }),
         ]);
-        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_RECENT_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("an idle file view is not a completed mark", () => {
         expect(workspaceStatusMarker("idle", 0, false))
-            .toBe(WORKSPACE_QUIET_MARKER);
+            .toBe(WORKSPACE_RECENT_MARKER);
         const result = layout([
             session({ id: "a", status: "idle", live: false, title: "old chat" }),
         ]);
-        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_QUIET_MARKER);
-        expect(sessionRows(result)[0]?.text).not.toContain("●");
+        expect(sessionRows(result)[0]?.marker).toBe(WORKSPACE_RECENT_MARKER);
+        expect(sessionRows(result)[0]?.text).not.toContain("✓");
     });
 
     test("working advances through the braille spinner", () => {
@@ -243,10 +253,35 @@ describe("status markers", () => {
         });
         expect(sessionRows(spinning)[0]?.marker).toBe(tuiBrailleSpinner(1));
     });
+
+    test("only an actionable failed session needs the user", () => {
+        const actionable = layout([
+            session({ id: "live", status: "failed", live: true }),
+        ]);
+        expect(sessionRows(actionable)[0]).toMatchObject({
+            group: NEEDS_YOU_GROUP,
+            marker: WORKSPACE_WAITING_MARKER,
+        });
+
+        const parked = layout([
+            session({ id: "parked", status: "failed", live: false }),
+            session({
+                id: "background",
+                kind: "background",
+                status: "failed",
+                live: true,
+            }),
+        ]);
+        expect(sessionRows(parked).map((row) => [row.id, row.group, row.marker]))
+            .toEqual([
+                ["background", RECENT_GROUP, WORKSPACE_RECENT_MARKER],
+                ["parked", RECENT_GROUP, WORKSPACE_RECENT_MARKER],
+            ]);
+    });
 });
 
 describe("row text", () => {
-    test("wide shows marker, title, and relative age", () => {
+    test("wide keeps age as trailing row metadata", () => {
         const result = layout([
             session({
                 id: "a",
@@ -257,7 +292,8 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(row.age).toBe("2h ago");
         expect(row.text).toContain("fix the composer");
-        expect(row.text.trimEnd().endsWith("2h ago")).toBe(true);
+        expect(row.text).not.toContain("2h ago");
+        expect(row.detail).toBe("2h ago");
     });
 
     test("the session on screen is not wrapped in brackets", () => {
@@ -275,7 +311,7 @@ describe("row text", () => {
         expect(row.text).toContain("fix the composer");
         expect(row.text).not.toContain("[");
         expect(row.text).not.toContain("]");
-        expect(row.text).toContain(WORKSPACE_SELECTED_MARKER);
+        expect(row.text).toBe(`${WORKSPACE_RECENT_MARKER} fix the composer`);
     });
 
     test("medium drops the age and truncates the title", () => {
@@ -288,6 +324,7 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(result.width).toBe("medium");
         expect(row.age).toBe("");
+        expect(row.detail).toBe("");
         expect(row.title.endsWith("…")).toBe(true);
         expect(row.title.length).toBe(24);
         expect(row.text).not.toContain("ago");
@@ -298,7 +335,7 @@ describe("row text", () => {
         const result = layout([session({ id: "a", title: long })]);
         const row = sessionRows(result)[0]!;
         expect(row.title.endsWith("…")).toBe(true);
-        expect(row.title.length).toBe(25);
+        expect(row.title.length).toBe(34);
     });
 
     test("narrow keeps the age and gives the title more room", () => {
@@ -307,7 +344,7 @@ describe("row text", () => {
         const row = sessionRows(result)[0]!;
         expect(result.width).toBe("narrow");
         expect(row.age).toBe("1h ago");
-        expect(row.title.length).toBe(37);
+        expect(row.title.length).toBe(46);
     });
 
     test("reads untitled when a session has no title, never the id", () => {
@@ -322,13 +359,13 @@ describe("row text", () => {
         expect(sessionRows(result)[0]?.age).toBe("");
     });
 
-    test("group headers name the workspace without a count", () => {
+    test("group headers name state without a count", () => {
         const result = layout([
             session({ id: "a", workspace: "/Users/nash/Projects/vera" }),
             session({ id: "b", workspace: "/Users/nash/Projects/vera" }),
         ]);
         const header = result.rows.find((row) => row.kind === "group")!;
-        expect(header.text).toBe("recent");
+        expect(header.text).toBe(RECENT_GROUP);
         expect(header.sessions).toBe(2);
     });
 });
@@ -491,9 +528,11 @@ describe("monochrome render", () => {
                     id: `s${index}`,
                     title: status,
                     status,
-                    live: status === "completed",
+                    live: status === "completed" || status === "idle",
                     updatedAt: status === "completed"
                         ? RECENT
+                        : status === "idle"
+                        ? ELEVEN_MINUTES_AGO
                         : `2026-08-22T11:${
                             `${59 - index}`.padStart(2, "0")
                         }:00.000Z`,
@@ -508,23 +547,21 @@ describe("monochrome render", () => {
         expect(byStatus.get("waiting")).toBe(WORKSPACE_WAITING_MARKER);
         expect(byStatus.get("working")).toBe(tuiBrailleSpinner(0));
         expect(byStatus.get("completed")).toBe(WORKSPACE_COMPLETED_MARKER);
-        expect(byStatus.get("idle")).toBe(WORKSPACE_QUIET_MARKER);
-        expect(byStatus.get("failed")).toBe(WORKSPACE_QUIET_MARKER);
-        expect(byStatus.get("closed")).toBe(WORKSPACE_QUIET_MARKER);
+        expect(byStatus.get("idle")).toBe(WORKSPACE_IDLE_MARKER);
+        expect(byStatus.get("failed")).toBe(WORKSPACE_RECENT_MARKER);
+        expect(byStatus.get("closed")).toBe(WORKSPACE_RECENT_MARKER);
         const marked = ["waiting", "working", "completed"].map(
             (status) => byStatus.get(status as WorkspaceSessionStatus),
         );
         expect(new Set(marked).size).toBe(3);
-        // The selection marker is column one and the status marker column
-        // three, so neither stands in for the other.
+        // Selection belongs to the full-row treatment. Every title line starts
+        // with a populated status glyph regardless of selection.
         const selected = sessionRows(result).filter((row) => row.selected);
         expect(selected).toHaveLength(1);
         for (const row of result.rows) {
             if (row.kind !== "session") continue;
-            expect(row.text.startsWith(
-                row.selected ? `${WORKSPACE_SELECTED_MARKER} ` : "  ",
-            )).toBe(true);
-            expect(row.text.slice(2, 3)).toBe(row.marker);
+            expect(row.text).toBe(`${row.marker} ${row.title}`);
+            expect(row.detail).toBeDefined();
         }
     });
 });

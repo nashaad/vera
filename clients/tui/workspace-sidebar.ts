@@ -3,7 +3,8 @@ import { halfPageCursor } from "./list-window.ts";
 import {
     layoutWorkspacePanel,
     moveWorkspaceSelection,
-    RECENT_GROUP,
+    WORKSPACE_COMPLETED_MARKER,
+    WORKSPACE_PINS_ENABLED,
     workspacePanelWidth,
     workspaceRowColumns,
     type WorkspacePanelLayout,
@@ -18,12 +19,22 @@ import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
  * The workspace side bar's presentation model, with no OpenTUI in it.
  *
  * `workspace-panel.ts` decides rows, order and markers. This module holds the
- * little that a drawn side bar adds: which row the cursor is on, which rows the
- * digits address, what a pin does, and the lines the shared card mounts.
+ * little that a drawn side bar adds: which row the cursor is on, dormant jump
+ * and pin behavior, and the lines the shared card mounts.
  */
 
-/** Rows the digit keys can address, counting from the top of the listing. */
+/** Rows the dormant digit-target algorithm retains. */
 export const WORKSPACE_JUMP_ROWS = 9;
+/**
+ * Number jumps are dormant while their global interaction is designed.
+ *
+ * Keep the bindings, target calculation, and focused-pane handler intact. If
+ * they return, the shortcut should work from chat, file view, or a hidden rail
+ * rather than requiring the user to focus the sidebar first.
+ */
+export const WORKSPACE_JUMPS_ENABLED = false;
+/** Text-readable cursor/current mark, appended so row titles stay flush-left. */
+export const WORKSPACE_SELECTION_MARKER = "›";
 
 /**
  * Idle jsonl rows kept in the rail, newest first.
@@ -33,8 +44,18 @@ export const WORKSPACE_JUMP_ROWS = 9;
  */
 export const WORKSPACE_RECENT_IDLE = 5;
 
-/** The row under the last recent session that points at the full picker. */
-export const WORKSPACE_ALL_SESSIONS_NUDGE = "ctrl+r · all sessions";
+/** Text-safe controls at the right edge of the branded rail header. */
+export const WORKSPACE_HEADER_ALL_ACTION = "workspace:all-sessions";
+export const WORKSPACE_HEADER_NEW_ACTION = "workspace:new-session";
+
+/** Resolves a header hit without letting its synthetic id become a row id. */
+export function workspaceHeaderAction(
+    id: string,
+): WorkspaceSidebarAction | undefined {
+    if (id === WORKSPACE_HEADER_ALL_ACTION) return { kind: "resume_picker" };
+    if (id === WORKSPACE_HEADER_NEW_ACTION) return { kind: "new_session" };
+    return undefined;
+}
 
 /** What the rail says when there is nothing to list. */
 export const WORKSPACE_EMPTY_LINES: readonly string[] = [
@@ -43,10 +64,8 @@ export const WORKSPACE_EMPTY_LINES: readonly string[] = [
     "ctrl+r all sessions",
 ];
 
-/** The digit and the space after it, drawn before every row. */
-const DIGIT_COLUMNS = 2;
-/** Selection/status markers that precede the title inside a panel row. */
-const ROW_MARKER_COLUMNS = 4;
+/** Status glyph and the space before every title. */
+const ROW_PREFIX_COLUMNS = 2;
 /** The divider occupies the rail's final rendered cell. */
 const RAIL_DIVIDER_COLUMNS = 1;
 /** Eight age columns plus the space before them. */
@@ -72,7 +91,7 @@ export function workspaceRailColumns(
 ): number | undefined {
     const width = workspacePanelWidth(columns);
     if (width === "narrow") return undefined;
-    const natural = DIGIT_COLUMNS + workspaceRowColumns(width);
+    const natural = workspaceRowColumns(width);
     return clampWorkspaceRailColumns(preferred ?? natural, columns);
 }
 
@@ -181,7 +200,7 @@ export function workspaceWorkingSet(
     currentId?: string,
     pinnedIds: readonly string[] = [],
 ): readonly WorkspaceSidebarSession[] {
-    const pinned = new Set(pinnedIds);
+    const pinned = new Set(WORKSPACE_PINS_ENABLED ? pinnedIds : []);
     const kept = new Set<string>();
     for (const session of sessions) {
         if (
@@ -411,8 +430,9 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * ctrl+r opens the full resume picker, ctrl+n starts a new chat and keeps this
- * one running, and digits address session rows.
+ * ctrl+r opens the full resume picker, and ctrl+n starts a new chat while
+ * keeping this one running. Dormant digit handling remains below for a future
+ * global jump interaction.
  * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
@@ -482,7 +502,10 @@ export function handleWorkspaceSidebarKey(
             ? { state, handled: true }
             : { action, handled: true };
     }
-    if (tuiBindingId("workspace", key) === "toggle_workspace_pin") {
+    if (
+        WORKSPACE_PINS_ENABLED
+        && tuiBindingId("workspace", key) === "toggle_workspace_pin"
+    ) {
         const selectedId = layout.selectedId;
         if (selectedId === undefined) return { state, handled: true };
         const pinnedIds = toggleWorkspacePin(state.pinnedIds, selectedId);
@@ -492,7 +515,11 @@ export function handleWorkspaceSidebarKey(
             handled: true,
         };
     }
-    if (binding !== undefined && binding.startsWith("workspace_jump_")) {
+    if (
+        WORKSPACE_JUMPS_ENABLED
+        && binding !== undefined
+        && binding.startsWith("workspace_jump_")
+    ) {
         const position = Number(binding.slice("workspace_jump_".length));
         const target = workspaceJumpTarget(layout, position);
         if (target === undefined) return { state, handled: true };
@@ -526,7 +553,7 @@ export function openWorkspaceSelection(
 }
 
 /** The wordmark at the head of the rail. */
-export const WORKSPACE_SIDEBAR_WORDMARK = "[ VERA ]";
+export const WORKSPACE_SIDEBAR_WORDMARK = "VERA";
 
 export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
     const listed = workspaceWorkingSet(
@@ -542,10 +569,6 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
 /**
  * The footer hint, in the pickers' shape.
  *
- * The digits live here rather than in the help card: nine near-identical rows
- * would push the Transcript scope below the fold, and the only place they are
- * useful is the pane that is already on screen.
- *
  * Drawn in full only while the rail holds the keyboard. Most of these chords
  * are the rail's own, and beside a conversation a block the glance cannot use
  * reads as instructions for the screen it sits next to.
@@ -554,8 +577,8 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Move", value: "↑↓  j/k" },
     { label: "Page", value: "ctrl+d/u" },
     { label: "Open", value: "enter" },
-    { label: "Jump", value: "1–9" },
-    { label: "Pin", value: "p" },
+    ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
+    ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
     { label: "Cycle", value: "ctrl+shift+[ ]" },
@@ -606,8 +629,7 @@ export function workspaceSidebarViewState(
         ? undefined
         : Math.max(
             1,
-            railColumns - DIGIT_COLUMNS
-                - ROW_MARKER_COLUMNS - RAIL_DIVIDER_COLUMNS,
+            railColumns - ROW_PREFIX_COLUMNS - RAIL_DIVIDER_COLUMNS,
         );
     const layout = workspaceSidebarLayout(state, {
         columns,
@@ -622,6 +644,9 @@ export function workspaceSidebarViewState(
             }),
     });
     const width = railColumns ?? columns;
+    const rowColumns = railColumns === undefined
+        ? workspaceRowColumns(layout.width)
+        : railColumns - RAIL_DIVIDER_COLUMNS;
     let position = 0;
     const lines: LinesViewState["lines"][number][] = [];
     for (const text of layout.rows.length === 0 ? WORKSPACE_EMPTY_LINES : []) {
@@ -629,7 +654,6 @@ export function workspaceSidebarViewState(
     }
     let seenGroup = false;
     const rowTone = focused ? "text" as const : "muted" as const;
-    const lastRow = layout.rows[layout.rows.length - 1];
     for (const row of layout.rows) {
         if (row.kind === "group") {
             if (seenGroup) {
@@ -645,34 +669,35 @@ export function workspaceSidebarViewState(
         // The digit is drawn on the active row it addresses. Positional and
         // churning as the list reorders, which is why it is a shortcut and not
         // the way a row is picked. Idle rows carry none.
-        if (row.active) position += 1;
-        const digit = row.active && position <= WORKSPACE_JUMP_ROWS
-            ? `${position}`
-            : " ";
+        if (WORKSPACE_JUMPS_ENABLED && row.active) position += 1;
+        const showDigit = WORKSPACE_JUMPS_ENABLED
+            && row.active
+            && position <= WORKSPACE_JUMP_ROWS;
+        const digit = showDigit ? `${position}` : " ";
+        const trailing = row.active
+            ? [row.detail, digit.trim()].filter((value) => value.length > 0)
+                .join(" · ")
+            : row.detail;
+        const selectedText = row.selected
+            ? `${row.text} ${WORKSPACE_SELECTION_MARKER}`
+            : row.text;
         lines.push({
-            text: `${digit} ${row.text}`,
+            text: rightAlignedRow(selectedText, trailing, rowColumns),
             tone: rowTone,
             rowId: row.id,
-            // The highlight bar stays on the cursor row even while chat has
-            // focus, so the on-screen conversation still reads without wrapping
-            // its title in brackets.
+            ...(row.marker === WORKSPACE_COMPLETED_MARKER
+                ? {
+                    leading: {
+                        text: WORKSPACE_COMPLETED_MARKER,
+                        tone: "positive" as const,
+                    },
+                }
+                : {}),
+            // The background helps while the rail owns the keyboard. The
+            // suffix above remains in plain-text captures and while chat has
+            // focus, without adding the empty left gutter this layout removed.
             ...(row.selected ? { selected: true } : {}),
         });
-        if (row.detail !== undefined) {
-            lines.push({
-                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${row.detail}`,
-                tone: "muted" as const,
-                rowId: row.id,
-            });
-        }
-        if (row.group === RECENT_GROUP && row === lastRow) {
-            lines.push({
-                text: `${" ".repeat(DIGIT_COLUMNS + ROW_MARKER_COLUMNS)}${
-                    WORKSPACE_ALL_SESSIONS_NUDGE
-                }`,
-                tone: "muted" as const,
-            });
-        }
     }
     const cursorLine = lines.findIndex((line) =>
         line.rowId !== undefined && line.rowId === layout.selectedId
@@ -682,9 +707,17 @@ export function workspaceSidebarViewState(
         : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
         // The wordmark is what the rail is called, so it says the same thing
-        // whichever side holds the keyboard. Focus is drawn on the rule under
-        // it and on the edge beside it, where it does not move the title.
+        // whichever side holds the keyboard. Focus accents the wordmark, the
+        // rule under it, and the edge beside it without moving the title.
         title: workspaceSidebarHeader(state),
+        titleLeading: {
+            text: WORKSPACE_SIDEBAR_WORDMARK,
+            tone: "accent",
+        },
+        headerActions: [
+            { id: WORKSPACE_HEADER_ALL_ACTION, text: "≡" },
+            { id: WORKSPACE_HEADER_NEW_ACTION, text: "+" },
+        ],
         ...(focused ? { focused: true } : {}),
         // The rail's footer already names esc. The chip on the title is
         // dialog chrome and crowds a 28-column column.
@@ -695,6 +728,24 @@ export function workspaceSidebarViewState(
         footerTable,
         ...(focused ? {} : { dimmed: true }),
     };
+}
+
+function rightAlignedRow(
+    left: string,
+    right: string,
+    columns: number,
+): string {
+    if (right.length === 0) return clipRow(left, columns);
+    const leftColumns = Math.max(1, columns - right.length - 1);
+    const shown = clipRow(left, leftColumns);
+    const gap = Math.max(1, columns - shown.length - right.length);
+    return `${shown}${" ".repeat(gap)}${right}`;
+}
+
+function clipRow(text: string, columns: number): string {
+    if (text.length <= columns) return text;
+    if (columns <= 1) return text.slice(0, columns);
+    return `${text.slice(0, columns - 1)}…`;
 }
 
 /** The lines as one block of text, for the headless renderer and for tests. */

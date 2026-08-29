@@ -18,6 +18,9 @@ import {
     type VeraProviderId,
     type VeraConfig,
 } from "../config.ts";
+import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
+import { reserveSessionIdentity } from "./session-identity-reservation.ts";
+import { veraMachineDirectory } from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -149,7 +152,10 @@ import {
     type ExtensionRegistryFailure,
 } from "../extensions/registry.ts";
 import { buildWorkIndex, type WorkIndexSnapshot } from "./work-index.ts";
-import { searchSessions } from "../store/session-search.ts";
+import {
+    NO_SEARCH_RESULTS,
+    searchSessions,
+} from "../store/session-search.ts";
 import { ScheduleStore } from "../scheduler/store.ts";
 import {
     startSchedulerRuntime,
@@ -287,6 +293,12 @@ export async function startResidentHost(
     const currentReachability = () => poolReachability(loadPoolFile({}).merged);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
+    // Production profiles share the machine tier, so a complete identity is
+    // unique across every profile. Explicit test/session roots remain
+    // self-contained and never write into the developer's real machine tier.
+    const sessionIdentityReservationRoot = options.sessionDirectory === undefined
+        ? veraMachineDirectory()
+        : sessionDirectory;
     const eventLogDirectory = options.eventLogDirectory;
     // One store for the host, so a sign-in from anywhere is the same fact to
     // every agent it is running.
@@ -309,7 +321,12 @@ export async function startResidentHost(
     const extensions = await timed(
         "extension_registry",
         () => startExtensionRegistry({
-            extensions: options.config.extensions ?? [],
+            extensions: [
+                ...defaultHostExtensionConfigs(
+                    options.config.disabled_builtin_extensions ?? [],
+                ),
+                ...(options.config.extensions ?? []),
+            ],
             onFailure: (failure) => {
                 startupLog({
                     type: "host_startup_extension_failed",
@@ -339,6 +356,13 @@ export async function startResidentHost(
             }),
         }),
     );
+    const sessionIdentity = extensions.sessionIdentity();
+    if (sessionIdentity === undefined) {
+        await extensions.close();
+        throw new Error(
+            "Resident host requires one sessions.identity provider",
+        );
+    }
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
     const createAdapter = options.createAdapter
@@ -783,6 +807,9 @@ export async function startResidentHost(
             return config.extensions ?? [];
         },
         registeredAgents: extensions.agents(),
+        sessionIdentity,
+        reserveSessionIdentity: (sessionId, key) =>
+            reserveSessionIdentity(sessionIdentityReservationRoot, sessionId, key),
         loadContextualContributions: async (instructionRoot, allowedSkills) => [
             ...await loadSkillContribution(instructionRoot, allowedSkills),
             ...startupFindings.contributions(),
@@ -998,7 +1025,21 @@ export async function startResidentHost(
                 });
                 return workIndexThisTurn;
             },
-            searchSessions: (query) => searchSessions(sessionDirectory, query),
+            searchSessions: async (query) => {
+                if (query.session_id === undefined) {
+                    return searchSessions(sessionDirectory, query);
+                }
+                const resident = registry.list().find(
+                    (session) => session.id === query.session_id,
+                );
+                const stored = resident === undefined
+                    ? (await storedSessions).get(query.session_id)
+                    : undefined;
+                const sessionPath = resident?.session_path ?? stored?.session_path;
+                return sessionPath === undefined
+                    ? NO_SEARCH_RESULTS
+                    : searchSessions(sessionDirectory, query, { sessionPath });
+            },
             ...(scheduler === null ? {} : {
                 runScheduleOperation: (operation) => scheduler!.execute(operation),
             }),

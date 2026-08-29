@@ -20,6 +20,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly elapsed: string;
     readonly scope?: TuiDiagnosticsScope;
     readonly sessionId?: string;
+    readonly sessionIdentity?: string;
     readonly sessionPath?: string;
     readonly workspace: string;
     readonly runningBackgroundAgents: number;
@@ -63,6 +64,7 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     const lines = [
         "# Session diagnostics",
         "## Session",
+        `  identity     ${snapshot.sessionIdentity ?? "unavailable"}`,
         `  id           ${snapshot.sessionId ?? "unavailable"}`,
         `  file         ${snapshot.sessionPath ?? "unavailable"}`,
         `  workspace    ${snapshot.workspace}`,

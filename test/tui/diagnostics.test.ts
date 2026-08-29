@@ -95,6 +95,7 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
         activity: "idle",
         elapsed: "0s",
         sessionId: "session-123",
+        sessionIdentity: "calm-wren:0001",
         sessionPath: "/home/user/.vera/sessions/session-123.jsonl",
         workspace: "/workspace",
         runningBackgroundAgents: 0,
@@ -104,6 +105,7 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
 
     expect(text).toContain("# Session diagnostics");
     expect(text).toContain("id           session-123");
+    expect(text).toContain("identity     calm-wren:0001");
     expect(text).toContain(
         "file         /home/user/.vera/sessions/session-123.jsonl",
     );

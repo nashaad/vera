@@ -1,17 +1,24 @@
 import { expect, test } from "bun:test";
 
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
 import {
     colorizeVeraDoctor,
     diagnoseVeraProcesses,
     doctorLineEmphasis,
+    livePidFromHostLockFile,
     parseVeraProcessList,
     renderVeraDoctor,
     stopStrayVeraProcesses,
+    veraRuntimeFromPsLine,
     type DiagnosedVeraProcess,
     type VeraProcessKind,
     type VeraProcessSample,
 } from "../clients/process-doctor.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
+import { veraHomeDirectory, veraRuntimeDirectory } from "../src/profile-paths.ts";
 
 test("process parsing finds Vera hosts and clients without claiming other Bun work", () => {
     const samples = parseVeraProcessList(`
@@ -61,14 +68,14 @@ test("process parsing finds orphaned workers and test fixtures", () => {
 test("doctor flags extra hosts and only calls CPU sustained across both samples", async () => {
     const samples: VeraProcessSample[][] = [
         [
-            processSample(200, "host", 1),
-            processSample(201, "host", 99),
-            { ...processSample(202, "client", 80), ppid: 400 },
+            here(processSample(200, "host", 1)),
+            here(processSample(201, "host", 99)),
+            { ...here(processSample(202, "client", 80)), ppid: 400 },
         ],
         [
-            processSample(200, "host", 2),
-            processSample(201, "host", 98),
-            { ...processSample(202, "client", 4), ppid: 400 },
+            here(processSample(200, "host", 2)),
+            here(processSample(201, "host", 98)),
+            { ...here(processSample(202, "client", 4)), ppid: 400 },
         ],
     ];
     const report = await diagnoseVeraProcesses({
@@ -129,7 +136,7 @@ test("doctor reports one quiet current host as healthy", async () => {
     expect(renderVeraDoctor(report)).toContain("Result: healthy");
 });
 
-test("doctor treats another active profile host as known and healthy", async () => {
+test("doctor omits an unlabeled extra host from this island", async () => {
     const sample = [
         processSample(200, "host", 0),
         processSample(201, "host", 0),
@@ -147,11 +154,7 @@ test("doctor treats another active profile host as known and healthy", async () 
     expect(report.healthy).toBe(true);
     expect(report.processes).toMatchObject([
         { pid: 200, currentHost: true, knownProfileHost: false },
-        { pid: 201, currentHost: false, knownProfileHost: true },
     ]);
-    expect(renderVeraDoctor(report)).toContain(
-        "Resident hosts: 2 (0 unrecognized, 1 other profile)",
-    );
 });
 
 test("doctor retries inconsistent ownership after host replacement", async () => {
@@ -221,7 +224,6 @@ test("doctor retries when another profile replaces its host", async () => {
     expect(report.healthy).toBe(true);
     expect(report.processes).toMatchObject([
         { pid: 200, currentHost: true },
-        { pid: 202, knownProfileHost: true },
     ]);
 });
 
@@ -249,7 +251,7 @@ test("doctor does not join CPU samples when a PID changes identity", async () =>
 test("doctor reports a busy known client without failing health", async () => {
     const sample = [
         processSample(200, "host", 0),
-        { ...processSample(201, "client", 90), ppid: 400 },
+        { ...here(processSample(201, "client", 90)), ppid: 400 },
     ];
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
@@ -272,8 +274,8 @@ test("doctor flags an orphaned worker and test fixture as stray, not one with a 
     const sample = [
         processSample(200, "host", 0),
         { ...processSample(400, "worker", 0), ppid: 200 },
-        processSample(401, "worker", 0),
-        processSample(402, "test_fixture", 0),
+        here(processSample(401, "worker", 0)),
+        here(processSample(402, "test_fixture", 0)),
     ];
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
@@ -307,9 +309,9 @@ test("doctor flags an orphaned worker and test fixture as stray, not one with a 
 test("doctor flags workers of a leftover host, not only pid-1 orphans", async () => {
     const sample = [
         processSample(200, "host", 0),
-        { ...processSample(300, "host", 0), pid: 300, pgid: 300 },
-        { ...processSample(301, "worker", 0), pid: 301, ppid: 300, pgid: 301 },
-        { ...processSample(302, "worker", 0), pid: 302, ppid: 300, pgid: 302 },
+        { ...here(processSample(300, "host", 0)), pid: 300, pgid: 300 },
+        { ...here(processSample(301, "worker", 0)), pid: 301, ppid: 300, pgid: 301 },
+        { ...here(processSample(302, "worker", 0)), pid: 302, ppid: 300, pgid: 302 },
         { ...processSample(400, "worker", 0), ppid: 200 },
     ];
     const report = await diagnoseVeraProcesses({
@@ -334,7 +336,32 @@ test("doctor flags workers of a leftover host, not only pid-1 orphans", async ()
     ]));
 });
 
-test("doctor flags an isolated client even when its shell parent is alive", async () => {
+test("an unlabeled host is not a stray of another runtime island", async () => {
+    const sample = [
+        {
+            ...processSample(200, "host", 0),
+            runtimeDir: "/tmp/vera-keep",
+        },
+        processSample(201, "host", 0),
+        { ...processSample(202, "client", 0), ppid: 1 },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+        runtimeIsland: "/tmp/vera-keep",
+    });
+
+    expect(report.processes.map((process) => process.pid)).toEqual([200]);
+    expect(report.processes[0]?.stray).toBe(false);
+    expect(report.healthy).toBe(true);
+});
+
+test("doctor leaves a foreign isolated runtime alone", async () => {
     const sample = [
         processSample(200, "host", 0),
         {
@@ -362,20 +389,123 @@ test("doctor flags an isolated client even when its shell parent is alive", asyn
         doctorPid: 999,
     });
 
+    expect(report.processes.map((process) => process.pid)).toEqual([200]);
+    expect(report.processes[0]?.stray).toBe(false);
+    expect(report.healthy).toBe(true);
+});
+
+test("doctor flags leftovers inside the invoked isolated runtime", async () => {
+    const sample = [
+        {
+            ...processSample(500, "client", 0),
+            ppid: 499,
+            isolated: true,
+            runtimeDir: "/tmp/vera-otps",
+        },
+        {
+            ...processSample(501, "host", 0),
+            pid: 501,
+            ppid: 500,
+            pgid: 501,
+            isolated: true,
+            runtimeDir: "/tmp/vera-otps",
+        },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            knownProfileHostPids: new Set(),
+        }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+        runtimeIsland: "/tmp/vera-otps",
+    });
+
     const strayByPid = new Map(
         report.processes.map((process) => [process.pid, process.stray]),
     );
-    expect(strayByPid.get(200)).toBe(false);
-    expect(strayByPid.get(500)).toBe(true);
+    expect(strayByPid.get(500)).toBe(false);
     expect(strayByPid.get(501)).toBe(true);
 });
 
-test("doctor treats a worktree checkout of another profile as leftover", async () => {
+test("doctor leaves a launcher-owned worktree runtime to its own island", async () => {
+    const sample = [
+        processSample(200, "host", 0),
+        {
+            ...processSample(500, "client", 0),
+            ppid: 499,
+            isolated: true,
+            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
+            worktreeRuntime: true,
+        },
+        {
+            ...processSample(501, "host", 0),
+            pid: 501,
+            ppid: 1,
+            pgid: 501,
+            isolated: true,
+            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
+            worktreeRuntime: true,
+        },
+    ];
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
+        }),
+        sampleProcesses: async () => sample,
+        wait: async () => {},
+        doctorPid: 999,
+    });
+
+    expect(report.healthy).toBe(true);
+    expect(new Map(
+        report.processes.map((process) => [process.pid, process.stray]),
+    )).toEqual(new Map([[200, false]]));
+    expect(renderVeraDoctor(report)).toContain(
+        "Resident hosts: 1 (0 unrecognized, 0 other profiles)",
+    );
+});
+
+test("process environment identifies a deliberate worktree runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol VERA_WORKTREE_RUNTIME=/tmp/aspol",
+    )).toEqual({
+        isolated: true,
+        runtimeDir: "/tmp/aspol",
+        worktreeRuntime: true,
+    });
+});
+
+test("a profile env without a runtime override names that profile's runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_PROFILE=dev",
+    )).toEqual({
+        isolated: false,
+        runtimeDir: `${veraHomeDirectory()}/profiles/dev/runtime`,
+        worktreeRuntime: false,
+    });
+});
+
+test("an inherited worktree marker does not own a nested runtime", () => {
+    expect(veraRuntimeFromPsLine(
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/nested VERA_WORKTREE_RUNTIME=/tmp/aspol",
+    )).toEqual({
+        isolated: true,
+        runtimeDir: "/tmp/nested",
+        worktreeRuntime: false,
+    });
+});
+
+test("a worktree checkout path is not leftover of this island", async () => {
     const sample = [
         processSample(200, "host", 0),
         {
             ...processSample(201, "host", 0),
             command: "bun /Users/nash/Projects/vera/.worktrees/flash/clients/host/main.ts",
+            isolated: true,
+            runtimeDir: "/tmp/vera-worktrees-501/flash-deadbeef",
+            worktreeRuntime: true,
         },
     ];
     const report = await diagnoseVeraProcesses({
@@ -392,10 +522,10 @@ test("doctor treats a worktree checkout of another profile as leftover", async (
         report.processes.map((process) => [process.pid, process.stray]),
     );
     expect(strayByPid.get(200)).toBe(false);
-    expect(strayByPid.get(201)).toBe(true);
+    expect(strayByPid.has(201)).toBe(false);
 });
 
-test("doctor keeps the runtime a caller is about to attach to", async () => {
+test("doctor does not stop a foreign runtime's host", async () => {
     const sample = [
         {
             ...processSample(200, "host", 0),
@@ -412,19 +542,20 @@ test("doctor keeps the runtime a caller is about to attach to", async () => {
     ];
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
-            knownProfileHostPids: new Set(),
+            currentHostPid: 200,
+            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
         doctorPid: 999,
-        preserveRuntimeDir: "/tmp/vera-keep",
+        runtimeIsland: "/tmp/vera-keep",
     });
 
     const strayByPid = new Map(
         report.processes.map((process) => [process.pid, process.stray]),
     );
     expect(strayByPid.get(200)).toBe(false);
-    expect(strayByPid.get(201)).toBe(true);
+    expect(strayByPid.has(201)).toBe(false);
 });
 
 test("process parsing finds a watchdog separately from the TUI, and a supervisor separately from a worker", () => {
@@ -544,8 +675,8 @@ test("doctor keeps strays out of Running now", async () => {
         { ...processSample(92, "client", 0), pid: 92, ppid: 90, pgid: 92 },
         { ...processSample(301, "worker", 0), ppid: 200, pid: 301, pgid: 301 },
         { ...processSample(401, "supervisor", 0), ppid: 200, pid: 401, pgid: 401 },
-        processSample(501, "worker", 0),
-        processSample(502, "supervisor", 0),
+        here(processSample(501, "worker", 0)),
+        here(processSample(502, "supervisor", 0)),
     ];
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
@@ -670,6 +801,42 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
         if (processIsAlive(child.pid)) child.kill("SIGKILL");
     }
 });
+
+test("livePidFromHostLockFile trusts a live matching record without a handshake", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const path = join(directory, "host.json");
+    try {
+        writeFileSync(path, JSON.stringify({
+            schema_version: 2,
+            pid: process.pid,
+            started_at: new Date(Date.now() - process.uptime() * 1_000).toISOString(),
+            socket_path: join(directory, "host.sock"),
+        }));
+        expect(await livePidFromHostLockFile(path)).toBe(process.pid);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+test("livePidFromHostLockFile ignores a record whose pid is gone", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
+    const path = join(directory, "host.json");
+    try {
+        writeFileSync(path, JSON.stringify({
+            schema_version: 2,
+            pid: 2_147_483_647,
+            started_at: new Date().toISOString(),
+            socket_path: join(directory, "host.sock"),
+        }));
+        expect(await livePidFromHostLockFile(path)).toBeUndefined();
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});
+
+function here(sample: VeraProcessSample): VeraProcessSample {
+    return { ...sample, runtimeDir: veraRuntimeDirectory() };
+}
 
 function processSample(
     pid: number,

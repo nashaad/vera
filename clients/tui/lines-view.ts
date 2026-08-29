@@ -1,7 +1,11 @@
 import {
+    bold,
     BoxRenderable,
+    fg,
+    StyledText,
     TextAttributes,
     TextRenderable,
+    underline,
     type Renderable,
     type RenderContext,
 } from "@opentui/core";
@@ -9,6 +13,8 @@ import {
 import {
     attachRowPointer,
     centeredDialogSurface,
+    DIALOG_BACKGROUND_Z_INDEX,
+    DIALOG_CARD_Z_INDEX,
     DIALOG_CARD_PADDING,
     dialogFooterNode,
     dialogGroupHeaderNode,
@@ -21,6 +27,7 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_PANEL,
+    TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
 
@@ -44,6 +51,11 @@ export type LinesViewTone = "text" | "muted" | "accent" | "heading";
 export interface LinesViewLine {
     readonly text: string;
     readonly tone?: LinesViewTone;
+    /** A separately toned prefix that is also present at the start of text. */
+    readonly leading?: {
+        readonly text: string;
+        readonly tone: "positive";
+    };
     /**
      * What the surface calls this line when the mouse lands on it. Absent on a
      * line there is nothing to select, so a click on a heading or a blank does
@@ -52,6 +64,12 @@ export interface LinesViewLine {
     readonly rowId?: string;
     /** Draws the highlight bar, the same one every picker's cursor draws. */
     readonly selected?: boolean;
+    /**
+     * A run of the line drawn heavier than the rest, given as a start column
+     * and a length. What a surface uses it for is its own: search marks the
+     * text that matched, so the eye lands on the reason the row is listed.
+     */
+    readonly emphasis?: { readonly start: number; readonly length: number };
 }
 
 export interface LinesViewFooterRow {
@@ -59,10 +77,23 @@ export interface LinesViewFooterRow {
     readonly value: string;
 }
 
+/** A compact text control drawn at the right edge of a rail header. */
+export interface LinesViewHeaderAction {
+    readonly id: string;
+    readonly text: string;
+}
+
 export interface LinesViewState {
     readonly title: string;
+    /** A separately toned prefix that is also present at the start of title. */
+    readonly titleLeading?: {
+        readonly text: string;
+        readonly tone: "accent";
+    };
     /** Follows the title on the right of the header; "esc" when omitted. */
     readonly hint?: string;
+    /** Clickable rail controls. Text remains meaningful without colour. */
+    readonly headerActions?: readonly LinesViewHeaderAction[];
     readonly lines: readonly LinesViewLine[];
     /**
      * Which line the cursor is on, so a list too long for the card scrolls
@@ -148,6 +179,16 @@ export interface LinesViewOptions {
      * later docks does not suddenly eat title space.
      */
     readonly railPadding?: number;
+    /**
+     * A card that keeps the height its list may window to, rather than
+     * shrinking to the rows it happens to have.
+     *
+     * For a surface whose list changes under the person's hands: a card that
+     * grows a row per keystroke moves its own header, its footer and every row
+     * already read. The rows it can show are the same either way; this is only
+     * whether the frame around them holds still.
+     */
+    readonly fillHeight?: boolean;
 }
 
 export interface LinesViewPointer {
@@ -225,6 +266,12 @@ export function createTuiLinesView(
         (rail === undefined ? CARD_CHROME_HEIGHT : RAIL_CHROME_HEIGHT)
         + footerRows - 1;
     const railPadding = options.railPadding ?? RAIL_PADDING;
+    /** The height a centred card's list is windowed to, rail aside. */
+    const cardHeight = (): number =>
+        dialogBoxHeight(
+            renderer,
+            rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
+        ) - (rail === undefined ? bottomInset : 0);
     const box = new BoxRenderable(renderer, {
         id,
         border: false,
@@ -270,17 +317,18 @@ export function createTuiLinesView(
             applyBottomInset();
         },
         visibleRows(): number {
-            return listWindowRows(
-                dialogBoxHeight(
-                    renderer,
-                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - (rail === undefined ? bottomInset : 0),
-                chromeRows(),
-            );
+            return listWindowRows(cardHeight(), chromeRows());
         },
         setRail(columns): void {
             if (rail === columns) return;
             rail = columns;
+            // A dock is part of the screen behind a modal, while this same
+            // surface becomes the modal card on a narrow terminal. Keep that
+            // distinction in the shared transition so every dialog's scrim
+            // covers every rail without dialog-specific visibility rules.
+            surface.zIndex = columns === undefined
+                ? DIALOG_CARD_Z_INDEX
+                : DIALOG_BACKGROUND_Z_INDEX;
             applyBottomInset();
             if (columns === undefined) {
                 box.border = false;
@@ -288,7 +336,9 @@ export function createTuiLinesView(
                 surface.alignItems = "center";
                 surface.justifyContent = "center";
                 box.width = `${CARD_WIDTH_FRACTION * 100}%`;
-                box.height = "auto";
+                box.height = options.fillHeight === true
+                    ? Math.max(1, cardHeight())
+                    : "auto";
                 box.paddingLeft = DIALOG_CARD_PADDING;
                 box.paddingRight = DIALOG_CARD_PADDING;
                 box.paddingTop = 2;
@@ -342,6 +392,9 @@ export function createTuiLinesView(
                     state.title,
                     hint,
                     state.dimmed === true,
+                    state.headerActions,
+                    view.pointer,
+                    state.titleLeading,
                 )
                 : dialogHeaderNode(renderer, state.title, hint));
             // A dock uses the row below its title for a rule: the wordmark
@@ -363,13 +416,13 @@ export function createTuiLinesView(
             // The card is a fixed height, so a longer list is windowed around
             // the cursor rather than cut at the top: a row the arrows can
             // reach has to be a row the card can show.
-            const room = listWindowRows(
-                dialogBoxHeight(
-                    renderer,
-                    rail === undefined ? CARD_TOP_MARGIN : RAIL_TOP_MARGIN,
-                ) - (rail === undefined ? bottomInset : 0),
-                chromeRows(),
-            );
+            const height = cardHeight();
+            const room = listWindowRows(height, chromeRows());
+            // A card told to keep its height takes the one its list is
+            // windowed to, so the frame is the same whether the list fills it.
+            if (options.fillHeight === true && rail === undefined) {
+                box.height = Math.max(1, height);
+            }
             const above = state.lines.length > room
                 ? Math.max(0, Math.min(
                     (state.cursorLine ?? 0) - Math.floor(room / 2),
@@ -385,8 +438,8 @@ export function createTuiLinesView(
             // A rail without the keyboard draws no selection bar. The bar is
             // the loudest thing on the pane, so leaving it lit beside a live
             // conversation puts the brightest mark on screen where the keys
-            // are not. The `❯` in the row's own gutter is what still says
-            // which row a returning keyboard would land on.
+            // are not. The row's state glyph remains visible without making
+            // it double as a second selection marker.
             const selectable = rail === undefined || state.focused === true;
             for (const line of visible) {
                 add(lineNode(
@@ -401,11 +454,13 @@ export function createTuiLinesView(
             // A dock is two regions: the list above, which scrolls, and a
             // fixed help block on the bottom edge, with an inset rule between
             // them. Centred cards keep their compact height.
-            if (rail !== undefined) {
+            if (rail !== undefined || options.fillHeight === true) {
                 add(new BoxRenderable(renderer, {
                     width: "100%",
                     flexGrow: 1,
                 }));
+            }
+            if (rail !== undefined) {
                 add(new TextRenderable(renderer, {
                     content: "─".repeat(Math.max(1, rail - 2)),
                     fg: TUI_ELEMENT,
@@ -479,12 +534,7 @@ function lineNode(
         }
         return line.tone === "accent" && line.text.length > 0
             ? dialogGroupHeaderNode(renderer, line.text, false)
-            : new TextRenderable(renderer, {
-                content: line.text,
-                fg: toneColor(line.tone),
-                width: "100%",
-                height: 1,
-            });
+            : plainLineNode(renderer, line);
     }
     const rowId = line.rowId;
     const pointer = {
@@ -501,19 +551,65 @@ function lineNode(
             height: 1,
         });
         attachRowPointer(row, pointer);
-        row.add(new TextRenderable(renderer, {
-            content: line.text,
-            fg: toneColor(line.tone),
-            width: "100%",
-            height: 1,
-        }));
+        row.add(plainLineNode(renderer, line));
         return row;
     }
+    const leading = line.leading?.text ?? "";
+    const label = leading.length > 0 && line.text.startsWith(leading)
+        ? line.text.slice(leading.length)
+        : line.text;
     return dialogOptionRow(renderer, {
-        label: line.text,
+        label,
+        ...(leading.length === 0
+            ? {}
+            : { leading, leadingTone: line.leading?.tone }),
         active: line.selected === true,
+        ...(line.emphasis === undefined ? {} : { emphasis: line.emphasis }),
         ...pointer,
     });
+}
+
+/** A line with no row of its own, emphasised run included. */
+function plainLineNode(
+    renderer: RenderContext,
+    line: LinesViewLine,
+): TextRenderable {
+    return new TextRenderable(renderer, {
+        content: lineContent(line, toneColor(line.tone)),
+        width: "100%",
+        height: 1,
+    });
+}
+
+/** A line with its optional status prefix and emphasis both preserved. */
+function lineContent(line: LinesViewLine, color: string): StyledText {
+    const leading = line.leading?.text ?? "";
+    if (leading.length > 0 && line.text.startsWith(leading)) {
+        return new StyledText([
+            fg(TUI_SUCCESS)(leading),
+            fg(color)(line.text.slice(leading.length)),
+        ]);
+    }
+    return emphasised(line.text, color, line.emphasis);
+}
+
+/** The line as one chunk, or as three when a run of it is emphasised. */
+function emphasised(
+    text: string,
+    color: string,
+    emphasis: { readonly start: number; readonly length: number } | undefined,
+): StyledText {
+    if (emphasis === undefined || emphasis.length <= 0) {
+        return new StyledText([fg(color)(text)]);
+    }
+    const start = Math.max(0, Math.min(emphasis.start, text.length));
+    const end = Math.min(text.length, start + emphasis.length);
+    if (end <= start) return new StyledText([fg(color)(text)]);
+    return new StyledText([
+        ...(start > 0 ? [fg(color)(text.slice(0, start))] : []),
+        underline(bold(fg(color)(text.slice(start, end)))),
+        ...(end < text.length ? [fg(color)(text.slice(end))] : []),
+    ]);
 }
 
 /** Header chrome on the app ground: structure without a filled panel band. */
@@ -522,6 +618,9 @@ function groundHeaderNode(
     title: string,
     hint: string,
     dimmed = false,
+    actions: readonly LinesViewHeaderAction[] = [],
+    pointer?: LinesViewPointer,
+    leading?: LinesViewState["titleLeading"],
 ): BoxRenderable {
     const header = new BoxRenderable(renderer, {
         width: "100%",
@@ -530,15 +629,57 @@ function groundHeaderNode(
         justifyContent: "space-between",
     });
     header.add(new TextRenderable(renderer, {
-        content: title,
+        content: headerTitleContent(title, dimmed, leading),
         fg: dimmed ? TUI_MUTED : TUI_TEXT,
         attributes: TextAttributes.BOLD,
     }));
-    if (hint.length > 0) {
+    if (actions.length > 0) {
+        const controls = new BoxRenderable(renderer, {
+            height: 1,
+            flexDirection: "row",
+        });
+        for (const [index, action] of actions.entries()) {
+            const control = new BoxRenderable(renderer, {
+                width: action.text.length,
+                height: 1,
+                ...(index === 0 ? {} : { marginLeft: 2 }),
+            });
+            attachRowPointer(control, {
+                onSelect: () => pointer?.activate?.(action.id),
+            });
+            control.add(new TextRenderable(renderer, {
+                content: action.text,
+                fg: dimmed ? TUI_MUTED : TUI_TEXT,
+                attributes: TextAttributes.BOLD,
+                width: action.text.length,
+                height: 1,
+            }));
+            controls.add(control);
+        }
+        header.add(controls);
+    } else if (hint.length > 0) {
         header.add(new TextRenderable(renderer, {
             content: hint,
             fg: TUI_MUTED,
         }));
     }
     return header;
+}
+
+function headerTitleContent(
+    title: string,
+    dimmed: boolean,
+    leading?: LinesViewState["titleLeading"],
+): string | StyledText {
+    if (
+        dimmed
+        || leading === undefined
+        || !title.startsWith(leading.text)
+    ) {
+        return title;
+    }
+    return new StyledText([
+        fg(TUI_ACCENT)(leading.text),
+        fg(TUI_TEXT)(title.slice(leading.text.length)),
+    ]);
 }

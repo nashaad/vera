@@ -134,6 +134,46 @@ test("a stale session-path lookup cannot update a reopened dialog", async () => 
     }
 }, 15_000);
 
+test("diagnostics shows the host-minted session identity", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-diagnostics-identity-"));
+    const agent: RegisteredAgentSummary = {
+        id: "identity-session",
+        name: "calm-wren:0001",
+        workspace: "/workspace",
+        session_path: "/sessions/identity-session.jsonl",
+        kind: "interactive",
+        status: "idle",
+        live: true,
+    };
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 52,
+        dependencies: () => {
+            const base = createTuiChildDependencies();
+            return {
+                ...base,
+                client: {
+                    ...base.client,
+                    agentId: agent.id,
+                    workspace: agent.workspace,
+                },
+                listAgents: () => Promise.resolve([agent]),
+            };
+        },
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        const pane = await session.waitForVisiblePane("calm-wren:0001");
+        expect(pane).toContain("/sessions/identity-session.jsonl");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("doctor opens the read-only process report inside the TUI", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-doctor-"));
     const session = await startTuiTestSession({

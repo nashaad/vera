@@ -12,6 +12,8 @@ import {
 import {
     DIALOG_SHORT_TERMINAL_HEIGHT,
     dialogBottomOffset,
+    dialogInsetBottomOffset,
+    dialogInsetTop,
     dialogOptionRow,
     dialogOptionRows,
 } from "../../clients/tui/dialog-chrome.ts";
@@ -55,6 +57,27 @@ test("bottom-anchored overlays clear the status line only when there is room", a
     }
 });
 
+test("inset dialogs float clear of both terminal edges", async () => {
+    const roomy = await createTestRenderer({ width: 100, height: 40 });
+    try {
+        expect(dialogInsetTop(roomy.renderer)).toBe(7);
+        expect(dialogInsetBottomOffset(roomy.renderer)).toBe(5);
+    } finally {
+        roomy.renderer.destroy();
+    }
+
+    const short = await createTestRenderer({
+        width: 42,
+        height: DIALOG_SHORT_TERMINAL_HEIGHT,
+    });
+    try {
+        expect(dialogInsetTop(short.renderer)).toBe(1);
+        expect(dialogInsetBottomOffset(short.renderer)).toBe(1);
+    } finally {
+        short.renderer.destroy();
+    }
+});
+
 /** The chunks of the row's meta column, which is its last child. */
 function metaChunks(row: BoxRenderable): readonly TextChunk[] {
     const meta = row.getChildren().at(-1) as TextRenderable;
@@ -67,6 +90,35 @@ function chunkFor(
 ): TextChunk | undefined {
     return chunks.find((chunk) => chunk.text.toString() === text);
 }
+
+test("a positive leading mark uses success green", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    try {
+        const row = dialogOptionRow(setup.renderer, {
+            leading: "✓",
+            leadingTone: "positive",
+            label: " finished",
+            active: false,
+        });
+        const leading = row.getChildren()[0] as TextRenderable;
+        const chunks = (leading.content as StyledText).chunks;
+        expect(chunkFor(chunks, "✓")?.fg).toEqual(parseColor(TUI_SUCCESS));
+
+        const selected = dialogOptionRow(setup.renderer, {
+            leading: "✓",
+            leadingTone: "positive",
+            label: " finished",
+            active: true,
+        });
+        const selectedLeading = selected.getChildren()[0] as TextRenderable;
+        expect(chunkFor(
+            (selectedLeading.content as StyledText).chunks,
+            "✓",
+        )?.fg).toEqual(parseColor(TUI_BACKGROUND));
+    } finally {
+        setup.renderer.destroy();
+    }
+});
 
 test("an affirmative fact in the meta column is toned apart from the rest", async () => {
     const setup = await createTestRenderer({ width: 80, height: 24 });

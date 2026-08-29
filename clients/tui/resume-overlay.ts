@@ -120,6 +120,7 @@ export type JsonlViewKeyAction =
     | "new_session"
     | "cycle_session"
     | "palette"
+    | "search"
     | "command"
     | "type"
     | "home"
@@ -139,8 +140,8 @@ export interface JsonlViewKey {
  *
  * Scroll the transcript, resume (Enter, or any printable key, which resumes
  * with that key as the first character), open the full session list, start a
- * new chat, open the palette, open a slash command, leave through the rail,
- * go back to home, or do nothing.
+ * new chat, open the palette or search, open a slash command, leave through
+ * the rail, go back to home, or do nothing.
  */
 export function jsonlViewKeyAction(
     key: JsonlViewKey,
@@ -170,6 +171,12 @@ export function jsonlViewKeyAction(
     }
     if (options.globalBinding === "open_palette") {
         return "palette";
+    }
+    if (
+        options.globalBinding === "search_conversation"
+        || options.globalBinding === "search_sessions"
+    ) {
+        return "search";
     }
     if (options.sidebarFocused) {
         return "sidebar";

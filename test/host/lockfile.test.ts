@@ -166,7 +166,7 @@ test("a live legacy host is incompatible rather than stale", async () => {
     );
 });
 
-test("a host inside the additive compatibility window stays reusable", async () => {
+test("the current host stays reusable and the prior protocol is rejected", async () => {
     const path = temporaryLockPath();
     const record = await createTestLockfile(path).publish();
     const reader = createTestLockfile(path, {
@@ -217,7 +217,7 @@ test("a newer host can advertise compatibility with this client", async () => {
 });
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
-    "reader reuses an older compatible identity over a real Unix socket",
+    "reader reuses a compatible identity over a real Unix socket",
     async () => {
         const path = temporaryLockPath();
         const socketPath = join(path, "..", "..", "compatible.sock");

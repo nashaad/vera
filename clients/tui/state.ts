@@ -99,7 +99,6 @@ export interface TuiTextTranscriptEntry {
     /** The one summary line a folded tool group keeps. */
     readonly detailPreview?: string;
     /** Whether a short folded preview shares the header row. */
-    readonly inlineDetailPreview?: boolean;
     /** The call a folded group shows on its own header row. */
     readonly command?: string;
     /** Whether this header carries the detail-toggle hint. */
@@ -1410,21 +1409,14 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "tool_header") {
         const header = renderToolHeader(entry);
-        const inlinePreview = entry.inlineDetailPreview === true
-            ? entry.detailPreview
-            : undefined;
         return entry.detailLines === undefined
             ? new StyledText(header)
             : new StyledText([
                 ...header,
-                ...(inlinePreview === undefined
-                    ? []
-                    : renderInlineToolPreview(inlinePreview)),
                 ...(entry.hint === true
                     ? [fg(TUI_MUTED)(`  ${tuiKeyHint("toggle_tool_details")}`)]
                     : []),
                 ...(entry.detailPreview === undefined
-                    || inlinePreview !== undefined
                     ? []
                     : renderCompactToolPreview(entry.detailPreview)),
             ]);
@@ -1721,11 +1713,6 @@ function renderCompactToolPreview(preview: string): TextChunk[] {
         chunks.push(fg(tone === "call" ? TUI_TEXT : TUI_MUTED)(line));
     }
     return chunks;
-}
-
-function renderInlineToolPreview(preview: string): TextChunk[] {
-    const text = preview.startsWith("  └ ") ? preview.slice(4) : preview;
-    return [fg(TUI_MUTED)(`  └ ${text}`)];
 }
 
 /** A row's text, carrying the count when the same call repeated. */
@@ -2219,7 +2206,6 @@ export function formatAskUserResult(output: string): string {
 }
 
 const COMPACT_TOOL_LINE_CHARS = 96;
-const INLINE_TOOL_PREVIEW_CHARS = 24;
 
 /**
  * Completed tool groups with a result share one compact shape. An explicit
@@ -2273,16 +2259,10 @@ function applyToolDetailPreference(
         const summary = active
             ? liveToolSummary(calls)
             : compactToolSummary(rows, calls);
-        // One rule for both states: a preview that rode the header while the
-        // group ran and took a row of its own once it settled would move the
-        // view by that row at the moment of settling.
-        const inlinePreview = summary !== undefined
-            && inlineToolPreview(summary, rows, calls);
         const base = header.header ?? header.text.replace(/^[+-] /, "");
         const {
             detailLines: _detailLines,
             detailPreview: _detailPreview,
-            inlineDetailPreview: _inlineDetailPreview,
             command: _command,
             hint: _hint,
             expanded: _expanded,
@@ -2306,7 +2286,6 @@ function applyToolDetailPreference(
                     ? {}
                     : {
                         detailPreview: summary,
-                        ...(inlinePreview ? { inlineDetailPreview: true } : {}),
                     }),
                 ...(hinted ? { hint: true } : {}),
                 expanded,
@@ -2431,25 +2410,6 @@ function compactToolLine(line: string): string {
         : line;
 }
 
-function inlineToolPreview(
-    preview: string,
-    rows: readonly TuiTextTranscriptEntry[],
-    calls: readonly string[],
-): boolean {
-    const match = /^  └ ([^\n]+)$/.exec(preview);
-    if (
-        match?.[1] === undefined
-        || Array.from(match[1]).length > INLINE_TOOL_PREVIEW_CHARS
-    ) {
-        return false;
-    }
-    if (calls.length > 1) {
-        return true;
-    }
-    const result = rows.find((row) => row.prefix === "  └ ");
-    return result !== undefined && !tuiToolRowText(result).includes("\n");
-}
-
 function settleToolEntries(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -2497,6 +2457,21 @@ function withStoreEntryId(
     return id === undefined || converted.kind === "diff"
         ? converted
         : { ...converted, entryId: id };
+}
+
+/**
+ * The store's own message id for a row, without the row's place in it.
+ *
+ * One stored message becomes several rows (its text, the tools it called), so
+ * the transcript numbers them `<id>#<row>`. Search, resume and rewind all name
+ * the message, so a lookup by one of their ids compares against this.
+ */
+export function transcriptMessageId(
+    entryId: string | undefined,
+): string | undefined {
+    if (entryId === undefined) return undefined;
+    const suffix = entryId.lastIndexOf("#");
+    return suffix === -1 ? entryId : entryId.slice(0, suffix);
 }
 
 function toSingleTuiTranscriptEntry(

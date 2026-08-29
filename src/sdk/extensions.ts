@@ -22,8 +22,34 @@ export interface VeraExtensionApi {
     readonly tools: VeraExtensionTools;
     readonly agents: VeraExtensionAgents;
     readonly hooks: VeraExtensionHooks;
+    readonly sessions: VeraExtensionSessions;
     readonly storage: VeraExtensionStorage;
     onDispose(dispose: VeraExtensionDisposer): void;
+}
+
+/**
+ * How a session is named, addressed, and stamped on shells. The host stores
+ * the result as an opaque identity; it does not parse the name format.
+ */
+export interface SessionIdentity {
+    readonly name: string;
+    /** Addressing key. The host reserves it permanently to one session. */
+    readonly key: string;
+}
+
+export interface SessionIdentityMintRequest {
+    /** True when the key is already reserved and must not be returned. */
+    readonly taken: (key: string) => boolean;
+}
+
+export interface SessionIdentityProvider {
+    mint(request: SessionIdentityMintRequest): SessionIdentity;
+    /** Addressing key for a name-shaped value, or `null` when it is not one. */
+    keyOf?(value: string): string | null;
+}
+
+export interface VeraExtensionSessions {
+    registerIdentity(provider: SessionIdentityProvider): VeraExtensionDisposer;
 }
 
 /**

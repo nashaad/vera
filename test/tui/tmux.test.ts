@@ -714,6 +714,20 @@ test.skipIf(!tmuxAvailable)(
             expect(pane).toContain("readonly");
             expect(pane).toContain("Message sidekick");
 
+            sendKey(socket, session, "C-f");
+            pane = await waitForVisiblePane(socket, session, "this conversation");
+            sendText(socket, session, "scope");
+            pane = await waitForVisiblePane(socket, session, "SEARCH side-");
+            expect(pane).not.toContain("SEARCH main-1");
+            sendKey(socket, session, "Escape");
+            await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("Message sidekick")
+                    && !visible.includes("Search ·"),
+                "search closed with sidekick focus",
+            );
+
             sendText(socket, session, "/");
             await waitForVisiblePane(
                 socket,

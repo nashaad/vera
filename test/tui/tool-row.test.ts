@@ -39,7 +39,7 @@ test("a compact tool preview stays to one row per summary", async () => {
     }
 });
 
-test("a short result stays inline while the detail hint remains visible", async () => {
+test("a short result keeps its tree row under the header", async () => {
     const setup = await createTestRenderer({ width: 52, height: 4 });
     setup.renderer.root.add(createTuiToolHeader(
         setup.renderer,
@@ -50,7 +50,6 @@ test("a short result stays inline while the detail hint remains visible", async 
             command: "test -f config.json",
             detailLines: 2,
             detailPreview: "  └ config-ok",
-            inlineDetailPreview: true,
             hint: true,
         },
         0,
@@ -60,9 +59,10 @@ test("a short result stays inline while the detail hint remains visible", async 
         await setup.flush();
         const rows = setup.captureCharFrame().split("\n");
         expect(rows[0]).toContain("  Ran  test -f");
-        expect(rows[0]).toContain("└ config-ok");
         expect(rows[0]).toContain("ctrl+t details");
-        expect(rows[1]?.trim()).toBe("");
+        expect(rows[0]).not.toContain("└");
+        expect(rows[1]).toContain("└ config-ok");
+        expect(rows[2]?.trim()).toBe("");
     } finally {
         setup.renderer.destroy();
     }

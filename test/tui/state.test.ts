@@ -12,6 +12,7 @@ import {
     appendTuiNotice,
     appendTuiThought,
     toggleTuiThinking,
+    transcriptMessageId,
     toggleTuiToolDetails,
     applyAgentUpdate,
     beginNextQueuedTuiTurn,
@@ -129,6 +130,12 @@ test("ask_user completion is semantic in live and replayed transcripts", () => {
     );
     expect(liveResult?.text).toBe("Answered: Preview (notes: ship after lunch)");
     expect(liveResult?.text).not.toContain("choice_id");
+    const liveHeader = live.entries.find((entry) =>
+        entry.kind === "tool_header"
+    );
+    expect(plainText(renderTuiEntry(liveHeader!))).toContain(
+        "\n  └ Answered: Preview (notes: ship after lunch)",
+    );
 
     const replayed = applyAgentUpdate(createTuiState(), {
         type: "history",
@@ -1420,7 +1427,7 @@ test("a folded multi-file preview distinguishes matching filenames", () => {
     });
 });
 
-test("a short completed tool group uses the same compact header", () => {
+test("a short completed tool result stays under its header", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "tool_started",
         tool: "edit",
@@ -1440,11 +1447,13 @@ test("a short completed tool group uses the same compact header", () => {
         command: "Edit /workspace/note.txt",
         detailLines: 2,
         detailPreview: "  └ ok",
-        inlineDetailPreview: true,
         expanded: false,
     });
     expect(plainText(renderTuiEntry(state.entries[0]!)))
-        .toBe("  Edited  Edit /workspace/note.txt  └ ok  ctrl+t details");
+        .toBe([
+            "  Edited  Edit /workspace/note.txt  ctrl+t details",
+            "  └ ok",
+        ].join("\n"));
     expect(state.entries.slice(1).every((entry) =>
         entry.kind === "tool" && entry.hidden === true
     )).toBe(true);
@@ -2809,4 +2818,15 @@ test("a breaker trip reads as text, with no colour carrying the state", () => {
         expect(entry.kind).toBe("notice");
         expect((entry as { tone?: string }).tone).toBeUndefined();
     }
+});
+
+test("a row's id names the message it came from, not the row", () => {
+    // One stored message becomes several rows, numbered after a hash.
+    expect(transcriptMessageId("abc#0")).toBe("abc");
+    expect(transcriptMessageId("abc#12")).toBe("abc");
+    // A store id with a hash of its own keeps everything up to the last one.
+    expect(transcriptMessageId("a#b#3")).toBe("a#b");
+    // Rows that were never numbered, and rows with no id at all.
+    expect(transcriptMessageId("abc")).toBe("abc");
+    expect(transcriptMessageId(undefined)).toBeUndefined();
 });

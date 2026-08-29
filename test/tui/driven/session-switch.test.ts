@@ -749,7 +749,7 @@ test("opening a sidebar row keeps the source session running", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         const pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
@@ -780,7 +780,7 @@ test("an idle file shows resume instead of the composer, and enter starts the wo
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane(IDLE_TARGET_TRANSCRIPT);
@@ -857,7 +857,7 @@ test("the sidebar resume action opens the picker from an idle file", async () =>
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("ctrl+n new");
@@ -907,7 +907,7 @@ test("ctrl+n from an idle file starts a new chat", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         await session.waitForVisiblePane("This conversation is idle.");
@@ -932,7 +932,7 @@ test("escape from an idle file goes home", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         session.sendKey("Down");
         session.sendKey("Enter");
         let pane = await session.waitForVisiblePane("This conversation is idle.");
@@ -961,7 +961,7 @@ test("opening a live sidebar row attaches to the running worker", async () => {
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] · 2");
+        await session.waitForVisiblePane("VERA · 2");
         // The running one heads the listing and the idle file on screen is
         // filed under recent, so the cursor starts below the row to open.
         session.sendKey("Up");
@@ -1087,7 +1087,7 @@ test("ctrl+n in the agent sidebar starts a new chat and keeps the source running
     try {
         await session.waitForVisiblePane("Start a conversation");
         session.sendKey("C-e");
-        await session.waitForVisiblePane("[ VERA ] ·");
+        await session.waitForVisiblePane("VERA ·");
         session.sendKey("C-n");
         await session.waitForVisiblePane("fresh-model");
         session.sendKey("C-c");

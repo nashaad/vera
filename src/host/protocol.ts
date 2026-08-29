@@ -22,9 +22,11 @@ import type {
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
 // Bump this only when the base wire contract changes. Additive operations use
-// negotiated capabilities and keep the compatibility floor unchanged.
-export const HOST_PROTOCOL_VERSION = 32;
-export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 30;
+// negotiated capabilities and keep the compatibility floor unchanged. Scoped
+// search changed the meaning of an existing request, so old hosts must be
+// replaced instead of silently treating it as an unscoped search.
+export const HOST_PROTOCOL_VERSION = 33;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 33;
 
 export interface HostIdentity {
     readonly pid: number;
@@ -1193,10 +1195,18 @@ function parseSessionSearchQuery(
             || workspace.length > 4_096)) {
         return undefined;
     }
+    const sessionId = value.session_id;
+    if (sessionId !== undefined
+        && (typeof sessionId !== "string"
+            || sessionId.length === 0
+            || sessionId.length > 256)) {
+        return undefined;
+    }
     return {
         query,
         ...(kind === undefined ? {} : { kind }),
         ...(workspace === undefined ? {} : { workspace }),
+        ...(sessionId === undefined ? {} : { session_id: sessionId }),
     };
 }
 

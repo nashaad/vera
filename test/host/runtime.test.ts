@@ -26,6 +26,8 @@ import {
     resumeAgentThroughHost,
 } from "../../src/host/agent-start-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { searchSessionsThroughHost } from
+    "../../src/host/session-search-client.ts";
 import { loadVeraConfig } from "../../src/config.ts";
 import {
     HOST_PROTOCOL_VERSION,
@@ -45,6 +47,31 @@ import type { HostLogEntry } from "../../src/host/host-log.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
 } from "../../src/host/capabilities.ts";
+import { SESSION_IDENTITY_EXTENSION_ID } from "../../src/extensions/bundled-host.ts";
+
+test("the resident host fails closed without an identity provider", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-host-no-identity-"));
+    try {
+        await expect(startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+                disabled_builtin_extensions: [SESSION_IDENTITY_EXTENSION_ID],
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath: join(root, "host.sock"),
+            lockPath: join(root, "host.json"),
+            sessionDirectory: join(root, "sessions"),
+            permissionPreferencesPath: join(root, "preferences.json"),
+        })).rejects.toThrow(
+            "Resident host requires one sessions.identity provider",
+        );
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
     "hard close through the resident host retains a resumable session",
@@ -71,6 +98,8 @@ import {
                 (agent) => agent.id === created.id,
             );
             expect(listed?.session_path).toBeDefined();
+            expect(listed?.name).toMatch(/^[a-z0-9-]+:[0-9a-f]{4}$/);
+            const identity = listed!.name!;
 
             expect(await closeAgentThroughHost(socketPath, created.id))
                 .toEqual({ status: "closed", sessionRetained: true });
@@ -83,8 +112,14 @@ import {
 
             const stored = await SessionStore.open(listed!.session_path);
             expect(stored.header.id).toBe(created.id);
+            expect(stored.identity()?.name).toBe(identity);
             expect(await resumeAgentThroughHost(socketPath, listed!.session_path))
                 .toMatchObject({ id: created.id });
+            expect(
+                (await listAgentsThroughHost(socketPath)).find(
+                    (agent) => agent.id === created.id,
+                )?.name,
+            ).toBe(identity);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });
@@ -901,6 +936,50 @@ process.stdout.write(JSON.stringify({
             });
         } finally {
             await client.detach().catch(() => undefined);
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "session search resolves an imported transcript through its header id",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-search-path-"));
+        const workspace = await realpath(root);
+        const sessionDirectory = join(root, "sessions");
+        const sessionPath = join(sessionDirectory, "imported-name.jsonl");
+        const store = await SessionStore.create(sessionPath, {
+            sessionId: "actual-id",
+            cwd: workspace,
+        });
+        await store.appendMessage({
+            role: "user",
+            content: [{ type: "text", text: "provider fallback" }],
+        });
+
+        const socketPath = join(root, "host.sock");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+        try {
+            const found = await searchSessionsThroughHost(socketPath, {
+                query: "fallback",
+                session_id: "actual-id",
+            });
+            expect(found.results.map((result) => result.session_id))
+                .toEqual(["actual-id"]);
+            expect(found.results[0]?.session_path).toBe(sessionPath);
+        } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });
         }

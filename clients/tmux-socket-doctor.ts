@@ -131,7 +131,7 @@ export function classifyTmuxSocket(
 ): DiagnosedTmuxSocket {
     const live = liveNames.has(name);
     const veraOwned = veraOwnsTmuxSocketName(name);
-    const stray = name !== PROTECTED_TMUX_SOCKET_NAME && veraOwned;
+    const stray = name !== PROTECTED_TMUX_SOCKET_NAME && veraOwned && !live;
     return { name, live, veraOwned, stray };
 }
 
@@ -176,8 +176,9 @@ export function renderTmuxSocketDoctor(report: TmuxSocketReport): string {
 }
 
 /**
- * Stop leftover live Vera tmux servers, then unlink leftover Vera socket
- * files. `default` and non-Vera live servers are not in the stray set.
+ * Unlink leftover Vera socket files after their servers are already gone.
+ * A live Vera UAT or worktree tmux server is owned by whoever started it;
+ * doctor does not kill-server a runtime it does not own.
  */
 export async function sweepStaleTmuxSockets(
     reportOrOptions: TmuxSocketReport | TmuxSocketDoctorOptions = {},

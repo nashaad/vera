@@ -1,4 +1,4 @@
-import { afterAll, expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -30,8 +30,17 @@ const WEDGED = fileURLToPath(
 );
 
 const directories: string[] = [];
+const liveHome = mkdtempSync(join(tmpdir(), "vera-worker-live-"));
+const previousVeraHome = process.env.VERA_HOME;
+
+beforeAll(() => {
+    process.env.VERA_HOME = join(liveHome, ".vera");
+});
 
 afterAll(() => {
+    if (previousVeraHome === undefined) delete process.env.VERA_HOME;
+    else process.env.VERA_HOME = previousVeraHome;
+    rmSync(liveHome, { recursive: true, force: true });
     for (const directory of directories) {
         rmSync(directory, { recursive: true, force: true });
     }

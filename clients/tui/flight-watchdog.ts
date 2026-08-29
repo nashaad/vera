@@ -1,5 +1,6 @@
 import { appendFileSync, readFileSync } from "node:fs";
 import { restoreTerminalNow } from "./terminal-restore.ts";
+import { installLiveProcess } from "../../src/live-process.ts";
 
 const STALL_AFTER_MS = 5_000;
 const CHECK_INTERVAL_MS = 1_000;
@@ -13,6 +14,7 @@ export function heartbeatAge(
 }
 
 if (import.meta.main) {
+    installLiveProcess("watchdog");
     const [pidText, heartbeatPath, logPath, instanceId] = process.argv.slice(2);
     const pid = Number(pidText);
     if (

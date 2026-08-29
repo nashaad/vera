@@ -7,7 +7,7 @@ into smaller steps.
 
 from __future__ import annotations
 
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from contextvars import ContextVar
 from dataclasses import dataclass
 from functools import update_wrapper
@@ -17,7 +17,21 @@ from typing import Callable, Generic, ParamSpec, TypeVar, TypeVarTuple, Unpack, 
 
 from ._canonical import digest, dumps
 from ._errors import Run, RunError, Suspend, WorkflowError
-from ._journal import Journal
+from ._hooks import (
+    CommandHook,
+    PrepareStepHook,
+    clone_json,
+    normalize_prepare_step,
+    run_pre_step_chain,
+)
+from ._sql import SqliteJournalStore
+from ._store import (
+    FileJournalStore,
+    JournalStore,
+    RunJournal,
+    capture_entry,
+    resolve_store,
+)
 from ._ticket import Ticket
 
 
@@ -34,6 +48,9 @@ __all__ = [
     "RunError",
     "current",
     "Ticket",
+    "CommandHook",
+    "FileJournalStore",
+    "SqliteJournalStore",
 ]
 
 
@@ -77,13 +94,21 @@ def _call_user_code(function: Callable[[], R]) -> R:
 
 
 class _Runtime:
-    def __init__(self, journal: Journal, workflow_name: str) -> None:
+    def __init__(
+        self,
+        journal: RunJournal,
+        workflow_name: str,
+        prepare_step: list[PrepareStepHook],
+        inbox: dict[str, object],
+    ) -> None:
         self.journal = journal
         self.workflow_name = workflow_name
+        self._prepare_step = prepare_step
+        self._inbox = inbox
         self.current_run = _CurrentRun(
             id=journal.run_id,
             journal_dir=journal.journal_dir,
-            inbox=MappingProxyType(journal.inbox),
+            inbox=MappingProxyType(inbox),
         )
         self._ordinals: dict[str, int] = {}
 
@@ -107,7 +132,45 @@ class _Runtime:
             raise _RuntimeFault(error) from error
         if key in self.journal.records:
             return cast(R, self.journal.records[key])
-        value = _call_user_code(lambda: function(*args, **kwargs))
+        call_args: tuple[object, ...] = positional_args
+        call_kwargs: dict[str, object] = keyword_args
+        if self._prepare_step:
+            payload = {
+                "type": "pre_step",
+                "run_id": self.current_run.id,
+                "workflow": self.workflow_name,
+                "step": step_name,
+                "key": key,
+                "args": clone_json(list(positional_args)),
+                "kwargs": clone_json(keyword_args),
+                "journal_dir": str(self.current_run.journal_dir),
+                "inbox": clone_json(self._inbox),
+            }
+            if type(payload["args"]) is not list or type(payload["kwargs"]) is not dict:
+                raise _RuntimeFault(
+                    WorkflowError("hook", "pre_step args and kwargs must stay JSON")
+                )
+            try:
+                chain = run_pre_step_chain(self._prepare_step, payload)
+            except WorkflowError as error:
+                raise _RuntimeFault(_hook_fault(error)) from error
+            except Exception as error:
+                raise _RuntimeFault(
+                    WorkflowError("hook", _error_message(error))
+                ) from error
+            if chain.replaced:
+                try:
+                    dumps(chain.replacement)
+                    self.journal.append(key, chain.replacement)
+                except WorkflowError as error:
+                    raise _RuntimeFault(error) from error
+                return cast(R, chain.replacement)
+            if chain.mutated:
+                call_args = chain.args
+                call_kwargs = chain.kwargs
+        typed_args = cast("P.args", call_args)
+        typed_kwargs = cast("P.kwargs", call_kwargs)
+        value = _call_user_code(lambda: function(*typed_args, **typed_kwargs))
         try:
             dumps(value)
             self.journal.append(key, value)
@@ -160,39 +223,70 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
     def run(
         self,
         *args: Unpack[WorkflowArgs],
-        journal_dir: Path | str,
+        journal_dir: Path | str | None = None,
+        journal: JournalStore | None = None,
+        prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
     ) -> Run:
-        path = Path(journal_dir)
+        store = resolve_store(journal_dir=journal_dir, journal=journal)
         positional_args = tuple(args)
         dumps({"args": list(positional_args), "kwargs": {}})
-        journal = Journal.create(path, self.name, self._doc, positional_args, {})
-        return self._execute(journal, positional_args, mark_running=False)
+        handle = store.create(
+            self.name,
+            self._doc,
+            positional_args,
+            {},
+            capture_entry(self.name, self._function),
+        )
+        return self._execute(
+            handle,
+            positional_args,
+            normalize_prepare_step(prepare_step),
+            mark_running=False,
+        )
 
-    def resume(self, run_id: str, *, journal_dir: Path | str) -> Run:
-        journal = Journal.load(Path(journal_dir), run_id, self.name)
-        args, kwargs = journal.inputs()
+    def resume(
+        self,
+        run_id: str,
+        *,
+        journal_dir: Path | str | None = None,
+        journal: JournalStore | None = None,
+        prepare_step: PrepareStepHook | Sequence[PrepareStepHook] | None = None,
+    ) -> Run:
+        store = resolve_store(journal_dir=journal_dir, journal=journal)
+        handle = store.load(run_id, self.name)
+        args, kwargs = handle.inputs()
         if kwargs:
             raise WorkflowError(
                 "journal",
                 "workflow run contains unsupported keyword inputs",
             )
-        return self._execute(journal, args, mark_running=True)
+        return self._execute(
+            handle,
+            args,
+            normalize_prepare_step(prepare_step),
+            mark_running=True,
+        )
 
     def _execute(
         self,
-        journal: Journal,
+        journal: RunJournal,
         args: tuple[object, ...],
+        prepare_step: list[PrepareStepHook],
         *,
         mark_running: bool,
     ) -> Run:
         if mark_running:
             journal.mark_running()
-        runtime = _Runtime(journal, self.name)
+        inbox = clone_json(journal.inbox)
+        if type(inbox) is not dict:
+            raise WorkflowError("journal", "header field inbox must be an object")
+        runtime = _Runtime(journal, self.name, prepare_step, inbox)
         token = _runtime.set(runtime)
         typed_args = cast(tuple[Unpack[WorkflowArgs]], args)
         try:
             result = _call_user_code(lambda: self._function(*typed_args))
         except Suspend as suspended:
+            journal.reload_inbox()
             journal.mark_suspended(suspended.reason)
             return Run(
                 journal.run_id,
@@ -202,6 +296,7 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         except _UserFailure as failure:
             message = _error_message(failure.error)
+            journal.reload_inbox()
             journal.mark_failed("step", message)
             return Run(
                 journal.run_id,
@@ -211,18 +306,20 @@ class _Workflow(Generic[Unpack[WorkflowArgs], R]):
             )
         except _RuntimeFault as fault:
             error = fault.error
-            if error.kind != "serialize":
+            if error.kind not in ("serialize", "hook"):
                 raise error from fault
             message = _error_message(error)
-            journal.mark_failed("serialize", message)
+            journal.reload_inbox()
+            journal.mark_failed(error.kind, message)
             return Run(
                 journal.run_id,
                 "failed",
                 None,
-                RunError("serialize", message),
+                RunError(error.kind, message),
             )
         finally:
             _runtime.reset(token)
+        journal.reload_inbox()
         journal.mark_ok()
         return Run(journal.run_id, "ok", result, None)
 
@@ -235,3 +332,9 @@ def workflow(
     function: Callable[[Unpack[WorkflowArgs]], R],
 ) -> _Workflow[Unpack[WorkflowArgs], R]:
     return _Workflow(function)
+
+
+def _hook_fault(error: WorkflowError) -> WorkflowError:
+    if error.kind in ("serialize", "hook"):
+        return error
+    return WorkflowError("hook", _error_message(error))

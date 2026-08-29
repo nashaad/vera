@@ -30,11 +30,17 @@ def _reject_constant(value: str) -> object:
     raise ValueError(f"invalid JSON constant {value}")
 
 
-def _parse_json(text: str, source: Path) -> object:
+def _parse_json_text(text: str, source: str) -> object:
+    if type(text) is not str:
+        raise _journal_error(f"invalid JSON in {source}")
     try:
         return json.loads(text, parse_constant=_reject_constant)
     except (ValueError, RecursionError) as error:
         raise _journal_error(f"invalid JSON in {source}") from error
+
+
+def _parse_json(text: str, source: Path) -> object:
+    return _parse_json_text(text, str(source))
 
 
 def _read_blob(path: Path, reference: str, byte_count: int) -> object:
@@ -88,6 +94,75 @@ def _validate_timestamp(value: object, field: str) -> None:
         raise _journal_error(f"header field {field} must include a timezone")
 
 
+def validate_header(
+    raw: object,
+    run_id: str,
+    workflow_name: str | None,
+) -> dict[str, object]:
+    if type(raw) is not dict:
+        raise _journal_error("workflow header must be a JSON object")
+    header: dict[str, object] = raw
+    required = {"run_id", "workflow", "status", "started_at", "inbox", "doc"}
+    missing = sorted(required.difference(header))
+    if missing:
+        raise _journal_error(f"workflow header is missing: {', '.join(missing)}")
+    if header["run_id"] != run_id:
+        raise _journal_error("workflow header run_id does not match its directory")
+    stored_workflow = header["workflow"]
+    if type(stored_workflow) is not str:
+        raise _journal_error("header field workflow must be a string")
+    if workflow_name is not None and stored_workflow != workflow_name:
+        raise _journal_error(
+            f"run belongs to workflow {stored_workflow!r}, not {workflow_name!r}"
+        )
+    status = header["status"]
+    if type(status) is not str or status not in _STATUSES:
+        raise _journal_error("workflow header has an invalid status")
+    _validate_timestamp(header["started_at"], "started_at")
+    if type(header["inbox"]) is not dict:
+        raise _journal_error("header field inbox must be an object")
+    if type(header["doc"]) is not str:
+        raise _journal_error("header field doc must be a string")
+    if status == "ok":
+        _validate_timestamp(header.get("finished_at"), "finished_at")
+    if status == "failed":
+        error = header.get("error")
+        if type(error) is not dict:
+            raise _journal_error("failed workflow header must include error")
+        if type(error.get("kind")) is not str or type(error.get("message")) is not str:
+            raise _journal_error("workflow header error must include kind and message")
+    if status == "suspended" and type(header.get("reason")) is not str:
+        raise _journal_error("suspended workflow header must include reason")
+    args = header.get("args")
+    kwargs = header.get("kwargs")
+    if type(args) is not list or type(kwargs) is not dict:
+        raise _journal_error("workflow header is missing resumable inputs")
+    try:
+        dumps({"args": args, "kwargs": kwargs})
+    except WorkflowError as error:
+        raise _journal_error("workflow header contains invalid inputs") from error
+    _validate_entry(header.get("entry"))
+    return header
+
+
+def _validate_entry(entry: object) -> None:
+    if entry is None:
+        return
+    if type(entry) is not dict:
+        raise _journal_error("header field entry must be an object")
+    for field in ("file", "workflow", "cwd"):
+        value = entry.get(field)
+        if type(value) is not str or not value:
+            raise _journal_error(
+                f"header field entry.{field} must be a non-empty string"
+            )
+    extra = sorted(set(entry).difference({"file", "workflow", "cwd"}))
+    if extra:
+        raise _journal_error(
+            f"header field entry has unknown keys: {', '.join(extra)}"
+        )
+
+
 class Journal:
     def __init__(
         self,
@@ -111,6 +186,7 @@ class Journal:
         doc: str,
         args: tuple[object, ...],
         kwargs: dict[str, object],
+        entry: dict[str, str],
     ) -> Journal:
         cls._require_journal_dir(journal_dir)
         run_id = "wf_" + uuid.uuid4().hex[:16]
@@ -124,6 +200,7 @@ class Journal:
             "doc": doc,
             "args": list(args),
             "kwargs": kwargs,
+            "entry": dict(entry),
         }
         try:
             run_dir.mkdir()
@@ -155,7 +232,7 @@ class Journal:
         except (OSError, UnicodeError) as error:
             raise _journal_error(f"cannot read {header_path}") from error
         raw_header = _parse_json(header_text, header_path)
-        header = cls._validate_header(raw_header, run_id, workflow_name)
+        header = validate_header(raw_header, run_id, workflow_name)
         records, next_seq = cls._load_records(run_dir / "journal.ndjson")
         return cls(journal_dir, run_dir, header, records, next_seq)
 
@@ -163,56 +240,6 @@ class Journal:
     def _require_journal_dir(journal_dir: Path) -> None:
         if not journal_dir.is_dir():
             raise _journal_error(f"journal directory does not exist: {journal_dir}")
-
-    @staticmethod
-    def _validate_header(
-        raw: object,
-        run_id: str,
-        workflow_name: str | None,
-    ) -> dict[str, object]:
-        if type(raw) is not dict:
-            raise _journal_error("workflow header must be a JSON object")
-        header: dict[str, object] = raw
-        required = {"run_id", "workflow", "status", "started_at", "inbox", "doc"}
-        missing = sorted(required.difference(header))
-        if missing:
-            raise _journal_error(f"workflow header is missing: {', '.join(missing)}")
-        if header["run_id"] != run_id:
-            raise _journal_error("workflow header run_id does not match its directory")
-        stored_workflow = header["workflow"]
-        if type(stored_workflow) is not str:
-            raise _journal_error("header field workflow must be a string")
-        if workflow_name is not None and stored_workflow != workflow_name:
-            raise _journal_error(
-                f"run belongs to workflow {stored_workflow!r}, not {workflow_name!r}"
-            )
-        status = header["status"]
-        if type(status) is not str or status not in _STATUSES:
-            raise _journal_error("workflow header has an invalid status")
-        _validate_timestamp(header["started_at"], "started_at")
-        if type(header["inbox"]) is not dict:
-            raise _journal_error("header field inbox must be an object")
-        if type(header["doc"]) is not str:
-            raise _journal_error("header field doc must be a string")
-        if status == "ok":
-            _validate_timestamp(header.get("finished_at"), "finished_at")
-        if status == "failed":
-            error = header.get("error")
-            if type(error) is not dict:
-                raise _journal_error("failed workflow header must include error")
-            if type(error.get("kind")) is not str or type(error.get("message")) is not str:
-                raise _journal_error("workflow header error must include kind and message")
-        if status == "suspended" and type(header.get("reason")) is not str:
-            raise _journal_error("suspended workflow header must include reason")
-        args = header.get("args")
-        kwargs = header.get("kwargs")
-        if type(args) is not list or type(kwargs) is not dict:
-            raise _journal_error("workflow header is missing resumable inputs")
-        try:
-            dumps({"args": args, "kwargs": kwargs})
-        except WorkflowError as error:
-            raise _journal_error("workflow header contains invalid inputs") from error
-        return header
 
     @staticmethod
     def _load_records(path: Path) -> tuple[dict[str, object], int]:
@@ -355,6 +382,18 @@ class Journal:
         self.header.pop("finished_at", None)
         self.header.pop("error", None)
         self.write_header()
+
+    def reload_inbox(self) -> None:
+        header_path = self.run_dir / "header.json"
+        try:
+            raw = json.loads(header_path.read_text(encoding="utf-8"))
+        except (OSError, UnicodeError, json.JSONDecodeError):
+            return
+        if type(raw) is not dict:
+            return
+        inbox = raw.get("inbox")
+        if type(inbox) is dict:
+            self.header["inbox"] = inbox
 
     def write_header(self) -> None:
         header_path = self.run_dir / "header.json"

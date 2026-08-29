@@ -24,7 +24,12 @@ function root(): string {
     return directory;
 }
 
-function writeSession(directory: string, id: string, said: string): void {
+function writeSession(
+    directory: string,
+    id: string,
+    said: string | readonly string[],
+): void {
+    const messages = typeof said === "string" ? [said] : said;
     writeFileSync(join(directory, `${id}.jsonl`), [
         JSON.stringify({
             type: "session",
@@ -33,13 +38,13 @@ function writeSession(directory: string, id: string, said: string): void {
             timestamp: "2026-08-01T00:00:00.000Z",
             cwd: "/work/one",
         }),
-        JSON.stringify({
+        ...messages.map((text, index) => JSON.stringify({
             type: "message",
-            id: "m1",
-            parentId: null,
+            id: `m${index + 1}`,
+            parentId: index === 0 ? null : `m${index}`,
             timestamp: "2026-08-01T00:00:00.000Z",
-            message: { role: "user", content: [{ type: "text", text: said }] },
-        }),
+            message: { role: "user", content: [{ type: "text", text }] },
+        })),
         "",
     ].join("\n"), "utf8");
 }
@@ -123,6 +128,81 @@ networked("a query the host will not accept closes without answering", async () 
         await expect(searchSessionsThroughHost(
             socketPath,
             { query: "x".repeat(300) },
+            1_000,
+        )).rejects.toBeDefined();
+        expect(scanned).toBe(false);
+    } finally {
+        await server.close();
+    }
+});
+
+networked("a search naming one session carries the id across", async () => {
+    const directory = root();
+    const sessions = join(directory, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(sessions, "one", "does the provider fallback kick in");
+    writeSession(sessions, "two", "the provider fallback again");
+
+    const socketPath = join(directory, "host.sock");
+    const server = await startHostServer({
+        socketPath,
+        lockPath: join(directory, "host.json"),
+        searchSessions: (query) => searchSessions(sessions, query),
+    });
+    try {
+        const found = await searchSessionsThroughHost(socketPath, {
+            query: "provider fallback",
+            session_id: "two",
+        });
+        expect(found.results.map((result) => result.session_id)).toEqual(["two"]);
+    } finally {
+        await server.close();
+    }
+});
+
+networked("a named session carries more than the list hit cap", async () => {
+    const directory = root();
+    const sessions = join(directory, "sessions");
+    mkdirSync(sessions, { recursive: true });
+    writeSession(
+        sessions,
+        "one",
+        Array.from({ length: 5 }, (_, index) => `fallback ${index}`),
+    );
+
+    const socketPath = join(directory, "host.sock");
+    const server = await startHostServer({
+        socketPath,
+        lockPath: join(directory, "host.json"),
+        searchSessions: (query) => searchSessions(sessions, query),
+    });
+    try {
+        const found = await searchSessionsThroughHost(socketPath, {
+            query: "fallback",
+            session_id: "one",
+        });
+        expect(found.results[0]?.hits).toHaveLength(5);
+    } finally {
+        await server.close();
+    }
+});
+
+networked("a session id past the bound is refused, not scanned", async () => {
+    const directory = root();
+    const socketPath = join(directory, "host.sock");
+    let scanned = false;
+    const server = await startHostServer({
+        socketPath,
+        lockPath: join(directory, "host.json"),
+        searchSessions: async (query) => {
+            scanned = true;
+            return searchSessions(directory, query);
+        },
+    });
+    try {
+        await expect(searchSessionsThroughHost(
+            socketPath,
+            { query: "fallback", session_id: "x".repeat(300) },
             1_000,
         )).rejects.toBeDefined();
         expect(scanned).toBe(false);
