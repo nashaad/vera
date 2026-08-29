@@ -1490,6 +1490,25 @@ test("an empty model list says which emptiness it is", async () => {
     expect(noCatalogFrame).not.toContain("Nothing shortlisted yet");
 });
 
+test("an empty model list stays put on Down and reaches More with one Up", () => {
+    const empty = {
+        ...switchedModelTab(
+            modelPickerWithPool([], "z-ai/glm-5.2", "openrouter"),
+            "pool",
+        ),
+        actionOptions: tuiModelActionOptions(["openrouter"], { hasPool: true }),
+    } as TuiSettingsPickerState;
+    expect(empty.options).toHaveLength(0);
+
+    const down = handleTuiSettingsPickerKey(empty, { name: "down" }).state!;
+    expect(down.selectedIndex).toBe(0);
+    expect(down.modelFocus).toBe("list");
+
+    const up = handleTuiSettingsPickerKey(down, { name: "up" }).state!;
+    expect(up.selectedIndex).toBe(0);
+    expect(up.modelFocus).toBe("page_entry");
+});
+
 test("a search that matches no model says so on All models", async () => {
     const empty = startTuiSettingsPicker(
         "model",

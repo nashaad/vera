@@ -3011,9 +3011,12 @@ export function handleTuiSettingsPickerKey(
         }
         const next = {
                 ...state,
-                selectedIndex: Math.min(
-                    state.options.length - 1,
-                    state.selectedIndex + 1,
+                selectedIndex: Math.max(
+                    0,
+                    Math.min(
+                        state.options.length - 1,
+                        state.selectedIndex + 1,
+                    ),
                 ),
             };
         return {
