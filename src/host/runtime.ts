@@ -993,6 +993,8 @@ export async function startResidentHost(
                 resumeSession,
             ),
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
+            readModelSettings: (workspace) =>
+                registry.readHostModelSettings(workspace),
             listAgents: async () => mergeStoredAndResidentAgents(
                 await storedSessions,
                 registry.list(),

@@ -582,7 +582,7 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "New", value: "ctrl+n" },
     { label: "Resume", value: "ctrl+r" },
     { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Chat", value: "tab" },
+    { label: "Chat", value: "→" },
     { label: "Hide", value: "ctrl+e" },
 ];
 
@@ -594,7 +594,7 @@ export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
  */
 export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
     { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Focus", value: "tab" },
+    { label: "Focus", value: "←" },
     { label: "Hide", value: "ctrl+e" },
 ];
 

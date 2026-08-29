@@ -448,7 +448,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "focus_composer",
-        keys: ["i", "tab"],
+        keys: ["i", "right"],
         scope: "unfocused",
         description: "Put the cursor back in the composer",
     },
@@ -495,21 +495,17 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
     },
     {
         id: "verify_pool",
-        keys: ["ctrl+v"],
+        keys: ["ctrl+shift+v"],
         scope: "model_picker",
         description: "Probe the models you keep, and record what they can do",
-        hint: "^v verify all",
+        hint: "^⇧v verify all",
     },
     {
-        // Reported as ctrl+shift+r only under the kitty keyboard protocol, the
-        // same caveat the half-page chords above carry. Elsewhere the shift is
-        // dropped and it arrives as plain ctrl+r, which this scope binds to the
-        // endpoint form, so the probe is out of reach there.
         id: "verify_model",
-        keys: ["ctrl+shift+r"],
+        keys: ["ctrl+v"],
         scope: "model_picker",
         description: "Probe the selected model and record what it can do",
-        hint: "^⇧r verify",
+        hint: "^v verify",
     },
     {
         id: "move_pooled_up",

@@ -38,6 +38,7 @@ import {
 import type {
     DeveloperSettings,
     DeveloperSettingsPatch,
+    ModelTurnSettings,
     ReviewerModelDefault,
     ReviewerModelSelection,
 } from "../../src/engine/model-settings.ts";
@@ -46,7 +47,9 @@ import {
     TUI_ACCENT,
     TUI_BACKGROUND,
     TUI_CHROME,
+    TUI_DANGER,
     TUI_ELEMENT,
+    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_SUCCESS,
@@ -366,6 +369,24 @@ export interface TuiSettingsPickerState {
     readonly loading?: boolean;
     /** Set only on the model pane. */
     readonly tab?: TuiModelPickerTab;
+    /** Which part of a model collection owns the arrow keys. */
+    readonly modelFocus?:
+        | "list"
+        | "list_action"
+        | "detail"
+        | "page_entry"
+        | "page";
+    /** Which page action is highlighted while the page view holds focus. */
+    readonly modelPageIndex?: number;
+    /**
+     * Set when the pane was opened with no conversation behind it. The catalog
+     * arrives on a session snapshot, so there is nothing to list and no chord
+     * that would fill it: the empty state has to say that rather than report
+     * an empty catalog the user could act on.
+     */
+    readonly modelCatalogUnavailable?: boolean;
+    /** The focused action in the selected model's inspector. */
+    readonly modelActionIndex?: number;
     /**
      * The Defaults tab's rows, which are jobs rather than models and so cannot be
      * filtered out of `allOptions` the way the other tabs are. Set by the
@@ -638,6 +659,48 @@ export type TuiAnySettingsPickerState =
     | TuiSettingsPickerState
     | TuiExtensionPickerState;
 
+/** Move picker focus to a rendered row, including model-pane action rows. */
+export function moveTuiSettingsPickerPointer(
+    state: TuiAnySettingsPickerState,
+    index: number,
+): TuiAnySettingsPickerState {
+    if (state.kind !== "model") {
+        return { ...state, selectedIndex: index };
+    }
+    // The page area sits above the list, so it counts down from the rows
+    // rather than on from them and can never collide with one.
+    if (index < 0) {
+        if (index === -1) {
+            return modelPageEntry(state) === undefined
+                ? state
+                : { ...state, modelFocus: "page_entry" };
+        }
+        const pageIndex = -index - 2;
+        return pageIndex < modelPageActions(state).length
+            ? { ...state, modelFocus: "page", modelPageIndex: pageIndex }
+            : state;
+    }
+    if (index < state.options.length) {
+        return { ...state, selectedIndex: index, modelFocus: "list" };
+    }
+    if (index === state.options.length && modelListAction(state) !== undefined) {
+        return { ...state, modelFocus: "list_action" };
+    }
+    const actionIndex = index - state.options.length - 1;
+    const actions = modelDetailActions(
+        state,
+        state.options[state.selectedIndex],
+    );
+    if (actionIndex >= 0 && actionIndex < actions.length) {
+        return {
+            ...state,
+            modelFocus: "detail",
+            modelActionIndex: actionIndex,
+        };
+    }
+    return state;
+}
+
 export interface TuiSettingsPickerView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
@@ -646,6 +709,15 @@ export interface TuiSettingsPickerView {
      * the pane redraws from scratch on every update and reads it then.
      */
     tip?: string;
+    /** A live model check drawn as an inset console above the footer. */
+    verification?: {
+        readonly subject: string;
+        /** The checks the engine has reported so far, in arrival order. */
+        readonly steps?: readonly {
+            readonly label: string;
+            readonly status: "running" | "passed" | "failed" | "skipped";
+        }[];
+    };
     /** What clicking a tab chip does, in the same terms as the ⇥ key. */
     onTab?: (tab: TuiModelPickerTab) => void;
     /** Opens provider connection without changing which model tab is active. */
@@ -804,6 +876,7 @@ export function syncTuiModelPicker(
         readonly model?: string;
         readonly availableModels?: readonly SuggestedModel[];
         readonly pooled?: readonly PooledModel[];
+        readonly actionOptions?: readonly TuiSettingsPickerOption[];
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
@@ -829,9 +902,12 @@ export function syncTuiModelPicker(
     // reason the tab is: a snapshot arriving from the host must not reopen
     // them under the user mid-action.
     const collapsed = state.collapsed ?? [];
+    const actionOptions = settings?.actionOptions ?? state.actionOptions ?? [];
     const onTab = {
         ...rebuilt,
         tab,
+        ...modelSyncedFocus(state, { ...rebuilt, tab, actionOptions }),
+        modelActionIndex: state.modelActionIndex ?? 0,
         ...(state.revealAll === true ? { revealAll: true } : {}),
         ...(collapsed.length === 0 ? {} : { collapsed }),
         // Slot rows are read from config and the pool rather than from the
@@ -839,9 +915,7 @@ export function syncTuiModelPicker(
         ...(state.assignmentOptions === undefined
             ? {}
             : { assignmentOptions: state.assignmentOptions }),
-        ...(state.actionOptions === undefined
-            ? {}
-            : { actionOptions: state.actionOptions }),
+        ...(actionOptions.length === 0 ? {} : { actionOptions }),
         options: modelPickerOptions(
             rebuilt.allOptions,
             tab,
@@ -849,7 +923,7 @@ export function syncTuiModelPicker(
             "",
             state.revealAll === true,
             state.assignmentOptions ?? [],
-            state.actionOptions ?? [],
+            actionOptions,
         ),
     };
     const options = state.query.length === 0
@@ -873,6 +947,20 @@ export function syncTuiModelPicker(
             ? Math.min(state.selectedIndex, Math.max(0, options.length - 1))
             : selectedIndex,
     };
+}
+
+/**
+ * A shortlist refresh can arrive on the main connection while this picker
+ * belongs to a side agent. Keep that agent's running pair and catalog while
+ * accepting the newly stored global shortlist.
+ */
+export function mergeTuiModelPickerSettings(
+    target: ModelTurnSettings | undefined,
+    poolSource: ModelTurnSettings | undefined,
+): ModelTurnSettings | undefined {
+    if (target === undefined) return poolSource;
+    if (poolSource?.pooled === undefined) return target;
+    return { ...target, pooled: poolSource.pooled };
 }
 
 /**
@@ -1359,30 +1447,54 @@ export function tuiModelAssignmentValue(assignment: ModelAssignmentId): string {
  */
 export function tuiModelActionOptions(
     providers: readonly string[],
-    options: { readonly hasPool?: boolean } = {},
+    options: {
+        readonly hasPool?: boolean;
+        readonly currentModel?: {
+            readonly provider: string;
+            readonly model: string;
+            readonly shortlisted: boolean;
+        };
+    } = {},
 ): readonly TuiSettingsPickerOption[] {
     // One row, not one per provider: which providers to ask is the second
     // question, and asking it here would repeat the same chord down the list.
-    const rows: TuiSettingsPickerOption[] = providers.length === 0 ? [] : [{
+    const rows: TuiSettingsPickerOption[] = [];
+    if (options.currentModel?.shortlisted === false) {
+        const current = options.currentModel;
+        rows.push({
+            value: tuiModelActionValue("shortlist_current"),
+            label: "Add current model to shortlist",
+            description: "enter",
+            note:
+                `Adds ${current.provider}/${current.model}, the model this conversation is using, to your shortlist.`,
+            detailTitle: "add current model",
+            detailFacts: [["Current model", `${current.provider}/${current.model}`]],
+            searchText: `add pin keep current model shortlist ${current.provider} ${current.model}`,
+            provider: current.provider,
+            model: current.model,
+            action: true,
+        });
+    }
+    if (providers.length > 0) rows.push({
         value: tuiModelActionValue("refresh"),
-        label: "Refresh model lists",
+        label: "Refresh model catalog from providers",
         description: tuiKeyHint("refresh_catalog").split(" ")[0] ?? "",
         note:
             "Asks the providers for their models again, so anything released since the last check shows up here. Which ones to ask comes next.",
-        detailTitle: "refresh model lists",
+        detailTitle: "refresh model catalog from providers",
         detailFacts: [],
         searchText: `refresh reload update fetch new models catalog ${
             providers.join(" ")
         }`,
-    }];
+    });
     if (options.hasPool === true) {
         rows.push({
             value: tuiModelActionValue("verify_pool"),
-            label: "Check that shortlisted models work",
+            label: "Verify shortlisted models",
             description: tuiKeyHint("verify_pool").split(" ")[0] ?? "",
             note:
-                "Sends one small request to each model on the shortlist and marks the ones that answer.",
-            detailTitle: "check the shortlist",
+                "Choose unverified models or the whole shortlist, then send one small request to each and mark the ones that answer.",
+            detailTitle: "verify shortlist",
             detailFacts: [],
             searchText: "verify check test probe working broken shortlist pool",
         });
@@ -1720,14 +1832,14 @@ export function startTuiPoolVerifyScopePicker(
         },
         {
             value: POOL_VERIFY_ALL_VALUE,
-            label: `Everything you keep (${total})`,
+            label: `Everything on your shortlist (${total})`,
             description: "re-probes models that already answered",
         },
     ];
     return {
         kind: "pool_verify_scope",
-        title: "Probe the models you keep",
-        subtitle: "each one is a live call to its provider",
+        title: "Verify shortlisted models",
+        subtitle: "each model is one live call to its provider",
         allOptions: options,
         options,
         selectedIndex: unverified === 0 ? 1 : 0,
@@ -1769,7 +1881,7 @@ export function startTuiCatalogRefreshScopePicker(
         ];
     return {
         kind: "catalog_refresh_scope",
-        title: "Refresh model lists",
+        title: "Refresh model catalog from providers",
         subtitle: "each provider is one call over the network",
         allOptions: options,
         options,
@@ -2593,6 +2705,134 @@ export function handleTuiSettingsPickerKey(
         }
         return { state, handled: true, forgetProvider: selected.value };
     }
+    if (state.kind === "model" && state.modelFocus === "page") {
+        const actions = modelPageActions(state);
+        const selected = Math.min(
+            state.modelPageIndex ?? 0,
+            Math.max(0, actions.length - 1),
+        );
+        // Escape here has a level to give back, so it does that rather than
+        // closing the dialog from under a view the user opened on purpose.
+        if (key.name === "left" || key.name === "escape") {
+            return {
+                state: { ...state, modelFocus: "page_entry" },
+                handled: true,
+            };
+        }
+        if (key.name === "up" || key.name === "down") {
+            const delta = key.name === "up" ? -1 : 1;
+            return {
+                state: {
+                    ...state,
+                    modelPageIndex: Math.max(
+                        0,
+                        Math.min(actions.length - 1, selected + delta),
+                    ),
+                },
+                handled: true,
+            };
+        }
+        if (key.name === "return" || key.name === "enter") {
+            const transition = modelActionTransition(state, actions[selected]!);
+            return transition ?? unchanged(state, true);
+        }
+        if (key.name === "right") {
+            return unchanged(state, true);
+        }
+        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
+            return unchanged(state, true);
+        }
+    }
+    if (state.kind === "model" && state.modelFocus === "page_entry") {
+        if (
+            key.name === "right" || key.name === "return"
+            || key.name === "enter"
+        ) {
+            return modelPageActions(state).length === 0
+                ? unchanged(state, true)
+                : {
+                    state: { ...state, modelFocus: "page", modelPageIndex: 0 },
+                    handled: true,
+                };
+        }
+        if (key.name === "escape" || key.name === "down") {
+            return {
+                state: { ...state, modelFocus: "list", selectedIndex: 0 },
+                handled: true,
+            };
+        }
+        if (key.name === "up" || key.name === "left") {
+            return unchanged(state, true);
+        }
+    }
+    if (state.kind === "model" && state.modelFocus === "detail") {
+        const actions = modelDetailActions(
+            state,
+            state.options[state.selectedIndex],
+        );
+        const selectedAction = modelActionCursor(state, actions);
+        if (key.name === "left") {
+            return {
+                state: { ...state, modelFocus: "list" },
+                handled: true,
+            };
+        }
+        if (key.name === "right") {
+            return unchanged(state, true);
+        }
+        if (key.name === "up" || key.name === "down") {
+            const delta = key.name === "up" ? -1 : 1;
+            return {
+                state: {
+                    ...state,
+                    modelActionIndex: Math.max(
+                        0,
+                        Math.min(actions.length - 1, selectedAction + delta),
+                    ),
+                },
+                handled: true,
+            };
+        }
+        if (key.name === "return" || key.name === "enter") {
+            return modelDetailActionTransition(state, actions[selectedAction]);
+        }
+        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
+            return unchanged(state, true);
+        }
+    }
+    if (state.kind === "model" && state.modelFocus === "list_action") {
+        if (key.name === "up") {
+            return {
+                state: { ...state, modelFocus: "list" },
+                handled: true,
+            };
+        }
+        if (key.name === "down" || key.name === "left") {
+            return unchanged(state, true);
+        }
+        if (key.name === "right") {
+            const actions = modelDetailActions(
+                state,
+                state.options[state.selectedIndex],
+            );
+            return actions.length === 0
+                ? unchanged(state, true)
+                : {
+                    state: {
+                        ...state,
+                        modelFocus: "detail",
+                        modelActionIndex: 0,
+                    },
+                    handled: true,
+                };
+        }
+        if (key.name === "return" || key.name === "enter") {
+            return modelListActionTransition(state, modelListAction(state));
+        }
+        if ((key.name.length === 1 || key.name === "space") && !key.ctrl) {
+            return unchanged(state, true);
+        }
+    }
     // Fold and unfold everything, ahead of the modifier bail-out below because
     // both chords carry shift. Either one replaces whatever mix of open and
     // closed sections the user had: it is one answer to "show me less" or
@@ -2706,6 +2946,26 @@ export function handleTuiSettingsPickerKey(
     // else. On a row inside a section they act on the heading above it, so
     // closing a long provider does not first mean scrolling back up to it.
     if (key.name === "left" || key.name === "right") {
+        if (
+            state.kind === "model"
+            && key.name === "right"
+            && state.options[state.selectedIndex]?.section === undefined
+        ) {
+            const actions = modelDetailActions(
+                state,
+                state.options[state.selectedIndex],
+            );
+            if (actions.length > 0) {
+                return {
+                    state: {
+                        ...state,
+                        modelFocus: "detail",
+                        modelActionIndex: 0,
+                    },
+                    handled: true,
+                };
+            }
+        }
         const heading = enclosingSection(state);
         if (heading === undefined) {
             return unchanged(state, false);
@@ -2717,6 +2977,17 @@ export function handleTuiSettingsPickerKey(
         return toggledSection(state, heading.section);
     }
     if (key.name === "up") {
+        if (
+            state.kind === "model"
+            && state.selectedIndex === 0
+            && (state.modelFocus ?? "list") === "list"
+            && modelPageEntry(state) !== undefined
+        ) {
+            return {
+                state: { ...state, modelFocus: "page_entry" },
+                handled: true,
+            };
+        }
         const next = {
                 ...state,
                 selectedIndex: Math.max(0, state.selectedIndex - 1),
@@ -2728,6 +2999,16 @@ export function handleTuiSettingsPickerKey(
         };
     }
     if (key.name === "down") {
+        if (
+            state.kind === "model"
+            && state.selectedIndex === state.options.length - 1
+            && modelListAction(state) !== undefined
+        ) {
+            return {
+                state: { ...state, modelFocus: "list_action" },
+                handled: true,
+            };
+        }
         const next = {
                 ...state,
                 selectedIndex: Math.min(
@@ -2871,6 +3152,7 @@ export function createTuiSettingsPickerView(
                 nodes,
                 view.pointer,
                 view.tip,
+                view.verification,
                 view.onTab,
                 view.onConfigure,
                 railInset,
@@ -2943,11 +3225,13 @@ function themePickerTop(renderer: RenderContext, themeRows: number): number {
 export function tuiPickerViewportRows(
     renderer: RenderContext,
     state: TuiAnySettingsPickerState,
+    extraChrome = 0,
 ): number {
     const rows = pickerMaxRows(
         renderer,
         (modelStripStop(state) === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
-            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0),
+            + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
+            + extraChrome,
     );
     return state.kind === "model" && state.tab === "all"
         ? Math.min(rows, MODEL_ALL_MAX_ROWS)
@@ -2969,7 +3253,7 @@ function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
 }
 
 /** The narrowest the detail column is worth drawing at. */
-const MODEL_DETAIL_MIN_WIDTH = 26;
+const MODEL_DETAIL_MIN_WIDTH = 30;
 
 /** The narrowest the list column may be squeezed to. */
 const MODEL_LIST_MIN_WIDTH = 28;
@@ -3076,6 +3360,27 @@ type PickerDisplayRow =
  * column. It carries no title: the highlighted row is directly above it and
  * has already named itself.
  */
+/**
+ * How many lines the block under a single-column list will take.
+ *
+ * With no second column the inspector, its actions and the More page are drawn
+ * below the rows, out of the same vertical budget. Counting them before the
+ * window is sized keeps the card inside the screen instead of letting it grow
+ * past the bottom by however many actions the row happens to carry.
+ */
+function stackedBelowListLines(
+    state: TuiAnySettingsPickerState,
+    width: number,
+): number {
+    if (state.kind === "model" && state.modelFocus === "page") {
+        return 2 + modelPageActions(state).length;
+    }
+    const option = state.options[state.selectedIndex];
+    const actions = modelDetailActions(state, option);
+    return stackedDetailLines(state, option, width).length
+        + (actions.length === 0 ? 0 : 2 + actions.length);
+}
+
 function stackedDetailLines(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption | undefined,
@@ -3104,6 +3409,7 @@ function modelDetailNode(
     state: TuiAnySettingsPickerState,
     width: number,
     height: number,
+    pointer?: DialogRowPointer,
 ): BoxRenderable {
     const pane = new BoxRenderable(renderer, {
         width: width + MODEL_DETAIL_RULE.length,
@@ -3112,16 +3418,61 @@ function modelDetailNode(
         flexDirection: "column",
     });
     let drawn = 0;
-    const line = (chunks: readonly TextChunk[] = []): void => {
+    const line = (
+        chunks: readonly TextChunk[] = [],
+        pointerIndex?: number,
+    ): void => {
         if (drawn >= height) return;
         drawn += 1;
-        pane.add(new TextRenderable(renderer, {
+        const node = new TextRenderable(renderer, {
             content: new StyledText([fg(TUI_ELEMENT)(MODEL_DETAIL_RULE), ...chunks]),
             width: width + MODEL_DETAIL_RULE.length,
             height: 1,
-        }));
+        });
+        if (pointerIndex !== undefined) {
+            attachDialogRowPointer(node, pointer, pointerIndex);
+        }
+        pane.add(node);
     };
+    if (state.kind === "model" && state.modelFocus === "page") {
+        const actions = modelPageActions(state);
+        const selected = Math.min(
+            state.modelPageIndex ?? 0,
+            Math.max(0, actions.length - 1),
+        );
+        line([fg(TUI_TEXT)(clippedTo("More", width))]);
+        line();
+        actions.forEach((action, index) => {
+            line(
+                modelActionLineChunks(
+                    {
+                        label: action.label,
+                        chord: action.description ?? "",
+                    },
+                    width,
+                    index === selected,
+                ),
+                -2 - index,
+            );
+        });
+        return pane;
+    }
     const option = state.options[state.selectedIndex];
+    // A column that simply goes blank reads as a broken render. It says what
+    // is not there instead, and names the key that brings it back.
+    if (
+        state.kind === "model"
+        && (state.tab === "pool" || state.tab === "all")
+        && state.options.length === 0
+    ) {
+        const [title] = modelEmptyMessage(state).split(". ");
+        line([fg(TUI_TEXT)(clippedTo(`${title}.`, width))]);
+        line();
+        for (const text of modelEmptyDetailBody(state, width)) {
+            line([fg(TUI_MUTED)(text)]);
+        }
+        return pane;
+    }
     const described = option !== undefined && option.section === undefined;
     // A row whose label is a table line names itself here instead, and brings
     // its own facts: what runs a job is not what describes a model.
@@ -3162,6 +3513,31 @@ function modelDetailNode(
             ]);
         }
         line();
+        const actions = modelDetailActions(state, option);
+        if (actions.length > 0) {
+            // The heading says how to get here. Without it the column reads as
+            // a list of chords rather than somewhere the cursor can go.
+            const inside = state.kind === "model"
+                && state.modelFocus === "detail";
+            const hint = inside ? "← list" : "→ enter";
+            line([
+                fg(TUI_MUTED)(
+                    "Actions".padEnd(
+                        Math.max(0, width - Bun.stringWidth(hint)),
+                    ),
+                ),
+                fg(TUI_ACCENT)(hint),
+            ]);
+        }
+        actions.forEach((action, index) => {
+            const active = state.kind === "model"
+                && state.modelFocus === "detail"
+                && modelActionCursor(state, actions) === index;
+            line(
+                modelActionLineChunks(action, width, active),
+                state.options.length + 1 + index,
+            );
+        });
     }
     while (drawn < height) {
         line();
@@ -3242,9 +3618,9 @@ const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     [""],
     ["Keys"],
     ["⏎", "run this model. On All models it does not add it."],
-    ["^s", "add the highlighted model to the shortlist, or remove it."],
-    ["^n", "give a shortlisted model a short name of your own."],
-    ["^⇧r ^v", "probe a model, or every model you keep."],
+    ["→ / mouse", "focus or click model actions. ← returns to the list."],
+    ["Verify", "^v this model · ^⇧v all shortlisted models."],
+    ["Refresh", "^f refresh model catalog from providers."],
     ["⇥", "walk the strip, ending in Providers. Search clears on the way."],
 ];
 
@@ -3257,6 +3633,18 @@ function modelDetailHeight(
     state: TuiAnySettingsPickerState,
     width: number,
 ): number {
+    // The two views that do not describe a model measure themselves, or the
+    // column is sized for facts that are not being drawn and clips them.
+    if (state.kind === "model" && state.modelFocus === "page") {
+        return 2 + modelPageActions(state).length;
+    }
+    if (
+        state.kind === "model"
+        && (state.tab === "pool" || state.tab === "all")
+        && state.options.length === 0
+    ) {
+        return 2 + modelEmptyDetailBody(state, width).length;
+    }
     const option = state.options[state.selectedIndex];
     const described = option !== undefined && option.section === undefined;
     if (described && option.detailFacts !== undefined) {
@@ -3268,7 +3656,8 @@ function modelDetailHeight(
     const facts = described
         ? 3 + modelDetailFacts(state, option).length * 2 + 1
         : 0;
-    return facts;
+    const actions = modelDetailActions(state, option).length;
+    return facts + (actions === 0 ? 0 : actions + 1);
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
@@ -3317,6 +3706,7 @@ function renderListPickerRows(
     nodes: Renderable[],
     pointer?: DialogRowPointer,
     tip?: string,
+    verification?: { readonly subject: string },
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
     railInset = 0,
@@ -3377,7 +3767,13 @@ function renderListPickerRows(
             renderer,
             stop,
             {
-                pool: modelTabRows(stripPane.allOptions, "pool").length,
+                pool: modelTabRows(
+                    stripPane.allOptions,
+                    "pool",
+                    false,
+                    [],
+                    stripPane.actionOptions ?? [],
+                ).filter((option) => option.action !== true).length,
                 all: modelTabRows(stripPane.allOptions, "all").length,
             },
             pickerContentWidth(renderer, state, railInset),
@@ -3433,10 +3829,24 @@ function renderListPickerRows(
     const rowWidth = split === undefined
         ? pickerContentWidth(renderer, state, railInset)
         : split.listWidth - MODEL_LIST_RULE_GAP;
+    const listAction = modelListAction(state);
+    const listActionLines = listAction === undefined ? 0 : 2;
+    const pageEntryLines = modelPageEntry(state) === undefined ? 0 : 2;
+    const stackedLines = split === undefined
+        ? stackedBelowListLines(state, rowWidth)
+        : 0;
 
     const availableRows = pickerMaxRows(
         renderer,
-        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT) + subtitleLines,
+        (stop === undefined ? 0 : MODEL_TAB_STRIP_HEIGHT)
+            + subtitleLines
+            + (verification === undefined
+                ? 0
+                : verificationConsoleLines(verification))
+            + listActionLines
+            + 1
+            + pageEntryLines
+            + stackedLines,
     );
     const rows = windowedDisplayRows(
         listDisplayRows(state),
@@ -3446,17 +3856,6 @@ function renderListPickerRows(
             : availableRows,
     );
     let lines = 0;
-    if (rows.length === 0) {
-        const empty = new TextRenderable(renderer, {
-            content: `${DIALOG_GUTTER}${emptyPickerMessage(state)}`,
-            fg: TUI_MUTED,
-            width: "100%",
-            height: 1,
-        });
-        listColumn.add(empty);
-        nodes.push(empty);
-        lines = 1;
-    }
     // The activity column is padded to the widest value on screen, so the
     // titles beside it start on one column even though "just now" and "3d ago"
     // do not measure the same.
@@ -3516,15 +3915,60 @@ function renderListPickerRows(
                 meta: row.option.rowMeta
                     ?? optionMeta(state, row.option, detailed),
                 card: row.option.card,
-                active: row.index === state.selectedIndex,
+                active: row.index === state.selectedIndex
+                    && (state.kind !== "model"
+                        || (state.modelFocus ?? "list") === "list"),
                 current: row.option.section !== undefined
                     || isCurrentOption(state, row.option),
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []
     ), rowWidth);
+    // With no second column the page has nowhere to sit beside the list, so it
+    // takes the list's place the way it takes the inspector's when there is one.
+    const stackedPage = split === undefined && state.kind === "model"
+        && state.modelFocus === "page";
+    const pageEntry = modelPageEntry(state);
+    if (pageEntry !== undefined) {
+        const entry = new TextRenderable(renderer, {
+            content: new StyledText(modelListActionLineChunks(
+                {
+                    ...pageEntry,
+                    label: modelPageEntryLabel(state, rowWidth),
+                },
+                rowWidth,
+                state.kind === "model"
+                    && (state.modelFocus === "page_entry"
+                        || state.modelFocus === "page"),
+            )),
+            width: rowWidth,
+            height: 1,
+        });
+        attachDialogRowPointer(entry, pointer, -1);
+        listColumn.add(entry);
+        nodes.push(entry);
+        const rule = new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_ELEMENT)("\u2500".repeat(rowWidth))]),
+            width: rowWidth,
+            height: 1,
+        });
+        listColumn.add(rule);
+        nodes.push(rule);
+        lines += 2;
+    }
+    if (rows.length === 0) {
+        const empty = new TextRenderable(renderer, {
+            content: `${DIALOG_GUTTER}${emptyPickerMessage(state)}`,
+            fg: TUI_MUTED,
+            width: "100%",
+            height: 1,
+        });
+        listColumn.add(empty);
+        nodes.push(empty);
+        lines += 1;
+    }
     let optionNodeIndex = 0;
-    rows.forEach((row, position) => {
+    (stackedPage ? [] : rows).forEach((row, position) => {
         const node = row.kind === "group"
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
             : optionNodes[optionNodeIndex++]!;
@@ -3532,6 +3976,30 @@ function renderListPickerRows(
         listColumn.add(node);
         nodes.push(node);
     });
+    if (listAction !== undefined && !stackedPage) {
+        const divider = new TextRenderable(renderer, {
+            content: new StyledText([
+                fg(TUI_ELEMENT)("─".repeat(rowWidth)),
+            ]),
+            width: rowWidth,
+            height: 1,
+        });
+        listColumn.add(divider);
+        nodes.push(divider);
+        const action = new TextRenderable(renderer, {
+            content: new StyledText(modelListActionLineChunks(
+                listAction,
+                rowWidth,
+                state.kind === "model" && state.modelFocus === "list_action",
+            )),
+            width: rowWidth,
+            height: 1,
+        });
+        attachDialogRowPointer(action, pointer, state.options.length);
+        listColumn.add(action);
+        nodes.push(action);
+        lines += listActionLines;
+    }
     if (split !== undefined && body !== undefined) {
         // The facts fill a column as tall as the list beside them, so a model
         // that carries more of them never moves a row.
@@ -3542,6 +4010,7 @@ function renderListPickerRows(
             state,
             split.detailWidth,
             lines,
+            pointer,
         );
         body.add(detail);
         nodes.push(detail);
@@ -3551,7 +4020,37 @@ function renderListPickerRows(
     // The same block the column would have carried, under the list instead of
     // beside it. The pane keeps what it says at every width and gives up only
     // the second column, which is what the terminal actually ran out of.
-    if (split === undefined) {
+    if (stackedPage) {
+        const title = new TextRenderable(renderer, {
+            content: new StyledText([fg(TUI_MUTED)("More")]),
+            width: "100%",
+            height: 1,
+            marginTop: 1,
+        });
+        listColumn.add(title);
+        nodes.push(title);
+        lines += 2;
+        const actions = modelPageActions(state);
+        const selected = Math.min(
+            state.modelPageIndex ?? 0,
+            Math.max(0, actions.length - 1),
+        );
+        actions.forEach((action, index) => {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText(modelActionLineChunks(
+                    { label: action.label, chord: action.description ?? "" },
+                    rowWidth,
+                    index === selected,
+                )),
+                width: "100%",
+                height: 1,
+            });
+            attachDialogRowPointer(node, pointer, -2 - index);
+            listColumn.add(node);
+            nodes.push(node);
+            lines += 1;
+        });
+    } else if (split === undefined) {
         const option = state.options[state.selectedIndex];
         for (const chunks of stackedDetailLines(state, option, rowWidth)) {
             const node = new TextRenderable(renderer, {
@@ -3562,6 +4061,48 @@ function renderListPickerRows(
             lines += 1;
             listColumn.add(node);
             nodes.push(node);
+        }
+        const actions = modelDetailActions(state, option);
+        if (actions.length > 0) {
+            const title = new TextRenderable(renderer, {
+                content: new StyledText([
+                    fg(TUI_MUTED)(
+                        "Actions".padEnd(Math.max(0, rowWidth - 7)),
+                    ),
+                    fg(TUI_ACCENT)(
+                        state.kind === "model" && state.modelFocus === "detail"
+                            ? "← list"
+                            : "→ enter",
+                    ),
+                ]),
+                width: "100%",
+                height: 1,
+                marginTop: 1,
+            });
+            listColumn.add(title);
+            nodes.push(title);
+            lines += 2;
+            actions.forEach((action, index) => {
+                const node = new TextRenderable(renderer, {
+                    content: new StyledText(modelActionLineChunks(
+                        action,
+                        rowWidth,
+                        state.kind === "model"
+                            && state.modelFocus === "detail"
+                            && modelActionCursor(state, actions) === index,
+                    )),
+                    width: "100%",
+                    height: 1,
+                });
+                attachDialogRowPointer(
+                    node,
+                    pointer,
+                    state.options.length + 1 + index,
+                );
+                listColumn.add(node);
+                nodes.push(node);
+                lines += 1;
+            });
         }
     }
 
@@ -3582,12 +4123,30 @@ function renderListPickerRows(
         nodes.push(tipNode);
     }
 
+    if (verification !== undefined) {
+        const consoleBox = verificationConsoleNode(renderer, verification);
+        box.add(consoleBox);
+        nodes.push(consoleBox);
+    }
+
     const footer = dialogFooterNode(
         renderer,
         pickerFooter(state, pickerCardWidth(renderer, state, railInset)),
     );
     box.add(footer);
     nodes.push(footer);
+    if (state.kind === "model") {
+        // The chords above are a legend, and a legend is easy to read past.
+        // This line says the thing in words instead.
+        const arrows = new TextRenderable(renderer, {
+            content: `${DIALOG_GUTTER}${MODEL_ARROW_HINT}`,
+            fg: TUI_MUTED,
+            width: "100%",
+            height: 1,
+        });
+        box.add(arrows);
+        nodes.push(arrows);
+    }
     box.height = "auto";
 }
 
@@ -3595,7 +4154,91 @@ function renderListPickerRows(
 // blank before the rows. The explanation is content of its own, not a label
 // attached to either the tabs above or the list below.
 const MODEL_TAB_STRIP_HEIGHT = 4;
+/** Said in words under the chords, because the chords are a legend. */
+const MODEL_ARROW_HINT =
+    "Arrow keys move you: ↑↓ the list, → into the details, ← back";
 const MODEL_ALL_MAX_ROWS = 28;
+/** At most this many checks are kept on screen, newest last. */
+const VERIFICATION_CONSOLE_STEPS = 3;
+
+type VerificationConsole = NonNullable<TuiSettingsPickerView["verification"]>;
+
+/** What the console occupies: the subject line and the checks under it. */
+export function verificationConsoleLines(console_: VerificationConsole): number {
+    const steps = console_.steps ?? [];
+    // The margin above, a padded row on each side of the block, the subject
+    // line, and one line per check it is showing.
+    return 4 + Math.max(1, Math.min(VERIFICATION_CONSOLE_STEPS, steps.length));
+}
+
+/**
+ * The live provider check, as a short list of what has happened.
+ *
+ * One line names what is being checked and stays put; under it each check
+ * reports itself once it is done, and the one still running carries the
+ * spinner. Nothing is repeated, so the block says only what has changed.
+ */
+function verificationConsoleNode(
+    renderer: RenderContext,
+    console_: VerificationConsole,
+): BoxRenderable {
+    const steps = console_.steps ?? [];
+    const shown = steps.slice(-VERIFICATION_CONSOLE_STEPS);
+    const consoleBox = new BoxRenderable(renderer, {
+        width: "100%",
+        height: verificationConsoleLines(console_) - 1,
+        marginTop: 1,
+        flexShrink: 0,
+        flexDirection: "column",
+        border: false,
+        backgroundColor: TUI_INPUT,
+        paddingLeft: 1,
+        paddingRight: 1,
+        paddingTop: 1,
+        paddingBottom: 1,
+    });
+    const line = (chunks: TextChunk[]): void => {
+        consoleBox.add(new TextRenderable(renderer, {
+            content: new StyledText(chunks),
+            bg: TUI_INPUT,
+            width: "100%",
+            height: 1,
+        }));
+    };
+    line([
+        fg(TUI_TEXT)("Verifying "),
+        fg(TUI_MUTED)(console_.subject),
+    ]);
+    if (shown.length === 0) {
+        line([
+            fg(TUI_ACCENT)("⠋ "),
+            fg(TUI_MUTED)("Waiting for provider response"),
+        ]);
+        return consoleBox;
+    }
+    for (const step of shown) {
+        line(
+            step.status === "running"
+                ? [fg(TUI_ACCENT)("⠋ "), fg(TUI_MUTED)(step.label)]
+                : [
+                    fg(TUI_MUTED)("  "),
+                    fg(TUI_MUTED)(`${step.label} `),
+                    fg(
+                        step.status === "failed" ? TUI_DANGER : TUI_SUCCESS,
+                    )(VERIFICATION_STEP_MARKS[step.status] ?? "✓"),
+                ],
+        );
+    }
+    return consoleBox;
+}
+
+/** Each ending a check can have, spelled out for a terminal without colour. */
+const VERIFICATION_STEP_MARKS: Record<string, string> = {
+    passed: "✓",
+    failed: "✗",
+    skipped: "skipped",
+    running: "",
+};
 
 /**
  * Where the strip's highlight sits. The connect pane is a stop on it rather
@@ -3647,7 +4290,7 @@ function modelTabLabel(tab: TuiModelPickerTab): string {
 
 const MODEL_TAB_DESCRIPTIONS: Readonly<Record<TuiModelPickerTab, string>> = {
     defaults: "Every job Vera runs a model for, and the model it runs.",
-    pool: "Models you keep close. ^s pins one here, or unpins it.",
+    pool: "Models you keep close. More holds what this list can do, or browse All models.",
     all: "Everything your providers offer. Enter runs one without adding it.",
     actions: "Everything this pane can do besides choose a model.",
     help: "What the marks and the keys in this pane mean.",
@@ -3969,6 +4612,51 @@ function pickerFooterText(
     }
     if (state.kind === "model") {
         const selected = state.options[state.selectedIndex];
+        if (state.modelFocus === "detail") {
+            return fittedHints([
+                { text: "↑↓ move", drop: 0 },
+                { text: "⏎ run", drop: 0 },
+                { text: "← list", drop: 0 },
+                { text: "⇥ tabs", drop: 2 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
+        if (state.modelFocus === "page") {
+            return fittedHints([
+                { text: "\u2191\u2193 move", drop: 0 },
+                { text: "\u23ce run", drop: 0 },
+                { text: "\u2190 back", drop: 0 },
+                { text: "esc back", drop: 1 },
+            ], width);
+        }
+        if (state.modelFocus === "page_entry") {
+            return fittedHints([
+                { text: "\u2193 list", drop: 0 },
+                { text: "\u2192 open", drop: 0 },
+                { text: "\u21e5 tabs", drop: 2 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
+        if (state.modelFocus === "list_action") {
+            return fittedHints([
+                { text: "↑ list", drop: 0 },
+                { text: "⏎ run", drop: 0 },
+                ...(modelDetailActions(state, selected).length === 0
+                    ? []
+                    : [{ text: "→ actions", drop: 1 }]),
+                { text: "⇥ tabs", drop: 2 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
+        const action = tuiModelActionOfValue(selected?.value ?? "");
+        if (action === "shortlist_current") {
+            return fittedHints([
+                { text: "↑↓ move", drop: 0 },
+                { text: "⏎ add", drop: 0 },
+                { text: "⇥ tabs", drop: 1 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
         const pool = selected === undefined || selected.provider === undefined
             ? undefined
             : isPooled(state, selected)
@@ -3986,35 +4674,28 @@ function pickerFooterText(
             ...(state.canUndoPoolChange === true
                 ? [{ text: tuiKeyHint("undo_pool_change"), drop: 1 }]
                 : []),
-            ...(selected?.provider === undefined
-                ? []
-                : [{ text: tuiKeyHint("verify_model"), drop: 2 }]),
-            ...(selected?.refreshable === true
-                ? [{ text: tuiKeyHint("refresh_catalog"), drop: 4 }]
+            ...(modelOptionCanVerify(state, selected)
+                ? [{ text: tuiKeyHint("verify_model"), drop: 2 }]
                 : []),
-            // Behind the single-model key, since the sweep is the rarer of the
-            // two and the one that costs a call per row.
-            ...(state.tab === "pool"
-                ? [{ text: tuiKeyHint("verify_pool"), drop: 3 }]
-                : []),
-            // Naming belongs to a pool entry, so the hint appears on the same
-            // rows the key works on and nowhere else.
-            ...(pool === undefined || selected === undefined
-                    || !isPooled(state, selected)
+            ...(modelDetailActions(state, selected).length === 0
                 ? []
-                : [{ text: tuiKeyHint("name_pooled"), drop: 5 }]),
+                : [{ text: "→ actions", drop: 2 }]),
             // Only while the cursor is on a heading: the keys do nothing on a
             // model row, and a hint for them there would be a lie.
             // The whole-list keys are worth a slot behind the row's own keys;
             // on a heading, where ← and → do something too, the entry moves up
             // because folding is then what the highlighted row is for.
-            selected?.section === undefined
-                ? { text: "⇧←→ fold all", drop: 5 }
-                : { text: "←→ ⇧←→ fold", drop: 1 },
+            // The shortlist never groups, so folding keys would name something
+            // that is not on screen.
+            ...(state.tab === "pool" ? [] : [
+                selected?.section === undefined
+                    ? { text: "⇧←→ fold all", drop: 5 }
+                    : { text: "←→ ⇧←→ fold", drop: 1 },
+            ]),
             // Only where there is something folded to reveal, and it names the
             // direction the key would take you rather than the state you are
             // in, so the hint stays an instruction on both passes.
-            ...(hasFoldedRows(state)
+            ...(state.tab !== "pool" && hasFoldedRows(state)
                 ? [{
                     text: state.revealAll === true
                         ? tuiKeyHint("reveal_all_models").replace(
@@ -4193,6 +4874,351 @@ function isCurrentOption(
     return state.kind === "model" && option.value === state.initialModel;
 }
 
+/** A concrete model row can be probed without changing the active model. */
+function modelOptionCanVerify(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption | undefined,
+): boolean {
+    return state.kind === "model"
+        && option !== undefined
+        && option.section === undefined
+        && option.action !== true
+        && option.provider !== undefined
+        && option.model !== undefined
+        && option.value !== SESSION_MODEL_VALUE;
+}
+
+type ModelDetailActionId = "verify" | "toggle_pool" | "name";
+
+interface ModelDetailAction {
+    readonly id: ModelDetailActionId;
+    readonly chord: string;
+    readonly label: string;
+}
+
+type ModelListActionId = "verify_pool" | "reveal_all" | "page_entry";
+
+interface ModelListAction {
+    readonly id: ModelListActionId;
+    readonly chord: string;
+    readonly label: string;
+}
+
+/** One clickable action row; the arrow remains visible without colour. */
+function modelActionLineChunks(
+    action: Pick<ModelDetailAction, "chord" | "label">,
+    width: number,
+    active: boolean,
+): TextChunk[] {
+    const chordWidth = Bun.stringWidth(action.chord);
+    const labelWidth = Math.max(0, width - 1 - chordWidth);
+    const label = labelWidth === 0
+        ? ""
+        : clippedTo(action.label, labelWidth).padEnd(labelWidth);
+    if (active) {
+        return [
+            fg(TUI_BACKGROUND)(
+                bg(TUI_ACCENT)(`${label} ${action.chord}`.padEnd(width)),
+            ),
+        ];
+    }
+    return [
+        fg(TUI_TEXT)(label),
+        fg(TUI_PANEL)(" "),
+        fg(TUI_ACCENT)(action.chord),
+    ];
+}
+
+/** Collection actions sit on their own quiet band below the model list. */
+function modelListActionLineChunks(
+    action: ModelListAction,
+    width: number,
+    active: boolean,
+): TextChunk[] {
+    const chordWidth = Bun.stringWidth(action.chord);
+    const labelWidth = Math.max(0, width - 1 - chordWidth);
+    const label = labelWidth === 0
+        ? ""
+        : clippedTo(action.label, labelWidth).padEnd(labelWidth);
+    // With no arrow in front of it the row has to carry its own focus, so it
+    // inverts the way a selected model row does and stays legible with no
+    // colour at all.
+    if (active) {
+        return [
+            fg(TUI_BACKGROUND)(
+                bg(TUI_ACCENT)(`${label} ${action.chord}`.padEnd(width)),
+            ),
+        ];
+    }
+    return [
+        fg(TUI_TEXT)(label),
+        fg(TUI_TEXT)(" "),
+        fg(TUI_ACCENT)(action.chord),
+    ];
+}
+
+/**
+ * The actions a page offers that no row on it stands for: they act on the
+ * dialog, not on the list or on the model under the cursor.
+ */
+function modelPageActions(
+    state: TuiAnySettingsPickerState,
+): readonly TuiSettingsPickerOption[] {
+    if (
+        state.kind !== "model"
+        || (state.tab !== "pool" && state.tab !== "all")
+    ) {
+        return [];
+    }
+    const listOwn = state.tab === "pool"
+        ? ["shortlist_current", "verify_pool"]
+        : ["reveal_all"];
+    return availableModelActionOptions(
+        state.allOptions,
+        state.actionOptions ?? [],
+    ).filter((option) => {
+        const id = tuiModelActionOfValue(option.value) ?? "";
+        return listOwn.includes(id) || id === "refresh" || id === "providers";
+    });
+}
+
+/**
+ * The row that opens them, above the list rather than below.
+ *
+ * The cursor opens on the first model, so a row above it is one key away
+ * whatever the list holds. The same row below would be a shortlist away.
+ */
+/**
+ * Focus after a host snapshot. The page is built from the actions available
+ * now, so focus that outlived its actions has to come back to the list rather
+ * than address a row that is no longer there.
+ */
+function modelSyncedFocus(
+    state: TuiSettingsPickerState,
+    rebuilt: TuiAnySettingsPickerState,
+): {
+    readonly modelFocus: NonNullable<TuiSettingsPickerState["modelFocus"]>;
+    readonly modelPageIndex?: number;
+} {
+    const focus = state.modelFocus ?? "list";
+    if (focus !== "page" && focus !== "page_entry") {
+        return { modelFocus: focus };
+    }
+    const actions = modelPageActions(rebuilt);
+    if (actions.length === 0) {
+        return { modelFocus: "list" };
+    }
+    return focus === "page_entry"
+        ? { modelFocus: "page_entry" }
+        : {
+            modelFocus: "page",
+            modelPageIndex: Math.min(
+                state.modelPageIndex ?? 0,
+                actions.length - 1,
+            ),
+        };
+}
+
+/**
+ * Which action row the cursor is on.
+ *
+ * The list can shrink under a held cursor (a model leaving the shortlist drops
+ * two of its actions), so the index is read against what is there now. Keying
+ * clamps the same way, and the row that lights is the row Enter runs.
+ */
+function modelActionCursor(
+    state: TuiAnySettingsPickerState,
+    actions: readonly ModelDetailAction[],
+): number {
+    return Math.min(
+        (state.kind === "model" ? state.modelActionIndex : undefined) ?? 0,
+        Math.max(0, actions.length - 1),
+    );
+}
+
+function modelPageEntry(
+    state: TuiAnySettingsPickerState,
+): ModelListAction | undefined {
+    return modelPageActions(state).length === 0
+        ? undefined
+        : { id: "page_entry", chord: "\u203a", label: "More" };
+}
+
+/**
+ * Marks the row as a pane that opens, and says which way it will move.
+ *
+ * It follows the pane rather than the cursor: the row can hold the cursor with
+ * the pane still shut, and the pane stays open while the cursor is inside it.
+ */
+function modelPageEntryGlyph(state: TuiAnySettingsPickerState): string {
+    return state.kind === "model" && state.modelFocus === "page" ? "-" : "+";
+}
+
+/** What each page action is called when the entry row names it in passing. */
+const MODEL_PAGE_ENTRY_SHORT: Record<string, string> = {
+    shortlist_current: "add current",
+    reveal_all: "show every model",
+    verify_pool: "verify all",
+    refresh: "refresh",
+    providers: "providers",
+};
+
+/**
+ * The entry row, naming what it holds.
+ *
+ * "More" alone says there is another level without saying it is worth opening,
+ * so the row lists what it can as far as the width allows and counts whatever
+ * did not fit.
+ */
+function modelPageEntryLabel(
+    state: TuiAnySettingsPickerState,
+    width: number,
+): string {
+    const glyph = modelPageEntryGlyph(state);
+    const names = modelPageActions(state).map((option) =>
+        MODEL_PAGE_ENTRY_SHORT[tuiModelActionOfValue(option.value) ?? ""]
+            ?? option.label
+    );
+    const room = width - Bun.stringWidth(`${glyph} More · `) - 2;
+    const shown: string[] = [];
+    for (const name of names) {
+        const next = [...shown, name].join(", ");
+        const rest = names.length - shown.length - 1;
+        const suffix = rest === 0 ? "" : ` (+${rest})`;
+        if (Bun.stringWidth(next + suffix) > room) break;
+        shown.push(name);
+    }
+    const opener = `${glyph} More`;
+    if (shown.length === 0) return opener;
+    const rest = names.length - shown.length;
+    return `${opener} · ${shown.join(", ")}${
+        rest === 0 ? "" : ` (+${rest})`
+    }`;
+}
+
+/** Item-scoped actions for the highlighted model. */
+function modelDetailActions(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption | undefined,
+): readonly ModelDetailAction[] {
+    if (
+        state.kind !== "model"
+        || option === undefined
+        || option.section !== undefined
+        || option.action === true
+        || option.provider === undefined
+        || option.model === undefined
+        || option.value === SESSION_MODEL_VALUE
+    ) {
+        return [];
+    }
+    const pooled = isPooled(state, option);
+    return [
+        ...(modelOptionCanVerify(state, option)
+            ? [{
+                id: "verify" as const,
+                chord: tuiKeyHint("verify_model").split(" ")[0] ?? "",
+                label: "Verify this model",
+            }]
+            : []),
+        {
+            id: "toggle_pool",
+            chord: tuiKeyHint("toggle_pooled").split(" ")[0] ?? "",
+            label: pooled ? "Unpin" : "Add to shortlist",
+        },
+        ...(pooled
+            ? [{
+                id: "name" as const,
+                chord: tuiKeyHint("name_pooled").split(" ")[0] ?? "",
+                label: "Name this model",
+            }]
+            : []),
+    ];
+}
+
+/** The one action that belongs to the active collection rather than one row. */
+function modelListAction(
+    state: TuiAnySettingsPickerState,
+): ModelListAction | undefined {
+    if (state.kind !== "model") return undefined;
+    return undefined;
+}
+
+function modelDetailActionTransition(
+    state: TuiSettingsPickerState,
+    action: ModelDetailAction | undefined,
+): TuiSettingsPickerTransition {
+    const option = state.options[state.selectedIndex];
+    if (
+        action === undefined
+        || option?.provider === undefined
+        || option.model === undefined
+    ) {
+        return unchanged(state, true);
+    }
+    if (action.id === "verify") {
+        return {
+            state,
+            handled: true,
+            poolVerify: { provider: option.provider, model: option.model },
+        };
+    }
+    if (action.id === "toggle_pool") {
+        return {
+            state,
+            handled: true,
+            poolToggle: {
+                action: isPooled(state, option) ? "remove" : "add",
+                provider: option.provider,
+                model: option.model,
+            },
+        };
+    }
+    return {
+        state,
+        handled: true,
+        poolName: {
+            provider: option.provider,
+            model: option.model,
+            label: option.label,
+        },
+    };
+}
+
+function modelListActionTransition(
+    state: TuiSettingsPickerState,
+    action: ModelListAction | undefined,
+): TuiSettingsPickerTransition {
+    if (action === undefined) return unchanged(state, true);
+    if (action.id === "verify_pool") {
+        return { state, handled: true, poolVerifySweep: true };
+    }
+    const revealAll = state.revealAll !== true;
+    const options = modelPickerOptions(
+        state.allOptions,
+        state.tab ?? "all",
+        state.collapsed ?? [],
+        state.query,
+        revealAll,
+        state.assignmentOptions ?? [],
+        state.actionOptions ?? [],
+    );
+    return {
+        state: {
+            ...state,
+            revealAll,
+            options,
+            modelFocus: "list_action",
+            selectedIndex: restoredCursor(
+                options,
+                state.options[state.selectedIndex]?.value,
+                state.initialModel,
+            ),
+        },
+        handled: true,
+    };
+}
+
 /**
  * The panes short enough that a digit names a row faster than moving to it.
  * The model and session panes stay out: their names carry digits, so a digit
@@ -4214,10 +5240,10 @@ function optionMarker(
     if (option.section !== undefined) {
         return option.sectionCollapsed === true ? "▶" : "▼";
     }
+    if (option.action === true) {
+        return "+";
+    }
     if (state.kind === "provider") {
-        if (option.action === true) {
-            return "+";
-        }
         return undefined;
     }
     // A filled dot, at the weight of the fold arrows it shares a column with.
@@ -4363,12 +5389,52 @@ export function sessionPickerLists(
         || agent.forked_from !== undefined;
 }
 
+/**
+ * Why a model list is empty, in the words of the thing the user can do next.
+ *
+ * A search that matched nothing, a catalog that was never fetched and an
+ * absent conversation look identical once the rows are gone, so each one
+ * names its own way out instead of reporting the same absence three times.
+ */
+function modelEmptyMessage(state: TuiAnySettingsPickerState): string {
+    if (state.kind !== "model") return "No matches found";
+    if (state.query !== "") {
+        return state.tab === "pool"
+            ? "No shortlisted models match. Tab switches to All models."
+            : "No models match that search.";
+    }
+    if (state.modelCatalogUnavailable === true) {
+        return "Models arrive with a conversation. Start one, then reopen this.";
+    }
+    if (state.tab !== "pool") {
+        return "No models yet. Ctrl+F asks your providers for their catalogs.";
+    }
+    // Naming More is only help if More is on screen. It is built from the
+    // actions available now, and an empty shortlist with no current model
+    // leaves it with none.
+    return modelPageEntry(state) === undefined
+        ? "Nothing shortlisted yet. Tab switches to All models."
+        : "Nothing shortlisted yet. More above adds the current model.";
+}
+
+/** The sentences under the empty column's title, wrapped to its width. */
+function modelEmptyDetailBody(
+    state: TuiAnySettingsPickerState,
+    width: number,
+): readonly string[] {
+    const [, ...rest] = modelEmptyMessage(state).split(". ");
+    return wrappedTo(rest.join(". "), width);
+}
+
 function emptyPickerMessage(state: TuiAnySettingsPickerState): string {
     if (state.kind === "extension") {
         return "No options available";
     }
-    if (state.kind === "model" && state.tab === "pool") {
-        return "No shortlisted models match. Tab switches to All models.";
+    if (
+        state.kind === "model"
+        && (state.tab === "pool" || state.tab === "all")
+    ) {
+        return modelEmptyMessage(state);
     }
     if (state.kind === "model_assignment") {
         return "No shortlisted models. Add one to the shortlist to assign it here.";
@@ -4496,6 +5562,8 @@ export function switchedModelTab(
         tab,
         options,
         query: "",
+        modelFocus: "list",
+        modelActionIndex: 0,
         selectedIndex: restoredCursor(options, selectedValue, state.initialModel),
     };
 }
@@ -4562,7 +5630,13 @@ function searched(
             state.assignmentOptions ?? [],
             state.actionOptions ?? [],
         );
-    const next = { ...state, options, selectedIndex: 0, query };
+    const next = {
+        ...state,
+        options,
+        selectedIndex: 0,
+        query,
+        ...(state.kind === "model" ? { modelFocus: "list" as const } : {}),
+    };
     return {
         state: next,
         handled: true,
@@ -4746,11 +5820,12 @@ function modelTabRows(
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
     actionOptions: readonly TuiSettingsPickerOption[] = [],
 ): readonly TuiSettingsPickerOption[] {
+    const actions = availableModelActionOptions(allOptions, actionOptions);
     if (tab === "help") {
         return [];
     }
     if (tab === "actions") {
-        return actionOptions;
+        return actions;
     }
     if (tab === "defaults") {
         return assignmentOptions;
@@ -4767,6 +5842,23 @@ function modelTabRows(
     return allOptions
         .filter((option) => option.pooledRank !== undefined)
         .toSorted((left, right) => left.pooledRank! - right.pooledRank!);
+}
+
+/** Hides the current-model action as soon as a fresh snapshot includes it. */
+function availableModelActionOptions(
+    allOptions: readonly TuiSettingsPickerOption[],
+    actionOptions: readonly TuiSettingsPickerOption[],
+): readonly TuiSettingsPickerOption[] {
+    return actionOptions.filter((action) => {
+        if (tuiModelActionOfValue(action.value) !== "shortlist_current") {
+            return true;
+        }
+        return !allOptions.some((option) =>
+            option.provider === action.provider
+            && option.model === action.model
+            && option.pooledRank !== undefined
+        );
+    });
 }
 
 /** The heading the recommended models are listed under. */
@@ -4798,14 +5890,10 @@ function modelPickerOptions(
         actionOptions,
     );
     const matched = query === "" ? rows : matching(rows, query);
-    // Neither list is sectioned by provider: the pool is one short list, and a
-    // assignment row is a job, which has no provider to be grouped under.
-    if ((tab === "pool" || tab === "defaults" || tab === "actions")
-        && query === ""
-    ) {
-        return matched;
-    }
-    if (tab === "defaults" || tab === "actions") {
+    // The shortlist is what the user put there, in their order. Grouping it
+    // by provider or lifting actions into it would answer a question about
+    // models with rows that are not models.
+    if (tab === "pool" || tab === "defaults" || tab === "actions") {
         return matched;
     }
     // A search on a model list is the user asking for something by name, and
@@ -5021,6 +6109,21 @@ function modelActionTransition(
     }
     if (action === "verify_pool") {
         return { state, handled: true, poolVerifySweep: true };
+    }
+    if (
+        action === "shortlist_current"
+        && option.provider !== undefined
+        && option.model !== undefined
+    ) {
+        return {
+            state,
+            handled: true,
+            poolToggle: {
+                action: "add",
+                provider: option.provider,
+                model: option.model,
+            },
+        };
     }
     if (action === "providers") {
         return { state, handled: true, openProviders: true };

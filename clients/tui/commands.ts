@@ -522,7 +522,7 @@ const COMPACT_COMMAND = {
 
 const POOL_COMMAND = {
     name: "shortlist",
-    description: "Show your shortlist, or pin the running model to it",
+    description: "Add the running model to your shortlist",
     usage: "/shortlist [add]",
 } as const satisfies TuiCommandCatalogEntry;
 
@@ -1626,13 +1626,7 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         ...POOL_COMMAND,
         parse: (argumentsText) => {
             const argument = argumentsText.trim();
-            if (argument.length === 0) {
-                return {
-                    type: "open_settings_destination",
-                    destination: { kind: "model_shortlist" },
-                };
-            }
-            if (argument === "add") {
+            if (argument.length === 0 || argument === "add") {
                 return { type: "pool_current_model" };
             }
             return {
@@ -1642,10 +1636,9 @@ export function createConfiguredBuiltinTuiCommandRegistry(
         },
         palette: {
             name: "shortlist",
-            label: "Show your shortlist",
+            label: "Open your shortlist",
             description: "the models you keep",
             group: "Settings",
-            slashName: "shortlist",
             action: {
                 type: "open_settings_destination",
                 destination: { kind: "model_shortlist" },

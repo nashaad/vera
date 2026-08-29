@@ -1975,6 +1975,36 @@ export class AgentRegistry {
         }
     }
 
+    /**
+     * The model settings a client sees when it has no session behind it.
+     *
+     * The catalog, the shortlist and the defaults are the host's, not any
+     * conversation's, so they can be read before one exists. The pair reported
+     * is the host default: nobody has dialed anything yet.
+     */
+    readHostModelSettings(workspace?: string): ModelTurnSettings {
+        return settingsForClient(
+            {
+                provider: this.defaultProvider,
+                model: this.defaultModel,
+                ...(this.defaultReasoningEffort === undefined
+                    ? {}
+                    : { reasoningEffort: this.defaultReasoningEffort }),
+            },
+            this.defaultProvider,
+            this.catalog,
+            this.modelsForClient(),
+            this.options.readPool?.(workspace),
+            this.options.subagentModel,
+            undefined,
+            this.reviewerDefault(),
+            this.options.contextLimit?.(),
+            this.options.developerSettings?.(),
+            workspace,
+            this.options.refreshableProviders?.(),
+        );
+    }
+
     private reviewerDefault(): ReviewerModelDefault {
         return reviewerDefaultOf(this.reviewerSettings);
     }

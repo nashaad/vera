@@ -30,7 +30,7 @@ agent's default pair. The marker describes this session's origin; it does not
 mean that the profile file was edited.
 
 Use `vera shortlist list` to see pinned models, `vera shortlist add` to pin
-one, and `vera models refresh` to refresh provider catalogs.
+one, and `vera models refresh` to refresh the model catalog from providers.
 
 ## agents — Agent definitions
 

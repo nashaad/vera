@@ -387,6 +387,9 @@ import {
 } from "./jsonl-view-client.ts";
 import { createHomeClient, isHomeClient } from "./home-client.ts";
 import {
+    readModelSettingsThroughHost,
+} from "../../src/host/model-settings-client.ts";
+import {
     createHomeState,
     createTuiHomeView,
     handleHomeKey,
@@ -456,8 +459,11 @@ import {
     startTuiDeveloperMenu,
     startTuiDeveloperValuePicker,
     startTuiSettingsPicker,
+    verificationConsoleLines,
     switchedModelTab,
     syncTuiModelPicker,
+    mergeTuiModelPickerSettings,
+    moveTuiSettingsPickerPointer,
     startTuiReasoningPicker,
     startTuiSessionPicker,
     sessionPickerLists,
@@ -477,6 +483,7 @@ import {
     startTuiCatalogRefreshScopePicker,
     tuiModelAssignmentOptions,
     type TuiSettingsPickerState,
+    type TuiSettingsPickerOption,
     type TuiConfigureFile,
     type TuiSettingsPickerTransition,
     type TuiExtensionPickerAction,
@@ -619,7 +626,6 @@ import {
     queueTuiPrompt,
     renderTuiEntry,
     renderTuiQueuedPrompt,
-    tuiPoolListing,
     setTuiWorkspaceRoot,
     tuiDisplayPath,
     tuiEntryMarginTop,
@@ -840,6 +846,10 @@ export interface TuiDependencies {
     /** Compatibility hook for callers that only open the profile config. */
     readonly openConfigure?: () => Promise<void>;
     readonly listAgents?: () => Promise<readonly RegisteredAgentSummary[]>;
+    /** Host-held model state for a client with no session, used by home. */
+    readonly readHostModelSettings?: (
+        workspace: string,
+    ) => Promise<ModelTurnSettings | undefined>;
     /** False when this machine has no conversations yet: home drops a row. */
     readonly homeHasSessions?: boolean;
     /** One page of the session listing, with the facts the caller named. */
@@ -1078,7 +1088,10 @@ export async function startConfiguredTui(
         ? undefined
         : await hostHasSessions(host.socket_path);
     const client = agentId === undefined
-        ? createHomeClient(process.cwd())
+        ? createHomeClient(process.cwd(), {
+            readModelSettings: (workspace) =>
+                readModelSettingsThroughHost(host.socket_path, workspace),
+        })
         : await agentClients.attach(agentId);
     const flightRecorder = createTuiFlightRecorder();
     if (agentId !== undefined) flightRecorder.sessionEntered(agentId);
@@ -1110,6 +1123,8 @@ export async function startConfiguredTui(
         ];
         const exit = await startTui({
             client,
+            readHostModelSettings: (workspace) =>
+                readModelSettingsThroughHost(host.socket_path, workspace),
             ...(homeHasSessions === undefined ? {} : { homeHasSessions }),
             appearance: resolveTuiAppearance(config?.tui),
             ...(startupNotices.length === 0 ? {} : { startupNotices }),
@@ -1221,6 +1236,9 @@ export async function startTui(
      * talks to the host reads this binding at the moment it sends.
      */
     let client = dependencies.client;
+    const homeClientOptions = dependencies.readHostModelSettings === undefined
+        ? {}
+        : { readModelSettings: dependencies.readHostModelSettings };
     const flightRecorder = dependencies.flightRecorder;
     flightRecorder?.sessionEntered(client.agentId ?? "unknown");
     const configuredAppearance = dependencies.appearance
@@ -2760,6 +2778,10 @@ export async function startTui(
     });
     modeToast.add(modeToastText);
     let modeToastVersion = 0;
+    let verificationConsole: {
+        readonly requestId: string;
+        readonly subject: string;
+    } | undefined;
 
     const {
         panel: composerBox,
@@ -3029,6 +3051,31 @@ export async function startTui(
         return sidebar.isFocused() && hostedSidebar.pane !== undefined
             ? hostedSidebar.pane.state.state
             : state;
+    }
+
+    /** The settings owned by the agent that opened an application picker. */
+    function modelSettingsForAgent(
+        target: TuiAgentClient | undefined,
+    ): TuiState["modelSettings"] {
+        if (target === undefined || target === client) {
+            return state.modelSettings;
+        }
+        return hostedSidebar.pane?.client === target
+            ? hostedSidebar.pane.state.state.modelSettings
+            : undefined;
+    }
+
+    /**
+     * Keep a side agent's running pair while accepting the main host's fresh
+     * global shortlist. A pool edit is sent on the main connection, but that
+     * must not make a picker opened for another agent call Vera's pair
+     * "current" when its reply arrives.
+     */
+    function modelSettingsForOpenPicker(
+        poolSource?: TuiState["modelSettings"],
+    ): TuiState["modelSettings"] {
+        const target = modelSettingsForAgent(settingsPickerAgent);
+        return mergeTuiModelPickerSettings(target, poolSource);
     }
 
     /** The pool as the strip needs it: identity, name, and published levels. */
@@ -3455,6 +3502,14 @@ export async function startTui(
         return focused.working || focused.compactingSince !== undefined;
     }
 
+    function composerIsAtLeftBoundary(): boolean {
+        const selection = composer.getSelection();
+        return composer.plainText.length === 0 || (
+            composer.cursorOffset === 0
+            && (selection === null || selection.start === selection.end)
+        );
+    }
+
     function abortFocusedAgent(): void {
         if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
             hostedSidebar.pane.state.abortRequested = true;
@@ -3793,6 +3848,18 @@ export async function startTui(
             ) {
                 notifyExtensionSettings(pane.state.state.modelSettings);
             }
+            if (
+                settingsPicker?.kind === "model"
+                && settingsPickerAgent === pane.client
+            ) {
+                const pickerSettings = modelSettingsForOpenPicker(
+                    pane.state.state.modelSettings,
+                );
+                settingsPicker = syncTuiModelPicker(settingsPicker, {
+                    ...(pickerSettings ?? {}),
+                    actionOptions: modelPickerActionOptions(pickerSettings),
+                });
+            }
         } else if (update.type === "model_settings_rejected") {
             settleExtensionModelSettings(update, pane.client);
             const change = requestedModelChanges.get(update.requestId);
@@ -3872,7 +3939,7 @@ export async function startTui(
     });
     settingsPickerView.pointer = rowPointer((index) => {
         if (settingsPicker === undefined) return;
-        settingsPicker = { ...settingsPicker, selectedIndex: index };
+        settingsPicker = moveTuiSettingsPickerPointer(settingsPicker, index);
     });
     settingsPickerView.onTab = (tab) => {
         // The strip is on screen on the connect pane too, and a chip on it
@@ -4520,7 +4587,6 @@ export async function startTui(
                 conversationBinding: tuiBindingId("conversation", key),
                 globalBinding: tuiBindingId("global", key),
                 workspaceBinding: tuiBindingId("workspace", key),
-                unfocusedBinding: tuiBindingId("unfocused", key),
                 sidebarFocused: workspaceSidebarFocused
                     && workspaceSidebar !== undefined,
                 sidebarVisible: workspaceSidebar !== undefined,
@@ -4998,7 +5064,11 @@ export async function startTui(
         }
 
         if (settingsPicker !== undefined) {
-            const viewportRows = tuiPickerViewportRows(renderer, settingsPicker);
+            const viewportRows = tuiPickerViewportRows(
+                renderer,
+                settingsPicker,
+                verificationConsoleRows(),
+            );
             const transition = settingsPicker.kind === "extension"
                 ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
                 : handleTuiSettingsPickerKey(settingsPicker, key, viewportRows);
@@ -5462,6 +5532,26 @@ export async function startTui(
             return;
         }
 
+        if (
+            key.name === "left"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !key.super
+            && !key.hyper
+            && composer.focused
+            && composerIsAtLeftBoundary()
+            && workspaceSidebar !== undefined
+            && !workspaceSidebarFocused
+            && !anyOverlayOpen()
+            && !commandPaletteView.surface.visible
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            focusWorkspaceSidebar();
+            return;
+        }
+
         if (tuiBindingId("composer", key) === "complete_command") {
             const completing = activeCompletion();
             if (completing !== undefined) {
@@ -5510,26 +5600,17 @@ export async function startTui(
                 key.stopPropagation();
                 return;
             }
-            // Nothing left to complete, so Tab is the focus switch between the
-            // conversation and the rail beside it. Last in this branch because
-            // a half-typed command is what the key was pressed for.
-            if (
-                workspaceSidebar !== undefined
-                && !workspaceSidebarFocused
-                && !anyOverlayOpen()
-                && !commandPaletteView.surface.visible
-            ) {
-                key.preventDefault();
-                key.stopPropagation();
-                focusWorkspaceSidebar();
-                return;
-            }
+            // Tab is command completion only. With nothing to complete it is
+            // a no-op; pane focus belongs to Left and Right.
+            key.preventDefault();
+            key.stopPropagation();
+            return;
         }
 
         // The toggle is one chord in both directions, so the close arm runs
         // before the open arm and before the overlay guard: the pane is not an
         // overlay, and the chord that opened it has to reach back through it.
-        // It shows or hides and nothing else. Tab is what moves the focus.
+        // It shows or hides and nothing else. Left and right move the focus.
         if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
             if (workspaceSidebar !== undefined) {
                 key.preventDefault();
@@ -5827,13 +5908,23 @@ export async function startTui(
     const MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     function requestAgentSettings(target: TuiAgentClient): void {
-        if (target.failed === true || target.viewOnly === true) {
+        if (target.failed === true) {
+            return;
+        }
+        // Home has no session but the model pane still reads the catalog and
+        // the shortlist, which are the host's. Every other view-only client
+        // has nothing to answer with.
+        const home = isHomeClient(target);
+        if (target.viewOnly === true && !home) {
             return;
         }
         void target.send({
             type: "get_model_settings",
             requestId: randomUUID(),
         }).catch(reportConnectionError);
+        if (home) {
+            return;
+        }
         void target.send({
             type: "get_permissions",
             requestId: randomUUID(),
@@ -5878,6 +5969,10 @@ export async function startTui(
     if (client.failed !== true && client.viewOnly !== true) {
         void loadExtensionCommands();
         requestSkillCommands();
+        requestSessionSettings();
+    } else if (isHomeClient(client)) {
+        // The model pane is reachable from home, and what it shows is the
+        // host's, so it is asked for at once rather than on first open.
         requestSessionSettings();
     }
     void restorePersistedAgentPane();
@@ -6526,14 +6621,19 @@ export async function startTui(
             composer.rememberSubmittedText(prompt);
             composer.clearComposer();
             renderCommandSuggestions();
-            const provider = state.modelSettings?.provider;
-            const model = state.modelSettings?.model;
+            const targetSettings = focusedAgentState().modelSettings;
+            const provider = targetSettings?.provider;
+            const model = targetSettings?.model;
             if (provider === undefined || model === undefined) {
                 state = appendTuiError(
                     state,
                     "No model is running yet, so there is nothing to pin",
                 );
                 renderState();
+                return;
+            }
+            if (isModelShortlisted(targetSettings, provider, model)) {
+                showStatusNotice(`${provider}/${model} is already shortlisted`);
                 return;
             }
             // The same request the picker's pool key sends, so the write, the
@@ -7755,6 +7855,10 @@ export async function startTui(
                         );
                     }
                 }
+                if (update.type === "pool_admission_result") {
+                    hideVerificationConsole(update.requestId);
+                }
+                dropSettledVerificationConsole();
                 observeActivity(update);
                 if (
                     update.type === "pool_admission_result"
@@ -7891,9 +7995,17 @@ export async function startTui(
                     // The same route the permissions list takes below: the
                     // open pane is rebuilt from the snapshot the host sent,
                     // never from a local guess about what the edit did.
+                    const pickerSettings = modelSettingsForOpenPicker(
+                        state.modelSettings,
+                    );
                     settingsPicker = syncTuiModelPicker(
                         settingsPicker,
-                        state.modelSettings,
+                        {
+                            ...(pickerSettings ?? {}),
+                            actionOptions: modelPickerActionOptions(
+                                pickerSettings,
+                            ),
+                        },
                     );
                     if (poolChangeUndo !== undefined) {
                         settingsPicker = {
@@ -9009,6 +9121,14 @@ export async function startTui(
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
+        // Home answers reads and refuses everything else. A write it cannot
+        // carry says something about this screen, not about a host that went
+        // away, so it is reported and the connection is left alone.
+        if (isHomeClient(client)) {
+            state = appendTuiError(state, message);
+            renderState();
+            return;
+        }
         // A jsonl view and a session that already died are not a dropped host.
         // Restarting the host here is what froze the TUI in a reconnect loop.
         if (
@@ -9977,6 +10097,11 @@ export async function startTui(
         if (settingsPicker === undefined) {
             pickerTipKind = undefined;
             settingsPickerView.tip = undefined;
+            settingsPickerView.verification = undefined;
+            // The run reports itself in the transcript. Closing the pane is
+            // the end of the console, so reopening it does not bring back a
+            // check that finished a while ago.
+            verificationConsole = undefined;
         } else if (tipsEnabled && pickerTipKind !== settingsPicker.kind) {
             // One tip per pane, chosen when the pane opens. Rechoosing on
             // every keystroke would make the line flicker under the search
@@ -9985,6 +10110,9 @@ export async function startTui(
             settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
         }
         if (settingsPicker !== undefined) {
+            settingsPickerView.verification = settingsPicker.kind === "model"
+                ? liveVerificationConsole()
+                : undefined;
             settingsPickerView.update(settingsPicker);
         }
         if (secretPrompt !== undefined) {
@@ -10381,6 +10509,15 @@ export async function startTui(
     function openModelPicker(parent?: TuiSettingsPickerState): void {
         if (parent === undefined) settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
+        const currentProvider = targetState.modelSettings?.provider;
+        const currentModel = targetState.modelSettings?.model;
+        const pooled = targetState.modelSettings?.pooled ?? [];
+        const currentShortlisted = currentProvider !== undefined
+            && currentModel !== undefined
+            && pooled.some((entry) =>
+                entry.provider === currentProvider
+                && entry.model === currentModel
+            );
         settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
             targetState.modelSettings?.model,
@@ -10390,7 +10527,7 @@ export async function startTui(
             undefined,
             targetState.modelSettings?.provider,
             undefined,
-            targetState.modelSettings?.pooled,
+            pooled,
         ), parent);
         settingsPicker = {
             ...settingsPicker,
@@ -10400,23 +10537,66 @@ export async function startTui(
                 targetState.modelSettings?.reasoningEffort,
                 targetState.modelSettings?.contextLimit,
             ),
-            actionOptions: tuiModelActionOptions(
-                refreshableProvidersOf(
-                    targetState.modelSettings?.availableModels,
-                    targetState.modelSettings?.refreshableProviders,
-                ),
-                {
-                    hasPool: (targetState.modelSettings?.pooled?.length ?? 0)
-                        > 0,
-                },
-            ),
+            actionOptions: modelPickerActionOptions(targetState.modelSettings),
+            // Home reads the catalog from the host, so it usually has one.
+            // When the read failed there is no chord that would fill the list,
+            // and saying so beats an empty list that looks like a provider
+            // problem the user could go and fix.
+            modelCatalogUnavailable: targetState.modelSettings === undefined
+                && isHomeClient(focusedAgentClient()),
         };
+        if (settingsPicker.tab === "pool" && currentShortlisted === false) {
+            settingsPicker = {
+                ...switchedModelTab(settingsPicker, "pool"),
+                selectedIndex: 0,
+            };
+        }
         // Auth changes happen outside the host's original model snapshot.
         // Refresh here so reopening the picker also repairs a stale model pane
         // that was kept underneath the provider picker.
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    function modelPickerActionOptions(
+        settings: TuiState["modelSettings"],
+    ): readonly TuiSettingsPickerOption[] {
+        const provider = settings?.provider;
+        const model = settings?.model;
+        const pooled = settings?.pooled ?? [];
+        return tuiModelActionOptions(
+            refreshableProvidersOf(
+                settings?.availableModels,
+                settings?.refreshableProviders,
+            ),
+            {
+                hasPool: pooled.length > 0,
+                ...(provider === undefined || model === undefined
+                    ? {}
+                    : {
+                        currentModel: {
+                            provider,
+                            model,
+                            shortlisted: isModelShortlisted(
+                                settings,
+                                provider,
+                                model,
+                            ),
+                        },
+                    }),
+            },
+        );
+    }
+
+    function isModelShortlisted(
+        settings: TuiState["modelSettings"],
+        provider: string,
+        model: string,
+    ): boolean {
+        return settings?.pooled?.some((entry) =>
+            entry.provider === provider && entry.model === model
+        ) === true;
     }
 
     /** The connected providers whose model list can be fetched again. */
@@ -11485,7 +11665,6 @@ export async function startTui(
         destination: unknown,
         options: {
             readonly parent?: TuiSettingsPickerState;
-            readonly shortlistView?: "listing" | "picker";
         } = {},
     ): "opened" | "unavailable" {
         const resolution = resolveTuiSettingsDestination(destination, {
@@ -11531,20 +11710,12 @@ export async function startTui(
                     : { selected: route.provider }),
             });
         } else if (route.type === "model_shortlist") {
-            if (options.shortlistView !== "picker") {
-                state = appendTuiNotice(
-                    state,
-                    tuiPoolListing(state.modelSettings?.pooled),
-                );
-                renderState();
-            } else {
-                openModelPicker();
-                settingsPicker = switchedModelTab(
-                    settingsPicker as TuiSettingsPickerState,
-                    "pool",
-                );
-                renderState();
-            }
+            openModelPicker();
+            settingsPicker = switchedModelTab(
+                settingsPicker as TuiSettingsPickerState,
+                "pool",
+            );
+            renderState();
         } else if (route.type === "model_assignments") {
             openModelPicker();
             settingsPicker = switchedModelTab(
@@ -12649,6 +12820,9 @@ export async function startTui(
             "refreshCatalog" in transition
             && transition.refreshCatalog !== undefined
         ) {
+            // The chord names a row, and a row names one provider, so it asks
+            // that one. Choosing which providers to ask is what the More page
+            // action is for.
             requestCatalogRefresh(transition.refreshCatalog);
             return;
         }
@@ -12664,7 +12838,7 @@ export async function startTui(
             return;
         }
         if ("poolVerify" in transition && transition.poolVerify !== undefined) {
-            openVerifyDialog(
+            verifyModelInPicker(
                 transition.poolVerify.provider,
                 transition.poolVerify.model,
             );
@@ -12710,6 +12884,33 @@ export async function startTui(
                 };
             }
             if (toggle.action === "add") {
+                const pickerSettings = modelSettingsForOpenPicker(
+                    state.modelSettings,
+                );
+                if (
+                    isModelShortlisted(
+                        pickerSettings,
+                        toggle.provider,
+                        toggle.model,
+                    )
+                ) {
+                    if (settingsPicker?.kind === "model") {
+                        settingsPicker = syncTuiModelPicker(
+                            settingsPicker,
+                            {
+                                ...(pickerSettings ?? {}),
+                                actionOptions: modelPickerActionOptions(
+                                    pickerSettings,
+                                ),
+                            },
+                        );
+                    }
+                    showStatusNotice(
+                        `${toggle.provider}/${toggle.model} is already shortlisted`,
+                    );
+                    renderState();
+                    return;
+                }
                 // The name prompt follows the verdict, not the keypress: a
                 // model that never made it into the pool cannot be named.
                 const requestId = requestPoolAdmission(
@@ -12922,10 +13123,7 @@ export async function startTui(
                 // Keeping a model is what makes it available as a default, so
                 // the row that says so lands on the collection it is kept in
                 // rather than leaving the user to find it.
-                openSettingsDestination(
-                    { kind: "model_shortlist" },
-                    { shortlistView: "picker" },
-                );
+                openSettingsDestination({ kind: "model_shortlist" });
                 return;
             } else if (selection.kind === "model_assignment_open") {
                 // The pane the row was chosen on, which Enter has already
@@ -13419,7 +13617,10 @@ export async function startTui(
         if (isHomeClient(client) || sessionSwitchPending) return;
         homeTypedText = undefined;
         homeSubmitPending = false;
-        switchToClient(createHomeClient(client.workspace ?? process.cwd()));
+        switchToClient(createHomeClient(
+            client.workspace ?? process.cwd(),
+            homeClientOptions,
+        ));
         void refreshHomeSessions();
     }
 
@@ -14088,6 +14289,7 @@ export async function startTui(
         const requestId = randomUUID();
         poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
         state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
+        showVerificationConsole(requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
             requestId,
@@ -14311,13 +14513,10 @@ export async function startTui(
         return true;
     }
 
-    function openVerifyDialog(provider: string, model: string): void {
-        admissionReturnPicker = settingsPicker?.kind === "model"
-            ? settingsPicker
-            : undefined;
-        settingsPicker = undefined;
-        const requestId = requestPoolAdmission(provider, model, true);
-        admissionDialog = startTuiAdmissionDialog(provider, model, requestId);
+    function verifyModelInPicker(provider: string, model: string): void {
+        // Keep the model pane in place: its full-width console is the live
+        // verification surface, including for a model being checked again.
+        requestPoolAdmission(provider, model, true);
         composer.blur();
         renderState();
         focusActiveSurface();
@@ -14817,6 +15016,62 @@ export async function startTui(
             if (modeToastVersion !== version) return;
             modeToast.visible = false;
         }, MODE_TOAST_DURATION_MS);
+    }
+
+    function showVerificationConsole(
+        requestId: string,
+        subject: string,
+    ): void {
+        verificationConsole = { requestId, subject };
+    }
+
+    /**
+     * How many rows the console is taking from the list right now.
+     *
+     * Half-page movement is measured against what is on screen, so it has to
+     * ask the console rather than assume a size it no longer has.
+     */
+    function verificationConsoleRows(): number {
+        if (settingsPicker?.kind !== "model") return 0;
+        const shown = liveVerificationConsole();
+        return shown === undefined ? 0 : verificationConsoleLines(shown);
+    }
+
+    function hideVerificationConsole(requestId: string): void {
+        if (verificationConsole?.requestId !== requestId) return;
+        verificationConsole = undefined;
+    }
+
+    /**
+     * A settled run has nothing left to report, so the console goes with it
+     * rather than sitting on a spinner that will never turn again.
+     */
+    function dropSettledVerificationConsole(): void {
+        if (verificationConsole === undefined) return;
+        const admission = state.admission;
+        if (
+            admission?.requestId === verificationConsole.requestId
+            && admission.settled === true
+        ) {
+            verificationConsole = undefined;
+        }
+    }
+
+    /** The checks reported so far for the run the console is showing. */
+    function liveVerificationConsole() {
+        const shown = verificationConsole;
+        if (shown === undefined) return undefined;
+        const admission = state.admission?.requestId === shown.requestId
+            ? state.admission
+            : undefined;
+        if (admission?.settled === true) return undefined;
+        return {
+            subject: shown.subject,
+            steps: (admission?.steps ?? []).map((step) => ({
+                label: step.label,
+                status: step.status,
+            })),
+        };
     }
 
     /**

@@ -181,11 +181,16 @@ test("a scope sees its own bindings, the ones it inherits, and the globals", () 
         .toBe("cycle_live_session_next");
 });
 
-test("the unfocused keys reach the composer without shadowing its own tab", () => {
+test("left and right move between the composer and workspace sidebar", () => {
     expect(tuiBindingId("unfocused", { name: "i" })).toBe("focus_composer");
-    expect(tuiBindingId("unfocused", { name: "tab" })).toBe("focus_composer");
-    // Tab still completes a slash command once the composer holds focus, and a
-    // typed "i" is text there rather than a binding.
+    expect(tuiBindingId("unfocused", { name: "right" }))
+        .toBe("focus_composer");
+    // Left is structural pane movement, like the arrow movement inside lists,
+    // so it stays outside the remappable keymap.
+    expect(tuiBindingId("composer", { name: "left" })).toBeUndefined();
+    expect(tuiBindingId("unfocused", { name: "tab" })).toBeUndefined();
+    // Tab remains command completion, and a typed "i" remains text once the
+    // composer holds focus.
     expect(tuiBindingId("composer", { name: "tab" })).toBe("complete_command");
     expect(tuiBindingId("composer", { name: "i" })).toBeUndefined();
 });

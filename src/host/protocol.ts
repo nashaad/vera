@@ -4,6 +4,7 @@ import {
     parseClientCommand,
     type ClientCommand,
 } from "../engine/protocol.ts";
+import type { ModelTurnSettings } from "../engine/model-settings.ts";
 import type { SessionFactName } from "../store/session-facts.ts";
 import type { RegisteredAgentSummary } from "./agent-registry.ts";
 import type { BackgroundAgentsSnapshot } from "./background-agents.ts";
@@ -37,6 +38,24 @@ export interface HostIdentity {
 
 export interface HostIdentityRequest {
     readonly type: "host_identity";
+}
+
+/**
+ * The model catalog and the shortlist without a session to read them from.
+ *
+ * Both are host state: the catalog is fetched per runtime and the shortlist is
+ * kept per workspace, and neither belongs to any one conversation. A client
+ * with nothing attached still has to be able to show them.
+ */
+export interface ModelSettingsRequest {
+    readonly type: "model_settings";
+    /** Which workspace's shortlist to read. Defaults to the host's own. */
+    readonly workspace?: string;
+}
+
+export interface ModelSettingsResponse {
+    readonly type: "model_settings";
+    readonly settings: ModelTurnSettings;
 }
 
 export interface ListAgentsRequest {
@@ -485,6 +504,7 @@ export interface ProtocolErrorResponse {
 
 export type HostRequest =
     | HostIdentityRequest
+    | ModelSettingsRequest
     | ListAgentsRequest
     | SearchSessionsRequest
     | ScheduleOperationRequest
@@ -508,6 +528,7 @@ export type AttachedClientMessage =
     | RunExtensionCommandRequest;
 export type HostResponse =
     | HostIdentityResponse
+    | ModelSettingsResponse
     | AgentListResponse
     | SearchSessionsResponse
     | SearchSessionsUnavailableResponse
@@ -562,6 +583,15 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     const value = parseJsonObject(source);
     if (value?.type === "host_identity") {
         return { type: "host_identity" };
+    }
+    if (value?.type === "model_settings") {
+        const workspace = value.workspace;
+        return {
+            type: "model_settings",
+            ...(typeof workspace === "string" && workspace.length > 0
+                ? { workspace }
+                : {}),
+        };
     }
     if (value?.type === "list_agents") {
         const include = parseSessionFactNames(value.include);
