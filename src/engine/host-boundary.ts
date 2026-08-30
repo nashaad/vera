@@ -41,7 +41,10 @@ import type {
 import type { InstructionRoot } from "./memory.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { ApprovalMode, PermissionPreference } from "./permissions.ts";
-import type { PromptContribution } from "./prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "./prompt-contributions.ts";
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
@@ -131,6 +134,7 @@ export interface HostBoundary {
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly owned: HostOwnedObjects;
 }

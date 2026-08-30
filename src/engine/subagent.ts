@@ -21,7 +21,10 @@ import {
 import { ToolHooks } from "./hooks.ts";
 import { InboundCommandRouter } from "./inbound-command-router.ts";
 import type { InstructionRoot } from "./memory.ts";
-import type { PromptContribution } from "./prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "./prompt-contributions.ts";
 import {
     createInProcessChannel,
     type InProcessChannel,
@@ -87,6 +90,8 @@ export interface CreateSubagentEffectApplierOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
+        allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
@@ -442,6 +447,8 @@ export interface RunSubagentOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
+        allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
@@ -765,6 +772,7 @@ export async function runSubagent(
             true,
         );
         const state: RunTurnState = {
+            sessionId,
             messages: [],
             store,
             toolRuntime,

@@ -1,11 +1,20 @@
 import { expect, test } from "bun:test";
-import { chmod, mkdir, mkdtemp, realpath, rm, writeFile } from "node:fs/promises";
+import {
+    chmod,
+    mkdir,
+    mkdtemp,
+    readFile,
+    realpath,
+    rm,
+    writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { runTurn, type RunTurnState } from "../../src/engine/run-turn.ts";
-import { EngineEventBus } from "../../src/engine/events.ts";
+import { type EngineEvent, EngineEventBus } from "../../src/engine/events.ts";
 import { createProtocolEncoder } from "../../src/engine/protocol.ts";
+import type { EngineCommand } from "../../src/engine/timeline-control.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -22,6 +31,16 @@ import { InMemorySessionStore } from "../support/in-memory-session-store.ts";
 import { projectSkillDirectory } from "../../src/skills/catalog.ts";
 import { loadSkillContribution } from "../../src/skills/contribution.ts";
 import { skillScriptTool } from "../../src/skills/script.ts";
+import { exportSession } from "../../src/session-export.ts";
+import {
+    readSessionSnapshot,
+    SessionStore,
+} from "../../src/store/session-store.ts";
+import {
+    loadStandingNudges,
+    saveStandingNudges,
+    standingNudgeContribution,
+} from "../../src/standing-nudges.ts";
 import {
     withoutCallDuration,
     withoutSessionUsage,
@@ -143,6 +162,230 @@ test("multiple tool calls execute sequentially in content order", async () => {
         );
     } finally {
         await rm(workspace, { recursive: true, force: true });
+    }
+});
+
+test("context freezes through deliveries and cadence advances only on user turns", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-context-freeze-"));
+    const workspace = join(root, "workspace");
+    const profileDirectory = join(root, "profile");
+    const sessionPath = join(root, "session.jsonl");
+    await mkdir(workspace);
+    const toolCallResponse: AssistantMessage = {
+        role: "assistant",
+        content: [{
+            type: "tool_call",
+            id: "call_bash",
+            name: "bash",
+            input: { command: "pwd" },
+        }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "tool_use",
+    };
+    const done = (text: string): AssistantMessage => ({
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    });
+    const faux = new FauxAdapter([
+        toolCallResponse,
+        done("first done"),
+        done("delivery done"),
+        done("second done"),
+        done("third done"),
+    ]);
+    const requests: ModelRequest[] = [];
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const modelRequests: Extract<EngineEvent, { type: "model_request" }>[] = [];
+    events.subscribe((event) => {
+        if (event.type === "model_request") modelRequests.push(event);
+    });
+    events.subscribe(createProtocolEncoder(channel.engine));
+    const contexts: unknown[] = [];
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "standing-nudges-freeze",
+        cwd: workspace,
+    });
+    saveStandingNudges(profileDirectory, [
+        {
+            id: "preference",
+            enabled: true,
+            text: "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
+            trigger: { type: "always" },
+            turnsApart: 0,
+        },
+        {
+            id: "spaced",
+            enabled: true,
+            text: "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+            trigger: { type: "always" },
+            turnsApart: 2,
+        },
+    ]);
+    const cadence = { matchingTurns: new Map<string, number>() };
+    const state: RunTurnState = {
+        sessionId: "standing-nudges-freeze",
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "full_access",
+        readAgentWear: () => ({
+            name: "reviewer",
+            instructions: "Review",
+        }),
+        loadContextualContributions: async (_root, _skills, context) => {
+            contexts.push(context);
+            if (context?.turn === "delivery") return [];
+            const contribution = standingNudgeContribution(
+                loadStandingNudges(profileDirectory),
+                {
+                    workspace: context?.workspace ?? workspace,
+                    agent: context?.agent ?? "default",
+                },
+                cadence,
+            );
+            return contribution === undefined ? [] : [contribution];
+        },
+    };
+
+    const runPrompt = async (content: string): Promise<void> => {
+        channel.client.send({ type: "prompt", content });
+        const running = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain the visible lifecycle.
+        }
+        await running;
+    };
+
+    const runDelivery = async (): Promise<void> => {
+        const sendEngineCommand = channel.client.send as (
+            command: EngineCommand,
+        ) => void;
+        sendEngineCommand({ type: "trigger_delivery_turn" });
+        const running = runTurn(adapter, "test", state);
+        while ((await channel.client.receive()).type !== "turn_finished") {
+            // Drain the delivery lifecycle.
+        }
+        await running;
+    };
+
+    try {
+        await runPrompt("first");
+
+        expect(contexts).toHaveLength(1);
+        expect(requests).toHaveLength(2);
+        expect(requests[0]?.systemPrompt).toContain(
+            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(requests[1]?.systemPrompt).toContain(
+            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(requests[0]?.systemPrompt).toContain(
+            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(contexts).toEqual([{
+            sessionId: "standing-nudges-freeze",
+            turn: "user",
+            workspace,
+            agent: "reviewer",
+        }]);
+        const firstHashes = modelRequests.slice(0, 2).map((event) =>
+            event.promptContributions.find((entry) =>
+                entry.id === "host.standing-instructions"
+            )?.sha256
+        );
+        expect(firstHashes[0]).toBeDefined();
+        expect(firstHashes[1]).toBe(firstHashes[0]);
+
+        saveStandingNudges(profileDirectory, [
+            {
+                id: "preference",
+                enabled: true,
+                text: "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
+                trigger: { type: "always" },
+                turnsApart: 0,
+            },
+            {
+                id: "spaced",
+                enabled: true,
+                text: "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+                trigger: { type: "always" },
+                turnsApart: 2,
+            },
+        ]);
+        await runDelivery();
+
+        expect(contexts).toHaveLength(1);
+        expect(requests[2]?.systemPrompt).toContain(
+            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(requests[2]?.systemPrompt).toContain(
+            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(requests[2]?.systemPrompt).not.toContain(
+            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        await runPrompt("second");
+
+        expect(contexts).toHaveLength(2);
+        expect(requests[3]?.systemPrompt).toContain(
+            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        expect(requests[3]?.systemPrompt).not.toContain(
+            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        const secondHash = modelRequests[3]?.promptContributions.find((entry) =>
+            entry.id === "host.standing-instructions"
+        )?.sha256;
+        expect(secondHash).toBeDefined();
+        expect(secondHash).not.toBe(firstHashes[0]);
+
+        await runPrompt("third");
+        expect(contexts).toHaveLength(3);
+        expect(requests[4]?.systemPrompt).toContain(
+            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+        );
+        const thirdHash = modelRequests[4]?.promptContributions.find((entry) =>
+            entry.id === "host.standing-instructions"
+        )?.sha256;
+        expect(thirdHash).not.toBe(secondHash);
+
+        const forbidden = [
+            "FIRST_STANDING_TEXT_MUST_NOT_PERSIST",
+            "SECOND_STANDING_TEXT_MUST_NOT_PERSIST",
+            "SPACED_STANDING_TEXT_MUST_NOT_PERSIST",
+        ];
+        const durableBytes = await readFile(sessionPath, "utf8");
+        const exportJson = await exportSession(sessionPath, "json");
+        const exportMarkdown = await exportSession(sessionPath, "markdown");
+        const thirdUser = store.activeEntries()
+            .filter((entry) => entry.message.role === "user")
+            .at(2);
+        expect(thirdUser).toBeDefined();
+        await store.rewindBefore(thirdUser!.id);
+        const rewindSnapshot = await readSessionSnapshot(sessionPath);
+        for (const text of forbidden) {
+            expect(JSON.stringify(state.messages)).not.toContain(text);
+            expect(durableBytes).not.toContain(text);
+            expect(JSON.stringify(rewindSnapshot.messages)).not.toContain(text);
+            expect(exportJson).not.toContain(text);
+            expect(exportMarkdown).not.toContain(text);
+        }
+    } finally {
+        await rm(root, { recursive: true, force: true });
     }
 });
 

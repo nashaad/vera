@@ -19,7 +19,10 @@ import { EngineEventBus } from "../engine/events.ts";
 import type { SessionFacts } from "../store/session-facts.ts";
 import type { InstructionRoot } from "../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
-import type { PromptContribution } from "../engine/prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
 import type { ModelFailureLedger } from "../store/model-failures.ts";
 import {
@@ -493,6 +496,7 @@ export interface AgentRegistryOptions {
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
     /** Builds each resident agent's tool hooks; absent means none. */

@@ -45,7 +45,10 @@ import type {
     PermissionPredicate,
     PermissionPreference,
 } from "./permissions.ts";
-import type { PromptContribution } from "./prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "./prompt-contributions.ts";
 import type { ModelFallbackPolicy } from "./recovery.ts";
 import type { ReviewLog } from "./review-log.ts";
 import type { ReviewToolCall, ToolReviewerSettings } from "./reviewer.ts";
@@ -288,6 +291,7 @@ export interface RunHeadlessLoopServices {
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
 
     /** Owner-side, and not part of the wire. See `InboundRouterHostHooks`. */

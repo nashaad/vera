@@ -13,6 +13,7 @@
 import type { EngineEvent } from "../../engine/events.ts";
 import type { LoopState } from "../../engine/host-protocol.ts";
 import type { RunHeadlessLoopServices } from "../../engine/loop-services.ts";
+import type { ContextualContributionContext } from "../../engine/prompt-contributions.ts";
 import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { ReviewLogEntry } from "../../engine/review-log.ts";
@@ -198,11 +199,13 @@ export function createWorkerBoundaryServer(
                     const request = body as {
                         readonly instructionRoot: never;
                         readonly allowedSkills?: readonly string[];
+                        readonly context?: ContextualContributionContext;
                     };
                     const contributions = await services
                         .loadContextualContributions?.(
                             request.instructionRoot,
                             request.allowedSkills,
+                            request.context,
                         ) ?? [];
                     return { contributions };
                 }
