@@ -15,6 +15,7 @@ import { join } from "node:path";
 
 import {
     providerCatalogCachePath,
+    listDiscoveredProviders,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../../src/model/catalog-cache.ts";
@@ -123,6 +124,37 @@ describe("provider catalog cache", () => {
             provider: "example",
             models: [],
         });
+    });
+
+    test("keeps listed pricing through a snapshot write and read", () => {
+        const cacheDir = temporaryDirectory();
+        const catalog: ProviderCatalog = {
+            schema_version: 2,
+            provider: "openrouter",
+            fetched_at: "2026-08-29T00:00:00Z",
+            models: [{
+                id: "vendor/model",
+                label: "Vendor: Model",
+                pricing: { input: 3, output: 15 },
+                levels: [],
+            }],
+        };
+
+        writeProviderCatalogSnapshot(catalog, { cacheDir });
+        expect(readProviderCatalogSnapshot("openrouter", { cacheDir }))
+            .toEqual(catalog);
+    });
+
+    test("does not treat the WebDev Arena cache as a provider catalog", () => {
+        const cacheDir = temporaryDirectory();
+        writeFileSync(join(cacheDir, "webdev-arena.json"), "{}");
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "openrouter",
+            models: [],
+        }, { cacheDir });
+
+        expect(listDiscoveredProviders({ cacheDir })).toEqual(["openrouter"]);
     });
 });
 

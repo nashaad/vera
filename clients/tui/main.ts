@@ -10607,6 +10607,12 @@ export async function startTui(
                 targetState.modelSettings?.contextLimit,
             ),
             actionOptions: modelPickerActionOptions(targetState.modelSettings),
+            ...(targetState.modelSettings?.webdevArenaSnapshot === undefined
+                ? {}
+                : {
+                    webdevArenaSnapshot:
+                        targetState.modelSettings.webdevArenaSnapshot,
+                }),
             // Home reads the catalog from the host, so it usually has one.
             // When the read failed there is no chord that would fill the list,
             // and saying so beats an empty list that looks like a provider

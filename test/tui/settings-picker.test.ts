@@ -86,7 +86,7 @@ async function pickerFrame(
     }
 }
 
-test("inset pickers sit three rows above the quarter line", async () => {
+test("inset pickers sit on the screen's top padding row", async () => {
     const { renderer } = await createTestRenderer({ width: 100, height: 40 });
     try {
         const view = createTuiSettingsPickerView(renderer);
@@ -98,7 +98,7 @@ test("inset pickers sit three rows above the quarter line", async () => {
             availableModels,
             "default",
         ));
-        expect(view.box.top).toBe(7);
+        expect(view.box.top).toBe(1);
 
         view.update(startTuiSessionPicker([], undefined, false));
         expect(view.box.top).toBe(0);
@@ -1844,11 +1844,11 @@ test("with an empty pool the pane opens on All models, full width", async () => 
     // can always answer "which model do I switch to".
     const state = modelPickerWithPool([]);
     expect(state.tab).toBe("all");
-    // Hundreds of rows, read by scanning names: the whole card goes to the
-    // names rather than half of it to facts about one of them.
     const frame = await pickerFrame(state);
     expect(frame).toMatch(/All \(\d+\)/);
-    expect(frame).not.toContain("\u2502");
+    expect(frame).toMatch(/│ Full price/);
+    expect(frame).not.toContain("┌");
+    expect(frame).not.toContain("└");
 });
 
 test("All models keeps a moderate modal height on a tall terminal", async () => {
@@ -1877,8 +1877,11 @@ test("All models keeps a moderate modal height on a tall terminal", async () => 
     try {
         await setup.flush();
         expect(state.tab).toBe("all");
-        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(22);
-        expect(view.box.height).toBeLessThan(40);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBe(21);
+        expect(tuiPickerViewportRows(setup.renderer, state)).toBeLessThan(40);
+        expect(view.box.height).toBeLessThan(
+            setup.renderer.height - 4,
+        );
         expect(setup.renderer.height - view.box.screenY - view.box.height)
             .toBeGreaterThanOrEqual(4);
     } finally {
@@ -1972,7 +1975,7 @@ test("All models opens on Top picks, with the providers folded", () => {
 });
 
 test("a top pick says so on its own row, except under the heading that says it", async () => {
-    const frame = await pickerFrame(allTabWithRecommendations());
+    const frame = await pickerFrame(allTabWithRecommendations(), 100, 55);
 
     // Under the Top picks heading the words would only repeat it.
     expect(frame).not.toContain("top pick");
@@ -1981,6 +1984,8 @@ test("a top pick says so on its own row, except under the heading that says it",
             { ...allTabWithRecommendations(), selectedIndex: 2 },
             { name: "return" },
         ).state!,
+        100,
+        55,
     );
     expect(opened).toMatch(/Kimi K3\s+top pick/);
 });
@@ -2000,10 +2005,20 @@ test("a tab is switched by clicking its chip, cursor and all", () => {
 test("the Help tab explains the pane in the pane", async () => {
     const state = modelPickerWithPool();
     const help = switchedModelTab(state, "help");
-    const frame = await pickerFrame(help);
+    const frame = await pickerFrame(help, 100, 50);
 
     expect(frame).toContain("the model this conversation is running");
     expect(frame).toContain("answered a live probe");
+    expect(frame).toContain("WebDev Arena");
+    expect(frame).toContain("CC-BY 4.0");
+    expect(frame).toContain("OpenRouter");
+    expect(frame).toContain("on or near Vera's WA Score × listed-output front");
+    expect(frame).toContain("★");
+    expect(frame).toContain("the model takes image input");
+    expect(frame).not.toContain("🖼");
+    expect(frame).toContain("snapshot unavailable");
+    expect(frame).toContain("on WA Score: source footnote, not the shortlist.");
+    expect(frame).toContain("7:2:1");
     // A page, not a list: nothing to filter, nothing to select, and the footer
     // says only what the page can do.
     expect(help.options).toHaveLength(0);
@@ -2019,6 +2034,165 @@ test("the Help tab explains the pane in the pane", async () => {
     // The chip carries no count, because Help is not a collection of models.
     expect(frame).toMatch(/Help\s/);
     expect(frame).not.toMatch(/Help \d/);
+});
+
+function listedFactsModels() {
+    return {
+        available: [
+            {
+                provider: "openrouter",
+                model: "x-ai/grok-4.6",
+                label: "SpaceXAI: Grok 4.6",
+                description: "runnable",
+                refreshable: true,
+                recommended: true,
+                waScore: 1629,
+                pricing: { input: 3, output: 15 },
+                onPareto: true,
+                imageSupport: true,
+            },
+            {
+                provider: "openrouter",
+                model: "other/steady",
+                label: "Steady",
+                description: "runnable",
+                refreshable: true,
+                waScore: 1400,
+                pricing: { input: 1, output: 4 },
+            },
+            {
+                provider: "openrouter",
+                model: "unknown/blank",
+                label: "Unknown Blank",
+                description: "runnable",
+                refreshable: true,
+            },
+        ],
+        pooled: [{
+            provider: "openrouter",
+            model: "x-ai/grok-4.6",
+            label: "SpaceXAI: Grok 4.6",
+            available: true,
+            verified: true,
+            levels: [],
+            waScore: 1629,
+            pricing: { input: 3, output: 15 },
+            onPareto: true,
+            imageSupport: true,
+        }],
+    } as const;
+}
+
+function listedFactsPicker() {
+    const models = listedFactsModels();
+    return startTuiSettingsPicker(
+        "model",
+        "x-ai/grok-4.6",
+        undefined,
+        "auto",
+        models.available,
+        "default",
+        "openrouter",
+        undefined,
+        models.pooled,
+    );
+}
+
+test("All models shows listed facts, glyphs, and a blank unmatched score", async () => {
+    const all = switchedModelTab(listedFactsPicker(), "all");
+    const frame = await pickerFrame(all, 100, 55);
+
+    expect(frame).toContain("WA Score");
+    expect(frame).toContain("1629");
+    expect(frame).toContain("4.2");
+    expect(frame).toMatch(/\bP\b/);
+    expect(frame).toContain("★");
+    expect(frame).toMatch(/P i ★/);
+    expect(frame).not.toContain("🖼");
+    expect(frame).toContain("Unknown Blank");
+    expect(frame).not.toMatch(/Unknown Blank[^\n]*\b0\b/);
+    expect(frame).not.toMatch(/shortlisted/);
+    expect(frame).not.toContain("$");
+    expect(frame).toContain("Full price");
+    expect(frame).toContain("3/15");
+    expect(frame).toContain("Blended price");
+    const fullPriceAt = frame.indexOf("Full price");
+    expect(frame.slice(0, fullPriceAt)).toContain("Grok 4.6");
+    expect(frame).toContain("7:2:1");
+    expect(frame).toContain("Any");
+    expect(frame).toContain("Smarter");
+    expect(frame).toMatch(/any\s+1400\s+1450\s+1500\s+1550\s+1600/);
+    expect(frame).toMatch(/│ Full price/);
+    expect(frame).not.toContain("┌");
+    expect(frame).not.toContain("└");
+    const headerLine = frame.split("\n").find((line) =>
+        line.includes("WA Score*")
+    )!;
+    expect(headerLine).toContain("7:2:1");
+    expect(headerLine).not.toContain("3/15");
+    const grokPick = frame.split("\n").find((line) =>
+        line.includes("Grok 4.6") && line.includes("top pick")
+    );
+    const steadyLine = frame.split("\n").find((line) =>
+        line.includes("Steady") && line.includes("1400")
+    )!;
+    expect(grokPick).toBeDefined();
+    expect(grokPick).toContain("4.2");
+    expect(grokPick).not.toContain("3/15");
+    expect(steadyLine).toContain("1.3");
+    expect(steadyLine).not.toContain("1/4");
+    expect(grokPick!.indexOf("1629")).toBe(steadyLine.indexOf("1400"));
+});
+
+test("All models intelligence cutoff hides rows below the WA Score floor", () => {
+    const all = { ...switchedModelTab(listedFactsPicker(), "all"), selectedIndex: 0 };
+    const focused = handleTuiSettingsPickerKey(all, { name: "up" }).state!;
+    expect(focused.modelFocus).toBe("intelligence");
+
+    const floor = handleTuiSettingsPickerKey(focused, { name: "right" }).state!;
+    expect(floor.intelligenceCutoff).toBe("1400");
+    const floorNames = floor.options
+        .filter((option) => option.section === undefined)
+        .map((option) => option.label);
+    expect(floorNames).toContain("SpaceXAI: Grok 4.6");
+    expect(floorNames).toContain("Steady");
+    expect(floorNames).not.toContain("Unknown Blank");
+
+    const tighter = handleTuiSettingsPickerKey(floor, { name: "right" }).state!;
+    expect(tighter.intelligenceCutoff).toBe("1450");
+    const tightNames = tighter.options
+        .filter((option) => option.section === undefined)
+        .map((option) => option.label);
+    expect(tightNames).toContain("SpaceXAI: Grok 4.6");
+    expect(tightNames).not.toContain("Steady");
+
+    let top = tighter;
+    for (const stop of ["1500", "1550", "1600"] as const) {
+        top = handleTuiSettingsPickerKey(top, { name: "right" }).state!;
+        expect(top.intelligenceCutoff).toBe(stop);
+    }
+    const topNames = top.options
+        .filter((option) => option.section === undefined)
+        .map((option) => option.label);
+    expect(topNames).toContain("SpaceXAI: Grok 4.6");
+    expect(topNames).not.toContain("Steady");
+});
+
+test("Shortlist keeps names on the list and listed facts in the inspector", async () => {
+    const frame = await pickerFrame(listedFactsPicker(), 160);
+
+    expect(frame).not.toMatch(/WA Score\*/);
+    expect(frame).toContain("WA Score");
+    expect(frame).toContain("1629");
+    expect(frame).toContain("Full price");
+    expect(frame).toContain("3/15");
+    expect(frame).toContain("Blended price");
+    expect(frame).toContain("7:2:1");
+    expect(frame).toMatch(/│  Images\b/);
+    expect(frame).toMatch(/│  i\b/);
+    expect(frame).toContain("✓");
+    expect(frame).not.toContain("★");
+    expect(frame).not.toContain("🖼");
 });
 
 test("the model tab strip offers the providers pane and its key", async () => {
@@ -2240,7 +2414,8 @@ test("the stacked facts leave most of a wide model pane to model names", async (
 
     expect(frame).toContain("GPT-5.3-Codex-Spark");
     expect(frame).toMatch(/│  Images\s*\n.*│  not known/);
-    expect(frame).toMatch(/│  Model ID\s*\n.*│  openai\/gpt-5\.3-codex-spark/);
+    expect(frame).toMatch(/│  Model ID/);
+    expect(frame).toContain("openai/gpt-5.");
 });
 
 test("the verify key asks for a probe of the selected pool row", () => {
@@ -3904,7 +4079,10 @@ test("All models puts its collection action under the list", async () => {
 
     const page = handleTuiSettingsPickerKey(
         handleTuiSettingsPickerKey(
-            { ...all, selectedIndex: 0 },
+            handleTuiSettingsPickerKey(
+                { ...all, selectedIndex: 0 },
+                { name: "up" },
+            ).state!,
             { name: "up" },
         ).state!,
         { name: "return" },

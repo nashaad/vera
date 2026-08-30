@@ -41,6 +41,11 @@ export interface ModelTurnSettings {
      * entries that are not currently runnable.
      */
     readonly pooled?: readonly PooledModel[];
+    /**
+     * WebDev Arena snapshot date the TUI prints in Help (`YYYY-MM-DD`). The
+     * client must not read the cache itself.
+     */
+    readonly webdevArenaSnapshot?: string;
     readonly contextWindow?: number;
     /** Model's uncapped declared capacity, when a global limit is in force. */
     readonly modelContextWindow?: number;
@@ -216,6 +221,8 @@ export function isModelTurnSettings(value: unknown): value is ModelTurnSettings 
         && (settings.pooled === undefined
             || (Array.isArray(settings.pooled)
                 && settings.pooled.every(isPooledModel)))
+        && (settings.webdevArenaSnapshot === undefined
+            || typeof settings.webdevArenaSnapshot === "string")
         && (settings.contextWindow === undefined
             || (Number.isSafeInteger(settings.contextWindow)
                 && (settings.contextWindow as number) > 0))
@@ -463,6 +470,11 @@ function isAvailableModel(value: unknown): boolean {
                 && (model.contextWindow as number) > 0))
         && (model.refreshable === undefined
             || typeof model.refreshable === "boolean")
+        && isOptionalModelPricing(model.pricing)
+        && isOptionalWaScore(model.waScore)
+        && (model.onPareto === undefined || typeof model.onPareto === "boolean")
+        && (model.imageSupport === undefined
+            || typeof model.imageSupport === "boolean")
         && isLevelList(model.levels)
         && (model.defaultLevel === undefined
             || typeof model.defaultLevel === "string");
@@ -485,9 +497,34 @@ function isPooledModel(value: unknown): boolean {
         && (model.contextWindow === undefined
             || (Number.isSafeInteger(model.contextWindow)
                 && (model.contextWindow as number) > 0))
+        && isOptionalModelPricing(model.pricing)
+        && isOptionalWaScore(model.waScore)
+        && (model.onPareto === undefined || typeof model.onPareto === "boolean")
+        && (model.imageSupport === undefined
+            || typeof model.imageSupport === "boolean")
         && isLevelList(model.levels)
         && (model.defaultLevel === undefined
             || typeof model.defaultLevel === "string");
+}
+
+function isOptionalModelPricing(value: unknown): boolean {
+    if (value === undefined) return true;
+    if (typeof value !== "object" || value === null || Array.isArray(value)) {
+        return false;
+    }
+    const pricing = value as Record<string, unknown>;
+    return isNonNegativeFinite(pricing.input)
+        && isNonNegativeFinite(pricing.output)
+        && (pricing.cache === undefined || isNonNegativeFinite(pricing.cache));
+}
+
+function isOptionalWaScore(value: unknown): boolean {
+    return value === undefined
+        || (typeof value === "number" && Number.isFinite(value));
+}
+
+function isNonNegativeFinite(value: unknown): boolean {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isLevelList(value: unknown): boolean {

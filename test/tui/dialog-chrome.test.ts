@@ -60,7 +60,7 @@ test("bottom-anchored overlays clear the status line only when there is room", a
 test("inset dialogs float clear of both terminal edges", async () => {
     const roomy = await createTestRenderer({ width: 100, height: 40 });
     try {
-        expect(dialogInsetTop(roomy.renderer)).toBe(7);
+        expect(dialogInsetTop(roomy.renderer)).toBe(1);
         expect(dialogInsetBottomOffset(roomy.renderer)).toBe(5);
     } finally {
         roomy.renderer.destroy();

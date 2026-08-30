@@ -22,9 +22,17 @@ import {
     type ModelAssignmentRow,
 } from "../../src/config/model-assignments.ts";
 import type {
+    ModelPricing,
     ReasoningLevel,
     ReasoningLevelId,
 } from "../../src/model/catalog-shape.ts";
+import { formatBlendedRate, formatListedRates } from "../../src/model/listed-rates.ts";
+import {
+    INTELLIGENCE_CUTOFFS,
+    stepIntelligenceCutoff,
+    passesIntelligenceCutoff,
+    type IntelligenceCutoff,
+} from "../../src/model/intelligence-cutoff.ts";
 import { inferReasoningSelection } from "../../src/model/reasoning-effort.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import type { ProviderAccessKind } from "../../src/providers/registry.ts";
@@ -205,6 +213,11 @@ export interface TuiSettingsPickerOption {
     readonly unavailable?: boolean;
     /** Set only when a source says the model takes images. */
     readonly images?: boolean;
+    /** WebDev Arena overall rating, integer. Absent is a blank cell. */
+    readonly waScore?: number;
+    readonly pricing?: ModelPricing;
+    /** True when this model is on or near Vera's listed-output front. */
+    readonly onPareto?: boolean;
     /** True on a pool row with no probe or rejection evidence behind it. */
     readonly unverified?: boolean;
     /**
@@ -375,7 +388,8 @@ export interface TuiSettingsPickerState {
         | "list_action"
         | "detail"
         | "page_entry"
-        | "page";
+        | "page"
+        | "intelligence";
     /** Which page action is highlighted while the page view holds focus. */
     readonly modelPageIndex?: number;
     /**
@@ -401,6 +415,11 @@ export interface TuiSettingsPickerState {
      * already know about.
      */
     readonly actionOptions?: readonly TuiSettingsPickerOption[];
+    /**
+     * WebDev Arena snapshot date for Help (`YYYY-MM-DD`). Carried from the
+     * settings snapshot so the TUI does not read the cache.
+     */
+    readonly webdevArenaSnapshot?: string;
     /** The caller has one confirmed pool change it can reverse. */
     readonly canUndoPoolChange?: boolean;
     /**
@@ -453,6 +472,10 @@ export interface TuiSettingsPickerState {
      * a question about this visit rather than a setting to carry forward.
      */
     readonly revealAll?: boolean;
+    /**
+     * All models WA Score floor for this visit. Absent means `any`.
+     */
+    readonly intelligenceCutoff?: IntelligenceCutoff;
     /** The file identities behind a configure pane's display rows. */
     readonly configureFiles?: readonly TuiConfigureFile[];
 }
@@ -877,6 +900,7 @@ export function syncTuiModelPicker(
         readonly availableModels?: readonly SuggestedModel[];
         readonly pooled?: readonly PooledModel[];
         readonly actionOptions?: readonly TuiSettingsPickerOption[];
+        readonly webdevArenaSnapshot?: string;
     } | undefined,
 ): TuiSettingsPickerState {
     if (state.kind !== "model") {
@@ -909,7 +933,14 @@ export function syncTuiModelPicker(
         ...modelSyncedFocus(state, { ...rebuilt, tab, actionOptions }),
         modelActionIndex: state.modelActionIndex ?? 0,
         ...(state.revealAll === true ? { revealAll: true } : {}),
+        ...(state.intelligenceCutoff === undefined
+                || state.intelligenceCutoff === "any"
+            ? {}
+            : { intelligenceCutoff: state.intelligenceCutoff }),
         ...(collapsed.length === 0 ? {} : { collapsed }),
+        ...(settings?.webdevArenaSnapshot === undefined
+            ? {}
+            : { webdevArenaSnapshot: settings.webdevArenaSnapshot }),
         // Slot rows are read from config and the pool rather than from the
         // host, so a rebuild has nothing to put back and has to carry them.
         ...(state.assignmentOptions === undefined
@@ -924,6 +955,8 @@ export function syncTuiModelPicker(
             state.revealAll === true,
             state.assignmentOptions ?? [],
             actionOptions,
+            state.intelligenceCutoff ?? "any",
+            state.initialModel,
         ),
     };
     const options = state.query.length === 0
@@ -2582,15 +2615,7 @@ export function handleTuiSettingsPickerKey(
     ) {
         const modelState = state as TuiSettingsPickerState;
         const revealAll = modelState.revealAll !== true;
-        const options = modelPickerOptions(
-            modelState.allOptions,
-            modelState.tab ?? "all",
-            modelState.collapsed ?? [],
-            modelState.query,
-            revealAll,
-            modelState.assignmentOptions ?? [],
-            modelState.actionOptions ?? [],
-        );
+        const options = modelListFor(modelState, { revealAll });
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
         return {
@@ -2755,14 +2780,62 @@ export function handleTuiSettingsPickerKey(
                     handled: true,
                 };
         }
-        if (key.name === "escape" || key.name === "down") {
+        if (key.name === "escape") {
             return {
                 state: { ...state, modelFocus: "list", selectedIndex: 0 },
                 handled: true,
             };
         }
+        if (key.name === "down") {
+            return {
+                state: {
+                    ...state,
+                    modelFocus: showsIntelligenceCutoff(state)
+                        ? "intelligence"
+                        : "list",
+                    selectedIndex: 0,
+                },
+                handled: true,
+            };
+        }
         if (key.name === "up" || key.name === "left") {
             return unchanged(state, true);
+        }
+    }
+    if (state.kind === "model" && state.modelFocus === "intelligence") {
+        if (key.name === "left" || key.name === "right") {
+            const intelligenceCutoff = stepIntelligenceCutoff(
+                state.intelligenceCutoff ?? "any",
+                key.name === "right" ? 1 : -1,
+            );
+            const options = modelListFor(state, { intelligenceCutoff });
+            return {
+                state: {
+                    ...state,
+                    intelligenceCutoff,
+                    options,
+                    selectedIndex: restoredCursor(
+                        options,
+                        state.options[state.selectedIndex]?.value,
+                        state.initialModel,
+                    ),
+                },
+                handled: true,
+            };
+        }
+        if (key.name === "down") {
+            return {
+                state: { ...state, modelFocus: "list" },
+                handled: true,
+            };
+        }
+        if (key.name === "up") {
+            return modelPageEntry(state) === undefined
+                ? unchanged(state, true)
+                : {
+                    state: { ...state, modelFocus: "page_entry" },
+                    handled: true,
+                };
         }
     }
     if (state.kind === "model" && state.modelFocus === "detail") {
@@ -2845,15 +2918,7 @@ export function handleTuiSettingsPickerKey(
             ? sectionLabels(state as TuiSettingsPickerState)
             : [];
         const modelState = state as TuiSettingsPickerState;
-        const options = modelPickerOptions(
-            modelState.allOptions,
-            modelState.tab ?? "all",
-            collapsed,
-            modelState.query,
-            modelState.revealAll === true,
-            modelState.assignmentOptions ?? [],
-            modelState.actionOptions ?? [],
-        );
+        const options = modelListFor(modelState, { collapsed });
         const selectedValue = modelState.options[modelState.selectedIndex]
             ?.value;
         return {
@@ -2977,6 +3042,17 @@ export function handleTuiSettingsPickerKey(
         return toggledSection(state, heading.section);
     }
     if (key.name === "up") {
+        if (
+            state.kind === "model"
+            && state.selectedIndex === 0
+            && (state.modelFocus ?? "list") === "list"
+            && showsIntelligenceCutoff(state)
+        ) {
+            return {
+                state: { ...state, modelFocus: "intelligence" },
+                handled: true,
+            };
+        }
         if (
             state.kind === "model"
             && state.selectedIndex === 0
@@ -3233,10 +3309,23 @@ export function tuiPickerViewportRows(
     const stripHeight = modelStripStop(state) === undefined
         ? 0
         : modelTabStripHeight(pickerContentWidth(renderer, state));
+    const listedHeaderLines = showsListedFactsHeader(state)
+            && state.options.length > 0
+        ? 1
+        : 0;
+    const intelligenceLines = showsIntelligenceCutoff(state)
+        ? INTELLIGENCE_SCALE_LINES
+        : 0;
+    const allModelsInfoLines = showsAllModelsPrices(state)
+        ? allModelsPriceChromeLines()
+        : 0;
     const rows = pickerMaxRows(
         renderer,
         stripHeight
             + (state.kind === "extension" && state.subtitle !== undefined ? 1 : 0)
+            + listedHeaderLines
+            + intelligenceLines
+            + allModelsInfoLines
             + extraChrome,
     );
     return state.kind === "model" && state.tab === "all"
@@ -3248,10 +3337,8 @@ export function tuiPickerViewportRows(
 /**
  * Whether the facts about the highlighted row are drawn beside the list.
  *
- * The pool only. It is a short list the user built, so there is room beside it
- * and a reason to look: what a pooled model can do is why it is in the pool.
- * All models is hundreds of rows long and is read by scanning names, which a
- * half-width column turns into a list of clipped prefixes.
+ * The pool, Defaults, and Actions. All models stays a name scan; Full price
+ * and Blended price sit as labelled rows under that list.
  */
 function hasModelDetail(state: TuiAnySettingsPickerState): boolean {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
@@ -3382,6 +3469,9 @@ function stackedBelowListLines(
         return 2 + modelPageActions(state).length;
     }
     const option = state.options[state.selectedIndex];
+    if (state.kind === "model" && state.tab === "all") {
+        return 0;
+    }
     const actions = modelDetailActions(state, option);
     return stackedDetailLines(state, option, width).length
         + (actions.length === 0 ? 0 : 2 + actions.length);
@@ -3392,6 +3482,12 @@ function stackedDetailLines(
     option: TuiSettingsPickerOption | undefined,
     width: number,
 ): readonly (readonly TextChunk[])[] {
+    if (
+        state.kind === "model"
+        && state.tab === "all"
+    ) {
+        return [];
+    }
     if (
         state.kind !== "model" || state.tab !== "defaults"
         || option?.detailFacts === undefined
@@ -3408,6 +3504,98 @@ function stackedDetailLines(
         lines.push([fg(TUI_MUTED)(text)]);
     }
     return lines;
+}
+
+function stackedListedPriceLines(
+    option: TuiSettingsPickerOption | undefined,
+    width: number,
+): readonly (readonly TextChunk[])[] {
+    const full = formatListedRates(option?.pricing);
+    const blended = formatBlendedRate(option?.pricing);
+    const images = option?.images === true ? "i" : "";
+    const row = (label: string, value: string): readonly TextChunk[] => {
+        const pad = Math.max(1, 16 - label.length);
+        return [
+            fg(TUI_MUTED)(label),
+            fg(TUI_TEXT)(`${" ".repeat(pad)}${clippedTo(value, width - 16)}`),
+        ];
+    };
+    return [
+        [fg(TUI_TEXT)(clippedTo(option?.label ?? "", width))],
+        row("Full price", full ?? ""),
+        row("Blended price", blended === undefined ? "" : `${blended}  7:2:1`),
+        row("Images", images),
+    ];
+}
+
+function allModelsPriceNode(
+    renderer: RenderContext,
+    option: TuiSettingsPickerOption | undefined,
+    width: number,
+): BoxRenderable {
+    return ALL_MODELS_PRICE_CHROME === "fill"
+        ? allModelsPriceFillNode(renderer, option, width)
+        : allModelsPriceBorderNode(renderer, option, width);
+}
+
+function allModelsPriceFillNode(
+    renderer: RenderContext,
+    option: TuiSettingsPickerOption | undefined,
+    width: number,
+): BoxRenderable {
+    const box = new BoxRenderable(renderer, {
+        width,
+        height: ALL_MODELS_PRICE_FACTS + 2 * ALL_MODELS_PRICE_PAD,
+        marginTop: ALL_MODELS_PRICE_MARGIN,
+        marginBottom: ALL_MODELS_PRICE_MARGIN,
+        flexShrink: 0,
+        flexDirection: "column",
+        border: false,
+        backgroundColor: TUI_INPUT,
+        paddingLeft: 1,
+        paddingRight: 1,
+        paddingTop: ALL_MODELS_PRICE_PAD,
+        paddingBottom: ALL_MODELS_PRICE_PAD,
+    });
+    const innerWidth = Math.max(1, width - 2);
+    for (const chunks of stackedListedPriceLines(option, innerWidth)) {
+        box.add(new TextRenderable(renderer, {
+            content: new StyledText([...chunks]),
+            bg: TUI_INPUT,
+            width: "100%",
+            height: 1,
+        }));
+    }
+    return box;
+}
+
+function allModelsPriceBorderNode(
+    renderer: RenderContext,
+    option: TuiSettingsPickerOption | undefined,
+    width: number,
+): BoxRenderable {
+    const box = new BoxRenderable(renderer, {
+        width,
+        height: ALL_MODELS_PRICE_FACTS,
+        marginTop: ALL_MODELS_PRICE_MARGIN,
+        marginBottom: ALL_MODELS_PRICE_MARGIN,
+        flexShrink: 0,
+        flexDirection: "column",
+        border: false,
+        backgroundColor: TUI_PANEL,
+    });
+    const innerWidth = Math.max(1, width - 2);
+    for (const chunks of stackedListedPriceLines(option, innerWidth)) {
+        box.add(new TextRenderable(renderer, {
+            content: new StyledText([
+                fg(TUI_ELEMENT)("│ "),
+                ...chunks,
+            ]),
+            width,
+            height: 1,
+        }));
+    }
+    return box;
 }
 
 function modelDetailNode(
@@ -3519,14 +3707,34 @@ function modelDetailNode(
             )),
         ], undefined, factLimit);
         line([], undefined, factLimit);
-        for (const fact of modelDetailFacts(state, option)) {
-            const [label, value, tone] = fact;
-            line([fg(TUI_MUTED)(label)], undefined, factLimit);
-            line([
-                fg(tone === "positive" ? TUI_SUCCESS : TUI_TEXT)(
-                    clippedTo(value, width),
+        const facts = modelDetailFacts(state, option);
+        const leftFacts = facts.slice(0, MODEL_DETAIL_LEFT_FACTS);
+        const rightFacts = facts.slice(MODEL_DETAIL_LEFT_FACTS);
+        const factRows = modelDetailFactRowCount(facts);
+        const col = rightFacts.length === 0
+            ? width
+            : Math.max(0, Math.floor((width - 2) / 2));
+        for (let index = 0; index < factRows; index += 1) {
+            const left = leftFacts[index];
+            const right = rightFacts[index];
+            line(
+                factColumnChunks(left?.[0], right?.[0], col, width, true),
+                undefined,
+                factLimit,
+            );
+            line(
+                factColumnChunks(
+                    left?.[1],
+                    right?.[1],
+                    col,
+                    width,
+                    false,
+                    left?.[2],
+                    right?.[2],
                 ),
-            ], undefined, factLimit);
+                undefined,
+                factLimit,
+            );
         }
         line([], undefined, factLimit);
         if (actions.length > 0) {
@@ -3592,14 +3800,18 @@ function wrappedTo(text: string, width: number): readonly string[] {
  * It is the pane's own vocabulary only. The full key reference is /help, and
  * repeating it here would be a second copy to keep true.
  */
-function modelHelpNode(renderer: RenderContext, width: number): BoxRenderable {
+function modelHelpNode(
+    renderer: RenderContext,
+    width: number,
+    state: TuiAnySettingsPickerState,
+): BoxRenderable {
     const page = new BoxRenderable(renderer, {
         width,
-        height: MODEL_HELP_LINES.length,
+        height: modelHelpLines(state).length,
         flexShrink: 0,
         flexDirection: "column",
     });
-    for (const [term, meaning] of MODEL_HELP_LINES) {
+    for (const [term, meaning] of modelHelpLines(state)) {
         page.add(new TextRenderable(renderer, {
             content: meaning === undefined
                 ? new StyledText([fg(TUI_TEXT)(term)])
@@ -3616,6 +3828,32 @@ function modelHelpNode(renderer: RenderContext, width: number): BoxRenderable {
     return page;
 }
 
+function modelHelpLines(
+    state: TuiAnySettingsPickerState,
+): readonly (readonly [string, string?])[] {
+    const snapshot = state.kind === "model"
+        ? state.webdevArenaSnapshot
+        : undefined;
+    return [
+        ...MODEL_HELP_LINES,
+        [""],
+        ["Sources"],
+        ["* WA Score", "WebDev Arena (LMArena), CC-BY 4.0"],
+        ["", "https://huggingface.co/datasets/lmarena-ai/leaderboard-dataset"],
+        [
+            "",
+            snapshot === undefined
+                ? "snapshot unavailable"
+                : `snapshot ${snapshot}`,
+        ],
+        [
+            "7:2:1",
+            "OpenRouter listed blend / 1M. Full price in details",
+        ],
+        ["P", "Vera front, WA Score vs listed output / 1M"],
+    ];
+}
+
 const MODEL_HELP_TERM_WIDTH = 14;
 
 /**
@@ -3624,13 +3862,16 @@ const MODEL_HELP_TERM_WIDTH = 14;
 const MODEL_HELP_LINES: readonly (readonly [string, string?])[] = [
     ["The two lists"],
     ["Shortlist", "the models you keep. Ordered by you, not by provider."],
-    ["All models", "every model your connected providers offer."],
+    ["All models", "every model your connected providers offer. Cutoff: any, then 1400–1600."],
     ["Top picks", "models Vera is built and tested against."],
     [""],
     ["Marks"],
     ["●", "the model this conversation is running."],
     ["✓", "on Shortlist: answered a live probe, so its abilities are known."],
-    ["shortlisted", "on All models: already on your shortlist."],
+    ["★", "on All models: already on your shortlist."],
+    ["P", "on or near Vera's WA Score × listed-output front"],
+    ["i", "the model takes image input."],
+    ["*", "on WA Score: source footnote, not the shortlist."],
     ["top pick", "a model Vera is built and tested against."],
     ["▼ ▶", "an open or closed section. ←→ opens and closes it."],
     [""],
@@ -3670,15 +3911,56 @@ function modelDetailHeight(
         return 3 + option.detailFacts.length * 2
             + wrappedTo(option.note ?? "", width).length;
     }
-    // The name, the source, a blank, two lines per fact, and a blank under them.
-    const facts = described
-        ? 3 + modelDetailFacts(state, option).length * 2 + 1
+    // The name, the source, a blank, then facts as labelled rows in two
+    // columns, then a padding blank before Actions.
+    const facts = described ? modelDetailFacts(state, option) : [];
+    const factLines = described
+        ? modelDetailFactRowCount(facts) * 2 + 1
         : 0;
     const actions = modelDetailActions(state, option).length;
-    return facts + (actions === 0 ? 0 : actions + 1);
+    return (described ? 3 + factLines : 0)
+        + (actions === 0 ? 0 : actions + 1);
+}
+
+const MODEL_DETAIL_LEFT_FACTS = 3;
+
+function modelDetailFactRowCount(facts: readonly ModelDetailFact[]): number {
+    return Math.max(
+        Math.min(MODEL_DETAIL_LEFT_FACTS, facts.length),
+        Math.max(0, facts.length - MODEL_DETAIL_LEFT_FACTS),
+    );
 }
 
 type ModelDetailFact = readonly [string, string, ("positive" | undefined)?];
+
+function factColumnChunks(
+    left: string | undefined,
+    right: string | undefined,
+    col: number,
+    width: number,
+    labels: boolean,
+    leftTone?: "positive",
+    rightTone?: "positive",
+): readonly TextChunk[] {
+    const leftText = clippedTo(left ?? "", col).padEnd(col);
+    const rightText = clippedTo(right ?? "", Math.max(0, width - col - 2));
+    const paint = (
+        text: string,
+        tone: "positive" | undefined,
+    ): TextChunk =>
+        fg(
+            tone === "positive"
+                ? TUI_SUCCESS
+                : labels
+                ? TUI_MUTED
+                : TUI_TEXT,
+        )(text);
+    return [
+        paint(leftText, leftTone),
+        fg(TUI_TEXT)("  "),
+        paint(rightText, rightTone),
+    ];
+}
 
 function modelDetailFacts(
     state: TuiAnySettingsPickerState,
@@ -3699,11 +3981,19 @@ function modelDetailFacts(
     facts.push(option.unverified === true || option.pooledRank === undefined
         ? ["Verified", "not probed yet"]
         : ["Verified", "answered a live probe", "positive"]);
-    facts.push(["Images", option.images === true ? "yes" : "not known"]);
-    facts.push(["Model ID", option.model ?? "—"]);
-    if (option.recommended === true) {
-        facts.push(["Curation", "top pick", "positive"]);
+    facts.push(["Images", option.images === true ? "i" : "not known"]);
+    if (option.waScore !== undefined) {
+        facts.push(["WA Score", String(option.waScore)]);
     }
+    const full = formatListedRates(option.pricing);
+    if (full !== undefined) {
+        facts.push(["Full price", full]);
+    }
+    const blended = formatBlendedRate(option.pricing);
+    if (blended !== undefined) {
+        facts.push(["Blended price", `${blended}  7:2:1`]);
+    }
+    facts.push(["Model ID", option.model ?? "—"]);
     if (option.unavailable === true) {
         facts.push(["Available", "not from its provider"]);
     }
@@ -3809,6 +4099,7 @@ function renderListPickerRows(
         const page = modelHelpNode(
             renderer,
             pickerCardWidth(renderer, state, railInset),
+            state,
         );
         box.add(page);
         nodes.push(page);
@@ -3852,6 +4143,16 @@ function renderListPickerRows(
     const listAction = modelListAction(state);
     const listActionLines = listAction === undefined ? 0 : 2;
     const pageEntryLines = modelPageEntry(state) === undefined ? 0 : 2;
+    const listedHeaderLines = showsListedFactsHeader(state)
+            && state.options.length > 0
+        ? 1
+        : 0;
+    const intelligenceLines = showsIntelligenceCutoff(state)
+        ? INTELLIGENCE_SCALE_LINES
+        : 0;
+    const allModelsInfoLines = showsAllModelsPrices(state)
+        ? allModelsPriceChromeLines()
+        : 0;
     const stackedLines = split === undefined
         ? stackedBelowListLines(state, rowWidth)
         : 0;
@@ -3865,6 +4166,9 @@ function renderListPickerRows(
             + listActionLines
             + 1
             + pageEntryLines
+            + listedHeaderLines
+            + intelligenceLines
+            + allModelsInfoLines
             + stackedLines,
     );
     const detailMaxLines = availableRows + listActionLines + pageEntryLines;
@@ -3895,7 +4199,31 @@ function renderListPickerRows(
         );
     }
     let tinted = false;
-    const optionNodes = dialogOptionRows(renderer, rows.flatMap((row) =>
+    const listedHeader = listedHeaderLines > 0 && rows.length > 0;
+    const listedPrefixWidth = listedHeader
+        ? Math.max(
+            0,
+            ...rows.flatMap((row) =>
+                row.kind === "option"
+                    ? [metaPartsLength(
+                        optionMetaPrefixParts(state, row.option, detailed),
+                    )]
+                    : []
+            ),
+        )
+        : 0;
+    const optionNodes = dialogOptionRows(renderer, [
+        ...(listedHeader
+            ? [{
+                label: "",
+                active: false,
+                meta: [{
+                    text: `${" ".repeat(listedPrefixWidth)}${listedFactsHeaderText()}`,
+                    tone: "detail" as const,
+                }],
+            }]
+            : []),
+        ...rows.flatMap((row) =>
         row.kind === "option"
             ? [{
                 label: digitQuickSelect(state)
@@ -3933,7 +4261,7 @@ function renderListPickerRows(
                 // With the pane beside it, a row keeps only what tells it apart
                 // from its neighbours. Everything else is one cursor move away.
                 meta: row.option.rowMeta
-                    ?? optionMeta(state, row.option, detailed),
+                    ?? optionMeta(state, row.option, detailed, listedPrefixWidth),
                 card: row.option.card,
                 active: row.index === state.selectedIndex
                     && (state.kind !== "model"
@@ -3943,7 +4271,8 @@ function renderListPickerRows(
                 ...dialogRowPointer(pointer, row.index),
             }]
             : []
-    ), rowWidth);
+        ),
+    ], rowWidth);
     // With no second column the page has nowhere to sit beside the list, so it
     // takes the list's place the way it takes the inspector's when there is one.
     const stackedPage = split === undefined && state.kind === "model"
@@ -3976,6 +4305,32 @@ function renderListPickerRows(
         nodes.push(rule);
         lines += 2;
     }
+    if (intelligenceLines > 0) {
+        const focused = state.kind === "model"
+            && state.modelFocus === "intelligence";
+        for (const chunks of intelligenceScaleLines(
+            rowWidth,
+            state.kind === "model" ? state.intelligenceCutoff ?? "any" : "any",
+            focused,
+        )) {
+            const node = new TextRenderable(renderer, {
+                content: new StyledText([...chunks]),
+                width: rowWidth,
+                height: 1,
+            });
+            listColumn.add(node);
+            nodes.push(node);
+            lines += 1;
+        }
+        const prices = allModelsPriceNode(
+            renderer,
+            allModelsInfoOption(state),
+            rowWidth,
+        );
+        listColumn.add(prices);
+        nodes.push(prices);
+        lines += allModelsPriceChromeLines();
+    }
     if (rows.length === 0) {
         const empty = new TextRenderable(renderer, {
             content: `${DIALOG_GUTTER}${emptyPickerMessage(state)}`,
@@ -3987,7 +4342,13 @@ function renderListPickerRows(
         nodes.push(empty);
         lines += 1;
     }
-    let optionNodeIndex = 0;
+    let optionNodeIndex = listedHeader ? 1 : 0;
+    if (listedHeader) {
+        const header = optionNodes[0]!;
+        listColumn.add(header);
+        nodes.push(header);
+        lines += 1;
+    }
     (stackedPage ? [] : rows).forEach((row, position) => {
         const node = row.kind === "group"
             ? dialogGroupHeaderNode(renderer, row.label, position > 0)
@@ -4084,7 +4445,9 @@ function renderListPickerRows(
             listColumn.add(node);
             nodes.push(node);
         }
-        const actions = modelDetailActions(state, option);
+        const actions = state.kind === "model" && state.tab === "all"
+            ? []
+            : modelDetailActions(state, option);
         if (actions.length > 0) {
             const title = new TextRenderable(renderer, {
                 content: new StyledText([
@@ -4731,6 +5094,14 @@ function pickerFooterText(
                 { text: "esc close", drop: 0 },
             ], width);
         }
+        if (state.modelFocus === "intelligence") {
+            return fittedHints([
+                { text: "←→ cutoff", drop: 0 },
+                { text: "↓ list", drop: 0 },
+                { text: "⇥ tabs", drop: 1 },
+                { text: "esc close", drop: 0 },
+            ], width);
+        }
         if (state.modelFocus === "page") {
             return fittedHints([
                 { text: "\u2191\u2193 move", drop: 0 },
@@ -5304,15 +5675,7 @@ function modelListActionTransition(
         return { state, handled: true, poolVerifySweep: true };
     }
     const revealAll = state.revealAll !== true;
-    const options = modelPickerOptions(
-        state.allOptions,
-        state.tab ?? "all",
-        state.collapsed ?? [],
-        state.query,
-        revealAll,
-        state.assignmentOptions ?? [],
-        state.actionOptions ?? [],
-    );
+    const options = modelListFor(state, { revealAll });
     return {
         state: {
             ...state,
@@ -5384,10 +5747,183 @@ function optionLeading(
     return `${thread}${(option.activity ?? "").padEnd(activityWidth)}  `;
 }
 
+const INTELLIGENCE_SCALE_LINES = 3;
+const ALL_MODELS_PRICE_FACTS = 4;
+const ALL_MODELS_PRICE_PAD = 1;
+const ALL_MODELS_PRICE_MARGIN = 1;
+/** Filled input inset, kept; the live trial is a left quote rule. */
+type AllModelsPriceChrome = "fill" | "border";
+const ALL_MODELS_PRICE_CHROME: AllModelsPriceChrome = "border";
+
+function allModelsPriceChromeLines(): number {
+    const boxHeight = ALL_MODELS_PRICE_CHROME === "fill"
+        ? ALL_MODELS_PRICE_FACTS + 2 * ALL_MODELS_PRICE_PAD
+        : ALL_MODELS_PRICE_FACTS;
+    return 2 * ALL_MODELS_PRICE_MARGIN + boxHeight;
+}
+
+function showsIntelligenceCutoff(state: TuiAnySettingsPickerState): boolean {
+    return state.kind === "model" && (state.tab ?? "all") === "all";
+}
+
+function showsAllModelsPrices(state: TuiAnySettingsPickerState): boolean {
+    return showsIntelligenceCutoff(state);
+}
+
+function isAllModelsInfoRow(
+    option: TuiSettingsPickerOption | undefined,
+): option is TuiSettingsPickerOption {
+    return option !== undefined
+        && option.section === undefined
+        && tuiModelActionOfValue(option.value) === undefined;
+}
+
+function allModelsInfoOption(
+    state: TuiAnySettingsPickerState,
+): TuiSettingsPickerOption | undefined {
+    const selected = state.options[state.selectedIndex];
+    if (isAllModelsInfoRow(selected)) {
+        return selected;
+    }
+    return state.options
+        .slice(state.selectedIndex + 1)
+        .find(isAllModelsInfoRow);
+}
+
+function intelligenceScaleLines(
+    width: number,
+    cutoff: IntelligenceCutoff,
+    focused: boolean,
+): readonly (readonly TextChunk[])[] {
+    const stops = INTELLIGENCE_CUTOFFS;
+    const trackWidth = Math.min(52, Math.max(36, width - 2));
+    const labelGap = Math.max(
+        1,
+        trackWidth - "Any".length - "Smarter".length,
+    );
+    const axis = `Any${" ".repeat(labelGap)}Smarter`;
+    const trackLength = Math.max(1, trackWidth - 1);
+    const selectedIndex = Math.max(0, stops.indexOf(cutoff));
+    const marker = Math.round(
+        selectedIndex * (trackLength - 1) / Math.max(1, stops.length - 1),
+    );
+    const track: TextChunk[] = Array.from(
+        { length: trackLength },
+        (_, index) =>
+            fg(index === marker ? TUI_ACCENT : TUI_ELEMENT)(
+                index === marker ? "▲" : "─",
+            ),
+    );
+    const optionLine = Array.from({ length: trackLength }, () => " ");
+    let nextStart = 0;
+    stops.forEach((choice, index) => {
+        const position = Math.round(
+            index * (trackLength - 1) / Math.max(1, stops.length - 1),
+        );
+        const start = Math.max(
+            nextStart,
+            0,
+            Math.min(
+                trackLength - choice.length,
+                position - Math.floor(choice.length / 2),
+            ),
+        );
+        for (let offset = 0; offset < choice.length; offset += 1) {
+            optionLine[start + offset] = choice[offset] ?? " ";
+        }
+        nextStart = start + choice.length + 1;
+    });
+    const axisTone = focused ? TUI_ACCENT : TUI_MUTED;
+    return [
+        [fg(axisTone)(clippedTo(axis, width))],
+        track,
+        [fg(focused ? TUI_TEXT : TUI_MUTED)(optionLine.join(""))],
+    ];
+}
+
+const LISTED_SCORE_WIDTH = 9;
+const LISTED_RATES_WIDTH = 6;
+const IMAGE_GLYPH = "i";
+const LISTED_TRAILING_WIDTH = 2 + 1 + 1 + IMAGE_GLYPH.length + 1 + 1;
+
+function showsListedFactsHeader(state: TuiAnySettingsPickerState): boolean {
+    return state.kind === "model" && state.tab === "all";
+}
+
+function listedFactCell(text: string, width: number): string {
+    return text.length >= width ? text.slice(0, width) : text.padStart(width);
+}
+
+function listedFactsHeaderText(): string {
+    return `${"WA Score*".padStart(LISTED_SCORE_WIDTH)}  ${
+        "7:2:1".padStart(LISTED_RATES_WIDTH)
+    }${" ".repeat(LISTED_TRAILING_WIDTH)}`;
+}
+
+function listedFactsParts(
+    option: TuiSettingsPickerOption,
+): readonly DialogMetaPart[] {
+    const score = listedFactCell(
+        option.waScore === undefined ? "" : String(option.waScore),
+        LISTED_SCORE_WIDTH,
+    );
+    const rates = listedFactCell(
+        formatBlendedRate(option.pricing) ?? "",
+        LISTED_RATES_WIDTH,
+    );
+    const image = option.images === true
+        ? IMAGE_GLYPH
+        : " ".repeat(IMAGE_GLYPH.length);
+    const mark = option.pooledRank !== undefined ? "★" : " ";
+    return [
+        { text: `${score}  ${rates}  ` },
+        option.onPareto === true
+            ? { text: "P", tone: "positive" }
+            : { text: " " },
+        { text: ` ${image} ${mark}` },
+    ];
+}
+
+function optionMetaPrefixParts(
+    state: TuiAnySettingsPickerState,
+    option: TuiSettingsPickerOption,
+    detailed: boolean,
+): readonly DialogMetaPart[] {
+    const parts: DialogMetaPart[] = [];
+    const separated = (part: DialogMetaPart): void => {
+        if (parts.length > 0) {
+            parts.push({ text: " · " });
+        }
+        parts.push(part);
+    };
+    if (
+        option.provider !== undefined
+        && !detailed
+        && (option.inTopPicks === true || !isProviderGrouped(state))
+    ) {
+        separated({ text: option.provider });
+    }
+    if (option.recommended === true && option.inTopPicks !== true) {
+        separated({ text: "top pick", tone: "positive" });
+    }
+    if (option.poolName !== undefined && option.model !== undefined) {
+        separated({ text: option.model });
+    }
+    if (option.unavailable === true) {
+        separated({ text: "unavail" });
+    }
+    return parts;
+}
+
+function metaPartsLength(parts: readonly DialogMetaPart[]): number {
+    return parts.reduce((total, part) => total + part.text.length, 0);
+}
+
 function optionMeta(
     state: TuiAnySettingsPickerState,
     option: TuiSettingsPickerOption,
     detailed = false,
+    listedPrefixWidth = 0,
 ): DialogMeta | undefined {
     if (state.kind === "session") {
         if (option.sizeBytes === undefined) {
@@ -5422,61 +5958,30 @@ function optionMeta(
     }
     // The column is facts, not one fact: a row can carry its provider, its
     // availability, its recommended level, and its verification state at once.
-    const parts: DialogMetaPart[] = [];
-    const separated = (part: DialogMetaPart): void => {
+    const prefix = optionMetaPrefixParts(state, option, detailed);
+    const parts: DialogMetaPart[] = [...prefix];
+    if (
+        state.tab === "all"
+        && option.section === undefined
+        && tuiModelActionOfValue(option.value) === undefined
+    ) {
+        const pad = Math.max(0, listedPrefixWidth - metaPartsLength(prefix));
+        if (pad > 0) {
+            parts.push({ text: " ".repeat(pad) });
+        }
+        parts.push(...listedFactsParts(option));
+    }
+    if (
+        state.tab === "pool"
+        && option.section === undefined
+        && tuiModelActionOfValue(option.value) === undefined
+        && option.pooledRank !== undefined
+        && option.unverified !== true
+    ) {
         if (parts.length > 0) {
             parts.push({ text: " · " });
         }
-        parts.push(part);
-    };
-    // The Top picks section mixes providers, so its rows name theirs even
-    // though the same row under a provider heading does not.
-    if (
-        option.provider !== undefined
-        && !detailed
-        && (option.inTopPicks === true || !isProviderGrouped(state))
-    ) {
-        separated({ text: option.provider });
-    }
-    // Vera's own curation, as a fact among the others rather than a view the
-    // user has to know about: a row that is a top pick says so wherever it is
-    // listed, the provider sections and search results included.
-    if (option.recommended === true && option.inTopPicks !== true) {
-        separated({ text: "top pick", tone: "positive" });
-    }
-    // A named row reads by its name, so the id it stands for goes here: the
-    // name is the model's identity, and the slug still has to be findable.
-    if (option.poolName !== undefined && option.model !== undefined) {
-        separated({ text: option.model });
-    }
-    // A pool row whose model the provider no longer lists says so, on every
-    // view. It is the one thing about a row that a provider heading cannot
-    // tell you, and choosing it is a dead end.
-    if (option.unavailable === true) {
-        separated({ text: "unavail" });
-    }
-    // Only a yes is worth a word. The question this answers is whether an
-    // attachment will go through, so the mark being there is the answer and
-    // its absence means do not count on it.
-    if (option.images === true && !detailed) {
-        separated({ text: "images", tone: "positive" });
-    }
-    if (option.pooledRank !== undefined) {
-        // On the Pool tab every row is pooled, so the column answers the other
-        // question: a probed row earns a mark and an unprobed one earns
-        // nothing. The word "unverified" on most of the rows at once says less
-        // than a mark on the few that have been probed, and what the highlighted
-        // row's own state is gets spelled out in the column beside the list.
-        // Elsewhere the pool is what the column is for: the catalog is where
-        // models are picked up, and a row with nothing here is one the pool
-        // does not hold.
-        if (state.tab === "pool") {
-            if (option.unverified !== true) {
-                separated({ text: "✓", tone: "positive" });
-            }
-        } else {
-            separated({ text: "shortlisted", tone: "positive" });
-        }
+        parts.push({ text: "✓", tone: "positive" });
     }
     return parts.length === 0 ? undefined : parts;
 }
@@ -5658,15 +6163,7 @@ export function switchedModelTab(
         return state;
     }
     const selectedValue = state.options[state.selectedIndex]?.value;
-    const options = modelPickerOptions(
-        state.allOptions,
-        tab,
-        state.collapsed ?? [],
-        "",
-        state.revealAll === true,
-        state.assignmentOptions ?? [],
-        state.actionOptions ?? [],
-    );
+    const options = modelListFor(state, { tab, query: "" });
     return {
         ...state,
         tab,
@@ -5731,15 +6228,7 @@ function searched(
         // A query opens every section: a heading with its rows hidden is a
         // claim that the search found nothing there, which is not what a
         // closed section means.
-        : modelPickerOptions(
-            state.allOptions,
-            state.tab ?? "all",
-            state.collapsed ?? [],
-            query,
-            state.revealAll === true,
-            state.assignmentOptions ?? [],
-            state.actionOptions ?? [],
-        );
+        : modelListFor(state, { query });
     const next = {
         ...state,
         options,
@@ -5807,6 +6296,13 @@ function modelOptions(
                 ? { unverified: true }
                 : {}),
             ...(held?.entry.imageSupport === true ? { images: true } : {}),
+            ...(held?.entry.waScore === undefined
+                ? {}
+                : { waScore: held.entry.waScore }),
+            ...(held?.entry.pricing === undefined
+                ? {}
+                : { pricing: held.entry.pricing }),
+            ...(held?.entry.onPareto === true ? { onPareto: true } : {}),
         };
     };
     const runnable = (available ?? []).map((model) => {
@@ -5828,6 +6324,12 @@ function modelOptions(
                 : { hiddenByDefault: model.hiddenByDefault }),
             ...recommendationMarks(model),
             ...poolMarks(value),
+            ...(model.imageSupport === true || poolEntry.get(value)?.entry.imageSupport === true
+                ? { images: true }
+                : {}),
+            ...(model.waScore === undefined ? {} : { waScore: model.waScore }),
+            ...(model.pricing === undefined ? {} : { pricing: model.pricing }),
+            ...(model.onPareto === true ? { onPareto: true } : {}),
         };
     });
     const currentValue = currentModel === undefined || currentProvider === undefined
@@ -5867,6 +6369,9 @@ function modelOptions(
             ...recommendationMarks(entry),
             ...(entry.verified ? {} : { unverified: true }),
             ...(entry.imageSupport === true ? { images: true } : {}),
+            ...(entry.waScore === undefined ? {} : { waScore: entry.waScore }),
+            ...(entry.pricing === undefined ? {} : { pricing: entry.pricing }),
+            ...(entry.onPareto === true ? { onPareto: true } : {}),
         }];
     });
     return [...runnable, ...orphanEntries].toSorted((left, right) =>
@@ -5929,6 +6434,8 @@ function modelTabRows(
     revealAll = false,
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
     actionOptions: readonly TuiSettingsPickerOption[] = [],
+    intelligenceCutoff: IntelligenceCutoff = "any",
+    keepModel?: string,
 ): readonly TuiSettingsPickerOption[] {
     const actions = availableModelActionOptions(allOptions, actionOptions);
     if (tab === "help") {
@@ -5947,6 +6454,9 @@ function modelTabRows(
             // same way the curation does on the host side.
             && (revealAll || option.hiddenByDefault === undefined
                 || option.pooledRank !== undefined)
+            && (passesIntelligenceCutoff(option.waScore, intelligenceCutoff)
+                || option.model === keepModel
+                || option.value === keepModel)
         );
     }
     return allOptions
@@ -5974,6 +6484,29 @@ function availableModelActionOptions(
 /** The heading the recommended models are listed under. */
 export const TUI_TOP_PICKS_SECTION = "Top picks";
 
+function modelListFor(
+    state: TuiSettingsPickerState,
+    patch: {
+        collapsed?: readonly string[];
+        query?: string;
+        revealAll?: boolean;
+        tab?: TuiModelPickerTab;
+        intelligenceCutoff?: IntelligenceCutoff;
+    } = {},
+): readonly TuiSettingsPickerOption[] {
+    return modelPickerOptions(
+        state.allOptions,
+        patch.tab ?? state.tab ?? "all",
+        patch.collapsed ?? state.collapsed ?? [],
+        patch.query ?? state.query,
+        patch.revealAll ?? state.revealAll === true,
+        state.assignmentOptions ?? [],
+        state.actionOptions ?? [],
+        patch.intelligenceCutoff ?? state.intelligenceCutoff ?? "any",
+        state.initialModel,
+    );
+}
+
 /**
  * The rows one view of the model list shows, headings included.
  *
@@ -5988,16 +6521,21 @@ function modelPickerOptions(
     revealAll = false,
     assignmentOptions: readonly TuiSettingsPickerOption[] = [],
     actionOptions: readonly TuiSettingsPickerOption[] = [],
+    intelligenceCutoff: IntelligenceCutoff = "any",
+    keepModel?: string,
 ): readonly TuiSettingsPickerOption[] {
     // Search reaches a folded row whether or not the pane is revealed. Typing
     // an id is naming a model outright, and a list that answers "no such
-    // model" to a model it holds is worse than a long list.
+    // model" to a model it holds is worse than a long list. Search also
+    // bypasses the intelligence cutoff so a name still finds a cheaper model.
     const rows = modelTabRows(
         allOptions,
         tab,
         revealAll || query !== "",
         assignmentOptions,
         actionOptions,
+        query === "" ? intelligenceCutoff : "any",
+        keepModel,
     );
     const matched = query === "" ? rows : matching(rows, query);
     // The shortlist is what the user put there, in their order. Grouping it
@@ -6136,15 +6674,7 @@ function defaultCollapsedSections(
 function sectionLabels(
     state: TuiSettingsPickerState,
 ): readonly string[] {
-    return modelPickerOptions(
-        state.allOptions,
-        state.tab ?? "all",
-        [],
-        state.query,
-        state.revealAll === true,
-        state.assignmentOptions ?? [],
-        state.actionOptions ?? [],
-    ).flatMap((option) => option.section === undefined ? [] : [option.section]);
+    return modelListFor(state, { collapsed: [] }).flatMap((option) => option.section === undefined ? [] : [option.section]);
 }
 
 /**
@@ -6174,15 +6704,7 @@ function toggledSection(
     const collapsed = (state.collapsed ?? []).includes(label)
         ? (state.collapsed ?? []).filter((entry) => entry !== label)
         : [...(state.collapsed ?? []), label];
-    const options = modelPickerOptions(
-        state.allOptions,
-        state.tab ?? "all",
-        collapsed,
-        state.query,
-        state.revealAll === true,
-        state.assignmentOptions ?? [],
-        state.actionOptions ?? [],
-    );
+    const options = modelListFor(state, { collapsed });
     return {
         state: {
             ...state,

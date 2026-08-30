@@ -41,6 +41,7 @@ test("available models carry the catalog levels and default level", () => {
             model: "with-levels",
             label: "With levels",
             description: "a model",
+            imageSupport: true,
             levels: [
                 { id: "low", label: "Low" },
                 { id: "high", label: "High", description: "slow" },
@@ -281,7 +282,7 @@ function makeDirectory(): string {
     return directory;
 }
 
-function fixture(): Fixture {
+function fixture(withPricing = false): Fixture {
     const directory = makeDirectory();
     const cacheDir = join(directory, "cache");
     mkdirSync(cacheDir);
@@ -297,6 +298,9 @@ function fixture(): Fixture {
                 order: 1,
                 context_window: 200_000,
                 image_support: true,
+                ...(withPricing
+                    ? { pricing: { input: 0.2, output: 1.2 } }
+                    : {}),
                 default_level: "high",
                 levels: [
                     { id: "low", label: "Low" },
@@ -497,4 +501,18 @@ test("a declared level survives a recorded refusal", () => {
         { id: "low", label: "Low" },
         { id: "high", label: "High", description: "slow" },
     ]);
+});
+
+test("known pricing reaches both client-facing model projections", () => {
+    const options = fixture(true);
+    const available = availableModelsWithLevels(
+        [suggested("test", "with-levels")],
+        options,
+    );
+    expect(available[0]?.pricing).toEqual({ input: 0.2, output: 1.2 });
+    expect(available[0]?.imageSupport).toBe(true);
+
+    addPoolModel("test/with-levels", {}, { path: options.userPath });
+    const pooled = pooledModels([suggested("test", "with-levels")], options);
+    expect(pooled[0]?.pricing).toEqual({ input: 0.2, output: 1.2 });
 });

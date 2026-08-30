@@ -116,6 +116,8 @@ import {
     availableModelsWithLevels,
     type PooledModel,
 } from "../model/catalog-view.ts";
+import { withListedFacts } from "../model/listed-facts.ts";
+import { readWebDevArenaSnapshot } from "../model/webdev-arena.ts";
 import { projectTranscript } from "../engine/protocol.ts";
 import type {
     AgentInboxEffect,
@@ -5478,6 +5480,14 @@ function settingsForClient(
     const admitted = admittedAsked.filter((level) => efforts.includes(level));
     const served = admitted.length > 0 && reasoningEffort !== undefined
         && admittedAsked.includes(reasoningEffort);
+    const listed = withListedFacts(
+        availableModelsWithLevels(models, {
+            ...catalog,
+            ...(projectRoot === undefined ? {} : { projectRoot }),
+        }),
+        pooled,
+        { snapshot: readWebDevArenaSnapshot(catalog.cacheDir) },
+    );
     return {
         ...rest,
         ...(served ? { reasoningEffort } : {}),
@@ -5490,15 +5500,12 @@ function settingsForClient(
             ? { requestedReasoningEffort }
             : {}),
         availableReasoningEfforts: admitted,
-        availableModels: availableModelsWithLevels(models, {
-            ...catalog,
-            ...(projectRoot === undefined ? {} : { projectRoot }),
-        }),
+        availableModels: listed.available,
         refreshableProviders: refreshableProviders
             ?? [...new Set(models.flatMap((model) =>
                 model.refreshable === true ? [model.provider] : []
             ))],
-        pooled,
+        pooled: listed.pooled,
         subagentDefault: subagentModel === undefined
             ? { mode: "inherit" }
             : {
@@ -5512,6 +5519,9 @@ function settingsForClient(
                     : { reasoningEffort: subagentModel.reasoningEffort }),
             },
         ...(reviewerDefault === undefined ? {} : { reviewerDefault }),
+        ...(listed.webdevArenaSnapshot === undefined
+            ? {}
+            : { webdevArenaSnapshot: listed.webdevArenaSnapshot }),
         ...(contextWindow === undefined ? {} : { contextWindow }),
         ...(modelContextWindow === undefined
             ? {}

@@ -4,6 +4,7 @@ import {
 } from "./catalog-cache.ts";
 import type {
     CatalogModel,
+    ModelPricing,
     ProviderCatalog,
     ReasoningLevel,
 } from "./catalog-shape.ts";
@@ -21,6 +22,8 @@ interface SourceModel {
     readonly context_window?: number;
     readonly created?: number;
     readonly tool_support?: boolean;
+    readonly image_support?: boolean;
+    readonly pricing?: ModelPricing;
     readonly default_level?: string;
     readonly levels?: readonly ReasoningLevel[];
 }
@@ -173,6 +176,7 @@ function parseModel(value: unknown): SourceModel | undefined {
         || !optionalType(model.context_window, "number")
         || !optionalType(model.created, "number")
         || !optionalType(model.tool_support, "boolean")
+        || !optionalType(model.image_support, "boolean")
         || !optionalType(model.default_level, "string")
         || (model.levels !== undefined
             && (!Array.isArray(model.levels)
@@ -180,7 +184,39 @@ function parseModel(value: unknown): SourceModel | undefined {
         return undefined;
     }
 
-    return model as unknown as SourceModel;
+    const { pricing: rawPricing, ...rest } = model;
+    const pricing = optionalPricing(rawPricing);
+    return {
+        ...rest,
+        ...(pricing === undefined ? {} : { pricing }),
+    } as unknown as SourceModel;
+}
+
+/**
+ * A malformed pricing object is omitted for that row. It must not drop the
+ * model, and it must not empty the catalog.
+ */
+function optionalPricing(value: unknown): ModelPricing | undefined {
+    if (value === undefined) {
+        return undefined;
+    }
+    const pricing = asRecord(value);
+    if (
+        pricing === undefined
+        || !nonNegativeFinite(pricing.input)
+        || !nonNegativeFinite(pricing.output)
+    ) {
+        return undefined;
+    }
+    return {
+        input: pricing.input,
+        output: pricing.output,
+        ...(nonNegativeFinite(pricing.cache) ? { cache: pricing.cache } : {}),
+    };
+}
+
+function nonNegativeFinite(value: unknown): value is number {
+    return typeof value === "number" && Number.isFinite(value) && value >= 0;
 }
 
 function isReasoningLevel(value: unknown): value is ReasoningLevel {

@@ -96,11 +96,13 @@ export function dialogBottomOffset(renderer: RenderContext): number {
     return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT ? 1 : 2;
 }
 
-/** Shared vertical start for inset dialog cards. */
+/**
+ * Shared vertical start for inset dialog cards: the screen's top padding
+ * row. Bottom clearance still collapses on a short terminal; this inset
+ * does not.
+ */
 export function dialogInsetTop(renderer: RenderContext): number {
-    return renderer.height <= DIALOG_SHORT_TERMINAL_HEIGHT
-        ? 1
-        : Math.max(APP_PADDING_TOP, renderer.height / 4 - 3);
+    return APP_PADDING_TOP;
 }
 
 /** Clear rows kept below an inset card when the terminal has room. */

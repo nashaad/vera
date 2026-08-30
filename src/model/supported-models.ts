@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
-import type { ReasoningLevelId } from "./catalog-shape.ts";
+import type { ModelPricing, ReasoningLevelId } from "./catalog-shape.ts";
 import type { ModelReasoningEffort } from "./types.ts";
 import type { ReductionReason } from "./catalog-reduction.ts";
 
@@ -11,6 +11,10 @@ export interface SuggestedModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    readonly pricing?: ModelPricing;
+    readonly waScore?: number;
+    readonly onPareto?: boolean;
+    readonly imageSupport?: boolean;
     /** Host-resolved fact: this provider can be asked for its list again. */
     readonly refreshable?: boolean;
     /**

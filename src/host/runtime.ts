@@ -39,6 +39,7 @@ import {
 import { contextWindowForModel } from "../engine/model-settings.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
 import { pooledModels } from "../model/catalog-view.ts";
+import { refreshWebDevArena } from "../model/webdev-arena.ts";
 import type {
     CatalogModel,
     ReasoningLevel,
@@ -503,66 +504,25 @@ export async function startResidentHost(
             // and whichever finished second would undo the first.
             const refreshed = catalogRefreshes.then(async () => {
                 const config = currentConfig();
-                if (!isRefreshableProvider(provider, config)) return undefined;
-                const descriptor = configuredProviders(config)
-                    .find((entry) => entry.id === provider);
-                if (descriptor?.behaviorId === "ollama") {
-                    const discovered = await discoverOllamaModelCatalog({
-                        log: hostLog,
-                        ...(config.provider_endpoints?.ollama === undefined
-                            ? {}
-                            : { host: config.provider_endpoints.ollama }),
-                    });
-                    if (!discovered.available) {
-                        return undefined;
-                    }
-                    models = replaceProviderRows(
-                        models,
-                        provider,
-                        discovered.models,
-                        config.provider === provider
-                            ? {
-                                provider,
-                                model: config.model,
-                                label: config.model,
-                                description: "configured model",
-                            }
-                            : undefined,
-                    );
-                    return models;
-                }
-                // A provider that cannot be reached answers from its snapshot,
-                // which is the right list to keep and the wrong thing to call
-                // a refresh: the user pressed the key to find out whether they
-                // are current. The snapshot's own timestamp is what says a
-                // request actually landed, so it is read either side of the
-                // call.
-                const before = readProviderCatalogSnapshot(provider).fetched_at;
-                const standard = descriptor?.behaviorId === "openrouter"
-                    ? undefined
-                    : await standardProviderModels(
-                        descriptor,
-                        config,
-                        authStorage,
-                        { maxAgeMs: 0 },
-                    );
-                const rows = standard === undefined
-                    ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
-                    : standard.models;
-                if (
-                    standard?.failure !== undefined
-                    ||
-                    readProviderCatalogSnapshot(provider).fetched_at === before
-                ) {
-                    return undefined;
-                }
-                models = withProviderRefreshability(
-                    descriptor?.behaviorId === "openrouter"
-                        ? withProviderRows(models, provider, rows)
-                        : replaceProviderRows(
+                const webdev = refreshWebDevArena({ maxAgeMs: 0 });
+                try {
+                    if (!isRefreshableProvider(provider, config)) return undefined;
+                    const descriptor = configuredProviders(config)
+                        .find((entry) => entry.id === provider);
+                    if (descriptor?.behaviorId === "ollama") {
+                        const discovered = await discoverOllamaModelCatalog({
+                            log: hostLog,
+                            ...(config.provider_endpoints?.ollama === undefined
+                                ? {}
+                                : { host: config.provider_endpoints.ollama }),
+                        });
+                        if (!discovered.available) {
+                            return undefined;
+                        }
+                        models = replaceProviderRows(
                             models,
                             provider,
-                            rows,
+                            discovered.models,
                             config.provider === provider
                                 ? {
                                     provider,
@@ -571,10 +531,56 @@ export async function startResidentHost(
                                     description: "configured model",
                                 }
                                 : undefined,
-                        ),
-                    config,
-                );
-                return models;
+                        );
+                        return models;
+                    }
+                    // A provider that cannot be reached answers from its snapshot,
+                    // which is the right list to keep and the wrong thing to call
+                    // a refresh: the user pressed the key to find out whether they
+                    // are current. The snapshot's own timestamp is what says a
+                    // request actually landed, so it is read either side of the
+                    // call.
+                    const before = readProviderCatalogSnapshot(provider).fetched_at;
+                    const standard = descriptor?.behaviorId === "openrouter"
+                        ? undefined
+                        : await standardProviderModels(
+                            descriptor,
+                            config,
+                            authStorage,
+                            { maxAgeMs: 0 },
+                        );
+                    const rows = standard === undefined
+                        ? await discoveredOpenRouterModels(config, { maxAgeMs: 0 })
+                        : standard.models;
+                    if (
+                        standard?.failure !== undefined
+                        ||
+                        readProviderCatalogSnapshot(provider).fetched_at === before
+                    ) {
+                        return undefined;
+                    }
+                    models = withProviderRefreshability(
+                        descriptor?.behaviorId === "openrouter"
+                            ? withProviderRows(models, provider, rows)
+                            : replaceProviderRows(
+                                models,
+                                provider,
+                                rows,
+                                config.provider === provider
+                                    ? {
+                                        provider,
+                                        model: config.model,
+                                        label: config.model,
+                                        description: "configured model",
+                                    }
+                                    : undefined,
+                            ),
+                        config,
+                    );
+                    return models;
+                } finally {
+                    await webdev.catch(() => undefined);
+                }
             });
             // The queue carries the turn, not its failure: one refresh that
             // throws must not leave every later one rejected.
@@ -1289,6 +1295,7 @@ export async function refreshProviderCatalogs(
                 maxAgeMs: 0,
             })
         )),
+        refreshWebDevArena({ ...cacheOptions, maxAgeMs: 0 }).catch(() => undefined),
     ]);
     return [
         ollama.available
@@ -1480,6 +1487,7 @@ async function discoverAvailableModels(
         Promise.all(standardProviderDescriptors(config).map((descriptor) =>
             standardProviderModels(descriptor, config, authStorage, { maxAgeMs })
         )),
+        refreshWebDevArena({ maxAgeMs }).catch(() => undefined),
     ]);
     catalog.push(...ollama);
     catalog.push(...standard.flatMap((result) => result.models));

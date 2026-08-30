@@ -7,6 +7,7 @@ import { mergeCatalogReleaseDates } from "./catalog-release-dates.ts";
 import { EFFORT_LADDER } from "./effort-ladder.ts";
 import type {
     CatalogModel,
+    ModelPricing,
     ProviderCatalog,
     ReasoningLevel,
 } from "./catalog-shape.ts";
@@ -170,25 +171,57 @@ function normalizeModel(value: unknown): CatalogModel | undefined {
         ? value.created
         : undefined;
 
-    const reasoning = readReasoning(
-        value.reasoning,
-        parameters.includes("reasoning")
-            || parameters.includes("reasoning_effort"),
-    );
+        const reasoning = readReasoning(
+            value.reasoning,
+            parameters.includes("reasoning")
+                || parameters.includes("reasoning_effort"),
+        );
+        const pricing = readPricing(value.pricing);
 
-    return {
-        id: value.id,
-        label,
-        ...(imageSupport === undefined ? {} : { image_support: imageSupport }),
-        ...(description === undefined ? {} : { description }),
-        ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
-        ...(created === undefined ? {} : { created }),
-        tool_support: true,
+        return {
+            id: value.id,
+            label,
+            ...(imageSupport === undefined ? {} : { image_support: imageSupport }),
+            ...(description === undefined ? {} : { description }),
+            ...(contextWindow === undefined ? {} : { context_window: contextWindow }),
+            ...(created === undefined ? {} : { created }),
+            ...(pricing === undefined ? {} : { pricing }),
+            tool_support: true,
         ...(reasoning.defaultLevel === undefined
             ? {}
             : { default_level: reasoning.defaultLevel }),
         levels: reasoning.levels,
     };
+}
+
+/** OpenRouter publishes decimal USD-per-token strings under prompt/completion. */
+function readPricing(
+    value: unknown,
+): ModelPricing | undefined {
+    if (!isRecord(value)) return undefined;
+    const input = perMillion(value.prompt);
+    const output = perMillion(value.completion);
+    if (input === undefined || output === undefined) {
+        return undefined;
+    }
+    const cache = perMillion(value.input_cache_read);
+    return {
+        input,
+        output,
+        ...(cache === undefined ? {} : { cache }),
+    };
+}
+
+function perMillion(value: unknown): number | undefined {
+    if (typeof value !== "string" && typeof value !== "number") {
+        return undefined;
+    }
+    const perToken = typeof value === "number" ? value : Number(value);
+    if (!Number.isFinite(perToken) || perToken < 0) return undefined;
+    const result = perToken * 1_000_000;
+    return Number.isFinite(result)
+        ? Math.round(result * 1_000_000_000) / 1_000_000_000
+        : undefined;
 }
 
 /**

@@ -16,6 +16,7 @@
 import { effectiveCatalog, type EffectiveCatalogOptions } from "./catalog.ts";
 import type {
     CatalogModel,
+    ModelPricing,
     ReasoningLevel,
     ReasoningLevelId,
 } from "./catalog-shape.ts";
@@ -42,6 +43,16 @@ export interface AvailableModel {
     readonly label: string;
     readonly description: string;
     readonly contextWindow?: number;
+    readonly pricing?: ModelPricing;
+    /** WebDev Arena overall rating, integer. Absent is a blank cell, never 0. */
+    readonly waScore?: number;
+    /** True when this model is on or near Vera's WA Score × listed-output front. */
+    readonly onPareto?: boolean;
+    /**
+     * Whether the catalog listing says the model takes image input. Absent
+     * means the listing did not say.
+     */
+    readonly imageSupport?: boolean;
     /** True when the owning host can refresh this provider's model list. */
     readonly refreshable?: boolean;
     /**
@@ -77,6 +88,11 @@ export interface PooledModel {
     readonly verified: boolean;
     readonly description?: string;
     readonly contextWindow?: number;
+    readonly pricing?: ModelPricing;
+    /** WebDev Arena overall rating, integer. Absent is a blank cell, never 0. */
+    readonly waScore?: number;
+    /** True when this model is on or near Vera's WA Score × listed-output front. */
+    readonly onPareto?: boolean;
     /**
      * Whether the model takes image input, resolved the same way everything
      * else about it is. Absent means no source has said, which a row shows as
@@ -133,6 +149,12 @@ export function availableModelsWithLevels(
             ...(model.contextWindow === undefined
                 ? {}
                 : { contextWindow: model.contextWindow }),
+            ...(catalogModel?.pricing === undefined
+                ? {}
+                : { pricing: catalogModel.pricing }),
+            ...(catalogModel?.image_support === undefined
+                ? {}
+                : { imageSupport: catalogModel.image_support }),
             ...(model.refreshable === true ? { refreshable: true } : {}),
             ...(model.hiddenByDefault === undefined
                 ? {}
@@ -215,6 +237,7 @@ export function pooledModels(
             ...(model.context_window === undefined
                 ? {}
                 : { contextWindow: model.context_window }),
+            ...(model.pricing === undefined ? {} : { pricing: model.pricing }),
             ...(imageSupport === undefined ? {} : { imageSupport }),
             levels,
             ...(model.default_level === undefined

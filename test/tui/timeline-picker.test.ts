@@ -321,7 +321,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(setup.renderer.currentFocusedRenderable).toBe(view.box);
         expect(view.box.zIndex).toBe(DIALOG_CARD_Z_INDEX);
         expect(view.box.screenX).toBeGreaterThan(0);
-        expect(view.box.top).toBe(1.5);
+        expect(view.box.top).toBe(1);
 
         setup.resize(42, 18);
         await setup.flush();
@@ -348,7 +348,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(frame).toContain("Files         unchanged");
         expect(frame).toContain("⏎ rewind · esc back");
         expect(frame).not.toContain("[1]");
-        expect(view.box.top).toBe(1.5);
+        expect(view.box.top).toBe(1);
     } finally {
         setup.renderer.destroy();
     }

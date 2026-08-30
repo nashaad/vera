@@ -122,7 +122,11 @@ export function listDiscoveredProviders(
     const directory = options.cacheDir ?? providerCatalogCacheDir();
     try {
         return readdirSync(directory)
-            .filter((name) => name.endsWith(".json") && !name.startsWith("."))
+            .filter((name) =>
+                name.endsWith(".json")
+                && !name.startsWith(".")
+                && name !== "webdev-arena.json"
+            )
             .map((name) => name.slice(0, -".json".length));
     } catch {
         return [];

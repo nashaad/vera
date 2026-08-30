@@ -72,6 +72,49 @@ describe("normalizeOpenRouterModels", () => {
         expect(catalog.fetched_at).toBeString();
     });
 
+    test("normalizes listed input and output prices to USD per million", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [
+                model({
+                    pricing: {
+                        prompt: "0.0000002",
+                        completion: "0.0000012",
+                    },
+                }),
+                model({
+                    id: "vendor/unpriced",
+                    pricing: { prompt: "free-ish", completion: "0.000001" },
+                }),
+                model({
+                    id: "vendor/unknown",
+                    pricing: { prompt: "-1", completion: "0.000001" },
+                }),
+            ],
+        });
+
+        expect(catalog.models[0]?.pricing).toEqual({ input: 0.2, output: 1.2 });
+        expect(catalog.models[1]?.pricing).toBeUndefined();
+        expect(catalog.models[2]?.pricing).toBeUndefined();
+    });
+
+    test("keeps a listed cache-hit rate when OpenRouter publishes one", () => {
+        const catalog = normalizeOpenRouterModels({
+            data: [model({
+                pricing: {
+                    prompt: "0.000002",
+                    completion: "0.000006",
+                    input_cache_read: "0.0000002",
+                },
+            })],
+        });
+
+        expect(catalog.models[0]?.pricing).toEqual({
+            input: 2,
+            output: 6,
+            cache: 0.2,
+        });
+    });
+
     test("reduces a paragraph description to its first sentence", () => {
         const catalog = normalizeOpenRouterModels({
             data: [model({
@@ -236,6 +279,55 @@ describe("refreshOpenRouterCatalog", () => {
             effectiveCatalog("openrouter", { cacheDir: directory })
                 .models.map((entry) => entry.id),
         ).toEqual(["vendor/model"]);
+    });
+
+    test("persists pricing through the discovery snapshot", async () => {
+        const directory = cacheDir();
+        await refreshOpenRouterCatalog({
+            cacheDir: directory,
+            fetch: respondWith({ data: [model({
+                pricing: { prompt: "0.0000002", completion: "0.0000012" },
+            })] }),
+        });
+
+        expect(
+            effectiveCatalog("openrouter", { cacheDir: directory })
+                .models[0]?.pricing,
+        ).toEqual({ input: 0.2, output: 1.2 });
+    });
+
+    test("a malformed pricing object on one row is omitted for that row", () => {
+        const directory = cacheDir();
+        mkdirSync(directory, { recursive: true });
+        writeFileSync(
+            join(directory, "openrouter.json"),
+            JSON.stringify({
+                schema_version: 2,
+                provider: "openrouter",
+                fetched_at: "2026-08-29T00:00:00Z",
+                models: [
+                    {
+                        id: "good",
+                        label: "Good",
+                        pricing: { input: 3, output: 15 },
+                        levels: [],
+                    },
+                    {
+                        id: "bad",
+                        label: "Bad",
+                        pricing: { input: -1, output: 2 },
+                        levels: [],
+                    },
+                ],
+            }),
+        );
+
+        const catalog = effectiveCatalog("openrouter", { cacheDir: directory });
+        expect(catalog.models.map((entry) => entry.id)).toEqual(["bad", "good"]);
+        expect(catalog.models.find((entry) => entry.id === "good")?.pricing)
+            .toEqual({ input: 3, output: 15 });
+        expect(catalog.models.find((entry) => entry.id === "bad")?.pricing)
+            .toBeUndefined();
     });
 
     test("an unreachable endpoint falls back to the last snapshot", async () => {

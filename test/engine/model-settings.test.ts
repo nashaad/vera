@@ -161,6 +161,22 @@ test("settings validation accepts the pool and per-model levels", () => {
         model: "with-levels",
         refreshableProviders: ["empty-gateway"],
     })).toBe(true);
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        availableModels: [{
+            ...available,
+            pricing: { input: 3, output: 15 },
+            waScore: 1629,
+            onPareto: true,
+            imageSupport: true,
+        }],
+        webdevArenaSnapshot: "2026-08-21",
+    })).toBe(true);
+    // Listed facts are optional: a snapshot without them is still valid.
+    expect(isModelTurnSettings({
+        model: "with-levels",
+        availableModels: [available],
+    })).toBe(true);
 });
 
 test("settings validation rejects entries missing their new fields", () => {

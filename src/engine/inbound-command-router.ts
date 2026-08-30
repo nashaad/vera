@@ -1971,6 +1971,9 @@ function copyModelSettings(settings: ModelTurnSettings): ModelTurnSettings {
                     levels: model.levels.map((level) => ({ ...level })),
                 })),
             }),
+        ...(settings.webdevArenaSnapshot === undefined
+            ? {}
+            : { webdevArenaSnapshot: settings.webdevArenaSnapshot }),
     };
 }
 

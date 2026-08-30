@@ -25,6 +25,18 @@ export interface ReasoningLevel {
     readonly description?: string;
 }
 
+/**
+ * The provider's listed standard token rates, normalized to USD per million
+ * tokens. Absent means the source did not publish both rates in a form Vera
+ * could read; it never means free. `cache` is the listed cache-hit rate when
+ * the source published one; absent means the blend uses the input rate.
+ */
+export interface ModelPricing {
+    readonly input: number;
+    readonly output: number;
+    readonly cache?: number;
+}
+
 export interface CatalogModel {
     readonly id: string;
     readonly label: string;
@@ -55,6 +67,7 @@ export interface CatalogModel {
      * what the pool learned from a probe.
      */
     readonly image_support?: boolean;
+    readonly pricing?: ModelPricing;
     readonly default_level?: ReasoningLevelId;
     /**
      * True on a model Vera's shipped curation recommends. A flag on the entry
