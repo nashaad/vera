@@ -19,6 +19,7 @@ export type TuiThemeProperty =
     | "textColor"
     | "focusedTextColor"
     | "cursorColor"
+    | "placeholderColor"
     | "borderColor"
     | "focusedBorderColor";
 
