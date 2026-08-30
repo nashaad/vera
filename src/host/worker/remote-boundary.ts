@@ -29,7 +29,10 @@ import type {
 import type { LoopState } from "../../engine/host-protocol.ts";
 import type { InstructionRoot } from "../../engine/memory.ts";
 import type { ApprovalMode } from "../../engine/permissions.ts";
-import type { PromptContribution } from "../../engine/prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "../../engine/prompt-contributions.ts";
 import type { ReviewLog, ReviewLogEntry } from "../../engine/review-log.ts";
 import type { ToolReviewDecision } from "../../engine/reviewer.ts";
 import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
@@ -253,6 +256,7 @@ export function createRemoteHostBoundary(
                 loadContextualContributions: async (
                     instructionRoot: InstructionRoot,
                     allowedSkills?: readonly string[],
+                    context?: ContextualContributionContext,
                 ): Promise<readonly PromptContribution[]> => {
                     const reply = await pipe.request({
                         method: "contributions.load",
@@ -260,6 +264,7 @@ export function createRemoteHostBoundary(
                         ...(allowedSkills === undefined
                             ? {}
                             : { allowedSkills }),
+                        ...(context === undefined ? {} : { context }),
                     }) as {
                         readonly contributions: readonly PromptContribution[];
                     };

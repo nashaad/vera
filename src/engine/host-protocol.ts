@@ -59,7 +59,10 @@ import type {
     PermissionInspection,
     PermissionPreference,
 } from "./permissions.ts";
-import type { PromptContribution } from "./prompt-contributions.ts";
+import type {
+    ContextualContributionContext,
+    PromptContribution,
+} from "./prompt-contributions.ts";
 import type { ToolReviewDecision, ToolReviewRequest } from "./reviewer.ts";
 import type { ToolReviewerSettings } from "./reviewer.ts";
 import type { TimelineCommand } from "./protocol.ts";
@@ -289,6 +292,7 @@ export interface LoadContributionsRequest {
     readonly instructionRoot: InstructionRoot;
     /** Absent means every skill; a present empty list means none. */
     readonly allowedSkills?: readonly string[];
+    readonly context?: ContextualContributionContext;
 }
 
 /**

@@ -20,7 +20,10 @@ import {
 } from "../config.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
-import { veraMachineDirectory } from "../profile-paths.ts";
+import {
+    veraMachineDirectory,
+    veraProfileDirectory,
+} from "../profile-paths.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { isRefreshableProvider } from "../model/refreshable-providers.ts";
 import { availableModels } from "../engine/model-settings.ts";
@@ -113,6 +116,11 @@ import {
 } from "../store/session-store.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import { loadSkillContribution } from "../skills/contribution.ts";
+import {
+    loadStandingNudges,
+    type StandingNudgeCadence,
+    standingNudgeContribution,
+} from "../standing-nudges.ts";
 import {
     literalSecretDetail,
     StartupFindings,
@@ -366,6 +374,10 @@ export async function startResidentHost(
     }
     const hasModelRequestHooks = extensions.modelRequestHooks().length > 0;
     const openRouterAllowanceGuard = new OpenRouterAllowanceGuard();
+    const standingNudgeCadenceBySession = new Map<
+        string,
+        StandingNudgeCadence
+    >();
     const createAdapter = options.createAdapter
         ?? ((
             provider?: string,
@@ -816,10 +828,35 @@ export async function startResidentHost(
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
             reserveSessionIdentity(sessionIdentityReservationRoot, sessionId, key),
-        loadContextualContributions: async (instructionRoot, allowedSkills) => [
-            ...await loadSkillContribution(instructionRoot, allowedSkills),
-            ...startupFindings.contributions(),
-        ],
+        loadContextualContributions: async (
+            instructionRoot,
+            allowedSkills,
+            context,
+        ) => {
+            let cadence: StandingNudgeCadence | undefined;
+            if (context?.sessionId !== undefined) {
+                cadence = standingNudgeCadenceBySession.get(context.sessionId);
+                if (cadence === undefined) {
+                    cadence = { matchingTurns: new Map<string, number>() };
+                    standingNudgeCadenceBySession.set(
+                        context.sessionId,
+                        cadence,
+                    );
+                }
+            }
+            const standing = context === undefined || context.turn === "delivery"
+                ? undefined
+                : standingNudgeContribution(
+                    loadStandingNudges(veraProfileDirectory()),
+                    context,
+                    cadence,
+                );
+            return [
+                ...await loadSkillContribution(instructionRoot, allowedSkills),
+                ...startupFindings.contributions(),
+                ...(standing === undefined ? [] : [standing]),
+            ];
+        },
         createToolHooks: () => {
             const hooks = new ToolHooks();
             registerConfiguredHooks(hooks, currentConfig());

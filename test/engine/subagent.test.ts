@@ -1073,6 +1073,68 @@ test("a subagent inherits the parent's scratch directory in its prompt", async (
     }
 });
 
+test("a subagent loads contextual contributions with its own wear and workspace", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-subagent-context-"));
+    let context: unknown;
+    let request: ModelRequest | undefined;
+    const adapter: ModelAdapter = {
+        stream(next) {
+            request = next;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({
+                type: "done",
+                message: {
+                    role: "assistant",
+                    content: [{ type: "text", text: "done" }],
+                    source: { provider: "faux", api: "test", model: "test" },
+                    usage: emptyUsage(),
+                    stopReason: "stop",
+                },
+            });
+            return stream;
+        },
+    };
+
+    try {
+        await runSubagent({
+            adapter,
+            model: "test",
+            description: "child task",
+            workspace: root,
+            approvalMode: "auto",
+            agentWear: {
+                name: "explore",
+                instructions: "Explore the code.",
+            },
+            loadContextualContributions: async (
+                _instructionRoot,
+                _skills,
+                next,
+            ) => {
+                context = next;
+                return [{
+                    id: "host.standing-instructions",
+                    owner: "host",
+                    target: "contextual",
+                    title: "Standing instructions",
+                    content: "[explore-child]\nExplore carefully.",
+                }];
+            },
+        });
+
+        expect(context).toEqual({
+            sessionId: expect.any(String),
+            turn: "user",
+            workspace: root,
+            agent: "explore",
+        });
+        expect(request?.systemPrompt).toContain("[explore-child]");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("the pool file's subagent default is the rung a spawn with no suggestion lands on", () => {
     const resolved = resolveSpawnModelChoice(
         {},

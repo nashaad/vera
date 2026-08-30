@@ -73,6 +73,7 @@ import type {
 import { loadMemory, type InstructionRoot } from "./memory.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import {
+    type ContextualContributionContext,
     promptContributionMetadata,
     type PromptContribution,
 } from "./prompt-contributions.ts";
@@ -322,7 +323,10 @@ export interface RunTurnState {
         instructionRoot: InstructionRoot,
         /** The skills the worn agent may see. Absent means all of them. */
         allowedSkills?: readonly string[],
+        context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
+    /** First successful host contribution load, reused for this user turn. */
+    contextualContributionsForTurn?: readonly PromptContribution[];
     readonly offerTools?: boolean;
     readonly loadOptionalContext?: boolean;
 }
@@ -736,6 +740,10 @@ export async function runHeadlessLoop(
             get permissionModes() { return policy().permissionModes; },
             readPool: () => readModelSettings?.()?.pooled ?? [],
             readPolicy: () => policy().subagentPolicy ?? {},
+            ...(boundary.loadContextualContributions === undefined ? {} : {
+                loadContextualContributions:
+                    boundary.loadContextualContributions,
+            }),
             ...(boundary.requestMissingSubagentConfiguration === undefined
                 ? {}
                 : {
@@ -1353,6 +1361,9 @@ export async function runTurn(
         // snapshot for this user turn.
         const wear = state.readAgentWear?.();
         state.firedNudges?.clear();
+        if (turn.triggeredByDelivery !== true) {
+            state.contextualContributionsForTurn = undefined;
+        }
         state.toolRuntime.allowedTools = turnToolExecutionScope(wear);
         state.toolRuntime.allowedSkills = wear?.skills;
         state.toolRuntime.userInvokedSkill = turn.userInvokedSkill;
@@ -1570,18 +1581,36 @@ export async function runTurn(
                 ? undefined
                 : await loadScratchState(state.scratchDir);
             const requestDate = new Date();
-            const additionalContextualContributions =
-                state.loadOptionalContext === false
-                    || state.loadContextualContributions === undefined
-                    ? undefined
-                    : await state.loadContextualContributions(
+            let additionalContextualContributions:
+                | readonly PromptContribution[]
+                | undefined = state.contextualContributionsForTurn;
+            if (
+                additionalContextualContributions === undefined
+                && state.loadOptionalContext !== false
+                && state.loadContextualContributions !== undefined
+            ) {
+                additionalContextualContributions =
+                    await state.loadContextualContributions(
                         state.instructionRoot
                             ?? {
                                 path: state.toolRuntime.workspace,
                                 source: "workspace",
                             },
-                        state.readAgentWear?.()?.skills,
+                        wear?.skills,
+                        {
+                            ...(state.sessionId === undefined
+                                ? {}
+                                : { sessionId: state.sessionId }),
+                            turn: userMessage === undefined
+                                ? "delivery"
+                                : "user",
+                            workspace: state.toolRuntime.workspace,
+                            agent: wear?.name ?? "default",
+                        },
                     );
+                state.contextualContributionsForTurn =
+                    additionalContextualContributions;
+            }
             // Recomputed each request: a tool the breaker withheld earlier in
             // this turn simply stops being described to the model.
             const tools = denialBreaker.filterOffered(scopedTools);
@@ -1615,10 +1644,10 @@ export async function runTurn(
                 }),
                 // Fixed at turn start with the rest of the agent's snapshot,
                 // so a turn always runs under one complete agent.
-                ...(state.readAgentWear?.()?.instructions === undefined
-                        || state.readAgentWear()!.instructions.length === 0
+                ...(wear?.instructions === undefined
+                        || wear.instructions.length === 0
                     ? {}
-                    : { agentInstructions: state.readAgentWear()!.instructions }),
+                    : { agentInstructions: wear.instructions }),
                 signal: turn.signal,
             });
             const request = projection.request;

@@ -168,6 +168,12 @@ async function messagesByMethod(): Promise<Map<string, Message>> {
         {
             method: "contributions.load",
             instructionRoot: { path: "/w", source: "workspace" },
+            context: {
+                sessionId: "session-1",
+                turn: "user",
+                workspace: "/w",
+                agent: "reviewer",
+            },
         },
         { method: "session.append", record: rewind },
         { method: "tool.execute", callId: "c5", name: "read", input: {} },

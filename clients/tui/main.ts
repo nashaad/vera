@@ -580,6 +580,20 @@ import {
     type TuiPreferencesListState,
 } from "./preferences-list.ts";
 import {
+    createTuiStandingNudgesView,
+    handleTuiStandingNudgesKey,
+    handleTuiStandingNudgesPaste,
+    handleTuiStandingNudgesScroll,
+    openTuiStandingNudges,
+    standingNudgeIndicatorRow,
+    type TuiStandingNudgesState,
+} from "./standing-nudges.ts";
+import { veraProfileDirectory } from "../../src/profile-paths.ts";
+import {
+    loadStandingNudges,
+    type StandingNudge,
+} from "../../src/standing-nudges.ts";
+import {
     renderResumeHint,
     resolveResumeTarget,
     resolveContinueTarget,
@@ -1465,6 +1479,30 @@ export async function startTui(
     let namePrompt: TuiNamePromptState | undefined;
     let providerForm: TuiProviderFormState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
+    let standingNudges: TuiStandingNudgesState | undefined;
+    const standingNudgesProfileDirectory = veraProfileDirectory();
+    let standingNudgeRules: readonly StandingNudge[] = readStandingNudgeRules();
+
+    function readStandingNudgeRules(): readonly StandingNudge[] {
+        try {
+            return loadStandingNudges(standingNudgesProfileDirectory);
+        } catch {
+            // The dialog and hosted turn own the actionable file error. The
+            // ambient indicator must not turn a corrupt profile into a second
+            // competing error surface.
+            return [];
+        }
+    }
+
+    function adoptStandingNudgesState(
+        next: TuiStandingNudgesState | undefined,
+    ): void {
+        standingNudges = next;
+        if (next === undefined) return;
+        standingNudgeRules = next.screen === "error"
+            ? next.back?.nudges ?? []
+            : next.nudges;
+    }
     /** The picker pane the preferences list was opened over, restored on close. */
     let preferencesListParent: TuiSettingsPickerState | undefined;
     let commandPalette: TuiCommandPaletteState | undefined;
@@ -2617,6 +2655,7 @@ export async function startTui(
     const namePromptView = createTuiNamePromptView(renderer);
     const providerFormView = createTuiProviderFormView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
+    const standingNudgesView = createTuiStandingNudgesView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
     const workTabView = createTuiLinesView(renderer, "work-tab");
     const workspaceSidebarView = createTuiLinesView(
@@ -2673,6 +2712,7 @@ export async function startTui(
         namePromptView,
         providerFormView,
         preferencesListView,
+        standingNudgesView,
         commandPaletteView,
         helpView,
         diagnosticsDialogView,
@@ -3474,6 +3514,7 @@ export async function startTui(
     function closeTransientOverlaysForUiRequest(): void {
         dialStrip = undefined;
         settingsPicker = undefined;
+        standingNudges = undefined;
         commandPalette = undefined;
         help = undefined;
         workTab = undefined;
@@ -4063,6 +4104,23 @@ export async function startTui(
         preferencesList = transition.state;
         renderState();
     };
+    standingNudgesView.box.onMouseScroll = (event) => {
+        if (standingNudges === undefined || event.scroll === undefined) return;
+        if (standingNudgesView.scroll(event.scroll)) {
+            event.preventDefault();
+            event.stopPropagation();
+            return;
+        }
+        const transition = handleTuiStandingNudgesScroll(
+            standingNudges,
+            event.scroll,
+        );
+        if (!transition.handled) return;
+        event.preventDefault();
+        event.stopPropagation();
+        standingNudges = transition.state;
+        renderState();
+    };
     commandPaletteView.box.onMouseScroll = (event) => {
         if (commandPalette === undefined || event.scroll === undefined) return;
         const transition = handleTuiCommandPaletteScroll(
@@ -4085,6 +4143,7 @@ export async function startTui(
         renderState();
     };
     app.add(preferencesListView.surface);
+    app.add(standingNudgesView.surface);
     app.add(commandPaletteView.surface);
     // Hover moves the cursor and a click acts on it, the same as every other
     // overlay: a row the arrows can reach is a row the mouse can reach.
@@ -4472,6 +4531,23 @@ export async function startTui(
         // paste always disarms the pair rather than leaving an armed first
         // escape to pair across it.
         lastIdleEscapeAt = undefined;
+        if (
+            standingNudges !== undefined
+            && standingNudgesView.surface.visible
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            const pasted = stripAnsiSequences(decodePasteBytes(event.bytes));
+            const editorTransition = standingNudgesView.handleEditorPaste(
+                standingNudges,
+                pasted,
+            );
+            standingNudges = editorTransition.handled
+                ? editorTransition.state
+                : handleTuiStandingNudgesPaste(standingNudges, pasted);
+            renderState();
+            return;
+        }
         if (
             providerForm !== undefined
             && providerFormView.surface.visible
@@ -5118,6 +5194,42 @@ export async function startTui(
                 key.preventDefault();
                 key.stopPropagation();
                 applySecretPromptTransition(secretPrompt, transition);
+                return;
+            }
+        }
+
+        if (standingNudges !== undefined) {
+            const editorTransition = standingNudgesView.handleEditorKey(
+                standingNudges,
+                key,
+            );
+            if (editorTransition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                adoptStandingNudgesState(editorTransition.state);
+                renderState();
+                focusActiveSurface();
+                return;
+            }
+            if (standingNudgesView.handleViewportKey(key.name)) {
+                key.preventDefault();
+                key.stopPropagation();
+                return;
+            }
+            const transition = handleTuiStandingNudgesKey(
+                standingNudges,
+                key,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                adoptStandingNudgesState(transition.state);
+                if (standingNudges === undefined) {
+                    standingNudgesView.surface.visible = false;
+                    composer.focus();
+                }
+                renderState();
+                if (standingNudges !== undefined) focusActiveSurface();
                 return;
             }
         }
@@ -6248,6 +6360,9 @@ export async function startTui(
         ) {
             return;
         }
+        // Manual file edits are uncommon, but the indicator should agree with
+        // the host at the point where another user turn is about to load it.
+        standingNudgeRules = readStandingNudgeRules();
         const typed = interceptedText ?? composer.expandedText().trim();
         // A slash command is addressed to the client, so a quote waiting to be
         // sent stays waiting rather than being folded into an argument.
@@ -6937,6 +7052,11 @@ export async function startTui(
         if (commandAction?.type === "open_preferences_list") {
             composer.clearComposer();
             openPreferencesList();
+            return;
+        }
+        if (commandAction?.type === "open_standing_nudges") {
+            composer.clearComposer();
+            openStandingNudges();
             return;
         }
         if (commandAction?.type === "open_settings_destination") {
@@ -8769,6 +8889,9 @@ export async function startTui(
         if (preferencesList !== undefined) {
             return () => preferencesListView.box.focus();
         }
+        if (standingNudges !== undefined) {
+            return () => standingNudgesView.focus();
+        }
         return undefined;
     }
 
@@ -9161,6 +9284,7 @@ export async function startTui(
         queuedConfigurationRequests.length = 0;
         timelinePicker = undefined;
         settingsPicker = undefined;
+        standingNudges = undefined;
         namePrompt = undefined;
         providerForm = undefined;
         commandPalette = undefined;
@@ -9978,6 +10102,14 @@ export async function startTui(
             && providerForgetCandidate === undefined
             && settingsPicker === undefined
             && preferencesList !== undefined;
+        standingNudgesView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
+            && providerForgetCandidate === undefined
+            && settingsPicker === undefined
+            && preferencesList === undefined
+            && standingNudges !== undefined;
         commandPaletteView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
@@ -9986,12 +10118,14 @@ export async function startTui(
             && settingsPicker === undefined
             && secretPrompt === undefined
             && preferencesList === undefined
+            && standingNudges === undefined
             && commandPalette !== undefined;
         workTabView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
+            && standingNudges === undefined
             && commandPalette === undefined
             && workTab !== undefined;
         applyWorkspaceRail();
@@ -10009,6 +10143,7 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
+            && standingNudges === undefined
             && commandPalette === undefined
             && workTab === undefined
             && workspaceSidebar !== undefined
@@ -10018,6 +10153,7 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && settingsPicker === undefined
+            && standingNudges === undefined
             && commandPalette === undefined
             && workTab === undefined
             && searchOverlay !== undefined;
@@ -10092,6 +10228,7 @@ export async function startTui(
             || timelinePickerView.box.visible
             || settingsPickerView.box.visible
             || preferencesListView.surface.visible
+            || standingNudgesView.surface.visible
             || commandPaletteView.surface.visible
             || workTabView.surface.visible
             // A rail stands beside the transcript rather than over it, so the
@@ -10187,6 +10324,9 @@ export async function startTui(
         }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
+        }
+        if (standingNudges !== undefined) {
+            standingNudgesView.update(standingNudges);
         }
         if (commandPalette !== undefined) {
             commandPaletteView.update(commandPalette);
@@ -10370,6 +10510,7 @@ export async function startTui(
             || providerForm !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
+            || standingNudges !== undefined
             || commandPalette !== undefined
             || workTab !== undefined
             || searchOverlay !== undefined
@@ -11072,6 +11213,18 @@ export async function startTui(
         composer.blur();
         focusActiveSurface();
         renderState();
+    }
+
+    function openStandingNudges(): void {
+        adoptStandingNudgesState(
+            openTuiStandingNudges(
+                standingNudgesProfileDirectory,
+                focusedAgentClient().workspace ?? "",
+            ),
+        );
+        composer.blur();
+        renderState();
+        focusActiveSurface();
     }
 
     /**
@@ -13458,6 +13611,7 @@ export async function startTui(
         providerForm = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
+        standingNudges = undefined;
         confirmingFullAccess = false;
         admissionDialog = undefined;
         admissionReturnPicker = undefined;
@@ -14752,6 +14906,7 @@ export async function startTui(
         ...namePromptView.themeBindings,
         ...providerFormView.themeBindings,
         ...preferencesListView.themeBindings,
+        ...standingNudgesView.themeBindings,
         tuiThemeProperties(commandPaletteView.box, {
             backgroundColor: "panel",
         }),
@@ -15572,6 +15727,18 @@ export async function startTui(
                 Math.min(72, renderer.width - composerHorizontalInset - railInset),
             )
         );
+        // The card's own inner width, past the band's indent, its border and
+        // its padding: notices and rules stop at the same right edge.
+        const cardWidth = Math.max(
+            1,
+            renderer.width - composerHorizontalInset - railInset,
+        );
+        const nudgeIndicator = isHomeClient(client) || isWorkerFreeClient(client)
+            ? undefined
+            : standingNudgeIndicatorRow(standingNudgeRules, {
+                agent: statusState.agent?.name ?? "default",
+                workspace: focusedAgentClient().workspace ?? "",
+            }, cardWidth);
         const agentSection = currentAgentHasParent
             ? ["/parent to return"]
             : runningNames.length === 0
@@ -15597,12 +15764,6 @@ export async function startTui(
                     text: TUI_MUTED,
                 },
             );
-        // The card's own inner width, past the band's indent, its border and
-        // its padding: the rules drawn inside it have to stop where it does.
-        const cardWidth = Math.max(
-            1,
-            renderer.width - composerHorizontalInset - railInset,
-        );
         const rule = (glyph: string) =>
             fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
         // The first row says what the session is answering as, and it lives
@@ -15628,22 +15789,39 @@ export async function startTui(
         // Text nodes lay their content out from column zero, so the notice
         // carries the indent the band gets as padding.
         const noticeIndent = " ".repeat(composerContentIndent);
-        agentNoticeText.content = agentSection.length === 0
+        agentNoticeText.content = nudgeIndicator === undefined &&
+                agentSection.length === 0
             ? new StyledText([])
             : new StyledText([
-                fg(TUI_MUTED)(noticeIndent),
-                ...animatedAgentHeader.chunks,
-                fg(TUI_MUTED)(
-                    agentSection.length === 1
-                        ? ""
-                        : `\n${
-                            agentSection.slice(1)
-                                .map((row) => `${noticeIndent}${row}`)
-                                .join("\n")
-                        }`,
-                ),
+                ...(nudgeIndicator === undefined
+                    ? []
+                    : [
+                        fg(TUI_MUTED)(noticeIndent),
+                        fg(TUI_ACCENT)("● "),
+                        fg(TUI_MUTED)(
+                            `${nudgeIndicator.status}${nudgeIndicator.gap}${nudgeIndicator.detail}`,
+                        ),
+                    ]),
+                ...(agentSection.length === 0
+                    ? []
+                    : [
+                        fg(TUI_MUTED)(
+                            `${nudgeIndicator === undefined ? "" : "\n"}${noticeIndent}`,
+                        ),
+                        ...animatedAgentHeader.chunks,
+                        fg(TUI_MUTED)(
+                            agentSection.length === 1
+                                ? ""
+                                : `\n${
+                                    agentSection.slice(1)
+                                        .map((row) => `${noticeIndent}${row}`)
+                                        .join("\n")
+                                }`,
+                        ),
+                    ]),
             ]);
-        agentNoticeRows = agentSection.length;
+        agentNoticeRows = agentSection.length +
+            (nudgeIndicator === undefined ? 0 : 1);
         agentNoticeText.height = Math.max(1, agentNoticeRows);
         agentNoticeText.visible = agentNoticeRows > 0;
         // A rule separates each pair of status rows under the frame.

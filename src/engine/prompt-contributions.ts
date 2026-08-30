@@ -14,6 +14,16 @@ export interface PromptContribution {
     readonly content: string;
 }
 
+/** Host-owned facts frozen before additional contextual text is loaded. */
+export interface ContextualContributionContext {
+    /** Stable hosted-session identity; child subagents have their own id. */
+    readonly sessionId?: string;
+    /** Delivery continuations reuse a user turn and never advance cadence. */
+    readonly turn: "user" | "delivery";
+    readonly workspace: string;
+    readonly agent: string;
+}
+
 export interface PromptContributionMetadata {
     readonly id: string;
     readonly owner: string;

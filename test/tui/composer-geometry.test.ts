@@ -1,6 +1,9 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { createTestRenderer } from "@opentui/core/testing";
 import type { CapturedFrame, CapturedSpan } from "@opentui/core";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { startTui, type TuiAgentClient } from "../../clients/tui/main.ts";
 import { applyTuiTheme } from "../../clients/tui/state.ts";
 import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
@@ -10,6 +13,7 @@ import { createInProcessChannel } from "../../src/engine/message-channel.ts";
 import { runHeadlessLoop } from "../../src/engine/run-turn.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
+import { saveStandingNudges } from "../../src/standing-nudges.ts";
 
 function response(text: string): AssistantMessage {
     return {
@@ -25,7 +29,7 @@ function response(text: string): AssistantMessage {
  * The whole TUI booted against the in-process test renderer, so a test reads
  * the frame the user would see: real layout, real grounds, no terminal.
  */
-async function bootTui(theme: TuiThemeName) {
+async function bootTui(theme: TuiThemeName, workspace?: string) {
     saveTuiThemePreference(theme);
     const channel = createInProcessChannel();
     void runHeadlessLoop(
@@ -50,6 +54,7 @@ async function bootTui(theme: TuiThemeName) {
         },
     );
     const client: TuiAgentClient = {
+        ...(workspace === undefined ? {} : { workspace }),
         async send(command): Promise<void> {
             channel.client.send(command);
         },
@@ -102,6 +107,12 @@ function hex(span: CapturedSpan): string {
     return `#${to(c.r)}${to(c.g)}${to(c.b)}`;
 }
 
+function rowContaining(frame: CapturedFrame, value: string): number {
+    return frame.lines.findIndex((_line, row) =>
+        rowText(frame, row).includes(value)
+    );
+}
+
 describe("composer geometry", () => {
     // Booting applies the theme to module-level palette state; put it back so
     // later files see the default palette.
@@ -134,5 +145,102 @@ describe("composer geometry", () => {
         expect(rowText(frame, top - 1)).toContain("/themes");
         expect(rowText(frame, top + 1)).toContain("/th");
         setup.renderer.destroy();
+    });
+
+    test("a matching nudge lives above a composer whose lower rows stay fixed", async () => {
+        const veraHome = mkdtempSync(join(tmpdir(), "vera-nudge-indicator-"));
+        const oldHome = process.env.VERA_HOME;
+        process.env.VERA_HOME = veraHome;
+        saveStandingNudges(join(veraHome, "profiles", "default"), [
+            {
+                id: "active-here",
+                enabled: true,
+                text: "Keep this conversation concise.",
+                trigger: { type: "workspace", equals: "/workspace" },
+                turnsApart: 10,
+            },
+            {
+                id: "also-active",
+                enabled: true,
+                text: "Also applies here.",
+                trigger: { type: "always" },
+                turnsApart: 0,
+            },
+            {
+                id: "active-elsewhere",
+                enabled: true,
+                text: "Only elsewhere.",
+                trigger: { type: "workspace", equals: "/elsewhere" },
+                turnsApart: 0,
+            },
+            {
+                id: "reviewer-only",
+                enabled: true,
+                text: "Only for the reviewer.",
+                trigger: { type: "agent", equals: "reviewer" },
+                turnsApart: 0,
+            },
+        ]);
+
+        let booted: Awaited<ReturnType<typeof bootTui>> | undefined;
+        try {
+            booted = await bootTui("default", "/workspace");
+        } finally {
+            if (oldHome === undefined) delete process.env.VERA_HOME;
+            else process.env.VERA_HOME = oldHome;
+        }
+        if (booted === undefined) throw new Error("TUI did not boot");
+        const { setup, exit } = booted;
+        try {
+            await until(setup, (frame) => frame.includes("● Nudges on · 2"));
+            const before = setup.captureSpans();
+            const composerRow = composerTopRow(before);
+            const statusRow = rowContaining(before, "ready");
+            const noticeRow = rowContaining(before, "● Nudges on · 2");
+            expect(noticeRow).toBeLessThan(
+                composerRow,
+            );
+            expect(statusRow).toBeGreaterThan(composerRow);
+            const notice = rowText(before, noticeRow);
+            expect(notice).toContain(
+                "active-here, also-active · /nudges",
+            );
+            expect(notice).not.toContain("active-elsewhere");
+            expect(notice.trimEnd().endsWith("/nudges")).toBe(true);
+            expect(notice.trimEnd().length).toBeGreaterThan(90);
+
+            setup.resize(30, 35);
+            await until(setup, (frame) =>
+                frame.includes("● Nudges on a… /nudges")
+            );
+            expect(setup.captureCharFrame()).toContain("/nudges");
+            setup.resize(100, 35);
+            await until(setup, (frame) =>
+                frame.includes("active-here, also-active · /nudges")
+            );
+
+            await setup.mockInput.typeText("/nudges");
+            setup.mockInput.pressEnter();
+            await until(setup, (frame) => frame.includes("Standing nudges"));
+            setup.mockInput.pressKey(" ");
+            await until(setup, (frame) => frame.includes("○ active-here"));
+            setup.mockInput.pressArrow("down");
+            setup.mockInput.pressKey(" ");
+            await until(setup, (frame) => frame.includes("○ also-active"));
+            setup.mockInput.pressEscape();
+            await until(
+                setup,
+                (frame) => frame.includes("Message Vera") &&
+                    !frame.includes("Nudge on"),
+            );
+
+            const after = setup.captureSpans();
+            expect(composerTopRow(after)).toBe(composerRow);
+            expect(rowContaining(after, "ready")).toBe(statusRow);
+        } finally {
+            setup.renderer.destroy();
+            await exit;
+            rmSync(veraHome, { recursive: true, force: true });
+        }
     });
 });

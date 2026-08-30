@@ -91,6 +91,10 @@ export interface OpenPreferencesListTuiCommandAction {
     readonly type: "open_preferences_list";
 }
 
+export interface OpenStandingNudgesTuiCommandAction {
+    readonly type: "open_standing_nudges";
+}
+
 export interface OpenConfigureTuiCommandAction {
     readonly type: "open_configure";
 }
@@ -234,6 +238,7 @@ export type TuiCommandAction =
     | OpenSettingsDestinationTuiCommandAction
     | WearAgentTuiCommandAction
     | OpenPreferencesListTuiCommandAction
+    | OpenStandingNudgesTuiCommandAction
     | OpenConfigureTuiCommandAction
     | OpenCommandPaletteTuiCommandAction
     | OpenHelpTuiCommandAction
@@ -299,6 +304,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "invoke_skill":
             return "main_session";
         case "open_preferences_list":
+        case "open_standing_nudges":
         case "open_work_tab":
         case "open_search":
         case "open_command_palette":
@@ -355,6 +361,7 @@ export interface TuiCommandDefinition {
     readonly action?: OpenRewindTuiCommandAction
         | OpenForkTuiCommandAction
         | OpenPreferencesListTuiCommandAction
+        | OpenStandingNudgesTuiCommandAction
         | OpenSettingsDestinationTuiCommandAction
         | OpenConfigureTuiCommandAction
         | OpenCommandPaletteTuiCommandAction
@@ -422,6 +429,12 @@ const SETTINGS_COMMAND = {
     name: "settings",
     description: "Model, reasoning, permissions, and theme",
     usage: "/settings",
+} as const satisfies TuiCommandCatalogEntry;
+
+const NUDGES_COMMAND = {
+    name: "nudges",
+    description: "Manage profile preferences for matching turns",
+    usage: "/nudges",
 } as const satisfies TuiCommandCatalogEntry;
 
 const CONFIGURE_COMMAND = {
@@ -582,6 +595,7 @@ export const BUILTIN_COMMANDS = [
     PERMISSIONS_COMMAND,
     AGENT_COMMAND,
     SETTINGS_COMMAND,
+    NUDGES_COMMAND,
     CONFIGURE_COMMAND,
     THEMES_COMMAND,
     RESUME_COMMAND,
@@ -1331,6 +1345,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
                 type: "open_settings_destination",
                 destination: { kind: "settings" },
             },
+        },
+    });
+    registry.registerCommand({
+        ...NUDGES_COMMAND,
+        action: { type: "open_standing_nudges" },
+        palette: {
+            name: "standing_nudges",
+            label: "Standing nudges",
+            description: "profile preferences applied to matching turns",
+            group: "Settings",
+            slashName: "nudges",
+            action: { type: "open_standing_nudges" },
         },
     });
     registry.registerCommand({

@@ -38,6 +38,10 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
             session.sendKey("BSpace");
         }
         await session.waitForVisiblePane("Rewind the active conversation");
+        session.sendText("palette");
+        pane = await session.waitForVisiblePane(
+            "Search actions, commands, and keyboard shortcuts",
+        );
         session.sendKey("Enter");
         pane = session.captureVisiblePane();
         expect(pane).toContain("Help");
