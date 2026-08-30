@@ -196,6 +196,10 @@ export interface ShowDoctorTuiCommandAction {
     readonly type: "show_doctor";
 }
 
+export interface OpenUsageTuiCommandAction {
+    readonly type: "open_usage";
+}
+
 export interface WriteFailureReportTuiCommandAction {
     readonly type: "write_failure_report";
 }
@@ -260,6 +264,7 @@ export type TuiCommandAction =
     | ShowExtensionsTuiCommandAction
     | ManageExtensionsTuiCommandAction
     | ShowDoctorTuiCommandAction
+    | OpenUsageTuiCommandAction
     | WriteFailureReportTuiCommandAction
     | ReloadClientExtensionsTuiCommandAction
     | AddCurrentModelToPoolTuiCommandAction
@@ -315,6 +320,7 @@ export function tuiCommandScope(action: TuiCommandAction): TuiCommandScope {
         case "show_extensions":
         case "manage_extensions":
         case "show_doctor":
+        case "open_usage":
         case "write_failure_report":
         case "reload_client_extensions":
         case "pool_current_model":
@@ -381,6 +387,7 @@ export interface TuiCommandDefinition {
         | ShowDiagnosticsTuiCommandAction
         | ShowExtensionsTuiCommandAction
         | ShowDoctorTuiCommandAction
+        | OpenUsageTuiCommandAction
         | WriteFailureReportTuiCommandAction
         | ReloadClientExtensionsTuiCommandAction;
     readonly palette?: TuiPaletteActionDefinition;
@@ -575,6 +582,12 @@ const DOCTOR_COMMAND = {
     usage: "/doctor",
 } as const satisfies TuiCommandCatalogEntry;
 
+const USAGE_COMMAND = {
+    name: "usage",
+    description: "Open this machine's usage page in the browser",
+    usage: "/usage",
+} as const satisfies TuiCommandCatalogEntry;
+
 const FAILURE_REPORT_COMMAND = {
     name: "failure-report",
     description: "Write a shareable report of recorded model failures",
@@ -615,6 +628,7 @@ export const BUILTIN_COMMANDS = [
     EXTENSIONS_COMMAND,
     EXTENSION_COMMAND,
     DOCTOR_COMMAND,
+    USAGE_COMMAND,
     FAILURE_REPORT_COMMAND,
     RELOAD_EXTENSIONS_COMMAND,
     POOL_COMMAND,
@@ -1622,6 +1636,18 @@ export function createConfiguredBuiltinTuiCommandRegistry(
             group: "Session",
             slashName: "doctor",
             action: { type: "show_doctor" },
+        },
+    });
+    registry.registerCommand({
+        ...USAGE_COMMAND,
+        action: { type: "open_usage" },
+        palette: {
+            name: "usage",
+            label: "Open usage",
+            description: "this machine's spend, tokens, and sessions",
+            group: "Settings",
+            slashName: "usage",
+            action: { type: "open_usage" },
         },
     });
     registry.registerCommand({

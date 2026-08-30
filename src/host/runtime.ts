@@ -49,6 +49,7 @@ import type {
 } from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
+    providerCatalogCacheDir,
     readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
@@ -155,6 +156,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
+import { startUsageWebServer, type UsageWebServer } from "./usage-http.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
@@ -933,6 +935,8 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
+    let usageWeb: UsageWebServer | undefined;
+    let usageWebUrl: string | undefined;
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
@@ -953,13 +957,19 @@ export async function startResidentHost(
     const closeHost = (): Promise<void> => {
         if (closing === undefined) {
             announceShutdown();
-            closing = closeResidentHost(
-                server,
-                registry,
-                extensions,
-                closeInbox,
-                closeSidecars,
-            );
+            closing = (async () => {
+                try {
+                    await usageWeb?.close();
+                } finally {
+                    await closeResidentHost(
+                        server,
+                        registry,
+                        extensions,
+                        closeInbox,
+                        closeSidecars,
+                    );
+                }
+            })();
         }
         return closing;
     };
@@ -1038,6 +1048,9 @@ export async function startResidentHost(
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
+            readUsageWeb: () => usageWebUrl === undefined
+                ? undefined
+                : { url: usageWebUrl },
             listAgents: async () => mergeStoredAndResidentAgents(
                 await storedSessions,
                 registry.list(),
@@ -1172,6 +1185,18 @@ export async function startResidentHost(
             }),
             }),
         );
+        try {
+            usageWeb = await startUsageWebServer({
+                sessionDirectory,
+                catalogCacheDir: providerCatalogCacheDir(),
+            });
+            usageWebUrl = usageWeb.url;
+        } catch (error) {
+            hostLog({
+                type: "usage_web_failed",
+                ...hostErrorFields(error),
+            });
+        }
         sidecars = startSidecarRuntimeIfNeeded({
             sidecars: extensions.contributions().sidecars(),
             socketPath: server.socketPath,

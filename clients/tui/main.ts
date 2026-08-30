@@ -390,6 +390,9 @@ import {
     readModelSettingsThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import {
+    readUsageWebUrlThroughHost,
+} from "../../src/host/usage-web-client.ts";
+import {
     createHomeState,
     createTuiHomeView,
     handleHomeKey,
@@ -700,6 +703,7 @@ import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
+import { openTuiLink } from "./markdown-links.ts";
 import {
     createTuiGutterEntry,
     markTuiGutterEntry,
@@ -955,6 +959,8 @@ export interface TuiDependencies {
     };
     /** Overrides the read-only process sampler for deterministic TUI tests. */
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    /** Loopback URL for Vera web. Absent when this host does not serve it. */
+    readonly openUsagePage?: () => Promise<string | undefined>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
@@ -1231,6 +1237,7 @@ export async function startConfiguredTui(
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
+            openUsagePage: () => readUsageWebUrlThroughHost(host.socket_path),
             flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
@@ -2177,7 +2184,8 @@ export async function startTui(
         return action?.type === "resume_viewed_session"
             || action?.type === "open_resume_picker"
             || action?.type === "open_help"
-            || action?.type === "open_theme_picker";
+            || action?.type === "open_theme_picker"
+            || action?.type === "open_usage";
     }
 
     let markdownStyle = createMarkdownStyle(theme);
@@ -6688,6 +6696,29 @@ export async function startTui(
                     renderState();
                 });
             }
+            return;
+        }
+        if (commandAction?.type === "open_usage") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void (async () => {
+                const url = await dependencies.openUsagePage?.();
+                if (shuttingDown) return;
+                if (url === undefined) {
+                    state = appendTuiNotice(
+                        state,
+                        "This host does not serve the usage page.",
+                    );
+                    renderState();
+                    return;
+                }
+                openTuiLink(url);
+                state = appendTuiNotice(state, `Opened ${url}`);
+                renderState();
+            })();
+            renderState();
+            focusActiveSurface();
             return;
         }
         if (commandAction?.type === "show_doctor") {

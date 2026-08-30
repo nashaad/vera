@@ -74,6 +74,16 @@ export interface SearchSessionsRequest {
     readonly query: SessionSearchQuery;
 }
 
+/** The loopback URL for Vera web. One shot, like model_settings. */
+export interface UsageWebRequest {
+    readonly type: "usage_web";
+}
+
+export interface UsageWebResponse {
+    readonly type: "usage_web";
+    readonly url: string;
+}
+
 export interface SearchSessionsResponse {
     readonly type: "session_search_results";
     readonly results: SessionSearchResults;
@@ -519,6 +529,7 @@ export type HostRequest =
     | CloseAgentRequest
     | RenameSessionRequest
     | RunOnceRequest
+    | UsageWebRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -558,6 +569,7 @@ export type HostResponse =
     | AttachmentReleasedResponse
     | AttachmentReleaseRejectedResponse
     | ExtensionCommandHostResponse
+    | UsageWebResponse
     | ProtocolErrorResponse;
 
 const SESSION_FACT_NAMES: readonly SessionFactName[] = [
@@ -592,6 +604,9 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 ? { workspace }
                 : {}),
         };
+    }
+    if (value?.type === "usage_web") {
+        return { type: "usage_web" };
     }
     if (value?.type === "list_agents") {
         const include = parseSessionFactNames(value.include);
