@@ -114,7 +114,10 @@ import {
     effectiveContextWindow,
 } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
-import { InboundCommandRouter } from "./inbound-command-router.ts";
+import {
+    InboundCommandRouter,
+    type InboundTurnOutcome,
+} from "./inbound-command-router.ts";
 import type {
     LoopPolicy,
     RunHeadlessLoopData,
@@ -1330,7 +1333,8 @@ export async function runTurn(
     // has a boot-order dependency to remember; the work happens once.
     await initBashParser();
     const turn = await state.inbound.startTurn();
-    let assistantMessage: AssistantMessage;
+    let assistantMessage!: AssistantMessage;
+    let turnThrew = false;
 
     try {
         const modelSettings = turn.modelSettings
@@ -2036,8 +2040,23 @@ export async function runTurn(
                 ...(capacity === undefined ? {} : { capacity }),
             });
         }
+    } catch (error) {
+        turnThrew = true;
+        throw error;
     } finally {
-        state.inbound.finishTurn();
+        const outcome: InboundTurnOutcome =
+            turnThrew
+                ? "failed"
+                : turn.signal.aborted
+                ? "aborted"
+                : assistantMessage === undefined
+                ? "failed"
+                : assistantMessage.stopReason === "aborted"
+                ? "aborted"
+                : assistantMessage.stopReason === "error"
+                ? "failed"
+                : "completed";
+        state.inbound.finishTurn(outcome);
     }
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });

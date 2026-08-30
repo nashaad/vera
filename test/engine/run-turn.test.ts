@@ -146,6 +146,59 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
+test("a persistence exception fences the rest of a released batch", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const inbound = new InboundCommandRouter(channel.engine, events);
+    const store: SessionMessageStore = {
+        async appendMessage(message): Promise<StoredMessage> {
+            if (message.role === "assistant") {
+                throw new Error("assistant append failed");
+            }
+            const snapshot = structuredClone(message);
+            return { id: "stored-user", message: snapshot };
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound,
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "direct" });
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "abort" });
+    await Bun.sleep(0);
+    const direct = await inbound.startTurn();
+    expect(direct.signal.aborted).toBe(true);
+    inbound.finishTurn();
+
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await expect(runTurn(new FauxAdapter([response]), "test", state))
+        .rejects.toThrow("assistant append failed");
+
+    const held = inbound.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    expect((await held).prompt.content).toBe("two");
+    inbound.finishTurn();
+});
+
 test("bare and prompt-only startup profiles remove optional context", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-startup-profile-"));
     temporaryWorkspaces.push(workspace);

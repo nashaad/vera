@@ -166,6 +166,7 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
     HOST_CAPABILITY_SKILL_COMMANDS,
 } from "../../src/host/capabilities.ts";
@@ -3621,6 +3622,29 @@ export async function startTui(
         sendCommand({ type: "abort" });
     }
 
+    function releaseFocusedQueuedPrompts(mode: "one" | "all"): void {
+        if (focusedAgentState().queueDraining) return;
+        const target = focusedAgentClient();
+        if (
+            target.supportsHostCapability?.(
+                HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
+            ) === false
+        ) {
+            showStatusNotice("Queued release needs the current resident host");
+            return;
+        }
+        void target.send({
+            type: "release_queued_prompts",
+            mode,
+        }).catch(reportConnectionError);
+    }
+
+    function hostOwnsPromptQueue(target: TuiAgentClient): boolean {
+        return target.supportsHostCapability?.(
+            HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
+        ) !== false;
+    }
+
     function visibleMentions(): readonly string[] {
         const declared = clientExtensionRegistry
             ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
@@ -3912,7 +3936,9 @@ export async function startTui(
             }
         }
         if (update.type === "turn_finished") {
-            pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
+            if (!hostOwnsPromptQueue(pane.client)) {
+                pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
+            }
             if (pane.state.state.working) {
                 pane.state.workingSince = Date.now();
                 pane.state.phaseSince = pane.state.workingSince;
@@ -5654,6 +5680,22 @@ export async function startTui(
             return;
         }
 
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !anyOverlayOpen()
+            && !sessionSwitchPending
+            && pendingImages.length === 0
+            && focusedAgentState().queuedPrompts.length > 0
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            releaseFocusedQueuedPrompts("one");
+            return;
+        }
+
         // Two plain escapes while idle open the timeline picker, the same
         // gesture /rewind is. The clear branch above already took any escape
         // with text, and a working agent's escape belongs to the stop handling
@@ -6371,6 +6413,12 @@ export async function startTui(
             : undefined;
         const prompt = withQuote(typed, quoted);
         if (prompt.length === 0 && pendingImages.length === 0) {
+            if (
+                interceptedText === undefined
+                && focusedAgentState().queuedPrompts.length > 0
+            ) {
+                releaseFocusedQueuedPrompts("all");
+            }
             return;
         }
         // Typing is the signal the tip has been read or ignored. The next one
@@ -7450,7 +7498,7 @@ export async function startTui(
             );
             // A prompt sent mid-turn is queued by the host, so the transcript
             // shows it queued rather than opening a turn of its own.
-            const queueing = state.working;
+            const queueing = state.working || state.queuedPrompts.length > 0;
             promptSubmitting = true;
             renderStatus();
             flightRecorder?.record({ type: "submit_dispatched" });
@@ -7469,9 +7517,9 @@ export async function startTui(
                 pendingImages = pendingImages.filter(
                     (image) => !submittedRequestIds.has(image.requestId),
                 );
-                if (queueing) {
+                if (queueing && !hostOwnsPromptQueue(client)) {
                     state = queueTuiPrompt(state, prompt);
-                } else {
+                } else if (!queueing) {
                     if (
                         !userEntryShows(state.entries.at(-1), prompt, attachments)
                     ) {
@@ -7497,11 +7545,14 @@ export async function startTui(
         }
         composer.rememberSubmittedText(prompt);
         composer.clearComposer();
-        state = state.working
-            ? queueTuiPrompt(state, prompt)
+        const queueing = state.working || state.queuedPrompts.length > 0;
+        state = queueing
+            ? hostOwnsPromptQueue(client)
+                ? state
+                : queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt, attachments, injectedPrefix);
         adoptFallbackSessionTitle(prompt, injectedPrefix);
-        if (workingSince === undefined) {
+        if (!queueing && workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
             activity = "thinking";
@@ -7617,6 +7668,8 @@ export async function startTui(
                                 ),
                             }),
                     });
+                    const queueing = side.state.state.working
+                        || side.state.state.queuedPrompts.length > 0;
                     if (
                         !userEntryShows(
                             side.state.state.entries.at(-1),
@@ -7624,22 +7677,26 @@ export async function startTui(
                             attachments,
                         )
                     ) {
-                        side.state.state = side.state.state.working
-                            ? queueTuiPrompt(side.state.state, route.text)
+                        side.state.state = queueing
+                            ? hostOwnsPromptQueue(side.client)
+                                ? side.state.state
+                                : queueTuiPrompt(side.state.state, route.text)
                             : beginTuiTurn(
                                 side.state.state,
                                 route.text,
                                 attachments,
                             );
-                    } else if (!side.state.state.working) {
+                    } else if (!queueing) {
                         side.state.state = {
                             ...side.state.state,
                             working: true,
                         };
                     }
-                    side.state.workingSince ??= Date.now();
-                    side.state.phaseSince ??= side.state.workingSince;
-                    side.state.activity = "thinking";
+                    if (!queueing) {
+                        side.state.workingSince ??= Date.now();
+                        side.state.phaseSince ??= side.state.workingSince;
+                        side.state.activity = "thinking";
+                    }
                     if (sendsToMain) {
                         sidebarPromptSubmitting = false;
                         submitPrompt(route.text);
@@ -8321,6 +8378,12 @@ export async function startTui(
                     update.type === "turn_finished"
                     || update.type === "agent_failed"
                 ) {
+                    if (
+                        update.type === "turn_finished"
+                        && !hostOwnsPromptQueue(client)
+                    ) {
+                        state = beginNextQueuedTuiTurn(state);
+                    }
                     abortRequested = false;
                     finishStreamingAssistant();
                     if (update.type === "agent_failed") {
@@ -8328,8 +8391,6 @@ export async function startTui(
                         pendingUiRequest = undefined;
                         timelinePicker = undefined;
                         settingsPicker = undefined;
-                    } else {
-                        state = beginNextQueuedTuiTurn(state);
                     }
                     if (state.working) {
                         workingSince = Date.now();
