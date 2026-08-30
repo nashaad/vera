@@ -38,6 +38,7 @@ test("every slash action has an explicit pane scope", () => {
             destination: { kind: "permission_mode" },
         },
         { type: "open_preferences_list" },
+        { type: "open_standing_nudges" },
         { type: "open_settings_destination", destination: { kind: "settings" } },
         { type: "open_configure" },
         { type: "open_command_palette" },
@@ -92,6 +93,7 @@ test("every slash action has an explicit pane scope", () => {
             ["open_settings_destination", "focused_agent"],
             ["open_settings_destination", "focused_agent"],
             ["open_preferences_list", "application"],
+            ["open_standing_nudges", "application"],
             ["open_settings_destination", "focused_agent"],
             ["open_configure", "focused_agent"],
             ["open_command_palette", "application"],
@@ -184,6 +186,22 @@ test("palette actions can exist without slash command aliases", () => {
     });
     expect(registry.suggestions("/granted_permissions")).toEqual([]);
     expect(registry.dispatch("/granted_permissions")).toBeUndefined();
+});
+
+test("standing nudges has the locked slash command and Settings palette row", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+
+    expect(registry.dispatch("/nudges")).toEqual({
+        type: "open_standing_nudges",
+    });
+    expect(registry.registeredPaletteActions()).toContainEqual({
+        name: "standing_nudges",
+        label: "Standing nudges",
+        description: "profile preferences applied to matching turns",
+        group: "Settings",
+        slashName: "nudges",
+        action: { type: "open_standing_nudges" },
+    });
 });
 
 test("every builtin command except the palette itself has a palette row", () => {
