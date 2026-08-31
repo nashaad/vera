@@ -103,6 +103,64 @@ test("late reasoning settles before the answer when the turn completes", () => {
     expect(pane.state.pendingThinking).toBeUndefined();
 });
 
+test("a retry discards only the failed model round", () => {
+    const pane = new TuiAgentPaneState();
+
+    pane.apply({ type: "user_prompt", content: "inspect", seq: 1 }, 1_000);
+    pane.apply({ type: "assistant_delta", text: "First round", seq: 2 }, 2_000);
+    pane.apply({
+        type: "tool_started",
+        tool: "read",
+        args: { path: "notes.txt" },
+        seq: 3,
+    }, 3_000);
+    pane.apply({
+        type: "tool_finished",
+        tool: "read",
+        output: "notes",
+        seq: 4,
+    }, 4_000);
+    pane.apply({
+        type: "assistant_thinking",
+        text: "failed reasoning",
+        seq: 5,
+    }, 5_000);
+    pane.apply({
+        type: "assistant_delta",
+        text: "Failed partial answer",
+        seq: 6,
+    }, 6_000);
+    pane.apply({
+        type: "model_activity",
+        phase: "retrying",
+        model: "test",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        retryAt: "2026-08-30T22:00:00.500Z",
+        failure: { kind: "unknown" },
+        replacesPartialAttempt: true,
+        seq: 7,
+    }, 7_000);
+
+    expect(pane.state.entries.map((entry) => entry.text)).toEqual([
+        "inspect",
+        "First round",
+        "+ Explored",
+        "Read notes.txt",
+        "notes",
+    ]);
+    expect(pane.state.pendingThinking).toBeUndefined();
+    expect(pane.phaseSince).toBeUndefined();
+
+    pane.apply({
+        type: "assistant_delta",
+        text: "Successful answer",
+        seq: 8,
+    }, 8_000);
+    expect(pane.state.entries.at(-1)?.text).toBe("Successful answer");
+});
+
 function approval(requestId: string): AgentUpdate {
     return {
         type: "ui_request",

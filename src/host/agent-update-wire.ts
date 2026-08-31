@@ -446,6 +446,8 @@ function parseModelActivity(
             && !Number.isNaN(Date.parse(update.retryAt))
             && failure !== undefined
             && isProviderFailureKind(failure?.kind)
+            && (update.replacesPartialAttempt === undefined
+                || update.replacesPartialAttempt === true)
             && (failure.statusCode === undefined
                 || (Number.isSafeInteger(failure.statusCode)
                     && (failure.statusCode as number) >= 100

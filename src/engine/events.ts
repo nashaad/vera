@@ -455,6 +455,8 @@ export interface ModelRetryScheduledEvent {
     readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
+    /** The prior partial model attempt was rejected; this attempt replaces it. */
+    readonly replacesPartialAttempt?: true;
 }
 
 export interface ModelFallbackSelectedEvent {

@@ -538,6 +538,8 @@ export interface ModelRetryActivityUpdate {
         readonly kind: ProviderFailure["kind"];
         readonly statusCode?: number;
     };
+    /** The prior partial model attempt was rejected; this retry replaces it. */
+    readonly replacesPartialAttempt?: true;
     readonly seq: number;
 }
 
@@ -1973,6 +1975,9 @@ export function createProtocolEncoder(
                         ? {}
                         : { statusCode: event.failure.statusCode }),
                 },
+                ...(event.replacesPartialAttempt === true
+                    ? { replacesPartialAttempt: true as const }
+                    : {}),
                 seq,
             });
         }

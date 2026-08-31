@@ -812,6 +812,7 @@ test("model retry activity crosses the protocol boundary", () => {
         nextAttempt: 2,
         maxAttempts: 3,
         delayMs: 500,
+        replacesPartialAttempt: true,
         failure: {
             kind: "server",
             resolution: "retry",
@@ -827,6 +828,7 @@ test("model retry activity crosses the protocol boundary", () => {
         nextAttempt: 2,
         maxAttempts: 3,
         delayMs: 500,
+        replacesPartialAttempt: true,
         failure: {
             kind: "server",
             statusCode: 503,

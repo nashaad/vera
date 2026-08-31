@@ -15987,6 +15987,9 @@ export async function startTui(
             activity = "ready";
         } else if (update.type === "model_activity") {
             workingSince ??= Date.now();
+            if (update.replacesPartialAttempt === true) {
+                phaseSince = undefined;
+            }
             activity = `retrying ${update.model}`;
         } else if (update.type === "user_prompt") {
             workingSince ??= Date.now();

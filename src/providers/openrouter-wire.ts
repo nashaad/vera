@@ -210,7 +210,14 @@ export function parseOpenRouterToolInput(
 
 function malformedToolCall(message: string, cause: unknown): ProviderFailureError {
     return new ProviderFailureError(
-        { kind: "unknown", resolution: "retry", message },
+        {
+            kind: "unknown",
+            resolution: "retry",
+            message,
+            // Tool execution starts only after the complete assistant message
+            // is accepted, and malformed input prevents that acceptance.
+            partialOutputReplaceable: true,
+        },
         cause,
     );
 }

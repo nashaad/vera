@@ -1135,6 +1135,107 @@ test("a transient model failure reports its retry to attached clients", async ()
     }));
 });
 
+test("a discard-safe partial failure tells clients to replace the attempt", async () => {
+    const workspace = mkdtempSync(join(tmpdir(), "vera-partial-retry-"));
+    temporaryWorkspaces.push(workspace);
+    const recovered: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "recovered" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    let attempts = 0;
+    const adapter: ModelAdapter = {
+        stream(): ModelEventStream {
+            attempts += 1;
+            const stream = new ModelEventStream();
+            stream.push({ type: "start" });
+            stream.push({ type: "text_start", contentIndex: 0 });
+            if (attempts === 1) {
+                stream.push({
+                    type: "text_delta",
+                    contentIndex: 0,
+                    text: "partial",
+                });
+                const failure: ProviderFailure = {
+                    kind: "unknown",
+                    resolution: "retry",
+                    message: "invalid JSON for tool call",
+                    partialOutputReplaceable: true,
+                };
+                const error = new ProviderFailureError(
+                    failure,
+                    new SyntaxError("invalid JSON"),
+                );
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        ...recovered,
+                        content: [{ type: "text", text: "partial" }],
+                        stopReason: "error",
+                        errorMessage: error.message,
+                    },
+                });
+                return stream;
+            }
+            stream.push({
+                type: "text_delta",
+                contentIndex: 0,
+                text: "recovered",
+            });
+            stream.push({ type: "text_end", contentIndex: 0 });
+            stream.push({ type: "done", message: recovered });
+            return stream;
+        },
+    };
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(workspace),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        waitForModelRetry: async () => {},
+    };
+
+    channel.client.send({ type: "prompt", content: "recover" });
+    const turn = runTurn(adapter, "test", state);
+    await expectUserPrompt(channel, "recover", 1);
+    await expectContextMeasured(channel, 2);
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "partial",
+        seq: 3,
+    });
+    expect(await channel.client.receive()).toMatchObject({
+        type: "model_activity",
+        phase: "retrying",
+        nextAttempt: 2,
+        replacesPartialAttempt: true,
+        seq: 4,
+    });
+    expect(await channel.client.receive()).toEqual({
+        type: "assistant_delta",
+        text: "recovered",
+        seq: 5,
+    });
+    expect(withoutSessionUsage(await channel.client.receive())).toEqual({
+        type: "turn_finished",
+        seq: 6,
+    });
+    expect(withoutCallDuration(await turn)).toEqual(recovered);
+    expect(attempts).toBe(2);
+    expect(state.messages.map(withoutCallDuration)).toEqual([
+        expect.objectContaining({ role: "user" }),
+        recovered,
+    ]);
+});
+
 test("model fallback stays selected through the tool loop", async () => {
     const workspace = mkdtempSync(join(tmpdir(), "vera-fallback-"));
     temporaryWorkspaces.push(workspace);

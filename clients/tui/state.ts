@@ -364,7 +364,10 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
     if (update.type === "model_activity") {
-        return { ...state, modelActivity: update };
+        const next = update.replacesPartialAttempt === true
+            ? discardPartialModelAttempt(state)
+            : state;
+        return { ...next, modelActivity: update };
     }
     if (update.type === "assistant_delta") {
         return appendAssistantText(state, update.text);
@@ -731,6 +734,22 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             : appendEntry(next, substitutionEntry(update));
     }
     return assertNever(update);
+}
+
+/**
+ * Removes only the model round that failed before acceptance. A completed
+ * tool row separates it from every earlier round in the same turn.
+ */
+function discardPartialModelAttempt(state: TuiState): TuiState {
+    const withoutLiveThinking = dropTuiThinking(state);
+    const entries = [...withoutLiveThinking.entries];
+    if (entries.at(-1)?.kind === "assistant") {
+        entries.pop();
+    }
+    while (entries.at(-1)?.kind === "thought") {
+        entries.pop();
+    }
+    return { ...withoutLiveThinking, entries };
 }
 
 /**
