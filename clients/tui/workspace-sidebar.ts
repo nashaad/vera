@@ -11,7 +11,7 @@ import {
     type WorkspaceSession,
     type WorkspaceSessionStatus,
 } from "./workspace-panel.ts";
-import { tuiBindingId } from "./keymap.ts";
+import { tuiBindingId, tuiKeyChord } from "./keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type { WorkIndexSnapshot } from "../../src/host/work-index.ts";
 
@@ -131,6 +131,12 @@ export type WorkspaceSidebarAction =
     | { readonly kind: "hide" }
     | { readonly kind: "new_session" }
     | { readonly kind: "resume_picker" }
+    | {
+        readonly kind: "rename_session";
+        readonly session_id: string;
+        readonly label: string;
+        readonly value?: string;
+    }
     | {
         readonly kind: "open_session";
         readonly session_id: string;
@@ -430,9 +436,9 @@ export interface WorkspaceSidebarKey {
 
 /**
  * Arrows or j/k move one row, ctrl+d / ctrl+u jump half a page, enter opens,
- * ctrl+r opens the full resume picker, and ctrl+n starts a new chat while
- * keeping this one running. Dormant digit handling remains below for a future
- * global jump interaction.
+ * r renames the selected row, ctrl+r opens the full resume picker, and ctrl+n
+ * starts a new chat while keeping this one running. Dormant digit handling
+ * remains below for a future global jump interaction.
  * None of the movement keys switch the viewed session.
  *
  * Every chord this does not claim is passed back unhandled, which is what lets
@@ -474,6 +480,29 @@ export function handleWorkspaceSidebarKey(
     }
     if (binding === "workspace_resume_picker") {
         return { action: { kind: "resume_picker" }, handled: true };
+    }
+    if (binding === "workspace_rename_session") {
+        const layout = workspaceSidebarLayout(state, { columns, now });
+        const row = layout.rows.find(
+            (candidate) => candidate.kind === "session"
+                && candidate.id === layout.selectedId,
+        );
+        const session = state.sessions.find(
+            (candidate) => candidate.id === layout.selectedId,
+        );
+        return row === undefined || row.kind !== "session"
+            ? { state, handled: true }
+            : {
+                action: {
+                    kind: "rename_session",
+                    session_id: row.id,
+                    label: row.title,
+                    ...(session?.title === undefined
+                        ? {}
+                        : { value: session.title }),
+                },
+                handled: true,
+            };
     }
     if (key.ctrl || key.meta) return { state, handled: false };
     const layout = workspaceSidebarLayout(state, { columns, now });
@@ -573,18 +602,21 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  * are the rail's own, and beside a conversation a block the glance cannot use
  * reads as instructions for the screen it sits next to.
  */
-export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
-    { label: "Move", value: "↑↓  j/k" },
-    { label: "Page", value: "ctrl+d/u" },
-    { label: "Open", value: "enter" },
-    ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
-    ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
-    { label: "New", value: "ctrl+n" },
-    { label: "Resume", value: "ctrl+r" },
-    { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Chat", value: "→" },
-    { label: "Hide", value: "ctrl+e" },
-];
+export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
+    return [
+        { label: "Move", value: "↑↓  j/k" },
+        { label: "Page", value: "ctrl+d/u" },
+        { label: "Open", value: "enter" },
+        { label: "Rename", value: tuiKeyChord("workspace_rename_session") },
+        ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
+        ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
+        { label: "New", value: "ctrl+n" },
+        { label: "Resume", value: "ctrl+r" },
+        { label: "Cycle", value: "ctrl+shift+[ ]" },
+        { label: "Chat", value: "→" },
+        { label: "Hide", value: "ctrl+e" },
+    ];
+}
 
 /**
  * What the rail says while the keyboard is in the conversation beside it.
@@ -600,7 +632,7 @@ export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
 
 export function workspaceSidebarFooter(
     _width: number,
-    table: readonly LinesViewFooterRow[] = WORKSPACE_FOOTER_TABLE,
+    table: readonly LinesViewFooterRow[] = workspaceSidebarFooterTable(),
 ): string {
     const labelWidth = Math.max(
         ...table.map((row) => row.label.length + 2),
@@ -703,7 +735,7 @@ export function workspaceSidebarViewState(
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
     const footerTable = focused
-        ? WORKSPACE_FOOTER_TABLE
+        ? workspaceSidebarFooterTable()
         : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
         // The wordmark is what the rail is called, so it says the same thing

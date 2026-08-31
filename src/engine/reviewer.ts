@@ -131,7 +131,7 @@ export function createRoutedToolReviewer(
         }
         return unavailable ?? {
             decision: "unavailable",
-            reason: "The reviewer model route is empty.",
+            reason: "The approval classifier has no configured model route, so the action did not run.",
             riskLevel: "high",
             userAuthorization: "unknown",
         };
@@ -293,7 +293,7 @@ export function createToolReviewer(
             } catch {
                 trace.error = "The action could not be described.";
                 return reviewFailed(
-                    "The approval reviewer could not describe this action.",
+                    "The approval classifier could not describe this action, so the action did not run.",
                 );
             }
 
@@ -325,11 +325,11 @@ export function createToolReviewer(
                 }
                 if (timeout.aborted) {
                     trace.error = "timed out";
-                    return reviewFailed(reviewerUnavailableReason("timed out"));
+                    return reviewFailed(classifierTimedOutReason(timeoutMs));
                 }
                 if (message.stopReason !== "stop") {
                     return reviewFailed(
-                        reviewerUnavailableReason(
+                        classifierFailedReason(
                             `stopped with ${message.stopReason}`,
                         ),
                     );
@@ -340,8 +340,11 @@ export function createToolReviewer(
                     return reviewCancelled();
                 }
                 trace.error = errorSummary(error);
+                if (timeout.aborted) {
+                    return reviewFailed(classifierTimedOutReason(timeoutMs));
+                }
                 return reviewFailed(
-                    reviewerUnavailableReason(errorSummary(error)),
+                    classifierFailedReason(errorSummary(error)),
                 );
             }
 
@@ -354,7 +357,7 @@ export function createToolReviewer(
             if (decision === undefined) {
                 trace.outcome = "unreadable";
                 return reviewFailed(
-                    "The approval reviewer returned an unreadable decision.",
+                    "The approval classifier returned an unreadable decision, so the action did not run.",
                 );
             }
             trace.usage = message.usage;
@@ -450,8 +453,8 @@ export function parseReviewDecision(
         reason: rationale.length > 0
             ? rationale
             : decision === "allow"
-                ? "Auto-review returned an allow decision."
-                : "Auto-review returned a deny decision without a rationale.",
+                ? "The classifier returned an allow decision."
+                : "The classifier returned a deny decision without a rationale.",
         riskLevel: parseRiskLevel(value.risk_level)
             ?? (decision === "allow" ? "low" : "high"),
         userAuthorization: parseUserAuthorization(value.user_authorization)
@@ -638,11 +641,20 @@ function reviewFailed(reason: string): ToolReviewDecision {
 }
 
 function reviewCancelled(): ToolReviewDecision {
-    return reviewFailed("The turn was cancelled before the review finished.");
+    return reviewFailed(
+        "The turn was cancelled before classification finished.",
+    );
 }
 
-function reviewerUnavailableReason(detail: string): string {
-    return `The approval reviewer was unavailable (${detail}), so the action did not run.`;
+function classifierTimedOutReason(timeoutMs: number): string {
+    const duration = timeoutMs % 1_000 === 0
+        ? `${timeoutMs / 1_000}s`
+        : `${timeoutMs}ms`;
+    return `The approval classifier timed out after ${duration}. The action did not run.`;
+}
+
+function classifierFailedReason(detail: string): string {
+    return `The approval classifier failed (${detail}). The action did not run.`;
 }
 
 function errorSummary(error: unknown): string {

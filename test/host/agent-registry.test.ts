@@ -5386,6 +5386,49 @@ test("a reviewer patch answers with the new slots and persists them", async () =
     }
 });
 
+test("worker policy snapshots carry the live classifier to inline subagents", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-worker-classifier-"));
+    let reviewer: ToolReviewerSettings | undefined = {
+        models: [{ provider: "openrouter", model: "first-classifier" }],
+    };
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([textResponse("unused")]),
+        model: "session-model",
+        approvalMode: "auto",
+        readReviewer: () => reviewer,
+    });
+
+    try {
+        await registry.create({
+            id: "worker-policy",
+            workspace: root,
+            sessionPath: join(root, "agent.jsonl"),
+        });
+        const internal = registry as unknown as {
+            readonly agents: Map<string, {
+                readonly loopServices?: {
+                    readonly readPolicy?: () => {
+                        readonly reviewer?: ToolReviewerSettings;
+                    };
+                };
+            }>;
+        };
+        const readPolicy = internal.agents.get("worker-policy")
+            ?.loopServices?.readPolicy;
+        expect(readPolicy?.().reviewer?.models[0]?.model)
+            .toBe("first-classifier");
+
+        reviewer = {
+            models: [{ provider: "openrouter", model: "next-classifier" }],
+        };
+        expect(readPolicy?.().reviewer?.models[0]?.model)
+            .toBe("next-classifier");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
 test("every configured provider id is selectable", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-agent-provider-ids-"));
     const registry = new AgentRegistry({

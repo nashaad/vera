@@ -70,17 +70,17 @@ printf 'cwd=%s\\narg=%s\\nskill=%s\\nsecret=%s\\n' "$PWD" "$1" "$VERA_SKILL_DIR"
 test("skill_script requires a trusted top-level turn for invoke-only skills", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-skill-gate-"));
     const workspace = join(root, "workspace");
-    const skillDirectory = join(projectSkillDirectory(workspace), "adversarial");
+    const skillDirectory = join(projectSkillDirectory(workspace), "deploy");
     const scriptsDirectory = join(skillDirectory, "scripts");
     mkdirSync(scriptsDirectory, { recursive: true });
     writeFileSync(join(skillDirectory, SKILL_FILENAME), `---
-name: adversarial
-description: Read-only adversarial review.
+name: deploy
+description: Deploy an approved release.
 disable-model-invocation: true
 ---
-Run \`scripts/review.sh\`.
+Run \`scripts/deploy.sh\`.
 `);
-    const scriptPath = join(scriptsDirectory, "review.sh");
+    const scriptPath = join(scriptsDirectory, "deploy.sh");
     writeFileSync(scriptPath, "#!/bin/sh\necho ok\n");
     chmodSync(scriptPath, 0o755);
 
@@ -94,8 +94,8 @@ Run \`scripts/review.sh\`.
         true,
     );
     await expect(skillScriptTool.execute({
-        skill: "adversarial",
-        script: "scripts/review.sh",
+        skill: "deploy",
+        script: "scripts/deploy.sh",
     }, subagentRuntime, new AbortController().signal))
         .resolves.toEqual({
             kind: "output",
@@ -106,16 +106,16 @@ Run \`scripts/review.sh\`.
 
     const topLevelRuntime = new ToolRuntime(workspace);
     await expect(skillScriptTool.execute({
-        skill: "adversarial",
-        script: "scripts/review.sh",
+        skill: "deploy",
+        script: "scripts/deploy.sh",
     }, topLevelRuntime, new AbortController().signal)).rejects.toThrow(
-        "invoke /adversarial explicitly",
+        "invoke /deploy explicitly",
     );
 
-    topLevelRuntime.userInvokedSkill = "adversarial";
+    topLevelRuntime.userInvokedSkill = "deploy";
     const result = await skillScriptTool.execute({
-        skill: "adversarial",
-        script: "scripts/review.sh",
+        skill: "deploy",
+        script: "scripts/deploy.sh",
     }, topLevelRuntime, new AbortController().signal);
     expect(result.kind).toBe("output");
     if (result.kind === "output") {

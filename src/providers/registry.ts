@@ -63,6 +63,12 @@ export interface ProviderDescriptor {
         readonly catalog?: readonly string[];
     }>;
     readonly custom?: boolean;
+    readonly requestOptions?: Readonly<{
+        readonly behavior: "openrouter-provider-preferences";
+        readonly label: string;
+        readonly explanation: string;
+        readonly documentationUrl: string;
+    }>;
 }
 
 /**
@@ -107,6 +113,16 @@ function descriptorFromResolved(provider: ReturnType<typeof resolveProviders>[nu
         discovery: provider.definition.discovery,
         compatibility: provider.definition.compatibility,
         custom: provider.custom,
+        ...(provider.definition.request_options === undefined
+            ? {}
+            : {
+                requestOptions: {
+                    behavior: provider.definition.request_options.behavior,
+                    label: provider.definition.request_options.label,
+                    explanation: provider.definition.request_options.explanation,
+                    documentationUrl: provider.definition.request_options.documentation_url,
+                },
+            }),
     };
 }
 

@@ -62,9 +62,19 @@ test("an assignment written after the host started needs no restart", async () =
         }).options;
         expect(options.compactionModels?.map((entry) => entry.model))
             .toEqual(["faux/one"]);
-        await writeFile(configPath, JSON.stringify(config("two")));
+        expect(host.registry.readReviewer()).toBeUndefined();
+        await writeFile(configPath, JSON.stringify(config("two", {
+            model_assignments: {
+                compaction: { model_route: "two" },
+                reviewer: { model_route: "two" },
+            },
+        })));
         expect(options.compactionModels?.map((entry) => entry.model))
             .toEqual(["faux/two"]);
+        expect(host.registry.readReviewer()?.models).toEqual([{
+            provider: "openrouter",
+            model: "faux/two",
+        }]);
     } finally {
         await host.close();
         if (previousHome === undefined) delete process.env.VERA_HOME;

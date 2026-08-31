@@ -58,6 +58,12 @@ import {
     shippedProviderIds,
 } from "./providers/definitions.ts";
 import { isSafeProviderId } from "./providers/provider-id.ts";
+import {
+    parseModelReference,
+    parseModelRequestOptions,
+    validateProviderRequestBody,
+    type VeraModelRequestOptions,
+} from "./providers/request-options.ts";
 
 export const VERA_CONFIG_SCHEMA_VERSION = 1;
 
@@ -193,6 +199,7 @@ export interface VeraConfig {
      */
     readonly provider_endpoints?: Readonly<Record<string, string>>;
     readonly model: string;
+    readonly model_request_options?: VeraModelRequestOptions;
     readonly reasoning_effort?: ModelReasoningEffort;
     /** Global ceiling applied to every model's declared context window. */
     readonly context_limit?: number;
@@ -333,6 +340,11 @@ export interface LoadVeraConfigOptions {
 export interface VeraConfigDefaultsPatch {
     readonly provider?: VeraProviderId;
     readonly model?: string;
+    /** Replaces or removes one exact provider/model request body. */
+    readonly model_request_options?: {
+        readonly model: string;
+        readonly body: Readonly<Record<string, JsonValue>> | null;
+    };
     /** `null` clears the stored default, for a model that has no effort. */
     readonly reasoning_effort?: ModelReasoningEffort | null;
     /** `null` returns context sizing to the model's declared maximum. */
@@ -642,6 +654,15 @@ export function updateVeraConfigDefaults(
         ...current,
         ...(patch.provider === undefined ? {} : { provider: patch.provider }),
         ...(patch.model === undefined ? {} : { model: patch.model }),
+        ...(patch.model_request_options === undefined
+            ? {}
+            : {
+                model_request_options: patchedModelRequestOptions(
+                    path,
+                    current.model_request_options,
+                    patch.model_request_options,
+                ),
+            }),
         ...(patch.reasoning_effort === undefined
             ? {}
             : {
@@ -781,6 +802,34 @@ export function startingVeraConfig(): VeraConfig {
 }
 
 /**
+ * The last valid profile config, refreshed only when the file changes.
+ *
+ * A caller can ask on every request without parsing on every request. An
+ * absent, mid-write, or malformed file keeps the last valid answer.
+ */
+export function createLiveVeraConfigReader(
+    initial: VeraConfig,
+    options: LoadVeraConfigOptions = {},
+): () => VeraConfig {
+    const path = options.path ?? defaultVeraConfigPath();
+    let lastConfig = initial;
+    let lastStamp = "";
+    return () => {
+        try {
+            const stat = statSync(path);
+            const stamp = `${stat.mtimeMs}:${stat.size}`;
+            if (stamp === lastStamp) return lastConfig;
+            const loaded = loadVeraConfig({ ...options, path });
+            lastStamp = stamp;
+            lastConfig = loaded;
+        } catch {
+            // The last valid config remains usable while a save is incomplete.
+        }
+        return lastConfig;
+    };
+}
+
+/**
  * Keys in `~/.vera/config.json` that belong to some other writer. `VeraConfig`
  * cannot represent them, so updating the defaults would round-trip the file
  * through a type that drops them. They are read back raw and carried across
@@ -807,6 +856,43 @@ function patchedModelAssignments(
     return patch.binding === null
         ? rest
         : { ...rest, [patch.assignment]: patch.binding };
+}
+
+function patchedModelRequestOptions(
+    path: string,
+    current: VeraModelRequestOptions | undefined,
+    patch: {
+        readonly model: string;
+        readonly body: Readonly<Record<string, JsonValue>> | null;
+    },
+): VeraModelRequestOptions | undefined {
+    const reference = patch.model;
+    const parsed = parseModelReference(reference);
+    const rest = Object.fromEntries(
+        Object.entries(current ?? {}).filter(([name]) => name !== reference),
+    );
+    if (patch.body === null) {
+        return Object.keys(rest).length === 0 ? undefined : rest;
+    }
+    try {
+        validateProviderRequestBody(
+            parsed.provider,
+            patch.body,
+            `model_request_options.${reference}.body`,
+        );
+    } catch (error) {
+        throw new VeraConfigError(
+            path,
+            error instanceof Error ? error.message : String(error),
+        );
+    }
+    if (Object.keys(patch.body).length === 0) {
+        return Object.keys(rest).length === 0 ? undefined : rest;
+    }
+    return {
+        ...rest,
+        [reference]: { body: structuredClone(patch.body) },
+    };
 }
 
 /**
@@ -939,6 +1025,14 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
     }
 
     const config = value as Record<string, unknown>;
+    let modelRequestOptions: VeraModelRequestOptions | undefined;
+    try {
+        modelRequestOptions = config.model_request_options === undefined
+            ? undefined
+            : parseModelRequestOptions(config.model_request_options);
+    } catch {
+        return undefined;
+    }
     const providers = parseCustomProviders(config.providers);
     const providerEndpoints = parseProviderEndpoints(config.provider_endpoints);
     const fallback = parseModelFallback(config.fallback, config.model);
@@ -1059,6 +1153,9 @@ function parseVeraConfig(value: unknown): VeraConfig | undefined {
             ? {}
             : { provider_endpoints: providerEndpoints }),
         model: config.model.trim(),
+        ...(modelRequestOptions === undefined
+            ? {}
+            : { model_request_options: modelRequestOptions }),
         approval_mode: approvalMode,
         ...(config.reasoning_effort === undefined
             ? {}
@@ -1812,13 +1909,14 @@ export function configuredSubagentModel(
 }
 
 /**
- * Maps the reviewer block onto engine settings. Returns `undefined` when no
- * reviewer is configured, which leaves the reviewer on the agent's own model.
+ * Resolves the default classifier from its assignment, named profile, or
+ * legacy reviewer block. `undefined` leaves classification on the agent model.
  */
 export function configuredReviewer(
     config: VeraConfig,
+    isReachable?: ReachabilityCheck,
 ): ToolReviewerSettings | undefined {
-    return configuredReviewers(config).default;
+    return configuredReviewers(config, isReachable).default;
 }
 
 /**
@@ -1895,24 +1993,24 @@ export function configuredReviewers(
     isReachable?: ReachabilityCheck,
 ): Readonly<Record<string, ToolReviewerSettings>> {
     const configured: Record<string, ToolReviewerSettings> = {};
-    if (
-        config.models !== undefined
-        && config.model_routes !== undefined
-        && config.reviewer_profiles !== undefined
-    ) {
-        const catalog = {
-            models: config.models,
-            model_routes: config.model_routes,
-            reviewer_profiles: config.reviewer_profiles,
-        };
-        const slot = bindModelAssignment(
-            catalog,
-            config.model_assignments ?? {},
-            { assignment: "reviewer" },
-            isReachable,
-        );
+    const catalog = {
+        models: config.models ?? [],
+        model_routes: config.model_routes ?? {},
+        reviewer_profiles: config.reviewer_profiles ?? {},
+    };
+    const assignment = bindModelAssignment(
+        catalog,
+        config.model_assignments ?? {},
+        { assignment: "reviewer" },
+        isReachable,
+    );
+    if (config.reviewer_profiles !== undefined) {
         for (const name of Object.keys(config.reviewer_profiles)) {
-            const resolved = resolveReviewerProfile(catalog, name, slot.models);
+            const resolved = resolveReviewerProfile(
+                catalog,
+                name,
+                assignment.models,
+            );
             if (resolved === undefined) {
                 continue;
             }
@@ -1933,15 +2031,33 @@ export function configuredReviewers(
     }
 
     const reviewer = config.reviewer;
-    // A catalog names reviewers; the plain block names the default one. A
-    // profile actually called `default` wins, since it was written by hand.
-    if (reviewer === undefined || configured.default !== undefined) {
+    // The legacy plain block is still written by the direct classifier picker,
+    // so it overrides only the default profile's route while preserving that
+    // profile's policy. Clearing it reveals the named profile or assignment.
+    if (reviewer === undefined) {
+        if (
+            configured.default === undefined
+            && assignment.models.length > 0
+        ) {
+            configured.default = {
+                models: assignment.models.map((model) => ({
+                    provider: model.provider,
+                    model: model.model,
+                    ...(model.reasoning_effort === undefined
+                        ? {}
+                        : { reasoningEffort: model.reasoning_effort }),
+                })),
+            };
+        }
         return configured;
     }
     const escalationConfigured = reviewer.escalation_model !== undefined
         || reviewer.escalation_provider !== undefined
         || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
+        // A hand-written default profile may still supply the policy and any
+        // timeout the direct picker did not override.
+        ...configured.default,
         // Ordered route: the router walks it and moves on when a reviewer
         // cannot answer, so the fallback is simply the second entry.
         models: [

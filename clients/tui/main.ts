@@ -505,6 +505,12 @@ import {
     type TuiProviderFormTransition,
 } from "./settings-picker.ts";
 import {
+    createTuiRequestOptionsEditorView,
+    startTuiRequestOptionsEditor,
+    type TuiRequestOptionsEditorState,
+    type TuiRequestOptionsEditorTransition,
+} from "./request-options-editor.ts";
+import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
     handleTuiSecretPromptPaste,
@@ -1544,6 +1550,7 @@ export async function startTui(
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
     let providerForm: TuiProviderFormState | undefined;
+    let requestOptionsEditor: TuiRequestOptionsEditorState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     let standingNudges: TuiStandingNudgesState | undefined;
     const standingNudgesProfileDirectory = veraProfileDirectory();
@@ -1700,6 +1707,7 @@ export async function startTui(
     let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
     let diagnosticsSessionPathResolved = false;
     let diagnosticsGeneration = 0;
+    let diagnosticsReportWidth: number | undefined;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let extensionsDialog: TuiDiagnosticsDialogState | undefined;
@@ -2724,6 +2732,7 @@ export async function startTui(
     const secretPromptView = createTuiSecretPromptView(renderer);
     const namePromptView = createTuiNamePromptView(renderer);
     const providerFormView = createTuiProviderFormView(renderer);
+    const requestOptionsEditorView = createTuiRequestOptionsEditorView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const standingNudgesView = createTuiStandingNudgesView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
@@ -2780,6 +2789,7 @@ export async function startTui(
         secretPromptView,
         namePromptView,
         providerFormView,
+        requestOptionsEditorView,
         preferencesListView,
         standingNudgesView,
         commandPaletteView,
@@ -4046,6 +4056,9 @@ export async function startTui(
                         ? "session name cleared"
                         : `session renamed: ${update.name}`,
                 );
+                if (workspaceSidebar !== undefined) {
+                    refreshWorkspaceSidebarRoster();
+                }
             } else {
                 if (
                     pending.commandText !== undefined
@@ -4241,6 +4254,7 @@ export async function startTui(
     app.add(secretPromptView.box);
     app.add(namePromptView.surface);
     app.add(providerFormView.surface);
+    app.add(requestOptionsEditorView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -4708,6 +4722,21 @@ export async function startTui(
             standingNudges = editorTransition.handled
                 ? editorTransition.state
                 : handleTuiStandingNudgesPaste(standingNudges, pasted);
+            renderState();
+            return;
+        }
+        if (
+            requestOptionsEditor !== undefined
+            && requestOptionsEditorView.surface.visible
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            const pasted = stripAnsiSequences(decodePasteBytes(event.bytes));
+            const transition = requestOptionsEditorView.handlePaste(
+                requestOptionsEditor,
+                pasted,
+            );
+            requestOptionsEditor = transition.state;
             renderState();
             return;
         }
@@ -5338,6 +5367,18 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
+        if (requestOptionsEditor !== undefined) {
+            const transition = requestOptionsEditorView.handleKey(
+                requestOptionsEditor,
+                key,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applyRequestOptionsEditorTransition(transition);
+                return;
+            }
+        }
         if (providerForm !== undefined) {
             const transition = handleTuiProviderFormKey(providerForm, key);
             if (transition.handled) {
@@ -5657,7 +5698,7 @@ export async function startTui(
                         ? "vera"
                         : "session";
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6448,6 +6489,14 @@ export async function startTui(
         };
     }
 
+    function renderDiagnostics(
+        snapshot = diagnosticsSnapshot(),
+    ): string {
+        const width = diagnosticsDialogView.contentWidth();
+        diagnosticsReportWidth = width;
+        return renderTuiDiagnostics(snapshot, width);
+    }
+
     /**
      * A model failing the same way again is worth one line saying so, because
      * the per-turn error alone reads as Vera breaking rather than as a pattern
@@ -6770,7 +6819,7 @@ export async function startTui(
             if (diagnosticsDialog !== undefined) {
                 diagnosticsDialog = {
                     ...diagnosticsDialog,
-                    text: renderTuiDiagnostics({
+                    text: renderDiagnostics({
                         ...diagnosticsSnapshot(),
                         sessionPath: diagnosticsSessionPath,
                     }),
@@ -6803,7 +6852,7 @@ export async function startTui(
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         ...diagnosticsDialog,
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6822,7 +6871,7 @@ export async function startTui(
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         ...diagnosticsDialog,
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6858,7 +6907,7 @@ export async function startTui(
             doctorDialog = undefined;
             extensionsDialog = undefined;
             diagnosticsDialog = {
-                text: renderTuiDiagnostics({
+                text: renderDiagnostics({
                     ...diagnosticsSnapshot(),
                 }),
                 scope: diagnosticsScope,
@@ -6881,7 +6930,7 @@ export async function startTui(
                     diagnosticsWorkerPid = listed?.worker_pid;
                     diagnosticsSupervisorPid = listed?.supervisor_pid;
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                        text: renderDiagnostics(),
                         scope: diagnosticsScope,
                         copyReady: true,
                     };
@@ -6899,7 +6948,7 @@ export async function startTui(
                         || client.agentId !== agentId
                     ) return;
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                        text: renderDiagnostics(),
                         scope: diagnosticsScope,
                         copyReady: true,
                     };
@@ -8150,6 +8199,12 @@ export async function startTui(
                     ) {
                         void refreshSessionPicker();
                     }
+                    if (
+                        update.type === "session_name"
+                        && workspaceSidebar !== undefined
+                    ) {
+                        refreshWorkspaceSidebarRoster();
+                    }
                     renderState();
                     if (!anyOverlayOpen()) {
                         composer.focus();
@@ -9143,6 +9198,9 @@ export async function startTui(
         if (providerForgetCandidate !== undefined) {
             return () => providerForgetConfirmView.box.focus();
         }
+        if (requestOptionsEditor !== undefined) {
+            return () => requestOptionsEditorView.focus();
+        }
         if (providerForm !== undefined) {
             return () => providerFormView.box.focus();
         }
@@ -9586,6 +9644,7 @@ export async function startTui(
         standingNudges = undefined;
         namePrompt = undefined;
         providerForm = undefined;
+        requestOptionsEditor = undefined;
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
@@ -10361,6 +10420,12 @@ export async function startTui(
             || questionView.box.visible);
         timelinePickerView.box.visible = uiRequest === undefined
             && timelinePicker !== undefined;
+        requestOptionsEditorView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
+            && providerForgetCandidate === undefined
+            && requestOptionsEditor !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
         providerFormView.surface.visible = uiRequest === undefined
@@ -10368,12 +10433,14 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
+            && requestOptionsEditor === undefined
             && providerForm !== undefined;
         namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && namePrompt !== undefined;
         secretPromptView.box.visible = uiRequest === undefined
@@ -10382,6 +10449,7 @@ export async function startTui(
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && namePrompt === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && secretPrompt !== undefined;
         settingsPickerView.box.visible = (uiRequest === undefined
@@ -10392,6 +10460,7 @@ export async function startTui(
             && providerForgetCandidate === undefined
             && secretPrompt === undefined
             && namePrompt === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && settingsPicker !== undefined;
         preferencesListView.surface.visible = uiRequest === undefined
@@ -10562,6 +10631,7 @@ export async function startTui(
             || providerForgetConfirmView.surface.visible
             || namePromptView.surface.visible
             || providerFormView.surface.visible
+            || requestOptionsEditorView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
         // The scrim carries the whole fade: its translucent fill composites
@@ -10637,6 +10707,9 @@ export async function startTui(
         if (providerForm !== undefined) {
             providerFormView.update(providerForm);
         }
+        if (requestOptionsEditor !== undefined) {
+            requestOptionsEditorView.update(requestOptionsEditor);
+        }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
         }
@@ -10665,6 +10738,12 @@ export async function startTui(
             doctorDialogView.update(doctorDialog);
         }
         if (diagnosticsDialog !== undefined) {
+            if (diagnosticsDialogView.contentWidth() !== diagnosticsReportWidth) {
+                diagnosticsDialog = {
+                    ...diagnosticsDialog,
+                    text: renderDiagnostics(),
+                };
+            }
             diagnosticsDialogView.update(diagnosticsDialog);
         }
         if (extensionsDialog !== undefined) {
@@ -10832,6 +10911,7 @@ export async function startTui(
             || secretPrompt !== undefined
             || namePrompt !== undefined
             || providerForm !== undefined
+            || requestOptionsEditor !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || standingNudges !== undefined
@@ -11036,7 +11116,7 @@ export async function startTui(
         selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
     ): string {
         const name = selection.model === undefined
-            ? "default"
+            ? "configured default"
             : selection.model;
         return selection.slot === "primary" ? name : `failsafe ${name}`;
     }
@@ -11066,6 +11146,7 @@ export async function startTui(
         ), parent);
         settingsPicker = {
             ...settingsPicker,
+            ...modelRequestOptionsFacts(),
             assignmentOptions: tuiModelAssignmentOptions(
                 currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
@@ -11098,6 +11179,31 @@ export async function startTui(
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    function modelRequestOptionsFacts(): Pick<
+        TuiSettingsPickerState,
+        "requestOptionsProviders" | "configuredRequestOptions"
+    > {
+        const config = loadOptionalVeraConfig();
+        const requestOptionsProviders = Object.fromEntries(
+            configuredProviders(config).flatMap((provider) =>
+                provider.requestOptions === undefined
+                    ? []
+                    : [[provider.id, {
+                        providerLabel: provider.label,
+                        label: provider.requestOptions.label,
+                        explanation: provider.requestOptions.explanation,
+                        documentationUrl: provider.requestOptions.documentationUrl,
+                    }]]
+            ),
+        );
+        return {
+            requestOptionsProviders,
+            configuredRequestOptions: Object.keys(
+                config?.model_request_options ?? {},
+            ),
+        };
     }
 
     function modelPickerActionOptions(
@@ -11909,6 +12015,81 @@ export async function startTui(
         focusActiveSurface();
     }
 
+    function openRequestOptionsEditor(
+        candidate: NonNullable<TuiSettingsPickerTransition["requestOptions"]>,
+        parent: TuiSettingsPickerState,
+    ): void {
+        try {
+            const config = loadOptionalVeraConfig();
+            const reference = `${candidate.provider}/${candidate.model}`;
+            requestOptionsEditor = startTuiRequestOptionsEditor(
+                candidate,
+                veraProfileName(),
+                config?.model_request_options?.[reference]?.body,
+                parent,
+            );
+            settingsPicker = undefined;
+            composer.blur();
+            renderState();
+            focusActiveSurface();
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            settingsPicker = parent;
+            renderState();
+        }
+    }
+
+    function applyRequestOptionsEditorTransition(
+        transition: TuiRequestOptionsEditorTransition,
+    ): void {
+        const previous = requestOptionsEditor;
+        requestOptionsEditor = transition.state;
+        if (requestOptionsEditor !== undefined) {
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (previous === undefined) return;
+        if (transition.save === undefined) {
+            settingsPicker = previous.parent;
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        const save = transition.save;
+        const reference = `${save.provider}/${save.model}`;
+        try {
+            updateVeraConfigDefaults({
+                model_request_options: {
+                    model: reference,
+                    body: save.body,
+                },
+            });
+        } catch (error) {
+            requestOptionsEditor = {
+                ...previous,
+                error: error instanceof Error ? error.message : String(error),
+            };
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        settingsPicker = {
+            ...save.parent,
+            ...modelRequestOptionsFacts(),
+        };
+        state = appendTuiNotice(
+            state,
+            `saved request options for ${reference}`,
+            "soft",
+        );
+        renderState();
+        focusActiveSurface();
+    }
+
     function applyProviderFormTransition(
         form: TuiProviderFormState,
         transition: TuiProviderFormTransition,
@@ -12058,9 +12239,10 @@ export async function startTui(
     /**
      * The name a picker row was given.
      *
-     * The current session is renamed through its own attachment, because that
-     * is the client holding the name on screen and the host refuses to write
-     * behind an attached client's back. Every other row goes over the host.
+     * A session visible in either pane is renamed through its own attachment,
+     * because that client holds the name on screen and the host refuses to
+     * write behind an attached client's back. Every other row goes over the
+     * host.
      */
     function applySessionRenamePromptTransition(
         prompt: TuiNamePromptState,
@@ -12097,6 +12279,23 @@ export async function startTui(
                     type: "update_session_name",
                     requestId,
                     name: transition.submitted,
+                });
+            } else if (
+                prompt.target.sessionId === hostedSidebar.pane?.agentId
+            ) {
+                const requestId = randomUUID();
+                const target = hostedSidebar.pane;
+                pendingSidebarSessionRename = { requestId };
+                void target.client.send({
+                    type: "update_session_name",
+                    requestId,
+                    name: transition.submitted,
+                }).catch((error) => {
+                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                        return;
+                    }
+                    pendingSidebarSessionRename = undefined;
+                    reportConnectionError(error);
                 });
             } else {
                 void performSessionRename(
@@ -12159,6 +12358,9 @@ export async function startTui(
             );
         if (result.status === "renamed" && settingsPicker?.kind === "session") {
             await refreshSessionPicker();
+        }
+        if (result.status === "renamed" && workspaceSidebar !== undefined) {
+            refreshWorkspaceSidebarRoster();
         }
         renderState();
     }
@@ -12973,6 +13175,17 @@ export async function startTui(
             openResumePicker();
             return;
         }
+        if (action.kind === "rename_session") {
+            namePrompt = startTuiNamePrompt(
+                { kind: "session", sessionId: action.session_id },
+                action.label,
+                undefined,
+                action.value,
+            );
+            renderState();
+            focusActiveSurface();
+            return;
+        }
         workspaceSidebarFocused = false;
         composer.focus();
         renderState();
@@ -13307,9 +13520,21 @@ export async function startTui(
                 previousPicker?.kind === "extension"
                     ? undefined
                     : previousPicker,
+                transition.renameCandidate.value,
             );
             renderState();
             focusActiveSurface();
+            return;
+        }
+        if (
+            "requestOptions" in transition
+            && transition.requestOptions !== undefined
+            && previousPicker?.kind === "model"
+        ) {
+            openRequestOptionsEditor(
+                transition.requestOptions,
+                previousPicker,
+            );
             return;
         }
         if ("openProviders" in transition && transition.openProviders === true) {
@@ -13658,14 +13883,14 @@ export async function startTui(
             } else if (selection.kind === "reviewer") {
                 const patch = reviewerPatchFor(selection);
                 if (patch === undefined) {
-                    showStatusNotice("Choose a primary reviewer first");
+                    showStatusNotice("Choose a primary classifier first");
                 } else {
                     requestModelSettingsChange(
                         { reviewer: patch },
-                        `reviewer → ${reviewerToast(selection)}`,
+                        `classifier → ${reviewerToast(selection)}`,
                         `the ${selection.slot === "primary"
-                            ? "reviewer"
-                            : "failsafe reviewer"}`,
+                            ? "classifier"
+                            : "failsafe classifier"}`,
                         settingsPickerAgent,
                     );
                 }
@@ -13933,6 +14158,7 @@ export async function startTui(
         secretPrompt = undefined;
         namePrompt = undefined;
         providerForm = undefined;
+        requestOptionsEditor = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
         standingNudges = undefined;
@@ -15233,6 +15459,7 @@ export async function startTui(
         ...secretPromptView.themeBindings,
         ...namePromptView.themeBindings,
         ...providerFormView.themeBindings,
+        ...requestOptionsEditorView.themeBindings,
         ...preferencesListView.themeBindings,
         ...standingNudgesView.themeBindings,
         tuiThemeProperties(commandPaletteView.box, {

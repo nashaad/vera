@@ -64,8 +64,8 @@ test("name and description are required and bounded", () => {
 
 test("disable-model-invocation opts a skill out of automatic use", () => {
     const parsed = parseSkillSource(`---
-name: adversarial
-description: Read-only adversarial review.
+name: deploy
+description: Deploy an approved release.
 disable-model-invocation: true
 ---
 Body.

@@ -269,7 +269,7 @@ test.skipIf(!tmuxAvailable)("the shared dialog scrim dims the dock", async () =>
         tui.text("/diagnostics");
         tui.key("Enter");
         await tui.paneWhere((value) =>
-            value.includes("Diagnostics") && value.includes("› Session")
+            value.includes("Diagnostics") && value.includes("SESSION USAGE")
         );
         return { rail, dialog: tui.colored() };
     }, 120, 40);

@@ -13,9 +13,9 @@ import {
     workspaceJumpTargets,
     workspaceSidebarLayout,
     workspaceSidebarSessions,
-    WORKSPACE_FOOTER_TABLE,
     WORKSPACE_QUIET_FOOTER_TABLE,
     workspaceSidebarFooter,
+    workspaceSidebarFooterTable,
     workspaceSidebarHeader,
     workspaceSidebarText,
     workspaceSidebarViewState,
@@ -40,7 +40,12 @@ import {
     WORKSPACE_PINS_ENABLED,
 } from "../../clients/tui/workspace-panel.ts";
 import { tuiBrailleSpinner } from "../../clients/tui/activity-pulse.ts";
-import { tuiBindingId, tuiKeyChord } from "../../clients/tui/keymap.ts";
+import {
+    activeTuiKeymap,
+    installTuiKeymap,
+    tuiBindingId,
+    tuiKeyChord,
+} from "../../clients/tui/keymap.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import type {
     WorkIndexSnapshot,
@@ -629,10 +634,28 @@ describe("the cursor", () => {
             .toEqual({ kind: "resume_picker" });
     });
 
-    test("a bare r no longer reaches the resume picker", () => {
-        // The rail claims every bare key while it holds the focus. What
-        // changed is that the letter stopped meaning anything.
-        expect(press(open([session("a")]), "r").action).toBeUndefined();
+    test("r renames the selected session without opening it", () => {
+        const state = open([
+            session("a", { title: "first conversation" }),
+            session("b", { title: "release planning" }),
+        ], [], "a");
+        const moved = press(state, "down").state!;
+        expect(press(moved, "r")).toEqual({
+            action: {
+                kind: "rename_session",
+                session_id: "b",
+                label: "release planning",
+                value: "release planning",
+            },
+            handled: true,
+        });
+    });
+
+    test("r does nothing when the listing has no selected row", () => {
+        expect(press(open([]), "r")).toEqual({
+            state: open([]),
+            handled: true,
+        });
     });
 
     test("escape hides the rail", () => {
@@ -943,13 +966,14 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
+            "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
             "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(8);
+        expect(view.footerTable).toHaveLength(9);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
         expect(view.title).toBe("VERA · 1");
@@ -1023,6 +1047,7 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
+            "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
@@ -1037,7 +1062,7 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(8);
+            .toHaveLength(9);
     });
 
     test("an unfocused rail keeps only the chords that answer from the chat", () => {
@@ -1075,7 +1100,7 @@ describe("the drawn card", () => {
         for (const row of WORKSPACE_QUIET_FOOTER_TABLE.filter(
             (candidate) => candidate.label !== "Focus",
         )) {
-            const wide = WORKSPACE_FOOTER_TABLE
+            const wide = workspaceSidebarFooterTable()
                 .find((other) => other.value === row.value);
             expect(wide).toBeDefined();
         }
@@ -1086,7 +1111,7 @@ describe("the drawn card", () => {
     });
 
     test("the session cycle is named where the other chords are", () => {
-        const cycle = WORKSPACE_FOOTER_TABLE
+        const cycle = workspaceSidebarFooterTable()
             .find((row) => row.label === "Cycle");
         // Both halves of the chord, spelled the way the keymap spells them,
         // so the row cannot drift from the keys it names.
@@ -1094,9 +1119,32 @@ describe("the drawn card", () => {
         expect(cycle?.value)
             .toContain(tuiKeyChord("cycle_live_session_next").slice(-1));
         expect(cycle?.value).not.toContain("/");
-        for (const row of WORKSPACE_FOOTER_TABLE) {
+        for (const row of workspaceSidebarFooterTable()) {
             expect(`${row.label.padEnd(8)}${row.value}`.length)
                 .toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
+        }
+    });
+
+    test("the rename hint follows the active keymap", () => {
+        const original = activeTuiKeymap();
+        try {
+            installTuiKeymap(original.map((binding) =>
+                binding.id === "workspace_rename_session"
+                    ? { ...binding, keys: ["ctrl+y"] }
+                    : binding
+            ));
+            expect(workspaceSidebarFooterTable().find((row) =>
+                row.label === "Rename"
+            )?.value).toBe("ctrl+y");
+            expect(press(open([session("a")]), "y", { ctrl: true }).action)
+                .toEqual({
+                    kind: "rename_session",
+                    session_id: "a",
+                    label: "session a",
+                    value: "session a",
+                });
+        } finally {
+            installTuiKeymap(original);
         }
     });
 

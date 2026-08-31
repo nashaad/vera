@@ -16,11 +16,11 @@ test("the catalog exposes metadata and paths without loading instructions", () =
 
 test("a disable-model-invocation skill is marked invoke-only in the catalog", () => {
     const content = renderSkillCatalog(catalog([
-        skill("adversarial", "Adversarial review.", true),
+        skill("deploy", "Deploy an approved release.", true),
     ]));
 
     expect(content).toContain(
-        "adversarial: Adversarial review. (/skills/adversarial/SKILL.md) [invoke-only: use only if the user explicitly names this skill or its command]",
+        "deploy: Deploy an approved release. (/skills/deploy/SKILL.md) [invoke-only: use only if the user explicitly names this skill or its command]",
     );
 });
 

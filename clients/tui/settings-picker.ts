@@ -177,6 +177,8 @@ export interface TuiSettingsPickerOption {
     readonly card?: boolean;
     readonly rowMeta?: DialogMeta;
     readonly sessionId?: string;
+    /** Unclipped current session name, used to seed the rename field. */
+    readonly sessionName?: string;
     /**
      * Session rows carry their own columns rather than folding activity and
      * workspace into the description: a session is recognised by its title, so
@@ -401,6 +403,13 @@ export interface TuiSettingsPickerState {
     readonly modelCatalogUnavailable?: boolean;
     /** The focused action in the selected model's inspector. */
     readonly modelActionIndex?: number;
+    /** Provider-owned context for the generic request-options action. */
+    readonly requestOptionsProviders?: Readonly<Record<
+        string,
+        TuiModelRequestOptionsSupport
+    >>;
+    /** Exact provider/model refs with a stored profile entry. */
+    readonly configuredRequestOptions?: readonly string[];
     /**
      * The Defaults tab's rows, which are jobs rather than models and so cannot be
      * filtered out of `allOptions` the way the other tabs are. Set by the
@@ -600,6 +609,19 @@ export interface TuiPoolVerify {
     readonly model: string;
 }
 
+export interface TuiModelRequestOptionsSupport {
+    readonly providerLabel: string;
+    readonly label: string;
+    readonly explanation: string;
+    readonly documentationUrl: string;
+}
+
+export interface TuiModelRequestOptionsCandidate {
+    readonly provider: string;
+    readonly model: string;
+    readonly support: TuiModelRequestOptionsSupport;
+}
+
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
@@ -618,6 +640,8 @@ export interface TuiSettingsPickerTransition {
     readonly poolVerifySweep?: boolean;
     /** Same contract again: the pane asks for the prompt, it does not name. */
     readonly poolName?: TuiPoolNameCandidate;
+    /** The selected model whose profile request body should be edited. */
+    readonly requestOptions?: TuiModelRequestOptionsCandidate;
     /** A reorder of one pool entry, by places, for the client to send on. */
     readonly poolMove?: {
         readonly provider: string;
@@ -663,6 +687,7 @@ export interface TuiSettingsPickerTransition {
     readonly renameCandidate?: {
         readonly sessionId: string;
         readonly label: string;
+        readonly value?: string;
     };
 }
 
@@ -763,7 +788,7 @@ const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     {
         value: "auto",
         label: "Auto",
-        description: "a reviewer clears the safe ones, you decide the rest",
+        description: "a classifier clears the safe ones, you decide the rest",
     },
     {
         value: "full_access",
@@ -932,6 +957,12 @@ export function syncTuiModelPicker(
         tab,
         ...modelSyncedFocus(state, { ...rebuilt, tab, actionOptions }),
         modelActionIndex: state.modelActionIndex ?? 0,
+        ...(state.requestOptionsProviders === undefined
+            ? {}
+            : { requestOptionsProviders: state.requestOptionsProviders }),
+        ...(state.configuredRequestOptions === undefined
+            ? {}
+            : { configuredRequestOptions: state.configuredRequestOptions }),
         ...(state.revealAll === true ? { revealAll: true } : {}),
         ...(state.intelligenceCutoff === undefined
                 || state.intelligenceCutoff === "any"
@@ -1105,8 +1136,8 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
     {
         value: "reviewer",
-        label: "Reviewer",
-        description: "which model approves actions in auto mode",
+        label: "Classifier",
+        description: "which model classifies actions in auto mode",
         searchText: "approval auto review failsafe",
     },
     { value: "theme", label: "Theme", description: "TUI colors" },
@@ -1766,13 +1797,13 @@ export function startTuiReviewerMenu(
             description: agentModel
                 ? "the agent's own model"
                 : reviewerSlotLabel(reviewerDefault?.primary),
-            searchText: "reviewer approval auto",
+            searchText: "classifier reviewer approval auto",
         },
         {
             value: "reviewer_fallback",
             label: "Failsafe",
             description: reviewerSlotLabel(reviewerDefault?.fallback),
-            searchText: "reviewer fallback backup",
+            searchText: "classifier reviewer fallback backup",
         },
     ];
     return {
@@ -1814,10 +1845,10 @@ export function startTuiReviewerPicker(
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
-        label: slot === "primary" ? "Use the agent's model" : "None",
+        label: slot === "primary" ? "Use configured default" : "None",
         description: slot === "primary"
-            ? "review with whatever model the session runs"
-            : "no failsafe reviewer",
+            ? "clear this override; use Defaults or the session model"
+            : "no failsafe classifier",
     };
     const options = [clearRow, ...rows];
     const currentValue = current === undefined
@@ -2114,6 +2145,7 @@ export function startTuiSessionPicker(
             description: "",
             searchText: `${agent.id} ${agent.workspace}`,
             sessionId: agent.id,
+            ...(agent.title === undefined ? {} : { sessionName: agent.title }),
             activity: sessionActivity(agent, now),
             workspace: sessionWorkspace(agent),
             ...(agent.size_bytes === undefined
@@ -2425,6 +2457,9 @@ export function handleTuiSettingsPickerKey(
                 renameCandidate: {
                     sessionId: selected.sessionId,
                     label: selected.label,
+                    ...(selected.sessionName === undefined
+                        ? {}
+                        : { value: selected.sessionName }),
                 },
                 handled: true,
             };
@@ -5375,7 +5410,11 @@ function modelOptionCanVerify(
         && option.value !== SESSION_MODEL_VALUE;
 }
 
-type ModelDetailActionId = "verify" | "toggle_pool" | "name";
+type ModelDetailActionId =
+    | "verify"
+    | "toggle_pool"
+    | "name"
+    | "request_options";
 
 interface ModelDetailAction {
     readonly id: ModelDetailActionId;
@@ -5600,6 +5639,8 @@ function modelDetailActions(
         return [];
     }
     const pooled = isPooled(state, option);
+    const requestOptions = state.requestOptionsProviders?.[option.provider];
+    const modelReference = `${option.provider}/${option.model}`;
     return [
         ...(modelOptionCanVerify(state, option)
             ? [{
@@ -5620,6 +5661,15 @@ function modelDetailActions(
                 label: "Name this model",
             }]
             : []),
+        ...(requestOptions === undefined
+            ? []
+            : [{
+                id: "request_options" as const,
+                chord: state.configuredRequestOptions?.includes(modelReference)
+                    ? "configured"
+                    : "none",
+                label: "Request options",
+            }]),
     ];
 }
 
@@ -5658,6 +5708,19 @@ function modelDetailActionTransition(
                 action: isPooled(state, option) ? "remove" : "add",
                 provider: option.provider,
                 model: option.model,
+            },
+        };
+    }
+    if (action.id === "request_options") {
+        const support = state.requestOptionsProviders?.[option.provider];
+        if (support === undefined) return unchanged(state, true);
+        return {
+            state,
+            handled: true,
+            requestOptions: {
+                provider: option.provider,
+                model: option.model,
+                support,
             },
         };
     }
@@ -6966,9 +7029,9 @@ function pickerTitle(
                         : kind === "permission_settings"
                             ? "Permissions"
                             : kind === "reviewer_settings"
-                                ? "Reviewer"
+                                ? "Classifier"
                                 : kind === "reviewer"
-                                    ? "Select reviewer"
+                                    ? "Select classifier"
                                     : kind === "model_assignment"
                                         ? "Assign a model"
                                         : "Theme";

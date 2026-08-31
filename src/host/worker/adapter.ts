@@ -25,16 +25,33 @@ import {
 import { createConfiguredModelAdapter } from "../../providers/configured.ts";
 import { OpenRouterAllowanceGuard } from
     "../../providers/openrouter-allowance-guard.ts";
-import { ProviderRoutingAdapter } from "../../providers/routing.ts";
+import {
+    applyModelRequestOptions,
+    ProviderRoutingAdapter,
+    type PrepareModelRequest,
+} from "../../providers/routing.ts";
 import type { ModelAdapter } from "../../model/types.ts";
-import type { VeraConfig } from "../../config.ts";
+import {
+    createLiveVeraConfigReader,
+    type VeraConfig,
+} from "../../config.ts";
 
 export interface WorkerAdapterOptions {
     readonly config: VeraConfig;
+    /** Test or embedded override; production workers use the active profile. */
+    readonly configPath?: string;
     /** The session's provider, which the config's own may not match. */
     readonly provider: string;
     readonly projectRoot: string;
     readonly sessionId: string;
+}
+
+export function createWorkerAdapterOptions(
+    config: VeraConfig,
+    configPath: string,
+    context: Omit<WorkerAdapterOptions, "config" | "configPath">,
+): WorkerAdapterOptions {
+    return { ...context, config, configPath };
 }
 
 export function createWorkerAdapter(
@@ -45,6 +62,7 @@ export function createWorkerAdapter(
     const captureFailedRequest = createFailedRequestCapture({
         sessionId: options.sessionId,
     });
+    const prepareRequest = createWorkerRequestPreparer(options);
     return new ProviderRoutingAdapter(
         (provider: string) =>
             createConfiguredModelAdapter({
@@ -58,7 +76,18 @@ export function createWorkerAdapter(
             }),
         options.provider,
         (provider: string) => credentialFingerprint(authStorage, provider),
+        prepareRequest,
     );
+}
+
+export function createWorkerRequestPreparer(
+    options: Pick<WorkerAdapterOptions, "config" | "configPath">,
+): PrepareModelRequest {
+    const currentConfig = createLiveVeraConfigReader(options.config, {
+        ...(options.configPath === undefined ? {} : { path: options.configPath }),
+    });
+    return (request, provider) =>
+        applyModelRequestOptions(request, currentConfig(), provider);
 }
 
 export default createWorkerAdapter;

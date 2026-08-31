@@ -172,10 +172,10 @@ test("resident agent death renders as a separated fatal diagnostic", async () =>
             /^ {2}× stopped  Resident agent stopped unexpectedly$/m,
         );
         expect(pane).toMatch(
-            /^ {2}× Reviewer denied bash \(high risk\): The permission gate denied this operation\.$/m,
+            /^ {2}× Classifier denied bash \(high risk\): The permission gate denied this operation\.$/m,
         );
         expect(pane).toMatch(
-            /Reviewer denied bash[^\n]*\n[^\S\n]*\n {2}× stopped/,
+            /Classifier denied bash[^\n]*\n[^\S\n]*\n {2}× stopped/,
         );
         expect(pane).not.toContain("# Agent error");
     } finally {
@@ -413,4 +413,3 @@ test("typed /reconnect only auto-confirms a wedged host", () => {
     )).toBe(false);
     expect(confirmManualReconnectUpgrade(new Error("other"))).toBe(false);
 });
-
