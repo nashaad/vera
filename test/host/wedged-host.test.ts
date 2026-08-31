@@ -13,7 +13,10 @@ import {
     type HostLockfile,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
-import { forceStopResidentHost } from "../../src/host/force-stop.ts";
+import {
+    forceStopResidentHost,
+    gracefulStopResidentHost,
+} from "../../src/host/force-stop.ts";
 
 const record: HostLockRecord = {
     schema_version: 2,
@@ -188,6 +191,31 @@ test("force stop of an already dead host only clears the lockfile", async () => 
         expect(outcome).toEqual({ pid: 101, endedBy: "already_dead" });
         expect(signals).toEqual([]);
         expect(existsSync(path)).toBe(false);
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("plain stop waits SIGTERM and does not SIGKILL a host that ignores it", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-stop-"));
+    const path = join(root, "host.json");
+    try {
+        await writeFile(path, `${JSON.stringify(record)}\n`);
+        const signals: string[] = [];
+        const outcome = await gracefulStopResidentHost({
+            lockPath: path,
+            sigtermGraceMs: 40,
+            pollIntervalMs: 5,
+            kill: (pid, signal) => {
+                signals.push(`${signal}:${pid}`);
+            },
+            isProcessAlive: () => true,
+            matchesRecord: () => true,
+            wait: async () => {},
+        });
+        expect(outcome).toEqual({ pid: 101, endedBy: "survived" });
+        expect(signals).toEqual(["SIGTERM:101"]);
+        expect(existsSync(path)).toBe(true);
     } finally {
         await rm(root, { recursive: true, force: true });
     }

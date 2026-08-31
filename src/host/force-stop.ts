@@ -50,6 +50,11 @@ export interface ForceStopOptions {
     readonly matchesRecord?: (
         record: Pick<HostLockRecord, "pid" | "started_at">,
     ) => boolean;
+    /**
+     * When false, SIGTERM is the last signal. Plain `vera host stop` uses this
+     * so a spinning host is not reported Stopped and is not SIGKILLed.
+     */
+    readonly escalateToKill?: boolean;
 }
 
 const DEFAULT_SIGTERM_GRACE_MS = 3_000;
@@ -77,6 +82,28 @@ export async function forceStopResidentHost(
     const clearable = outcome.endedBy === "not_ours"
         || !(options.isProcessAlive ?? processIsAlive)(record.pid);
     if (clearable) {
+        await removeFile(lockPath);
+    }
+    return outcome;
+}
+
+/**
+ * SIGTERM and wait. Does not SIGKILL. Leaves the lockfile if the same recorded
+ * host is still alive, so the next `--force` still knows whom to kill.
+ */
+export async function gracefulStopResidentHost(
+    options: ForceStopOptions = {},
+): Promise<ForceStopOutcome | undefined> {
+    const lockPath = options.lockPath ?? defaultHostLockPath();
+    const record = await readHostLockRecordFile(lockPath);
+    if (record === undefined) return undefined;
+    const outcome = await forceStopHostProcess(record, {
+        ...options,
+        escalateToKill: false,
+    });
+    const stillOurs = outcome.endedBy !== "not_ours"
+        && (options.isProcessAlive ?? processIsAlive)(record.pid);
+    if (!stillOurs) {
         await removeFile(lockPath);
     }
     return outcome;
@@ -110,6 +137,9 @@ export async function forceStopHostProcess(
     kill(record.pid, "SIGTERM");
     if (await waitUntilDead(options.sigtermGraceMs ?? DEFAULT_SIGTERM_GRACE_MS)) {
         return { pid: record.pid, endedBy: "sigterm" };
+    }
+    if (options.escalateToKill === false) {
+        return { pid: record.pid, endedBy: "survived" };
     }
     kill(record.pid, "SIGKILL");
     const dead = await waitUntilDead(

@@ -41,6 +41,7 @@ import {
 import { HostProjectMismatchError } from "../../src/host/discovery.ts";
 import {
     forceStopResidentHost,
+    gracefulStopResidentHost,
     type ForceStopOutcome,
 } from "../../src/host/force-stop.ts";
 import {
@@ -65,6 +66,7 @@ import {
     unrecognisedHomeEntries,
     veraHomeDirectory,
     veraRuntimeDirectory,
+    DEFAULT_PROFILE_NAME,
     VERA_PROFILE_ENV,
     VeraProfileError,
     veraProfileName,
@@ -226,7 +228,7 @@ export interface CliDependencies {
         options?: TuiStartOptions,
     ) => Promise<void>;
     readonly confirmHostStop?: () => boolean | Promise<boolean>;
-    readonly stopHost?: () => Promise<number | undefined>;
+    readonly stopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly forceStopHost?: () => Promise<ForceStopOutcome | undefined>;
     readonly doctor?: () => Promise<VeraDoctorReport>;
     readonly prune?: () => Promise<readonly LiveProcessRecord[]>;
@@ -785,10 +787,23 @@ export async function runCli(
             }).\n`);
             return 0;
         }
-        const pid = await (dependencies.stopHost ?? stopResidentHost)();
-        output.write(pid === undefined
-            ? "No resident Vera host is running.\n"
-            : `Stopped resident Vera host PID ${pid}.\n`);
+        const outcome = await (dependencies.stopHost ?? gracefulStopResidentHost)();
+        if (outcome === undefined) {
+            output.write("No resident Vera host is running.\n");
+            return 0;
+        }
+        if (outcome.endedBy === "survived") {
+            const profile = veraProfileName();
+            const force = profile === DEFAULT_PROFILE_NAME
+                ? "vera host stop --force"
+                : `vera host stop --force --profile ${profile}`;
+            output.write(
+                `Resident Vera host PID ${outcome.pid} is still running. `
+                    + `Run '${force}' to kill it.\n`,
+            );
+            return 1;
+        }
+        output.write(`Stopped resident Vera host PID ${outcome.pid}.\n`);
         return 0;
     }
 
@@ -1063,20 +1078,6 @@ export function renderCliFailure(error: unknown): string {
     return `Vera failed: ${
         error instanceof Error ? error.message : String(error)
     }`;
-}
-
-async function stopResidentHost(): Promise<number | undefined> {
-    const lockfile = createHostLockfile();
-    try {
-        const record = await lockfile.read();
-        if (record === undefined) return undefined;
-        process.kill(record.pid, "SIGTERM");
-        return record.pid;
-    } catch (error) {
-        if (!(error instanceof HostProtocolMismatchError)) throw error;
-        process.kill(error.pid, "SIGTERM");
-        return error.pid;
-    }
 }
 
 export function renderAgentList(

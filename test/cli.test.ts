@@ -1100,7 +1100,7 @@ test("vera host stop confirms the explicit resident-host shutdown", async () => 
         confirmHostStop: () => true,
         stopHost: async () => {
             stopped = true;
-            return 51639;
+            return { pid: 51639, endedBy: "sigterm" };
         },
         stdout: { write: (text) => output += text },
     });
@@ -1118,7 +1118,7 @@ test("vera host stop leaves the host running when confirmation is declined", asy
         confirmHostStop: () => false,
         stopHost: async () => {
             stopped = true;
-            return 51639;
+            return { pid: 51639, endedBy: "sigterm" };
         },
         stdout: { write: (text) => output += text },
     });
@@ -1139,7 +1139,7 @@ test("vera host stop --yes skips confirmation", async () => {
         },
         stopHost: async () => {
             stopped = true;
-            return 51639;
+            return { pid: 51639, endedBy: "sigterm" };
         },
         stdout: { write: () => undefined },
     });
@@ -1182,6 +1182,21 @@ test("vera host stop --force still asks for confirmation", async () => {
 
     expect(exitCode).toBe(0);
     expect(output).toBe("Resident Vera host was not stopped.\n");
+});
+
+test("vera host stop --yes does not print Stopped if the pid is still there", async () => {
+    let output = "";
+    const exitCode = await runCli(["host", "stop", "--yes"], {
+        stopHost: async () => ({ pid: 51639, endedBy: "survived" }),
+        stdout: { write: (text) => output += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(output).toBe(
+        "Resident Vera host PID 51639 is still running. "
+            + "Run 'vera host stop --force' to kill it.\n",
+    );
+    expect(output).not.toContain("Stopped");
 });
 
 test("vera rescue runs the TUI under the rescue profile", async () => {
