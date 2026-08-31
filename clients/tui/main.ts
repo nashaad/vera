@@ -6085,8 +6085,10 @@ export async function startTui(
             && !key.meta
             && !key.super
             && !key.hyper
-            && composer.focused
-            && composerIsAtLeftBoundary()
+            && (
+                (composer.focused && composerIsAtLeftBoundary())
+                || (isHomeClient(client) && homeView.box.focused)
+            )
             && workspaceSidebar !== undefined
             && !workspaceSidebarFocused
             && !anyOverlayOpen()
