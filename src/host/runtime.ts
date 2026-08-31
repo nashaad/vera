@@ -225,7 +225,7 @@ export interface StartResidentHostOptions {
     readonly startupLog?: HostLog;
     /** Collects what extension startup found; tests read it back. */
     readonly startupFindings?: StartupFindings;
-    /** Packed annex assets. Defaults to the packed release web directory. */
+    /** Packed annex assets. Defaults to the packed release annex directory. */
     readonly webRoot?: string;
 }
 

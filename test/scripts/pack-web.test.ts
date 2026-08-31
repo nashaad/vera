@@ -4,15 +4,15 @@ import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
 import { releaseBuildId } from "../../src/release/build-id.ts";
-import { packedReleaseRoot, packedWebRoot } from "../../src/release/layout.ts";
+import { packedReleaseRoot, packedAnnexRoot } from "../../src/release/layout.ts";
 import { packWebAssets } from "../../scripts/pack-web.ts";
 
 const packer = resolve(import.meta.dir, "..", "..", "scripts", "pack-web.ts");
 const repoRoot = resolve(import.meta.dir, "..", "..");
 
-test("packed web root is the release web directory", () => {
-    expect(packedWebRoot()).toBe(join(packedReleaseRoot(), "web"));
-    expect(packedWebRoot().split(sep)).not.toContain("clients");
+test("packed annex root is the release annex directory", () => {
+    expect(packedAnnexRoot()).toBe(join(packedReleaseRoot(), "annex"));
+    expect(packedAnnexRoot().split(sep)).not.toContain("clients");
 });
 
 test("packed build id is vera-shortsha plus a digest when the tree is dirty", () => {
@@ -51,7 +51,7 @@ test("dev scripts pack web assets first", () => {
         readFileSync(join(repoRoot, "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
     expect(pkg.scripts["pack:web"]).toBe(
-        "bun run scripts/pack-web.ts dist/release/web",
+        "bun run scripts/pack-web.ts dist/release/annex",
     );
     expect(pkg.scripts.host?.startsWith("bun run pack:web &&")).toBe(true);
     expect(pkg.scripts.tui?.startsWith("bun run pack:web &&")).toBe(true);

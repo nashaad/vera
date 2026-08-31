@@ -1,6 +1,6 @@
 import { join } from "node:path";
 
-import { packedWebRoot } from "../release/layout.ts";
+import { packedAnnexRoot } from "../release/layout.ts";
 import {
     dispatchAnnexRoute,
     exactRoute,
@@ -47,7 +47,7 @@ export async function startAnnexServer(
     options: StartAnnexServerOptions,
 ): Promise<AnnexServer> {
     const hostname = options.hostname ?? "127.0.0.1";
-    const webRoot = options.webRoot ?? packedWebRoot();
+    const webRoot = options.webRoot ?? packedAnnexRoot();
     const fold = options.fold ?? ((window) => foldUsageReport({
         sessionDirectory: options.sessionDirectory,
         window,

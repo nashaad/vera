@@ -8,7 +8,7 @@
   "private": true,
   "scripts": {
     "start": "bun run clients/stdio/main.ts",
-    "pack:web": "bun run scripts/pack-web.ts dist/release/web",
+    "pack:web": "bun run scripts/pack-web.ts dist/release/annex",
     "host": "bun run pack:web && bun run clients/host/main.ts",
     "tui": "bun run pack:web && bun run clients/tui/main.ts",
     "tui:worktree": "bun run pack:web && bun run scripts/worktree-tui.ts",

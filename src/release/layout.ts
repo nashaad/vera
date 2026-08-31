@@ -8,7 +8,12 @@ export function packedReleaseRoot(): string {
     return join(REPO_ROOT, "dist", "release");
 }
 
-/** Packed usage assets: index.html, main.js, styles.css. */
-export function packedWebRoot(releaseRoot = packedReleaseRoot()): string {
-    return join(releaseRoot, "web");
+/** Packed annex assets: index.html, main.js, styles.css, build-id. */
+export function packedAnnexRoot(releaseRoot = packedReleaseRoot()): string {
+    return join(releaseRoot, "annex");
+}
+
+/** Release manifest written next to the packed artifacts. */
+export function releaseManifestPath(releaseRoot = packedReleaseRoot()): string {
+    return join(releaseRoot, "manifest.json");
 }

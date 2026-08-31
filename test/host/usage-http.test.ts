@@ -12,7 +12,7 @@ import { join, resolve } from "node:path";
 import type { HostLogEntry } from "../../src/host/host-log.ts";
 
 import { packWebAssets } from "../../scripts/pack-web.ts";
-import { packedWebRoot } from "../../src/release/layout.ts";
+import { packedAnnexRoot } from "../../src/release/layout.ts";
 import { startAnnexServer } from "../../src/annex/server.ts";
 import {
     foldUsageReport,
@@ -166,8 +166,8 @@ test("missing packed assets fail with an explicit path", async () => {
     })).rejects.toThrow(/Packed annex asset missing: .*index\.html/);
 });
 
-test("usage server defaults to the packed release web root", async () => {
-    await packWebAssets(packedWebRoot(), { force: true });
+test("usage server defaults to the packed release annex root", async () => {
+    await packWebAssets(packedAnnexRoot(), { force: true });
     const server = await startAnnexServer({
         sessionDirectory: tempDir("vera-usage-http-default-"),
     });
