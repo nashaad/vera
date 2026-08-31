@@ -4572,6 +4572,11 @@ export async function startTui(
         ];
         if (
             isTranscriptSelection(selection, [
+                // Drafts use the same drag-to-copy interaction as settled
+                // transcript text. The textarea owns the highlight; this
+                // gate only decides whether the selected text may reach the
+                // clipboard.
+                composer,
                 ...copyableNodes,
                 ...sidebar.blocks().map((block) => block.node),
                 // An extension view is text on the same screen, so the same
