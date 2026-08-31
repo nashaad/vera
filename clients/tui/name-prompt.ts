@@ -18,6 +18,11 @@ import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    startTuiSingleLineEditor,
+} from "./single-line-editor.ts";
 
 const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
@@ -45,6 +50,7 @@ export interface TuiNamePromptState {
     /** The row as it reads now, which may still be a fallback label. */
     readonly label: string;
     readonly value: string;
+    readonly cursor: number;
     /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
 }
@@ -82,10 +88,11 @@ export function startTuiNamePrompt(
     parent?: TuiSettingsPickerState,
     value = "",
 ): TuiNamePromptState {
+    const editor = startTuiSingleLineEditor(value);
     return {
         target,
         label,
-        value,
+        ...editor,
         ...(parent === undefined ? {} : { parent }),
     };
 }
@@ -98,7 +105,7 @@ export function handleTuiNamePromptPaste(
         .trim();
     return pasted.length === 0
         ? state
-        : { ...state, value: state.value + pasted };
+        : { ...state, ...insertTuiSingleLineText(state, pasted) };
 }
 
 export function handleTuiNamePromptKey(
@@ -116,9 +123,10 @@ export function handleTuiNamePromptKey(
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return { state, handled: true };
     }
-    if (key.name === "backspace") {
+    const edited = handleTuiSingleLineEditorKey(state, key);
+    if (edited !== undefined) {
         return {
-            state: { ...state, value: state.value.slice(0, -1) },
+            state: { ...state, ...edited },
             handled: true,
         };
     }
@@ -129,15 +137,7 @@ export function handleTuiNamePromptKey(
         // the way out for someone who meant neither.
         return { handled: true, submitted: value.length === 0 ? null : value };
     }
-    const typed = key.sequence !== undefined && key.sequence.length > 0
-        ? key.sequence
-        : key.name.length === 1
-        ? key.name
-        : undefined;
-    if (typed === undefined || CONTROL_CHARACTERS.test(typed)) {
-        return { state, handled: true };
-    }
-    return { state: { ...state, value: state.value + typed }, handled: true };
+    return { state, handled: true };
 }
 
 export function createTuiNamePromptView(
@@ -165,7 +165,7 @@ export function createTuiNamePromptView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "⏎ save · empty clears · esc cancel",
+        content: "←→ move · ⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -205,14 +205,20 @@ export function createTuiNamePromptView(
             hint.content = state.target.kind === "session"
                 ? "Name"
                 : state.label;
-            entry.content = tuiNamePromptEntryLine(state.value);
+            entry.content = tuiNamePromptEntryLine(state.value, state.cursor);
         },
     };
 }
 
-export function tuiNamePromptEntryLine(value: string): StyledText {
+export function tuiNamePromptEntryLine(
+    value: string,
+    cursor = value.length,
+): StyledText {
+    const before = value.slice(0, cursor);
+    const after = value.slice(cursor);
     return new StyledText([
-        ...(value.length === 0 ? [] : [fg(TUI_TEXT)(value)]),
+        ...(before.length === 0 ? [] : [fg(TUI_TEXT)(before)]),
         fg(TUI_ACCENT)("▏"),
+        ...(after.length === 0 ? [] : [fg(TUI_TEXT)(after)]),
     ]);
 }

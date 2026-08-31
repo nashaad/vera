@@ -29,6 +29,11 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { tuiBindingId } from "./keymap.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    startTuiSingleLineEditor,
+    tuiSingleLineText,
+} from "./single-line-editor.ts";
 
 /**
  * Below this the panel is too narrow to seat a choice list and a preview box
@@ -100,9 +105,9 @@ export function createTuiQuestionView(
     // never travels to the engine, which only ever sees the chosen choiceId.
     let selectedIndex = 0;
     let enteringCustom = false;
-    let customText = "";
+    let customEditor = startTuiSingleLineEditor();
     let enteringNotes = false;
-    let notesText = "";
+    let notesEditor = startTuiSingleLineEditor();
     let choiceRows: Renderable[] = [];
 
     const detailsText = new TextRenderable(renderer, {
@@ -299,7 +304,9 @@ export function createTuiQuestionView(
         const other = questionChoiceRow(renderer, {
             number: otherIndex + 1,
             label: "Other",
-            answer: enteringCustom ? `${customText}▌` : undefined,
+            answer: enteringCustom
+                ? tuiSingleLineText(customEditor, "▌")
+                : undefined,
             active: otherIndex === selectedIndex,
             pointer: view.pointer,
         });
@@ -320,10 +327,10 @@ export function createTuiQuestionView(
     }
 
     function renderNotes(): void {
-        notes.visible = enteringNotes || notesText.length > 0;
+        notes.visible = enteringNotes || notesEditor.value.length > 0;
         notes.content = enteringNotes
-            ? `Notes: ${notesText}▌`
-            : `Notes: ${notesText}`;
+            ? `Notes: ${tuiSingleLineText(notesEditor, "▌")}`
+            : `Notes: ${notesEditor.value}`;
     }
 
     /**
@@ -369,9 +376,9 @@ export function createTuiQuestionView(
             currentRequestId = update.requestId;
             selectedIndex = 0;
             enteringCustom = false;
-            customText = "";
+            customEditor = startTuiSingleLineEditor();
             enteringNotes = false;
-            notesText = "";
+            notesEditor = startTuiSingleLineEditor();
             detailsText.content = update.request.question;
             choiceAction.content = questionChoiceHint();
             renderChoices(update);
@@ -392,11 +399,6 @@ export function createTuiQuestionView(
                     renderNotes();
                     return { handled: true };
                 }
-                if (key.name === "backspace") {
-                    notesText = [...notesText].slice(0, -1).join("");
-                    renderNotes();
-                    return { handled: true };
-                }
                 if (key.name === "return" || key.name === "enter") {
                     const choice = choices[selectedIndex];
                     return choice === undefined
@@ -406,13 +408,13 @@ export function createTuiQuestionView(
                             response: selectedResponse(
                                 update,
                                 choice.id,
-                                notesText.trim(),
+                                notesEditor.value.trim(),
                             ),
                         };
                 }
-                const typed = key.sequence ?? key.name;
-                if (typed.length === 1) {
-                    notesText += typed;
+                const edited = handleTuiSingleLineEditorKey(notesEditor, key);
+                if (edited !== undefined) {
+                    notesEditor = edited;
                     renderNotes();
                     return { handled: true };
                 }
@@ -427,25 +429,20 @@ export function createTuiQuestionView(
             if (enteringCustom) {
                 if (key.name === "escape") {
                     enteringCustom = false;
-                    customText = "";
+                    customEditor = startTuiSingleLineEditor();
                     renderChoices(update);
                     choiceAction.content = questionChoiceHint();
                     return { handled: true };
                 }
-                if (key.name === "backspace") {
-                    customText = [...customText].slice(0, -1).join("");
-                    renderChoices(update);
-                    return { handled: true };
-                }
                 if (key.name === "return" || key.name === "enter") {
-                    const text = customText.trim();
+                    const text = customEditor.value.trim();
                     return text.length === 0
                         ? { handled: true }
                         : { handled: true, response: customResponse(update, text) };
                 }
-                const value = key.sequence ?? key.name;
-                if (value.length > 0 && !key.ctrl && !key.meta) {
-                    customText += value;
+                const edited = handleTuiSingleLineEditorKey(customEditor, key);
+                if (edited !== undefined) {
+                    customEditor = edited;
                     renderChoices(update);
                     return { handled: true };
                 }

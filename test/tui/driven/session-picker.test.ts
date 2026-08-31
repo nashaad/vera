@@ -91,17 +91,17 @@ test("session picker renames a conversation it is not attached to", async () => 
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
         expect(pane).toContain("Continue the theme picker");
-        for (const _character of "Continue the theme picker") {
-            session.sendKey("BSpace");
+        for (const _character of "picker") {
+            session.sendKey("Left");
         }
-        session.sendText("release notes");
+        session.sendText("color ");
         session.sendKey("Enter");
         // The pane comes back rebuilt from the host rather than patched.
-        await session.waitForVisiblePane("release notes");
+        await session.waitForVisiblePane("Continue the theme color picker");
         session.sendKey("Escape");
         // The notice lands in the transcript, which the pane was covering.
         pane = await session.waitForVisiblePane(
-            "session renamed: release notes",
+            "session renamed: Continue the theme color picker",
         );
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
@@ -110,7 +110,8 @@ test("session picker renames a conversation it is not attached to", async () => 
             join(home, "rename-session-result.txt"),
             "utf8",
         )).toBe(
-            "saved-session release notes\ncurrent Fix the deployment race",
+            "saved-session Continue the theme color picker"
+                + "\ncurrent Fix the deployment race",
         );
     } finally {
         await session.close();
