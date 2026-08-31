@@ -32,7 +32,7 @@ export async function startUsageWebServer(
     options: StartUsageWebServerOptions,
 ): Promise<UsageWebServer> {
     const hostname = options.hostname ?? "127.0.0.1";
-    const webRoot = options.webRoot ?? packedWebRoot();
+    const webRoot = options.webRoot ?? defaultWebRoot();
     const fold = options.fold ?? ((window) => foldUsageReport({
         sessionDirectory: options.sessionDirectory,
         window,
@@ -120,6 +120,10 @@ export async function startUsageWebServer(
             server.stop(true);
         },
     };
+}
+
+function defaultWebRoot(): string {
+    return packedWebRoot();
 }
 
 async function readPackedWebAssets(webRoot: string): Promise<{

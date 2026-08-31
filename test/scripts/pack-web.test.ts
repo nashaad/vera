@@ -46,6 +46,19 @@ test("pack-web CLI writes into a throwaway directory", () => {
     expect(statSync(join(output, "styles.css")).isFile()).toBe(true);
 });
 
+test("dev scripts pack web assets first", () => {
+    const pkg = JSON.parse(
+        readFileSync(join(repoRoot, "package.json"), "utf8"),
+    ) as { scripts: Record<string, string> };
+    expect(pkg.scripts["pack:web"]).toBe(
+        "bun run scripts/pack-web.ts dist/release/web",
+    );
+    expect(pkg.scripts.host?.startsWith("bun run pack:web &&")).toBe(true);
+    expect(pkg.scripts.tui?.startsWith("bun run pack:web &&")).toBe(true);
+    expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:web &&"))
+        .toBe(true);
+});
+
 test("pack-web skips when the output is newer than its inputs", async () => {
     const output = mkdtempSync(join(tmpdir(), "vera-release-test-"));
     const first = await packWebAssets(output, { force: true });
