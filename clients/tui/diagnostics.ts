@@ -1,5 +1,6 @@
 import type { StashSummary } from "../../src/store/preimage-stash.ts";
 import type { ModelFailureSummary } from "../../src/store/model-failures.ts";
+import { inspectReportSection } from "../../src/sdk/inspect-report.ts";
 import type { TuiState } from "./state.ts";
 import type {
     HostStartupTimingRow,
@@ -53,17 +54,21 @@ export interface TuiClientExtensionReloadSnapshot {
 
 export function renderTuiDiagnostics(
     snapshot: TuiDiagnosticsSnapshot,
+    width = 72,
 ): string {
     return snapshot.scope === "vera"
-        ? renderVeraDiagnostics(snapshot)
-        : renderSessionDiagnostics(snapshot);
+        ? renderVeraDiagnostics(snapshot, width)
+        : renderSessionDiagnostics(snapshot, width);
 }
 
-function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
+function renderSessionDiagnostics(
+    snapshot: TuiDiagnosticsSnapshot,
+    width: number,
+): string {
     const { state } = snapshot;
     const lines = [
         "# Session diagnostics",
-        ...sectionHeading("Session"),
+        ...inspectReportSection("Session", undefined, width),
         ...fieldTable([
             ["Identity", snapshot.sessionIdentity ?? "Unavailable"],
             ["ID", snapshot.sessionId ?? "Unavailable"],
@@ -72,13 +77,13 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
             ["Background", `${snapshot.runningBackgroundAgents} running`],
         ]),
         "",
-        ...sectionHeading("Processes"),
+        ...inspectReportSection("Processes", undefined, width),
         ...processTableLines(snapshot.processes),
         "",
-        ...sectionHeading("Session usage"),
+        ...inspectReportSection("Session usage", undefined, width),
         ...sessionUsageLines(state.sessionUsage),
         "",
-        ...sectionHeading("Runtime"),
+        ...inspectReportSection("Runtime", undefined, width),
         ...fieldTable([
             ["Turn", state.working ? snapshot.activity : "Idle"],
             ["Elapsed", state.working ? snapshot.elapsed : "—"],
@@ -89,7 +94,7 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
 
     const model = state.modelActivity;
     const modelRows: string[][] = [];
-    lines.push("", ...sectionHeading("Model"));
+    lines.push("", ...inspectReportSection("Model", undefined, width));
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
         const retrying = Date.parse(model.retryAt) > now;
@@ -190,10 +195,13 @@ function formatMemory(bytes: number): string {
     return `${(bytes / (1024 * 1024 * 1024)).toFixed(2)} GiB`;
 }
 
-function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
+function renderVeraDiagnostics(
+    snapshot: TuiDiagnosticsSnapshot,
+    width: number,
+): string {
     return [
         "# Vera diagnostics",
-        ...sectionHeading("Build"),
+        ...inspectReportSection("Build", undefined, width),
         ...markdownTable(
             ["", ""],
             [
@@ -204,21 +212,21 @@ function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
             ],
         ),
         "",
-        ...sectionHeading("Startup"),
+        ...inspectReportSection("Startup", undefined, width),
         ...startupSummaryLines(snapshot.startup),
         "",
-        ...sectionHeading("Startup extensions"),
+        ...inspectReportSection("Startup extensions", undefined, width),
         ...startupExtensionLines(snapshot.startup),
         "",
-        ...sectionHeading("Extensions"),
+        ...inspectReportSection("Extensions", undefined, width),
         ...extensionLines(snapshot),
         "",
         ...clientExtensionReloadLines(snapshot),
         "",
-        ...sectionHeading("Model failures"),
+        ...inspectReportSection("Model failures", undefined, width),
         ...modelFailureLines(snapshot),
         "",
-        ...sectionHeading("Pre-image stash"),
+        ...inspectReportSection("Pre-image stash", undefined, width),
         ...stashLines(snapshot),
     ].join("\n");
 }
@@ -366,10 +374,6 @@ function markdownTable(
 
 function fieldTable(rows: readonly (readonly string[])[]): string[] {
     return markdownTable(["", ""], rows);
-}
-
-function sectionHeading(title: string): string[] {
-    return [`## ${title.toUpperCase()}`, "", "---"];
 }
 
 function markdownTableCell(value: string): string {
