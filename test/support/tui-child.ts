@@ -12,6 +12,7 @@ import {
 import { FauxAdapter } from "./faux-adapter.ts";
 import type { VeraDoctorReport } from "../../clients/process-doctor.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
+import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
 
 export interface TuiChildOptions {
     /** The first doctor pass answers late with another PID, like a stale run. */
@@ -19,6 +20,7 @@ export interface TuiChildOptions {
     readonly sessionPath?: string;
     readonly resumeSessionPath?: string;
     readonly clientExtensions?: TuiDependencies["clientExtensions"];
+    readonly modelSettings?: ModelTurnSettings;
 }
 
 export function createTuiChildDependencies(
@@ -44,11 +46,12 @@ export function createTuiChildDependencies(
                 : { resumeSessionPath: options.resumeSessionPath }),
         },
         {
-            readModelSettings: () => ({
-                model: "test",
-                reasoningEffort: "high",
-                contextWindow: 100,
-            }),
+            readModelSettings: () =>
+                options.modelSettings ?? {
+                    model: "test",
+                    reasoningEffort: "high",
+                    contextWindow: 100,
+                },
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,
             router: {

@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import type { AuthStorage, StoredCredential } from "../../src/providers/auth-storage.ts";
 import { OPENAI_CODEX_PROVIDER_ID } from "../../src/providers/openai-codex-oauth.ts";
 import {
+    ellipsizeHealthTail,
     expiredOAuthProvider,
     hasConfiguredProvider,
     healthRungsOf,
@@ -62,6 +63,7 @@ test("a working ladder is green and names the rung that answered", () => {
     expect(ready.tone).toBe("green");
     expect(ready.summary).toBe("openrouter/glm-flash answered");
     expect(ready.next).toBeUndefined();
+    expect(ready.details).toBeUndefined();
     expect(renderProviderHealth(ready).join("\n")).toContain("green");
 });
 
@@ -76,11 +78,12 @@ test("only the last rung answering is yellow and names Verify all", () => {
     expect(ready.tone).toBe("yellow");
     expect(ready.summary).toContain("only the last shortlist model answered");
     expect(ready.summary).toContain("ollama/qwen");
+    expect(ready.details).toEqual(["openrouter/glm-flash failed"]);
     expect(ready.next).toContain("/model");
     expect(ready.next).toContain("Verify all");
 });
 
-test("a failed shortlist model with an earlier answer is yellow", () => {
+test("a failed shortlist model with an earlier answer stays green", () => {
     const ready = summarizeProviderHealth({
         results: [
             { rung: { provider: "openrouter", model: "glm-flash" }, answered: true },
@@ -88,24 +91,28 @@ test("a failed shortlist model with an earlier answer is yellow", () => {
         ],
         configured: true,
     });
-    expect(ready.tone).toBe("yellow");
-    expect(ready.summary).toContain("ollama/qwen failed");
-    expect(ready.summary).toContain("openrouter/glm-flash answered");
-    expect(ready.next).toContain("/model");
+    expect(ready.tone).toBe("green");
+    expect(ready.summary).toBe("openrouter/glm-flash answered");
+    expect(ready.details).toEqual(["ollama/qwen failed"]);
+    expect(ready.next).toBeUndefined();
+    const text = renderProviderHealth(ready).join("\n");
+    expect(text).toContain("green");
+    expect(text).toContain("ollama/qwen failed");
 });
 
-test("an expired credential on an otherwise working ladder is yellow", () => {
+test("an expired credential does not override remaining depth", () => {
     const ready = summarizeProviderHealth({
         results: [
             { rung: { provider: "openai-codex", model: "gpt-5.4" }, answered: true },
+            { rung: { provider: "ollama", model: "qwen" }, answered: true },
         ],
         configured: true,
         expiredCredential: OPENAI_CODEX_PROVIDER_ID,
     });
-    expect(ready.tone).toBe("yellow");
-    expect(ready.summary).toContain("openai-codex/gpt-5.4 answered");
-    expect(ready.summary).toContain("expired");
-    expect(ready.next).toContain("/providers");
+    expect(ready.tone).toBe("green");
+    expect(ready.summary).toBe("openai-codex/gpt-5.4 answered");
+    expect(ready.details).toEqual(["openai-codex credential is expired"]);
+    expect(ready.next).toBeUndefined();
 });
 
 test("nothing answering is red", () => {
@@ -174,7 +181,7 @@ test("a shipped local provider counts as configured without a credential", () =>
     }, {})).toBe(true);
 });
 
-test("a local ollama default is a rung and greens when it answers", () => {
+test("a local ollama default is a rung; a lone answer is yellow", () => {
     expect(healthRungsOf(
         { model: "qwen3:1.7b", provider: "ollama" },
         undefined,
@@ -185,9 +192,28 @@ test("a local ollama default is a rung and greens when it answers", () => {
         ],
         configured: true,
     });
-    expect(ready.tone).toBe("green");
-    expect(ready.summary).toBe("ollama/qwen3:1.7b answered");
-    expect(ready.next).toBeUndefined();
+    expect(ready.tone).toBe("yellow");
+    expect(ready.summary).toContain("ollama/qwen3:1.7b");
+    expect(ready.next).toContain("/model");
+});
+
+test("health ids keep the model tail when the line is too long", () => {
+    const id = "openrouter/z-ai/glm-5.3-flash";
+    const clipped = ellipsizeHealthTail(id, 16);
+    expect(clipped.startsWith("…")).toBe(true);
+    expect(clipped.endsWith("glm-5.3-flash")).toBe(true);
+    expect(clipped).not.toBe("openrouter/z-ai");
+    const line = renderProviderHealth({
+        kind: "ready",
+        tone: "green",
+        summary: `${id} answered`,
+        details: ["openai-codex/gpt-5.3-codex-spark failed"],
+    }, 40);
+    expect(line[0]!.length).toBeLessThanOrEqual(40);
+    expect(line[0]).toContain("green");
+    expect(line[0]).toMatch(/glm-5\.3-flash answered$/);
+    expect(line[1]!.length).toBeLessThanOrEqual(40);
+    expect(line[1]).toMatch(/codex-spark failed$/);
 });
 
 test("an already-expired Codex token is an expired credential", () => {

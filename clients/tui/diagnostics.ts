@@ -49,6 +49,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly clientExtensionReload?: TuiClientExtensionReloadSnapshot;
     readonly startup?: HostStartupTimingSnapshot;
     readonly health?: ProviderHealthStatus;
+    readonly healthLineWidth?: number;
 }
 
 export interface TuiClientExtensionReloadSnapshot {
@@ -212,7 +213,10 @@ function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
 function providerHealthSection(snapshot: TuiDiagnosticsSnapshot): string[] {
     return [
         "## Provider health",
-        ...renderProviderHealth(snapshot.health ?? idleProviderHealth()),
+        ...renderProviderHealth(
+            snapshot.health ?? idleProviderHealth(),
+            snapshot.healthLineWidth ?? 72,
+        ),
         "",
     ];
 }

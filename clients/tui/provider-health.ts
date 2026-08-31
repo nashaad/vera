@@ -45,6 +45,7 @@ export type ProviderHealthStatus =
         readonly tone: ProviderHealthTone;
         readonly summary: string;
         readonly next?: string;
+        readonly details?: readonly string[];
     };
 
 export function idleProviderHealth(): ProviderHealthStatus {
@@ -173,60 +174,81 @@ export function summarizeProviderHealth(options: {
         };
     }
     const first = answered[0]!;
-    const last = results[results.length - 1]!;
-    const onlyLast = results.length > 1
-        && answered.length === 1
-        && last.answered;
-    const anyFailed = results.some((result) => !result.answered);
-    const expired = options.expiredCredential;
-    if (!onlyLast && !anyFailed && expired === undefined) {
+    const firstIndex = results.findIndex((result) => result.answered);
+    const hasFallback = firstIndex >= 0 && firstIndex < results.length - 1;
+    const details = [
+        ...results
+            .filter((result) => !result.answered)
+            .map((result) => `${rungLabel(result.rung)} failed`),
+        ...(options.expiredCredential === undefined
+            ? []
+            : [`${options.expiredCredential} credential is expired`]),
+    ];
+    const extra = details.length === 0 ? {} : { details };
+    if (hasFallback) {
         return {
             kind: "ready",
             tone: "green",
             summary: `${rungLabel(first.rung)} answered`,
+            ...extra,
         };
     }
     const verifyHint = tuiKeyHint("verify_pool").split(" ")[0] ?? "^⇧v";
-    if (onlyLast) {
-        return {
-            kind: "ready",
-            tone: "yellow",
-            summary: `only the last shortlist model answered (${rungLabel(last.rung)})`,
-            next: `/model then Verify all (${verifyHint}) to repair the earlier rungs`,
-        };
-    }
-    if (anyFailed) {
-        const failed = results.find((result) => !result.answered)!;
-        return {
-            kind: "ready",
-            tone: "yellow",
-            summary: `${rungLabel(failed.rung)} failed; ${rungLabel(first.rung)} answered`,
-            next: `/model then Verify all (${verifyHint})`,
-        };
-    }
+    const next = results.length === 1
+        ? "/model to add a fallback"
+        : `/model then Verify all (${verifyHint}) to repair the earlier rungs`;
     return {
         kind: "ready",
         tone: "yellow",
-        summary: `${rungLabel(first.rung)} answered; ${expired} credential is expired`,
-        next: "/providers to reconnect",
+        summary: `only the last shortlist model answered (${rungLabel(first.rung)})`,
+        next,
+        ...extra,
     };
+}
+
+/**
+ * Shorten from the head so a clipped `provider/model` still ends on the
+ * model id. A missing prefix is honest; a cut tail names the wrong model.
+ */
+export function ellipsizeHealthTail(text: string, max: number): string {
+    if (max <= 0) return "";
+    if (text.length <= max) return text;
+    if (max === 1) return "…";
+    return `…${text.slice(text.length - (max - 1))}`;
 }
 
 export function renderProviderHealth(
     status: ProviderHealthStatus,
+    maxWidth = 72,
 ): string[] {
     if (status.kind === "idle") {
         const chord = tuiKeyChord("check_provider_health") || "v";
-        return [`  not checked  press ${chord}`];
+        return [ellipsizeHealthTail(`  not checked  press ${chord}`, maxWidth)];
     }
     if (status.kind === "checking") {
+        const prefix = `  checking   ${status.current} of ${status.total}  `;
         return [
-            `  checking   ${status.current} of ${status.total}  ${status.label}`,
+            prefix + ellipsizeHealthTail(status.label, maxWidth - prefix.length),
         ];
     }
-    const lines = [`  ${status.tone.padEnd(8)} ${status.summary}`];
+    const tonePrefix = `  ${status.tone.padEnd(8)} `;
+    const lines = [
+        tonePrefix
+            + ellipsizeHealthTail(status.summary, maxWidth - tonePrefix.length),
+    ];
+    const detailPrefix = " ".repeat(tonePrefix.length);
+    for (const detail of status.details ?? []) {
+        lines.push(
+            detailPrefix
+                + ellipsizeHealthTail(detail, maxWidth - detailPrefix.length),
+        );
+    }
     if (status.next !== undefined) {
-        lines.push(`  next        ${status.next}`);
+        const nextPrefix = "  next        ";
+        lines.push(
+            nextPrefix
+                + ellipsizeHealthTail(status.next, maxWidth - nextPrefix.length),
+        );
     }
     return lines;
 }

@@ -351,16 +351,26 @@ test("inspect health is green when a shortlist rung answers", async () => {
         width: 100,
         height: 52,
         dependencies: () => ({
-            ...createTuiChildDependencies(),
-            probeHealthRung: async () => {
+            ...createTuiChildDependencies({
+                modelSettings: {
+                    model: "glm-flash",
+                    provider: "openrouter",
+                    reasoningEffort: "high",
+                    pooled: [
+                        pooledRung("openrouter", "glm-flash"),
+                        pooledRung("ollama", "qwen3:1.7b"),
+                    ],
+                },
+            }),
+            probeHealthRung: async (rung) => {
                 probed += 1;
-                return true;
+                return rung.model === "glm-flash";
             },
         }),
     });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("glm-flash");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not checked");
@@ -370,7 +380,8 @@ test("inspect health is green when a shortlist rung answers", async () => {
             "openrouter/glm-flash answered",
         );
         expect(pane).toContain("green");
-        expect(probed).toBe(1);
+        expect(pane).toContain("qwen3:1.7b failed");
+        expect(probed).toBe(2);
     } finally {
         await session.close();
     }
@@ -393,7 +404,17 @@ test("inspect health is green when a local ollama rung answers", async () => {
         width: 100,
         height: 52,
         dependencies: () => ({
-            ...createTuiChildDependencies(),
+            ...createTuiChildDependencies({
+                modelSettings: {
+                    model: "qwen3:1.7b",
+                    provider: "ollama",
+                    reasoningEffort: "high",
+                    pooled: [
+                        pooledRung("ollama", "qwen3:1.7b"),
+                        pooledRung("openrouter", "glm-flash"),
+                    ],
+                },
+            }),
             healthEnv: {},
             probeHealthRung: async () => {
                 probed += 1;
@@ -403,7 +424,7 @@ test("inspect health is green when a local ollama rung answers", async () => {
     });
     try {
         await session.waitForVisiblePane("Start a conversation");
-        await session.waitForVisiblePane("test · HIGH");
+        await session.waitForVisiblePane("qwen3:1.7b");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         await session.waitForVisiblePane("not checked");
@@ -413,8 +434,19 @@ test("inspect health is green when a local ollama rung answers", async () => {
             "ollama/qwen3:1.7b answered",
         );
         expect(pane).toContain("green");
-        expect(probed).toBe(1);
+        expect(probed).toBe(2);
     } finally {
         await session.close();
     }
 }, 15_000);
+
+function pooledRung(provider: string, model: string) {
+    return {
+        provider,
+        model,
+        label: model,
+        available: true,
+        verified: true,
+        levels: [],
+    };
+}

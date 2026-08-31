@@ -6475,6 +6475,7 @@ export async function startTui(
             clientExtensionReload,
             startup: readLatestHostStartupTiming(),
             health: providerHealth,
+            healthLineWidth: diagnosticsDialogView.contentWidth(),
         };
     }
 
