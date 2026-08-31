@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { mkdtempSync } from "node:fs";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -36,6 +36,9 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         expect(pane).toContain("Runtime");
         expect(pane).toContain("enter copies all");
         expect(pane).toContain("## Session");
+        expect(pane).toContain("## Provider health");
+        expect(pane).toContain("not checked");
+        expect(pane).toContain("press v");
         expect(pane).not.toContain("Extensions");
         expect(pane).not.toContain("Pre-image stash");
         // The composer stays behind the overlay, and its frame carries the
@@ -292,6 +295,82 @@ test("partial reload names the extensions that stayed active", async () => {
         pane = await session.waitForVisiblePane("reload       partial (1 loaded)");
         expect(pane).toContain("active       test.sidebar");
         expect(pane).toContain("reload error");
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("inspect health stays idle until v and reports red with no provider", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-health-idle-"));
+    let probed = 0;
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 52,
+        dependencies: () => ({
+            ...createTuiChildDependencies(),
+            healthEnv: {},
+            probeHealthRung: async () => {
+                probed += 1;
+                return true;
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        await session.waitForVisiblePane("test · HIGH");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        let pane = await session.waitForVisiblePane("not checked");
+        expect(pane).toContain("press v");
+        expect(probed).toBe(0);
+        session.sendKey("v");
+        pane = await session.waitForVisiblePane("no provider configured");
+        expect(pane).toContain("red");
+        expect(pane).toContain("/providers");
+        expect(probed).toBe(0);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("inspect health is green when a shortlist rung answers", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-health-green-"));
+    mkdirSync(join(home, ".vera/profiles/default"), { recursive: true });
+    writeFileSync(
+        join(home, ".vera/profiles/default/config.json"),
+        JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "glm-flash",
+        }),
+    );
+    let probed = 0;
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 52,
+        dependencies: () => ({
+            ...createTuiChildDependencies(),
+            probeHealthRung: async () => {
+                probed += 1;
+                return true;
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        await session.waitForVisiblePane("test · HIGH");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("not checked");
+        expect(probed).toBe(0);
+        session.sendKey("v");
+        const pane = await session.waitForVisiblePane(
+            "openrouter/glm-flash answered",
+        );
+        expect(pane).toContain("green");
+        expect(probed).toBe(1);
     } finally {
         await session.close();
     }
