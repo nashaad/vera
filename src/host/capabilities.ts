@@ -27,8 +27,8 @@ export const HOST_CAPABILITY_SESSION_SCOPED_STATE = "session-scoped-state.v1";
 export const HOST_CAPABILITY_SKILL_COMMANDS = "skills.commands.v1";
 /** Machine-wide work inbox: a snapshot on attach, then changes as they land. */
 export const HOST_CAPABILITY_WORK_INDEX = "work.index.v1";
-/** Loopback Vera web usage page served by this host. */
-export const HOST_CAPABILITY_WEB_USAGE = "web.usage.v1";
+/** Loopback annex spawned by this host. */
+export const HOST_CAPABILITY_ANNEX = "annex.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -42,7 +42,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
     HOST_CAPABILITY_SKILL_COMMANDS,
     HOST_CAPABILITY_WORK_INDEX,
-    HOST_CAPABILITY_WEB_USAGE,
+    HOST_CAPABILITY_ANNEX,
 ] as const;
 
 export function parseHostCapabilities(

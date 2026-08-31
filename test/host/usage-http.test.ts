@@ -18,7 +18,7 @@ import {
     foldUsageReport,
     type UsageReport,
 } from "../../src/annex/usage-report.ts";
-import { readUsageWebUrlThroughHost } from "../../src/host/usage-web-client.ts";
+import { readAnnexUrlThroughHost } from "../../src/annex/host-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
@@ -177,7 +177,7 @@ test("usage server defaults to the packed release web root", async () => {
     expect(await page.text()).toContain("Vera · Usage");
 });
 
-test("resident host answers usage_web with a loopback page", async () => {
+test("resident host answers annex_url with a loopback base URL", async () => {
     const root = tempDir("vera-usage-runtime-");
     const host = await startResidentHost({
         config: {
@@ -194,12 +194,17 @@ test("resident host answers usage_web with a loopback page", async () => {
         webRoot: await packedWebDir(),
     });
     try {
-        const url = await readUsageWebUrlThroughHost(host.server.socketPath);
-        expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
-        const page = await fetch(new URL("usage", url).href);
+        const result = await readAnnexUrlThroughHost(host.server.socketPath);
+        if (!("url" in result) || typeof result.url !== "string") {
+            throw new Error(`expected annex url, got ${JSON.stringify(result)}`);
+        }
+        expect(result.url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
+        expect(result.url.endsWith("/usage")).toBe(false);
+        const page = await fetch(new URL("usage", result.url).href);
         expect(page.status).toBe(200);
         expect(await page.text()).toContain("Vera · Usage");
         expect(host.health.annex).toBe("ok");
+        expect(host.annexPid).toBeGreaterThan(0);
     } finally {
         await host.close();
     }
@@ -239,14 +244,18 @@ test("missing packed assets report annex: failed in host health", async () => {
     try {
         expect(host.health.annex).toBe("failed");
         expect(host.health.annexReason).toMatch(/Packed annex asset missing:/);
-        const failed = entries.find((entry) => entry.type === "usage_web_failed");
+        const failed = entries.find((entry) => entry.type === "annex_failed");
         expect(failed).toMatchObject({
-            type: "usage_web_failed",
+            type: "annex_failed",
             health: "annex: failed",
         });
         expect(String(failed?.message)).toMatch(/Packed annex asset missing:/);
-        expect(await readUsageWebUrlThroughHost(host.server.socketPath))
-            .toBeUndefined();
+        const result = await readAnnexUrlThroughHost(host.server.socketPath);
+        if (!("unavailable" in result) || typeof result.unavailable !== "string") {
+            throw new Error(`expected annex unavailable, got ${JSON.stringify(result)}`);
+        }
+        expect(result.unavailable).toMatch(/Packed annex asset missing:/);
+        expect(result.unavailable).toContain("Restart the host to bring the annex back");
     } finally {
         await host.close();
     }

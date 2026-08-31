@@ -396,8 +396,9 @@ import {
     readModelSettingsThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import {
-    readUsageWebUrlThroughHost,
-} from "../../src/host/usage-web-client.ts";
+    readAnnexUrlThroughHost,
+    type AnnexUrlResult,
+} from "../../src/annex/host-client.ts";
 import {
     createHomeState,
     createTuiHomeView,
@@ -1006,8 +1007,8 @@ export interface TuiDependencies {
     };
     /** Overrides the read-only process sampler for deterministic TUI tests. */
     readonly doctor?: () => Promise<VeraDoctorReport>;
-    /** Loopback URL for Vera web. Absent when this host does not serve it. */
-    readonly openUsagePage?: () => Promise<string | undefined>;
+    /** Annex base URL. The TUI opens /usage on it. Absent when this host has none. */
+    readonly openUsagePage?: () => Promise<AnnexUrlResult>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
@@ -1289,7 +1290,7 @@ export async function startConfiguredTui(
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
-            openUsagePage: () => readUsageWebUrlThroughHost(host.socket_path),
+            openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
             flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
@@ -6925,18 +6926,20 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             void (async () => {
-                const url = await dependencies.openUsagePage?.();
+                const result = await dependencies.openUsagePage?.();
                 if (shuttingDown) return;
-                if (url === undefined) {
+                if (result === undefined || "unavailable" in result) {
                     state = appendTuiNotice(
                         state,
-                        "This host does not serve the usage page.",
+                        result?.unavailable
+                            ?? "This host does not serve an annex. Restart the host to bring it back.",
                     );
                     renderState();
                     return;
                 }
-                openTuiLink(url);
-                state = appendTuiNotice(state, `Opened ${url}`);
+                const usageUrl = new URL("usage", result.url).href;
+                openTuiLink(usageUrl);
+                state = appendTuiNotice(state, `Opened ${usageUrl}`);
                 renderState();
             })();
             renderState();

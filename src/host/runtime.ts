@@ -21,6 +21,7 @@ import {
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
+    veraHomeDirectory,
     veraMachineDirectory,
     veraProfileDirectory,
 } from "../profile-paths.ts";
@@ -49,14 +50,13 @@ import type {
 } from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
-    providerCatalogCacheDir,
     readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
-import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
+import { createReviewLogger } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
@@ -156,7 +156,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
-import { startUsageWebServer, type UsageWebServer } from "./usage-http.ts";
+import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
@@ -225,7 +225,7 @@ export interface StartResidentHostOptions {
     readonly startupLog?: HostLog;
     /** Collects what extension startup found; tests read it back. */
     readonly startupFindings?: StartupFindings;
-    /** Packed usage assets. Defaults to the packed release web directory. */
+    /** Packed annex assets. Defaults to the packed release web directory. */
     readonly webRoot?: string;
 }
 
@@ -241,6 +241,7 @@ export interface ResidentHost {
     /** Resolves as soon as any caller starts closing this resident host. */
     readonly shutdownRequested: Promise<void>;
     readonly health: HostHealth;
+    readonly annexPid?: number;
     close(): Promise<void>;
 }
 
@@ -943,9 +944,25 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
-    let usageWeb: UsageWebServer | undefined;
-    let usageWebUrl: string | undefined;
-    let annexHealth: HostHealth = { annex: "failed" };
+    let annex: AnnexProcess | undefined;
+    let annexUrl: string | undefined;
+    let annexUnavailable: string | undefined;
+    const annexHealth: { annex: "ok" | "failed"; annexReason?: string } = {
+        annex: "failed",
+    };
+    const markAnnexFailed = (reason: string): void => {
+        annexUrl = undefined;
+        annexUnavailable =
+            `${reason} Restart the host to bring the annex back.`;
+        annexHealth.annex = "failed";
+        annexHealth.annexReason = reason;
+    };
+    const markAnnexOk = (url: string): void => {
+        annexUrl = url;
+        annexUnavailable = undefined;
+        annexHealth.annex = "ok";
+        delete annexHealth.annexReason;
+    };
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
@@ -968,7 +985,7 @@ export async function startResidentHost(
             announceShutdown();
             closing = (async () => {
                 try {
-                    await usageWeb?.close();
+                    await annex?.close();
                 } finally {
                     await closeResidentHost(
                         server,
@@ -1057,9 +1074,12 @@ export async function startResidentHost(
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
-            readUsageWeb: () => usageWebUrl === undefined
-                ? undefined
-                : { url: usageWebUrl },
+            readAnnex: () => annexUrl === undefined
+                ? {
+                    unavailable: annexUnavailable
+                        ?? "The annex is not running. Restart the host to bring it back.",
+                }
+                : { url: annexUrl },
             listAgents: async () => mergeStoredAndResidentAgents(
                 await storedSessions,
                 registry.list(),
@@ -1195,21 +1215,26 @@ export async function startResidentHost(
             }),
         );
         try {
-            usageWeb = await startUsageWebServer({
-                sessionDirectory,
-                catalogCacheDir: providerCatalogCacheDir(),
-                reviewLogPath: defaultReviewLogPath(),
+            annex = await startAnnexProcess({
+                home: veraHomeDirectory(),
                 ...(options.webRoot === undefined
                     ? {}
-                    : { webRoot: options.webRoot }),
+                    : { assets: options.webRoot }),
+                onExit: (reason) => {
+                    markAnnexFailed(reason);
+                    hostLog({
+                        type: "annex_exited",
+                        health: "annex: failed",
+                        message: reason,
+                    });
+                },
             });
-            usageWebUrl = usageWeb.url;
-            annexHealth = { annex: "ok" };
+            markAnnexOk(annex.url);
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            annexHealth = { annex: "failed", annexReason: reason };
+            markAnnexFailed(reason);
             const entry = {
-                type: "usage_web_failed",
+                type: "annex_failed",
                 health: "annex: failed",
                 ...hostErrorFields(error),
             };
@@ -1260,6 +1285,7 @@ export async function startResidentHost(
         server,
         shutdownRequested,
         health: annexHealth,
+        ...(annex === undefined ? {} : { annexPid: annex.pid }),
         close: closeHost,
     };
 }

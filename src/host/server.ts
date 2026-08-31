@@ -139,9 +139,13 @@ export interface StartHostServerOptions {
         workspace?: string,
     ) => ModelTurnSettings | undefined;
     /**
-     * Loopback URL for Vera web. Absent means this host does not serve it.
+     * Annex base URL. Absent means this host has no annex. `unavailable` means
+     * it was supposed to be up and is not.
      */
-    readonly readUsageWeb?: () => { readonly url: string } | undefined;
+    readonly readAnnex?: () =>
+        | { readonly url: string }
+        | { readonly unavailable: string }
+        | undefined;
     /**
      * Fills in the optional facts named by `include`, for one page of rows.
      * Injected rather than computed here: the server knows how to page a
@@ -439,7 +443,7 @@ export async function startHostServer(
             interactiveAttachments,
             options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
-            options.readUsageWeb,
+            options.readAnnex,
             resolveHostLimits(options.limits),
         );
     });
@@ -569,7 +573,10 @@ function receiveConnection(
     interactiveAttachments: InteractiveAttachmentRegistry,
     readAgentTree: (rootAgentId: string) => readonly string[],
     readModelSettings: (workspace?: string) => ModelTurnSettings | undefined,
-    readUsageWeb: (() => { readonly url: string } | undefined) | undefined,
+    readAnnex: (() =>
+        | { readonly url: string }
+        | { readonly unavailable: string }
+        | undefined) | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1088,17 +1095,19 @@ function receiveConnection(
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }
-        if (request?.type === "usage_web") {
+        if (request?.type === "annex_url") {
             clearDeadline();
             finished = true;
-            const web = readUsageWeb?.();
+            const annex = readAnnex?.();
             void send(
-                web === undefined
+                annex === undefined
                     ? {
                         type: "protocol_error",
                         reason: "unsupported_or_invalid_command",
                     }
-                    : { type: "usage_web", url: web.url },
+                    : "url" in annex
+                        ? { type: "annex_url", url: annex.url }
+                        : { type: "annex_unavailable", reason: annex.unavailable },
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

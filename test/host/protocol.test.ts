@@ -18,8 +18,8 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",
     });
-    expect(parseHostRequest('{"type":"list_agents"}')).toEqual({
-        type: "list_agents",
+    expect(parseHostRequest('{"type":"annex_url"}')).toEqual({
+        type: "annex_url",
     });
     expect(parseHostRequest(JSON.stringify({
         type: "schedule_operation",

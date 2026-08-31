@@ -1,7 +1,7 @@
 import { join } from "node:path";
 
 import { startResidentHost } from "../../src/host/runtime.ts";
-import { readUsageWebUrlThroughHost } from "../../src/host/usage-web-client.ts";
+import { readAnnexUrlThroughHost } from "../../src/annex/host-client.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 async function main(): Promise<void> {
@@ -29,18 +29,18 @@ async function main(): Promise<void> {
         webRoot,
     });
     try {
-        const url = await readUsageWebUrlThroughHost(host.server.socketPath);
-        if (url === undefined) {
-            process.stderr.write("no usage url\n");
+        const result = await readAnnexUrlThroughHost(host.server.socketPath);
+        if (!("url" in result)) {
+            process.stderr.write(`${result.unavailable}\n`);
             process.exit(1);
         }
-        const page = await fetch(new URL("usage", url).href);
+        const page = await fetch(new URL("usage", result.url).href);
         const text = await page.text();
         if (page.status !== 200 || !text.includes("Vera · Usage")) {
             process.stderr.write("usage page missing\n");
             process.exit(1);
         }
-        process.stdout.write(`${url}\n`);
+        process.stdout.write(`${result.url}\n`);
     } finally {
         await host.close();
     }
