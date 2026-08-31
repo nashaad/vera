@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { join, sep } from "node:path";
 
 import {
+    currentReleaseBuildId,
     currentSymlinkPath,
     defaultInstallPrefix,
     launcherPath,
@@ -41,4 +42,8 @@ test("release layout names annex assets and the manifest", () => {
     expect(packedAnnexRoot(root).split(sep)).not.toContain("web");
     expect(packedAnnexRoot(root).split(sep)).not.toContain("clients");
     expect(packedAnnexRoot()).toBe(join(thisProcessReleaseRoot(), "annex"));
+});
+
+test("currentReleaseBuildId reads the symlink text and nothing else", () => {
+    expect(currentReleaseBuildId("/tmp/vera-no-such-prefix")).toBeUndefined();
 });

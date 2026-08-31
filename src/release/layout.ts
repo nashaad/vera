@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readlinkSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
@@ -40,6 +40,29 @@ export function releaseDirectory(
 
 export function currentSymlinkPath(prefix = defaultInstallPrefix()): string {
     return join(veraShareRoot(prefix), "current");
+}
+
+/**
+ * The build id `current` points at. Read from the symlink text
+ * `releases/<build-id>`. Missing or malformed `current` is undefined, not a
+ * search for another release.
+ */
+export function currentReleaseBuildId(
+    prefix = defaultInstallPrefix(),
+): string | undefined {
+    let link: string;
+    try {
+        link = readlinkSync(currentSymlinkPath(prefix));
+    } catch {
+        return undefined;
+    }
+    const expected = "releases/";
+    if (!link.startsWith(expected)) return undefined;
+    const buildId = link.slice(expected.length);
+    if (buildId.length === 0 || buildId.includes("/") || buildId.includes("\0")) {
+        return undefined;
+    }
+    return buildId;
 }
 
 export function launcherPath(prefix = defaultInstallPrefix()): string {
