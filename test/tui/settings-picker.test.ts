@@ -1750,6 +1750,58 @@ test("right and left move between a model row and its inspector", async () => {
     expect(nextTab.modelFocus).toBe("list");
 });
 
+test("supported model inspectors expose exact request-option state and action", async () => {
+    const support = {
+        providerLabel: "OpenRouter",
+        label: "OpenRouter request body",
+        explanation: "Added to the OpenRouter request body.",
+        documentationUrl: "https://openrouter.ai/docs/guides/routing/provider-selection",
+    };
+    const base = modelPickerWithPool(
+        pooledModels,
+        "z-ai/glm-5.2",
+        "openrouter",
+    );
+    const unset: TuiSettingsPickerState = {
+        ...base,
+        requestOptionsProviders: { openrouter: support },
+        configuredRequestOptions: [],
+    };
+    expect(await pickerFrame(unset)).toMatch(/Request options\s+none/);
+
+    const configured = {
+        ...unset,
+        configuredRequestOptions: ["openrouter/z-ai/glm-5.2"],
+    };
+    expect(await pickerFrame(configured)).toMatch(
+        /Request options\s+configured/,
+    );
+
+    const detail = handleTuiSettingsPickerKey(configured, { name: "right" })
+        .state!;
+    const requestRow = ["down", "down", "down"].reduce(
+        (state, name) => handleTuiSettingsPickerKey(state, { name }).state!,
+        detail,
+    );
+    const keyboard = handleTuiSettingsPickerKey(requestRow, { name: "enter" })
+        .requestOptions;
+    expect(keyboard).toEqual({
+        provider: "openrouter",
+        model: "z-ai/glm-5.2",
+        support,
+    });
+
+    const clicked = moveTuiSettingsPickerPointer(
+        configured,
+        configured.options.length + 4,
+    ) as TuiSettingsPickerState;
+    expect(handleTuiSettingsPickerKey(clicked, { name: "enter" }).requestOptions)
+        .toEqual(keyboard);
+
+    const unsupported = { ...configured, selectedIndex: 0 };
+    expect(await pickerFrame(unsupported)).not.toContain("Request options");
+});
+
 test("verifying the shortlist lives on More, and every row is clickable", async () => {
     const shortlist = {
         ...modelPickerWithPool(),

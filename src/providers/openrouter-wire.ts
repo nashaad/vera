@@ -5,6 +5,7 @@ import type {
     ChatStreamChunk,
     ChatUsage,
     ReasoningDetailUnion,
+    ProviderPreferences,
 } from "@openrouter/sdk/models";
 
 import type {
@@ -28,6 +29,7 @@ export interface OpenRouterChatRequest {
     };
     readonly tools?: ChatFunctionTool[];
     readonly bodyExtensions?: Readonly<Record<string, JsonValue>>;
+    readonly provider?: ProviderPreferences;
 }
 
 export type SendOpenRouterChat = (

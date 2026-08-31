@@ -505,6 +505,12 @@ import {
     type TuiProviderFormTransition,
 } from "./settings-picker.ts";
 import {
+    createTuiRequestOptionsEditorView,
+    startTuiRequestOptionsEditor,
+    type TuiRequestOptionsEditorState,
+    type TuiRequestOptionsEditorTransition,
+} from "./request-options-editor.ts";
+import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
     handleTuiSecretPromptPaste,
@@ -1544,6 +1550,7 @@ export async function startTui(
     let secretPrompt: TuiSecretPromptState | undefined;
     let namePrompt: TuiNamePromptState | undefined;
     let providerForm: TuiProviderFormState | undefined;
+    let requestOptionsEditor: TuiRequestOptionsEditorState | undefined;
     let preferencesList: TuiPreferencesListState | undefined;
     let standingNudges: TuiStandingNudgesState | undefined;
     const standingNudgesProfileDirectory = veraProfileDirectory();
@@ -2724,6 +2731,7 @@ export async function startTui(
     const secretPromptView = createTuiSecretPromptView(renderer);
     const namePromptView = createTuiNamePromptView(renderer);
     const providerFormView = createTuiProviderFormView(renderer);
+    const requestOptionsEditorView = createTuiRequestOptionsEditorView(renderer);
     const preferencesListView = createTuiPreferencesListView(renderer);
     const standingNudgesView = createTuiStandingNudgesView(renderer);
     const commandPaletteView = createTuiCommandPaletteView(renderer);
@@ -2780,6 +2788,7 @@ export async function startTui(
         secretPromptView,
         namePromptView,
         providerFormView,
+        requestOptionsEditorView,
         preferencesListView,
         standingNudgesView,
         commandPaletteView,
@@ -4244,6 +4253,7 @@ export async function startTui(
     app.add(secretPromptView.box);
     app.add(namePromptView.surface);
     app.add(providerFormView.surface);
+    app.add(requestOptionsEditorView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
@@ -4711,6 +4721,21 @@ export async function startTui(
             standingNudges = editorTransition.handled
                 ? editorTransition.state
                 : handleTuiStandingNudgesPaste(standingNudges, pasted);
+            renderState();
+            return;
+        }
+        if (
+            requestOptionsEditor !== undefined
+            && requestOptionsEditorView.surface.visible
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            const pasted = stripAnsiSequences(decodePasteBytes(event.bytes));
+            const transition = requestOptionsEditorView.handlePaste(
+                requestOptionsEditor,
+                pasted,
+            );
+            requestOptionsEditor = transition.state;
             renderState();
             return;
         }
@@ -5341,6 +5366,18 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
+        if (requestOptionsEditor !== undefined) {
+            const transition = requestOptionsEditorView.handleKey(
+                requestOptionsEditor,
+                key,
+            );
+            if (transition.handled) {
+                key.preventDefault();
+                key.stopPropagation();
+                applyRequestOptionsEditorTransition(transition);
+                return;
+            }
+        }
         if (providerForm !== undefined) {
             const transition = handleTuiProviderFormKey(providerForm, key);
             if (transition.handled) {
@@ -9152,6 +9189,9 @@ export async function startTui(
         if (providerForgetCandidate !== undefined) {
             return () => providerForgetConfirmView.box.focus();
         }
+        if (requestOptionsEditor !== undefined) {
+            return () => requestOptionsEditorView.focus();
+        }
         if (providerForm !== undefined) {
             return () => providerFormView.box.focus();
         }
@@ -9595,6 +9635,7 @@ export async function startTui(
         standingNudges = undefined;
         namePrompt = undefined;
         providerForm = undefined;
+        requestOptionsEditor = undefined;
         commandPalette = undefined;
         help = undefined;
         confirmingFullAccess = false;
@@ -10370,6 +10411,12 @@ export async function startTui(
             || questionView.box.visible);
         timelinePickerView.box.visible = uiRequest === undefined
             && timelinePicker !== undefined;
+        requestOptionsEditorView.surface.visible = uiRequest === undefined
+            && timelinePicker === undefined
+            && !confirmingFullAccess
+            && sessionTrashCandidate === undefined && !sessionCloseConfirm
+            && providerForgetCandidate === undefined
+            && requestOptionsEditor !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
         providerFormView.surface.visible = uiRequest === undefined
@@ -10377,12 +10424,14 @@ export async function startTui(
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
+            && requestOptionsEditor === undefined
             && providerForm !== undefined;
         namePromptView.surface.visible = uiRequest === undefined
             && timelinePicker === undefined
             && !confirmingFullAccess
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && namePrompt !== undefined;
         secretPromptView.box.visible = uiRequest === undefined
@@ -10391,6 +10440,7 @@ export async function startTui(
             && sessionTrashCandidate === undefined && !sessionCloseConfirm
             && providerForgetCandidate === undefined
             && namePrompt === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && secretPrompt !== undefined;
         settingsPickerView.box.visible = (uiRequest === undefined
@@ -10401,6 +10451,7 @@ export async function startTui(
             && providerForgetCandidate === undefined
             && secretPrompt === undefined
             && namePrompt === undefined
+            && requestOptionsEditor === undefined
             && providerForm === undefined
             && settingsPicker !== undefined;
         preferencesListView.surface.visible = uiRequest === undefined
@@ -10571,6 +10622,7 @@ export async function startTui(
             || providerForgetConfirmView.surface.visible
             || namePromptView.surface.visible
             || providerFormView.surface.visible
+            || requestOptionsEditorView.surface.visible
             || secretPromptView.box.visible
             || experimentalTuiHost.hasModal();
         // The scrim carries the whole fade: its translucent fill composites
@@ -10645,6 +10697,9 @@ export async function startTui(
         }
         if (providerForm !== undefined) {
             providerFormView.update(providerForm);
+        }
+        if (requestOptionsEditor !== undefined) {
+            requestOptionsEditorView.update(requestOptionsEditor);
         }
         if (preferencesList !== undefined) {
             preferencesListView.update(preferencesList);
@@ -10841,6 +10896,7 @@ export async function startTui(
             || secretPrompt !== undefined
             || namePrompt !== undefined
             || providerForm !== undefined
+            || requestOptionsEditor !== undefined
             || settingsPicker !== undefined
             || preferencesList !== undefined
             || standingNudges !== undefined
@@ -11075,6 +11131,7 @@ export async function startTui(
         ), parent);
         settingsPicker = {
             ...settingsPicker,
+            ...modelRequestOptionsFacts(),
             assignmentOptions: tuiModelAssignmentOptions(
                 currentModelAssignmentRows(),
                 targetState.modelSettings?.model,
@@ -11107,6 +11164,31 @@ export async function startTui(
         requestAgentSettings(focusedAgentClient());
         renderState();
         focusActiveSurface();
+    }
+
+    function modelRequestOptionsFacts(): Pick<
+        TuiSettingsPickerState,
+        "requestOptionsProviders" | "configuredRequestOptions"
+    > {
+        const config = loadOptionalVeraConfig();
+        const requestOptionsProviders = Object.fromEntries(
+            configuredProviders(config).flatMap((provider) =>
+                provider.requestOptions === undefined
+                    ? []
+                    : [[provider.id, {
+                        providerLabel: provider.label,
+                        label: provider.requestOptions.label,
+                        explanation: provider.requestOptions.explanation,
+                        documentationUrl: provider.requestOptions.documentationUrl,
+                    }]]
+            ),
+        );
+        return {
+            requestOptionsProviders,
+            configuredRequestOptions: Object.keys(
+                config?.model_request_options ?? {},
+            ),
+        };
     }
 
     function modelPickerActionOptions(
@@ -11915,6 +11997,81 @@ export async function startTui(
         });
         settingsPicker = undefined;
         composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
+    function openRequestOptionsEditor(
+        candidate: NonNullable<TuiSettingsPickerTransition["requestOptions"]>,
+        parent: TuiSettingsPickerState,
+    ): void {
+        try {
+            const config = loadOptionalVeraConfig();
+            const reference = `${candidate.provider}/${candidate.model}`;
+            requestOptionsEditor = startTuiRequestOptionsEditor(
+                candidate,
+                veraProfileName(),
+                config?.model_request_options?.[reference]?.body,
+                parent,
+            );
+            settingsPicker = undefined;
+            composer.blur();
+            renderState();
+            focusActiveSurface();
+        } catch (error) {
+            state = appendTuiError(
+                state,
+                error instanceof Error ? error.message : String(error),
+            );
+            settingsPicker = parent;
+            renderState();
+        }
+    }
+
+    function applyRequestOptionsEditorTransition(
+        transition: TuiRequestOptionsEditorTransition,
+    ): void {
+        const previous = requestOptionsEditor;
+        requestOptionsEditor = transition.state;
+        if (requestOptionsEditor !== undefined) {
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        if (previous === undefined) return;
+        if (transition.save === undefined) {
+            settingsPicker = previous.parent;
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        const save = transition.save;
+        const reference = `${save.provider}/${save.model}`;
+        try {
+            updateVeraConfigDefaults({
+                model_request_options: {
+                    model: reference,
+                    body: save.body,
+                },
+            });
+        } catch (error) {
+            requestOptionsEditor = {
+                ...previous,
+                error: error instanceof Error ? error.message : String(error),
+            };
+            renderState();
+            focusActiveSurface();
+            return;
+        }
+        settingsPicker = {
+            ...save.parent,
+            ...modelRequestOptionsFacts(),
+        };
+        state = appendTuiNotice(
+            state,
+            `saved request options for ${reference}`,
+            "soft",
+        );
         renderState();
         focusActiveSurface();
     }
@@ -13355,6 +13512,17 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
+        if (
+            "requestOptions" in transition
+            && transition.requestOptions !== undefined
+            && previousPicker?.kind === "model"
+        ) {
+            openRequestOptionsEditor(
+                transition.requestOptions,
+                previousPicker,
+            );
+            return;
+        }
         if ("openProviders" in transition && transition.openProviders === true) {
             // The model pane stays underneath: connecting a provider is a
             // detour on the way to picking a model, not a change of subject.
@@ -13976,6 +14144,7 @@ export async function startTui(
         secretPrompt = undefined;
         namePrompt = undefined;
         providerForm = undefined;
+        requestOptionsEditor = undefined;
         preferencesList = undefined;
         preferencesListParent = undefined;
         standingNudges = undefined;
@@ -15276,6 +15445,7 @@ export async function startTui(
         ...secretPromptView.themeBindings,
         ...namePromptView.themeBindings,
         ...providerFormView.themeBindings,
+        ...requestOptionsEditorView.themeBindings,
         ...preferencesListView.themeBindings,
         ...standingNudgesView.themeBindings,
         tuiThemeProperties(commandPaletteView.box, {

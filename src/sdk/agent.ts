@@ -14,6 +14,7 @@ import {
 import { resolveAgentSnapshot } from "../agents/wear.ts";
 import {
     configuredModelFallback,
+    createLiveVeraConfigReader,
     loadVeraConfig,
     type VeraConfig,
 } from "../config.ts";
@@ -42,6 +43,10 @@ import {
 } from "../profile-paths.ts";
 import { createAuthStorage } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
+import {
+    applyModelRequestOptions,
+    ProviderRoutingAdapter,
+} from "../providers/routing.ts";
 
 export interface VeraCreateOptions {
     /** Profile to read without changing the process-wide VERA_PROFILE value. */
@@ -114,6 +119,7 @@ interface BoundAgentOptions {
     readonly config: VeraConfig;
     readonly runtimePosture: string;
     readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
+    readonly readRequestOptionsConfig: () => VeraConfig;
 }
 
 interface ResolvedAgentOptions {
@@ -124,6 +130,7 @@ interface ResolvedAgentOptions {
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly posture: string;
     readonly createAdapter: (config: VeraConfig, workspace: string) => ModelAdapter;
+    readonly readRequestOptionsConfig: () => VeraConfig;
 }
 
 interface ResolvedDefaultPair {
@@ -148,6 +155,7 @@ export class Vera {
             config: VeraConfig,
             workspace: string,
         ) => ModelAdapter,
+        private readonly readRequestOptionsConfig: () => VeraConfig,
     ) {}
 
     static async create(options: VeraCreateOptions = {}): Promise<Vera> {
@@ -157,6 +165,12 @@ export class Vera {
             path: join(profileDirectory, "config.json"),
             projectRoot: workspace,
         });
+        const readRequestOptionsConfig = options.config === undefined
+            ? createLiveVeraConfigReader(config, {
+                path: join(profileDirectory, "config.json"),
+                projectRoot: workspace,
+            })
+            : () => config;
         const runtimePosture = options.posture ?? config.approval_mode;
         requirePermissionMode(runtimePosture, config);
         return new Vera(
@@ -165,6 +179,7 @@ export class Vera {
             profileDirectory,
             runtimePosture,
             options.createAdapter ?? defaultAdapterFactory(),
+            readRequestOptionsConfig,
         );
     }
 
@@ -186,6 +201,7 @@ export class Vera {
             config: this.config,
             runtimePosture: this.runtimePosture,
             createAdapter: this.createAdapter,
+            readRequestOptionsConfig: this.readRequestOptionsConfig,
         });
     }
 }
@@ -223,9 +239,19 @@ export class Agent {
             }
         };
         try {
-            const adapter = resolved.createAdapter(
+            const configuredAdapter = resolved.createAdapter(
                 resolved.config,
                 resolved.workspace,
+            );
+            const adapter = new ProviderRoutingAdapter(
+                () => configuredAdapter,
+                resolved.config.provider,
+                undefined,
+                (request, provider) => applyModelRequestOptions(
+                    request,
+                    resolved.readRequestOptionsConfig(),
+                    provider,
+                ),
             );
             const wear = resolveAgentSnapshot(resolved.definition);
             const hooks = new ToolHooks();
@@ -411,6 +437,7 @@ async function resolveAgentOptions(
             ?? selectedConfig.reasoning_effort,
         posture,
         createAdapter: options.createAdapter,
+        readRequestOptionsConfig: options.readRequestOptionsConfig,
     };
 }
 

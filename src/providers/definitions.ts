@@ -36,6 +36,13 @@ export interface ProviderDiscoveryDefinition {
     readonly endpointOverridePath?: string;
 }
 
+export interface ProviderRequestOptionsDefinition {
+    readonly behavior: "openrouter-provider-preferences";
+    readonly label: string;
+    readonly explanation: string;
+    readonly documentation_url: string;
+}
+
 export interface ProviderDefinition {
     readonly schema_version: typeof PROVIDER_DEFINITION_SCHEMA_VERSION;
     readonly order?: number;
@@ -52,6 +59,7 @@ export interface ProviderDefinition {
     readonly fixed_endpoint?: boolean;
     readonly discovery: ProviderDiscoveryDefinition;
     readonly compatibility: ProviderCompatibilityLayers;
+    readonly request_options?: ProviderRequestOptionsDefinition;
 }
 
 export interface ProviderDeclaration {
@@ -243,6 +251,7 @@ export function parseProviderDefinition(
     }
     const discovery = parseDiscovery(value.discovery, context);
     const compatibility = parseLayers(value.compatibility, context);
+    const requestOptions = parseRequestOptions(value.request_options, context);
     if (value.credential === "oauth" && value.protocol !== "contributed") {
         throw new Error(`${context}: oauth requires contributed protocol`);
     }
@@ -265,6 +274,32 @@ export function parseProviderDefinition(
         ...(value.fixed_endpoint === true ? { fixed_endpoint: true } : {}),
         discovery,
         compatibility,
+        ...(requestOptions === undefined ? {} : { request_options: requestOptions }),
+    };
+}
+
+function parseRequestOptions(
+    value: unknown,
+    context: string,
+): ProviderRequestOptionsDefinition | undefined {
+    if (value === undefined) return undefined;
+    if (
+        !isRecord(value)
+        || value.behavior !== "openrouter-provider-preferences"
+        || typeof value.label !== "string"
+        || value.label.length === 0
+        || typeof value.explanation !== "string"
+        || value.explanation.length === 0
+        || typeof value.documentation_url !== "string"
+        || !validProviderUrl(value.documentation_url)
+    ) {
+        throw new Error(`${context}: invalid request_options definition`);
+    }
+    return {
+        behavior: value.behavior,
+        label: value.label,
+        explanation: value.explanation,
+        documentation_url: value.documentation_url,
     };
 }
 

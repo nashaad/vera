@@ -34,6 +34,7 @@ import type {
     ModelReasoningEffort,
     ModelSource,
 } from "../model/types.ts";
+import { openRouterProviderPreferences } from "./request-options.ts";
 
 export type { SendOpenRouterChat } from "./openrouter-wire.ts";
 
@@ -137,8 +138,16 @@ export class OpenRouterAdapter implements ModelAdapter {
 
         try {
             throwIfAborted(request.signal);
+            const providerPreferences = this.profile.provider === "openrouter"
+                && request.bodyExtensions !== undefined
+                ? openRouterProviderPreferences(
+                    request.bodyExtensions,
+                    "OpenRouter request body",
+                )
+                : undefined;
             if (
                 request.bodyExtensions !== undefined
+                && this.profile.provider !== "openrouter"
                 && !this.profile.supportsBodyExtensions
             ) {
                 throw new Error(
@@ -201,6 +210,9 @@ export class OpenRouterAdapter implements ModelAdapter {
                 ...(request.bodyExtensions === undefined
                     ? {}
                     : { bodyExtensions: request.bodyExtensions }),
+                ...(providerPreferences === undefined
+                    ? {}
+                    : { provider: providerPreferences }),
             };
 
             allowanceRequest = this.allowanceScope === undefined
@@ -226,15 +238,21 @@ export class OpenRouterAdapter implements ModelAdapter {
                 );
             }
 
-            sentRequest = request.bodyExtensions === undefined
-                ? providerRequest
-                : {
-                    ...providerRequest,
+            if (request.bodyExtensions === undefined) {
+                sentRequest = providerRequest;
+            } else {
+                const { provider: _provider, ...captureRequest } = providerRequest;
+                sentRequest = {
+                    ...captureRequest,
+                    ...(providerPreferences === undefined
+                        ? {}
+                        : { provider: "[redacted]" }),
                     bodyExtensions: Object.fromEntries(
                         Object.keys(request.bodyExtensions)
                             .map((namespace) => [namespace, "[redacted]"]),
                     ),
                 };
+            }
 
             const chunks = await this.sendChat(providerRequest, request.signal);
             for await (const chunk of chunks) {
@@ -377,6 +395,9 @@ export function createOpenRouterAdapter(
                     ...(request.tools === undefined || request.tools.length === 0
                         ? {}
                         : { tools: request.tools }),
+                    ...(request.provider === undefined
+                        ? {}
+                        : { provider: request.provider }),
                     stream: true,
                 },
             },

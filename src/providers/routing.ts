@@ -7,10 +7,74 @@ import {
     type ModelStreamEvent,
 } from "../model/types.ts";
 import { ModelEventStream } from "../model/stream.ts";
+import type { VeraConfig } from "../config.ts";
+import type { JsonObject } from "../sdk/hooks.ts";
+import { validateProviderRequestBody } from "./request-options.ts";
 
 export type PrepareModelRequest = (
     request: ModelRequest,
+    provider: string,
 ) => ModelRequest | Promise<ModelRequest>;
+
+export function applyModelRequestOptions(
+    request: ModelRequest,
+    config: Pick<VeraConfig, "model_request_options">,
+    provider: string,
+): ModelRequest {
+    const reference = `${provider}/${request.model}`;
+    const entry = config.model_request_options?.[reference];
+    if (entry === undefined) return request;
+    validateProviderRequestBody(
+        provider,
+        entry.body,
+        `model_request_options.${reference}.body`,
+    );
+    return mergeModelRequestBody(
+        request,
+        entry.body,
+        `profile request options for ${reference}`,
+    );
+}
+
+/** A fixed config snapshot for one bounded operation such as model admission. */
+export function createRequestOptionsSnapshotAdapter(
+    createAdapter: (provider: string) => ModelAdapter,
+    defaultProvider: string,
+    config: Pick<VeraConfig, "model_request_options">,
+): ModelAdapter {
+    return new ProviderRoutingAdapter(
+        createAdapter,
+        defaultProvider,
+        undefined,
+        (request, provider) => applyModelRequestOptions(
+            request,
+            config,
+            provider,
+        ),
+    );
+}
+
+export function mergeModelRequestBody(
+    request: ModelRequest,
+    addition: JsonObject,
+    source: string,
+): ModelRequest {
+    const existing = request.bodyExtensions ?? {};
+    const collision = Object.keys(addition).find((key) => key in existing);
+    if (collision !== undefined) {
+        throw new Error(
+            `Model request body field "${collision}" is defined by both existing contributions and ${source}`,
+        );
+    }
+    if (Object.keys(addition).length === 0) return request;
+    return {
+        ...request,
+        bodyExtensions: {
+            ...existing,
+            ...structuredClone(addition),
+        },
+    };
+}
 
 /**
  * How this adapter's cached client can be told apart from one built against
@@ -25,6 +89,10 @@ interface CachedAdapter {
 
 export class ProviderRoutingAdapter implements ModelAdapter {
     private readonly adapters = new Map<string, CachedAdapter>();
+    private readonly preparedRequests = new WeakMap<
+        ModelRequest,
+        Map<string, Promise<ModelRequest>>
+    >();
 
     /**
      * Every client is built on demand, including the default provider's.
@@ -74,7 +142,7 @@ export class ProviderRoutingAdapter implements ModelAdapter {
     ): Promise<void> {
         let terminal = false;
         try {
-            const prepared = await this.prepareRequest!(request);
+            const prepared = await this.preparedRequest(request, provider);
             for await (const event of this.adapter(provider).stream(prepared)) {
                 if (event.type === "done" || event.type === "error") {
                     terminal = true;
@@ -103,6 +171,29 @@ export class ProviderRoutingAdapter implements ModelAdapter {
                 },
             });
         }
+    }
+
+    /**
+     * Recovery retries the same request object. Retaining its prepared value
+     * makes one logical request a snapshot even when the profile changes while
+     * the provider is backing off. A fallback builds a new request object (and
+     * may select another model), so it receives that model's current options.
+     */
+    private preparedRequest(
+        request: ModelRequest,
+        provider: string,
+    ): Promise<ModelRequest> {
+        let byProvider = this.preparedRequests.get(request);
+        if (byProvider === undefined) {
+            byProvider = new Map();
+            this.preparedRequests.set(request, byProvider);
+        }
+        let prepared = byProvider.get(provider);
+        if (prepared === undefined) {
+            prepared = Promise.resolve(this.prepareRequest!(request, provider));
+            byProvider.set(provider, prepared);
+        }
+        return prepared;
     }
 
     supportsImageInputFor(provider: string, model: string): boolean {

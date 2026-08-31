@@ -403,6 +403,13 @@ export interface TuiSettingsPickerState {
     readonly modelCatalogUnavailable?: boolean;
     /** The focused action in the selected model's inspector. */
     readonly modelActionIndex?: number;
+    /** Provider-owned context for the generic request-options action. */
+    readonly requestOptionsProviders?: Readonly<Record<
+        string,
+        TuiModelRequestOptionsSupport
+    >>;
+    /** Exact provider/model refs with a stored profile entry. */
+    readonly configuredRequestOptions?: readonly string[];
     /**
      * The Defaults tab's rows, which are jobs rather than models and so cannot be
      * filtered out of `allOptions` the way the other tabs are. Set by the
@@ -602,6 +609,19 @@ export interface TuiPoolVerify {
     readonly model: string;
 }
 
+export interface TuiModelRequestOptionsSupport {
+    readonly providerLabel: string;
+    readonly label: string;
+    readonly explanation: string;
+    readonly documentationUrl: string;
+}
+
+export interface TuiModelRequestOptionsCandidate {
+    readonly provider: string;
+    readonly model: string;
+    readonly support: TuiModelRequestOptionsSupport;
+}
+
 export interface TuiSettingsPickerTransition {
     readonly state?: TuiSettingsPickerState;
     readonly selection?: TuiSettingsPickerSelection;
@@ -620,6 +640,8 @@ export interface TuiSettingsPickerTransition {
     readonly poolVerifySweep?: boolean;
     /** Same contract again: the pane asks for the prompt, it does not name. */
     readonly poolName?: TuiPoolNameCandidate;
+    /** The selected model whose profile request body should be edited. */
+    readonly requestOptions?: TuiModelRequestOptionsCandidate;
     /** A reorder of one pool entry, by places, for the client to send on. */
     readonly poolMove?: {
         readonly provider: string;
@@ -935,6 +957,12 @@ export function syncTuiModelPicker(
         tab,
         ...modelSyncedFocus(state, { ...rebuilt, tab, actionOptions }),
         modelActionIndex: state.modelActionIndex ?? 0,
+        ...(state.requestOptionsProviders === undefined
+            ? {}
+            : { requestOptionsProviders: state.requestOptionsProviders }),
+        ...(state.configuredRequestOptions === undefined
+            ? {}
+            : { configuredRequestOptions: state.configuredRequestOptions }),
         ...(state.revealAll === true ? { revealAll: true } : {}),
         ...(state.intelligenceCutoff === undefined
                 || state.intelligenceCutoff === "any"
@@ -5376,7 +5404,11 @@ function modelOptionCanVerify(
         && option.value !== SESSION_MODEL_VALUE;
 }
 
-type ModelDetailActionId = "verify" | "toggle_pool" | "name";
+type ModelDetailActionId =
+    | "verify"
+    | "toggle_pool"
+    | "name"
+    | "request_options";
 
 interface ModelDetailAction {
     readonly id: ModelDetailActionId;
@@ -5601,6 +5633,8 @@ function modelDetailActions(
         return [];
     }
     const pooled = isPooled(state, option);
+    const requestOptions = state.requestOptionsProviders?.[option.provider];
+    const modelReference = `${option.provider}/${option.model}`;
     return [
         ...(modelOptionCanVerify(state, option)
             ? [{
@@ -5621,6 +5655,15 @@ function modelDetailActions(
                 label: "Name this model",
             }]
             : []),
+        ...(requestOptions === undefined
+            ? []
+            : [{
+                id: "request_options" as const,
+                chord: state.configuredRequestOptions?.includes(modelReference)
+                    ? "configured"
+                    : "none",
+                label: "Request options",
+            }]),
     ];
 }
 
@@ -5659,6 +5702,19 @@ function modelDetailActionTransition(
                 action: isPooled(state, option) ? "remove" : "add",
                 provider: option.provider,
                 model: option.model,
+            },
+        };
+    }
+    if (action.id === "request_options") {
+        const support = state.requestOptionsProviders?.[option.provider];
+        if (support === undefined) return unchanged(state, true);
+        return {
+            state,
+            handled: true,
+            requestOptions: {
+                provider: option.provider,
+                model: option.model,
+                support,
             },
         };
     }

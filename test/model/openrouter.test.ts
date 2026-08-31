@@ -7,6 +7,8 @@ import type {
     ChatUsage,
 } from "@openrouter/sdk/models";
 import { ConnectionError } from "@openrouter/sdk/models/errors";
+import { providerPreferencesToJSON } from
+    "@openrouter/sdk/models/providerpreferences";
 
 import {
     OpenRouterAdapter,
@@ -190,8 +192,79 @@ describe("OpenRouter adapter", () => {
         expect(sent).toBe(false);
         expect(result.stopReason).toBe("error");
         expect(result.errorMessage).toContain(
-            "does not support model request contributions",
+            "is not supported by OpenRouter request options",
         );
+    });
+
+    test("normalizes wire-spelled provider preferences for the SDK", async () => {
+        let outbound: unknown;
+        const adapter = new OpenRouterAdapter(async (request) => {
+            outbound = request.provider === undefined
+                ? undefined
+                : JSON.parse(providerPreferencesToJSON(request.provider));
+            return chunks([
+                chatChunk({ delta: { content: "ok" }, finishReason: "stop" }),
+            ]);
+        });
+
+        const result = await adapter.stream({
+            model: "z-ai/glm-5.3-flash",
+            messages: [],
+            bodyExtensions: {
+                provider: {
+                    only: ["z-ai"],
+                    allow_fallbacks: false,
+                    max_price: { prompt: "1" },
+                    preferred_max_latency: { p50: 2 },
+                    sort: { by: "price", partition: "none" },
+                },
+            },
+        }).result();
+
+        expect(result.stopReason).toBe("stop");
+        expect(outbound).toEqual({
+            only: ["z-ai"],
+            allow_fallbacks: false,
+            max_price: { prompt: "1" },
+            preferred_max_latency: { p50: 2 },
+            sort: { by: "price", partition: "none" },
+        });
+    });
+
+    test("leaves OpenRouter routing unset when no options are configured", async () => {
+        let outbound: unknown = "not-called";
+        const adapter = new OpenRouterAdapter(async (request) => {
+            outbound = request.provider;
+            return chunks([
+                chatChunk({ delta: { content: "ok" }, finishReason: "stop" }),
+            ]);
+        });
+
+        const result = await adapter.stream({ model: "test/model", messages: [] })
+            .result();
+
+        expect(result.stopReason).toBe("stop");
+        expect(outbound).toBeUndefined();
+    });
+
+    test("refuses malformed provider preferences before dispatch", async () => {
+        let sent = false;
+        const adapter = new OpenRouterAdapter(async () => {
+            sent = true;
+            return chunks([]);
+        });
+
+        const result = await adapter.stream({
+            model: "test/model",
+            messages: [],
+            bodyExtensions: {
+                provider: { allow_fallbacks: "sometimes" },
+            },
+        }).result();
+
+        expect(sent).toBe(false);
+        expect(result.stopReason).toBe("error");
+        expect(result.errorMessage).toContain("allowFallbacks");
     });
 
     test("uses supplied verification mappings instead of the installed catalog", async () => {
