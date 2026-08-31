@@ -443,7 +443,7 @@ function generalHelp(): StyledText {
         ),
         fg(TUI_TEXT)("While Vera is working\n"),
         fg(TUI_MUTED)(
-            "Enter queues another prompt   Escape steers queued text   Ctrl+C stops\n\n",
+            "Typed Enter queues   Empty Enter sends all   Escape sends one   Ctrl+C stops\n\n",
         ),
         fg(TUI_TEXT)("Conversations\n"),
         fg(TUI_MUTED)(

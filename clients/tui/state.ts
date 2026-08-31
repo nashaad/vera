@@ -145,6 +145,7 @@ export interface TuiState {
     readonly entries: readonly TuiTranscriptEntry[];
     readonly working: boolean;
     readonly queuedPrompts: readonly string[];
+    readonly queueDraining: boolean;
     readonly modelSettings?: ModelTurnSettings;
     readonly approvalMode?: ApprovalMode;
     readonly permissionInspection?: PermissionInspection;
@@ -311,6 +312,7 @@ export function createTuiState(): TuiState {
         entries: [],
         working: false,
         queuedPrompts: [],
+        queueDraining: false,
     };
 }
 
@@ -359,10 +361,18 @@ export function renderTuiQueuedPrompt(state: TuiState): string {
         ? `${summary.slice(0, 47)}…`
         : summary;
     const remaining = state.queuedPrompts.length - 1;
-    return `queued · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
+    const phase = state.queueDraining ? "sending" : "queued";
+    return `${phase} · ${compact}${remaining === 0 ? "" : ` · +${remaining}`}`;
 }
 
 export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState {
+    if (update.type === "prompt_queue") {
+        return {
+            ...state,
+            queuedPrompts: update.queue.prompts.map((prompt) => prompt.content),
+            queueDraining: update.queue.draining,
+        };
+    }
     if (update.type === "model_activity") {
         const next = update.replacesPartialAttempt === true
             ? discardPartialModelAttempt(state)
@@ -480,6 +490,7 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ),
             working: false,
             queuedPrompts: [],
+            queueDraining: false,
             modelActivity: undefined,
             compactingSince: undefined,
             compactionStrategy: undefined,
@@ -552,6 +563,14 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
+            ...(update.promptQueue === undefined
+                ? {}
+                : {
+                    queuedPrompts: update.promptQueue.prompts.map(
+                        (prompt) => prompt.content,
+                    ),
+                    queueDraining: update.promptQueue.draining,
+                }),
             // Only a replayed checkpoint carries a status, and it carries one
             // only when the turn it is joining is still running.
             ...(update.status === undefined
@@ -567,7 +586,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         // status update for delivery turns, so a client that did not send this
         // prompt itself has nothing else to learn it from: a second attachment
         // or a replay would otherwise read as ready while the turn runs.
-        const nextState = { ...state, working: true, modelActivity: undefined };
+        const nextState = {
+            ...state,
+            working: true,
+            modelActivity: undefined,
+        };
         if (userEntryShows(state.entries.at(-1), update.content, update.attachments)) {
             return nextState;
         }
@@ -1330,7 +1353,7 @@ export function failTuiConnection(state: TuiState): TuiState {
             state.toolDetailsExpanded,
         ),
         working: false,
-        queuedPrompts: [],
+        queueDraining: false,
         compactingSince: undefined,
         compactionStrategy: undefined,
         compactionProvider: undefined,

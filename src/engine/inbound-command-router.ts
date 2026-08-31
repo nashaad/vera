@@ -38,6 +38,7 @@ import type {
 } from "./permissions.ts";
 import type { ModelMessage } from "../model/types.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
+import type { PromptQueueState } from "./prompt-queue.ts";
 
 /** A session-scoped model write, and how it was classified. */
 export interface SessionModelSettingsResult {
@@ -151,6 +152,8 @@ interface PendingConfigurationRequired {
 
 export interface InboundTurn {
     readonly prompt: PromptCommand;
+    /** Later user messages admitted to the same model turn, in FIFO order. */
+    readonly additionalPrompts?: readonly PromptCommand[];
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly triggeredByDelivery?: true;
@@ -214,6 +217,23 @@ type QueuedTurn =
     | QueuedDeliveryTurn
     | QueuedWear
     | QueuedSkillInvocation;
+
+type QueueReleaseMode = "direct" | "automatic" | "one" | "all";
+
+interface QueueRelease {
+    readonly id: number;
+    readonly mode: QueueReleaseMode;
+    readonly boundary: QueuedTurn;
+}
+
+interface ActiveQueueTurn {
+    readonly releaseId: number;
+    readonly releaseMode: QueueReleaseMode;
+    readonly final: boolean;
+    readonly queuedPrompt: boolean;
+}
+
+export type InboundTurnOutcome = "completed" | "aborted" | "failed";
 
 export interface InboundCommandRouterOptions {
     readonly appendHarnessMessage?: (
@@ -407,7 +427,8 @@ export interface InboundCommandRouterOptions {
 }
 
 export class InboundCommandRouter {
-    private readonly prompts = new AsyncQueue<QueuedTurn>();
+    private readonly queuedTurns: QueuedTurn[] = [];
+    private readonly turnAvailable = new AsyncQueue<true>();
     private readonly pendingApprovals = new Map<string, PendingApproval>();
     private readonly pendingQuestions = new Map<string, PendingQuestion>();
     private readonly pendingConfigurations = new Map<
@@ -416,6 +437,20 @@ export class InboundCommandRouter {
     >();
     private waitingForPrompt = false;
     private activeTurn: AbortController | undefined;
+    private activeQueueTurn: ActiveQueueTurn | undefined;
+    private claimedQueueRelease: QueueRelease | undefined;
+    private release: QueueRelease | undefined;
+    private queuedDirectAbortId: number | undefined;
+    private queuedDirectFollowUp: {
+        readonly mode: "direct" | "one" | "all";
+        readonly boundary: QueuedTurn;
+    } | undefined;
+    private resumeAfterAbort = false;
+    private nextReleaseId = 1;
+    private lastPromptQueueState: PromptQueueState = {
+        prompts: [],
+        draining: false,
+    };
     private receiveFailed = false;
     private pendingPromptCount = 0;
     private deliveryTurnQueued = false;
@@ -439,9 +474,20 @@ export class InboundCommandRouter {
 
         this.waitingForPrompt = true;
         let queued: QueuedTurn;
+        let claimedItem: QueuedTurn;
+        let claimedRelease: QueueRelease;
         try {
             while (true) {
-                queued = await this.prompts.receive();
+                while (
+                    this.release === undefined
+                    || this.queuedTurns.length === 0
+                ) {
+                    await this.turnAvailable.receive();
+                }
+                claimedRelease = this.release;
+                claimedItem = this.queuedTurns.shift()!;
+                queued = claimedItem;
+                this.claimedQueueRelease = claimedRelease;
                 // Keep the item counted while it waits for a background
                 // compaction (and while a queued wear is applying). Timeline
                 // commands must see the claimed prompt as in flight until it
@@ -453,6 +499,8 @@ export class InboundCommandRouter {
                     }
                     if (queued.wear !== undefined) {
                         await this.applyWear(queued.wear);
+                        this.claimedQueueRelease = undefined;
+                        this.finishNonTurnQueueItem(claimedItem, claimedRelease);
                         continue;
                     }
                     if (queued.skillInvocation !== undefined) {
@@ -461,6 +509,11 @@ export class InboundCommandRouter {
                             queued.modelSettings,
                         );
                         if (prompt === undefined) {
+                            this.claimedQueueRelease = undefined;
+                            this.finishNonTurnQueueItem(
+                                claimedItem,
+                                claimedRelease,
+                            );
                             continue;
                         }
                         queued = prompt;
@@ -479,12 +532,65 @@ export class InboundCommandRouter {
                     this.pendingPromptCount -= 1;
                 }
                 this.options.onDeliveryTurnDiscarded?.();
+                this.claimedQueueRelease = undefined;
+                this.finishNonTurnQueueItem(claimedItem, claimedRelease);
             }
         } finally {
             this.waitingForPrompt = false;
         }
+        const additionalPrompts: PromptCommand[] = [];
+        if (
+            claimedItem.prompt !== undefined
+            && claimedRelease.mode === "all"
+        ) {
+            // One provider turn has one model-settings snapshot. The oldest
+            // prompt supplies it; later ordinary prompts remain distinct
+            // messages. Queue controls are retained to settle after the batch,
+            // so they cannot split one send-all claim into multiple turns.
+            const boundaryIndex = this.queuedTurns.indexOf(
+                claimedRelease.boundary,
+            );
+            if (boundaryIndex >= 0) {
+                const claimedSnapshot = this.queuedTurns.splice(
+                    0,
+                    boundaryIndex + 1,
+                );
+                const retainedControls: QueuedTurn[] = [];
+                for (const next of claimedSnapshot) {
+                    if (next.prompt === undefined) {
+                        retainedControls.push(next);
+                        continue;
+                    }
+                    this.pendingPromptCount -= 1;
+                    additionalPrompts.push(next.prompt);
+                }
+                this.queuedTurns.unshift(...retainedControls);
+            }
+        }
+
         const controller = new AbortController();
         this.activeTurn = controller;
+        this.activeQueueTurn = {
+            releaseId: claimedRelease.id,
+            releaseMode: claimedRelease.mode,
+            final: claimedRelease.mode === "all"
+                && claimedItem.prompt !== undefined
+                ? true
+                : claimedRelease.boundary === claimedItem,
+            queuedPrompt: claimedItem.prompt !== undefined,
+        };
+        this.claimedQueueRelease = undefined;
+        if (this.queuedDirectAbortId === claimedRelease.id) {
+            this.queuedDirectAbortId = undefined;
+            const followUp = this.queuedDirectFollowUp;
+            this.queuedDirectFollowUp = undefined;
+            if (followUp !== undefined) this.resumeAfterAbort = false;
+            this.release = followUp === undefined
+                ? undefined
+                : this.newRelease(followUp.mode, followUp.boundary);
+            controller.abort(new Error("Turn aborted before it started"));
+        }
+        this.emitPromptQueue();
         const context = {
             signal: controller.signal,
             ...(queued.modelSettings === undefined
@@ -500,17 +606,276 @@ export class InboundCommandRouter {
             : {
                 ...context,
                 prompt: queued.prompt,
+                ...(additionalPrompts.length === 0
+                    ? {}
+                    : { additionalPrompts }),
                 ...(queued.userInvokedSkill === undefined
                     ? {}
                     : { userInvokedSkill: queued.userInvokedSkill }),
             };
     }
 
-    finishTurn(): void {
-        if (this.activeTurn === undefined) {
+    finishTurn(outcome?: InboundTurnOutcome): void {
+        if (this.activeTurn === undefined || this.activeQueueTurn === undefined) {
             throw new Error("No turn is active");
         }
+        const active = this.activeQueueTurn;
+        const terminal = outcome
+            ?? (this.activeTurn.signal.aborted ? "aborted" : "completed");
         this.activeTurn = undefined;
+        this.activeQueueTurn = undefined;
+
+        // A release or plain stop accepted during this turn already chose what
+        // may run next. The old turn's terminal event cannot overwrite it.
+        if (this.release?.id !== active.releaseId) {
+            this.emitPromptQueue();
+            this.signalTurnAvailable();
+            return;
+        }
+
+        if (terminal !== "completed") {
+            this.release = undefined;
+        } else if (active.final) {
+            this.finishRelease(active.releaseMode);
+        }
+        this.emitPromptQueue();
+        this.signalTurnAvailable();
+    }
+
+    private enqueueTurn(queued: QueuedTurn): void {
+        if (
+            this.resumeAfterAbort
+            && this.queuedDirectAbortId !== undefined
+            && this.queuedDirectFollowUp === undefined
+            && queued.prompt !== undefined
+        ) {
+            this.queuedDirectFollowUp = {
+                mode: "direct",
+                boundary: queued,
+            };
+            this.resumeAfterAbort = false;
+        }
+        const startsDirectly = this.activeTurn === undefined
+            || (this.resumeAfterAbort && this.activeTurn.signal.aborted);
+        const opensTurn = startsDirectly
+            && this.release === undefined
+            && this.queuedTurns.length === 0;
+        this.queuedTurns.push(queued);
+        this.pendingPromptCount += 1;
+        if (opensTurn) {
+            this.release = this.newRelease("direct", queued);
+            this.resumeAfterAbort = false;
+        } else if (queued.prompt !== undefined) {
+            this.events.emit({
+                type: "prompt_queued",
+                content: queued.prompt.content,
+            });
+        }
+        this.emitPromptQueue();
+        this.signalTurnAvailable();
+    }
+
+    private releaseQueuedPrompts(mode: "one" | "all"): void {
+        // Key-repeat and concurrent attachments cannot expand a release that
+        // has already been accepted but has not reached its fence yet.
+        if (
+            this.release?.mode === "one"
+            || this.release?.mode === "all"
+            || this.queuedDirectFollowUp?.mode === "one"
+            || this.queuedDirectFollowUp?.mode === "all"
+        ) {
+            return;
+        }
+        const directBoundaryIndex = this.release?.mode === "direct"
+            ? this.queuedTurns.indexOf(this.release.boundary)
+            : -1;
+        const promptIndices = this.queuedTurns.flatMap((queued, index) =>
+            queued.prompt !== undefined && index > directBoundaryIndex
+                ? [index]
+                : []
+        );
+        if (promptIndices.length === 0) return;
+        const boundaryIndex = mode === "all"
+            ? this.queuedTurns.length - 1
+            : (promptIndices[1] ?? this.queuedTurns.length) - 1;
+        const boundary = this.queuedTurns[boundaryIndex]!;
+
+        const queuedDirect = this.activeTurn === undefined
+            && this.release?.mode === "direct"
+            && (
+                directBoundaryIndex >= 0
+                || this.claimedQueueRelease?.id === this.release.id
+            );
+        if (queuedDirect) {
+            this.queuedDirectAbortId = this.release!.id;
+            this.queuedDirectFollowUp = { mode, boundary };
+            this.resumeAfterAbort = false;
+            this.emitPromptQueue();
+            this.events.emit({ type: "abort_requested" });
+            this.signalTurnAvailable();
+            return;
+        }
+
+        this.release = this.newRelease(mode, boundary);
+        this.resumeAfterAbort = false;
+        // Publish the atomic claim before the abort can produce a terminal
+        // update and make the client paint the next boundary.
+        this.emitPromptQueue();
+        if (this.activeTurn !== undefined) {
+            this.events.emit({ type: "abort_requested" });
+            this.activeTurn.abort(new Error("Turn steered"));
+        }
+        this.signalTurnAvailable();
+    }
+
+    private plainAbort(): void {
+        const visibleQueuedPrompts = this.promptQueueState().prompts.length;
+        const claimedTurn = this.activeTurn === undefined
+            ? this.claimedQueueRelease
+            : undefined;
+        const queuedDirect = this.activeTurn === undefined
+            && this.release?.mode === "direct"
+            && (
+                this.queuedTurns.includes(this.release.boundary)
+                || this.claimedQueueRelease?.id === this.release.id
+            );
+        this.resumeAfterAbort = visibleQueuedPrompts === 0;
+        if (queuedDirect || claimedTurn !== undefined) {
+            this.queuedDirectAbortId = claimedTurn?.id ?? this.release!.id;
+            this.queuedDirectFollowUp = undefined;
+            if (!queuedDirect) this.release = undefined;
+            this.emitPromptQueue();
+            this.events.emit({ type: "abort_requested" });
+            this.compactionAbort?.abort(new Error("Compaction aborted"));
+            this.signalTurnAvailable();
+            return;
+        }
+        this.release = undefined;
+        this.emitPromptQueue();
+
+        // A running compaction claims an ordinary stop. Queue releases use a
+        // separate path because steering must stop the containing turn.
+        const compaction = this.automaticCompactionAbort
+            ?? this.compactionAbort;
+        if (compaction !== undefined) {
+            this.events.emit({ type: "abort_requested" });
+            compaction.abort(new Error("Compaction aborted"));
+        } else if (this.activeTurn !== undefined) {
+            this.events.emit({ type: "abort_requested" });
+            this.activeTurn.abort(new Error("Turn aborted"));
+        }
+    }
+
+    private finishNonTurnQueueItem(
+        queued: QueuedTurn,
+        release: QueueRelease,
+    ): void {
+        if (this.release?.id !== release.id || release.boundary !== queued) {
+            return;
+        }
+        if (this.queuedDirectAbortId === release.id) {
+            this.queuedDirectAbortId = undefined;
+            const followUp = this.queuedDirectFollowUp;
+            this.queuedDirectFollowUp = undefined;
+            this.release = followUp === undefined
+                ? undefined
+                : this.newRelease(followUp.mode, followUp.boundary);
+            this.emitPromptQueue();
+            this.signalTurnAvailable();
+            return;
+        }
+        this.finishRelease(release.mode);
+        this.emitPromptQueue();
+        this.signalTurnAvailable();
+    }
+
+    private finishRelease(mode: QueueReleaseMode): void {
+        if (
+            mode === "direct"
+            || mode === "automatic"
+            || mode === "all"
+        ) {
+            // A completed ordinary or send-all turn holds later prompts for
+            // Escape or Enter, while queued controls still settle before them.
+            const heldPromptIndex = this.queuedTurns.findIndex(
+                (queued) => queued.prompt !== undefined,
+            );
+            const automaticBoundaryIndex = heldPromptIndex === -1
+                ? this.queuedTurns.length - 1
+                : heldPromptIndex - 1;
+            if (automaticBoundaryIndex < 0) {
+                this.release = undefined;
+                return;
+            }
+            this.release = this.newRelease(
+                "automatic",
+                this.queuedTurns[automaticBoundaryIndex]!,
+            );
+            return;
+        }
+        this.release = undefined;
+    }
+
+    private newRelease(
+        mode: QueueReleaseMode,
+        boundary: QueuedTurn,
+    ): QueueRelease {
+        return { id: this.nextReleaseId++, mode, boundary };
+    }
+
+    private signalTurnAvailable(): void {
+        if (this.release !== undefined && this.queuedTurns.length > 0) {
+            this.turnAvailable.push(true);
+        }
+    }
+
+    private promptQueueState(): PromptQueueState {
+        const effectiveRelease = this.queuedDirectFollowUp ?? this.release;
+        const boundaryIndex = effectiveRelease === undefined
+            ? -1
+            : this.queuedTurns.indexOf(effectiveRelease.boundary);
+        const directBoundaryIndex = this.release?.mode === "direct"
+            ? this.queuedTurns.indexOf(this.release.boundary)
+            : -1;
+        const releasedPromptPending = this.queuedTurns.some(
+            (queued, index) => queued.prompt !== undefined
+                && index > directBoundaryIndex
+                && boundaryIndex >= index,
+        );
+        const releasedPromptActive = this.release !== undefined
+            && this.activeQueueTurn?.releaseId === this.release.id
+            && this.activeQueueTurn.queuedPrompt;
+        return {
+            prompts: this.queuedTurns.flatMap((queued, index) =>
+                queued.prompt === undefined
+                    || directBoundaryIndex >= index
+                    ? []
+                    : [{
+                        content: queued.prompt.content,
+                        ...(queued.prompt.attachmentIds === undefined
+                            ? {}
+                            : {
+                                attachmentIds: [
+                                    ...queued.prompt.attachmentIds,
+                                ],
+                            }),
+                        state: boundaryIndex >= index ? "released" : "held",
+                    } as const]
+            ),
+            draining: effectiveRelease !== undefined
+                && effectiveRelease.mode !== "direct"
+                && (releasedPromptPending || releasedPromptActive),
+        };
+    }
+
+    private emitPromptQueue(): void {
+        const queue = this.promptQueueState();
+        if (samePromptQueueState(queue, this.lastPromptQueueState)) return;
+        this.lastPromptQueueState = queue;
+        this.events.emit({
+            type: "prompt_queue_changed",
+            queue,
+        });
     }
 
     async appendContext(
@@ -750,8 +1115,7 @@ export class InboundCommandRouter {
                     }
                     this.deliveryTurnQueued = true;
                     const settings = this.options.readModelSettings?.();
-                    this.pendingPromptCount += 1;
-                    this.prompts.push({
+                    this.enqueueTurn({
                         triggeredByDelivery: true,
                         ...(settings === undefined
                             ? {}
@@ -769,19 +1133,17 @@ export class InboundCommandRouter {
                 if (command.type === "prompt") {
                     await this.contextAppend;
                     const settings = this.options.readModelSettings?.();
-                    this.pendingPromptCount += 1;
-                    this.prompts.push({
+                    this.enqueueTurn({
                         prompt: command,
                         ...(settings === undefined
                             ? {}
                             : { modelSettings: copyModelSettings(settings) }),
                     });
-                    if (this.activeTurn !== undefined) {
-                        this.events.emit({
-                            type: "prompt_queued",
-                            content: command.content,
-                        });
-                    }
+                    continue;
+                }
+
+                if (command.type === "release_queued_prompts") {
+                    this.releaseQueuedPrompts(command.mode);
                     continue;
                 }
 
@@ -832,8 +1194,7 @@ export class InboundCommandRouter {
                 if (command.type === "wear_agent") {
                     // Queued, never applied here: FIFO with the prompts is
                     // the whole point.
-                    this.pendingPromptCount += 1;
-                    this.prompts.push({
+                    this.enqueueTurn({
                         wear: {
                             requestId: command.requestId,
                             name: command.name,
@@ -855,8 +1216,7 @@ export class InboundCommandRouter {
                 if (command.type === "invoke_skill") {
                     await this.contextAppend;
                     const settings = this.options.readModelSettings?.();
-                    this.pendingPromptCount += 1;
-                    this.prompts.push({
+                    this.enqueueTurn({
                         skillInvocation: {
                             requestId: command.requestId,
                             name: command.name,
@@ -992,24 +1352,12 @@ export class InboundCommandRouter {
                 }
 
                 if (command.type === "abort") {
-                    // A running compaction claims the gesture. The turn it
-                    // sits inside is parked on it and carries on once it
-                    // stops, so the one thing the user can see happening is
-                    // the one thing that stops.
-                    const compaction = this.automaticCompactionAbort
-                        ?? this.compactionAbort;
-                    if (compaction !== undefined) {
-                        this.events.emit({ type: "abort_requested" });
-                        compaction.abort(new Error("Compaction aborted"));
-                    } else if (this.activeTurn !== undefined) {
-                        this.events.emit({ type: "abort_requested" });
-                        this.activeTurn.abort(new Error("Turn aborted"));
-                    }
+                    this.plainAbort();
                 }
             }
         } catch (error) {
             this.receiveFailed = true;
-            this.prompts.fail(error);
+            this.turnAvailable.fail(error);
             for (const requestId of this.pendingApprovals.keys()) {
                 this.finishApproval(requestId, noClientDenial());
             }
@@ -1996,6 +2344,26 @@ function copyPermissionGrantProposal(
         scope: proposal.scope,
         lifetime: proposal.lifetime,
     };
+}
+
+function samePromptQueueState(
+    left: PromptQueueState,
+    right: PromptQueueState,
+): boolean {
+    return left.draining === right.draining
+        && left.prompts.length === right.prompts.length
+        && left.prompts.every((prompt, index) => {
+            const other = right.prompts[index];
+            return other !== undefined
+                && prompt.content === other.content
+                && prompt.state === other.state
+                && (prompt.attachmentIds?.length ?? 0)
+                    === (other.attachmentIds?.length ?? 0)
+                && (prompt.attachmentIds ?? []).every(
+                    (id, attachmentIndex) =>
+                        id === other.attachmentIds?.[attachmentIndex],
+                );
+        });
 }
 
 function questionResult(
