@@ -49,6 +49,7 @@ import type {
     VeraExperimentalTuiAgentSurfaceSnapshot,
     VeraExperimentalTuiRawViewSpec,
     VeraExperimentalTuiTranscriptRenderableSpec,
+    VeraExperimentalTuiDocument,
 } from "../sdk/experimental-tui.ts";
 import {
     EXTENSION_COMMAND_RESULT_VERSION,
@@ -313,6 +314,10 @@ export interface ClientExtensionExperimentalTuiAdapter {
         extensionId: string,
         spec: VeraExperimentalTuiTranscriptRenderableSpec,
     ) => VeraExtensionDisposer;
+    openDocument?(
+        extensionId: string,
+        document: VeraExperimentalTuiDocument,
+    ): void;
     events: {
         on(
             extensionId: string,
@@ -1395,6 +1400,16 @@ async function activateClientExtension(
                 disposers.push(dispose);
                 return dispose;
             },
+            openDocument(document: VeraExperimentalTuiDocument): void {
+                validateExperimentalTuiDocument(document);
+                const open = requireExperimentalTui().openDocument;
+                if (open === undefined) {
+                    throw new Error(
+                        "This client cannot open markdown reports",
+                    );
+                }
+                open(options.id, document);
+            },
             events: Object.freeze({
                 on(...args: unknown[]): VeraExtensionDisposer {
                     const [event, listener] = args;
@@ -2033,6 +2048,25 @@ function validateExperimentalTuiTranscriptRenderableSpec(
         throw new Error(
             "Invalid experimental TUI transcript renderable registration",
         );
+    }
+}
+
+function validateExperimentalTuiDocument(
+    document: VeraExperimentalTuiDocument,
+): void {
+    if (
+        typeof document !== "object"
+        || document === null
+        || typeof document.title !== "string"
+        || document.title.trim().length === 0
+        || (typeof document.markdown !== "string"
+            && typeof document.markdown !== "function")
+        || (typeof document.markdown === "string"
+            && document.markdown.length === 0)
+        || (document.footerText !== undefined
+            && typeof document.footerText !== "string")
+    ) {
+        throw new Error("Invalid experimental TUI document");
     }
 }
 

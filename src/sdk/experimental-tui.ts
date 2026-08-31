@@ -166,6 +166,16 @@ export interface VeraExperimentalTuiTranscriptRenderableSpec {
     onResize?(width: number): void;
 }
 
+/**
+ * A markdown inspect report. The TUI shows this in the same dialog as
+ * `/diagnostics` and `/doctor`; the extension supplies the document, not chrome.
+ */
+export interface VeraExperimentalTuiDocument {
+    readonly title: string;
+    readonly markdown: string | ((columns: number) => string);
+    readonly footerText?: string;
+}
+
 export interface VeraExperimentalTuiEvents {
     on(
         event: "conversation_changed",
@@ -216,6 +226,8 @@ export interface VeraClientExperimentalTui {
     appendTranscriptRenderable(
         spec: VeraExperimentalTuiTranscriptRenderableSpec,
     ): VeraExtensionDisposer;
+    /** Opens the shared TUI markdown inspect dialog. Escape dismisses it. */
+    openDocument(document: VeraExperimentalTuiDocument): void;
     readonly events: VeraExperimentalTuiEvents;
     readonly agentSurface: VeraExperimentalTuiAgentSurface;
 }

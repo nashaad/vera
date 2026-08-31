@@ -51,6 +51,7 @@ import type {
     VeraExperimentalTuiViewSpec,
     VeraExperimentalTuiRawViewSpec,
     VeraExperimentalTuiTranscriptRenderableSpec,
+    VeraExperimentalTuiDocument,
 } from "../../src/sdk/experimental-tui.ts";
 import type { VeraExtensionDisposer } from "../../src/sdk/extensions.ts";
 
@@ -65,6 +66,8 @@ export interface TuiExperimentalHostOptions {
     readonly appendTranscriptRenderable?: (
         node: Renderable,
     ) => VeraExtensionDisposer;
+    /** Opens the shared markdown inspect dialog owned by the TUI. */
+    readonly openDocument?: (document: VeraExperimentalTuiDocument) => void;
 }
 
 export interface TuiExperimentalHost {
@@ -250,6 +253,13 @@ export function createTuiExperimentalHost(
                     options.onRenderRequested();
                 }
             };
+        },
+        openDocument(_extensionId, document): void {
+            if (closed) throw new Error("Experimental TUI host is closed");
+            if (options.openDocument === undefined) {
+                throw new Error("This client cannot open markdown reports");
+            }
+            options.openDocument(document);
         },
         events: eventBus.events,
         agentSurface: {

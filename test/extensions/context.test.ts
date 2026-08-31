@@ -2,19 +2,15 @@ import { afterEach, expect, test } from "bun:test";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createTestRenderer } from "@opentui/core/testing";
 
 import {
     buildContextReport,
     contextCategories,
     contextCompactionTrigger,
-    contextGrid,
-    contextResponsiveMode,
-    contextSuggestions,
+    contextReportLines,
+    contextReportMarkdown,
+    formatKilobytes,
 } from "../../examples/extensions/context/context-report.ts";
-import { createContextView } from "../../examples/extensions/context/context-view.ts";
-import type { VeraExperimentalTuiRawContext } from "../../src/sdk/experimental-tui.ts";
-import { VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 import {
     startClientExtensionRegistry,
     type ClientExtensionExperimentalTuiAdapter,
@@ -30,65 +26,77 @@ afterEach(() => {
     }
 });
 
-test("context reports use stable categories and responsive grids", () => {
+test("context reports group instruction files and align the occupancy bar", () => {
     const snapshot = availableSnapshot();
 
-    expect(contextResponsiveMode(120)).toBe("wide");
-    expect(contextResponsiveMode(80)).toBe("wide");
-    expect(contextResponsiveMode(60)).toBe("narrow");
     expect(contextCategories(snapshot).map((category) => category.label))
         .toEqual([
-            "System prompt",
+            "Instructions",
             "System tools",
-            "Memory files",
             "Messages",
+            "System prompt",
         ]);
+    expect(contextCompactionTrigger(snapshot)).toBe(800);
 
-    const wide = contextGrid(snapshot, 10);
-    const narrow = contextGrid(snapshot, 5);
-    expect(wide?.columns).toBe(10);
-    expect(wide?.rows).toHaveLength(10);
-    expect(narrow?.columns).toBe(5);
-    expect(narrow?.rows).toHaveLength(20);
-    expect(wide?.usedTokens).toBe(700);
-    expect(wide?.freeTokens).toBe(100);
-    expect(wide?.reserveTokens).toBe(200);
-    expect(wide?.rows.flat().filter((cell) => cell.state === "used"))
-        .toHaveLength(70);
+    const report = buildContextReport(snapshot, false, 120);
+    expect(report.occupancy?.usedTokens).toBe(700);
+    expect(report.occupancy?.reserveTokens).toBe(200);
+    expect(report.occupancy?.bar.includes("█")).toBe(true);
+    expect(report.occupancy?.bar.includes("▒")).toBe(true);
+    expect(report.breakdown.map((row) => row.label)).toEqual([
+        "Instructions",
+        "System tools",
+        "Messages",
+        "System prompt",
+    ]);
+    expect(report.instructions.map((row) => row.displayName))
+        .toEqual(["AGENTS.local.md", "AGENTS.md", "MEMORY.md"]);
+    expect(report.fileWarnings.some((warning) =>
+        warning.includes("AGENTS.local.md") && warning.includes("rides every turn")
+    )).toBe(true);
+    expect(report.headline).toContain("700 / 1.0k");
 });
 
-test("context suggestions put compaction warnings before savings", () => {
-    const suggestions = contextSuggestions({
-        ...availableSnapshot(),
-        headline: { tokens: 790, estimated: true },
+test("agent instructions are Instructions, not Custom agents", () => {
+    const snapshot = availableSnapshot();
+    snapshot.projection?.components.push({
+        kind: "prompt_contribution",
+        id: "core.agent-instructions",
+        owner: "core",
+        source: "stable",
+        displayName: "Agent",
+        count: 1,
+        estimatedTokens: 86,
+        parts: [{
+            id: "agent:build-reviewer",
+            displayName: "build-reviewer",
+            scope: "agent",
+            bytes: 400,
+            estimatedTokens: 86,
+        }],
     });
-
-    expect(suggestions[0]?.tone).toBe("warning");
-    expect(suggestions.some((suggestion) => suggestion.tone === "tip"))
-        .toBe(true);
-    expect(suggestions.every((suggestion) =>
-        suggestion.text.length > 0
-        && suggestion.estimatedSaving >= 0
+    expect(contextCategories(snapshot).map((category) => category.label))
+        .toContain("Instructions");
+    expect(contextCategories(snapshot).some((category) =>
+        category.label === "Custom agents"
+    )).toBe(false);
+    expect(buildContextReport(snapshot, false, 120).instructions.some((row) =>
+        row.displayName === "build-reviewer" && row.scope === "agent"
     )).toBe(true);
 });
 
-test("context uses the earliest compaction bound, including without capacity", () => {
-    const knownCapacity = {
-        ...availableSnapshot(),
-        headline: { tokens: 825, estimated: true },
-        compaction: { triggerFraction: 0.82, triggerTokens: 950 },
-    } satisfies VeraClientContextSnapshot;
-    expect(contextCompactionTrigger(knownCapacity)).toBe(820);
-    expect(contextSuggestions(knownCapacity)[0]?.tone).toBe("warning");
-
-    const unknownCapacity: VeraClientContextSnapshot = {
+test("a missing projection after a measured turn is not a first-request state", () => {
+    const report = buildContextReport({
         availability: "partial",
-        model: { model: "local" },
-        headline: { tokens: 100, estimated: true },
-        compaction: { triggerTokens: 100 },
-    };
-    expect(contextCompactionTrigger(unknownCapacity)).toBe(100);
-    expect(contextSuggestions(unknownCapacity)[0]?.tone).toBe("warning");
+        model: { model: "local", capacity: 1_000 },
+        headline: { tokens: 700, estimated: true },
+    }, false, 120);
+    expect(report.breakdownMissing).toBe(
+        "No category split in this snapshot.",
+    );
+    const lines = contextReportLines(report, 80, false).join("\n");
+    expect(lines).toContain("No category split in this snapshot.");
+    expect(lines).not.toContain("Available after the first model request.");
 });
 
 test("partial context reports omit capacity-dependent visuals", () => {
@@ -98,72 +106,63 @@ test("partial context reports omit capacity-dependent visuals", () => {
         headline: { tokens: 42, estimated: true },
     }, true, 60);
 
-    expect(report.grid).toBeUndefined();
-    expect(report.categories).toEqual([]);
+    expect(report.occupancy).toBeUndefined();
+    expect(report.breakdown).toEqual([]);
     expect(report.detail).toEqual([]);
-    expect(report.headline).toBe("42 / ? tokens · estimated");
+    expect(report.headline).toContain("42 / ?");
 });
 
-test("context reports show overflow directly instead of hiding it in the grid", () => {
-    const report = buildContextReport({
-        ...availableSnapshot(),
-        headline: { tokens: 1_200, estimated: true },
-    }, false, 120);
-
-    expect(report.grid?.reserveTokens).toBe(0);
-    expect(report.grid?.usedTokens).toBe(1_200);
+test("formatKilobytes is what the file list prints", () => {
+    expect(formatKilobytes(43_000)).toBe("42 KB");
+    expect(formatKilobytes(400)).toBe("400 B");
 });
 
-test("context OpenTUI rendering adapts at 120, 80, and 60 columns", async () => {
-    for (const [width, height, expectedGrid] of [
-        [120, 40, "██████████"],
-        [80, 30, "██████████"],
-        [60, 24, "█████"],
-    ] as const) {
-        const setup = await createTestRenderer({ width, height });
-        const context: VeraExperimentalTuiRawContext = {
-            renderer: setup.renderer,
-            workspace: "/workspace",
-            theme: {
-                text: VERA_TUI_THEME.text,
-                muted: VERA_TUI_THEME.muted,
-                accent: VERA_TUI_THEME.accent,
-                notice: VERA_TUI_THEME.notice,
-                success: VERA_TUI_THEME.success,
-                panel: VERA_TUI_THEME.panel,
-            },
-            transcript: [],
-            requestRender() {},
-        };
-        const view = createContextView(context, availableSnapshot(), {
-            id: `context-view-${width}`,
-            detail: false,
-            commandText: "/context",
-        });
-        setup.renderer.root.add(view.root);
-        try {
-            await setup.flush();
-            const frame = setup.captureCharFrame();
-            expect(frame).toContain("↳ /context");
-            expect(frame).toContain("Context Usage");
-            expect(frame).toContain(expectedGrid);
-        } finally {
-            setup.renderer.destroy();
+test("context markdown shows occupancy sections at 120, 80, and 60 columns", () => {
+    for (const width of [120, 80, 60, 48] as const) {
+        const markdown = contextReportMarkdown(availableSnapshot(), false, width);
+        expect(markdown).toContain("## CONTEXT USAGE");
+        expect(markdown).toContain("## BREAKDOWN");
+        expect(markdown).toContain("## INSTRUCTIONS");
+        expect(markdown).toContain("AGENTS.local.md");
+        expect(markdown).toContain("> !  AGENTS.local.md");
+        expect(markdown).not.toContain("SUGGESTIONS");
+        expect(markdown).not.toContain("├─");
+        expect(markdown).toContain("/context [all] to expand");
+        const inner = Math.max(20, width - 2);
+        for (const line of markdown.split("\n")) {
+            expect(line.length).toBeLessThanOrEqual(inner);
         }
     }
 });
 
-test("the client extension reads a cloned snapshot and appends a native renderable", async () => {
+test("breakdown bars share one left edge when /context all expands components", () => {
+    const markdown = contextReportMarkdown(availableSnapshot(), true, 72);
+    const lines = markdown.split("\n");
+    const start = lines.findIndex((line) => line.startsWith("## BREAKDOWN"));
+    const end = lines.findIndex((line) => line.startsWith("## INSTRUCTIONS"));
+    const section = lines.slice(start, end < 0 ? undefined : end);
+    const columns = section.flatMap((line) => {
+        const index = [...line].findIndex((character) =>
+            character === "█" || character === "▏"
+        );
+        return index < 0 || /^[█░▒▏]+$/.test(line) ? [] : [index];
+    });
+    expect(columns.length).toBeGreaterThan(1);
+    expect(new Set(columns).size).toBe(1);
+});
+
+test("the client extension opens a markdown inspect document", async () => {
     const directory = createExtension();
     const snapshot = availableSnapshot();
-    let receivedId: string | undefined;
-    let disposed = 0;
+    let opened: { title: string; markdown: string } | undefined;
     const experimentalTui: ClientExtensionExperimentalTuiAdapter = {
         mount: () => async () => {},
         mountRenderable: () => async () => {},
-        appendTranscriptRenderable(_extensionId, spec) {
-            receivedId = spec.id;
-            return async () => { disposed += 1; };
+        openDocument(_extensionId, document) {
+            const markdown = typeof document.markdown === "function"
+                ? document.markdown(88)
+                : document.markdown;
+            opened = { title: document.title, markdown };
         },
         events: { on: () => async () => {} },
         agentSurface: {
@@ -179,12 +178,12 @@ test("the client extension reads a cloned snapshot and appends a native renderab
     try {
         const result = await registry.invokeCommand("context", "", "/workspace");
         expect(result?.body).toEqual({ kind: "handled" });
-        expect(receivedId).toBe("report");
+        expect(opened?.title).toBe("Context");
+        expect(opened?.markdown).toBe("# Context\n");
         expect(snapshot.headline?.tokens).toBe(700);
     } finally {
         await registry.close();
     }
-    expect(disposed).toBe(1);
 });
 
 test("the context command reports a clean compatibility error on an old TUI host", async () => {
@@ -193,7 +192,7 @@ test("the context command reports a clean compatibility error on an old TUI host
     const modern: ClientExtensionExperimentalTuiAdapter = {
         mount: () => async () => {},
         mountRenderable: () => async () => {},
-        appendTranscriptRenderable: () => async () => {},
+        openDocument: () => {},
         events: { on: () => async () => {} },
         agentSurface: {
             current: () => undefined,
@@ -201,13 +200,13 @@ test("the context command reports a clean compatibility error on an old TUI host
             toggleFocus: () => false,
         },
     };
-    const { appendTranscriptRenderable: _ignored, ...legacy } = modern;
+    const { openDocument: _ignored, ...legacy } = modern;
     const registry = await startClientExtensionRegistry(
         registryOptions(directory, snapshot, legacy),
     );
     try {
         await expect(registry.invokeCommand("context", "", "/workspace"))
-            .rejects.toThrow("cannot append transcript renderables");
+            .rejects.toThrow("cannot open markdown reports");
     } finally {
         await registry.close();
     }
@@ -241,12 +240,44 @@ function availableSnapshot(): VeraClientContextSnapshot {
                 },
                 {
                     kind: "prompt_contribution",
+                    id: "core.project-instructions",
+                    owner: "core",
+                    source: "contextual",
+                    displayName: "Project instructions",
+                    count: 1,
+                    estimatedTokens: 80,
+                    parts: [
+                        {
+                            id: "agents-local",
+                            displayName: "AGENTS.local.md",
+                            scope: "project",
+                            bytes: 43_000,
+                            estimatedTokens: 60,
+                        },
+                        {
+                            id: "agents",
+                            displayName: "AGENTS.md",
+                            scope: "project",
+                            bytes: 1_200,
+                            estimatedTokens: 20,
+                        },
+                    ],
+                },
+                {
+                    kind: "prompt_contribution",
                     id: "core.memory",
                     owner: "core",
                     source: "contextual",
                     displayName: "Memory",
                     count: 1,
-                    estimatedTokens: 100,
+                    estimatedTokens: 20,
+                    parts: [{
+                        id: "memory-index",
+                        displayName: "MEMORY.md",
+                        scope: "memory",
+                        bytes: 800,
+                        estimatedTokens: 20,
+                    }],
                 },
                 {
                     kind: "message",
@@ -317,9 +348,9 @@ function createExtension(): string {
                 run() {
                     const snapshot = vera.context.current();
                     snapshot.headline.tokens = 0;
-                    vera.experimentalTui.appendTranscriptRenderable({
-                        id: "report",
-                        create() { throw new Error("not mounted in this test"); },
+                    vera.experimentalTui.openDocument({
+                        title: "Context",
+                        markdown: "# Context\\n",
                     });
                     return { kind: "handled" };
                 },

@@ -498,3 +498,32 @@ test("experimental TUI host finishes cleanup after raw destroy throws", async ()
     expect(failures).toEqual(["broken:destroy failed"]);
     renderer.destroy();
 });
+
+test("experimental TUI host opens a markdown inspect document through the adapter", async () => {
+    const renderer = await createCliRenderer({
+        exitOnCtrlC: false,
+        targetFps: 30,
+    });
+    const opened: { title: string }[] = [];
+    const host = createTuiExperimentalHost({
+        renderer,
+        theme: VERA_TUI_THEME,
+        workspace: () => "/workspace",
+        transcript: () => [],
+        onFailure: () => {},
+        onRenderRequested: () => {},
+        openDocument: (document) => {
+            opened.push({ title: document.title });
+        },
+    });
+    try {
+        host.adapter.openDocument?.("fixture", {
+            title: "Context",
+            markdown: "## CONTEXT USAGE\n",
+        });
+        expect(opened).toEqual([{ title: "Context" }]);
+    } finally {
+        await host.close();
+        renderer.destroy();
+    }
+});

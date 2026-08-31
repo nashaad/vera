@@ -1,8 +1,6 @@
 import type { VeraClientExtensionApi } from "../../../src/sdk/extensions.ts";
-import { createContextView, type ContextView } from "./context-view.ts";
+import { contextReportMarkdown } from "./context-report.ts";
 import { registerDashboard } from "./dashboard.ts";
-
-let reportNumber = 0;
 
 export function activateClient(vera: VeraClientExtensionApi): void {
     registerDashboard(vera);
@@ -20,20 +18,11 @@ export function activateClient(vera: VeraClientExtensionApi): void {
             }
             const detail = argument === "all";
             const snapshot = vera.context.current();
-            let view: ContextView | undefined;
-            vera.experimentalTui.appendTranscriptRenderable({
-                id: `context-report-${++reportNumber}`,
-                create(context) {
-                    view = createContextView(context, snapshot, {
-                        id: `context-report-root-${reportNumber}`,
-                        detail,
-                        commandText: detail ? "/context all" : "/context",
-                    });
-                    return view.root;
-                },
-                onResize(width) {
-                    view?.refresh(width);
-                },
+            vera.experimentalTui.openDocument({
+                title: "Context",
+                footerText: "Last measured request.",
+                markdown: (columns) =>
+                    contextReportMarkdown(snapshot, detail, columns),
             });
             return { kind: "handled" };
         },
