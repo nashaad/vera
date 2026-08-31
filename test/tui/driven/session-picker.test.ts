@@ -115,6 +115,48 @@ test("session picker renames a conversation it is not attached to", async () => 
     }
 }, 15_000);
 
+test("the focused sidebar renames its selected conversation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-rename-"));
+    const scenario = createTuiRenameSessionScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        let pane = await session.waitForVisiblePane("Rename  r");
+        expect(pane).toContain("Fix the deployme");
+        expect(pane).toContain("Continue the the");
+
+        session.sendKey("Up");
+        session.sendText("r");
+        pane = await session.waitForVisiblePane("Rename conversation");
+        expect(pane).toContain("Continue the theme pick");
+        session.sendText("release notes");
+        session.sendKey("Enter");
+
+        pane = await session.waitForVisiblePane("release notes");
+        expect(pane).toContain("Rename  r");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("session renamed: release notes");
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(
+            join(home, "rename-session-result.txt"),
+            "utf8",
+        )).toBe(
+            "saved-session release notes\ncurrent Fix the deployment race",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("renaming the attached row goes through its own session", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-rename-current-"));
     const scenario = createTuiRenameSessionScenario({ home });
@@ -221,4 +263,3 @@ test("session trash rejection keeps the picker usable", async () => {
         await session.close();
     }
 }, 15_000);
-

@@ -288,6 +288,14 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "^n new",
     },
     {
+        id: "workspace_rename_session",
+        keys: ["r"],
+        scope: "workspace",
+        description: "Rename the selected session",
+        hint: "r rename",
+        remappable: true,
+    },
+    {
         // A chord rather than a letter: the rail holds the focus while home
         // is on screen, where a bare key is the first character of a message.
         id: "workspace_resume_picker",

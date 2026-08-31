@@ -8150,6 +8150,12 @@ export async function startTui(
                     ) {
                         void refreshSessionPicker();
                     }
+                    if (
+                        update.type === "session_name"
+                        && workspaceSidebar !== undefined
+                    ) {
+                        refreshWorkspaceSidebarRoster();
+                    }
                     renderState();
                     if (!anyOverlayOpen()) {
                         composer.focus();
@@ -12161,6 +12167,9 @@ export async function startTui(
         if (result.status === "renamed" && settingsPicker?.kind === "session") {
             await refreshSessionPicker();
         }
+        if (result.status === "renamed" && workspaceSidebar !== undefined) {
+            refreshWorkspaceSidebarRoster();
+        }
         renderState();
     }
 
@@ -12972,6 +12981,15 @@ export async function startTui(
         if (action.kind === "resume_picker") {
             workspaceSidebarFocused = false;
             openResumePicker();
+            return;
+        }
+        if (action.kind === "rename_session") {
+            namePrompt = startTuiNamePrompt(
+                { kind: "session", sessionId: action.session_id },
+                action.label,
+            );
+            renderState();
+            focusActiveSurface();
             return;
         }
         workspaceSidebarFocused = false;

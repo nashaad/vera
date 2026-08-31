@@ -629,10 +629,27 @@ describe("the cursor", () => {
             .toEqual({ kind: "resume_picker" });
     });
 
-    test("a bare r no longer reaches the resume picker", () => {
-        // The rail claims every bare key while it holds the focus. What
-        // changed is that the letter stopped meaning anything.
-        expect(press(open([session("a")]), "r").action).toBeUndefined();
+    test("r renames the selected session without opening it", () => {
+        const state = open([
+            session("a", { title: "first conversation" }),
+            session("b", { title: "release planning" }),
+        ], [], "a");
+        const moved = press(state, "down").state!;
+        expect(press(moved, "r")).toEqual({
+            action: {
+                kind: "rename_session",
+                session_id: "b",
+                label: "release planning",
+            },
+            handled: true,
+        });
+    });
+
+    test("r does nothing when the listing has no selected row", () => {
+        expect(press(open([]), "r")).toEqual({
+            state: open([]),
+            handled: true,
+        });
     });
 
     test("escape hides the rail", () => {
@@ -943,13 +960,14 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
+            "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
             "Chat    →",
             "Hide    ctrl+e",
         ].join("\n"));
-        expect(view.footerTable).toHaveLength(8);
+        expect(view.footerTable).toHaveLength(9);
         expect(view.lines.some((line) => line.text.includes("Resume session")))
             .toBe(false);
         expect(view.title).toBe("VERA · 1");
@@ -1023,6 +1041,7 @@ describe("the drawn card", () => {
             "Move    ↑↓  j/k",
             "Page    ctrl+d/u",
             "Open    enter",
+            "Rename  r",
             "New     ctrl+n",
             "Resume  ctrl+r",
             "Cycle   ctrl+shift+[ ]",
@@ -1037,7 +1056,7 @@ describe("the drawn card", () => {
             expect(line.length).toBeLessThanOrEqual(MIN_RAIL_COLUMNS);
         }
         expect(workspaceSidebarFooter(MIN_RAIL_COLUMNS).split("\n"))
-            .toHaveLength(8);
+            .toHaveLength(9);
     });
 
     test("an unfocused rail keeps only the chords that answer from the chat", () => {
