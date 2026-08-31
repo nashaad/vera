@@ -54,6 +54,14 @@ function processArgs(pid: number): string {
     return ran.stdout.toString();
 }
 
+function processComm(pid: number): string {
+    const ran = Bun.spawnSync(["ps", "-p", String(pid), "-o", "comm="], {
+        stdout: "pipe",
+        stderr: "pipe",
+    });
+    return ran.stdout.toString().trim();
+}
+
 function processAlive(pid: number): boolean {
     try {
         process.kill(pid, 0);
@@ -69,7 +77,9 @@ test("ps shows vera-annex as a separate process from the host", async () => {
         const pid = host.annexPid;
         expect(pid).toBeGreaterThan(0);
         expect(pid).not.toBe(process.pid);
-        expect(processArgs(pid as number)).toContain("vera-annex");
+        const args = processArgs(pid as number);
+        expect(args).toContain("/src/annex/main.ts");
+        expect(processComm(pid as number)).toBe("vera-annex");
         expect(host.health.annex).toBe("ok");
     } finally {
         await host.close();

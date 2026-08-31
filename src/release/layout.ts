@@ -56,7 +56,7 @@ export function packedReleaseRoot(prefix = defaultInstallPrefix()): string {
 }
 
 /** Packed annex assets: index.html, main.js, styles.css, build-id. */
-export function packedAnnexRoot(releaseRoot = packedReleaseRoot()): string {
+export function packedAnnexRoot(releaseRoot = thisProcessReleaseRoot()): string {
     return join(releaseRoot, "annex");
 }
 

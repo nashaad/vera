@@ -1,7 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
 
-const ANNEX_ENTRY = fileURLToPath(new URL("../annex/main.ts", import.meta.url));
+import {
+    packedAnnexRoot,
+    RELEASE_ANNEX_NAME,
+    releaseBinaryPath,
+    thisProcessReleaseRoot,
+} from "../release/layout.ts";
 const LISTEN_DEADLINE_MS = 10_000;
 const STOP_GRACE_MS = 2_000;
 
@@ -14,6 +18,7 @@ export interface AnnexProcess {
 export interface StartAnnexProcessOptions {
     readonly home: string;
     readonly assets?: string;
+    readonly command?: readonly string[];
     readonly onExit?: (reason: string) => void;
 }
 
@@ -24,11 +29,20 @@ export interface StartAnnexProcessOptions {
 export async function startAnnexProcess(
     options: StartAnnexProcessOptions,
 ): Promise<AnnexProcess> {
-    const args = [ANNEX_ENTRY, "--home", options.home, "--port", "0"];
-    if (options.assets !== undefined) {
-        args.push("--assets", options.assets);
-    }
-    const child: ChildProcess = spawn("bun", args, {
+    const executable = options.command ?? [
+        releaseBinaryPath(RELEASE_ANNEX_NAME),
+    ];
+    const [bin, ...prefix] = executable;
+    const args = [
+        ...prefix,
+        "--home",
+        options.home,
+        "--port",
+        "0",
+        "--assets",
+        options.assets ?? packedAnnexRoot(thisProcessReleaseRoot()),
+    ];
+    const child: ChildProcess = spawn(bin as string, args, {
         argv0: "vera-annex",
         stdio: ["ignore", "pipe", "pipe"],
         env: { ...process.env },

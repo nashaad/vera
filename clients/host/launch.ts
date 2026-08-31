@@ -21,6 +21,10 @@ import {
     VERA_WORKTREE_RUNTIME_ENV,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
+import {
+    RELEASE_HOST_NAME,
+    releaseBinaryPath,
+} from "../../src/release/layout.ts";
 
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,
@@ -192,7 +196,7 @@ function spawnDetachedResidentHost(): Promise<void> {
         return Promise.reject(new HostBootLoopError(failures.length));
     }
     const spawnedAt = Date.now();
-    const child = spawn(process.execPath, [residentHostEntrypoint()], {
+    const child = spawn(releaseBinaryPath(RELEASE_HOST_NAME), [], {
         argv0: "vera-host",
         detached: true,
         stdio: "ignore",

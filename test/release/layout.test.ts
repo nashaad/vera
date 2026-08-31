@@ -12,6 +12,7 @@ import {
     RELEASE_ANNEX_NAME,
     releaseManifestPath,
     releasesDirectory,
+    thisProcessReleaseRoot,
     veraShareRoot,
 } from "../../src/release/layout.ts";
 
@@ -39,4 +40,5 @@ test("release layout names annex assets and the manifest", () => {
     );
     expect(packedAnnexRoot(root).split(sep)).not.toContain("web");
     expect(packedAnnexRoot(root).split(sep)).not.toContain("clients");
+    expect(packedAnnexRoot()).toBe(join(thisProcessReleaseRoot(), "annex"));
 });
