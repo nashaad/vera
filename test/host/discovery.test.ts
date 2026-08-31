@@ -3,6 +3,7 @@ import { expect, test } from "bun:test";
 import {
     ensureResidentHost,
     HostProjectMismatchError,
+    HostReplacementBusyError,
 } from "../../src/host/discovery.ts";
 import type {
     HostLockfile,
@@ -185,6 +186,36 @@ test("a busy project mismatch can be confirmed and replaced", async () => {
     expect(host).toEqual(replacementHost);
     expect(terminated).toBe(mismatchedHost.pid);
     expect(starts).toBe(1);
+});
+
+test("replaceExisting on a busy project-mismatched host does not terminate", async () => {
+    const mismatchedHost: HostLockRecord = {
+        ...runningHost,
+        project_root: "/checkouts/other",
+    };
+    let terminated = 0;
+    await expect(ensureResidentHost({
+        projectRoot: "/checkouts/current",
+        lockfile: scriptedLockfile([mismatchedHost]),
+        replaceExisting: true,
+        startHost: () => {
+            throw new Error("must not start");
+        },
+        shutdownForReplacement: async () => ({
+            type: "shutdown_for_replacement_refused",
+            reason: "busy",
+        }),
+        shutdownIfIdle: async () => ({
+            type: "shutdown_if_idle_refused",
+            reason: "busy",
+        }),
+        confirmBusyUpgrade: () => true,
+        terminateHost: () => {
+            terminated += 1;
+        },
+        wait: async () => {},
+    })).rejects.toBeInstanceOf(HostReplacementBusyError);
+    expect(terminated).toBe(0);
 });
 
 test("a gracefully closing project host is not mistaken for wedged", async () => {
@@ -528,6 +559,112 @@ test("host discovery can confirm and replace a busy older host", async () => {
     expect(host).toEqual(runningHost);
     expect(terminated).toBe(101);
     expect(starts).toBe(1);
+});
+
+test("replaceExisting on a busy older-protocol host does not terminate", async () => {
+    const mismatch = new HostProtocolMismatchError(
+        101,
+        2,
+        runningHost.started_at,
+        runningHost.socket_path,
+    );
+    let terminated = 0;
+    await expect(ensureResidentHost({
+        lockfile: {
+            publish(): Promise<HostLockRecord> {
+                throw new Error("not used");
+            },
+            read(): Promise<HostLockRecord | undefined> {
+                return Promise.reject(mismatch);
+            },
+        },
+        replaceExisting: true,
+        startHost: () => {
+            throw new Error("must not start");
+        },
+        shutdownIfIdle: async () => ({
+            type: "shutdown_if_idle_refused",
+            reason: "busy",
+        }),
+        shutdownForReplacement: async () => undefined,
+        confirmBusyUpgrade: () => true,
+        terminateHost: () => {
+            terminated += 1;
+        },
+        wait: async () => {},
+    })).rejects.toBeInstanceOf(HostReplacementBusyError);
+    expect(terminated).toBe(0);
+});
+
+test("replaceExisting shuts down a healthy host and starts another", async () => {
+    const replacementHost: HostLockRecord = {
+        ...runningHost,
+        pid: 202,
+        started_at: "2026-08-30T12:00:00.000Z",
+    };
+    let starts = 0;
+    let terminated = 0;
+    const host = await ensureResidentHost({
+        lockfile: scriptedLockfile([
+            runningHost,
+            undefined,
+            undefined,
+            replacementHost,
+        ]),
+        replaceExisting: true,
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownForReplacement: async (socketPath, identity, requester) => {
+            expect(socketPath).toBe(runningHost.socket_path);
+            expect(identity).toEqual({
+                pid: runningHost.pid,
+                started_at: runningHost.started_at,
+                protocol_version: HOST_PROTOCOL_VERSION,
+            });
+            expect(requester).toBe(HOST_PROTOCOL_VERSION);
+            return {
+                type: "shutdown_for_replacement_accepted",
+                pid: runningHost.pid,
+                started_at: runningHost.started_at,
+            };
+        },
+        terminateHost: () => {
+            terminated += 1;
+        },
+        wait: async () => {},
+    });
+
+    expect(host).toEqual(replacementHost);
+    expect(starts).toBe(1);
+    expect(terminated).toBe(0);
+});
+
+test("replaceExisting on a busy host does not terminate the pid", async () => {
+    let starts = 0;
+    let terminated = 0;
+    await expect(ensureResidentHost({
+        lockfile: scriptedLockfile([runningHost]),
+        replaceExisting: true,
+        startHost: () => {
+            starts += 1;
+        },
+        shutdownForReplacement: async () => ({
+            type: "shutdown_for_replacement_refused",
+            reason: "busy",
+        }),
+        shutdownIfIdle: async () => ({
+            type: "shutdown_if_idle_refused",
+            reason: "busy",
+        }),
+        confirmBusyUpgrade: () => true,
+        terminateHost: () => {
+            terminated += 1;
+        },
+        wait: async () => {},
+    })).rejects.toBeInstanceOf(HostReplacementBusyError);
+    expect(starts).toBe(0);
+    expect(terminated).toBe(0);
 });
 
 test("host discovery stops at one fixed startup deadline", async () => {
