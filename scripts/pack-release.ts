@@ -109,6 +109,28 @@ export interface InstalledRelease {
 export async function installRelease(
     options: InstallReleaseOptions = {},
 ): Promise<InstalledRelease> {
+    const packed = await packRunnableRelease(options);
+    activateRelease(packed.releaseRoot, packed.prefix);
+    return {
+        prefix: packed.prefix,
+        releaseRoot: packed.releaseRoot,
+        launcher: launcherPath(packed.prefix),
+        current: packedReleaseRoot(packed.prefix),
+        manifest: packed.manifest,
+    };
+}
+
+/**
+ * Pack a runnable tree at releases/<build-id> without pointing `current` at
+ * it. Does not write ~/.vera.
+ */
+export async function packRunnableRelease(
+    options: InstallReleaseOptions = {},
+): Promise<{
+    readonly prefix: string;
+    readonly releaseRoot: string;
+    readonly manifest: ReleaseManifest;
+}> {
     const prefix = options.prefix ?? defaultInstallPrefix();
     const cwd = options.cwd ?? REPO_ROOT;
     const sourceRoot = options.sourceRoot ?? REPO_ROOT;
@@ -121,7 +143,7 @@ export async function installRelease(
     } catch {
         manifest = undefined;
     }
-    if (manifest?.build_id !== identity.buildId) {
+    if (manifest?.build_id !== identity.buildId || options.force === true) {
         const packed = await packRelease(target, {
             cwd,
             force: options.force ?? true,
@@ -130,12 +152,12 @@ export async function installRelease(
         assembleRunnableRelease(target, sourceRoot);
         manifest = packed.manifest;
     }
-    activateRelease(target, prefix);
+    if (manifest === undefined) {
+        throw new Error(`No release stamp at ${releaseManifestPath(target)}`);
+    }
     return {
         prefix,
         releaseRoot: target,
-        launcher: launcherPath(prefix),
-        current: packedReleaseRoot(prefix),
         manifest,
     };
 }
