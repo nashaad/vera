@@ -101,10 +101,6 @@ export function hasConfiguredProvider(
         return true;
     }
     for (const provider of configuredProviders(config)) {
-        if (
-            provider.credential === "none"
-            || provider.credential === "api_key_optional"
-        ) continue;
         try {
             if (isProviderConnected(provider, { authStorage, env })) {
                 return true;
@@ -117,9 +113,9 @@ export function hasConfiguredProvider(
 }
 
 /**
- * Codex stores `expires_at` on the OAuth record. Access tokens refresh on
- * their own, so "near" here means already past, not a rolling window that
- * would fire every hour.
+ * Yellow for a stored OAuth expiry that is already past. There is no rolling
+ * window. Codex access tokens refresh on their own; this is the record's
+ * `expires_at`, not a guess at renewability.
  */
 export function expiredOAuthProvider(
     storage: Pick<AuthStorage, "getCredential">,

@@ -161,8 +161,8 @@ test("health rungs follow shortlist order and ignore a fake session model", () =
     expect(healthRungsOf({ model: "test" }, undefined)).toEqual([]);
 });
 
-test("a custom provider counts as configured; a bare install does not", () => {
-    expect(hasConfiguredProvider(memoryAuth(), undefined, {})).toBe(false);
+test("a shipped local provider counts as configured without a credential", () => {
+    expect(hasConfiguredProvider(memoryAuth(), undefined, {})).toBe(true);
     expect(hasConfiguredProvider(memoryAuth(), {
         providers: {
             local: {
@@ -172,6 +172,22 @@ test("a custom provider counts as configured; a bare install does not", () => {
             },
         },
     }, {})).toBe(true);
+});
+
+test("a local ollama default is a rung and greens when it answers", () => {
+    expect(healthRungsOf(
+        { model: "qwen3:1.7b", provider: "ollama" },
+        undefined,
+    )).toEqual([{ provider: "ollama", model: "qwen3:1.7b" }]);
+    const ready = summarizeProviderHealth({
+        results: [
+            { rung: { provider: "ollama", model: "qwen3:1.7b" }, answered: true },
+        ],
+        configured: true,
+    });
+    expect(ready.tone).toBe("green");
+    expect(ready.summary).toBe("ollama/qwen3:1.7b answered");
+    expect(ready.next).toBeUndefined();
 });
 
 test("an already-expired Codex token is an expired credential", () => {
