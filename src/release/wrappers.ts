@@ -88,7 +88,7 @@ function writeWrapper(path: string, bun: string, entry: string): void {
         path,
         `#!/bin/sh\n`
             + `set -eu\n`
-            + `here=$(CDPATH= cd -P -- "$(dirname -- "$0")" && pwd)\n`
+            + `here=$(CDPATH= cd -P -- "\${0%/*}" && pwd)\n`
             + `exec ${bun} ${entry} "$@"\n`,
         { encoding: "utf8", mode: 0o755 },
     );
