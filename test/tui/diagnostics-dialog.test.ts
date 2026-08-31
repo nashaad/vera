@@ -10,7 +10,6 @@ import {
     INSPECT_COPY_HINT,
     INSPECT_DIALOG_MAX_WIDTH,
     styledInspectOccupancy,
-    wrapInspectFieldLine,
 } from "../../clients/tui/diagnostics-dialog.ts";
 import { parseColor } from "@opentui/core";
 import {
@@ -74,17 +73,6 @@ test("inspect document markdown omits only its redundant H1", () => {
         .toBe("# Visible\nbody");
 });
 
-test("an overflowing diagnostic value uses a hanging indent", () => {
-    const wrapped = wrapInspectFieldLine(
-        "  file         /abcdefghijklmnop",
-        25,
-    );
-    expect(wrapped).toEqual([
-        "  file         /abcdefghi",
-        "               jklmnop",
-    ]);
-});
-
 test("rendered context occupancy keeps its three capacity colors", () => {
     const styled = styledInspectOccupancy("█ used  ░ free  ▒ reserve");
     const color = (text: string) =>
@@ -116,8 +104,10 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         text: [
             "# Session diagnostics",
             "## Session",
-            "  identity     misty-knoll:3574",
-            "  file         /Users/nash/.vera/profiles/default/runtime/sessions/session.jsonl",
+            "| Field | Value |",
+            "| --- | --- |",
+            "| Identity | misty-knoll:3574 |",
+            "| File | /Users/nash/.vera/profiles/default/runtime/sessions/session.jsonl |",
             "",
             "## Usage",
             "| Metric | Value |",
@@ -141,10 +131,12 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         const second = lines[firstIndex + 1];
         const third = lines[firstIndex + 2];
         expect(first).toContain("/Users/nash/.vera/profil");
-        expect(second).toContain("es/default/runtime/sessi");
-        expect(third).toContain("ons/session.jsonl");
-        expect(second!.indexOf("es/default")).toBe(first!.indexOf("/Users/nash"));
-        expect(third!.indexOf("ons/session")).toBe(first!.indexOf("/Users/nash"));
+        expect(second).toContain("default/runtime/sessions/");
+        expect(third).toContain("session.jsonl");
+        expect(second!.indexOf("default/runtime"))
+            .toBe(first!.indexOf("/Users/nash"));
+        expect(third!.indexOf("session.jsonl"))
+            .toBe(first!.indexOf("/Users/nash"));
     } finally {
         view.box.destroyRecursively();
         setup.renderer.destroy();

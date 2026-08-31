@@ -257,9 +257,9 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("› Session");
         session.sendKey("Tab");
-        pane = await session.waitForVisiblePane("reload       failed");
-        expect(pane).toContain("reload error");
-        expect(pane).not.toContain("reload       partial");
+        pane = await session.waitForVisiblePane("Status  failed");
+        expect(pane).toContain("Error");
+        expect(pane).not.toContain("Status  partial");
     } finally {
         await session.close();
     }
@@ -290,9 +290,9 @@ test("partial reload names the extensions that stayed active", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("› Session");
         session.sendKey("Tab");
-        pane = await session.waitForVisiblePane("reload       partial (1 loaded)");
-        expect(pane).toContain("active       test.sidebar");
-        expect(pane).toContain("reload error");
+        pane = await session.waitForVisiblePane("Status  partial (1 loaded)");
+        expect(pane).toContain("Active  test.sidebar");
+        expect(pane).toContain("Error");
     } finally {
         await session.close();
     }

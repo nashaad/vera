@@ -64,71 +64,87 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     const lines = [
         "# Session diagnostics",
         "## Session",
-        `  identity     ${snapshot.sessionIdentity ?? "unavailable"}`,
-        `  id           ${snapshot.sessionId ?? "unavailable"}`,
-        `  file         ${snapshot.sessionPath ?? "unavailable"}`,
-        `  workspace    ${snapshot.workspace}`,
-        `  background   ${snapshot.runningBackgroundAgents} running`,
+        ...fieldTable([
+            ["Identity", snapshot.sessionIdentity ?? "Unavailable"],
+            ["ID", snapshot.sessionId ?? "Unavailable"],
+            ["File", snapshot.sessionPath ?? "Unavailable"],
+            ["Workspace", snapshot.workspace],
+            ["Background", `${snapshot.runningBackgroundAgents} running`],
+        ]),
         "",
         "## Processes",
-        ...processLines(snapshot.processes),
+        ...processTableLines(snapshot.processes),
         "",
         "## Session usage",
         ...sessionUsageLines(state.sessionUsage),
         "",
         "## Runtime",
-        `  turn         ${state.working ? snapshot.activity : "idle"}`,
-        `  elapsed      ${state.working ? snapshot.elapsed : "—"}`,
-        `  cancellable  ${state.working ? "yes" : "no"}`,
-        `  queued       ${state.queuedPrompts.length}`,
+        ...fieldTable([
+            ["Turn", state.working ? snapshot.activity : "Idle"],
+            ["Elapsed", state.working ? snapshot.elapsed : "—"],
+            ["Cancellable", state.working ? "Yes" : "No"],
+            ["Queued", String(state.queuedPrompts.length)],
+        ]),
     ];
 
     const model = state.modelActivity;
+    const modelRows: string[][] = [];
     lines.push("");
     lines.push("## Model");
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
         const retrying = Date.parse(model.retryAt) > now;
-        lines.push(`  model        ${model.model}`);
-        lines.push(
-            `  request      ${retrying ? "retry" : "attempt"}`
+        modelRows.push(["Model", model.model]);
+        modelRows.push([
+            "Request",
+            `${retrying ? "Retry" : "Attempt"}`
                 + ` ${model.nextAttempt} of ${model.maxAttempts}`,
-        );
-        lines.push(
-            `  last failure ${model.failure.kind}`
+        ]);
+        modelRows.push([
+            "Last failure",
+            `${model.failure.kind}`
                 + `${model.failure.statusCode === undefined
                     ? ""
                     : ` (${model.failure.statusCode})`}`,
-        );
+        ]);
         if (retrying) {
-            lines.push(`  retry in     ${retryDelay(model.retryAt, now)}`);
+            modelRows.push(["Retry in", retryDelay(model.retryAt, now)]);
         }
     } else if (state.modelSettings !== undefined) {
-        lines.push(`  model        ${state.modelSettings.model}`);
+        modelRows.push(["Model", state.modelSettings.model]);
     }
     if (state.modelSettings !== undefined) {
         const effort = state.modelSettings.reasoningEffort ?? "default";
-        lines.push(`  reasoning    ${effort}`);
-        lines.push(
-            `  context cap  ${state.modelSettings.contextLimit ?? "auto"}`,
-        );
+        modelRows.push(["Reasoning", effort]);
+        modelRows.push([
+            "Context cap",
+            String(state.modelSettings.contextLimit ?? "auto"),
+        ]);
         if (state.modelSettings.modelContextWindow !== undefined) {
-            lines.push(
-                `  model window ${state.modelSettings.modelContextWindow}`,
-            );
+            modelRows.push([
+                "Model window",
+                String(state.modelSettings.modelContextWindow),
+            ]);
         }
         const child = state.modelSettings.subagentDefault;
         if (child === undefined) {
-            lines.push("  subagents    unknown (restart the resident host)");
+            modelRows.push([
+                "Subagents",
+                "Unknown (restart the resident host)",
+            ]);
         } else if (child.mode === "fixed") {
             const identity = child.provider === undefined
                 ? child.model
                 : `${child.provider}/${child.model}`;
-            lines.push(`  subagents    ${identity} (${child.reasoningEffort ?? "default"})`);
+            modelRows.push([
+                "Subagents",
+                `${identity} (${child.reasoningEffort ?? "default"})`,
+            ]);
         } else {
-            lines.push(
-                `  subagents    inherit parent (${state.modelSettings.model}, ${effort})`,
-            );
+            modelRows.push([
+                "Subagents",
+                `Inherit parent (${state.modelSettings.model}, ${effort})`,
+            ]);
         }
     }
 
@@ -138,26 +154,32 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
             ? `${state.context.tokens} tokens`
             : `${state.context.tokens} / ${capacity}`
                 + ` (${Math.round(state.context.tokens / capacity * 100)}%)`;
-        lines.push(
-            `  context      ${usage}${state.context.estimated ? " estimated" : ""}`,
-        );
+        modelRows.push([
+            "Context",
+            `${usage}${state.context.estimated ? " estimated" : ""}`,
+        ]);
     } else {
-        lines.push("  context      unavailable");
+        modelRows.push(["Context", "Unavailable"]);
     }
+    lines.push(...fieldTable(modelRows));
     return lines.join("\n");
 }
 
-function processLines(
+function processTableLines(
     processes: readonly TuiDiagnosticProcess[] | undefined,
 ): string[] {
     if (processes === undefined || processes.length === 0) {
-        return ["  unavailable"];
+        return ["Unavailable."];
     }
-    return processes.map((process) =>
-        `  ${process.role.padEnd(10)} PID ${process.pid}`
-        + ` · ${process.rssBytes === undefined
-            ? "memory unavailable"
-            : formatMemory(process.rssBytes)}`
+    return markdownTable(
+        ["Role", "PID", "Memory"],
+        processes.map((process) => [
+            process.role,
+            String(process.pid),
+            process.rssBytes === undefined
+                ? "Unavailable"
+                : formatMemory(process.rssBytes),
+        ]),
     );
 }
 
@@ -191,6 +213,7 @@ function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
         "",
         "## Extensions",
         ...extensionLines(snapshot),
+        "",
         ...clientExtensionReloadLines(snapshot),
         "",
         "## Model failures",
@@ -223,25 +246,31 @@ function modelFailureLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     if (hidden > 0) {
         lines.push(`> ${hidden} more not listed.`);
     }
+    const details: string[][] = [];
     if (snapshot.modelFailureLedgerPath !== undefined) {
-        lines.push(`  ledger       ${snapshot.modelFailureLedgerPath}`);
+        details.push(["Ledger", snapshot.modelFailureLedgerPath]);
     }
     const worst = summary.signatures[0];
     if (worst !== undefined) {
-        lines.push(`  last error   ${worst.lastDetail}`);
+        details.push(["Last error", worst.lastDetail]);
         if (worst.lastRequestTokens !== undefined) {
-            lines.push(
-                `  last request ${worst.lastRequestTokens.toLocaleString()}`
+            details.push([
+                "Last request",
+                `${worst.lastRequestTokens.toLocaleString()}`
                     + `${worst.lastRequestTokensEstimated ? " estimated" : ""}`
                     + " tokens (attempted, not billed usage)",
-            );
+            ]);
         }
         if (worst.lastAllowance !== undefined) {
-            lines.push(
-                `  allowance    ${worst.lastAllowance.available.toLocaleString()}`
+            details.push([
+                "Allowance",
+                `${worst.lastAllowance.available.toLocaleString()}`
                     + ` ${worst.lastAllowance.kind.replace("_", " ")}`,
-            );
+            ]);
         }
+    }
+    if (details.length > 0) {
+        lines.push("", "### Latest detail", ...fieldTable(details));
     }
     return lines;
 }
@@ -327,12 +356,21 @@ function markdownTable(
     headings: readonly string[],
     rows: readonly (readonly string[])[],
 ): string[] {
-    const row = (cells: readonly string[]) => `| ${cells.join(" | ")} |`;
+    const row = (cells: readonly string[]) =>
+        `| ${cells.map(markdownTableCell).join(" | ")} |`;
     return [
         row(headings),
         row(headings.map(() => "---")),
         ...rows.map(row),
     ];
+}
+
+function fieldTable(rows: readonly (readonly string[])[]): string[] {
+    return markdownTable(["Field", "Value"], rows);
+}
+
+function markdownTableCell(value: string): string {
+    return value.replaceAll("|", "\\|").replaceAll("\n", "<br>");
 }
 
 function formatTokens(tokens: number): string {
@@ -409,10 +447,13 @@ function clientExtensionReloadLines(
 ): string[] {
     const reload = snapshot.clientExtensionReload;
     if (reload === undefined || reload.status === "never") {
-        return ["  reload       never"];
+        return ["### Client reload", ...fieldTable([["Status", "Never"]])];
     }
     if (reload.status === "reloading") {
-        return ["  reload       reloading"];
+        return [
+            "### Client reload",
+            ...fieldTable([["Status", "Reloading"]]),
+        ];
     }
     const loaded = reload.loadedExtensionIds.length;
     const label = reload.status === "success"
@@ -420,25 +461,27 @@ function clientExtensionReloadLines(
         : reload.status === "partial"
         ? `partial (${loaded} loaded)`
         : "failed";
-    const lines = [`  reload       ${label}`];
+    const rows: string[][] = [["Status", label]];
     if (loaded > 0) {
-        lines.push(
-            `  active       ${reload.loadedExtensionIds
-                .slice(0, MAX_ACTIVE_EXTENSION_IDS).join(", ")}`,
-        );
+        rows.push([
+            "Active",
+            reload.loadedExtensionIds
+                .slice(0, MAX_ACTIVE_EXTENSION_IDS).join(", "),
+        ]);
         if (loaded > MAX_ACTIVE_EXTENSION_IDS) {
-            lines.push(
-                `  active       + ${loaded - MAX_ACTIVE_EXTENSION_IDS} more`,
-            );
+            rows.push([
+                "Active",
+                `+ ${loaded - MAX_ACTIVE_EXTENSION_IDS} more`,
+            ]);
         }
     }
     for (const failure of reload.failures.slice(0, 3)) {
-        lines.push(`  reload error ${failure}`);
+        rows.push(["Error", failure]);
     }
     if (reload.failures.length > 3) {
-        lines.push(`  reload error + ${reload.failures.length - 3} more`);
+        rows.push(["Error", `+ ${reload.failures.length - 3} more`]);
     }
-    return lines;
+    return ["### Client reload", ...fieldTable(rows)];
 }
 
 const MAX_ACTIVE_EXTENSION_IDS = 20;
@@ -452,10 +495,14 @@ function hostLabel(snapshot: TuiDiagnosticsSnapshot): string {
 
 function extensionLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     if (snapshot.extensions === undefined || snapshot.extensions.length === 0) {
-        return ["  none configured"];
+        return ["None configured."];
     }
-    return snapshot.extensions.map((extension) =>
-        `  ${extension.enabled ? "enabled " : "disabled"}      ${extension.path}`
+    return markdownTable(
+        ["State", "Path"],
+        snapshot.extensions.map((extension) => [
+            extension.enabled ? "Enabled" : "Disabled",
+            extension.path,
+        ]),
     );
 }
 
@@ -465,30 +512,41 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     }
     const stash = snapshot.stash;
     if (stash === undefined) {
-        return [`  stash        empty`, `  filesystem   ${snapshot.stashRoot}`];
+        return fieldTable([
+            ["Stash", "Empty"],
+            ["Filesystem", snapshot.stashRoot],
+        ]);
     }
     const now = snapshot.now ?? Date.now();
     const oldest = stash.oldestCapturedAt === undefined
         ? ""
         : `, oldest ${age(stash.oldestCapturedAt, now)}`;
-    const lines = [
-        `  stash        ${stash.preimages} pre-image${stash.preimages === 1 ? "" : "s"}`
+    const lines = fieldTable([[
+        "Stash",
+        `${stash.preimages} pre-image${stash.preimages === 1 ? "" : "s"}`
             + ` across ${stash.sessions} session${stash.sessions === 1 ? "" : "s"}`
             + ` (${formatStashBytes(stash.bytes)}${oldest})`,
-    ];
-    for (const entry of stash.entries.slice(0, MAX_STASH_ENTRIES)) {
-        lines.push(
-            `               ${age(entry.capturedAt, now)} ago`
-                + `  ${formatStashBytes(entry.bytes)}`
-                + `  ${entry.path}  (${snapshot.stashRoot}/${entry.sessionId})`,
-        );
-    }
+    ], ["Filesystem", snapshot.stashRoot]]);
+    lines.push(
+        "",
+        "### Recent captures",
+        ...markdownTable(
+            ["Age", "Size", "Original", "Saved in"],
+            stash.entries.slice(0, MAX_STASH_ENTRIES).map((entry) => [
+                `${age(entry.capturedAt, now)} ago`,
+                formatStashBytes(entry.bytes),
+                entry.path,
+                `${snapshot.stashRoot}/${entry.sessionId}`,
+            ]),
+        ),
+    );
     const hidden = stash.entries.length - MAX_STASH_ENTRIES;
     if (hidden > 0) {
-        lines.push(`               + ${hidden} more in ${snapshot.stashRoot}`);
+        lines.push(`> ${hidden} more in ${snapshot.stashRoot}.`);
     }
     lines.push(
-        "               restore: the <key>.json sidecar names the original path; cp <key> <path>",
+        "",
+        "> Restore: the `<key>.json` sidecar names the original path; run `cp <key> <path>`.",
     );
     return lines;
 }

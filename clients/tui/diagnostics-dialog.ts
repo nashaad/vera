@@ -174,6 +174,7 @@ export function createTuiDiagnosticsDialogView(
         internalBlockMode: "top-level",
         tableOptions: {
             style: "columns",
+            columnFitter: "balanced",
             wrapMode: "word",
             selectable: true,
         },
@@ -278,7 +279,6 @@ export function createTuiDiagnosticsDialogView(
             bodyMarkdown.content = inspectDocumentMarkdown(
                 state.text,
                 options.skipFirstLine,
-                documentWidth(),
             );
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
@@ -387,62 +387,6 @@ export function inspectDocumentLines(
 export function inspectDocumentMarkdown(
     text: string,
     skipFirstLine?: boolean,
-    columns?: number,
 ): string {
-    const lines = inspectDocumentLines(text, skipFirstLine);
-    return columns === undefined
-        ? lines.join("\n")
-        : lines.flatMap((line) => wrapInspectFieldLine(line, columns)).join("\n");
-}
-
-/** Diagnostics key/value rows put continuation text under the value. */
-export function wrapInspectFieldLine(
-    line: string,
-    columns: number,
-): readonly string[] {
-    const valueColumn = 15;
-    if (
-        columns <= valueColumn
-        || Bun.stringWidth(line) <= columns
-        || !line.startsWith("  ")
-        || line.length <= valueColumn
-        || line[valueColumn - 1] !== " "
-        || line[valueColumn] === " "
-    ) {
-        return [line];
-    }
-
-    const prefix = line.slice(0, valueColumn);
-    const continuation = " ".repeat(Bun.stringWidth(prefix));
-    const capacity = columns - Bun.stringWidth(prefix);
-    const wrapped: string[] = [];
-    let remaining = line.slice(valueColumn);
-    while (Bun.stringWidth(remaining) > capacity) {
-        const segment = inspectWrapSegment(remaining, capacity);
-        wrapped.push(`${wrapped.length === 0 ? prefix : continuation}${segment.head}`);
-        remaining = segment.tail;
-    }
-    wrapped.push(`${wrapped.length === 0 ? prefix : continuation}${remaining}`);
-    return wrapped;
-}
-
-function inspectWrapSegment(
-    text: string,
-    columns: number,
-): { readonly head: string; readonly tail: string } {
-    let width = 0;
-    let cut = 0;
-    let whitespaceCut = 0;
-    for (const character of Array.from(text)) {
-        const next = width + Bun.stringWidth(character);
-        if (next > columns) break;
-        width = next;
-        cut += character.length;
-        if (/\s/u.test(character)) whitespaceCut = cut;
-    }
-    const split = whitespaceCut > 0 ? whitespaceCut : Math.max(1, cut);
-    return {
-        head: text.slice(0, split).trimEnd(),
-        tail: text.slice(split).trimStart(),
-    };
+    return inspectDocumentLines(text, skipFirstLine).join("\n");
 }

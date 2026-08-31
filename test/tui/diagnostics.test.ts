@@ -35,12 +35,12 @@ test("TUI diagnostics explains a retrying model request", () => {
         now: Date.parse("2026-07-29T17:00:00.000Z"),
     });
 
-    expect(text).toContain("turn         retrying openai/gpt-5.6-sol");
-    expect(text).toContain("request      retry 2 of 3");
-    expect(text).toContain("last failure server (503)");
-    expect(text).toContain("retry in     2s");
-    expect(text).toContain("context      2500 / 10000 (25%) estimated");
-    expect(text).toContain("queued       1");
+    expect(text).toContain("| Turn | retrying openai/gpt-5.6-sol |");
+    expect(text).toContain("| Request | Retry 2 of 3 |");
+    expect(text).toContain("| Last failure | server (503) |");
+    expect(text).toContain("| Retry in | 2s |");
+    expect(text).toContain("| Context | 2500 / 10000 (25%) estimated |");
+    expect(text).toContain("| Queued | 1 |");
 });
 
 test("TUI diagnostics never presents missing prices as zero cost", () => {
@@ -81,10 +81,10 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
         runningBackgroundAgents: 0,
     });
 
-    expect(text).toContain("turn         idle");
-    expect(text).toContain("context      unavailable");
-    expect(text).toContain("id           unavailable");
-    expect(text).toContain("file         unavailable");
+    expect(text).toContain("| Turn | Idle |");
+    expect(text).toContain("| Context | Unavailable |");
+    expect(text).toContain("| ID | Unavailable |");
+    expect(text).toContain("| File | Unavailable |");
     expect(text).not.toContain("Model failures");
     expect(text).not.toContain("Pre-image stash");
 });
@@ -104,10 +104,10 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
     });
 
     expect(text).toContain("# Session diagnostics");
-    expect(text).toContain("id           session-123");
-    expect(text).toContain("identity     calm-wren:0001");
+    expect(text).toContain("| ID | session-123 |");
+    expect(text).toContain("| Identity | calm-wren:0001 |");
     expect(text).toContain(
-        "file         /home/user/.vera/sessions/session-123.jsonl",
+        "| File | /home/user/.vera/sessions/session-123.jsonl |",
     );
     expect(text).not.toContain("## Build");
     expect(text).not.toContain("## Extensions");
@@ -131,10 +131,10 @@ test("TUI session diagnostics shows the live process chain and memory", () => {
     });
 
     expect(text).toContain("## Processes");
-    expect(text).toContain("client     PID 101 · 10.0 MiB");
-    expect(text).toContain("host       PID 102 · 256.0 MiB");
-    expect(text).toContain("worker     PID 103 · 1.50 GiB");
-    expect(text).toContain("supervisor PID 104 · memory unavailable");
+    expect(text).toContain("| client | 101 | 10.0 MiB |");
+    expect(text).toContain("| host | 102 | 256.0 MiB |");
+    expect(text).toContain("| worker | 103 | 1.50 GiB |");
+    expect(text).toContain("| supervisor | 104 | Unavailable |");
 });
 
 test("TUI diagnostics shows marked startup timings near the top", () => {
@@ -227,8 +227,8 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).toContain("| Client entrypoint | /worktree/clients/tui/main.ts |");
     expect(text).toContain("| Host | PID 42 · started 2026-08-09T20:00:00.000Z |");
     expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");
-    expect(text).toContain("enabled       /worktree/examples/extensions/sample");
-    expect(text).toContain("disabled      /old/disabled-extension");
+    expect(text).toContain("| Enabled | /worktree/examples/extensions/sample |");
+    expect(text).toContain("| Disabled | /old/disabled-extension |");
     expect(text).not.toContain("────");
 });
 
@@ -247,9 +247,9 @@ test("TUI diagnostics reports the latest client extension reload", () => {
         },
     });
 
-    expect(text).toContain("reload       partial (2 loaded)");
-    expect(text).toContain("active       sidebar, search");
-    expect(text).toContain("reload error broken: activation timed out");
+    expect(text).toContain("| Status | partial (2 loaded) |");
+    expect(text).toContain("| Active | sidebar, search |");
+    expect(text).toContain("| Error | broken: activation timed out |");
 });
 
 test("TUI diagnostics shows when client extensions have never reloaded", () => {
@@ -262,7 +262,7 @@ test("TUI diagnostics shows when client extensions have never reloaded", () => {
         runningBackgroundAgents: 0,
     });
 
-    expect(text).toContain("reload       never");
+    expect(text).toContain("| Status | Never |");
 });
 
 test("TUI diagnostics does not present old extensions during a reload", () => {
@@ -280,8 +280,8 @@ test("TUI diagnostics does not present old extensions during a reload", () => {
         },
     });
 
-    expect(text).toContain("reload       reloading");
-    expect(text).not.toContain("active");
+    expect(text).toContain("| Status | Reloading |");
+    expect(text).not.toContain("| Active |");
 });
 
 test("TUI diagnostics does not claim inheritance without host data", () => {
@@ -300,7 +300,7 @@ test("TUI diagnostics does not claim inheritance without host data", () => {
     });
 
     expect(text).toContain(
-        "subagents    unknown (restart the resident host)",
+        "| Subagents | Unknown (restart the resident host) |",
     );
     expect(text).not.toContain("inherit parent");
 });
@@ -327,10 +327,10 @@ test("TUI diagnostics shows the effective fixed subagent default", () => {
         runningBackgroundAgents: 0,
     });
 
-    expect(text).toContain("model        gpt-5.6-sol");
-    expect(text).toContain("reasoning    high");
+    expect(text).toContain("| Model | gpt-5.6-sol |");
+    expect(text).toContain("| Reasoning | high |");
     expect(text).toContain(
-        "subagents    openrouter/openai/gpt-5.4-mini (low)",
+        "| Subagents | openrouter/openai/gpt-5.4-mini (low) |",
     );
 });
 
@@ -350,7 +350,7 @@ test("TUI diagnostics explains inherited subagent settings", () => {
     });
 
     expect(text).toContain(
-        "subagents    inherit parent (parent-model, default)",
+        "| Subagents | Inherit parent (parent-model, default) |",
     );
 });
 
@@ -378,8 +378,8 @@ test("TUI diagnostics describes the request after retry backoff ends", () => {
         now: Date.parse("2026-07-29T17:00:02.000Z"),
     });
 
-    expect(text).toContain("request      attempt 2 of 3");
-    expect(text).not.toContain("retry in");
+    expect(text).toContain("| Request | Attempt 2 of 3 |");
+    expect(text).not.toContain("| Retry in |");
 });
 
 test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
@@ -408,13 +408,13 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
     });
 
     expect(text).toContain(
-        "stash        17 pre-images across 17 sessions (17.0 KiB, oldest 1h)",
+        "| Stash | 17 pre-images across 17 sessions (17.0 KiB, oldest 1h) |",
     );
     expect(text).toContain(
-        "1h ago  1.0 KiB  /vault/note-15.md  (/home/user/.vera/stash/session-15)",
+        "| 1h ago | 1.0 KiB | /vault/note-15.md | /home/user/.vera/stash/session-15 |",
     );
     expect(text).not.toContain("/vault/note-16.md");
-    expect(text).toContain("+ 2 more in /home/user/.vera/stash");
+    expect(text).toContain("> 2 more in /home/user/.vera/stash.");
     expect(text).toContain("cp <key> <path>");
 });
 
@@ -429,8 +429,8 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
         stashRoot: "/home/user/.vera/stash",
     });
 
-    expect(text).toContain("stash        empty");
-    expect(text).toContain("filesystem   /home/user/.vera/stash");
+    expect(text).toContain("| Stash | Empty |");
+    expect(text).toContain("| Filesystem | /home/user/.vera/stash |");
     expect(text).not.toContain("cp <key> <path>");
 });
 
@@ -485,12 +485,12 @@ test("TUI diagnostics ranks repeated model failures worst first", () => {
     expect(kimi).toBeLessThan(text.indexOf("openai/gpt-5.6-sol"));
     expect(text).toContain("no visible response");
     expect(text).toContain(
-        "ledger       /home/user/.vera/failures/ledger.jsonl",
+        "| Ledger | /home/user/.vera/failures/ledger.jsonl |",
     );
     expect(text).toContain(
-        "last request 80,004 estimated tokens (attempted, not billed usage)",
+        "| Last request | 80,004 estimated tokens (attempted, not billed usage) |",
     );
-    expect(text).toContain("allowance    51,390 prompt tokens");
+    expect(text).toContain("| Allowance | 51,390 prompt tokens |");
 });
 
 test("TUI diagnostics says so when no model has failed", () => {
