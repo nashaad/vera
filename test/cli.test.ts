@@ -1134,9 +1134,41 @@ test("vera reports a missing retained release without a runtime stack trace", as
     expect(errorOutput).toContain("vera-b");
     expect(errorOutput).toContain("not retained");
     expect(errorOutput).toContain("vera host stop");
-    expect(errorOutput).toContain("roll back");
+    expect(errorOutput).toContain("vera rollback");
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("RetainedReleaseMissingError:");
+});
+
+test("vera rollback does not dispatch to a retained host client", async () => {
+    let output = "";
+    let hops = 0;
+    const exitCode = await runCli(["rollback", "--prefix", "/tmp/vera-rollback-cli"], {
+        dispatchToHostRelease: async () => {
+            hops += 1;
+            return 0;
+        },
+        rollbackInstall: () => ({
+            fromBuildId: "vera-broken",
+            toBuildId: "vera-good",
+        }),
+        stdout: { write: (text: string) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(hops).toBe(0);
+    expect(output).toBe("Activated vera-good (was vera-broken)\n");
+});
+
+test("vera rollback reports a missing pin without a stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCli(["rollback"], {
+        rollbackInstall: () => {
+            throw new Error("No rollback pin. There is no retained known-good release to restore.");
+        },
+        stderr: { write: (text: string) => errorOutput += text },
+    });
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toContain("No rollback pin");
+    expect(errorOutput).not.toContain("Error:");
 });
 
 test("vera host stop confirms the explicit resident-host shutdown", async () => {

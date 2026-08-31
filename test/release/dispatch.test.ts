@@ -124,7 +124,7 @@ test("a missing retained release refuses and does not attach", async () => {
             expect((error as RetainedReleaseMissingError).message).toContain("vera-b");
             expect((error as RetainedReleaseMissingError).message).toContain("not retained");
             expect((error as RetainedReleaseMissingError).message).toContain("vera host stop");
-            expect((error as RetainedReleaseMissingError).message).toContain("roll back");
+            expect((error as RetainedReleaseMissingError).message).toContain("vera rollback");
         }
         expect(execs).toBe(0);
     } finally {

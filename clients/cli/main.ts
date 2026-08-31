@@ -61,6 +61,8 @@ import {
     dispatchToHostRelease,
     RetainedReleaseMissingError,
 } from "../../src/release/dispatch.ts";
+import { defaultInstallPrefix } from "../../src/release/layout.ts";
+import { rollbackLocalInstall } from "../../src/release/rollback.ts";
 import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 import {
     exportSession,
@@ -272,6 +274,10 @@ export interface CliDependencies {
     readonly dispatchToHostRelease?: (
         argv: readonly string[],
     ) => Promise<number | undefined>;
+    readonly rollbackInstall?: (prefix: string) => {
+        readonly fromBuildId: string | undefined;
+        readonly toBuildId: string;
+    };
 }
 
 export async function runCli(
@@ -340,6 +346,10 @@ export async function runCli(
             );
             return 1;
         }
+    }
+
+    if (args[0] === "rollback") {
+        return runRollbackCommand(args.slice(1), output, errorOutput, dependencies);
     }
 
     const dispatched = await (dependencies.dispatchToHostRelease
@@ -1393,6 +1403,47 @@ function runHostSupervision(
             }\n`,
     );
     return 0;
+}
+
+function runRollbackCommand(
+    flags: readonly string[],
+    output: CliOutput,
+    errorOutput: CliOutput,
+    dependencies: CliDependencies,
+): number {
+    let prefix: string | undefined;
+    for (let i = 0; i < flags.length; i++) {
+        const flag = flags[i];
+        if (flag === "--prefix") {
+            prefix = flags[++i];
+            if (prefix === undefined || prefix.length === 0) {
+                errorOutput.write("vera rollback: missing --prefix path\n");
+                return 1;
+            }
+            continue;
+        }
+        if (flag !== undefined && flag.startsWith("-")) {
+            errorOutput.write(`vera rollback: unknown flag: ${flag}\n`);
+            return 1;
+        }
+        errorOutput.write("vera rollback: usage: vera rollback [--prefix DIR]\n");
+        return 1;
+    }
+    const target = prefix ?? defaultInstallPrefix();
+    try {
+        const result = (dependencies.rollbackInstall ?? rollbackLocalInstall)(target);
+        if (result.fromBuildId === undefined) {
+            output.write(`Activated ${result.toBuildId}\n`);
+        } else {
+            output.write(`Activated ${result.toBuildId} (was ${result.fromBuildId})\n`);
+        }
+        return 0;
+    } catch (error) {
+        errorOutput.write(
+            `vera rollback: ${error instanceof Error ? error.message : String(error)}\n`,
+        );
+        return 1;
+    }
 }
 
 async function confirmResidentHostStop(): Promise<boolean> {
