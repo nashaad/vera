@@ -18,20 +18,17 @@ import {
 } from "./protocol.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import { recordMatchesRunningProcess } from "./process-identity.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
 
-export const HOST_LOCK_SCHEMA_VERSION = 2;
+export const HOST_LOCK_SCHEMA_VERSION = 3;
 
 export interface HostLockRecord {
-    readonly schema_version: 1 | 2;
+    readonly schema_version: 1 | 2 | 3;
     readonly pid: number;
     readonly started_at: string;
     readonly socket_path: string;
-    /**
-     * Absolute path of the entrypoint the running host was started from.
-     * Absent on a version-1 record or a host that did not report one; absent
-     * means unknown, not mismatched.
-     */
-    readonly entrypoint?: string;
+    /** Stamped build ID of the running host. Absent on a pre-pairing record. */
+    readonly build_id?: string;
     /** Project whose project-scoped extensions the host loaded at startup. */
     readonly project_root?: string;
 }
@@ -72,7 +69,7 @@ export interface HostLockfileOptions {
     readonly socketPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    readonly entrypoint?: string;
+    readonly buildId?: string;
     readonly projectRoot?: string;
     readonly inspectSocket?: (
         socketPath: string,
@@ -98,6 +95,32 @@ export class HostProtocolMismatchError extends Error {
             `Resident Vera host PID ${pid} uses ${actual}; stop it and relaunch Vera to use protocol ${HOST_PROTOCOL_VERSION}.`,
         );
         this.name = "HostProtocolMismatchError";
+    }
+}
+
+export class HostBuildMismatchError extends Error {
+    constructor(
+        readonly clientBuildId: string,
+        readonly hostBuildId: string | undefined,
+    ) {
+        const host = hostBuildId === undefined
+            ? "did not report a build ID"
+            : `is ${hostBuildId}`;
+        super(
+            `This client is ${clientBuildId}; the resident host ${host}. `
+                + "They cannot attach. Stop the host with 'vera host stop' "
+                + "and start this build again.",
+        );
+        this.name = "HostBuildMismatchError";
+    }
+}
+
+export function assertMatchingHostBuild(
+    record: Pick<HostLockRecord, "build_id">,
+    clientBuildId: string = thisProcessBuildId(),
+): void {
+    if (record.build_id !== clientBuildId) {
+        throw new HostBuildMismatchError(clientBuildId, record.build_id);
     }
 }
 
@@ -135,19 +158,13 @@ export function createHostLockfile(
             if (Number.isNaN(Date.parse(startedAt))) {
                 throw new Error("Host start time must be a timestamp");
             }
+            const buildId = options.buildId ?? thisProcessBuildId();
             const record: HostLockRecord = {
                 schema_version: HOST_LOCK_SCHEMA_VERSION,
                 pid,
                 started_at: startedAt,
                 socket_path: nonEmpty(socketPath, "host socket path"),
-                ...(options.entrypoint === undefined
-                    ? {}
-                    : {
-                        entrypoint: nonEmpty(
-                            options.entrypoint,
-                            "host entrypoint",
-                        ),
-                    }),
+                build_id: nonEmpty(buildId, "host build id"),
                 ...(options.projectRoot === undefined
                     ? {}
                     : { project_root: nonEmpty(options.projectRoot, "host project root") }),
@@ -298,6 +315,7 @@ function parseHostLock(source: string): HostLockRecord | undefined {
     const record = value as Record<string, unknown>;
     if (
         (record.schema_version !== 1
+            && record.schema_version !== 2
             && record.schema_version !== HOST_LOCK_SCHEMA_VERSION)
         || !Number.isInteger(record.pid)
         || (record.pid as number) <= 0
@@ -305,16 +323,31 @@ function parseHostLock(source: string): HostLockRecord | undefined {
         || Number.isNaN(Date.parse(record.started_at))
         || typeof record.socket_path !== "string"
         || record.socket_path.length === 0
-        || (record.entrypoint !== undefined
-            && (typeof record.entrypoint !== "string"
-                || record.entrypoint.length === 0))
+        || (record.build_id !== undefined
+            && (typeof record.build_id !== "string"
+                || record.build_id.length === 0))
+        || (record.schema_version === HOST_LOCK_SCHEMA_VERSION
+            && (typeof record.build_id !== "string"
+                || record.build_id.length === 0))
         || (record.project_root !== undefined
             && (typeof record.project_root !== "string"
                 || record.project_root.length === 0))
     ) {
         return undefined;
     }
-    return record as unknown as HostLockRecord;
+    return {
+        schema_version: record.schema_version as 1 | 2 | 3,
+        pid: record.pid as number,
+        started_at: record.started_at as string,
+        socket_path: record.socket_path as string,
+        ...(typeof record.build_id === "string" && record.build_id.length > 0
+            ? { build_id: record.build_id }
+            : {}),
+        ...(typeof record.project_root === "string"
+            && record.project_root.length > 0
+            ? { project_root: record.project_root }
+            : {}),
+    };
 }
 
 function nonEmpty(value: string, name: string): string {

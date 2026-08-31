@@ -14,13 +14,21 @@ import {
     ensureResidentHost,
     type EnsureResidentHostOptions,
 } from "../../src/host/discovery.ts";
-import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    type HostLockRecord,
+} from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
     VERA_RUNTIME_DIR_ENV,
     VERA_WORKTREE_RUNTIME_ENV,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
+import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
+import {
+    RELEASE_HOST_NAME,
+    releaseBinaryPath,
+} from "../../src/release/layout.ts";
 
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,
@@ -30,36 +38,25 @@ export type FindOrStartHostOptions = Omit<
 export async function findOrStartResidentHost(
     options: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
+    const lockfile = options.lockfile ?? createHostLockfile();
+    const dispatched = await dispatchToHostRelease({
+        inspectHost: async () => (await lockfile.read())?.build_id,
+    });
+    if (dispatched !== undefined) {
+        process.exit(dispatched);
+    }
     return ensureResidentHost({
         ...options,
+        lockfile,
         startHost: spawnDetachedResidentHost,
     });
 }
 
 /**
- * The host entrypoint this checkout would spawn. Comparing it against the
- * `entrypoint` a running host stamped into `host.json` is how a client
- * notices it attached to a host started from a different checkout.
+ * The host file supervision starts. Build identity is the stamped build ID.
  */
 export function residentHostEntrypoint(): string {
     return fileURLToPath(new URL("./main.ts", import.meta.url));
-}
-
-/**
- * The warning a client shows when it attached to a host started from another
- * checkout. Undefined when the paths match or the record predates the stamp:
- * an unknown entrypoint is not evidence of a mismatch.
- */
-export function hostEntrypointMismatchNotice(
-    record: HostLockRecord,
-    expected = residentHostEntrypoint(),
-): string | undefined {
-    if (record.entrypoint === undefined || record.entrypoint === expected) {
-        return undefined;
-    }
-    return `attached to a resident host running ${record.entrypoint}; `
-        + `this checkout would start ${expected}. `
-        + "Stop the host to pick up this checkout's code.";
 }
 
 /**
@@ -192,7 +189,7 @@ function spawnDetachedResidentHost(): Promise<void> {
         return Promise.reject(new HostBootLoopError(failures.length));
     }
     const spawnedAt = Date.now();
-    const child = spawn(process.execPath, [residentHostEntrypoint()], {
+    const child = spawn(releaseBinaryPath(RELEASE_HOST_NAME), [], {
         argv0: "vera-host",
         detached: true,
         stdio: "ignore",

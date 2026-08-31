@@ -36,7 +36,6 @@ try {
 const start = (): ReturnType<typeof startResidentHost> =>
     startResidentHost({
         config,
-        entrypoint,
         projectRoot: process.cwd(),
     });
 

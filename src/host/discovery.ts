@@ -4,6 +4,7 @@ import {
     createHostLockfile,
     HostProtocolMismatchError,
     HostUnresponsiveError,
+    assertMatchingHostBuild,
     type HostLockDiagnosis,
     type HostLockfile,
     type HostLockRecord,
@@ -389,6 +390,7 @@ export async function ensureResidentHost(
     }
     if (running !== undefined) {
         if (options.replaceExisting !== true) {
+            assertMatchingHostBuild(running);
             return running;
         }
         const identity: HostIdentity = {

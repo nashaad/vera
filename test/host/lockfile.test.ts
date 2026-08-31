@@ -318,16 +318,16 @@ test("the socket owner replaces a malformed lockfile", async () => {
     expect(JSON.parse(readFileSync(path, "utf8"))).toEqual(record);
 });
 
-test("the record carries the host entrypoint when one is given", async () => {
+test("the record carries the host build id", async () => {
     const path = temporaryLockPath();
     const lockfile = createTestLockfile(path, {
-        entrypoint: "/checkouts/a/clients/host/main.ts",
+        buildId: "vera-host-b",
     });
 
     const record = await lockfile.publish();
 
-    expect(record.entrypoint).toBe("/checkouts/a/clients/host/main.ts");
-    expect(record.schema_version).toBe(2);
+    expect(record.build_id).toBe("vera-host-b");
+    expect(record.schema_version).toBe(3);
     expect(await createTestLockfile(path).read()).toEqual(record);
 });
 
@@ -343,35 +343,36 @@ test("the record carries the project identity used for project extensions", asyn
     expect(await createTestLockfile(path).read()).toEqual(record);
 });
 
-test("a record without an entrypoint publishes and reads without one", async () => {
+test("a published record always includes a build id", async () => {
     const path = temporaryLockPath();
     const record = await createTestLockfile(path).publish();
 
-    expect(record.entrypoint).toBeUndefined();
+    expect(typeof record.build_id).toBe("string");
+    expect(record.build_id?.length).toBeGreaterThan(0);
     expect(await createTestLockfile(path).read()).toEqual(record);
 });
 
-test("a version-1 record without the entrypoint field stays valid", async () => {
+test("a version-1 record without a build id stays valid", async () => {
     const path = temporaryLockPath();
     const record = await createTestLockfile(path).publish();
-    const { entrypoint: _dropped, ...v1Fields } = record;
+    const { build_id: _dropped, ...fields } = record;
     writeFileSync(path, `${JSON.stringify({
-        ...v1Fields,
+        ...fields,
         schema_version: 1,
     })}\n`);
 
     expect(await createTestLockfile(path).read()).toEqual({
-        ...v1Fields,
+        ...fields,
         schema_version: 1,
     });
 });
 
-test("a record with a malformed entrypoint is not accepted", async () => {
+test("a schema-3 record without a build id is not accepted", async () => {
     const path = temporaryLockPath();
     const record = await createTestLockfile(path).publish();
     writeFileSync(path, `${JSON.stringify({
         ...record,
-        entrypoint: "",
+        build_id: "",
     })}\n`);
 
     expect(await createTestLockfile(path).read()).toBeUndefined();
@@ -380,13 +381,14 @@ test("a record with a malformed entrypoint is not accepted", async () => {
 interface TestLockfileOverrides {
     readonly pid?: number;
     readonly startedAt?: string;
-    readonly entrypoint?: string;
+    readonly buildId?: string;
     readonly projectRoot?: string;
     readonly inspectSocket?: () => Promise<{
         readonly pid: number;
         readonly started_at: string;
         readonly protocol_version?: number;
         readonly minimum_compatible_protocol_version?: number;
+        readonly build_id?: string;
     } | undefined>;
 }
 
@@ -399,9 +401,9 @@ function createTestLockfile(
         socketPath: "/tmp/vera-test.sock",
         pid: overrides.pid ?? 101,
         startedAt: overrides.startedAt ?? startedAt,
-        ...(overrides.entrypoint === undefined
+        ...(overrides.buildId === undefined
             ? {}
-            : { entrypoint: overrides.entrypoint }),
+            : { buildId: overrides.buildId }),
         ...(overrides.projectRoot === undefined
             ? {}
             : { projectRoot: overrides.projectRoot }),

@@ -4,12 +4,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    hostEntrypointMismatchNotice,
-    residentHostEntrypoint,
     worktreeRuntimeNotice,
 } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import { seedTestRelease } from "../support/seed-test-release.ts";
 
 interface DetachedHostResult {
     readonly starterPid: number;
@@ -24,6 +23,7 @@ interface DetachedHostResult {
         const veraDirectory = join(home, ".vera", "profiles", "default");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
+        seedTestRelease(home);
         await writeFile(join(veraDirectory, "config.json"), `${JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
@@ -68,8 +68,8 @@ interface DetachedHostResult {
                 await readFile(join(veraDirectory, "runtime", "host.json"), "utf8"),
             ) as HostLockRecord;
             expect(lock).toEqual(result.host);
-            expect(lock.entrypoint?.endsWith("clients/host/main.ts"))
-                .toBe(true);
+            expect(typeof lock.build_id).toBe("string");
+            expect(lock.build_id?.length).toBeGreaterThan(0);
         } finally {
             if (hostPid !== undefined && processIsAlive(hostPid)) {
                 process.kill(hostPid, "SIGTERM");
@@ -80,34 +80,6 @@ interface DetachedHostResult {
     },
     10_000,
 );
-
-function lockRecord(entrypoint?: string): HostLockRecord {
-    return {
-        schema_version: 2,
-        pid: 101,
-        started_at: "2026-08-06T12:00:00.000Z",
-        socket_path: "/tmp/vera-test.sock",
-        ...(entrypoint === undefined ? {} : { entrypoint }),
-    };
-}
-
-test("a host stamped from another checkout produces the mismatch warning", () => {
-    const notice = hostEntrypointMismatchNotice(
-        lockRecord("/checkouts/other/clients/host/main.ts"),
-    );
-
-    expect(notice).toContain("/checkouts/other/clients/host/main.ts");
-    expect(notice).toContain(residentHostEntrypoint());
-});
-
-test("a host stamped with this checkout's entrypoint produces no warning", () => {
-    expect(hostEntrypointMismatchNotice(lockRecord(residentHostEntrypoint())))
-        .toBeUndefined();
-});
-
-test("a record without an entrypoint produces no warning", () => {
-    expect(hostEntrypointMismatchNotice(lockRecord())).toBeUndefined();
-});
 
 function processIsAlive(pid: number): boolean {
     try {

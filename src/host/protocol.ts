@@ -23,17 +23,17 @@ import type {
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
 // Bump this only when the base wire contract changes. Additive operations use
-// negotiated capabilities and keep the compatibility floor unchanged. Scoped
-// search changed the meaning of an existing request, so old hosts must be
-// replaced instead of silently treating it as an unscoped search.
-export const HOST_PROTOCOL_VERSION = 33;
-export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 33;
+// negotiated capabilities and keep the compatibility floor unchanged. Host
+// identity includes `build_id`; a client must not attach across builds.
+export const HOST_PROTOCOL_VERSION = 35;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 35;
 
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
     readonly protocol_version?: number;
     readonly minimum_compatible_protocol_version?: number;
+    readonly build_id?: string;
 }
 
 export interface HostIdentityRequest {
@@ -74,14 +74,19 @@ export interface SearchSessionsRequest {
     readonly query: SessionSearchQuery;
 }
 
-/** The loopback URL for Vera web. One shot, like model_settings. */
-export interface UsageWebRequest {
-    readonly type: "usage_web";
+/** The annex base URL. One shot, like model_settings. Routes are not here. */
+export interface AnnexUrlRequest {
+    readonly type: "annex_url";
 }
 
-export interface UsageWebResponse {
-    readonly type: "usage_web";
+export interface AnnexUrlResponse {
+    readonly type: "annex_url";
     readonly url: string;
+}
+
+export interface AnnexUnavailableResponse {
+    readonly type: "annex_unavailable";
+    readonly reason: string;
 }
 
 export interface SearchSessionsResponse {
@@ -264,6 +269,7 @@ export interface HostIdentityResponse {
     readonly protocol_version: typeof HOST_PROTOCOL_VERSION;
     readonly minimum_compatible_protocol_version:
         typeof HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
+    readonly build_id: string;
 }
 
 export interface AttachRequest {
@@ -529,7 +535,7 @@ export type HostRequest =
     | CloseAgentRequest
     | RenameSessionRequest
     | RunOnceRequest
-    | UsageWebRequest
+    | AnnexUrlRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -569,7 +575,8 @@ export type HostResponse =
     | AttachmentReleasedResponse
     | AttachmentReleaseRejectedResponse
     | ExtensionCommandHostResponse
-    | UsageWebResponse
+    | AnnexUrlResponse
+    | AnnexUnavailableResponse
     | ProtocolErrorResponse;
 
 const SESSION_FACT_NAMES: readonly SessionFactName[] = [
@@ -605,8 +612,8 @@ export function parseHostRequest(source: string): HostRequest | undefined {
                 : {}),
         };
     }
-    if (value?.type === "usage_web") {
-        return { type: "usage_web" };
+    if (value?.type === "annex_url") {
+        return { type: "annex_url" };
     }
     if (value?.type === "list_agents") {
         const include = parseSessionFactNames(value.include);
@@ -1131,6 +1138,10 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
                 minimum_compatible_protocol_version:
                     response.minimum_compatible_protocol_version as number,
             }
+            : {}),
+        ...(typeof response.build_id === "string"
+            && response.build_id.length > 0
+            ? { build_id: response.build_id }
             : {}),
     };
 }

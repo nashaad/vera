@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { sourceVersion } from "../../src/build-info.ts";
+import { readStampedRelease } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
@@ -174,7 +174,6 @@ import {
 } from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
-    hostEntrypointMismatchNotice,
     worktreeRuntimeNotice,
 } from "../host/launch.ts";
 import {
@@ -406,8 +405,9 @@ import {
     readModelSettingsThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import {
-    readUsageWebUrlThroughHost,
-} from "../../src/host/usage-web-client.ts";
+    readAnnexUrlThroughHost,
+    type AnnexUrlResult,
+} from "../../src/annex/host-client.ts";
 import {
     createHomeState,
     createTuiHomeView,
@@ -1015,15 +1015,14 @@ export interface TuiDependencies {
     };
     readonly build?: {
         readonly clientVersion: string;
-        readonly clientEntrypoint: string;
-        readonly hostEntrypoint?: string;
+        readonly hostBuildId?: string;
         readonly hostPid?: number;
         readonly hostStartedAt?: string;
     };
     /** Overrides the read-only process sampler for deterministic TUI tests. */
     readonly doctor?: () => Promise<VeraDoctorReport>;
-    /** Loopback URL for Vera web. Absent when this host does not serve it. */
-    readonly openUsagePage?: () => Promise<string | undefined>;
+    /** Annex base URL. The TUI opens /usage on it. Absent when this host has none. */
+    readonly openUsagePage?: () => Promise<AnnexUrlResult>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the live `admitModel` probe inspect uses for provider health. */
@@ -1208,13 +1207,11 @@ export async function startConfiguredTui(
         const listAgents = () => listAgentsThroughHost(host.socket_path);
         const listSessionPage = (options: ListAgentsOptions) =>
             listAgentPageThroughHost(host.socket_path, options);
-        const mismatchNotice = hostEntrypointMismatchNotice(host);
         // A pool file the parser had to reduce still produced a pool, so this
         // says so instead of failing: the entries that were dropped are the
         // ones the user thinks are in force.
         const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
-            ...(mismatchNotice === undefined ? [] : [mismatchNotice]),
             ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
             ...poolFileIssueNotices(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
@@ -1304,15 +1301,14 @@ export async function startConfiguredTui(
                 };
             },
             build: {
-                clientVersion: sourceVersion(import.meta.dir),
-                clientEntrypoint: import.meta.path,
-                ...(host.entrypoint === undefined
+                clientVersion: readStampedRelease().build_id,
+                ...(host.build_id === undefined
                     ? {}
-                    : { hostEntrypoint: host.entrypoint }),
+                    : { hostBuildId: host.build_id }),
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
-            openUsagePage: () => readUsageWebUrlThroughHost(host.socket_path),
+            openUsagePage: () => readAnnexUrlThroughHost(host.socket_path),
             flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
@@ -7066,18 +7062,20 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             void (async () => {
-                const url = await dependencies.openUsagePage?.();
+                const result = await dependencies.openUsagePage?.();
                 if (shuttingDown) return;
-                if (url === undefined) {
+                if (result === undefined || "unavailable" in result) {
                     state = appendTuiNotice(
                         state,
-                        "This host does not serve the usage page.",
+                        result?.unavailable
+                            ?? "This host does not serve an annex. Restart the host to bring it back.",
                     );
                     renderState();
                     return;
                 }
-                openTuiLink(url);
-                state = appendTuiNotice(state, `Opened ${url}`);
+                const usageUrl = new URL("usage", result.url).href;
+                openTuiLink(usageUrl);
+                state = appendTuiNotice(state, `Opened ${usageUrl}`);
                 renderState();
             })();
             renderState();

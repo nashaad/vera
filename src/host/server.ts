@@ -26,6 +26,7 @@ import {
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
 } from "./protocol.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
     BranchedRegisteredAgent,
@@ -110,8 +111,8 @@ export interface StartHostServerOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Absolute path of the entrypoint this host was started from. */
-    readonly entrypoint?: string;
+    /** Stamped build ID this host serves. Defaults to this process's stamp. */
+    readonly buildId?: string;
     /** Project whose project-scoped extensions this host loaded. */
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
@@ -139,9 +140,13 @@ export interface StartHostServerOptions {
         workspace?: string,
     ) => ModelTurnSettings | undefined;
     /**
-     * Loopback URL for Vera web. Absent means this host does not serve it.
+     * Annex base URL. Absent means this host has no annex. `unavailable` means
+     * it was supposed to be up and is not.
      */
-    readonly readUsageWeb?: () => { readonly url: string } | undefined;
+    readonly readAnnex?: () =>
+        | { readonly url: string }
+        | { readonly unavailable: string }
+        | undefined;
     /**
      * Fills in the optional facts named by `include`, for one page of rows.
      * Injected rather than computed here: the server knows how to page a
@@ -263,10 +268,12 @@ export async function startHostServer(
     if (capabilities === undefined) {
         throw new Error("Host capabilities are invalid");
     }
-    const identity: HostIdentity = {
+    const buildId = options.buildId ?? thisProcessBuildId();
+    const identity: HostIdentity & { readonly build_id: string } = {
         pid: options.pid ?? process.pid,
         started_at: options.startedAt ?? currentProcessStartedAt(),
         protocol_version: HOST_PROTOCOL_VERSION,
+        build_id: buildId,
     };
     const startupClaim = await acquireHostStartupClaim({
         path: options.startupClaimPath ?? `${socketPath}.starting`,
@@ -439,7 +446,7 @@ export async function startHostServer(
             interactiveAttachments,
             options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
-            options.readUsageWeb,
+            options.readAnnex,
             resolveHostLimits(options.limits),
         );
     });
@@ -456,9 +463,7 @@ export async function startHostServer(
             socketPath,
             pid: identity.pid,
             startedAt: identity.started_at,
-            ...(options.entrypoint === undefined
-                ? {}
-                : { entrypoint: options.entrypoint }),
+            buildId,
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
@@ -492,7 +497,7 @@ export async function startHostServer(
 
 function receiveConnection(
     socket: Socket,
-    identity: HostIdentity,
+    identity: HostIdentity & { readonly build_id: string },
     capabilities: readonly string[],
     findAgent: (
         agentId: string,
@@ -569,7 +574,10 @@ function receiveConnection(
     interactiveAttachments: InteractiveAttachmentRegistry,
     readAgentTree: (rootAgentId: string) => readonly string[],
     readModelSettings: (workspace?: string) => ModelTurnSettings | undefined,
-    readUsageWeb: (() => { readonly url: string } | undefined) | undefined,
+    readAnnex: (() =>
+        | { readonly url: string }
+        | { readonly unavailable: string }
+        | undefined) | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1035,6 +1043,7 @@ function receiveConnection(
                 protocol_version: HOST_PROTOCOL_VERSION,
                 minimum_compatible_protocol_version:
                     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+                build_id: identity.build_id,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }
@@ -1088,17 +1097,19 @@ function receiveConnection(
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }
-        if (request?.type === "usage_web") {
+        if (request?.type === "annex_url") {
             clearDeadline();
             finished = true;
-            const web = readUsageWeb?.();
+            const annex = readAnnex?.();
             void send(
-                web === undefined
+                annex === undefined
                     ? {
                         type: "protocol_error",
                         reason: "unsupported_or_invalid_command",
                     }
-                    : { type: "usage_web", url: web.url },
+                    : "url" in annex
+                        ? { type: "annex_url", url: annex.url }
+                        : { type: "annex_unavailable", reason: annex.unavailable },
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

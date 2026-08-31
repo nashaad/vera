@@ -18,8 +18,8 @@ test("host protocol parses identity requests and encodes responses", () => {
     expect(parseHostRequest('{"type":"host_identity"}')).toEqual({
         type: "host_identity",
     });
-    expect(parseHostRequest('{"type":"list_agents"}')).toEqual({
-        type: "list_agents",
+    expect(parseHostRequest('{"type":"annex_url"}')).toEqual({
+        type: "annex_url",
     });
     expect(parseHostRequest(JSON.stringify({
         type: "schedule_operation",
@@ -311,13 +311,14 @@ test("host protocol parses identity requests and encodes responses", () => {
         protocol_version: HOST_PROTOCOL_VERSION,
         minimum_compatible_protocol_version:
             HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+        build_id: "vera-abc1234",
     })).toBe(
         '{"type":"host_identity","pid":101,'
         + '"started_at":"2026-07-17T12:00:00.000Z",'
         + `"protocol_version":${HOST_PROTOCOL_VERSION},`
         + `"minimum_compatible_protocol_version":${
             HOST_MIN_COMPATIBLE_PROTOCOL_VERSION
-        }}\n`,
+        },"build_id":"vera-abc1234"}\n`,
     );
     expect(encodeHostResponse({
         type: "agent_list",

@@ -3,7 +3,7 @@ import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { readUsageWebUrlThroughHost } from "../../src/host/usage-web-client.ts";
+import { readAnnexUrlThroughHost } from "../../src/annex/host-client.ts";
 
 const skipIfNoNetwork = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
     ? test.skip
@@ -13,7 +13,7 @@ async function withServer(
     onSocket: (socket: Socket) => void,
     run: (socketPath: string) => Promise<void>,
 ): Promise<void> {
-    const directory = mkdtempSync(join("/private/tmp", "vera-usage-web-"));
+    const directory = mkdtempSync(join("/private/tmp", "vera-annex-url-"));
     const socketPath = join(directory, "host.sock");
     const server: Server = createServer(onSocket);
     try {
@@ -33,7 +33,7 @@ async function withServer(
 }
 
 skipIfNoNetwork(
-    "a completed usage reply close is not an unhandled rejection",
+    "a completed annex reply close is not an unhandled rejection",
     async () => {
         const rejections: unknown[] = [];
         const onUnhandled = (reason: unknown): void => {
@@ -46,14 +46,14 @@ skipIfNoNetwork(
                     socket.setEncoding("utf8");
                     socket.on("data", () => {
                         socket.end(`${JSON.stringify({
-                            type: "usage_web",
+                            type: "annex_url",
                             url: "http://127.0.0.1:9/",
                         })}\n`);
                     });
                 },
                 async (socketPath) => {
-                    const url = await readUsageWebUrlThroughHost(socketPath);
-                    expect(url).toBe("http://127.0.0.1:9/");
+                    const result = await readAnnexUrlThroughHost(socketPath);
+                    expect(result).toEqual({ url: "http://127.0.0.1:9/" });
                     await new Promise((resolve) => setTimeout(resolve, 50));
                 },
             );
@@ -65,12 +65,12 @@ skipIfNoNetwork(
 );
 
 skipIfNoNetwork(
-    "a usage helper still fails when the host drops before the reply",
+    "an annex helper still fails when the host drops before the reply",
     async () => {
         await withServer(
             (socket) => socket.end(),
             async (socketPath) => {
-                await expect(readUsageWebUrlThroughHost(socketPath))
+                await expect(readAnnexUrlThroughHost(socketPath))
                     .rejects.toThrow("host connection closed");
             },
         );

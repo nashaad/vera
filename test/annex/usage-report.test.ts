@@ -8,7 +8,7 @@ import {
     foldUsageReport,
     foldUsageSessionDetail,
     estimateUsd,
-} from "../../src/host/usage-report.ts";
+} from "../../src/annex/usage-report.ts";
 import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import type { ModelMessage, ModelUsage } from "../../src/model/types.ts";
 import { SessionStore } from "../../src/store/session-store.ts";

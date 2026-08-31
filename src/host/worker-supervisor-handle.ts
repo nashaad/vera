@@ -1,5 +1,9 @@
 import { spawn } from "node:child_process";
-import { fileURLToPath } from "node:url";
+
+import {
+    RELEASE_SUPERVISOR_NAME,
+    releaseBinaryPath,
+} from "../release/layout.ts";
 
 /**
  * The host's side of the supervisor pipe.
@@ -13,10 +17,6 @@ import { fileURLToPath } from "node:url";
  * exists, which is what keeps renewal one-directional: the extension path runs
  * host -> supervisor over this pipe, and the worker holds no end of it.
  */
-
-const SUPERVISOR_ENTRY = fileURLToPath(
-    new URL("./worker-supervisor.ts", import.meta.url),
-);
 
 export interface SupervisorHandleOptions {
     /** The already-running worker to watch. */
@@ -49,7 +49,7 @@ export interface SupervisorHandle {
 export function superviseWorker(
     options: SupervisorHandleOptions,
 ): SupervisorHandle {
-    const command = options.command ?? ["bun", SUPERVISOR_ENTRY];
+    const command = options.command ?? [releaseBinaryPath(RELEASE_SUPERVISOR_NAME)];
     const [executable, ...args] = command;
     const child = spawn(executable as string, args, {
         argv0: "vera-supervisor",

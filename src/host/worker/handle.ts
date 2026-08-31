@@ -11,7 +11,11 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { fileURLToPath } from "node:url";
+
+import {
+    RELEASE_WORKER_NAME,
+    releaseBinaryPath,
+} from "../../release/layout.ts";
 
 import type { LoopState } from "../../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../../config.ts";
@@ -39,8 +43,6 @@ import type {
     WorkerSessionSeed,
 } from "./start.ts";
 import { compactionWireSpec } from "../../engine/compaction-binding.ts";
-
-const WORKER_ENTRY = fileURLToPath(new URL("./entry.ts", import.meta.url));
 
 /**
  * How a worker stopped, always exactly one of these.
@@ -102,7 +104,7 @@ export interface WorkerHandle {
 export async function startWorker(
     options: StartWorkerOptions,
 ): Promise<WorkerHandle> {
-    const command = options.command ?? ["bun", WORKER_ENTRY];
+    const command = options.command ?? [releaseBinaryPath(RELEASE_WORKER_NAME)];
     const [executable, ...args] = command;
     const child: ChildProcess = spawn(executable as string, args, {
         argv0: "vera-worker",

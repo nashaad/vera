@@ -35,8 +35,11 @@ import {
 } from "../../src/host/run-once-client.ts";
 import {
     createHostLockfile,
+    HostBuildMismatchError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
+    assertMatchingHostBuild,
+    type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import { HostProjectMismatchError } from "../../src/host/discovery.ts";
 import {
@@ -54,7 +57,11 @@ import {
     runStdioProcess,
     type StdioStartTarget,
 } from "../stdio/process.ts";
-import { sourceVersion } from "../../src/build-info.ts";
+import {
+    dispatchToHostRelease,
+    RetainedReleaseMissingError,
+} from "../../src/release/dispatch.ts";
+import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -262,6 +269,9 @@ export interface CliDependencies {
     readonly extensionManager?: Partial<ExtensionManagerOperations>;
     readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
+    readonly dispatchToHostRelease?: (
+        argv: readonly string[],
+    ) => Promise<number | undefined>;
 }
 
 export async function runCli(
@@ -271,6 +281,7 @@ export async function runCli(
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
     const runTui = dependencies.runTui ?? runConfiguredTui;
+    const originalArgs = args;
     const assumeYes = args[0] === "--yes" || args[0] === "-y";
     if (assumeYes) args = args.slice(1);
     const tuiOptions: TuiStartOptions = {
@@ -318,8 +329,23 @@ export async function runCli(
         args.length === 1
         && (args[0] === "--version" || args[0] === "-v")
     ) {
-        output.write(`vera ${dependencies.version ?? sourceVersion()}\n`);
-        return 0;
+        try {
+            output.write(
+                `${dependencies.version ?? formatVeraVersion(readStampedRelease())}\n`,
+            );
+            return 0;
+        } catch (error) {
+            errorOutput.write(
+                `vera: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+            return 1;
+        }
+    }
+
+    const dispatched = await (dependencies.dispatchToHostRelease
+        ?? ((argv: readonly string[]) => dispatchToHostRelease({ argv })))(originalArgs);
+    if (dispatched !== undefined) {
+        return dispatched;
     }
 
     if (args.length === 0) {
@@ -1071,6 +1097,12 @@ export function renderCliFailure(error: unknown): string {
         return `Vera host upgrade required: ${error.message}\n`
             + "Close the older Vera client and retry, or run 'vera host stop'.";
     }
+    if (error instanceof HostBuildMismatchError) {
+        return error.message;
+    }
+    if (error instanceof RetainedReleaseMissingError) {
+        return error.message;
+    }
     if (error instanceof VeraConfigError) {
         return `${error.message}\n`
             + `Fix or remove ${error.path} and run Vera again.`;
@@ -1129,14 +1161,14 @@ function truncate(value: string, limit: number): string {
 
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     return host === undefined
         ? []
         : listAgentsThroughHost(host.socket_path);
 }
 
 async function abortLiveAgent(agentId: string): Promise<void> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
@@ -1144,11 +1176,18 @@ async function abortLiveAgent(agentId: string): Promise<void> {
 }
 
 async function closeLiveAgent(agentId: string): Promise<CloseAgentResult> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
     return closeAgentThroughHost(host.socket_path, agentId);
+}
+
+async function readPairedLiveHost(): Promise<HostLockRecord | undefined> {
+    const host = await createHostLockfile().read();
+    if (host === undefined) return undefined;
+    assertMatchingHostBuild(host);
+    return host;
 }
 
 function closeRejectionText(

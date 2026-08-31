@@ -15,11 +15,14 @@ import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
 import type { VeraDoctorReport } from "../clients/process-doctor.ts";
 import {
+    HostBuildMismatchError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
+import { RetainedReleaseMissingError } from "../src/release/dispatch.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
+import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
 import { loadHelpCorpus } from "../clients/cli/help-corpus.ts";
 
@@ -31,7 +34,7 @@ test("vera help and version are available without starting a client", async () =
             started = true;
         },
         stdout: { write: (text: string) => output += text },
-        version: "source abc1234",
+        version: "vera 0.0.4 (vera-abc1234)",
     };
 
     expect(await runCli(["--help"], dependencies)).toBe(0);
@@ -53,7 +56,7 @@ test("vera help and version are available without starting a client", async () =
 
     output = "";
     expect(await runCli(["--version"], dependencies)).toBe(0);
-    expect(output).toBe("vera source abc1234\n");
+    expect(output).toBe("vera 0.0.4 (vera-abc1234)\n");
     expect(started).toBe(false);
 });
 
@@ -211,7 +214,7 @@ test("the package bin runs help from outside the checkout", () => {
             {
                 cwd: directory,
                 env: {
-                    HOME: directory,
+                    ...process.env,
                     PATH: process.env.PATH ?? "",
                 },
                 stdout: "pipe",
@@ -219,7 +222,9 @@ test("the package bin runs help from outside the checkout", () => {
             },
         );
         expect(version.exitCode).toBe(0);
-        expect(version.stdout.toString()).toMatch(/^vera source [0-9a-f]+(?:\+dirty)?\n$/);
+        expect(version.stdout.toString()).toBe(
+            `${formatVeraVersion(readStampedRelease())}\n`,
+        );
         expect(version.stderr.toString()).toBe("");
     } finally {
         rmSync(directory, { recursive: true, force: true });
@@ -1091,6 +1096,47 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     );
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");
+});
+
+test("vera reports a build mismatch without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        runTui: () =>
+            Promise.reject(
+                new HostBuildMismatchError("vera-client-c", "vera-host-b"),
+            ),
+        stderr: { write: (text: string) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toContain("vera-client-c");
+    expect(errorOutput).toContain("vera-host-b");
+    expect(errorOutput).toContain("vera host stop");
+    expect(errorOutput).not.toContain("clients/tui/main.ts");
+    expect(errorOutput).not.toContain("HostBuildMismatchError:");
+});
+
+test("vera reports a missing retained release without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        dispatchToHostRelease: async () => {
+            throw new RetainedReleaseMissingError(
+                "vera-c",
+                "vera-b",
+                "/tmp/releases/vera-b",
+            );
+        },
+        stderr: { write: (text: string) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toContain("vera-c");
+    expect(errorOutput).toContain("vera-b");
+    expect(errorOutput).toContain("not retained");
+    expect(errorOutput).toContain("vera host stop");
+    expect(errorOutput).toContain("roll back");
+    expect(errorOutput).not.toContain("clients/tui/main.ts");
+    expect(errorOutput).not.toContain("RetainedReleaseMissingError:");
 });
 
 test("vera host stop confirms the explicit resident-host shutdown", async () => {

@@ -11,12 +11,14 @@ import type {
 } from "../../src/host/lockfile.ts";
 import { HostProtocolMismatchError } from "../../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 
 const runningHost: HostLockRecord = {
     schema_version: 1,
     pid: 101,
     started_at: "2026-07-17T12:00:00.000Z",
     socket_path: "/tmp/vera-host.sock",
+    build_id: thisProcessBuildId(),
 };
 
 test("host discovery reuses an already verified resident host", async () => {

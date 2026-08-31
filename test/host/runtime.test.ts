@@ -312,7 +312,9 @@ test("the resident host fails closed without an identity provider", async () => 
             ]);
             expect(entries.at(-1)).toMatchObject({
                 type: "host_startup_complete",
+                build_id: host.buildId,
             });
+            expect(typeof host.buildId).toBe("string");
             expect(entries.every((entry) =>
                 typeof entry.duration_ms !== "number"
                 || entry.duration_ms >= 0

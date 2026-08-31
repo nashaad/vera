@@ -27,6 +27,7 @@ import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
+    veraHomeDirectory,
     veraMachineDirectory,
     veraProfileDirectory,
 } from "../profile-paths.ts";
@@ -55,17 +56,17 @@ import type {
 } from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
-    providerCatalogCacheDir,
     readFreshProviderCatalogSnapshot,
     readProviderCatalogSnapshot,
     writeProviderCatalogSnapshot,
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
-import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
+import { createReviewLogger } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
+import { readStampedRelease } from "../release/stamp.ts";
 
 const hostLog = createHostLogger();
 const reviewLog = createReviewLogger();
@@ -163,7 +164,7 @@ import type {
 } from "../sdk/hooks.ts";
 import type { ResidentAgent } from "./resident-agent.ts";
 import { startHostServer, type HostServer } from "./server.ts";
-import { startUsageWebServer, type UsageWebServer } from "./usage-http.ts";
+import { startAnnexProcess, type AnnexProcess } from "./annex-process.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
@@ -196,8 +197,8 @@ export interface StartResidentHostOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Absolute path of the entrypoint this host was started from. */
-    readonly entrypoint?: string;
+    /** Stamped build ID this host serves. Defaults to this process's stamp. */
+    readonly buildId?: string;
     /** Project whose project-scoped extensions this host loaded. */
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
@@ -234,6 +235,13 @@ export interface StartResidentHostOptions {
     readonly startupLog?: HostLog;
     /** Collects what extension startup found; tests read it back. */
     readonly startupFindings?: StartupFindings;
+    /** Packed annex assets. Defaults to the packed release annex directory. */
+    readonly webRoot?: string;
+}
+
+export interface HostHealth {
+    readonly annex: "ok" | "failed";
+    readonly annexReason?: string;
 }
 
 export interface ResidentHost {
@@ -242,6 +250,9 @@ export interface ResidentHost {
     readonly server: HostServer;
     /** Resolves as soon as any caller starts closing this resident host. */
     readonly shutdownRequested: Promise<void>;
+    readonly health: HostHealth;
+    readonly annexPid?: number;
+    readonly buildId: string;
     close(): Promise<void>;
 }
 
@@ -949,8 +960,25 @@ export async function startResidentHost(
     });
 
     let server: HostServer;
-    let usageWeb: UsageWebServer | undefined;
-    let usageWebUrl: string | undefined;
+    let annex: AnnexProcess | undefined;
+    let annexUrl: string | undefined;
+    let annexUnavailable: string | undefined;
+    const annexHealth: { annex: "ok" | "failed"; annexReason?: string } = {
+        annex: "failed",
+    };
+    const markAnnexFailed = (reason: string): void => {
+        annexUrl = undefined;
+        annexUnavailable =
+            `${reason} Restart the host to bring the annex back.`;
+        annexHealth.annex = "failed";
+        annexHealth.annexReason = reason;
+    };
+    const markAnnexOk = (url: string): void => {
+        annexUrl = url;
+        annexUnavailable = undefined;
+        annexHealth.annex = "ok";
+        delete annexHealth.annexReason;
+    };
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
@@ -973,7 +1001,7 @@ export async function startResidentHost(
             announceShutdown();
             closing = (async () => {
                 try {
-                    await usageWeb?.close();
+                    await annex?.close();
                 } finally {
                     await closeResidentHost(
                         server,
@@ -1046,9 +1074,9 @@ export async function startResidentHost(
             ...(options.startedAt === undefined
                 ? {}
                 : { startedAt: options.startedAt }),
-            ...(options.entrypoint === undefined
+            ...(options.buildId === undefined
                 ? {}
-                : { entrypoint: options.entrypoint }),
+                : { buildId: options.buildId }),
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
@@ -1062,9 +1090,12 @@ export async function startResidentHost(
             readAgentTree: (agentId) => registry.ownedTreeIds(agentId),
             readModelSettings: (workspace) =>
                 registry.readHostModelSettings(workspace),
-            readUsageWeb: () => usageWebUrl === undefined
-                ? undefined
-                : { url: usageWebUrl },
+            readAnnex: () => annexUrl === undefined
+                ? {
+                    unavailable: annexUnavailable
+                        ?? "The annex is not running. Restart the host to bring it back.",
+                }
+                : { url: annexUrl },
             listAgents: async () => mergeStoredAndResidentAgents(
                 await storedSessions,
                 registry.list(),
@@ -1215,17 +1246,31 @@ export async function startResidentHost(
             }),
         );
         try {
-            usageWeb = await startUsageWebServer({
-                sessionDirectory,
-                catalogCacheDir: providerCatalogCacheDir(),
-                reviewLogPath: defaultReviewLogPath(),
+            annex = await startAnnexProcess({
+                home: veraHomeDirectory(),
+                ...(options.webRoot === undefined
+                    ? {}
+                    : { assets: options.webRoot }),
+                onExit: (reason) => {
+                    markAnnexFailed(reason);
+                    hostLog({
+                        type: "annex_exited",
+                        health: "annex: failed",
+                        message: reason,
+                    });
+                },
             });
-            usageWebUrl = usageWeb.url;
+            markAnnexOk(annex.url);
         } catch (error) {
-            hostLog({
-                type: "usage_web_failed",
+            const reason = error instanceof Error ? error.message : String(error);
+            markAnnexFailed(reason);
+            const entry = {
+                type: "annex_failed",
+                health: "annex: failed",
                 ...hostErrorFields(error),
-            });
+            };
+            hostLog(entry);
+            if (startupLog !== hostLog) startupLog(entry);
         }
         sidecars = startSidecarRuntimeIfNeeded({
             sidecars: extensions.contributions().sidecars(),
@@ -1261,15 +1306,20 @@ export async function startResidentHost(
         throw error;
     }
 
+    const buildId = readStampedRelease().build_id;
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,
+        build_id: buildId,
     });
     return {
         registry,
         extensions,
         server,
         shutdownRequested,
+        health: annexHealth,
+        ...(annex === undefined ? {} : { annexPid: annex.pid }),
+        buildId,
         close: closeHost,
     };
 }

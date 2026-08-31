@@ -38,8 +38,7 @@ export interface TuiDiagnosticsSnapshot {
     readonly now?: number;
     readonly build?: {
         readonly clientVersion: string;
-        readonly clientEntrypoint: string;
-        readonly hostEntrypoint?: string;
+        readonly hostBuildId?: string;
         readonly hostPid?: number;
         readonly hostStartedAt?: string;
     };
@@ -216,15 +215,11 @@ function renderVeraDiagnostics(
                 snapshot.build?.clientVersion,
                 "unknown",
             )],
-            ["Client entrypoint", markedAvailable(
-                snapshot.build?.clientEntrypoint,
+            ["Host", markedAvailable(
+                snapshot.build?.hostBuildId,
                 "unknown",
             )],
-            ["Host", hostLabel(snapshot)],
-            ["Host entrypoint", markedAvailable(
-                snapshot.build?.hostEntrypoint,
-                "unknown",
-            )],
+            ["Host process", hostLabel(snapshot)],
         ]),
         "",
         ...inspectReportSection("Startup", undefined, width),
