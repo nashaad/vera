@@ -196,7 +196,7 @@ test("resident host answers usage_web with a loopback page", async () => {
         const page = await fetch(url!);
         expect(page.status).toBe(200);
         expect(await page.text()).toContain("Vera · Usage");
-        expect(host.health.web).toBe("ok");
+        expect(host.health.annex).toBe("ok");
     } finally {
         await host.close();
     }
@@ -215,7 +215,7 @@ test("unreadable packed assets fail with an explicit path", async () => {
     }
 });
 
-test("missing packed assets report web: failed in host health", async () => {
+test("missing packed assets report annex: failed in host health", async () => {
     const root = tempDir("vera-usage-health-");
     const entries: HostLogEntry[] = [];
     const host = await startResidentHost({
@@ -234,12 +234,12 @@ test("missing packed assets report web: failed in host health", async () => {
         startupLog: (entry) => entries.push(entry),
     });
     try {
-        expect(host.health.web).toBe("failed");
-        expect(host.health.webReason).toMatch(/Packed web asset missing:/);
+        expect(host.health.annex).toBe("failed");
+        expect(host.health.annexReason).toMatch(/Packed web asset missing:/);
         const failed = entries.find((entry) => entry.type === "usage_web_failed");
         expect(failed).toMatchObject({
             type: "usage_web_failed",
-            health: "web: failed",
+            health: "annex: failed",
         });
         expect(String(failed?.message)).toMatch(/Packed web asset missing:/);
         expect(await readUsageWebUrlThroughHost(host.server.socketPath))

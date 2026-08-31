@@ -230,8 +230,8 @@ export interface StartResidentHostOptions {
 }
 
 export interface HostHealth {
-    readonly web: "ok" | "failed";
-    readonly webReason?: string;
+    readonly annex: "ok" | "failed";
+    readonly annexReason?: string;
 }
 
 export interface ResidentHost {
@@ -945,7 +945,7 @@ export async function startResidentHost(
     let server: HostServer;
     let usageWeb: UsageWebServer | undefined;
     let usageWebUrl: string | undefined;
-    let webHealth: HostHealth = { web: "failed" };
+    let annexHealth: HostHealth = { annex: "failed" };
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
@@ -1204,13 +1204,13 @@ export async function startResidentHost(
                     : { webRoot: options.webRoot }),
             });
             usageWebUrl = usageWeb.url;
-            webHealth = { web: "ok" };
+            annexHealth = { annex: "ok" };
         } catch (error) {
             const reason = error instanceof Error ? error.message : String(error);
-            webHealth = { web: "failed", webReason: reason };
+            annexHealth = { annex: "failed", annexReason: reason };
             const entry = {
                 type: "usage_web_failed",
-                health: "web: failed",
+                health: "annex: failed",
                 ...hostErrorFields(error),
             };
             hostLog(entry);
@@ -1259,7 +1259,7 @@ export async function startResidentHost(
         extensions,
         server,
         shutdownRequested,
-        health: webHealth,
+        health: annexHealth,
         close: closeHost,
     };
 }
