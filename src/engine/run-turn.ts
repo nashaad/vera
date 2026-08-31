@@ -118,7 +118,10 @@ import {
     effectiveContextWindow,
 } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
-import { InboundCommandRouter } from "./inbound-command-router.ts";
+import {
+    InboundCommandRouter,
+    type InboundTurnOutcome,
+} from "./inbound-command-router.ts";
 import type {
     LoopPolicy,
     RunHeadlessLoopData,
@@ -1334,7 +1337,8 @@ export async function runTurn(
     // has a boot-order dependency to remember; the work happens once.
     await initBashParser();
     const turn = await state.inbound.startTurn();
-    let assistantMessage: AssistantMessage;
+    let assistantMessage!: AssistantMessage;
+    let turnThrew = false;
 
     try {
         const modelSettings = turn.modelSettings
@@ -1390,22 +1394,23 @@ export async function runTurn(
         let scopedTools = wear?.tools === undefined
             ? offered
             : offered.filter((tool) => turnAllowsTool(wear, tool.name));
-        const userMessage: UserMessage | undefined = turn.triggeredByDelivery
-            ? undefined
-            : {
-                role: "user",
-                content: [
-                    { type: "text", text: turn.prompt.content },
-                    ...(turn.prompt.attachmentIds ?? []).map((attachmentId) => ({
-                        type: "image_attachment" as const,
-                        attachmentId,
-                    })),
-                ],
-            };
+        const turnPrompts = turn.triggeredByDelivery
+            ? []
+            : [turn.prompt, ...(turn.additionalPrompts ?? [])];
+        const userMessages: UserMessage[] = turnPrompts.map((prompt) => ({
+            role: "user",
+            content: [
+                { type: "text", text: prompt.content },
+                ...(prompt.attachmentIds ?? []).map((attachmentId) => ({
+                    type: "image_attachment" as const,
+                    attachmentId,
+                })),
+            ],
+        }));
         const imageCache = new Map<string, ImageContent>();
-        const hasImageAttachments = userMessage?.content.some(
-            (block) => block.type === "image_attachment",
-        ) === true;
+        const hasImageAttachments = userMessages.some((message) =>
+            message.content.some((block) => block.type === "image_attachment")
+        );
         if (
             hasImageAttachments
             && !acceptsImageInput(
@@ -1418,9 +1423,9 @@ export async function runTurn(
             // cannot run it. The attachment is already durable, and a model
             // switch can then retry the same turn instead of losing it during
             // the capability preflight.
-            if (userMessage !== undefined) {
-                await commitMessage(state, userMessage);
-                state.events.emit({ type: "turn_started", message: userMessage });
+            for (const message of userMessages) {
+                await commitMessage(state, message);
+                state.events.emit({ type: "turn_started", message });
             }
             assistantMessage = attachmentErrorMessage(
                 activeModel,
@@ -1435,9 +1440,9 @@ export async function runTurn(
         }
         try {
             await hydrateImageAttachments(
-                userMessage === undefined
+                userMessages.length === 0
                     ? state.messages
-                    : [...state.messages, userMessage],
+                    : [...state.messages, ...userMessages],
                 requireImageReader(state),
                 imageCache,
             );
@@ -1457,48 +1462,57 @@ export async function runTurn(
         await compactDuringTurn(
             state,
             turn.signal,
-            userMessage === undefined ? [] : [userMessage],
+            userMessages,
             compactionContextForSettings(modelSettings, activeModel),
         );
-        if (userMessage === undefined) {
+        if (userMessages.length === 0) {
             state.events.emit({ type: "delivery_turn_started" });
         } else {
-            await commitMessage(state, userMessage);
-            state.events.emit({ type: "turn_started", message: userMessage });
-            const applied = await applyPreTurnHook(
-                state,
-                {
-                    type: "pre_turn",
-                    ...(state.sessionId === undefined
-                        ? {}
-                        : { sessionId: state.sessionId }),
-                    workspace: state.toolRuntime.workspace,
-                    prompt: turn.prompt.content,
-                    model: activeModel,
-                    tools: scopedTools.map((tool) => tool.name),
-                    ...(turnReasoningEffort === undefined
-                        ? {}
-                        : { reasoningEffort: turnReasoningEffort }),
-                },
-            );
-            if (applied.blocked !== undefined) {
-                assistantMessage = preTurnBlockedMessage(
-                    applied.activeModel,
-                    applied.blocked,
-                );
-                await commitMessage(state, assistantMessage);
-                state.events.emit({
-                    type: "turn_finished",
-                    message: assistantMessage,
-                });
-                return assistantMessage;
+            for (const message of userMessages) {
+                await commitMessage(state, message);
+                state.events.emit({ type: "turn_started", message });
             }
-            activeModel = applied.activeModel;
-            turnReasoningEffort = applied.turnReasoningEffort;
-            scopedTools = scopedTools.filter((tool) =>
-                applied.tools.includes(tool.name)
-            );
-            state.toolRuntime.allowedTools = applied.allowedTools;
+            for (const [promptIndex, prompt] of turnPrompts.entries()) {
+                const applied = await applyPreTurnHook(
+                    state,
+                    {
+                        type: "pre_turn",
+                        ...(state.sessionId === undefined
+                            ? {}
+                            : { sessionId: state.sessionId }),
+                        workspace: state.toolRuntime.workspace,
+                        prompt: prompt.content,
+                        model: activeModel,
+                        tools: scopedTools.map((tool) => tool.name),
+                        ...(turnReasoningEffort === undefined
+                            ? {}
+                            : { reasoningEffort: turnReasoningEffort }),
+                    },
+                );
+                if (applied.blocked !== undefined) {
+                    assistantMessage = preTurnBlockedMessage(
+                        applied.activeModel,
+                        applied.blocked,
+                    );
+                    await commitMessage(state, assistantMessage);
+                    state.events.emit({
+                        type: "turn_finished",
+                        message: assistantMessage,
+                    });
+                    return assistantMessage;
+                }
+                if (promptIndex === 0) {
+                    // A batch has one provider settings snapshot. Later
+                    // prompts still pass every blocking and tool-scope hook,
+                    // but cannot replace the oldest prompt's model or effort.
+                    activeModel = applied.activeModel;
+                    turnReasoningEffort = applied.turnReasoningEffort;
+                }
+                scopedTools = scopedTools.filter((tool) =>
+                    applied.tools.includes(tool.name)
+                );
+                state.toolRuntime.allowedTools = applied.allowedTools;
+            }
         }
 
         // Read once for the turn rather than per model round: the catalog is
@@ -1571,10 +1585,11 @@ export async function runTurn(
                             source: "workspace",
                         },
                     undefined,
-                    userMessage === undefined
+                    userMessages.length === 0
                         ? {}
                         : {
-                            query: userMessage.content
+                            query: userMessages
+                                .flatMap((message) => message.content)
                                 .filter((block) => block.type === "text")
                                 .map((block) => block.text)
                                 .join("\n"),
@@ -1606,7 +1621,7 @@ export async function runTurn(
                             ...(state.sessionId === undefined
                                 ? {}
                                 : { sessionId: state.sessionId }),
-                            turn: userMessage === undefined
+                            turn: userMessages.length === 0
                                 ? "delivery"
                                 : "user",
                             workspace: state.toolRuntime.workspace,
@@ -2041,8 +2056,23 @@ export async function runTurn(
                 ...(capacity === undefined ? {} : { capacity }),
             });
         }
+    } catch (error) {
+        turnThrew = true;
+        throw error;
     } finally {
-        state.inbound.finishTurn();
+        const outcome: InboundTurnOutcome =
+            turnThrew
+                ? "failed"
+                : turn.signal.aborted
+                ? "aborted"
+                : assistantMessage === undefined
+                ? "failed"
+                : assistantMessage.stopReason === "aborted"
+                ? "aborted"
+                : assistantMessage.stopReason === "error"
+                ? "failed"
+                : "completed";
+        state.inbound.finishTurn(outcome);
     }
 
     state.events.emit({ type: "turn_finished", message: assistantMessage });

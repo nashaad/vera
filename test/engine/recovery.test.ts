@@ -35,6 +35,13 @@ const overloadFailure: ProviderFailure = {
     message: "provider overloaded",
 };
 
+const malformedToolCallFailure: ProviderFailure = {
+    kind: "unknown",
+    resolution: "retry",
+    message: "invalid JSON for tool call",
+    partialOutputReplaceable: true,
+};
+
 test("length recovery raises the cap once and bounds continuations", () => {
     expect(nextLengthContinuation(DEFAULT_MODEL_MAX_TOKENS, 0)).toEqual({
         previousMaxTokens: DEFAULT_MODEL_MAX_TOKENS,
@@ -344,6 +351,82 @@ test("engine recovery never retries or falls back after content starts", async (
         "text_delta",
         "error",
     ]);
+});
+
+test("engine recovery replaces partial output for a discard-safe failure", async () => {
+    const adapter = scriptedAdapter([
+        (stream) => {
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({
+                type: "text_delta",
+                contentIndex: 0,
+                text: "partial",
+            });
+            fail(stream, malformedToolCallFailure, "partial");
+        },
+        (stream) => succeed(stream, "complete"),
+    ]);
+    const events: ModelStreamEvent[] = [];
+    const retries: ModelRetryScheduled[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "primary", messages: [] },
+        {
+            onEvent: (event) => events.push(event),
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result.content).toEqual([{ type: "text", text: "complete" }]);
+    expect(events.map((event) => event.type)).toEqual([
+        "start",
+        "text_start",
+        "text_delta",
+        "done",
+    ]);
+    expect(retries).toEqual([{
+        model: "primary",
+        nextAttempt: 2,
+        maxAttempts: 3,
+        delayMs: 500,
+        failure: malformedToolCallFailure,
+        replacesPartialAttempt: true,
+    }]);
+});
+
+test("discard-safe partial output ends visibly after retry exhaustion", async () => {
+    const adapter = scriptedAdapter(["one", "two", "last"].map((text) =>
+        (stream: ModelEventStream) => {
+            stream.push({ type: "text_start", contentIndex: 0 });
+            stream.push({ type: "text_delta", contentIndex: 0, text });
+            fail(stream, malformedToolCallFailure, text);
+        }
+    ));
+    const retries: ModelRetryScheduled[] = [];
+    const events: ModelStreamEvent[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        { model: "primary", messages: [] },
+        {
+            onEvent: (event) => events.push(event),
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            wait: async () => {},
+        },
+    );
+
+    expect(result).toMatchObject({
+        stopReason: "error",
+        content: [{ type: "text", text: "last" }],
+    });
+    expect(retries).toHaveLength(2);
+    expect(retries.every((retry) => retry.replacesPartialAttempt === true))
+        .toBe(true);
+    expect(events.at(-1)?.type).toBe("error");
 });
 
 test("engine recovery aborts a pending backoff", async () => {

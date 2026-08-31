@@ -15,6 +15,7 @@ import type { AgentUpdate } from "../../engine/protocol.ts";
 import type { EngineCommand } from "../../engine/timeline-control.ts";
 import type { HostBoundaryOffers } from "../../engine/host-boundary.ts";
 import type { LoopState } from "../../engine/host-protocol.ts";
+import type { CompactionWireSpec } from "../../engine/compaction-binding.ts";
 import type { RunHeadlessLoopData } from "../../engine/loop-services.ts";
 
 /**
@@ -87,6 +88,12 @@ export interface WorkerStartNotification {
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
+    /**
+     * The strategy and bounds. Each slot's model stays on the host and is
+     * reached with `compaction.complete`. Absent means this session does not
+     * compact.
+     */
+    readonly compaction?: CompactionWireSpec;
 }
 
 /**

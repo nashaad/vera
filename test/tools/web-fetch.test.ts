@@ -59,7 +59,8 @@ test("web_fetch returns readable text from a bounded HTML response", async () =>
 
     expect(output).toContain("URL: https://example.com/page");
     expect(output).toContain("Title: Example & docs");
-    expect(output).toContain("Heading\n\nHello world.");
+    expect(output).toContain("# Heading");
+    expect(output).toContain("Hello **world**.");
     expect(output).not.toContain("hidden");
 });
 
@@ -127,6 +128,81 @@ test("web_fetch rejects oversized and binary responses", async () => {
         }),
         publicAddress,
     )).rejects.toThrow("content type image/png");
+});
+
+test("web_fetch converts HTML that is over the text byte budget", async () => {
+    const output = await fetchReadablePage(
+        "https://example.com/docs",
+        signal,
+        async () => new Response(
+            "<html><head><title>Docs</title></head><body><h1>Guide</h1></body></html>",
+            {
+                headers: {
+                    "content-type": "text/html",
+                    "content-length": String(2 * 1024 * 1024),
+                },
+            },
+        ),
+        publicAddress,
+    );
+    expect(output).toContain("Title: Docs");
+    expect(output).toContain("# Guide");
+});
+
+test("HTML still has a byte budget, and JSON keeps the smaller one", async () => {
+    await expect(fetchReadablePage(
+        "https://example.com/huge.html",
+        signal,
+        async () => new Response("<html></html>", {
+            headers: {
+                "content-type": "text/html",
+                "content-length": String(10 * 1024 * 1024 + 1),
+            },
+        }),
+        publicAddress,
+    )).rejects.toThrow("exceeds");
+
+    await expect(fetchReadablePage(
+        "https://example.com/data.json",
+        signal,
+        async () => new Response("{}", {
+            headers: {
+                "content-type": "application/json",
+                "content-length": String(2 * 1024 * 1024),
+            },
+        }),
+        publicAddress,
+    )).rejects.toThrow("exceeds");
+});
+
+test("web_fetch reads an HTML body larger than the text byte budget", async () => {
+    const html = "<html><body><h1>Start</h1><!--"
+        + "x".repeat(1_200_000)
+        + "--><p>End</p></body></html>";
+    const output = await fetchReadablePage(
+        "https://example.com/padded",
+        signal,
+        async () => new Response(html, {
+            headers: { "content-type": "text/html" },
+        }),
+        publicAddress,
+    );
+    expect(output).toContain("# Start");
+    expect(output).toContain("End");
+});
+
+test("web_fetch truncates converted markdown, not the raw HTML", async () => {
+    const output = await fetchReadablePage(
+        "https://example.com/long",
+        signal,
+        async () => new Response(
+            `<html><body><p>${"a".repeat(60_000)}</p></body></html>`,
+            { headers: { "content-type": "text/html" } },
+        ),
+        publicAddress,
+    );
+    expect(output).toContain("(truncated at 50000 characters)");
+    expect(output).not.toContain("a".repeat(50_001));
 });
 
 /** A minimal uncompressed PDF with one text object, built here so the suite

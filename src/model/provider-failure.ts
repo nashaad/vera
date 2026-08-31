@@ -17,6 +17,12 @@ export interface ProviderFailure {
     readonly kind: ProviderFailureKind;
     readonly resolution: ProviderFailureResolution;
     readonly message: string;
+    /**
+     * The failed response cannot have caused a side effect, so recovery may
+     * replace its live output before retrying. Absent keeps partial output and
+     * ends the request instead.
+     */
+    readonly partialOutputReplaceable?: boolean;
     readonly statusCode?: number;
     /** Provider-neutral error category returned by a routing service. */
     readonly providerErrorType?: string;

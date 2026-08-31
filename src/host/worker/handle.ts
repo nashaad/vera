@@ -38,6 +38,7 @@ import type {
     WorkerHostCapabilities,
     WorkerSessionSeed,
 } from "./start.ts";
+import { compactionWireSpec } from "../../engine/compaction-binding.ts";
 
 const WORKER_ENTRY = fileURLToPath(new URL("./entry.ts", import.meta.url));
 
@@ -198,6 +199,9 @@ export async function startWorker(
             ? {}
             : { extensions: options.extensions }),
         state: options.state ?? { policy: {} },
+        ...(services.compaction === undefined
+            ? {}
+            : { compaction: compactionWireSpec(services.compaction) }),
         ...(options.extensionTools === undefined
             ? {}
             : {

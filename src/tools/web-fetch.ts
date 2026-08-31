@@ -3,17 +3,21 @@ import { existsSync } from "node:fs";
 import { mkdir, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { isIP } from "node:net";
-import { Parser } from "htmlparser2";
 import { Readable } from "node:stream";
 import {
     Agent,
     request as undiciRequest,
 } from "undici/index.js";
 
+import { htmlToMarkdown } from "./html-to-markdown.ts";
 import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 const MAX_REDIRECTS = 5;
 const MAX_RESPONSE_BYTES = 1024 * 1024;
+/** HTML pages ship chrome, scripts, and inlined assets around a smaller
+ * document. The byte budget has to cover that payload; the character budget
+ * applies after conversion to markdown. */
+const MAX_HTML_RESPONSE_BYTES = 10 * 1024 * 1024;
 /** A PDF carries its fonts and layout in the same file as its text, so the
  * text-sized budget rejects documents that are ordinary to publish. */
 const MAX_PDF_RESPONSE_BYTES = 10 * 1024 * 1024;
@@ -128,7 +132,7 @@ export async function fetchReadablePage(
         }
         return formatReadablePage(
             url.href,
-            await readBoundedBody(response),
+            await readBoundedBody(response, bodyByteLimit(contentType)),
             contentType,
         );
     } finally {
@@ -376,6 +380,19 @@ function isPdfContentType(value: string): boolean {
     return mimeOf(value) === "application/pdf";
 }
 
+function isHtmlContentType(value: string): boolean {
+    const mime = mimeOf(value);
+    return mime === "text/html"
+        || mime === "application/xhtml+xml"
+        || mime.endsWith("+html");
+}
+
+function bodyByteLimit(contentType: string): number {
+    return isHtmlContentType(contentType)
+        ? MAX_HTML_RESPONSE_BYTES
+        : MAX_RESPONSE_BYTES;
+}
+
 /**
  * The bytes come from an arbitrary public URL, so the parser gets no way to
  * reach the network on the document's behalf and no font handling: extracting
@@ -427,10 +444,11 @@ function isReadableContentType(value: string): boolean {
         || mime.endsWith("+xml");
 }
 
-async function readBoundedBody(response: Response): Promise<string> {
-    return new TextDecoder().decode(
-        await readBoundedBytes(response, MAX_RESPONSE_BYTES),
-    );
+async function readBoundedBody(
+    response: Response,
+    limit: number,
+): Promise<string> {
+    return new TextDecoder().decode(await readBoundedBytes(response, limit));
 }
 
 async function readBoundedBytes(
@@ -484,10 +502,11 @@ function formatReadablePage(
     body: string,
     contentType: string,
 ): string {
-    const html = contentType.toLowerCase().includes("html");
-    const extracted = html ? readableHtml(body) : undefined;
+    const extracted = isHtmlContentType(contentType)
+        ? htmlToMarkdown(body, url)
+        : undefined;
     const title = extracted?.title ?? "";
-    const readable = extracted?.text ?? body.trim();
+    const readable = extracted?.markdown ?? body.trim();
     const truncated = readable.length > MAX_OUTPUT_CHARACTERS;
     const output = truncated
         ? readable.slice(0, MAX_OUTPUT_CHARACTERS)
@@ -504,70 +523,6 @@ function formatReadablePage(
             ]
             : []),
     ].join("\n").trimEnd();
-}
-
-function readableHtml(html: string): { readonly title: string; readonly text: string } {
-    const skipped = new Set([
-        "head",
-        "script",
-        "style",
-        "noscript",
-        "iframe",
-        "object",
-        "embed",
-        "svg",
-    ]);
-    const blocks = new Set([
-        "article",
-        "br",
-        "div",
-        "h1",
-        "h2",
-        "h3",
-        "h4",
-        "h5",
-        "h6",
-        "li",
-        "p",
-        "section",
-        "tr",
-    ]);
-    let text = "";
-    let title = "";
-    let skipDepth = 0;
-    let titleDepth = 0;
-    const parser = new Parser({
-        onopentag(name) {
-            if (name === "title") titleDepth += 1;
-            if (skipDepth > 0 || skipped.has(name)) {
-                skipDepth += 1;
-                return;
-            }
-            if (blocks.has(name)) text += "\n";
-        },
-        ontext(value) {
-            if (titleDepth > 0) title += value;
-            if (skipDepth === 0) text += value;
-        },
-        onclosetag(name) {
-            if (name === "title" && titleDepth > 0) titleDepth -= 1;
-            if (skipDepth > 0) {
-                skipDepth -= 1;
-                return;
-            }
-            if (blocks.has(name)) text += "\n";
-        },
-    }, { decodeEntities: true });
-    parser.end(html);
-    return {
-        title: title.replace(/\s+/g, " ").trim(),
-        text: text
-        .replace(/[ \t]+/g, " ")
-        .replace(/ +([.,;:!?])/g, "$1")
-        .replace(/ *\n */g, "\n")
-        .replace(/\n{3,}/g, "\n\n")
-        .trim(),
-    };
 }
 
 /** Downloads cover archives and installers, which dwarf anything the reading
