@@ -107,6 +107,23 @@ test("the compaction assignment outranks a route the profile names for a slot", 
     expect(bound?.diagnostics?.route).toBeUndefined();
 });
 
+test("an assignment binds without a compaction profile", () => {
+    // Defaults writes the assignment, not a compaction profile. The session
+    // model is the fallback only when nothing is assigned.
+    const bound = bindCompaction(
+        undefined,
+        adapter,
+        { provider: "openrouter", model: "session-model" },
+        BUNDLED_COMPACTION_STRATEGIES,
+        [{ name: "assigned", provider: "openrouter", model: "assigned-model" }],
+    );
+
+    expect(bound?.diagnostics).toMatchObject({
+        catalogEntry: "assigned",
+        model: "assigned-model",
+    });
+});
+
 test("a catalog fallback is the model shown for the bound summarizer", () => {
     const bound = bindCompaction(
         profile({ slots: {} }),

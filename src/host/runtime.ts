@@ -282,7 +282,7 @@ export async function startResidentHost(
     }
     // The config as it stands on disk, not as it stood when the host came up.
     // Every setting below is read through this, so changing one in the
-    // settings pane reaches the next session that starts and nothing has to be
+    // settings pane reaches a session already running and nothing has to be
     // restarted under the user.
     //
     // Re-read only when the file has moved on, because some of these are asked

@@ -3797,6 +3797,24 @@ test("the defaults pane offers a way to the collection it draws from", () => {
     expect(selected).toEqual({ kind: "model_assignment_browse" });
 });
 
+test("the compaction picker marks the bound model as assigned", async () => {
+    const assignedRef = "openai-codex/gpt-5.6-sol";
+    const pane = startTuiModelAssignmentPicker(
+        "compaction",
+        "compaction",
+        "summarising a session that has run long",
+        pooledModels,
+        [assignedRef],
+    );
+    expect(pane.options.find((option) => option.value === assignedRef))
+        .toMatchObject({
+            description: "openai-codex",
+            rowMeta: [{ text: "assigned 1", tone: "positive" }],
+        });
+    const frame = await pickerFrame(pane);
+    expect(frame).toContain("assigned 1");
+});
+
 test("the subagent picker separates assigned, available, and parent fallback", async () => {
     const assignedRef = "openai-codex/gpt-5.6-sol";
     const availableRef = "openrouter/z-ai/glm-5.2";

@@ -177,7 +177,7 @@ import {
 import type { UserMessage } from "../model/types.ts";
 import type { OneshotMessage } from "../engine/protocol.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
-import type { LoopState } from "../engine/host-protocol.ts";
+import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import type {
     SessionIdentity,
@@ -409,11 +409,11 @@ export interface AgentRegistryOptions {
         sessionId: string,
         key: string,
     ) => Promise<"reserved" | "owned" | "taken">;
-    /** Resolved once at startup, bound per agent to that agent's adapter. */
+    /** Read live, so a change reaches a compact already in this session. */
     readonly compaction?: ResolvedCompactionProfile;
-    /** What a strategy slot the profile did not name falls back to. */
+    /** Read live, so a change reaches a compact already running in this session. */
     readonly compactionModels?: readonly VeraCatalogModel[];
-    /** Read per agent, so a change reaches the next session without a restart. */
+    /** Read live with the bound compaction, so a developer override takes effect without a restart. */
     readonly compactionOverrides?: CompactionOverrides;
     /**
      * Durable preferences, deliberately one store shared by every agent:
@@ -3914,21 +3914,25 @@ export class AgentRegistry {
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
         });
-        const compaction = bindCompaction(
-            this.options.compaction,
-            adapter,
-            {
-                ...(entry.modelSettings.provider === undefined
-                    ? {}
-                    : { provider: entry.modelSettings.provider }),
-                model: entry.modelSettings.model,
-            },
-            // The registry the host assembled. Extension-registered strategies
-            // join this list when activation lands; binding stays agnostic.
-            BUNDLED_COMPACTION_STRATEGIES,
-            this.options.compactionModels,
-            this.options.compactionOverrides,
-        );
+        // Read at each compact, not copied for the session: an assignment the
+        // user changes has to reach a compact already in this session.
+        const boundCompaction = (): ReturnType<typeof bindCompaction> =>
+            bindCompaction(
+                this.options.compaction,
+                adapter,
+                {
+                    ...(entry.modelSettings.provider === undefined
+                        ? {}
+                        : { provider: entry.modelSettings.provider }),
+                    model: entry.modelSettings.model,
+                },
+                // The registry the host assembled. Extension-registered
+                // strategies join this list when activation lands; binding
+                // stays agnostic.
+                BUNDLED_COMPACTION_STRATEGIES,
+                this.options.compactionModels,
+                this.options.compactionOverrides,
+            );
         const applyToolEffect: ApplyToolEffect = (effect, signal, context) => {
             if (effect.type === "spawn_async_subagent") {
                 return this.spawnAsyncSubagent(
@@ -4033,7 +4037,9 @@ export class AgentRegistry {
                 ...(this.options.reviewLog === undefined
                     ? {}
                     : { reviewLog: this.options.reviewLog }),
-                ...(compaction === undefined ? {} : { compaction }),
+                get compaction() {
+                    return boundCompaction();
+                },
                 applyToolEffect,
                 requestMissingSubagentConfiguration:
                     (request, context, signal) =>
@@ -5653,6 +5659,7 @@ function subagentResolutionLabel(
  * answers each read from its last copy rather than calling back.
  */
 function loopStateOf(services: RunHeadlessLoopServices): LoopState {
+    const compaction = loopCompactionState(services.compaction?.diagnostics);
     return {
         policy: services.readPolicy?.() ?? {},
         ...(services.readModelSettings === undefined ? {} : {
@@ -5670,6 +5677,7 @@ function loopStateOf(services: RunHeadlessLoopServices): LoopState {
         ...(services.readReviewer === undefined ? {} : {
             reviewer: services.readReviewer(),
         }),
+        ...(compaction === undefined ? {} : { compaction }),
     };
 }
 

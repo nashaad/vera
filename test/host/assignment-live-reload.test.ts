@@ -3,7 +3,13 @@ import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import type { AgentUpdate } from "../../src/engine/protocol.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import {
+    emptyUsage,
+    type AssistantMessage,
+    type ModelRequest,
+} from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
 function config(assigned: string, extra: Record<string, unknown> = {}) {
@@ -24,8 +30,8 @@ function config(assigned: string, extra: Record<string, unknown> = {}) {
 }
 
 // An assignment is a setting the user changes from inside a running Vera. The
-// host reads it when a session starts, so the change has to reach the next
-// session on its own.
+// host rereads the file, so the change reaches a compact already in this
+// session with nothing to restart.
 test("an assignment written after the host started needs no restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-assignment-live-"));
     const configPath = join(root, "profiles", "default", "config.json");
@@ -128,3 +134,136 @@ test("a setting changed on disk reaches the registry with no restart", async () 
         await rm(root, { recursive: true, force: true });
     }
 });
+
+const SUMMARY =
+    "# Task\nFinish the two jobs.\n\n# State\nBoth rounds completed.\n\n"
+    + "# Decisions\nnot stated\n\n# Constraints\nnot stated\n\n# Open\n"
+    + "not stated";
+
+function assistant(text: string): AssistantMessage {
+    return {
+        role: "assistant",
+        content: [{ type: "text", text }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+}
+
+test("a running session's next compact uses the assignment written now", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-assignment-compact-"));
+    const configPath = join(root, "profiles", "default", "config.json");
+    const poolPath = join(root, "pool.json");
+    const previousHome = process.env.VERA_HOME;
+    const previousPool = process.env.VERA_POOL_FILE;
+    process.env.VERA_POOL_FILE = poolPath;
+    process.env.VERA_HOME = root;
+    await mkdir(join(root, "profiles", "default"), { recursive: true });
+    await writeFile(
+        poolPath,
+        JSON.stringify({
+            models: { "openrouter/faux/one": {}, "openrouter/faux/two": {} },
+        }),
+    );
+    await writeFile(configPath, JSON.stringify(config("one")));
+    const requested: string[] = [];
+    const faux = new FauxAdapter([
+        assistant("first done"),
+        assistant("second done"),
+        assistant(SUMMARY),
+        assistant(SUMMARY),
+    ]);
+    const host = await startResidentHost({
+        config: config("one") as never,
+        createAdapter: () => ({
+            stream(request: ModelRequest) {
+                requested.push(request.model);
+                return faux.stream(request);
+            },
+        }),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+    });
+    try {
+        const workspace = await mkdtemp(join(root, "work-"));
+        const agent = await host.registry.create({
+            id: "compact-live",
+            workspace,
+            sessionPath: join(root, "sessions", "compact-live.jsonl"),
+            eventLogPath: join(root, "logs", "compact-live.jsonl"),
+        });
+        const attachment = agent.attach();
+        await waitForUpdate(attachment, (update) => update.type === "history");
+
+        attachment.send({
+            type: "prompt",
+            content: "first job: set up the workspace. " + "alpha ".repeat(800),
+        });
+        await waitForUpdate(attachment, (update) => update.type === "turn_finished");
+        attachment.send({
+            type: "prompt",
+            content: "second job: finish the remaining work. "
+                + "beta ".repeat(800),
+        });
+        await waitForUpdate(attachment, (update) => update.type === "turn_finished");
+
+        attachment.send({ type: "compact", requestId: "ask-old" });
+        const first = await waitForUpdate(attachment, (update) =>
+            update.type === "compaction" && update.phase === "finished"
+        );
+        expect(first).toMatchObject({ outcome: "compacted" });
+        expect(requested.filter((model) => model.startsWith("faux/")))
+            .toContain("faux/one");
+
+        await writeFile(configPath, JSON.stringify(config("two")));
+        attachment.send({
+            type: "get_model_settings",
+            requestId: "refresh",
+        });
+        await waitForUpdate(attachment, (update) =>
+            update.type === "model_settings" && update.requestId === "refresh"
+        );
+        // The finished event is emitted before the compact command settles.
+        await Bun.sleep(25);
+
+        attachment.send({ type: "compact", requestId: "ask-new" });
+        const second = await waitForUpdate(attachment, (update) =>
+            update.type === "compaction" && update.phase === "finished"
+        );
+        expect(second).toMatchObject({
+            outcome: "compacted",
+            model: "faux/two",
+        });
+        expect(requested.filter((model) => model === "faux/two").length)
+            .toBeGreaterThan(0);
+    } finally {
+        await host.close();
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        if (previousPool === undefined) delete process.env.VERA_POOL_FILE;
+        else process.env.VERA_POOL_FILE = previousPool;
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+async function waitForUpdate(
+    attachment: { receive: () => Promise<AgentUpdate> },
+    predicate: (update: AgentUpdate) => boolean,
+): Promise<AgentUpdate> {
+    const deadline = Date.now() + 20_000;
+    while (Date.now() < deadline) {
+        const update = await Promise.race([
+            attachment.receive(),
+            Bun.sleep(20_000).then(() => undefined),
+        ]);
+        if (update === undefined) {
+            break;
+        }
+        if (predicate(update)) {
+            return update;
+        }
+    }
+    throw new Error("Timed out waiting for an agent update");
+}

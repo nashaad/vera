@@ -10,7 +10,7 @@
  *
  * `readState` is one coarse read of everything the owner may change mid-turn.
  * The fields are lazy in-process, so each one costs exactly the call it costs
- * today; across a pipe the same object is the last `state.changed` push. Six
+ * today; across a pipe the same object is the last `state.changed` push. The
  * fine-grained reads therefore become one message without changing what an
  * in-process loop observes.
  *
@@ -32,7 +32,7 @@ import type {
 } from "../tools/types.ts";
 import type { EngineEventBus } from "./events.ts";
 import type { ToolHooks } from "./hooks.ts";
-import type { LoopState } from "./host-protocol.ts";
+import { loopCompactionState, type LoopState } from "./host-protocol.ts";
 import type {
     InboundRouterHostHooks,
     LoopPolicy,
@@ -91,7 +91,11 @@ export interface HostOwnedObjects {
     readonly processRegistry?: ManagedProcessRegistry;
     /** Definitions push in with `tools.changed`; calls are `tool.execute`. */
     readonly extensionTools?: readonly RegisteredTool[];
-    /** The strategy is JSON; each bound model is `compaction.complete`. */
+    /**
+     * Read at each compact rather than copied for the session, so an
+     * assignment the user changes reaches this session's next compact.
+     * Each bound model is `compaction.complete`.
+     */
     readonly compaction?: SessionCompactionOptions;
     /** Does not cross. */
     readonly router: InboundRouterHostHooks;
@@ -169,6 +173,9 @@ export function createLocalHostBoundary(
         get reviewer(): ToolReviewerSettings | undefined {
             return services.readReviewer?.() ?? readPolicy().reviewer;
         },
+        get compaction() {
+            return loopCompactionState(services.compaction?.diagnostics);
+        },
     };
     return {
         offers: {
@@ -221,9 +228,9 @@ export function createLocalHostBoundary(
             ...(services.extensionTools === undefined
                 ? {}
                 : { extensionTools: services.extensionTools }),
-            ...(services.compaction === undefined
-                ? {}
-                : { compaction: services.compaction }),
+            get compaction() {
+                return services.compaction;
+            },
             router: services.router ?? {},
         },
     };

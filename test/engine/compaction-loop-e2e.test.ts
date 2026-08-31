@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     fullSummaryStrategy,
     FULL_SUMMARY_MODEL_SLOT,
+    FULL_SUMMARY_STRATEGY_ID,
 } from "../../src/engine/compaction-full-summary.ts";
 import { createRoutedCompletionService } from
     "../../src/engine/completion-service.ts";
@@ -395,9 +396,12 @@ function reportingUsage(
 
 function compactionOptions(
     trigger?: SessionCompactionOptions["trigger"],
+    summarizerModel = "test",
+    onSummarizerCall?: (model: string) => void,
 ): SessionCompactionOptions {
     const summarizer: ModelAdapter = {
         stream(request) {
+            onSummarizerCall?.(request.model);
             return new FauxAdapter([
                 assistantText(
                     "# Task\nRun the long job.\n\n# State\nRounds are running.",
@@ -410,12 +414,87 @@ function compactionOptions(
         models: {
             [FULL_SUMMARY_MODEL_SLOT]: createRoutedCompletionService(
                 summarizer,
-                { models: [{ provider: "faux", model: "test" }] },
+                { models: [{ provider: "faux", model: summarizerModel }] },
             ),
+        },
+        diagnostics: {
+            strategy: FULL_SUMMARY_STRATEGY_ID,
+            provider: "faux",
+            model: summarizerModel,
         },
         ...(trigger === undefined ? {} : { trigger }),
     };
 }
+
+test("a running session uses the compaction assignment as it stands now", async () => {
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-live-assignment", cwd: workspace },
+    );
+    let summarizerModel = "old-summarizer";
+    const called: string[] = [];
+    const bind = () => compactionOptions(undefined, summarizerModel, (model) => {
+        called.push(model);
+    });
+    let bound = bind();
+    const events = new EngineEventBus();
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([
+            assistantText("first done"),
+            assistantText("second done"),
+        ]),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            get compaction() {
+                return bound;
+            },
+            readModelSettings: () => ({ model: "test", contextWindow: 200_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+
+    channel.client.send({
+        type: "prompt",
+        content: "first job: set up the workspace. " + "alpha ".repeat(800),
+    });
+    await drain(channel);
+    channel.client.send({
+        type: "prompt",
+        content: "second job: finish the remaining work. " + "beta ".repeat(800),
+    });
+    await drain(channel);
+
+    channel.client.send({ type: "compact", requestId: "ask-old" });
+    const first = await drainUntil(channel, (update) =>
+        update.type === "compaction" && update.phase === "finished"
+    );
+    expect(first.find((update) =>
+        update.type === "compaction" && update.phase === "started"
+    )).toMatchObject({ model: "old-summarizer" });
+
+    summarizerModel = "new-summarizer";
+    bound = bind();
+    // The finished event is emitted before the compact command settles, and a
+    // second /compact arriving in that window is dropped.
+    await Bun.sleep(25);
+    channel.client.send({ type: "compact", requestId: "ask-new" });
+    const second = await drainUntil(channel, (update) =>
+        update.type === "compaction" && update.phase === "finished"
+    );
+    expect(second.find((update) =>
+        update.type === "compaction" && update.phase === "started"
+    )).toMatchObject({ model: "new-summarizer" });
+    expect(called).toEqual(["old-summarizer", "new-summarizer"]);
+}, 30_000);
 
 test("a failed automatic compaction is attempted again once the context grows", async () => {
     // The latch stops the retry loop, and growth is the only thing that opens
@@ -452,6 +531,61 @@ test("a failed automatic compaction is not retried on a turn that adds nothing",
 
     expect(afterFirst).toBeGreaterThan(0);
     expect(started(seen)).toBe(afterFirst);
+});
+
+test("a new compaction assignment reopens a latched automatic compaction", async () => {
+    // The latch is for the route that failed. A different assignment is not
+    // that route, so waiting for growth would leave the session on the
+    // unavailable model until the window fills.
+    const workspace = temporaryDirectory();
+    const store = await SessionStore.create(
+        join(workspace, "session.jsonl"),
+        { sessionId: "loop-latch-assignment", cwd: workspace },
+    );
+    writeFileSync(join(workspace, "notes-1.txt"), "chunk ".repeat(4_000));
+    const called: string[] = [];
+    let bound = unavailableCompactionOptions({ tokens: 2_000 }, "old-summarizer");
+    const events = new EngineEventBus();
+    const seen: EngineEvent[] = [];
+    events.subscribe((event) => void seen.push(event));
+    const channel = createInProcessChannel();
+    void runHeadlessLoop(
+        channel.engine,
+        new FauxAdapter([
+            toolCall("latch-call-1", 1),
+            assistantText("first done"),
+            assistantText("second done"),
+        ]),
+        "test",
+        undefined,
+        { approvalMode: "auto" },
+        {
+            sessionStore: store,
+            eventBus: events,
+            get compaction() {
+                return bound;
+            },
+            readModelSettings: () => ({ model: "test", contextWindow: 40_000 }),
+            readApprovalMode: () => "auto",
+            updateApprovalMode: async () => undefined,
+            router: { updateModelSettings: async () => undefined },
+        },
+    );
+
+    channel.client.send({ type: "prompt", content: "first job" });
+    await drain(channel);
+    const afterFirst = started(seen);
+    expect(afterFirst).toBeGreaterThan(0);
+
+    bound = compactionOptions({ tokens: 2_000 }, "new-summarizer", (model) => {
+        called.push(model);
+    });
+    channel.client.send({ type: "prompt", content: "ok" });
+    await drain(channel);
+
+    expect(started(seen)).toBeGreaterThan(afterFirst);
+    expect(called.length).toBeGreaterThan(0);
+    expect(called.every((model) => model === "new-summarizer")).toBe(true);
 });
 
 test("an abort during an automatic compaction stops the compaction, not the turn", async () => {
@@ -851,6 +985,7 @@ async function latchSession(sessionId: string): Promise<{
 
 function unavailableCompactionOptions(
     trigger?: SessionCompactionOptions["trigger"],
+    model = "unavailable",
 ): SessionCompactionOptions {
     return {
         strategy: fullSummaryStrategy,
@@ -861,8 +996,13 @@ function unavailableCompactionOptions(
                         throw new Error("summarizer unavailable");
                     },
                 },
-                { models: [{ provider: "faux", model: "unavailable" }] },
+                { models: [{ provider: "faux", model }] },
             ),
+        },
+        diagnostics: {
+            strategy: FULL_SUMMARY_STRATEGY_ID,
+            provider: "faux",
+            model,
         },
         ...(trigger === undefined ? {} : { trigger }),
     };
@@ -906,6 +1046,13 @@ function firstText(request: ModelRequest | undefined): string {
 async function drain(
     channel: ReturnType<typeof createInProcessChannel>,
 ): Promise<readonly AgentUpdate[]> {
+    return drainUntil(channel, (update) => update.type === "turn_finished");
+}
+
+async function drainUntil(
+    channel: ReturnType<typeof createInProcessChannel>,
+    predicate: (update: AgentUpdate) => boolean,
+): Promise<readonly AgentUpdate[]> {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), 20_000);
     const updates: AgentUpdate[] = [];
@@ -913,7 +1060,7 @@ async function drain(
         for (;;) {
             const update = await channel.client.receive(controller.signal);
             updates.push(update);
-            if (update.type === "turn_finished") {
+            if (predicate(update)) {
                 return updates;
             }
         }

@@ -203,6 +203,26 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
  */
 export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
 
+/**
+ * The assignment the latch is holding. A later compact with a different
+ * value is not a retry of the route that failed.
+ */
+function compactionAssignmentKey(
+    compaction: SessionCompactionOptions,
+    announced: {
+        readonly strategy: string;
+        readonly provider?: string;
+        readonly model?: string;
+    } | undefined,
+): string {
+    return [
+        announced?.strategy ?? compaction.strategy.id,
+        announced?.provider ?? compaction.diagnostics?.provider ?? "",
+        announced?.model ?? compaction.diagnostics?.model ?? "",
+        compaction.diagnostics?.catalogEntry ?? "",
+    ].join("\0");
+}
+
 async function persistContextRecipe(
     store: SessionMessageStore,
     measurement: ContextMeasurement,
@@ -824,13 +844,19 @@ export async function runHeadlessLoop(
             return activeReviewer.review(request, signal);
         });
     const contextWatch: ContextWatch = {};
-    const compaction = owned.compaction;
+    // Read at each compact rather than once: an assignment the user changes
+    // has to reach this session, not only a session that starts afterwards.
+    const currentCompaction = (): SessionCompactionOptions | undefined =>
+        owned.compaction;
     // A failed automatic compaction must not turn every later tool boundary
-    // into another request to the same unavailable route. A new user turn
-    // resets the latch and gets one fresh attempt.
+    // into another request to the same unavailable route. Growth, a full
+    // window, a size refusal, or a new assignment reopen it. A new user
+    // turn that adds nothing does not.
     let automaticCompactionBlocked = false;
     /** The context reading when the latch closed, for the growth check. */
     let automaticCompactionBlockedAt: number | undefined;
+    /** The assignment that failed, so a different one is not treated as a retry. */
+    let latchedAssignmentKey: string | undefined;
     // A prompt can arrive before there is a finished boundary to compact.
     // Permit one retry after that prompt is durable, then latch if the same
     // structural problem remains at a real tool boundary.
@@ -930,15 +956,17 @@ export async function runHeadlessLoop(
         budgetWarned = true;
         return { warning };
     };
-    const runCompaction = compaction === undefined
-        ? undefined
-        : async (
+    const runCompaction = async (
             signal: AbortSignal,
             force = false,
             pendingMessages: readonly ModelMessage[] = [],
             context?: CompactionContext,
             turn?: CompactionTurnLink,
         ): Promise<void> => {
+            const compaction = currentCompaction();
+            if (compaction === undefined) {
+                return;
+            }
             const hasPendingUserTurn = pendingMessages.some((message) =>
                 message.role === "user" && message.internal !== true
             );
@@ -950,12 +978,15 @@ export async function runHeadlessLoop(
                 automaticCompactionRetryAfterPending = false;
             }
             const measurement = measureContextNow(pendingMessages, context);
+            const announced = boundary.readState().compaction;
+            const assignmentKey = compactionAssignmentKey(compaction, announced);
             // A failed automatic compaction stops the retry loop, but it must
             // not stop compaction for the rest of the session. A turn that
             // never shows a user prompt, a parent waiting on subagents chief
             // among them, would otherwise grow past the window in silence.
             // Growth since the failure is the signal that the conditions are
-            // no longer the ones that failed.
+            // no longer the ones that failed. A new assignment is a different
+            // route, not a retry of the one that failed.
             if (!force && automaticCompactionBlocked) {
                 // Past the window there is nothing left to protect: the
                 // request will be refused whatever happens, so a retry that
@@ -965,12 +996,14 @@ export async function runHeadlessLoop(
                 // waits for could never arrive before the window did.
                 const overWindow = measurement.capacity !== undefined
                     && measurement.tokens >= measurement.capacity;
+                const assignmentChanged = latchedAssignmentKey !== assignmentKey;
                 // A provider refusal outranks both. The estimate is what the
                 // growth rule reads, and the refusal is the provider saying
                 // that estimate is wrong, so waiting for it to grow waits for
                 // a number that already lost its authority.
                 if (
-                    !overWindow
+                    !assignmentChanged
+                    && !overWindow
                     && !contextWatch.refusedForSize
                     && (automaticCompactionBlockedAt === undefined
                         || lastRawEstimate < automaticCompactionBlockedAt
@@ -980,13 +1013,16 @@ export async function runHeadlessLoop(
                 }
                 automaticCompactionBlocked = false;
                 automaticCompactionBlockedAt = undefined;
+                latchedAssignmentKey = undefined;
             }
             const compactionModel = context?.model
                 ?? readModelSettings?.().model
                 ?? model;
-            const summarizerModel = compaction.diagnostics?.model
+            const summarizerModel = announced?.model
+                ?? compaction.diagnostics?.model
                 ?? compactionModel;
-            const summarizerProvider = compaction.diagnostics?.provider;
+            const summarizerProvider = announced?.provider
+                ?? compaction.diagnostics?.provider;
             // Forced only when a user asked. Compacting early is the whole
             // point of asking, so the trigger fraction does not apply, but
             // every other rule still does.
@@ -1117,10 +1153,12 @@ export async function runHeadlessLoop(
                 // over its line, so without this the next tool boundary opens
                 // another one and the user is pressing escape every few
                 // seconds against a session that will not stop asking. Growth
-                // reopens it, and the over-window escape above still saves a
-                // session that would otherwise be unable to send anything.
+                // or a new assignment reopens it, and the over-window escape
+                // above still saves a session that would otherwise be unable
+                // to send anything.
                 automaticCompactionBlocked = true;
                 automaticCompactionBlockedAt = lastRawEstimate;
+                latchedAssignmentKey = assignmentKey;
             }
             if (result.outcome === "compacted") {
                 // The compaction result already measured the next request,
@@ -1154,8 +1192,11 @@ export async function runHeadlessLoop(
                 contextWatch.messageTokens = undefined;
             }
         };
-    if (compaction !== undefined && runCompaction !== undefined) {
-        compactOnRequest = async (turnActive, signal) => {
+    compactOnRequest = async (turnActive, signal) => {
+            const compaction = currentCompaction();
+            if (compaction === undefined) {
+                return;
+            }
             if (turnActive) {
                 events.emit({
                     type: "compaction_finished",
@@ -1166,30 +1207,27 @@ export async function runHeadlessLoop(
             }
             await runCompaction(signal ?? new AbortController().signal, true);
         };
-    }
     const state: RunTurnState = {
         sessionId,
         messages,
         store,
         modelContext: (context) => store.modelContext(agingPolicy(context)),
         contextWatch,
-        ...(runCompaction === undefined
-            ? {}
-            : {
-                compactionPolicy: compaction,
-                compact: (
-                    signal: AbortSignal,
-                    pendingMessages: readonly ModelMessage[] = [],
-                    context?: CompactionContext,
-                    turn?: CompactionTurnLink,
-                ) => runCompaction(
-                    signal,
-                    false,
-                    pendingMessages,
-                    context,
-                    turn,
-                ),
-            }),
+        get compactionPolicy() {
+            return currentCompaction();
+        },
+        compact: (
+            signal: AbortSignal,
+            pendingMessages: readonly ModelMessage[] = [],
+            context?: CompactionContext,
+            turn?: CompactionTurnLink,
+        ) => runCompaction(
+            signal,
+            false,
+            pendingMessages,
+            context,
+            turn,
+        ),
         deliveryInbox: store,
         toolRuntime: newStashingToolRuntime(
             store.header.cwd,

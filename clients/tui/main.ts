@@ -11322,9 +11322,8 @@ export async function startTui(
 
     /**
      * Writes the chosen model onto the assignment, or unbinds it. The write is
-     * to the config file because an assignment is a setting, and the host reads
-     * that file when a session starts, so the change is live from the next
-     * session on with nothing to restart.
+     * to the config file because an assignment is a setting. The host rereads
+     * that file, so a compact in this session uses it without a restart.
      */
     function bindModelAssignmentFromPicker(
         selection: {
@@ -11411,7 +11410,7 @@ export async function startTui(
         state = appendTuiNotice(
             state,
             unbinding
-                ? `${selection.assignment} unset. New sessions use it.`
+                ? `${selection.assignment} unset. This session uses the fallback.`
                 : subagents
                 ? `Subagent policy updated: ${models.length} assigned, parent fallback ${
                     allowSelf ? "on" : "off"
@@ -11420,7 +11419,7 @@ export async function startTui(
                     selection.reasoningEffort === undefined
                         ? selection.model
                         : `${selection.model} (${selection.reasoningEffort})`
-                }. New sessions use it.`,
+                }. This session uses it.`,
             "soft",
         );
         return undefined;
