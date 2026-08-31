@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,15 +24,10 @@ import {
     type ReleaseManifest,
 } from "../src/release/manifest.ts";
 import { readStampedRelease } from "../src/release/stamp.ts";
+import { digestPackedAnnex } from "../src/release/verify.ts";
 import { packWebAssets } from "./pack-web.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const ANNEX_ASSET_FILES = [
-    "index.html",
-    "main.js",
-    "styles.css",
-    "build-id",
-] as const;
 
 export interface PackReleaseResult {
     readonly outputDirectory: string;
@@ -55,17 +49,6 @@ export interface PackReleaseOptions {
 function fail(message: string): never {
     console.error(`vera pack-release: ${message}`);
     process.exit(1);
-}
-
-export function digestPackedAnnex(directory: string): string {
-    const hash = createHash("sha256");
-    for (const name of ANNEX_ASSET_FILES) {
-        hash.update(name);
-        hash.update("\0");
-        hash.update(readFileSync(join(directory, name)));
-        hash.update("\0");
-    }
-    return `sha256:${hash.digest("hex")}`;
 }
 
 export async function packRelease(
