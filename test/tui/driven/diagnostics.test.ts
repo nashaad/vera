@@ -30,12 +30,12 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("enter copies all");
+        pane = await session.waitForVisiblePane("Session usage");
         expect(pane).toContain("› Session");
         expect(pane).toContain("Session usage");
         expect(pane).toContain("Runtime");
         expect(pane).toContain("enter copies all");
-        expect(pane).toContain("## Session");
+        expect(pane).not.toContain("## Session");
         expect(pane).not.toContain("Extensions");
         expect(pane).not.toContain("Pre-image stash");
         // The composer stays behind the overlay, and its frame carries the
@@ -51,7 +51,8 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Tab");
-        pane = await session.waitForVisiblePane("› Vera");
+        await session.waitForVisiblePane("› Vera");
+        pane = await session.waitForVisiblePane("Build");
         expect(pane).toContain("Build");
         expect(pane).toContain("Extensions");
         expect(pane).toContain("Model failures");
@@ -200,7 +201,7 @@ test("doctor opens the read-only process report inside the TUI", async () => {
         expect(pane).toContain("Resident hosts: 1 (1 unrecognized");
         expect(pane).toContain("PID 4242");
         expect(pane).toContain("1 stray process can be stopped safely.");
-        expect(pane).toContain("Run `vera doctor` in a terminal to stop it.");
+        expect(pane).toContain("Run vera doctor in a terminal to stop it.");
         await session.settle(400);
         pane = session.captureVisiblePane();
         expect(pane).toContain("PID 4242");
