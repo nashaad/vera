@@ -595,7 +595,13 @@ import {
     standingNudgeIndicatorRow,
     type TuiStandingNudgesState,
 } from "./standing-nudges.ts";
-import { veraProfileDirectory } from "../../src/profile-paths.ts";
+import { HostReplacementBusyError } from "../../src/host/discovery.ts";
+import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
+import {
+    DEFAULT_PROFILE_NAME,
+    veraProfileDirectory,
+    veraProfileName,
+} from "../../src/profile-paths.ts";
 import {
     loadStandingNudges,
     type StandingNudge,
@@ -731,6 +737,20 @@ const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
 };
 
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+
+export function reconnectBusyMessage(profile = veraProfileName()): string {
+    const stop = profile === DEFAULT_PROFILE_NAME
+        ? "vera host stop --force"
+        : `vera host stop --force --profile ${profile}`;
+    return "Could not restart the host: other work is still using it. "
+        + `Run ${stop} then /reconnect.`;
+}
+
+/** Typed `/reconnect` force-stops a wedge. It does not kill a busy answering host. */
+export function confirmManualReconnectUpgrade(error: Error): boolean {
+    return error instanceof HostUnresponsiveError;
+}
+
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const HUD_HINT = tuiKeyHint("dials.open");
 const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
@@ -936,7 +956,10 @@ export interface TuiDependencies {
     readonly searchSessions?: (
         query: SessionSearchQuery,
     ) => Promise<SessionSearchResults>;
-    readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
+    readonly reconnectSession?: (
+        agentId: string,
+        options?: { readonly replaceExisting?: boolean },
+    ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
     /** Notice lines shown in the transcript before anything else happens. */
@@ -1197,15 +1220,18 @@ export async function startConfiguredTui(
             // profile from the one it is attached to.
             searchSessions: (query) =>
                 searchSessionsThroughHost(host.socket_path, query),
-            reconnectSession: async (currentAgentId) => {
-                // No confirmation here, unlike at startup: the renderer owns
-                // the screen and stdin by now, and a readline prompt would
-                // draw into the alternate screen and hand back a terminal
-                // without raw mode. Declining surfaces the error with its
-                // recovery commands instead, which the user runs elsewhere.
+            reconnectSession: async (currentAgentId, options) => {
+                // No readline here: the renderer owns the screen. Typed
+                // `/reconnect` is the confirm for a wedge; auto-restart after
+                // a drop is not. A busy answering host, including one bound
+                // to another project, must refuse rather than be killed.
+                const replaceExisting = options?.replaceExisting === true;
                 host = await findOrStartResidentHost({
                     projectRoot: process.cwd(),
-                    confirmBusyUpgrade: () => false,
+                    confirmBusyUpgrade: replaceExisting
+                        ? confirmManualReconnectUpgrade
+                        : () => false,
+                    ...(replaceExisting ? { replaceExisting: true } : {}),
                 });
                 return attach(currentAgentId);
             },
@@ -7359,20 +7385,17 @@ export async function startTui(
             }
             const currentAgentId = client.agentId;
             if (
-                !connectionFailed
-                || dependencies.reconnectSession === undefined
+                dependencies.reconnectSession === undefined
                 || currentAgentId === undefined
             ) {
                 state = appendTuiError(
                     state,
-                    connectionFailed
-                        ? "Reconnecting this session is unavailable"
-                        : "The host connection is already active",
+                    "Reconnecting this session is unavailable",
                 );
                 renderState();
                 return;
             }
-            beginHostReconnect({ clearComposer: true });
+            beginHostReconnect({ clearComposer: true, replaceExisting: true });
             return;
         }
         if (commandAction?.type === "create_session") {
@@ -9323,10 +9346,14 @@ export async function startTui(
     /**
      * After attach-only retry has already failed, start a replacement host
      * the same way `/reconnect` does. `switchToClient` runs only after attach
-     * succeeds.
+     * succeeds. Typed `/reconnect` sets `replaceExisting`; auto-restart does
+     * not.
      */
     function beginHostReconnect(
-        options: { readonly clearComposer: boolean },
+        options: {
+            readonly clearComposer: boolean;
+            readonly replaceExisting?: boolean;
+        },
     ): void {
         const currentAgentId = client.agentId;
         if (
@@ -9341,11 +9368,19 @@ export async function startTui(
         }
         sessionSwitchPending = true;
         sessionSwitchActivity = "restarting host…";
-        settleLostHost("Host connection closed");
+        const stayAttached = options.replaceExisting === true
+            && !connectionFailed;
+        if (!stayAttached) {
+            settleLostHost("Host connection closed");
+        }
         const draft = options.clearComposer ? undefined : currentDraft();
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.reconnectSession(currentAgentId),
+            dependencies.reconnectSession(currentAgentId, {
+                ...(options.replaceExisting === true
+                    ? { replaceExisting: true }
+                    : {}),
+            }),
             discardSwitchTarget,
         ).then((next) => {
             if (shuttingDown) {
@@ -9356,13 +9391,31 @@ export async function startTui(
         }).catch((error) => {
             if (shuttingDown) return;
             sessionSwitchPending = false;
+            if (error instanceof HostReplacementBusyError) {
+                state = appendTuiError(state, reconnectBusyMessage());
+                composer.focus();
+                renderState();
+                return;
+            }
+            const message = error instanceof Error ? error.message : String(error);
             if (connectionFailed) {
                 state = appendTuiError(
                     state,
-                    `Could not reconnect: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
+                    `Could not reconnect: ${message}`,
                 );
+                renderState();
+                return;
+            }
+            if (options.replaceExisting === true) {
+                connectionFailed = true;
+                connectionFailure = message;
+                activity = "disconnected";
+                settleLostHost(message);
+                state = appendTuiError(
+                    state,
+                    `Could not reconnect: ${message}`,
+                );
+                composer.focus();
                 renderState();
                 return;
             }

@@ -13,6 +13,9 @@ export interface TuiConnectionErrorOptions {
     readonly reconnectUnavailable?: boolean;
     /** Reconnect attaches, then the new stream dies without going idle. */
     readonly reconnectDiesAgain?: boolean;
+    readonly onReconnect?: (
+        options?: { readonly replaceExisting?: boolean },
+    ) => void;
 }
 
 export function createTuiConnectionErrorDependencies(
@@ -40,7 +43,8 @@ export function createTuiConnectionErrorDependencies(
     let remainingFailures = options.reconnectFailures ?? 0;
     return {
         client,
-        reconnectSession: async () => {
+        reconnectSession: async (_agentId, reconnectOptions) => {
+            options.onReconnect?.(reconnectOptions);
             if (options.reconnectDelayMs !== undefined) {
                 await delay(options.reconnectDelayMs);
             }
