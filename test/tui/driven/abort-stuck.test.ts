@@ -16,6 +16,8 @@ import {
 import {
     emptyUsage,
     type AssistantMessage,
+    type ModelAdapter,
+    type ModelRequest,
 } from "../../../src/model/types.ts";
 import { FauxAdapter } from "../../support/faux-adapter.ts";
 import { startTuiTestSession } from "../../support/tui-harness.ts";
@@ -117,18 +119,18 @@ test("Ctrl+C while a stop is in flight quits the TUI", async () => {
     }
 }, 15_000);
 
-test("empty Enter releases every queued prompt as its own turn", async () => {
+test("empty Enter releases every queued prompt in one model turn", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-send-all-"));
     const sent: ClientCommand[] = [];
+    const requests: ModelRequest[] = [];
     const session = await startTuiTestSession({
         home,
         width: 100,
         height: 30,
         dependencies: () => slowTurnDependencies([
             "SLOW ANSWER",
-            "ONE OK",
-            "TWO OK",
-        ], sent),
+            "BATCH OK",
+        ], sent, false, requests),
     });
 
     try {
@@ -144,16 +146,32 @@ test("empty Enter releases every queued prompt as its own turn", async () => {
         session.sendKey("Enter");
         await session.waitForVisiblePane("+1");
 
+        const heldPane = await session.waitForVisiblePaneWhere(
+            (candidate) => candidate.includes("ready · ctrl+p commands")
+                && candidate.includes("queued · first queued")
+                && candidate.includes("+1"),
+            "held queue after the active turn finishes",
+        );
+        expect(heldPane).not.toContain("BATCH OK");
         session.sendKey("Enter");
-        const answers = ["SLOW ANSWER", "ONE OK", "TWO OK"];
         const pane = await session.waitForVisiblePaneWhere(
             (candidate) => candidate.includes("ready · ctrl+p commands")
-                && answers.filter((answer) => candidate.includes(answer)).length
-                    >= 2,
-            "two released turns and ready status",
+                && candidate.includes("BATCH OK"),
+            "one batched answer and ready status",
         );
         expect(pane).toContain("first queued");
         expect(pane).toContain("second queued");
+        const userTexts = requests.at(-1)?.messages.flatMap((message) =>
+            message.role !== "user"
+                ? []
+                : message.content
+                    .filter((block) => block.type === "text")
+                    .map((block) => block.text)
+        );
+        expect(userTexts?.slice(-2)).toEqual([
+            "first queued",
+            "second queued",
+        ]);
         expect(sent.filter((command) =>
             command.type === "release_queued_prompts"
             && command.mode === "all"
@@ -243,14 +261,24 @@ function slowTurnDependencies(
     answers: readonly string[],
     sent: ClientCommand[],
     legacyQueue = false,
+    requests?: ModelRequest[],
 ): TuiDependencies {
     const channel = createInProcessChannel();
+    const faux = new FauxAdapter(answers.map(response), {
+        chunkSize: 1,
+        delayMs: 250,
+    });
+    const adapter: ModelAdapter = requests === undefined
+        ? faux
+        : {
+            stream(request) {
+                requests.push(request);
+                return faux.stream(request);
+            },
+        };
     void runHeadlessLoop(
         channel.engine,
-        new FauxAdapter(answers.map(response), {
-            chunkSize: 1,
-            delayMs: 250,
-        }),
+        adapter,
         "test",
         "high",
         {
@@ -285,6 +313,15 @@ function slowTurnDependencies(
             while (true) {
                 const update = await channel.client.receive(signal);
                 if (legacyQueue && update.type === "prompt_queue") continue;
+                if (legacyQueue && update.type === "turn_finished") {
+                    // A real pre-capability host auto-starts the prompt the
+                    // legacy client already submitted. The current engine
+                    // holds it, so the fixture reproduces that old boundary.
+                    channel.client.send({
+                        type: "release_queued_prompts",
+                        mode: "one",
+                    });
+                }
                 if (
                     legacyQueue
                     && update.type === "history"

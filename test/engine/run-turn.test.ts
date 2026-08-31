@@ -146,7 +146,7 @@ test("one prompt streams assistant text and finishes the turn", async () => {
     ]);
 });
 
-test("a persistence exception fences the rest of a released batch", async () => {
+test("send all supplies distinct user messages to one model turn", async () => {
     const response: AssistantMessage = {
         role: "assistant",
         content: [{ type: "text", text: "done" }],
@@ -157,13 +157,97 @@ test("a persistence exception fences the rest of a released batch", async () => 
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     const inbound = new InboundCommandRouter(channel.engine, events);
+    const requests: ModelRequest[] = [];
+    const faux = new FauxAdapter([response]);
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requests.push(request);
+            return faux.stream(request);
+        },
+    };
+    const hooks = new ToolHooks();
+    const observedPrompts: string[] = [];
+    hooks.registerPreTurn((payload) => {
+        observedPrompts.push(payload.prompt);
+        return {
+            power: "mutate",
+            model: `model-${payload.prompt}`,
+            reasoningEffort: payload.prompt === "alpha" ? "low" : "high",
+        };
+    });
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound,
+        events,
+        hooks,
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "direct" });
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "abort" });
+    await Bun.sleep(0);
+    const direct = await inbound.startTurn();
+    expect(direct.signal.aborted).toBe(true);
+    inbound.finishTurn();
+
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    expect(await runTurn(adapter, "test", state)).toMatchObject({
+        content: [{ type: "text", text: "done" }],
+    });
+
+    expect(requests).toHaveLength(1);
+    expect(requests[0]?.model).toBe("model-alpha");
+    expect(requests[0]?.reasoningEffort).toBe("low");
+    expect(requests[0]?.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "alpha" }] },
+        { role: "user", content: [{ type: "text", text: "beta" }] },
+    ]);
+    expect(state.messages).toEqual([
+        { role: "user", content: [{ type: "text", text: "alpha" }] },
+        { role: "user", content: [{ type: "text", text: "beta" }] },
+        expect.objectContaining({
+            role: "assistant",
+            content: [{ type: "text", text: "done" }],
+        }),
+    ]);
+    expect(observedPrompts).toEqual(["alpha", "beta"]);
+});
+
+test("a failed send-all turn consumes its batch and holds later prompts", async () => {
+    const response: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "done" }],
+        source: { provider: "faux", api: "scripted", model: "test" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const inbound = new InboundCommandRouter(channel.engine, events);
+    const appended: ModelMessage[] = [];
     const store: SessionMessageStore = {
         async appendMessage(message): Promise<StoredMessage> {
+            appended.push(structuredClone(message));
             if (message.role === "assistant") {
                 throw new Error("assistant append failed");
             }
-            const snapshot = structuredClone(message);
-            return { id: "stored-user", message: snapshot };
+            return {
+                id: `stored-${appended.length}`,
+                message: structuredClone(message),
+            };
+        },
+    };
+    const faux = new FauxAdapter([response]);
+    let requestCount = 0;
+    const adapter: ModelAdapter = {
+        stream(request) {
+            requestCount += 1;
+            channel.client.send({ type: "prompt", content: "later" });
+            return faux.stream(request);
         },
     };
     const state: RunTurnState = {
@@ -186,16 +270,86 @@ test("a persistence exception fences the rest of a released batch", async () => 
     inbound.finishTurn();
 
     channel.client.send({ type: "release_queued_prompts", mode: "all" });
-    await expect(runTurn(new FauxAdapter([response]), "test", state))
+    await expect(runTurn(adapter, "test", state))
         .rejects.toThrow("assistant append failed");
+    await Bun.sleep(0);
 
+    expect(requestCount).toBe(1);
+    expect(appended.filter((message) => message.role === "user")).toEqual([
+        { role: "user", content: [{ type: "text", text: "one" }] },
+        { role: "user", content: [{ type: "text", text: "two" }] },
+    ]);
     const held = inbound.startTurn();
     expect(await Promise.race([
         held.then(() => "started" as const),
         Bun.sleep(10).then(() => "held" as const),
     ])).toBe("held");
     channel.client.send({ type: "release_queued_prompts", mode: "one" });
-    expect((await held).prompt.content).toBe("two");
+    expect((await held).prompt.content).toBe("later");
+    inbound.finishTurn();
+});
+
+test("a second-user persistence failure consumes the claimed batch once", async () => {
+    const channel = createInProcessChannel();
+    const events = new EngineEventBus();
+    const inbound = new InboundCommandRouter(channel.engine, events);
+    const appended: ModelMessage[] = [];
+    let userAppends = 0;
+    const store: SessionMessageStore = {
+        async appendMessage(message): Promise<StoredMessage> {
+            if (message.role === "user" && ++userAppends === 2) {
+                throw new Error("second user append failed");
+            }
+            appended.push(structuredClone(message));
+            return {
+                id: `stored-${appended.length}`,
+                message: structuredClone(message),
+            };
+        },
+    };
+    let requestCount = 0;
+    const adapter: ModelAdapter = {
+        stream() {
+            requestCount += 1;
+            throw new Error("provider must not run");
+        },
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store,
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound,
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+    };
+
+    channel.client.send({ type: "prompt", content: "direct" });
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "abort" });
+    await Bun.sleep(0);
+    const direct = await inbound.startTurn();
+    expect(direct.signal.aborted).toBe(true);
+    inbound.finishTurn();
+
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    channel.client.send({ type: "prompt", content: "later" });
+    await expect(runTurn(adapter, "test", state)).rejects.toThrow(
+        "second user append failed",
+    );
+
+    expect(requestCount).toBe(0);
+    expect(appended).toEqual([
+        { role: "user", content: [{ type: "text", text: "one" }] },
+    ]);
+    const held = inbound.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    expect((await held).prompt.content).toBe("later");
     inbound.finishTurn();
 });
 

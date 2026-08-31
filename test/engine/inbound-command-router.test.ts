@@ -117,14 +117,13 @@ test("send one fences later prompts and send all drains the claimed snapshot", a
     ])).toBe("held");
 
     channel.client.send({ type: "release_queued_prompts", mode: "all" });
-    const two = await fenced;
-    expect(two.prompt.content).toBe("two");
+    const batch = await fenced;
+    expect(batch.prompt.content).toBe("two");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "three",
+    ]);
     channel.client.send({ type: "prompt", content: "later" });
     await Bun.sleep(0);
-    router.finishTurn();
-
-    const three = await router.startTurn();
-    expect(three.prompt.content).toBe("three");
     router.finishTurn();
 
     const later = router.startTurn();
@@ -155,20 +154,25 @@ test("a concurrent release does not interrupt an active released batch", async (
     });
     router.finishTurn();
 
-    const one = await router.startTurn();
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "two",
+    ]);
     channel.client.send({ type: "release_queued_prompts", mode: "one" });
     channel.client.send({ type: "release_queued_prompts", mode: "all" });
     await Bun.sleep(0);
-    expect(one.signal.aborted).toBe(false);
+    expect(batch.signal.aborted).toBe(false);
     router.finishTurn();
 
-    const two = await router.startTurn();
-    expect(two.prompt.content).toBe("two");
-    expect(two.signal.aborted).toBe(false);
-    router.finishTurn();
+    const held = router.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
 });
 
-test("a failed send-all turn fences the rest of its batch", async () => {
+test("a failed send-all turn consumes its claimed batch once", async () => {
     const channel = createInProcessChannel();
     const router = new InboundCommandRouter(
         channel.engine,
@@ -186,16 +190,275 @@ test("a failed send-all turn fences the rest of its batch", async () => {
     });
     router.finishTurn();
 
-    expect((await router.startTurn()).prompt.content).toBe("one");
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "two",
+    ]);
+    channel.client.send({ type: "prompt", content: "later" });
+    await Bun.sleep(0);
     router.finishTurn("failed");
 
-    const fenced = router.startTurn();
+    const later = router.startTurn();
     expect(await Promise.race([
-        fenced.then(() => "started" as const),
+        later.then(() => "started" as const),
         Bun.sleep(10).then(() => "held" as const),
     ])).toBe("held");
     channel.client.send({ type: "release_queued_prompts", mode: "one" });
-    expect((await fenced).prompt.content).toBe("two");
+    expect((await later).prompt.content).toBe("later");
+    router.finishTurn();
+});
+
+test("a plain stop consumes a send-all batch but holds later prompts", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "one" });
+    channel.client.send({ type: "prompt", content: "two" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "two",
+    ]);
+    channel.client.send({ type: "prompt", content: "later" });
+    await Bun.sleep(0);
+    channel.client.send({ type: "abort" });
+    await new Promise<void>((resolve) => {
+        batch.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const held = router.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    expect((await held).prompt.content).toBe("later");
+    router.finishTurn();
+});
+
+test("a natural boundary holds every queued prompt for an explicit release", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    await firstTurn;
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({ type: "prompt", content: "beta" });
+    await Bun.sleep(0);
+    router.finishTurn();
+
+    const held = router.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    const batch = await held;
+    expect(batch.prompt.content).toBe("alpha");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "beta",
+    ]);
+    router.finishTurn();
+});
+
+test("send all batches ordinary prompts across queued controls", async () => {
+    const channel = createInProcessChannel();
+    let worn: string | undefined;
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        {
+            wearAgent: async (name) => {
+                worn = name;
+                return { name };
+            },
+        },
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({
+        type: "wear_agent",
+        requestId: "wear-beta",
+        name: "beta",
+    });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("alpha");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "beta",
+    ]);
+    expect(worn).toBeUndefined();
+    channel.client.send({ type: "prompt", content: "later" });
+    await Bun.sleep(0);
+    router.finishTurn();
+
+    const held = router.startTurn();
+    await Bun.sleep(0);
+    expect(worn).toBe("beta");
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    expect((await held).prompt.content).toBe("later");
+    router.finishTurn();
+});
+
+test("send all does not extend queued skill authority to ordinary prompts", async () => {
+    const channel = createInProcessChannel();
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        {
+            invokeSkill: async () => ({ allowed: true }),
+        },
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({
+        type: "invoke_skill",
+        requestId: "invoke-deploy",
+        name: "deploy",
+        argumentsText: "staging",
+    });
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const skill = await router.startTurn();
+    expect(skill.prompt.content).toBe("/deploy staging");
+    expect(skill.userInvokedSkill).toBe("deploy");
+    expect(skill.additionalPrompts).toBeUndefined();
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("alpha");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "beta",
+    ]);
+    expect(batch.userInvokedSkill).toBeUndefined();
+    router.finishTurn();
+});
+
+test("a plain stop reaches a claimed batch waiting on compaction", async () => {
+    const channel = createInProcessChannel();
+    let compactionStarted: (() => void) | undefined;
+    const started = new Promise<void>((resolve) => {
+        compactionStarted = resolve;
+    });
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        {
+            compactNow: async (_turnActive, signal) => {
+                compactionStarted?.();
+                if (signal === undefined) {
+                    throw new Error("expected compaction signal");
+                }
+                await new Promise<void>((resolve) => {
+                    signal.addEventListener("abort", () => resolve(), {
+                        once: true,
+                    });
+                });
+            },
+        },
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "compact", requestId: "compact-1" });
+    await started;
+    channel.client.send({ type: "prompt", content: "alpha" });
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const starting = router.startTurn();
+    await Bun.sleep(0);
+    channel.client.send({ type: "prompt", content: "later" });
+    channel.client.send({ type: "abort" });
+    const batch = await starting;
+    expect(batch.prompt.content).toBe("alpha");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "beta",
+    ]);
+    expect(batch.signal.aborted).toBe(true);
+    router.finishTurn();
+
+    const held = router.startTurn();
+    expect(await Promise.race([
+        held.then(() => "started" as const),
+        Bun.sleep(10).then(() => "held" as const),
+    ])).toBe("held");
+    channel.client.send({ type: "release_queued_prompts", mode: "one" });
+    expect((await held).prompt.content).toBe("later");
+    router.finishTurn();
+});
+
+test("the oldest prompt supplies settings for a batched turn", async () => {
+    const channel = createInProcessChannel();
+    let settings: ModelTurnSettings = { model: "first-model" };
+    const router = new InboundCommandRouter(
+        channel.engine,
+        new EngineEventBus(),
+        { readModelSettings: () => settings },
+    );
+
+    const firstTurn = router.startTurn();
+    channel.client.send({ type: "prompt", content: "active" });
+    const active = await firstTurn;
+    channel.client.send({ type: "prompt", content: "alpha" });
+    await Bun.sleep(0);
+    settings = { model: "second-model" };
+    channel.client.send({ type: "prompt", content: "beta" });
+    channel.client.send({ type: "release_queued_prompts", mode: "all" });
+    await new Promise<void>((resolve) => {
+        active.signal.addEventListener("abort", () => resolve(), { once: true });
+    });
+    router.finishTurn();
+
+    const batch = await router.startTurn();
+    expect(batch.modelSettings).toEqual({ model: "first-model" });
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "beta",
+    ]);
     router.finishTurn();
 });
 
@@ -217,9 +480,11 @@ test("send all can steer before the direct turn has started", async () => {
     expect(direct.signal.aborted).toBe(true);
     router.finishTurn();
 
-    expect((await router.startTurn()).prompt.content).toBe("one");
-    router.finishTurn();
-    expect((await router.startTurn()).prompt.content).toBe("two");
+    const batch = await router.startTurn();
+    expect(batch.prompt.content).toBe("one");
+    expect(batch.additionalPrompts?.map((prompt) => prompt.content)).toEqual([
+        "two",
+    ]);
     router.finishTurn();
 });
 

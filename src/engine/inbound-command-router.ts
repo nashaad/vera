@@ -152,6 +152,8 @@ interface PendingConfigurationRequired {
 
 export interface InboundTurn {
     readonly prompt: PromptCommand;
+    /** Later user messages admitted to the same model turn, in FIFO order. */
+    readonly additionalPrompts?: readonly PromptCommand[];
     readonly signal: AbortSignal;
     readonly modelSettings?: ModelTurnSettings;
     readonly triggeredByDelivery?: true;
@@ -536,12 +538,45 @@ export class InboundCommandRouter {
         } finally {
             this.waitingForPrompt = false;
         }
+        const additionalPrompts: PromptCommand[] = [];
+        if (
+            claimedItem.prompt !== undefined
+            && claimedRelease.mode === "all"
+        ) {
+            // One provider turn has one model-settings snapshot. The oldest
+            // prompt supplies it; later ordinary prompts remain distinct
+            // messages. Queue controls are retained to settle after the batch,
+            // so they cannot split one send-all claim into multiple turns.
+            const boundaryIndex = this.queuedTurns.indexOf(
+                claimedRelease.boundary,
+            );
+            if (boundaryIndex >= 0) {
+                const claimedSnapshot = this.queuedTurns.splice(
+                    0,
+                    boundaryIndex + 1,
+                );
+                const retainedControls: QueuedTurn[] = [];
+                for (const next of claimedSnapshot) {
+                    if (next.prompt === undefined) {
+                        retainedControls.push(next);
+                        continue;
+                    }
+                    this.pendingPromptCount -= 1;
+                    additionalPrompts.push(next.prompt);
+                }
+                this.queuedTurns.unshift(...retainedControls);
+            }
+        }
+
         const controller = new AbortController();
         this.activeTurn = controller;
         this.activeQueueTurn = {
             releaseId: claimedRelease.id,
             releaseMode: claimedRelease.mode,
-            final: claimedRelease.boundary === claimedItem,
+            final: claimedRelease.mode === "all"
+                && claimedItem.prompt !== undefined
+                ? true
+                : claimedRelease.boundary === claimedItem,
             queuedPrompt: claimedItem.prompt !== undefined,
         };
         this.claimedQueueRelease = undefined;
@@ -571,6 +606,9 @@ export class InboundCommandRouter {
             : {
                 ...context,
                 prompt: queued.prompt,
+                ...(additionalPrompts.length === 0
+                    ? {}
+                    : { additionalPrompts }),
                 ...(queued.userInvokedSkill === undefined
                     ? {}
                     : { userInvokedSkill: queued.userInvokedSkill }),
@@ -692,6 +730,9 @@ export class InboundCommandRouter {
 
     private plainAbort(): void {
         const visibleQueuedPrompts = this.promptQueueState().prompts.length;
+        const claimedTurn = this.activeTurn === undefined
+            ? this.claimedQueueRelease
+            : undefined;
         const queuedDirect = this.activeTurn === undefined
             && this.release?.mode === "direct"
             && (
@@ -699,11 +740,13 @@ export class InboundCommandRouter {
                 || this.claimedQueueRelease?.id === this.release.id
             );
         this.resumeAfterAbort = visibleQueuedPrompts === 0;
-        if (queuedDirect) {
-            this.queuedDirectAbortId = this.release!.id;
+        if (queuedDirect || claimedTurn !== undefined) {
+            this.queuedDirectAbortId = claimedTurn?.id ?? this.release!.id;
             this.queuedDirectFollowUp = undefined;
+            if (!queuedDirect) this.release = undefined;
             this.emitPromptQueue();
             this.events.emit({ type: "abort_requested" });
+            this.compactionAbort?.abort(new Error("Compaction aborted"));
             this.signalTurnAvailable();
             return;
         }
@@ -748,12 +791,25 @@ export class InboundCommandRouter {
 
     private finishRelease(mode: QueueReleaseMode): void {
         if (
-            (mode === "direct" || mode === "automatic")
-            && this.queuedTurns.length > 0
+            mode === "direct"
+            || mode === "automatic"
+            || mode === "all"
         ) {
+            // A completed ordinary or send-all turn holds later prompts for
+            // Escape or Enter, while queued controls still settle before them.
+            const heldPromptIndex = this.queuedTurns.findIndex(
+                (queued) => queued.prompt !== undefined,
+            );
+            const automaticBoundaryIndex = heldPromptIndex === -1
+                ? this.queuedTurns.length - 1
+                : heldPromptIndex - 1;
+            if (automaticBoundaryIndex < 0) {
+                this.release = undefined;
+                return;
+            }
             this.release = this.newRelease(
                 "automatic",
-                this.queuedTurns.at(-1)!,
+                this.queuedTurns[automaticBoundaryIndex]!,
             );
             return;
         }
