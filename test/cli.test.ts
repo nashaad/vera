@@ -19,6 +19,7 @@ import {
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
+import { RetainedReleaseMissingError } from "../src/release/dispatch.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { formatVeraVersion, readStampedRelease } from "../src/release/stamp.ts";
@@ -1113,6 +1114,29 @@ test("vera reports a build mismatch without a runtime stack trace", async () => 
     expect(errorOutput).toContain("vera host stop");
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostBuildMismatchError:");
+});
+
+test("vera reports a missing retained release without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        dispatchToHostRelease: async () => {
+            throw new RetainedReleaseMissingError(
+                "vera-c",
+                "vera-b",
+                "/tmp/releases/vera-b",
+            );
+        },
+        stderr: { write: (text: string) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toContain("vera-c");
+    expect(errorOutput).toContain("vera-b");
+    expect(errorOutput).toContain("not retained");
+    expect(errorOutput).toContain("vera host stop");
+    expect(errorOutput).toContain("roll back");
+    expect(errorOutput).not.toContain("clients/tui/main.ts");
+    expect(errorOutput).not.toContain("RetainedReleaseMissingError:");
 });
 
 test("vera host stop confirms the explicit resident-host shutdown", async () => {

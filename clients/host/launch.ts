@@ -14,13 +14,17 @@ import {
     ensureResidentHost,
     type EnsureResidentHostOptions,
 } from "../../src/host/discovery.ts";
-import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import {
+    createHostLockfile,
+    type HostLockRecord,
+} from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
     VERA_RUNTIME_DIR_ENV,
     VERA_WORKTREE_RUNTIME_ENV,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
+import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
 import {
     RELEASE_HOST_NAME,
     releaseBinaryPath,
@@ -34,8 +38,16 @@ export type FindOrStartHostOptions = Omit<
 export async function findOrStartResidentHost(
     options: FindOrStartHostOptions = {},
 ): Promise<HostLockRecord> {
+    const lockfile = options.lockfile ?? createHostLockfile();
+    const dispatched = await dispatchToHostRelease({
+        inspectHost: async () => (await lockfile.read())?.build_id,
+    });
+    if (dispatched !== undefined) {
+        process.exit(dispatched);
+    }
     return ensureResidentHost({
         ...options,
+        lockfile,
         startHost: spawnDetachedResidentHost,
     });
 }

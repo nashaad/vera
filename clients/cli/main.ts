@@ -57,6 +57,10 @@ import {
     runStdioProcess,
     type StdioStartTarget,
 } from "../stdio/process.ts";
+import {
+    dispatchToHostRelease,
+    RetainedReleaseMissingError,
+} from "../../src/release/dispatch.ts";
 import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 import {
     exportSession,
@@ -265,6 +269,9 @@ export interface CliDependencies {
     readonly extensionManager?: Partial<ExtensionManagerOperations>;
     readonly helpCorpus?: () => Promise<HelpCorpus>;
     readonly version?: string;
+    readonly dispatchToHostRelease?: (
+        argv: readonly string[],
+    ) => Promise<number | undefined>;
 }
 
 export async function runCli(
@@ -274,6 +281,7 @@ export async function runCli(
     const output = dependencies.stdout ?? stdout;
     const errorOutput = dependencies.stderr ?? stderr;
     const runTui = dependencies.runTui ?? runConfiguredTui;
+    const originalArgs = args;
     const assumeYes = args[0] === "--yes" || args[0] === "-y";
     if (assumeYes) args = args.slice(1);
     const tuiOptions: TuiStartOptions = {
@@ -332,6 +340,12 @@ export async function runCli(
             );
             return 1;
         }
+    }
+
+    const dispatched = await (dependencies.dispatchToHostRelease
+        ?? ((argv: readonly string[]) => dispatchToHostRelease({ argv })))(originalArgs);
+    if (dispatched !== undefined) {
+        return dispatched;
     }
 
     if (args.length === 0) {
@@ -1084,6 +1098,9 @@ export function renderCliFailure(error: unknown): string {
             + "Close the older Vera client and retry, or run 'vera host stop'.";
     }
     if (error instanceof HostBuildMismatchError) {
+        return error.message;
+    }
+    if (error instanceof RetainedReleaseMissingError) {
         return error.message;
     }
     if (error instanceof VeraConfigError) {
