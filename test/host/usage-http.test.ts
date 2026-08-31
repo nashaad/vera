@@ -1,9 +1,18 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import {
+    chmodSync,
+    existsSync,
+    mkdtempSync,
+    renameSync,
+    rmSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
+
+import type { HostLogEntry } from "../../src/host/host-log.ts";
 
 import { packWebAssets } from "../../scripts/pack-web.ts";
+import { packedWebRoot } from "../../src/release/layout.ts";
 import { startUsageWebServer } from "../../src/host/usage-http.ts";
 import {
     foldUsageReport,
@@ -154,6 +163,17 @@ test("missing packed assets fail with an explicit path", async () => {
     })).rejects.toThrow(/Packed web asset missing: .*index\.html/);
 });
 
+test("usage server defaults to the packed release web root", async () => {
+    await packWebAssets(packedWebRoot(), { force: true });
+    const server = await startUsageWebServer({
+        sessionDirectory: tempDir("vera-usage-http-default-"),
+    });
+    servers.push(server);
+    const page = await fetch(server.url);
+    expect(page.status).toBe(200);
+    expect(await page.text()).toContain("Vera · Usage");
+});
+
 test("resident host answers usage_web with a loopback page", async () => {
     const root = tempDir("vera-usage-runtime-");
     const host = await startResidentHost({
@@ -176,7 +196,87 @@ test("resident host answers usage_web with a loopback page", async () => {
         const page = await fetch(url!);
         expect(page.status).toBe(200);
         expect(await page.text()).toContain("Vera · Usage");
+        expect(host.health.web).toBe("ok");
     } finally {
         await host.close();
+    }
+});
+
+test("unreadable packed assets fail with an explicit path", async () => {
+    const webRoot = await packedWebDir();
+    chmodSync(join(webRoot, "index.html"), 0);
+    try {
+        await expect(startUsageWebServer({
+            sessionDirectory: tempDir("vera-usage-http-unreadable-"),
+            webRoot,
+        })).rejects.toThrow(/Packed web asset (missing|unreadable): .*index\.html/);
+    } finally {
+        chmodSync(join(webRoot, "index.html"), 0o600);
+    }
+});
+
+test("missing packed assets report web: failed in host health", async () => {
+    const root = tempDir("vera-usage-health-");
+    const entries: HostLogEntry[] = [];
+    const host = await startResidentHost({
+        config: {
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+        },
+        createAdapter: () => new FauxAdapter([]),
+        socketPath: join(root, "host.sock"),
+        lockPath: join(root, "host.json"),
+        sessionDirectory: join(root, "sessions"),
+        eventLogDirectory: join(root, "logs"),
+        webRoot: tempDir("vera-usage-health-empty-"),
+        startupLog: (entry) => entries.push(entry),
+    });
+    try {
+        expect(host.health.web).toBe("failed");
+        expect(host.health.webReason).toMatch(/Packed web asset missing:/);
+        const failed = entries.find((entry) => entry.type === "usage_web_failed");
+        expect(failed).toMatchObject({
+            type: "usage_web_failed",
+            health: "web: failed",
+        });
+        expect(String(failed?.message)).toMatch(/Packed web asset missing:/);
+        expect(await readUsageWebUrlThroughHost(host.server.socketPath))
+            .toBeUndefined();
+    } finally {
+        await host.close();
+    }
+});
+
+test("packed host serves usage with clients/web and react hidden", async () => {
+    const webRoot = await packedWebDir();
+    const hostRoot = tempDir("vera-usage-hidden-");
+    const repoRoot = resolve(import.meta.dir, "../..");
+    const sourceWeb = join(repoRoot, "clients", "web");
+    const react = join(repoRoot, "node_modules", "react");
+    const hiddenWeb = `${sourceWeb}.hidden-${process.pid}`;
+    const hiddenReact = `${react}.hidden-${process.pid}`;
+    renameSync(sourceWeb, hiddenWeb);
+    renameSync(react, hiddenReact);
+    try {
+        const serve = resolve(import.meta.dir, "usage-packed-serve.ts");
+        const ran = Bun.spawnSync(["bun", serve, webRoot, hostRoot], {
+            stdout: "pipe",
+            stderr: "pipe",
+            env: { ...process.env },
+        });
+        if (ran.exitCode !== 0) {
+            throw new Error(ran.stderr.toString() || `exit ${ran.exitCode}`);
+        }
+        expect(ran.exitCode).toBe(0);
+        expect(ran.stdout.toString()).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/\n$/);
+    } finally {
+        if (existsSync(hiddenWeb) && !existsSync(sourceWeb)) {
+            renameSync(hiddenWeb, sourceWeb);
+        }
+        if (existsSync(hiddenReact) && !existsSync(react)) {
+            renameSync(hiddenReact, react);
+        }
     }
 });

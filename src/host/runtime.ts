@@ -229,12 +229,18 @@ export interface StartResidentHostOptions {
     readonly webRoot?: string;
 }
 
+export interface HostHealth {
+    readonly web: "ok" | "failed";
+    readonly webReason?: string;
+}
+
 export interface ResidentHost {
     readonly registry: AgentRegistry;
     readonly extensions: ExtensionRegistry;
     readonly server: HostServer;
     /** Resolves as soon as any caller starts closing this resident host. */
     readonly shutdownRequested: Promise<void>;
+    readonly health: HostHealth;
     close(): Promise<void>;
 }
 
@@ -939,6 +945,7 @@ export async function startResidentHost(
     let server: HostServer;
     let usageWeb: UsageWebServer | undefined;
     let usageWebUrl: string | undefined;
+    let webHealth: HostHealth = { web: "failed" };
     const restoringSessions = new Map<string, Promise<ResidentAgent>>();
     let publishStoredSessions: (
         sessions: ReadonlyMap<string, RegisteredAgentSummary>,
@@ -1197,11 +1204,17 @@ export async function startResidentHost(
                     : { webRoot: options.webRoot }),
             });
             usageWebUrl = usageWeb.url;
+            webHealth = { web: "ok" };
         } catch (error) {
-            hostLog({
+            const reason = error instanceof Error ? error.message : String(error);
+            webHealth = { web: "failed", webReason: reason };
+            const entry = {
                 type: "usage_web_failed",
+                health: "web: failed",
                 ...hostErrorFields(error),
-            });
+            };
+            hostLog(entry);
+            if (startupLog !== hostLog) startupLog(entry);
         }
         sidecars = startSidecarRuntimeIfNeeded({
             sidecars: extensions.contributions().sidecars(),
@@ -1246,6 +1259,7 @@ export async function startResidentHost(
         extensions,
         server,
         shutdownRequested,
+        health: webHealth,
         close: closeHost,
     };
 }
