@@ -357,6 +357,7 @@ export function createToolReviewer(
                     "The approval reviewer returned an unreadable decision.",
                 );
             }
+            trace.usage = message.usage;
             if (onTrunk) {
                 history = [...baseHistory, question, message];
                 seen = nextSeen;
@@ -408,6 +409,7 @@ export function createToolReviewer(
             userAuthorization: decision.userAuthorization,
             latencyMs: Date.now() - started,
             ...(trace.error === undefined ? {} : { error: trace.error }),
+            ...(trace.usage === undefined ? {} : { usage: trace.usage }),
         });
         return decision;
     };
@@ -421,6 +423,7 @@ interface ReviewTrace {
     stopReason?: string;
     outcome?: ReviewLogOutcome;
     error?: string;
+    usage?: AssistantMessage["usage"];
 }
 
 export function parseReviewDecision(

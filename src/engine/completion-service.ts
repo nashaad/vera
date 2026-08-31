@@ -4,6 +4,7 @@ import type {
     ModelAdapter,
     ModelMessage,
     ModelReasoningEffort,
+    ModelUsage,
 } from "../model/types.ts";
 
 /**
@@ -33,6 +34,7 @@ export interface CompletionResult {
     /** Which of the route's models answered. Diagnostic only. */
     readonly model: string;
     readonly provider?: string;
+    readonly usage?: ModelUsage;
 }
 
 export interface CompletionModel {
@@ -254,6 +256,7 @@ async function attempt(
                 ...(candidate.provider === undefined
                     ? {}
                     : { provider: candidate.provider }),
+                ...(message.usage === undefined ? {} : { usage: message.usage }),
             },
         };
     } catch (error) {
