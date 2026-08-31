@@ -224,6 +224,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     }, 42);
 
     expect(text).toContain("| Client | source abc1234+dirty |");
+    expect(text).toContain("| Field | Value |");
     expect(text).toContain("| Client entrypoint | /worktree/clients/tui/main.ts |");
     expect(text).toContain("| Host | PID 42 · started 2026-08-09T20:00:00.000Z |");
     expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");

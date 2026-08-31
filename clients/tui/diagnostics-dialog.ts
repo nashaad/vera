@@ -7,6 +7,7 @@ import {
     ScrollBoxRenderable,
     StyledText,
     SyntaxStyle,
+    TextTableRenderable,
     TextRenderable,
     type RenderContext,
     type TextChunk,
@@ -178,7 +179,19 @@ export function createTuiDiagnosticsDialogView(
             wrapMode: "word",
             selectable: true,
         },
-        renderNode(token) {
+        renderNode(token, context) {
+            if (
+                token.type === "table"
+                && token.header.length === 2
+                && token.header[0]?.text.trim() === "Field"
+                && token.header[1]?.text.trim() === "Value"
+            ) {
+                const table = context.defaultRender();
+                if (table instanceof TextTableRenderable) {
+                    table.content = table.content.slice(1);
+                }
+                return table;
+            }
             if (!/[█░▒]/u.test(token.raw)) return undefined;
             occupancyBlock += 1;
             return new TextRenderable(renderer, {

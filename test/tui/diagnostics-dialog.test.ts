@@ -123,6 +123,7 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         const frame = setup.captureCharFrame();
         expect(frame).toContain("Session");
         expect(frame).not.toContain("## Session");
+        expect(frame).not.toContain("Field  Value");
         expect(frame).not.toContain("| Metric | Value |");
         expect(frame).toContain("Metric  Value");
         const lines = frame.split("\n");

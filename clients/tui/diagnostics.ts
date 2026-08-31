@@ -373,7 +373,7 @@ function markdownTable(
 }
 
 function fieldTable(rows: readonly (readonly string[])[]): string[] {
-    return markdownTable(["", ""], rows);
+    return markdownTable(["Field", "Value"], rows);
 }
 
 function markdownTableCell(value: string): string {
