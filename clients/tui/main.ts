@@ -24,7 +24,7 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 import { AsyncLocalStorage } from "node:async_hooks";
-import { tryReleaseBuildId } from "../../src/release/build-id.ts";
+import { readStampedRelease } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
@@ -1282,7 +1282,7 @@ export async function startConfiguredTui(
                 };
             },
             build: {
-                clientVersion: tryReleaseBuildId() ?? "unknown",
+                clientVersion: readStampedRelease().build_id,
                 clientEntrypoint: import.meta.path,
                 ...(host.entrypoint === undefined
                     ? {}

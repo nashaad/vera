@@ -64,9 +64,10 @@ function dirtyTreeDigest(cwd: string, status: string): string {
 }
 
 /**
- * Exact build identity for this tree. A clean commit is `vera-<shortsha>`.
- * A dirty tree adds a content digest so two dirty states of the same commit
- * cannot share an id. The digest is the working tree, not a boolean `+dirty`.
+ * Exact build identity for this tree, computed at pack time. A clean commit
+ * is `vera-<shortsha>`. A dirty tree adds a content digest so two dirty
+ * states of the same commit cannot share an id. Running processes read the
+ * packed stamp instead of calling this.
  */
 export function releaseSourceIdentity(
     cwd: string = DEFAULT_CWD,
@@ -111,12 +112,4 @@ export function releaseSourceIdentity(
 
 export function releaseBuildId(cwd: string = DEFAULT_CWD): string {
     return releaseSourceIdentity(cwd).buildId;
-}
-
-export function tryReleaseBuildId(cwd: string = DEFAULT_CWD): string | undefined {
-    try {
-        return releaseBuildId(cwd);
-    } catch {
-        return undefined;
-    }
 }

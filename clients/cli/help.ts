@@ -56,7 +56,7 @@ export function renderCliHelp(corpus: HelpCorpus): string {
     return `Vera coding agent\n\nUsage:\n${commands}\n\nOptions:\n`
         + "  -h, --help     Show this help\n"
         + "  -y, --yes     Skip host stop or busy-host restart confirmation\n"
-        + "  -v, --version  Show the build ID\n"
+        + "  -v, --version  Show the product version and build ID\n"
         + "  --profile NAME  Select a profile before starting Vera\n"
         + "\nFlags for -p:\n"
         + "  --bare                    Skip model extensions, project guidance, memory, and scratch prompt state\n"

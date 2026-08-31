@@ -54,7 +54,7 @@ import {
     runStdioProcess,
     type StdioStartTarget,
 } from "../stdio/process.ts";
-import { releaseBuildId } from "../../src/release/build-id.ts";
+import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -319,7 +319,9 @@ export async function runCli(
         && (args[0] === "--version" || args[0] === "-v")
     ) {
         try {
-            output.write(`${dependencies.version ?? releaseBuildId()}\n`);
+            output.write(
+                `${dependencies.version ?? formatVeraVersion(readStampedRelease())}\n`,
+            );
             return 0;
         } catch (error) {
             errorOutput.write(
