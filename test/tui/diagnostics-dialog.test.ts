@@ -4,6 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     createTuiDiagnosticsDialogView,
     handleTuiDiagnosticsDialogKey,
+    inspectMarkdownStyle,
     inspectDialogFrame,
     inspectDocumentMarkdown,
     inspectDocumentLines,
@@ -15,6 +16,7 @@ import { parseColor } from "@opentui/core";
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
+    TUI_MUTED,
     TUI_NOTICE,
 } from "../../clients/tui/state.ts";
 
@@ -81,6 +83,25 @@ test("rendered context occupancy keeps its three capacity colors", () => {
     expect(color("█")).toEqual(parseColor(TUI_ACCENT));
     expect(color("░")).toEqual(parseColor(TUI_ELEMENT));
     expect(color("▒")).toEqual(parseColor(TUI_NOTICE));
+});
+
+test("inspect labels recede but keep their structural weight", () => {
+    const style = inspectMarkdownStyle();
+    try {
+        for (const scope of [
+            "markup.heading",
+            "markup.heading.1",
+            "markup.heading.2",
+            "markup.heading.3",
+        ]) {
+            expect(style.getStyle(scope)?.fg).toEqual(parseColor(TUI_MUTED));
+            expect(style.getStyle(scope)?.bold).toBe(true);
+        }
+        expect(style.getStyle("punctuation.special")?.fg)
+            .toEqual(parseColor(TUI_ELEMENT));
+    } finally {
+        style.destroy();
+    }
 });
 
 test("the inspect dialog is a capped column, not a full-bleed pane", () => {

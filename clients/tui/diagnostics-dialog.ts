@@ -325,16 +325,20 @@ export function createTuiDiagnosticsDialogView(
     };
 }
 
-function inspectMarkdownStyle(): SyntaxStyle {
+export function inspectMarkdownStyle(): SyntaxStyle {
     return SyntaxStyle.fromStyles({
         default: { fg: TUI_TEXT },
-        "markup.heading": { fg: TUI_TEXT, bold: true },
+        "markup.heading": { fg: TUI_MUTED, bold: true },
+        "markup.heading.1": { fg: TUI_MUTED, bold: true },
+        "markup.heading.2": { fg: TUI_MUTED, bold: true },
+        "markup.heading.3": { fg: TUI_MUTED, bold: true },
         "markup.strong": { fg: TUI_TEXT, bold: true },
         "markup.italic": { fg: TUI_TEXT, italic: true },
         "markup.raw": { fg: TUI_NOTICE },
         "markup.raw.block": { fg: TUI_NOTICE },
         "markup.list": { fg: TUI_ACCENT },
         "markup.quote": { fg: TUI_MUTED, italic: true },
+        "punctuation.special": { fg: TUI_ELEMENT },
         conceal: { fg: TUI_ELEMENT },
     });
 }
