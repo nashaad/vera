@@ -23,17 +23,17 @@ import type {
 import { isStartupProfile, type StartupProfile } from "../startup-profile.ts";
 
 // Bump this only when the base wire contract changes. Additive operations use
-// negotiated capabilities and keep the compatibility floor unchanged. Scoped
-// search changed the meaning of an existing request, so old hosts must be
-// replaced instead of silently treating it as an unscoped search.
-export const HOST_PROTOCOL_VERSION = 34;
-export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 34;
+// negotiated capabilities and keep the compatibility floor unchanged. Host
+// identity includes `build_id`; a client must not attach across builds.
+export const HOST_PROTOCOL_VERSION = 35;
+export const HOST_MIN_COMPATIBLE_PROTOCOL_VERSION = 35;
 
 export interface HostIdentity {
     readonly pid: number;
     readonly started_at: string;
     readonly protocol_version?: number;
     readonly minimum_compatible_protocol_version?: number;
+    readonly build_id?: string;
 }
 
 export interface HostIdentityRequest {
@@ -269,6 +269,7 @@ export interface HostIdentityResponse {
     readonly protocol_version: typeof HOST_PROTOCOL_VERSION;
     readonly minimum_compatible_protocol_version:
         typeof HOST_MIN_COMPATIBLE_PROTOCOL_VERSION;
+    readonly build_id: string;
 }
 
 export interface AttachRequest {
@@ -1137,6 +1138,10 @@ function parseHostIdentity(source: string): HostIdentity | undefined {
                 minimum_compatible_protocol_version:
                     response.minimum_compatible_protocol_version as number,
             }
+            : {}),
+        ...(typeof response.build_id === "string"
+            && response.build_id.length > 0
+            ? { build_id: response.build_id }
             : {}),
     };
 }

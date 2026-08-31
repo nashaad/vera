@@ -26,6 +26,7 @@ import {
     type ShutdownIfIdleResponse,
     type ShutdownForReplacementResponse,
 } from "./protocol.ts";
+import { thisProcessBuildId } from "../release/stamp.ts";
 import type {
     CreateRegisteredAgentOptions,
     BranchedRegisteredAgent,
@@ -110,8 +111,8 @@ export interface StartHostServerOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Absolute path of the entrypoint this host was started from. */
-    readonly entrypoint?: string;
+    /** Stamped build ID this host serves. Defaults to this process's stamp. */
+    readonly buildId?: string;
     /** Project whose project-scoped extensions this host loaded. */
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
@@ -267,10 +268,12 @@ export async function startHostServer(
     if (capabilities === undefined) {
         throw new Error("Host capabilities are invalid");
     }
-    const identity: HostIdentity = {
+    const buildId = options.buildId ?? thisProcessBuildId();
+    const identity: HostIdentity & { readonly build_id: string } = {
         pid: options.pid ?? process.pid,
         started_at: options.startedAt ?? currentProcessStartedAt(),
         protocol_version: HOST_PROTOCOL_VERSION,
+        build_id: buildId,
     };
     const startupClaim = await acquireHostStartupClaim({
         path: options.startupClaimPath ?? `${socketPath}.starting`,
@@ -460,9 +463,7 @@ export async function startHostServer(
             socketPath,
             pid: identity.pid,
             startedAt: identity.started_at,
-            ...(options.entrypoint === undefined
-                ? {}
-                : { entrypoint: options.entrypoint }),
+            buildId,
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
@@ -496,7 +497,7 @@ export async function startHostServer(
 
 function receiveConnection(
     socket: Socket,
-    identity: HostIdentity,
+    identity: HostIdentity & { readonly build_id: string },
     capabilities: readonly string[],
     findAgent: (
         agentId: string,
@@ -1042,6 +1043,7 @@ function receiveConnection(
                 protocol_version: HOST_PROTOCOL_VERSION,
                 minimum_compatible_protocol_version:
                     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
+                build_id: identity.build_id,
             }).then(() => socket.end(), () => socket.destroy());
             return;
         }

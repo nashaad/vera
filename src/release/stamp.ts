@@ -30,6 +30,10 @@ export function readStampedRelease(
     return parseReleaseManifest(text);
 }
 
+export function thisProcessBuildId(): string {
+    return readStampedRelease().build_id;
+}
+
 export function formatVeraVersion(manifest: ReleaseManifest): string {
     return `vera ${manifest.product_version} (${manifest.build_id})`;
 }

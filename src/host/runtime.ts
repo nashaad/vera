@@ -188,8 +188,8 @@ export interface StartResidentHostOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Absolute path of the entrypoint this host was started from. */
-    readonly entrypoint?: string;
+    /** Stamped build ID this host serves. Defaults to this process's stamp. */
+    readonly buildId?: string;
     /** Project whose project-scoped extensions this host loaded. */
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
@@ -1060,9 +1060,9 @@ export async function startResidentHost(
             ...(options.startedAt === undefined
                 ? {}
                 : { startedAt: options.startedAt }),
-            ...(options.entrypoint === undefined
+            ...(options.buildId === undefined
                 ? {}
-                : { entrypoint: options.entrypoint }),
+                : { buildId: options.buildId }),
             ...(options.projectRoot === undefined
                 ? {}
                 : { projectRoot: options.projectRoot }),
