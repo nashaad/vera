@@ -10,6 +10,7 @@ import {
     inspectDocumentLines,
     INSPECT_COPY_HINT,
     INSPECT_DIALOG_MAX_WIDTH,
+    styledInspectHealth,
     styledInspectOccupancy,
 } from "../../clients/tui/diagnostics-dialog.ts";
 import { parseColor } from "@opentui/core";
@@ -18,6 +19,8 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
+    TUI_SUCCESS,
+    TUI_DANGER,
 } from "../../clients/tui/state.ts";
 
 test("diagnostics dialog copies on Enter and dismisses on Escape", () => {
@@ -32,6 +35,15 @@ test("diagnostics dialog switches scope with Tab", () => {
     expect(handleTuiDiagnosticsDialogKey({ name: "tab", shift: true }, true))
         .toBe("switch_scope");
     expect(handleTuiDiagnosticsDialogKey({ name: "tab" }))
+        .toBeUndefined();
+});
+
+test("diagnostics dialog runs provider health on v only when allowed", () => {
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }, true, true))
+        .toBe("check_health");
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }, true))
+        .toBeUndefined();
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }))
         .toBeUndefined();
 });
 
@@ -102,6 +114,20 @@ test("inspect labels recede but keep their structural weight", () => {
     } finally {
         style.destroy();
     }
+});
+
+test("inspect health tones keep the word and decorate it", () => {
+    const styled = styledInspectHealth([
+        "  green    openrouter/glm-flash answered",
+        "  yellow   only the last shortlist model answered",
+        "  red      no provider configured",
+    ].join("\n"));
+    const color = (text: string) =>
+        styled.chunks.find((chunk) => chunk.text.toString() === text)?.fg;
+
+    expect(color("green")).toEqual(parseColor(TUI_SUCCESS));
+    expect(color("yellow")).toEqual(parseColor(TUI_NOTICE));
+    expect(color("red")).toEqual(parseColor(TUI_DANGER));
 });
 
 test("the inspect dialog is a capped column, not a full-bleed pane", () => {

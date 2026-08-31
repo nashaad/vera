@@ -19,6 +19,7 @@ import {
 } from "./dialog-chrome.ts";
 import {
     TUI_ACCENT,
+    TUI_DANGER,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
@@ -70,7 +71,8 @@ export interface TuiDiagnosticsDialogState {
 export type TuiDiagnosticsDialogAction =
     | "copy"
     | "dismiss"
-    | "switch_scope";
+    | "switch_scope"
+    | "check_health";
 
 export interface TuiDiagnosticsDialogKey {
     readonly name: string;
@@ -101,6 +103,7 @@ export interface TuiDiagnosticsDialogOptions {
 export function handleTuiDiagnosticsDialogKey(
     key: TuiDiagnosticsDialogKey,
     canSwitchScope = false,
+    canCheckHealth = false,
 ): TuiDiagnosticsDialogAction | undefined {
     if (key.ctrl || key.meta) {
         return undefined;
@@ -110,6 +113,12 @@ export function handleTuiDiagnosticsDialogKey(
         && tuiBindingId("diagnostics", key) === "switch_diagnostics_scope"
     ) {
         return "switch_scope";
+    }
+    if (
+        canCheckHealth
+        && tuiBindingId("diagnostics", key) === "check_provider_health"
+    ) {
+        return "check_health";
     }
     if (key.shift) return undefined;
     if (key.name === "escape") {
@@ -165,6 +174,7 @@ export function createTuiDiagnosticsDialogView(
         : undefined;
     let markdownStyle = inspectMarkdownStyle();
     let occupancyBlock = 0;
+    let healthBlock = 0;
     const bodyMarkdown = new MarkdownRenderable(renderer, {
         id: `${id}-markdown`,
         content: "",
@@ -191,6 +201,17 @@ export function createTuiDiagnosticsDialogView(
                     table.content = table.content.slice(1);
                 }
                 return table;
+            }
+            const raw = token.raw.trimEnd();
+            if (HEALTH_TONE_LINE.test(raw)) {
+                healthBlock += 1;
+                return new TextRenderable(renderer, {
+                    id: `${id}-health-${healthBlock}`,
+                    content: styledInspectHealth(raw),
+                    width: "100%",
+                    wrapMode: "char",
+                    selectable: true,
+                });
             }
             if (!/[█░▒]/u.test(token.raw)) return undefined;
             occupancyBlock += 1;
@@ -389,6 +410,40 @@ export function styledInspectOccupancy(text: string): StyledText {
     }
     flush();
     return new StyledText(chunks);
+}
+
+const HEALTH_TONE_LINE =
+    /^(?<indent>\s*)(?<tone>green|yellow|red)(?<rest>\s+.*)$/;
+
+/** Health tone words stay in the text. Color is decoration only. */
+export function styledInspectHealth(text: string): StyledText {
+    const chunks: TextChunk[] = [];
+    const lines = text.split("\n");
+    for (const [index, line] of lines.entries()) {
+        chunks.push(...healthToneChunks(line));
+        if (index < lines.length - 1) {
+            chunks.push(fg(TUI_TEXT)("\n"));
+        }
+    }
+    return new StyledText(chunks);
+}
+
+function healthToneChunks(line: string): TextChunk[] {
+    const health = HEALTH_TONE_LINE.exec(line);
+    if (health?.groups === undefined) {
+        return [fg(TUI_TEXT)(line)];
+    }
+    const tone = health.groups.tone;
+    const color = tone === "green"
+        ? TUI_SUCCESS
+        : tone === "yellow"
+        ? TUI_NOTICE
+        : TUI_DANGER;
+    return [
+        fg(TUI_TEXT)(health.groups.indent ?? ""),
+        fg(color)(tone ?? ""),
+        fg(TUI_TEXT)(health.groups.rest ?? ""),
+    ];
 }
 
 /** Visible inspect-dialog body: the markdown, optionally without the H1 title. */

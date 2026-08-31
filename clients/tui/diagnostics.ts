@@ -6,6 +6,11 @@ import type {
     HostStartupTimingRow,
     HostStartupTimingSnapshot,
 } from "./host-startup-diagnostics.ts";
+import {
+    idleProviderHealth,
+    renderProviderHealth,
+    type ProviderHealthStatus,
+} from "./provider-health.ts";
 
 export type TuiDiagnosticsScope = "session" | "vera";
 
@@ -44,6 +49,8 @@ export interface TuiDiagnosticsSnapshot {
     }[];
     readonly clientExtensionReload?: TuiClientExtensionReloadSnapshot;
     readonly startup?: HostStartupTimingSnapshot;
+    readonly health?: ProviderHealthStatus;
+    readonly healthLineWidth?: number;
 }
 
 export interface TuiClientExtensionReloadSnapshot {
@@ -68,6 +75,7 @@ function renderSessionDiagnostics(
     const { state } = snapshot;
     const lines = [
         "# Session diagnostics",
+        ...providerHealthSection(snapshot, width),
         ...inspectReportSection("Session", undefined, width),
         ...fieldTable([
             ["Identity", markedAvailable(snapshot.sessionIdentity)],
@@ -201,6 +209,7 @@ function renderVeraDiagnostics(
 ): string {
     return [
         "# Vera diagnostics",
+        ...providerHealthSection(snapshot, width),
         ...inspectReportSection("Build", undefined, width),
         ...fieldTable([
             ["Client", markedAvailable(
@@ -235,6 +244,20 @@ function renderVeraDiagnostics(
         ...inspectReportSection("Pre-image stash", undefined, width),
         ...stashLines(snapshot),
     ].join("\n");
+}
+
+function providerHealthSection(
+    snapshot: TuiDiagnosticsSnapshot,
+    width: number,
+): string[] {
+    return [
+        ...inspectReportSection("Provider health", undefined, width),
+        ...renderProviderHealth(
+            snapshot.health ?? idleProviderHealth(),
+            snapshot.healthLineWidth ?? 72,
+        ),
+        "",
+    ];
 }
 
 /** Most repeated first: the top row is the one worth acting on. */

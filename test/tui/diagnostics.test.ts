@@ -85,6 +85,8 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
     expect(text).toContain("| Context | Unavailable |");
     expect(text).toContain("| ID | Unavailable |");
     expect(text).toContain("| File | Unavailable |");
+    expect(text).toContain("## PROVIDER HEALTH");
+    expect(text).toContain("not checked");
     expect(text).not.toContain("MODEL FAILURES");
     expect(text).not.toContain("PRE-IMAGE STASH");
 });
@@ -104,6 +106,9 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
     });
 
     expect(text).toContain("# Session diagnostics");
+    expect(text).toContain("## PROVIDER HEALTH");
+    expect(text).toContain("not checked");
+    expect(text).toContain("press v");
     expect(text).toContain("| ID | `session-123` |");
     expect(text).toContain("| Identity | `calm-wren:0001` |");
     expect(text).toContain(
@@ -506,4 +511,33 @@ test("TUI diagnostics says so when no model has failed", () => {
     });
 
     expect(text).toContain("No recorded model failures.");
+});
+
+test("TUI diagnostics prints a ready provider health line on both scopes", () => {
+    const health = {
+        kind: "ready" as const,
+        tone: "green" as const,
+        summary: "openrouter/glm-flash answered",
+    };
+    const session = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        health,
+    });
+    const vera = renderTuiDiagnostics({
+        state: createTuiState(),
+        activity: "idle",
+        elapsed: "0s",
+        scope: "vera",
+        workspace: "/workspace",
+        runningBackgroundAgents: 0,
+        health,
+    });
+    expect(session).toContain("## PROVIDER HEALTH");
+    expect(session).toContain("green    openrouter/glm-flash answered");
+    expect(vera).toContain("## PROVIDER HEALTH");
+    expect(vera).toContain("green    openrouter/glm-flash answered");
 });

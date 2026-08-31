@@ -246,6 +246,16 @@ import {
     type TuiDiagnosticsScope,
     type TuiDiagnosticsSnapshot,
 } from "./diagnostics.ts";
+import {
+    admitHealthRung,
+    expiredOAuthProvider,
+    hasConfiguredProvider,
+    healthRungsOf,
+    idleProviderHealth,
+    runProviderHealthCheck,
+    type HealthRung,
+    type ProviderHealthStatus,
+} from "./provider-health.ts";
 import { readProcessMemory } from "./process-memory.ts";
 import {
     createTuiDiagnosticsDialogView,
@@ -1016,6 +1026,13 @@ export interface TuiDependencies {
     readonly openUsagePage?: () => Promise<string | undefined>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
+    /** Overrides the live `admitModel` probe inspect uses for provider health. */
+    readonly probeHealthRung?: (
+        rung: HealthRung,
+        signal: AbortSignal,
+    ) => Promise<boolean>;
+    /** Overrides process env for whether inspect health treats a provider as connected. */
+    readonly healthEnv?: Readonly<Record<string, string | undefined>>;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
     readonly loginProvider?: (
         providerId: string,
@@ -1708,6 +1725,9 @@ export async function startTui(
     let diagnosticsSessionPathResolved = false;
     let diagnosticsGeneration = 0;
     let diagnosticsReportWidth: number | undefined;
+    let providerHealth: ProviderHealthStatus = idleProviderHealth();
+    let providerHealthAbort: AbortController | undefined;
+    let providerHealthGeneration = 0;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let extensionsDialog: TuiDiagnosticsDialogState | undefined;
@@ -2809,6 +2829,8 @@ export async function startTui(
 
     openInspectDocument = (document) => {
         diagnosticsGeneration += 1;
+        abortProviderHealthCheck();
+        providerHealthGeneration += 1;
         diagnosticsDialog = undefined;
         doctorDialog = undefined;
         extensionsDialog = undefined;
@@ -3666,6 +3688,7 @@ export async function startTui(
         }
         searchOverlayView.surface.visible = false;
         doctorDialog = undefined;
+        abortProviderHealthCheck();
         diagnosticsDialog = undefined;
         extensionsDialog = undefined;
         documentDialog = undefined;
@@ -5679,11 +5702,13 @@ export async function startTui(
         }
 
         if (diagnosticsDialog !== undefined) {
-            const action = handleTuiDiagnosticsDialogKey(key, true);
+            const action = handleTuiDiagnosticsDialogKey(key, true, true);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
+                    abortProviderHealthCheck();
+                    providerHealthGeneration += 1;
                     diagnosticsGeneration += 1;
                     diagnosticsDialog = undefined;
                     diagnosticsSessionPath = undefined;
@@ -5707,6 +5732,10 @@ export async function startTui(
                             || diagnosticsSessionPathResolved,
                     };
                     renderState();
+                    return;
+                }
+                if (action === "check_health") {
+                    void startProviderHealthCheck();
                     return;
                 }
                 if (diagnosticsDialog.copyReady === false) {
@@ -6486,6 +6515,8 @@ export async function startTui(
             extensions: configuredClientExtensions,
             clientExtensionReload,
             startup: readLatestHostStartupTiming(),
+            health: providerHealth,
+            healthLineWidth: diagnosticsDialogView.contentWidth(),
         };
     }
 
@@ -6495,6 +6526,63 @@ export async function startTui(
         const width = diagnosticsDialogView.contentWidth();
         diagnosticsReportWidth = width;
         return renderTuiDiagnostics(snapshot, width);
+    }
+
+    function abortProviderHealthCheck(): void {
+        providerHealthAbort?.abort();
+        providerHealthAbort = undefined;
+    }
+
+    function paintDiagnosticsDialog(): void {
+        if (diagnosticsDialog === undefined) return;
+        diagnosticsDialog = {
+            ...diagnosticsDialog,
+            text: renderDiagnostics(),
+            scope: diagnosticsScope,
+        };
+    }
+
+    async function startProviderHealthCheck(): Promise<void> {
+        if (diagnosticsDialog === undefined) return;
+        if (providerHealth.kind === "checking") return;
+        const generation = ++providerHealthGeneration;
+        abortProviderHealthCheck();
+        const abort = new AbortController();
+        providerHealthAbort = abort;
+        const config = loadOptionalVeraConfig();
+        const rungs = healthRungsOf(state.modelSettings, config);
+        const configured = hasConfiguredProvider(
+            authStorage,
+            config,
+            dependencies.healthEnv ?? process.env,
+        );
+        const expired = expiredOAuthProvider(authStorage);
+        const probe = dependencies.probeHealthRung
+            ?? ((rung: HealthRung, signal: AbortSignal) =>
+                admitHealthRung(rung, {
+                    authStorage,
+                    signal,
+                    ...(config === undefined ? {} : { config }),
+                }));
+        await runProviderHealthCheck({
+            rungs,
+            configured,
+            ...(expired === undefined ? {} : { expiredCredential: expired }),
+            probe,
+            signal: abort.signal,
+            onProgress: (status) => {
+                if (
+                    shuttingDown
+                    || diagnosticsDialog === undefined
+                    || providerHealthGeneration !== generation
+                ) {
+                    return;
+                }
+                providerHealth = status;
+                paintDiagnosticsDialog();
+                renderState();
+            },
+        });
     }
 
     /**
@@ -6718,6 +6806,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             documentDialog = undefined;
+            abortProviderHealthCheck();
             diagnosticsDialog = undefined;
             doctorDialog = undefined;
             try {
@@ -6906,6 +6995,9 @@ export async function startTui(
             documentDialog = undefined;
             doctorDialog = undefined;
             extensionsDialog = undefined;
+            abortProviderHealthCheck();
+            providerHealthGeneration += 1;
+            providerHealth = idleProviderHealth();
             diagnosticsDialog = {
                 text: renderDiagnostics({
                     ...diagnosticsSnapshot(),
@@ -6997,6 +7089,7 @@ export async function startTui(
             composer.clearComposer();
             renderCommandSuggestions();
             documentDialog = undefined;
+            abortProviderHealthCheck();
             diagnosticsDialog = undefined;
             extensionsDialog = undefined;
             doctorDialog = {

@@ -707,6 +707,13 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         hint: "tab scope",
         overrides: ["dials.open"],
     },
+    {
+        id: "check_provider_health",
+        keys: ["v"],
+        scope: "diagnostics",
+        description: "Ask the shortlist whether a provider can answer right now",
+        hint: "v check",
+    },
 ];
 
 /**

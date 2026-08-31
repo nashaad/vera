@@ -120,6 +120,7 @@ const GRANDFATHERED_SILENT_BINDINGS = new Set([
     "cycle_search_filter",
     "toggle_search_scope",
     "switch_diagnostics_scope",
+    "check_provider_health",
 ]);
 
 test("no new binding changes state without showing a picker", () => {
