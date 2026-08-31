@@ -1,5 +1,6 @@
+import "./pin-home.ts";
+
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { homedir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -20,28 +21,36 @@ import {
     releaseSourceEntries,
     writeExternalWrappers,
 } from "../src/release/wrappers.ts";
+import { TEST_USER_HOME } from "./pin-home.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 
 // .env.test points VERA_HOME at a throwaway tree so no test reads or writes the
-// real one, and HOME at a throwaway user so no test writes the real ~/.local.
-// Spawned hosts and TUIs inherit them only because they are real environment
-// entries, not process.env mutations, and a test that wants its own tree sets
-// them on the child it spawns.
+// real one. Bun does not override a parent-shell HOME from .env.test, so
+// pin-home.ts sets HOME before layout code runs. Spawned children still need
+// HOME in the env object they are given.
 if ((process.env[VERA_HOME_ENV] ?? "").trim().length === 0) {
     throw new Error("tests need VERA_HOME set, normally from .env.test");
 }
+
 const home = veraHomeDirectory();
 if (home.endsWith(".vera-test-home")) {
     rmSync(home, { recursive: true, force: true });
 }
 mkdirSync(home, { recursive: true });
 
-const userHome = homedir();
-if (userHome.endsWith(".vera-test-user")) {
-    rmSync(userHome, { recursive: true, force: true });
-    mkdirSync(userHome, { recursive: true, mode: 0o700 });
+if (process.env.HOME !== TEST_USER_HOME) {
+    throw new Error(
+        `tests need HOME at ${TEST_USER_HOME}, got ${process.env.HOME ?? ""}`,
+    );
 }
+if (!packedReleaseRoot().includes(".vera-test-user")) {
+    throw new Error(
+        `tests would write a release stamp at ${packedReleaseRoot()}`,
+    );
+}
+
+mkdirSync(TEST_USER_HOME, { recursive: true, mode: 0o700 });
 
 try {
     parseReleaseManifest(readFileSync(releaseManifestPath(), "utf8"));

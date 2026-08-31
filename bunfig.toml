@@ -1,4 +1,4 @@
 [test]
 root = "test"
-preload = "./test/preload.ts"
+preload = ["./test/pin-home.ts", "./test/preload.ts"]
 pathIgnorePatterns = ["vera-one-archived/**"]

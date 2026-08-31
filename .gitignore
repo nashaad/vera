@@ -150,6 +150,7 @@ vera-one-archived/
 .DS_Store
 .vera/
 .vera-test-home/
+.vera-test-user/
 !.env.test
 __pycache__/
 *.py[cod]
