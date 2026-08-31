@@ -24,6 +24,7 @@ export interface TuiThemeHud {
     readonly accent?: string;
     readonly notice?: string;
     readonly success?: string;
+    readonly auto?: string;
 }
 
 export interface TuiTheme {

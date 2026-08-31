@@ -50,8 +50,6 @@ export interface DialPaintState {
 }
 
 export const AUTO_MODE_ANIMATION_DURATION_MS = 1_450;
-/** The HUD's high-visibility auto green, sampled from the status treatment. */
-export const DIAL_AUTO_GREEN = "#40C977";
 
 /**
  * How far an unfocused rung's chosen value is pulled toward the background.

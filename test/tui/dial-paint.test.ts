@@ -14,7 +14,6 @@ import {
 } from "../../clients/tui/dials.ts";
 import {
     autoModeEdgeIntensity,
-    DIAL_AUTO_GREEN,
     type DialPaintTheme,
     type DialSpan,
     mapDialRows,
@@ -237,7 +236,8 @@ test("each active access mode fills with its own colour", () => {
             success: VERA_TUI_THEME.success,
             secondary: VERA_TUI_THEME.secondary,
             accessAsk: VERA_TUI_THEME.accent,
-            accessAuto: DIAL_AUTO_GREEN,
+            accessAuto: VERA_TUI_THEME.hud?.auto
+                ?? VERA_TUI_THEME.success,
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);

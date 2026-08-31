@@ -550,7 +550,6 @@ import {
 } from "./dials.ts";
 import {
     AUTO_MODE_ANIMATION_DURATION_MS,
-    DIAL_AUTO_GREEN,
     paintDialHud,
 } from "./dial-paint.ts";
 import {
@@ -15767,7 +15766,8 @@ export async function startTui(
                 success: TUI_HUD?.success ?? TUI_SUCCESS,
                 secondary: theme.secondary,
                 accessAsk: VERA_TUI_THEME.accent,
-                accessAuto: DIAL_AUTO_GREEN,
+                accessAuto: VERA_TUI_THEME.hud?.auto
+                    ?? VERA_TUI_THEME.success,
             }, {
                 effortPending: dialStrip === undefined
                     ? false
