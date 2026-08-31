@@ -1,5 +1,4 @@
 import { expect, test } from "bun:test";
-import { homedir } from "node:os";
 import { join, sep } from "node:path";
 
 import {
@@ -18,7 +17,7 @@ import {
 
 test("the activated release lives under ~/.local/share/vera/current", () => {
     const prefix = defaultInstallPrefix();
-    expect(prefix).toBe(join(homedir(), ".local"));
+    expect(prefix).toBe(join(process.env.HOME as string, ".local"));
     expect(veraShareRoot(prefix)).toBe(join(prefix, "share", "vera"));
     expect(releasesDirectory(prefix)).toBe(join(prefix, "share", "vera", "releases"));
     expect(releaseDirectory("vera-abc", prefix)).toBe(

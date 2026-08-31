@@ -2,6 +2,15 @@ import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
+/** POSIX home. Not a Vera locator; the daily prefix is `$HOME/.local`. */
+function userHome(): string {
+    const home = process.env.HOME;
+    if (home !== undefined && home.length > 0) {
+        return home;
+    }
+    return homedir();
+}
+
 /** Names of the executables at the root of a packed release. */
 export const RELEASE_CLI_NAME = "vera";
 export const RELEASE_HOST_NAME = "host";
@@ -10,7 +19,7 @@ export const RELEASE_ANNEX_NAME = "vera-annex";
 export const RELEASE_SUPERVISOR_NAME = "vera-supervisor";
 export const RELEASE_BUN_NAME = "bun";
 
-export function defaultInstallPrefix(home = homedir()): string {
+export function defaultInstallPrefix(home = userHome()): string {
     return join(home, ".local");
 }
 
