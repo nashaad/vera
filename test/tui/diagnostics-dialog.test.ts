@@ -10,6 +10,7 @@ import {
     INSPECT_COPY_HINT,
     INSPECT_DIALOG_MAX_WIDTH,
     styledInspectOccupancy,
+    wrapInspectFieldLine,
 } from "../../clients/tui/diagnostics-dialog.ts";
 import { parseColor } from "@opentui/core";
 import {
@@ -73,6 +74,17 @@ test("inspect document markdown omits only its redundant H1", () => {
         .toBe("# Visible\nbody");
 });
 
+test("an overflowing diagnostic value uses a hanging indent", () => {
+    const wrapped = wrapInspectFieldLine(
+        "  file         /abcdefghijklmnop",
+        25,
+    );
+    expect(wrapped).toEqual([
+        "  file         /abcdefghi",
+        "               jklmnop",
+    ]);
+});
+
 test("rendered context occupancy keeps its three capacity colors", () => {
     const styled = styledInspectOccupancy("█ used  ░ free  ▒ reserve");
     const color = (text: string) =>
@@ -123,9 +135,16 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         expect(frame).not.toContain("## Session");
         expect(frame).not.toContain("| Metric | Value |");
         expect(frame).toContain("Metric  Value");
-        expect(frame).toContain("/Users/nash/.vera/");
-        expect(frame).toContain("profiles/default/runtime/sessions/");
-        expect(frame).toContain("session.jsonl");
+        const lines = frame.split("\n");
+        const firstIndex = lines.findIndex((line) => line.includes("/Users/nash"));
+        const first = lines[firstIndex];
+        const second = lines[firstIndex + 1];
+        const third = lines[firstIndex + 2];
+        expect(first).toContain("/Users/nash/.vera/profil");
+        expect(second).toContain("es/default/runtime/sessi");
+        expect(third).toContain("ons/session.jsonl");
+        expect(second!.indexOf("es/default")).toBe(first!.indexOf("/Users/nash"));
+        expect(third!.indexOf("ons/session")).toBe(first!.indexOf("/Users/nash"));
     } finally {
         view.box.destroyRecursively();
         setup.renderer.destroy();

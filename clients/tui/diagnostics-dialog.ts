@@ -241,6 +241,16 @@ export function createTuiDiagnosticsDialogView(
         box.width = next.width;
     };
 
+    const documentWidth = (): number => {
+        const frame = inspectDialogFrame(renderer.width);
+        const laidOut = typeof body.width === "number" && body.width > 1
+            ? body.width
+            : frame.width - 4;
+        // Leave the vertical scrollbar column out of the document width so a
+        // full-width occupancy bar does not force horizontal scroll.
+        return Math.max(20, laidOut - 1);
+    };
+
     return {
         box,
         focus(): void {
@@ -248,13 +258,7 @@ export function createTuiDiagnosticsDialogView(
         },
         contentWidth(): number {
             refreshFrame();
-            const frame = inspectDialogFrame(renderer.width);
-            const laidOut = typeof body.width === "number" && body.width > 1
-                ? body.width
-                : frame.width - 4;
-            // Leave the vertical scrollbar column out of the document width so
-            // a full-width occupancy bar does not force horizontal scroll.
-            return Math.max(20, laidOut - 1);
+            return documentWidth();
         },
         update(state): void {
             // Absolute coordinates do not follow a terminal resize. Re-read
@@ -274,6 +278,7 @@ export function createTuiDiagnosticsDialogView(
             bodyMarkdown.content = inspectDocumentMarkdown(
                 state.text,
                 options.skipFirstLine,
+                documentWidth(),
             );
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
@@ -382,6 +387,62 @@ export function inspectDocumentLines(
 export function inspectDocumentMarkdown(
     text: string,
     skipFirstLine?: boolean,
+    columns?: number,
 ): string {
-    return inspectDocumentLines(text, skipFirstLine).join("\n");
+    const lines = inspectDocumentLines(text, skipFirstLine);
+    return columns === undefined
+        ? lines.join("\n")
+        : lines.flatMap((line) => wrapInspectFieldLine(line, columns)).join("\n");
+}
+
+/** Diagnostics key/value rows put continuation text under the value. */
+export function wrapInspectFieldLine(
+    line: string,
+    columns: number,
+): readonly string[] {
+    const valueColumn = 15;
+    if (
+        columns <= valueColumn
+        || Bun.stringWidth(line) <= columns
+        || !line.startsWith("  ")
+        || line.length <= valueColumn
+        || line[valueColumn - 1] !== " "
+        || line[valueColumn] === " "
+    ) {
+        return [line];
+    }
+
+    const prefix = line.slice(0, valueColumn);
+    const continuation = " ".repeat(Bun.stringWidth(prefix));
+    const capacity = columns - Bun.stringWidth(prefix);
+    const wrapped: string[] = [];
+    let remaining = line.slice(valueColumn);
+    while (Bun.stringWidth(remaining) > capacity) {
+        const segment = inspectWrapSegment(remaining, capacity);
+        wrapped.push(`${wrapped.length === 0 ? prefix : continuation}${segment.head}`);
+        remaining = segment.tail;
+    }
+    wrapped.push(`${wrapped.length === 0 ? prefix : continuation}${remaining}`);
+    return wrapped;
+}
+
+function inspectWrapSegment(
+    text: string,
+    columns: number,
+): { readonly head: string; readonly tail: string } {
+    let width = 0;
+    let cut = 0;
+    let whitespaceCut = 0;
+    for (const character of Array.from(text)) {
+        const next = width + Bun.stringWidth(character);
+        if (next > columns) break;
+        width = next;
+        cut += character.length;
+        if (/\s/u.test(character)) whitespaceCut = cut;
+    }
+    const split = whitespaceCut > 0 ? whitespaceCut : Math.max(1, cut);
+    return {
+        head: text.slice(0, split).trimEnd(),
+        tail: text.slice(split).trimStart(),
+    };
 }
