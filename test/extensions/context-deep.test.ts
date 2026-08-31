@@ -160,6 +160,8 @@ test("deep without oneshot still returns the pile and leaves judge unmeasured", 
     expect(markdown).toContain("Standing rules unmeasured.");
     expect(markdown).toContain("SDE unmeasured.");
     expect(markdown).toContain("AGENTS.md");
+    expect(markdown).toContain("/context shows how full the window is.");
+    expect(markdown).toContain("This page lists the instruction files.");
     expect(markdown).not.toContain("0.32");
 });
 
@@ -319,7 +321,7 @@ test("/context deep opens the inspect document titled Deep", async () => {
         expect(asked[0]?.model).toBe("judge-model");
         const commands = registry.commands();
         const context = commands.find((command) => command.name === "context");
-        expect(context?.usage).toBe("/context [all]");
+        expect(context?.usage).toBe("/context [all|deep]");
         expect(context?.description).toContain("experimental");
         const unknown = await registry.invokeCommand("context", "more", root);
         expect(unknown?.body).toEqual({
@@ -407,6 +409,93 @@ test("/context deep still opens Deep when the handler timeout is shorter than th
         const result = await registry.invokeCommand("context", "deep", root);
         expect(result?.body).toEqual({ kind: "handled" });
         expect(opened?.title).toBe("Deep");
+    } finally {
+        await registry.close();
+    }
+});
+
+test("/context deep uses the selected model when occupancy has not measured yet", async () => {
+    const root = workspace();
+    writeFileSync(join(root, "AGENTS.md"), "- always use a worktree\n");
+    const asked: VeraClientOneshotRequest[] = [];
+    let opened: { markdown: string } | undefined;
+    const experimentalTui: ClientExtensionExperimentalTuiAdapter = {
+        mount: () => async () => {},
+        mountRenderable: () => async () => {},
+        openDocument(_extensionId, document) {
+            opened = {
+                markdown: typeof document.markdown === "function"
+                    ? document.markdown(72)
+                    : document.markdown,
+            };
+        },
+        events: { on: () => async () => {} },
+        agentSurface: {
+            current: () => undefined,
+            cycleLayout: () => false,
+            toggleFocus: () => false,
+        },
+    };
+    const registry = await startClientExtensionRegistry({
+        extensions: [{
+            path: join(import.meta.dir, "../../examples/extensions/context"),
+            enabled: true,
+            config: null,
+        }],
+        preferences: {
+            get: async () => undefined,
+            set: async () => {},
+            delete: async () => {},
+        },
+        modelSettings: {
+            current: () => ({
+                provider: "openrouter",
+                model: "z-ai/glm-5.3-flash",
+            }),
+            update: async () => ({
+                status: "accepted",
+                settings: { model: "z-ai/glm-5.3-flash" },
+            }),
+            subscribe: () => () => {},
+        },
+        picker: { request: async () => ({ outcome: "cancelled" }) },
+        notice: { post: () => {} },
+        context: { current: () => ({ availability: "unavailable" }) },
+        sessions: {
+            list: async () => ({ sessions: [], total: 0 }),
+        },
+        agents: {
+            visible: () => [],
+            create: async () => ({ agentId: "x" }),
+            open: async () => {},
+            message: async () => {},
+        },
+        oneshot: {
+            async request(_extensionId, request) {
+                asked.push(request);
+                return {
+                    model: request.model,
+                    text: JSON.stringify({
+                        distinctInstructions: 1,
+                        independentFamilies: 1,
+                        familyNames: ["worktrees"],
+                        S: 8,
+                        W: 10,
+                        R: 0,
+                        C: 1,
+                    }),
+                };
+            },
+        },
+        experimentalTui,
+    });
+    try {
+        const result = await registry.invokeCommand("context", "deep", root);
+        expect(result?.body).toEqual({ kind: "handled" });
+        expect(asked[0]?.model).toBe("z-ai/glm-5.3-flash");
+        expect(asked[0]?.provider).toBe("openrouter");
+        expect(opened?.markdown).toContain("worktrees");
+        expect(opened?.markdown).not.toContain("no model is configured");
     } finally {
         await registry.close();
     }

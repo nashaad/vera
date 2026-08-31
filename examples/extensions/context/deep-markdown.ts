@@ -55,12 +55,14 @@ export function contextDeepLines(
     lines.push(...pileSection(report, width), "");
     lines.push(
         `${report.pile.modalVerbs} must/never/always   `
-            + `${report.pile.listItems} list items   estimated tokens`,
+            + `${report.pile.listItems} list items   `
+            + `~${formatTokens(report.pile.tokensEst)}`,
     );
     lines.push("");
-    lines.push("Dropped-rule after unrelated work: unmeasured.");
+    lines.push(clip("Dropped-rule after unrelated work: unmeasured.", width));
     lines.push("");
-    lines.push("/context is window fullness. This is whether one path holds.");
+    lines.push(clip("/context shows how full the window is.", width));
+    lines.push(clip("This page lists the instruction files.", width));
     return lines;
 }
 

@@ -101,7 +101,7 @@ test("/context after resume still names the stored request recipe", async () => 
     }
 }, 15_000);
 
-test("slash context lists the name and ghosts [all] after a space", async () => {
+test("slash context lists the name and ghosts [all|deep] after a space", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-context-slash-"));
     const session = await startTuiTestSession({
         home,
@@ -126,7 +126,7 @@ test("slash context lists the name and ghosts [all] after a space", async () => 
         expect(pane).not.toMatch(/\/context \[all\]/);
         session.sendText(" ");
         pane = await session.waitForVisiblePaneWhere(
-            (current) => current.includes("/context [all]"),
+            (current) => current.includes("/context [all|deep]"),
             "context argument ghost",
         );
         expect(pane).not.toMatch(/Show context usage/);

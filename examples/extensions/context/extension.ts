@@ -8,8 +8,8 @@ export function activateClient(vera: VeraClientExtensionApi): void {
     registerDashboard(vera);
     vera.commands.register({
         name: "context",
-        description: "Show context usage. /context deep is experimental.",
-        usage: "/context [all]",
+        description: "Show context usage (experimental).",
+        usage: "/context [all|deep]",
         // Deep waits on oneshot. Occupancy still returns in the same turn.
         interactive: true,
         async run({ argumentsText, workspace }) {
@@ -40,15 +40,7 @@ async function runDeep(
     vera: VeraClientExtensionApi,
     workspace: string,
 ): Promise<{ kind: "handled" }> {
-    const snapshot = vera.context.current();
-    const model = snapshot.model === undefined
-        ? undefined
-        : {
-            model: snapshot.model.model,
-            ...(snapshot.model.provider === undefined
-                ? {}
-                : { provider: snapshot.model.provider }),
-        };
+    const model = selectedJudgeModel(vera);
     const report = await buildContextDeep({
         workspace,
         oneshot: vera.oneshot,
@@ -60,4 +52,26 @@ async function runDeep(
         markdown: (columns) => contextDeepMarkdown(report, columns),
     });
     return { kind: "handled" };
+}
+
+function selectedJudgeModel(
+    vera: VeraClientExtensionApi,
+): { model: string; provider?: string } | undefined {
+    const settings = vera.modelSettings.current();
+    if (settings !== undefined) {
+        return {
+            model: settings.model,
+            ...(settings.provider === undefined
+                ? {}
+                : { provider: settings.provider }),
+        };
+    }
+    const measured = vera.context.current().model;
+    if (measured === undefined) {
+        return undefined;
+    }
+    return {
+        model: measured.model,
+        ...(measured.provider === undefined ? {} : { provider: measured.provider }),
+    };
 }
