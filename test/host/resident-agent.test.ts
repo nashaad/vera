@@ -144,6 +144,63 @@ test("resident agent replays a checkpoint and every later update", async () => {
     expect(() => agent.attach(4)).toThrow("replay cursor is unavailable");
 });
 
+test("a reconnect history keeps the last request recipe", async () => {
+    const agent = new ResidentAgent("agent-1", "/work/one");
+    const first = agent.attach();
+    await first.receive();
+    const projection = {
+        estimatedTokens: 100,
+        components: [{
+            kind: "prompt_contribution" as const,
+            id: "core.project-instructions",
+            owner: "core",
+            source: "contextual",
+            displayName: "Project instructions",
+            count: 1,
+            estimatedTokens: 100,
+        }],
+    };
+    agent.engine.send({
+        type: "context",
+        measurement: {
+            tokens: 100,
+            estimated: true,
+            projection,
+        },
+        seq: 1,
+    });
+    expect((await first.receive()).type).toBe("context");
+    agent.engine.send({
+        type: "history",
+        entries: [],
+        context: { tokens: 120, estimated: true },
+        seq: 1,
+    });
+    const liveHistory = await first.receive();
+    expect(liveHistory).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 120,
+            estimated: true,
+            projection: { estimatedTokens: 120 },
+        },
+    });
+
+    const second = agent.attach();
+    expect(await second.receive()).toMatchObject({
+        type: "history",
+        context: {
+            tokens: 120,
+            projection: {
+                components: [{ id: "core.project-instructions" }],
+            },
+        },
+    });
+    first.detach();
+    second.detach();
+    agent.close();
+});
+
 test("resident agent bounds commands waiting for the engine", async () => {
     const agent = new ResidentAgent("agent-1", "/work/one", {
         maxPendingCommands: 1,

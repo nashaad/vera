@@ -94,6 +94,7 @@ import {
     measureToolResultBytes,
     type ContextMeasurement,
 } from "./context-measurement.ts";
+import { contextContributionParts } from "./context-parts.ts";
 import {
     assembleAgedToolResults,
     type ToolResultAgingPolicy,
@@ -194,6 +195,19 @@ const TOOL_APPROVAL_TIMEOUT_MS = 60_000;
  * on every one of them.
  */
 export const COMPACTION_RETRY_GROWTH_TOKENS = 10_000;
+
+async function persistContextRecipe(
+    store: SessionMessageStore,
+    measurement: ContextMeasurement,
+): Promise<void> {
+    if (
+        measurement.projection === undefined
+        || !(store instanceof SessionStore)
+    ) {
+        return;
+    }
+    await store.appendContextMeasurement(measurement);
+}
 
 /** The most the estimator is ever corrected by. */
 const MAX_CONTEXT_SCALE = 3;
@@ -1238,6 +1252,7 @@ export async function runHeadlessLoop(
             startupContext,
             state.compactionPolicy,
         ),
+        store.latestContextMeasurement(),
     );
 
     try {
@@ -1684,6 +1699,14 @@ export async function runTurn(
                     extensionToolNames: state.extensionTools?.map((tool) =>
                         tool.definition.name
                     ),
+                    contributionParts: contextContributionParts({
+                        projectInstructions,
+                        ...(memory === undefined ? {} : { memory }),
+                        ...(wear?.name === undefined ? {} : { agentName: wear.name }),
+                        ...(wear?.instructions === undefined
+                            ? {}
+                            : { agentInstructions: wear.instructions }),
+                    }),
                     ...(state.compactionPolicy === undefined
                         ? {}
                         : {
@@ -1699,6 +1722,7 @@ export async function runTurn(
                 model: activeModel,
                 measurement,
             });
+            await persistContextRecipe(state.store, measurement);
             if (state.contextWatch !== undefined) {
                 state.contextWatch.measurement = measurement;
                 state.contextWatch.messageTokens = measureMessages(

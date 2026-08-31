@@ -4,8 +4,18 @@ import type {
     ModelTool,
     ModelUsage,
 } from "../model/types.ts";
+import {
+    apportionPartTokens,
+    type ContextPartSeed,
+    type ContextProjectionPart,
+} from "./context-parts.ts";
 import type { ProjectedModelRequest } from "./model-request.ts";
 import type { PromptContribution } from "./prompt-contributions.ts";
+
+export type {
+    ContextPartScope,
+    ContextProjectionPart,
+} from "./context-parts.ts";
 
 /**
  * How much of the model's context window the next request occupies.
@@ -49,6 +59,7 @@ export interface ContextProjectionComponent {
     readonly displayName: string;
     readonly count: number;
     readonly estimatedTokens: number;
+    readonly parts?: readonly ContextProjectionPart[];
 }
 
 export interface ContextProjectionMeasurement {
@@ -82,6 +93,7 @@ export function measureProjectedRequest(
         readonly promptContributions?: readonly PromptContribution[];
         readonly compaction?: ContextCompactionMeasurement;
         readonly extensionToolNames?: readonly string[];
+        readonly contributionParts?: Readonly<Record<string, readonly ContextPartSeed[]>>;
     } = {},
 ): ContextMeasurement {
     const extensionToolNames = new Set(options.extensionToolNames ?? []);
@@ -120,7 +132,11 @@ export function measureProjectedRequest(
             : {
                 projection: {
                     estimatedTokens: tokens,
-                    components: reconcileParts(parts, tokens),
+                    components: reconcileParts(
+                        parts,
+                        tokens,
+                        options.contributionParts ?? {},
+                    ),
                 },
             }),
         ...(options.compaction === undefined
@@ -268,6 +284,7 @@ function safeContributionDisplayName(
 function reconcileParts(
     parts: readonly MeasuredPart[],
     totalTokens: number,
+    contributionParts: Readonly<Record<string, readonly ContextPartSeed[]>>,
 ): readonly ContextProjectionComponent[] {
     if (parts.length === 0) return [];
     const raw = parts.reduce((total, part) => total + part.characters, 0);
@@ -285,6 +302,8 @@ function reconcileParts(
             ? characterTokens - assignedCharacterTokens
             : proportional;
         assignedCharacterTokens += allocatedCharacterTokens;
+        const estimatedTokens = part.fixedTokens + allocatedCharacterTokens;
+        const seeds = contributionParts[part.id];
         return {
             kind: part.kind,
             id: part.id,
@@ -292,10 +311,73 @@ function reconcileParts(
             source: part.source,
             displayName: part.displayName,
             count: part.count,
-            estimatedTokens: part.fixedTokens + allocatedCharacterTokens,
+            estimatedTokens,
+            ...(seeds === undefined || seeds.length === 0
+                ? {}
+                : { parts: apportionPartTokens(seeds, estimatedTokens) }),
         } satisfies ContextProjectionComponent;
     });
     return components;
+}
+
+/**
+ * Keep a last-request recipe when the provider's count disagrees with the
+ * character estimate. Parts stay named; their tokens are stretched to the
+ * new total so the wire still adds up.
+ */
+export function scaleProjectionTo(
+    projection: ContextProjectionMeasurement,
+    targetTokens: number,
+): ContextProjectionMeasurement {
+    const fromTotal = projection.components.reduce(
+        (total, component) => total + component.estimatedTokens,
+        0,
+    );
+    if (
+        projection.estimatedTokens === targetTokens
+        && fromTotal === targetTokens
+    ) {
+        return projection;
+    }
+    const scaleFrom = fromTotal > 0 ? fromTotal : projection.estimatedTokens;
+    const components = scaleTokenShares(
+        projection.components,
+        scaleFrom,
+        targetTokens,
+    );
+    return {
+        estimatedTokens: targetTokens,
+        components: components.map((component, index) => {
+            const original = projection.components[index];
+            if (original?.parts === undefined) return component;
+            return {
+                ...component,
+                parts: scaleTokenShares(
+                    original.parts,
+                    original.estimatedTokens,
+                    component.estimatedTokens,
+                ),
+            };
+        }),
+    };
+}
+
+function scaleTokenShares<T extends { readonly estimatedTokens: number }>(
+    items: readonly T[],
+    fromTotal: number,
+    toTotal: number,
+): T[] {
+    if (items.length === 0) return [];
+    let assigned = 0;
+    return items.map((item, index) => {
+        const estimatedTokens = index === items.length - 1
+            ? Math.max(0, toTotal - assigned)
+            : fromTotal <= 0
+                ? 0
+                : Math.floor(item.estimatedTokens * toTotal / fromTotal);
+        assigned += estimatedTokens;
+        return { ...item, estimatedTokens };
+    });
 }
 
 function isProjection(value: unknown): value is ContextProjectionMeasurement | undefined {
@@ -325,7 +407,31 @@ function isProjectionComponent(value: unknown): boolean {
         && Number.isSafeInteger(component.count)
         && (component.count as number) >= 0
         && Number.isSafeInteger(component.estimatedTokens)
-        && (component.estimatedTokens as number) >= 0;
+        && (component.estimatedTokens as number) >= 0
+        && isProjectionParts(component.parts);
+}
+
+function isProjectionParts(value: unknown): boolean {
+    if (value === undefined) return true;
+    if (!Array.isArray(value)) return false;
+    return value.every((part) => {
+        if (typeof part !== "object" || part === null || Array.isArray(part)) {
+            return false;
+        }
+        const entry = part as Record<string, unknown>;
+        return typeof entry.id === "string"
+            && typeof entry.displayName === "string"
+            && (entry.scope === "project"
+                || entry.scope === "user"
+                || entry.scope === "agent"
+                || entry.scope === "memory"
+                || entry.scope === "skill")
+            && Number.isSafeInteger(entry.bytes)
+            && (entry.bytes as number) >= 0
+            && Number.isSafeInteger(entry.estimatedTokens)
+            && (entry.estimatedTokens as number) >= 0
+            && (entry.imported === undefined || entry.imported === true);
+    });
 }
 
 function isCompaction(value: unknown): value is ContextCompactionMeasurement | undefined {

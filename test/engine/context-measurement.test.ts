@@ -191,6 +191,43 @@ test("a projection identifies extension tool schemas without exposing their defi
     expect(JSON.stringify(projected)).not.toContain("inputSchema");
 });
 
+test("contribution parts name files without putting their bodies on the wire", () => {
+    const measurement = measureProjectedRequest(
+        request({
+            messages: [userMessage("hello")],
+        }),
+        10_000,
+        {
+            promptContributions: [{
+                id: "core.project-instructions",
+                owner: "core",
+                target: "contextual",
+                title: "Project instructions",
+                content: "### AGENTS.local.md\nsecret body",
+            }],
+            contributionParts: {
+                "core.project-instructions": [{
+                    id: "/workspace/AGENTS.local.md",
+                    displayName: "AGENTS.local.md",
+                    scope: "project",
+                    bytes: 20_000,
+                }],
+            },
+        },
+    );
+    const component = measurement.projection?.components.find((entry) =>
+        entry.id === "core.project-instructions"
+    );
+    expect(component?.parts).toEqual([{
+        id: "/workspace/AGENTS.local.md",
+        displayName: "AGENTS.local.md",
+        scope: "project",
+        bytes: 20_000,
+        estimatedTokens: component?.estimatedTokens,
+    }]);
+    expect(JSON.stringify(measurement)).not.toContain("secret body");
+});
+
 test("a measurement is rejected unless it says how it was arrived at", () => {
     expect(isContextMeasurement({ tokens: 10, estimated: true })).toBe(true);
     expect(isContextMeasurement({ tokens: 10, capacity: 20, estimated: false }))

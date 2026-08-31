@@ -31,6 +31,23 @@ export interface VeraClientContextComponent {
     readonly displayName: string;
     readonly count: number;
     readonly estimatedTokens: number;
+    readonly parts?: readonly VeraClientContextPart[];
+}
+
+export type VeraClientContextPartScope =
+    | "project"
+    | "user"
+    | "agent"
+    | "memory"
+    | "skill";
+
+export interface VeraClientContextPart {
+    readonly id: string;
+    readonly displayName: string;
+    readonly scope: VeraClientContextPartScope;
+    readonly bytes: number;
+    readonly estimatedTokens: number;
+    readonly imported?: boolean;
 }
 
 export interface VeraClientContextProjection {

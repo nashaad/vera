@@ -21,6 +21,10 @@ import {
 import type { UiRequest } from "../engine/events.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
+import {
+    scaleProjectionTo,
+    type ContextMeasurement,
+} from "../engine/context-measurement.ts";
 
 export class AgentDetachedError extends Error {
     constructor() {
@@ -101,6 +105,7 @@ export class ResidentAgent {
         entries: [],
         seq: 0,
     };
+    private lastContext: ContextMeasurement | undefined;
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
     // What this agent is blocked on and what it is doing, kept because the
@@ -523,6 +528,9 @@ export class ResidentAgent {
         }
         const snapshot = clone(update);
         this.lastSequence = snapshot.seq;
+        if (snapshot.type === "context") {
+            this.lastContext = snapshot.measurement;
+        }
         const previousStatus = this.currentStatus;
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
@@ -588,13 +596,16 @@ export class ResidentAgent {
             this.startedTurnActive = false;
         }
         if (snapshot.type === "history") {
-            this.checkpoint = snapshot;
+            this.checkpoint = withLastContextRecipe(snapshot, this.lastContext);
             this.updatesAfterCheckpoint = [];
         } else {
             this.updatesAfterCheckpoint.push(snapshot);
         }
+        const outgoingUpdate = snapshot.type === "history"
+            ? this.checkpoint
+            : snapshot;
         for (const outgoing of this.attachments.values()) {
-            outgoing.push(clone(snapshot));
+            outgoing.push(clone(outgoingUpdate));
         }
         if (
             this.currentStatus !== previousStatus
@@ -676,6 +687,39 @@ export class ResidentAgent {
 
 function clone<T>(value: T): T {
     return structuredClone(value);
+}
+
+/**
+ * Occupancy survives in a reconnect history; the last request recipe may
+ * not. Put the named files back so `/context` after attach is not empty.
+ */
+function withLastContextRecipe(
+    history: HistoryUpdate,
+    lastContext: ContextMeasurement | undefined,
+): HistoryUpdate {
+    if (lastContext?.projection === undefined) {
+        return history;
+    }
+    if (history.context === undefined) {
+        return { ...history, context: lastContext };
+    }
+    if (history.context.projection !== undefined) {
+        return history;
+    }
+    return {
+        ...history,
+        context: {
+            ...history.context,
+            projection: scaleProjectionTo(
+                lastContext.projection,
+                history.context.tokens,
+            ),
+            ...(history.context.compaction === undefined
+                && lastContext.compaction !== undefined
+                ? { compaction: lastContext.compaction }
+                : {}),
+        },
+    };
 }
 
 function nonEmpty(value: string, name: string): string {

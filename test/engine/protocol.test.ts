@@ -392,6 +392,47 @@ test("a checkpoint can restore the persisted compaction measurement", () => {
     });
 });
 
+test("a resume checkpoint overlays the stored recipe on provider occupancy", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    protocol.checkpoint(messages, undefined, undefined, {
+        tokens: 4_600,
+        estimated: true,
+        projection: {
+            estimatedTokens: 4_600,
+            components: [{
+                kind: "prompt_contribution",
+                id: "core.project-instructions",
+                owner: "core",
+                source: "contextual",
+                displayName: "Project instructions",
+                count: 1,
+                estimatedTokens: 4_600,
+                parts: [{
+                    id: "agents-local",
+                    displayName: "AGENTS.local.md",
+                    scope: "project",
+                    bytes: 18_000,
+                    estimatedTokens: 4_600,
+                }],
+            }],
+        },
+    });
+
+    const history = updates.at(-1);
+    expect(history?.type === "history" ? history.context?.tokens : undefined)
+        .toBe(64_624);
+    expect(
+        history?.type === "history"
+            ? history.context?.projection?.components[0]?.parts?.[0]?.displayName
+            : undefined,
+    ).toBe("AGENTS.local.md");
+});
+
 test("turn completion adds the reply to the provider's request count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
@@ -546,7 +587,7 @@ test("checkpoint replays the completed projection in reconnect history", () => {
         .toEqual(history);
 });
 
-test("turn completion drops a coincidentally equal stale projection", () => {
+test("turn completion keeps a projection whose estimate does not match the provider count", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -561,34 +602,97 @@ test("turn completion drops a coincidentally equal stale projection", () => {
         type: "context_measured",
         model: "test",
         measurement: {
-            tokens: 64_624,
+            tokens: 4_600,
             estimated: true,
             projection: {
-                estimatedTokens: 64_624,
+                estimatedTokens: 4_600,
                 components: [{
-                    kind: "message",
-                    id: "message:1",
-                    owner: "session",
-                    source: "user",
-                    displayName: "user message",
+                    kind: "prompt_contribution",
+                    id: "core.project-instructions",
+                    owner: "core",
+                    source: "contextual",
+                    displayName: "Project instructions",
                     count: 1,
-                    estimatedTokens: 64_624,
+                    estimatedTokens: 4_600,
+                    parts: [{
+                        id: "agents-local",
+                        displayName: "AGENTS.local.md",
+                        scope: "project",
+                        bytes: 18_000,
+                        estimatedTokens: 4_600,
+                    }],
                 }],
             },
         },
     });
     protocol({ type: "turn_finished", message });
 
-    expect(updates[1]).toMatchObject({
-        type: "context",
-        measurement: { tokens: 64_624 },
-    });
-    expect(updates[1]?.type === "context"
-        ? updates[1].measurement.projection
-        : undefined).toBeUndefined();
+    const update = updates[1];
+    expect(update?.type).toBe("context");
+    expect(update?.type === "context" ? update.measurement.projection : undefined)
+        .toBeDefined();
+    expect(update?.type === "context"
+        ? update.measurement.projection?.components[0]?.id
+        : undefined).toBe("core.project-instructions");
 });
 
-test("checkpoint strips an internally inconsistent projection", () => {
+test("a later checkpoint still carries the last request recipe", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const message = messages.at(-1);
+    if (message?.role !== "assistant") {
+        throw new Error("Expected the fixture to end with an assistant message");
+    }
+    const projection = {
+        estimatedTokens: 4_600,
+        components: [{
+            kind: "prompt_contribution" as const,
+            id: "core.project-instructions",
+            owner: "core",
+            source: "contextual",
+            displayName: "Project instructions",
+            count: 1,
+            estimatedTokens: 4_600,
+            parts: [{
+                id: "agents-local",
+                displayName: "AGENTS.local.md",
+                scope: "project" as const,
+                bytes: 18_000,
+                estimatedTokens: 4_600,
+            }],
+        }],
+    };
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: {
+            tokens: 4_600,
+            estimated: true,
+            projection,
+        },
+    });
+    protocol({ type: "turn_finished", message });
+    protocol.checkpoint(messages);
+    protocol.checkpoint(messages);
+
+    const histories = updates.filter((update) => update.type === "history");
+    expect(histories).toHaveLength(2);
+    for (const history of histories) {
+        expect(history.type === "history" ? history.context?.projection : undefined)
+            .toMatchObject({
+                components: [{
+                    id: "core.project-instructions",
+                    parts: [{ displayName: "AGENTS.local.md" }],
+                }],
+            });
+    }
+});
+
+test("checkpoint scales an internally inconsistent projection", () => {
     const updates: AgentUpdate[] = [];
     const protocol = createProtocolEncoder({
         send(update): void {
@@ -613,7 +717,22 @@ test("checkpoint strips an internally inconsistent projection", () => {
     });
 
     expect(updates[0]?.type === "history" ? updates[0].context : undefined)
-        .toEqual({ tokens: 20, estimated: true });
+        .toEqual({
+            tokens: 20,
+            estimated: true,
+            projection: {
+                estimatedTokens: 20,
+                components: [{
+                    kind: "message",
+                    id: "message:1",
+                    owner: "session",
+                    source: "user",
+                    displayName: "user message",
+                    count: 1,
+                    estimatedTokens: 20,
+                }],
+            },
+        });
     expect(updates[0] === undefined ? undefined : parseAgentUpdate(updates[0]))
         .toEqual(updates[0]);
 });

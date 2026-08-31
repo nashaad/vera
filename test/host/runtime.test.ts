@@ -1426,6 +1426,85 @@ process.stdout.write(JSON.stringify({
     },
 );
 
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "a measured request persists its recipe so resume history still names files",
+    async () => {
+        const root = await mkdtemp(join(tmpdir(), "vera-host-context-resume-"));
+        const socketPath = join(root, "host.sock");
+        const sessionDirectory = join(root, "sessions");
+        await writeFile(join(root, "AGENTS.md"), "# project\n");
+        await writeFile(join(root, "AGENTS.local.md"), "# local\n");
+        const host = await startResidentHost({
+            config: {
+                schema_version: 1,
+                provider: "openrouter",
+                model: "faux/test",
+                approval_mode: "auto",
+            },
+            createAdapter: () => new FauxAdapter([{
+                ...textResponse("hello"),
+                usage: {
+                    ...emptyUsage(),
+                    inputTokens: 16_000,
+                    outputTokens: 80,
+                    totalTokens: 16_080,
+                },
+            }]),
+            socketPath,
+            lockPath: join(root, "host.json"),
+            sessionDirectory,
+        });
+
+        try {
+            const created = await createAgentThroughHost(socketPath, root);
+            const listed = (await listAgentsThroughHost(socketPath)).find(
+                (agent) => agent.id === created.id,
+            );
+            expect(listed?.session_path).toBeDefined();
+            const sessionPath = listed!.session_path!;
+
+            const live = await attachAgent({
+                socketPath,
+                agentId: created.id,
+            });
+            expect((await live.receive()).type).toBe("history");
+            await live.send({ type: "prompt", content: "hi" });
+            while ((await live.receive()).type !== "turn_finished") {
+                // Drain the measured turn so the recipe is on disk.
+            }
+            live.close();
+
+            const stored = await readFile(sessionPath, "utf8");
+            expect(stored).toContain('"type":"context_measurement"');
+            expect(stored).toContain("AGENTS");
+
+            expect(await closeAgentThroughHost(socketPath, created.id))
+                .toEqual({ status: "closed", sessionRetained: true });
+
+            const resumed = await resumeAgentThroughHost(socketPath, sessionPath);
+            const attached = await attachAgent({
+                socketPath,
+                agentId: resumed.id,
+            });
+            const history = await attached.receive();
+            attached.close();
+            expect(history.type).toBe("history");
+            if (history.type !== "history") return;
+            expect(history.context?.tokens).toBeGreaterThan(0);
+            expect(
+                history.context?.projection?.components.some((component) =>
+                    component.parts?.some((part) =>
+                        part.displayName.includes("AGENTS")
+                    ),
+                ),
+            ).toBe(true);
+        } finally {
+            await host.close();
+            await rm(root, { recursive: true, force: true });
+        }
+    },
+);
+
 function textResponse(text: string): AssistantMessage {
     return {
         role: "assistant",

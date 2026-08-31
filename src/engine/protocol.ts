@@ -29,6 +29,7 @@ import {
     measureCompletedAssistant,
     measureMessages,
     measureReportedUsage,
+    scaleProjectionTo,
     type ContextMeasurement,
 } from "./context-measurement.ts";
 import {
@@ -1083,6 +1084,7 @@ export interface ProtocolEncoder extends EngineEventSubscriber {
         messages: readonly ModelMessage[],
         messageIds?: MessageIdLookup,
         context?: ContextMeasurement,
+        recipe?: ContextMeasurement,
     ): void;
 }
 
@@ -2090,10 +2092,7 @@ export function createProtocolEncoder(
                         ? {}
                         : { capacity: reportedRequest.capacity }),
                     estimated: true,
-                    ...(projection === undefined
-                            || projection.estimatedTokens !== tokens
-                        ? {}
-                        : { projection }),
+                    ...(projection === undefined ? {} : { projection }),
                     ...(measuredContext?.compaction === undefined
                         ? {}
                         : { compaction: measuredContext.compaction }),
@@ -2124,6 +2123,7 @@ export function createProtocolEncoder(
             messages: readonly ModelMessage[],
             messageIds?: MessageIdLookup,
             checkpointContext?: ContextMeasurement,
+            recipe?: ContextMeasurement,
         ): void {
             const restored = latestMeasurement(
                 messages,
@@ -2133,11 +2133,10 @@ export function createProtocolEncoder(
             );
             const floor = pendingCheckpointFloor;
             pendingCheckpointFloor = undefined;
-            // A live encoder has the fuller projection that preceded this
-            // checkpoint. Keep it when the window is unchanged; a fresh
-            // encoder after restart has only durable provider usage and uses
-            // `restored` without pretending the old projection survived.
-            const candidateContext = checkpointContext
+            // Occupancy can be rebuilt from provider usage. The last request
+            // recipe cannot: keep it from this encoder and stretch it to the
+            // headline so BREAKDOWN still names the files after reconnect.
+            const headline = checkpointContext
                 ?? (restored === undefined
                     ? floor
                     : floor !== undefined
@@ -2149,15 +2148,17 @@ export function createProtocolEncoder(
                                 floor.tokens,
                             ),
                             estimated: true,
-                            ...(floor.projection === undefined
-                                ? {}
-                                : { projection: floor.projection }),
                             ...(floor.compaction === undefined
                                 ? {}
                                 : { compaction: floor.compaction }),
                         }
                         : restored);
-            const context = coherentContextMeasurement(candidateContext);
+            const context = coherentContextMeasurement(
+                keepLastRequestRecipe(
+                    headline,
+                    measuredContext ?? floor ?? recipe,
+                ),
+            );
             sessionUsage = summarizeSessionModelUsage(messages);
             sender.send({
                 type: "history",
@@ -2269,28 +2270,42 @@ function latestMeasurement(
 }
 
 /**
- * A projection describes one exact request. Once reconciliation changes the
- * top-level token count, retaining that older breakdown makes the measurement
- * invalid on the wire. Keep the useful count and policy, but drop attribution
- * that no longer adds up to it.
+ * A projection describes one exact request. If the headline token count
+ * moved, stretch the named parts to that count rather than dropping them:
+ * `/context` still needs the files, and the used total is already marked
+ * estimated.
  */
 function coherentContextMeasurement(
     measurement: ContextMeasurement | undefined,
 ): ContextMeasurement | undefined {
-    if (
-        measurement?.projection === undefined
-        || (
-            measurement.projection.estimatedTokens === measurement.tokens
-            && measurement.projection.components.reduce(
-                (total, component) => total + component.estimatedTokens,
-                0,
-            ) === measurement.tokens
-        )
-    ) {
+    if (measurement?.projection === undefined) {
         return measurement;
     }
-    const { projection: _stale, ...coherent } = measurement;
-    return coherent;
+    const projection = scaleProjectionTo(
+        measurement.projection,
+        measurement.tokens,
+    );
+    return projection === measurement.projection
+        ? measurement
+        : { ...measurement, projection };
+}
+
+/**
+ * Headline occupancy may come from provider usage; the recipe is only in
+ * the last measurement. Overlay that recipe without changing the count.
+ */
+function keepLastRequestRecipe(
+    headline: ContextMeasurement | undefined,
+    recipe: ContextMeasurement | undefined,
+): ContextMeasurement | undefined {
+    if (headline === undefined) return recipe;
+    const projection = recipe?.projection ?? headline.projection;
+    const compaction = recipe?.compaction ?? headline.compaction;
+    return {
+        ...headline,
+        ...(compaction === undefined ? {} : { compaction }),
+        ...(projection === undefined ? {} : { projection }),
+    };
 }
 
 function completedContextProjection(
@@ -2299,33 +2314,33 @@ function completedContextProjection(
     reportedNextContext: number,
     tokens: number,
 ): ContextMeasurement["projection"] {
-    if (
-        projection === undefined
-        || projection.estimatedTokens !== reportedRequestTokens
-        || tokens !== reportedNextContext
-    ) {
-        return undefined;
-    }
-    const responseTokens = reportedNextContext - reportedRequestTokens;
+    if (projection === undefined) return undefined;
     const messageIndexes = projection.components.flatMap((component) => {
         const match = /^message:(\d+)$/.exec(component.id);
         return match === null ? [] : [Number(match[1])];
     });
-    return {
-        estimatedTokens: reportedNextContext,
-        components: [
-            ...projection.components,
-            {
-                kind: "message",
-                id: `message:${Math.max(0, ...messageIndexes) + 1}`,
-                owner: "session",
-                source: "assistant",
-                displayName: "assistant message",
-                count: 1,
-                estimatedTokens: responseTokens,
-            },
-        ],
-    };
+    const responseTokens = reportedNextContext - reportedRequestTokens;
+    if (
+        projection.estimatedTokens === reportedRequestTokens
+        && tokens === reportedNextContext
+    ) {
+        return {
+            estimatedTokens: reportedNextContext,
+            components: [
+                ...projection.components,
+                {
+                    kind: "message",
+                    id: `message:${Math.max(0, ...messageIndexes) + 1}`,
+                    owner: "session",
+                    source: "assistant",
+                    displayName: "assistant message",
+                    count: 1,
+                    estimatedTokens: responseTokens,
+                },
+            ],
+        };
+    }
+    return scaleProjectionTo(projection, tokens);
 }
 
 function reportedMeasurement(

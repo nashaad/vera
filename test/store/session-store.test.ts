@@ -2288,6 +2288,57 @@ test("a delivery receipt for an unseen delivery is rejected", async () => {
     );
 });
 
+test("a context recipe survives reopen so resume can name the files", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "sessions", "session.jsonl");
+    const times = dates(
+        "2026-08-30T21:00:00.000Z",
+        "2026-08-30T21:00:01.000Z",
+        "2026-08-30T21:00:02.000Z",
+    );
+    const ids = values("message-1");
+    const store = await SessionStore.create(path, {
+        sessionId: "session-1",
+        cwd: "/work/vera",
+        now: times,
+        createId: ids,
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+    });
+    const measurement = {
+        tokens: 4_600,
+        estimated: true as const,
+        projection: {
+            estimatedTokens: 4_600,
+            components: [{
+                kind: "prompt_contribution" as const,
+                id: "core.project-instructions",
+                owner: "core",
+                source: "contextual",
+                displayName: "Project instructions",
+                count: 1,
+                estimatedTokens: 4_600,
+                parts: [{
+                    id: "agents-local",
+                    displayName: "AGENTS.local.md",
+                    scope: "project" as const,
+                    bytes: 18_000,
+                    estimatedTokens: 4_600,
+                }],
+            }],
+        },
+    };
+    await store.appendContextMeasurement(measurement);
+
+    const reopened = await SessionStore.open(path);
+    expect(
+        reopened.latestContextMeasurement()?.projection?.components[0]
+            ?.parts?.[0]?.displayName,
+    ).toBe("AGENTS.local.md");
+});
+
 const TIMESTAMP = "2026-07-19T12:00:01.000Z";
 
 function sessionFile(records: readonly object[]): string {

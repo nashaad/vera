@@ -37,6 +37,10 @@ import {
     type StartupProfile,
 } from "../startup-profile.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import {
+    isContextMeasurement,
+    type ContextMeasurement,
+} from "../engine/context-measurement.ts";
 
 export const SESSION_FORMAT_VERSION = 1;
 
@@ -248,6 +252,19 @@ export interface SessionCompactionDiagnostics {
     readonly catalogEntry?: string;
     readonly provider?: string;
     readonly model?: string;
+}
+
+/**
+ * The last request recipe, so `/context` after resume can still name the
+ * files. Occupancy is rebuilt from provider usage; this record is the
+ * attribution that usage does not carry.
+ */
+export interface SessionContextMeasurementEntry {
+    readonly type: "context_measurement";
+    readonly timestamp: string;
+    /** Active leaf when this request was measured. */
+    readonly afterMessageId: string | null;
+    readonly measurement: ContextMeasurement;
 }
 
 export interface AppendCompactionRequest {
@@ -826,6 +843,32 @@ export class SessionStore {
         );
     }
 
+    appendContextMeasurement(
+        measurement: ContextMeasurement,
+    ): Promise<SessionContextMeasurementEntry> {
+        const result = this.pendingAppend.then(() => {
+            this.requireActive();
+            return this.commitContextMeasurement(measurement);
+        });
+        this.pendingAppend = result.then(
+            () => undefined,
+            () => undefined,
+        );
+        return result;
+    }
+
+    /**
+     * The last request recipe still on the active branch. Occupancy after
+     * resume comes from provider usage; this is the file list `/context` shows.
+     */
+    latestContextMeasurement(): ContextMeasurement | undefined {
+        const active = new Set(this.activeEntries().map((entry) => entry.id));
+        return this.projection.contextMeasurementEntries.findLast((entry) =>
+            entry.afterMessageId === null
+            || active.has(entry.afterMessageId)
+        )?.measurement;
+    }
+
     /**
      * The durable model context before the disposable tool-result projection
      * is applied. This is useful for diagnostics; compaction triggers from
@@ -990,6 +1033,23 @@ export class SessionStore {
         };
         await this.appendRecord(entry);
         this.projection.modelSettingsEntries.push(entry);
+        return entry;
+    }
+
+    private async commitContextMeasurement(
+        measurement: ContextMeasurement,
+    ): Promise<SessionContextMeasurementEntry> {
+        if (!isContextMeasurement(measurement) || measurement.projection === undefined) {
+            throw new Error("Cannot append a context measurement without a recipe");
+        }
+        const entry: SessionContextMeasurementEntry = {
+            type: "context_measurement",
+            timestamp: this.now().toISOString(),
+            afterMessageId: this.projection.leafId,
+            measurement,
+        };
+        await this.appendRecord(entry);
+        this.projection.contextMeasurementEntries.push(entry);
         return entry;
     }
 
@@ -1550,6 +1610,7 @@ export interface SessionProjectionState {
         SessionPermissionGrantRevocationEntry[];
     readonly attachmentEntries: SessionAttachmentEntry[];
     readonly compactionEntries: SessionCompactionEntry[];
+    readonly contextMeasurementEntries: SessionContextMeasurementEntry[];
     readonly knownMessageIds: Set<string>;
     readonly knownDeliveryIds: Set<string>;
     readonly knownAttachmentIds: Set<string>;
@@ -1573,6 +1634,7 @@ export function createSessionProjectionState(): SessionProjectionState {
         permissionGrantRevocationEntries: [],
         attachmentEntries: [],
         compactionEntries: [],
+        contextMeasurementEntries: [],
         knownMessageIds: new Set(),
         knownDeliveryIds: new Set(),
         knownAttachmentIds: new Set(),
@@ -1609,6 +1671,7 @@ export function ingestSessionRecord(
         permissionGrantRevocationEntries,
         attachmentEntries,
         compactionEntries,
+        contextMeasurementEntries,
         knownMessageIds,
         knownDeliveryIds,
         knownAttachmentIds,
@@ -1856,6 +1919,12 @@ export function ingestSessionRecord(
     if (value.type === "compaction") {
         compactionEntries.push(
             parseCompactionEntry(path, lineNumber, value),
+        );
+        return;
+    }
+    if (value.type === "context_measurement") {
+        contextMeasurementEntries.push(
+            parseContextMeasurementEntry(path, lineNumber, value),
         );
         return;
     }
@@ -2212,6 +2281,30 @@ function parseModelSettingsEntry(
                 ? {}
                 : { reasoningEffort: settings.reasoningEffort }),
         },
+    };
+}
+
+function parseContextMeasurementEntry(
+    path: string,
+    lineNumber: number,
+    value: Record<string, unknown>,
+): SessionContextMeasurementEntry {
+    if (
+        typeof value.timestamp !== "string"
+        || (value.afterMessageId !== null && typeof value.afterMessageId !== "string")
+        || !isContextMeasurement(value.measurement)
+        || value.measurement.projection === undefined
+    ) {
+        throw invalidSession(
+            path,
+            `line ${lineNumber} is not a valid context measurement entry`,
+        );
+    }
+    return {
+        type: "context_measurement",
+        timestamp: value.timestamp,
+        afterMessageId: value.afterMessageId,
+        measurement: value.measurement,
     };
 }
 
