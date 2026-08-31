@@ -244,7 +244,7 @@ test("installed client extensions can import the inspect report SDK", async () =
             source: "client.inspect-report/inspect-section",
             body: {
                 kind: "text",
-                text: `## STATUS${" ".repeat(6)}ready\n${"─".repeat(20)}\n`,
+                text: `## STATUS${" ".repeat(6)}ready`,
             },
         });
     } finally {

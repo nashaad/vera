@@ -129,7 +129,7 @@ test("context markdown shows occupancy sections at 120, 80, and 60 columns", () 
         expect(markdown).not.toContain("├─");
         expect(markdown).toContain("/context [all] to expand");
         const inner = Math.max(20, width - 2);
-        expect(markdown).toContain("─".repeat(width - 2));
+        expect(markdown).not.toContain("─".repeat(width - 2));
         for (const line of markdown.split("\n")) {
             expect(line.length).toBeLessThanOrEqual(inner);
         }

@@ -2,11 +2,9 @@ import { expect, test } from "bun:test";
 
 import { inspectReportSection } from "../../src/sdk/inspect-report.ts";
 
-test("inspect report section renders a heading and rule", () => {
+test("inspect report section renders a heading without an authored gap", () => {
     expect(inspectReportSection("Session", undefined, 22)).toEqual([
         "## SESSION",
-        "─".repeat(20),
-        "",
     ]);
 });
 
@@ -15,8 +13,6 @@ test("inspect report section right-aligns a value that fits", () => {
 
     expect(lines).toEqual([
         `## CONTEXT USAGE${" ".repeat(15)}12k / 20k`,
-        "─".repeat(40),
-        "",
     ]);
     expect(lines[0]?.length).toBe(40);
 });
@@ -29,7 +25,5 @@ test("inspect report section moves a value that does not fit", () => {
     )).toEqual([
         "## CONTEXT USAGE",
         "No completed model request yet",
-        "─".repeat(34),
-        "",
     ]);
 });

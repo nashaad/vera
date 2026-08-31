@@ -229,7 +229,7 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
     expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");
     expect(text).toContain("| Enabled | /worktree/examples/extensions/sample |");
     expect(text).toContain("| Disabled | /old/disabled-extension |");
-    expect(text).toContain("─".repeat(40));
+    expect(text).not.toContain("─".repeat(40));
 });
 
 test("TUI diagnostics reports the latest client extension reload", () => {
