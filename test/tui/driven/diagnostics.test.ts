@@ -300,7 +300,7 @@ test("partial reload names the extensions that stayed active", async () => {
     }
 }, 15_000);
 
-test("inspect health stays idle until v and reports red with no provider", async () => {
+test("inspect health stays idle until v and reports red with no selected model", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-health-idle-"));
     let probed = 0;
     const session = await startTuiTestSession({
@@ -325,9 +325,9 @@ test("inspect health stays idle until v and reports red with no provider", async
         expect(pane).toContain("press v");
         expect(probed).toBe(0);
         session.sendKey("v");
-        pane = await session.waitForVisiblePane("no provider configured");
+        pane = await session.waitForVisiblePane("no model on the shortlist");
         expect(pane).toContain("red");
-        expect(pane).toContain("/providers");
+        expect(pane).toContain("/model");
         expect(probed).toBe(0);
     } finally {
         await session.close();
@@ -368,6 +368,49 @@ test("inspect health is green when a shortlist rung answers", async () => {
         session.sendKey("v");
         const pane = await session.waitForVisiblePane(
             "openrouter/glm-flash answered",
+        );
+        expect(pane).toContain("green");
+        expect(probed).toBe(1);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("inspect health is green when a local ollama rung answers", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-health-ollama-"));
+    mkdirSync(join(home, ".vera/profiles/default"), { recursive: true });
+    writeFileSync(
+        join(home, ".vera/profiles/default/config.json"),
+        JSON.stringify({
+            schema_version: 1,
+            provider: "ollama",
+            model: "qwen3:1.7b",
+        }),
+    );
+    let probed = 0;
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 52,
+        dependencies: () => ({
+            ...createTuiChildDependencies(),
+            healthEnv: {},
+            probeHealthRung: async () => {
+                probed += 1;
+                return true;
+            },
+        }),
+    });
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        await session.waitForVisiblePane("test · HIGH");
+        session.sendText("/diagnostics");
+        session.sendKey("Enter");
+        await session.waitForVisiblePane("not checked");
+        expect(probed).toBe(0);
+        session.sendKey("v");
+        const pane = await session.waitForVisiblePane(
+            "ollama/qwen3:1.7b answered",
         );
         expect(pane).toContain("green");
         expect(probed).toBe(1);
