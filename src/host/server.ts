@@ -295,7 +295,7 @@ export async function startHostServer(
                 reason: "identity_mismatch",
             };
         }
-        if (requested.requester_protocol_version <= HOST_PROTOCOL_VERSION) {
+        if (requested.requester_protocol_version < HOST_PROTOCOL_VERSION) {
             return {
                 type: "shutdown_if_idle_refused",
                 reason: "requester_not_newer",
@@ -346,7 +346,9 @@ export async function startHostServer(
                 reason: "identity_mismatch",
             };
         }
-        if (requested.requester_protocol_version <= HOST_PROTOCOL_VERSION) {
+        // Same-protocol `/reconnect` must be able to ask this host to step
+        // aside. An older requester still cannot replace a newer host.
+        if (requested.requester_protocol_version < HOST_PROTOCOL_VERSION) {
             return {
                 type: "shutdown_for_replacement_refused",
                 reason: "requester_not_newer",
