@@ -14,6 +14,7 @@ import { gcReleases, ReleaseInUseError, removeRelease } from "../../src/release/
 import {
     currentSymlinkPath,
     releaseDirectory,
+    rollbackSymlinkPath,
     veraShareRoot,
 } from "../../src/release/layout.ts";
 
@@ -37,6 +38,22 @@ test("removeRelease refuses a referenced activated build", () => {
         writeCurrent(prefix, "vera-keep");
         expect(() => removeRelease("vera-keep", prefix)).toThrow(ReleaseInUseError);
         expect(existsSync(releaseDirectory("vera-keep", prefix))).toBe(true);
+        removeRelease("vera-drop", prefix);
+        expect(existsSync(releaseDirectory("vera-drop", prefix))).toBe(false);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
+});
+
+test("removeRelease refuses a rollback-protected build", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-gc-rollback-"));
+    try {
+        writeRelease(prefix, "vera-pin");
+        writeRelease(prefix, "vera-drop");
+        mkdirSync(veraShareRoot(prefix), { recursive: true });
+        symlinkSync(join("releases", "vera-pin"), rollbackSymlinkPath(prefix));
+        expect(() => removeRelease("vera-pin", prefix)).toThrow(ReleaseInUseError);
+        expect(existsSync(releaseDirectory("vera-pin", prefix))).toBe(true);
         removeRelease("vera-drop", prefix);
         expect(existsSync(releaseDirectory("vera-drop", prefix))).toBe(false);
     } finally {

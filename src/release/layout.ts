@@ -43,6 +43,14 @@ export function currentSymlinkPath(prefix = defaultInstallPrefix()): string {
 }
 
 /**
+ * Known-good pin next to `current`. Same relative symlink shape:
+ * `releases/<build-id>`. Not a locator and not a search.
+ */
+export function rollbackSymlinkPath(prefix = defaultInstallPrefix()): string {
+    return join(veraShareRoot(prefix), "rollback");
+}
+
+/**
  * The build id `current` points at. Read from the symlink text
  * `releases/<build-id>`. Missing or malformed `current` is undefined, not a
  * search for another release.
@@ -50,9 +58,23 @@ export function currentSymlinkPath(prefix = defaultInstallPrefix()): string {
 export function currentReleaseBuildId(
     prefix = defaultInstallPrefix(),
 ): string | undefined {
+    return readReleaseLinkBuildId(currentSymlinkPath(prefix));
+}
+
+/**
+ * The build id the rollback pin points at. Missing or malformed pin is
+ * undefined, not a search for another release.
+ */
+export function rollbackReleaseBuildId(
+    prefix = defaultInstallPrefix(),
+): string | undefined {
+    return readReleaseLinkBuildId(rollbackSymlinkPath(prefix));
+}
+
+function readReleaseLinkBuildId(path: string): string | undefined {
     let link: string;
     try {
-        link = readlinkSync(currentSymlinkPath(prefix));
+        link = readlinkSync(path);
     } catch {
         return undefined;
     }

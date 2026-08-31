@@ -6,6 +6,7 @@ import { processIsAlive } from "../host/process-identity.ts";
 import {
     currentReleaseBuildId,
     defaultInstallPrefix,
+    rollbackReleaseBuildId,
     veraShareRoot,
 } from "./layout.ts";
 
@@ -21,13 +22,14 @@ export interface ReleaseReference {
 }
 
 /**
- * Builds rollback must be able to restore. Empty until a later ticket
- * records a known-good pin. Not a locator and not a search.
+ * Builds rollback must be able to restore. The pin is the `rollback`
+ * symlink next to `current`. Not a locator and not a search.
  */
 export function rollbackProtectedBuildIds(
-    _prefix = defaultInstallPrefix(),
+    prefix = defaultInstallPrefix(),
 ): readonly string[] {
-    return [];
+    const buildId = rollbackReleaseBuildId(prefix);
+    return buildId === undefined ? [] : [buildId];
 }
 
 /**

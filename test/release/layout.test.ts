@@ -6,6 +6,8 @@ import {
     currentSymlinkPath,
     defaultInstallPrefix,
     launcherPath,
+    rollbackReleaseBuildId,
+    rollbackSymlinkPath,
     packedAnnexRoot,
     packedReleaseRoot,
     releaseBinaryPath,
@@ -27,9 +29,11 @@ test("the activated release lives under ~/.local/share/vera/current", () => {
         join(prefix, "share", "vera", "releases", "vera-abc"),
     );
     expect(currentSymlinkPath(prefix)).toBe(join(prefix, "share", "vera", "current"));
+    expect(rollbackSymlinkPath(prefix)).toBe(join(prefix, "share", "vera", "rollback"));
     expect(upgradeJournalPath(prefix)).toBe(
         join(prefix, "share", "vera", "upgrade.json"),
     );
+    expect(rollbackReleaseBuildId("/tmp/vera-no-such-prefix")).toBeUndefined();
     expect(packedReleaseRoot(prefix)).toBe(currentSymlinkPath(prefix));
     expect(launcherPath(prefix)).toBe(join(prefix, "bin", "vera"));
     expect(packedReleaseRoot().split(sep)).not.toContain("dist");

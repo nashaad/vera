@@ -17,6 +17,8 @@ import {
     launcherPath,
     packedReleaseRoot,
     releaseDirectory,
+    rollbackReleaseBuildId,
+    rollbackSymlinkPath,
 } from "../../src/release/layout.ts";
 import {
     RELEASE_ARTIFACT_NAMES,
@@ -56,10 +58,13 @@ test("activateRelease swaps current with a relative symlink", () => {
         expect(readlinkSync(currentSymlinkPath(prefix))).toBe("releases/vera-one");
         expect(lstatSync(currentSymlinkPath(prefix)).isSymbolicLink()).toBe(true);
         expect(packedReleaseRoot(prefix)).toBe(currentSymlinkPath(prefix));
+        expect(rollbackReleaseBuildId(prefix)).toBeUndefined();
 
         const second = writeDummyRelease(prefix, "vera-two");
         activateRelease(second, prefix);
         expect(readlinkSync(currentSymlinkPath(prefix))).toBe("releases/vera-two");
+        expect(readlinkSync(rollbackSymlinkPath(prefix))).toBe("releases/vera-one");
+        expect(rollbackReleaseBuildId(prefix)).toBe("vera-one");
         expect(lstatSync(first).isDirectory()).toBe(true);
 
         const launched = Bun.spawnSync([launcherPath(prefix)], {

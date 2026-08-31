@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import { defaultHostLockPath } from "../../src/host/lockfile.ts";
 import {
     currentSymlinkPath,
+    rollbackSymlinkPath,
     veraShareRoot,
 } from "../../src/release/layout.ts";
 import {
@@ -107,8 +108,16 @@ test("an upgrade journal protects both named builds when present", () => {
     }
 });
 
-test("rollback protection is an empty seam", () => {
-    expect(rollbackProtectedBuildIds("/tmp/vera-ref-rollback")).toEqual([]);
-    const listed = listReleaseReferences("/tmp/vera-ref-rollback");
-    expect(listed.every((item) => item.reason !== "rollback")).toBe(true);
+test("a rollback pin protects that build", () => {
+    const prefix = mkdtempSync(join(tmpdir(), "vera-ref-rollback-"));
+    try {
+        expect(rollbackProtectedBuildIds(prefix)).toEqual([]);
+        mkdirSync(veraShareRoot(prefix), { recursive: true });
+        symlinkSync(join("releases", "vera-known-good"), rollbackSymlinkPath(prefix));
+        expect(rollbackProtectedBuildIds(prefix)).toEqual(["vera-known-good"]);
+        expect(isReleaseReferenced("vera-known-good", prefix)).toBe(true);
+        expect(referenceReasons("vera-known-good", prefix)).toEqual(["rollback"]);
+    } finally {
+        rmSync(prefix, { recursive: true, force: true });
+    }
 });

@@ -7,14 +7,16 @@ import {
     unlinkSync,
     writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
 
 import {
+    currentReleaseBuildId,
     currentSymlinkPath,
     defaultInstallPrefix,
     launcherPath,
     RELEASE_CLI_NAME,
     releaseDirectory,
+    rollbackSymlinkPath,
     veraShareRoot,
 } from "./layout.ts";
 import { readStampedRelease } from "./stamp.ts";
@@ -36,16 +38,27 @@ export function activateRelease(
     }
     const share = veraShareRoot(prefix);
     mkdirSync(share, { recursive: true, mode: 0o755 });
-    const current = currentSymlinkPath(prefix);
-    const temporary = join(share, `.current.${process.pid}`);
+    const previous = currentReleaseBuildId(prefix);
+    if (previous !== undefined && previous !== manifest.build_id) {
+        writeRelativeReleaseLink(rollbackSymlinkPath(prefix), previous, share);
+    }
+    writeRelativeReleaseLink(currentSymlinkPath(prefix), manifest.build_id, share);
+    writeLauncher(prefix);
+}
+
+function writeRelativeReleaseLink(
+    path: string,
+    buildId: string,
+    share: string,
+): void {
+    const temporary = join(share, `.${basename(path)}.${process.pid}`);
     try {
         unlinkSync(temporary);
     } catch {
         // The pid-scoped name should be free; ignore a leftover.
     }
-    symlinkSync(join("releases", manifest.build_id), temporary);
-    renameSync(temporary, current);
-    writeLauncher(prefix);
+    symlinkSync(join("releases", buildId), temporary);
+    renameSync(temporary, path);
 }
 
 function writeLauncher(prefix: string): void {
