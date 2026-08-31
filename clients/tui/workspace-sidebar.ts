@@ -595,19 +595,21 @@ export function workspaceSidebarHeader(state: WorkspaceSidebarState): string {
  * are the rail's own, and beside a conversation a block the glance cannot use
  * reads as instructions for the screen it sits next to.
  */
-export const WORKSPACE_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
-    { label: "Move", value: "↑↓  j/k" },
-    { label: "Page", value: "ctrl+d/u" },
-    { label: "Open", value: "enter" },
-    { label: "Rename", value: tuiKeyChord("workspace_rename_session") },
-    ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
-    ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
-    { label: "New", value: "ctrl+n" },
-    { label: "Resume", value: "ctrl+r" },
-    { label: "Cycle", value: "ctrl+shift+[ ]" },
-    { label: "Chat", value: "→" },
-    { label: "Hide", value: "ctrl+e" },
-];
+export function workspaceSidebarFooterTable(): readonly LinesViewFooterRow[] {
+    return [
+        { label: "Move", value: "↑↓  j/k" },
+        { label: "Page", value: "ctrl+d/u" },
+        { label: "Open", value: "enter" },
+        { label: "Rename", value: tuiKeyChord("workspace_rename_session") },
+        ...(WORKSPACE_JUMPS_ENABLED ? [{ label: "Jump", value: "1–9" }] : []),
+        ...(WORKSPACE_PINS_ENABLED ? [{ label: "Pin", value: "p" }] : []),
+        { label: "New", value: "ctrl+n" },
+        { label: "Resume", value: "ctrl+r" },
+        { label: "Cycle", value: "ctrl+shift+[ ]" },
+        { label: "Chat", value: "→" },
+        { label: "Hide", value: "ctrl+e" },
+    ];
+}
 
 /**
  * What the rail says while the keyboard is in the conversation beside it.
@@ -623,7 +625,7 @@ export const WORKSPACE_QUIET_FOOTER_TABLE: readonly LinesViewFooterRow[] = [
 
 export function workspaceSidebarFooter(
     _width: number,
-    table: readonly LinesViewFooterRow[] = WORKSPACE_FOOTER_TABLE,
+    table: readonly LinesViewFooterRow[] = workspaceSidebarFooterTable(),
 ): string {
     const labelWidth = Math.max(
         ...table.map((row) => row.label.length + 2),
@@ -726,7 +728,7 @@ export function workspaceSidebarViewState(
         line.rowId !== undefined && line.rowId === layout.selectedId
     );
     const footerTable = focused
-        ? WORKSPACE_FOOTER_TABLE
+        ? workspaceSidebarFooterTable()
         : WORKSPACE_QUIET_FOOTER_TABLE;
     return {
         // The wordmark is what the rail is called, so it says the same thing

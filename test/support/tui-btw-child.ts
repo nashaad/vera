@@ -26,6 +26,7 @@ installTestProcessGuard();
 
 const EXTENSION = join(import.meta.dir, "../../examples/extensions/btw");
 const sessions = new Map<string, TuiAgentClient>();
+const sessionNames = new Map<string, string | undefined>();
 let nextSession = 1;
 let sidekickId: string | undefined;
 
@@ -153,6 +154,7 @@ function session(
         async send(command): Promise<void> {
             if (command.type === "update_session_name") {
                 await clientReady.promise;
+                sessionNames.set(id, command.name ?? undefined);
                 channel.engine.send({
                     type: "session_name",
                     requestId: command.requestId,
@@ -213,6 +215,7 @@ function session(
         close(): void {},
     };
     sessions.set(id, client);
+    sessionNames.set(id, undefined);
     return client;
 }
 
@@ -221,23 +224,39 @@ session("child-1", "CHILD");
 
 await startTui({
     client: main,
-    listAgents: async () => [{
-        id: "main-1",
-        workspace: process.cwd(),
-        session_path: "/sessions/main-1.jsonl",
-        kind: "interactive",
-        status: "idle",
-        live: true,
-        title: "Main session",
-    }, {
-        id: "child-1",
-        workspace: process.cwd(),
-        session_path: "/sessions/child-1.jsonl",
-        kind: "background",
-        status: "working",
-        live: true,
-        parent_id: sidekickId ?? "main-1",
-    }],
+    listAgents: async () => [
+        {
+            id: "main-1",
+            workspace: process.cwd(),
+            session_path: "/sessions/main-1.jsonl",
+            kind: "interactive" as const,
+            status: "idle" as const,
+            live: true,
+            title: "Main session",
+        },
+        {
+            id: "child-1",
+            workspace: process.cwd(),
+            session_path: "/sessions/child-1.jsonl",
+            kind: "background" as const,
+            status: "working" as const,
+            live: true,
+            parent_id: sidekickId ?? "main-1",
+        },
+        ...[...sessions.keys()]
+            .filter((id) => id !== "main-1" && id !== "child-1")
+            .map((id) => ({
+                id,
+                workspace: process.cwd(),
+                session_path: `/sessions/${id}.jsonl`,
+                kind: "interactive" as const,
+                status: "idle" as const,
+                live: true,
+                ...(sessionNames.get(id) === undefined
+                    ? {}
+                    : { title: sessionNames.get(id) }),
+            })),
+    ],
     createSession: async () => session(`main-${++nextSession}`, "AGENT"),
     createAgent: async (_workspace, approvalMode) => {
         if (approvalMode !== "readonly" && approvalMode !== "ask") {

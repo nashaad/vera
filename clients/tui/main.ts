@@ -4046,6 +4046,9 @@ export async function startTui(
                         ? "session name cleared"
                         : `session renamed: ${update.name}`,
                 );
+                if (workspaceSidebar !== undefined) {
+                    refreshWorkspaceSidebarRoster();
+                }
             } else {
                 if (
                     pending.commandText !== undefined
@@ -12065,9 +12068,10 @@ export async function startTui(
     /**
      * The name a picker row was given.
      *
-     * The current session is renamed through its own attachment, because that
-     * is the client holding the name on screen and the host refuses to write
-     * behind an attached client's back. Every other row goes over the host.
+     * A session visible in either pane is renamed through its own attachment,
+     * because that client holds the name on screen and the host refuses to
+     * write behind an attached client's back. Every other row goes over the
+     * host.
      */
     function applySessionRenamePromptTransition(
         prompt: TuiNamePromptState,
@@ -12104,6 +12108,23 @@ export async function startTui(
                     type: "update_session_name",
                     requestId,
                     name: transition.submitted,
+                });
+            } else if (
+                prompt.target.sessionId === hostedSidebar.pane?.agentId
+            ) {
+                const requestId = randomUUID();
+                const target = hostedSidebar.pane;
+                pendingSidebarSessionRename = { requestId };
+                void target.client.send({
+                    type: "update_session_name",
+                    requestId,
+                    name: transition.submitted,
+                }).catch((error) => {
+                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                        return;
+                    }
+                    pendingSidebarSessionRename = undefined;
+                    reportConnectionError(error);
                 });
             } else {
                 void performSessionRename(

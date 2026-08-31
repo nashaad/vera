@@ -994,12 +994,55 @@ test.skipIf(!tmuxAvailable)(
             pane = await waitForVisiblePane(socket, session, "session renamed: peer research");
             expect(pane).toContain("peer research · ask");
 
+            // The workspace rail must use this TUI's companion attachment.
+            // Sending the same rename through the host would reject it as
+            // busy because the peer is already open here.
+            sendKey(socket, session, "C-e");
+            pane = await waitForVisiblePane(socket, session, "Rename  r");
+            const lines = pane.split("\n");
+            const peerLine = lines.findIndex((line) =>
+                line.split("┃")[0]?.includes("peer research")
+            );
+            const selectedLine = lines.findIndex((line) =>
+                line.split("┃")[0]?.includes("›")
+            );
+            expect(peerLine).toBeGreaterThanOrEqual(0);
+            expect(selectedLine).toBeGreaterThanOrEqual(0);
+            const direction = peerLine < selectedLine ? "Up" : "Down";
+            for (
+                let at = 0;
+                at < Math.abs(peerLine - selectedLine);
+                at += 1
+            ) {
+                sendKey(socket, session, direction);
+            }
+            sendText(socket, session, "r");
+            await waitForVisiblePane(socket, session, "Rename conversation");
+            sendText(socket, session, "peer from rail");
+            sendKey(socket, session, "Enter");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("peer from rail")
+                    && visible.includes("Rename  r")
+                    && !visible.includes("Rename conversation"),
+                "the peer renamed in the workspace rail",
+            );
+            sendKey(socket, session, "Escape");
+            pane = await waitForVisiblePaneWhere(
+                socket,
+                session,
+                (visible) => visible.includes("peer from rail · ask")
+                    && !visible.includes("Rename  r"),
+                "the renamed peer after the workspace rail closes",
+            );
+
             sendText(socket, session, "/permissions readonly");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePane(
                 socket,
                 session,
-                "peer research · readonly",
+                "peer from rail · readonly",
             );
 
             sendText(socket, session, "/clear");
