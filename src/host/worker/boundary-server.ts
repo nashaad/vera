@@ -21,6 +21,7 @@ import type { SessionStore } from "../../store/session-store.ts";
 import type { RegisteredTool } from "../../tools/types.ts";
 import type { ToolRuntime } from "../../tools/runtime.ts";
 import type { JsonPipe } from "./pipe.ts";
+import { CompletionUnavailableError } from "../../engine/completion-service.ts";
 
 export interface WorkerBoundaryServerOptions {
     readonly pipe: JsonPipe;
@@ -269,6 +270,60 @@ export function createWorkerBoundaryServer(
                         result: { power: "observe" },
                     };
                     return { outcome };
+                }
+                case "compaction.complete": {
+                    const request = body as {
+                        readonly callId: string;
+                        readonly role: string;
+                        readonly prompt: string;
+                        readonly system?: string;
+                    };
+                    const models = services.compaction?.models;
+                    const complete = models !== undefined
+                            && Object.hasOwn(models, request.role)
+                        ? models[request.role]
+                        : undefined;
+                    if (complete === undefined) {
+                        return {
+                            unavailable: {
+                                reason: `No model is bound to the ${request.role} slot.`,
+                                roomRelated: false,
+                            },
+                        };
+                    }
+                    const controller = new AbortController();
+                    cancellers.set(request.callId, controller);
+                    try {
+                        const result = await complete({
+                            systemPrompt: request.system ?? "",
+                            messages: [{
+                                role: "user",
+                                content: [{
+                                    type: "text",
+                                    text: request.prompt,
+                                }],
+                            }],
+                        }, controller.signal);
+                        return {
+                            text: result.text,
+                            model: result.model,
+                            ...(result.provider === undefined
+                                ? {}
+                                : { provider: result.provider }),
+                        };
+                    } catch (error) {
+                        if (error instanceof CompletionUnavailableError) {
+                            return {
+                                unavailable: {
+                                    reason: error.message,
+                                    roomRelated: error.roomRelated,
+                                },
+                            };
+                        }
+                        throw error;
+                    } finally {
+                        cancellers.delete(request.callId);
+                    }
                 }
                 default:
                     throw new Error(
