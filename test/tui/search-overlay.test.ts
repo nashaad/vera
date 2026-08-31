@@ -4,6 +4,7 @@ import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
+    handleSearchOverlayPaste,
     searchOverlayFooter,
     searchOverlayHeader,
     searchOverlayLines,
@@ -78,6 +79,30 @@ test("typing builds a query scoped to this workspace by default", () => {
     expect(searchOverlayQuery(state))
         .toEqual({ query: "provider fallback", workspace: "/work/one" });
     expect(searchOverlayHeader(state)).toBe("Search · all · this workspace");
+});
+
+test("search edits and re-queries at the caret", () => {
+    let state = typing("fallbak");
+    state = handleSearchOverlayKey(state, { name: "left" }).state ?? state;
+    const corrected = handleSearchOverlayKey(state, { name: "c" });
+
+    expect(corrected.state?.query).toBe("fallback");
+    expect(corrected.state?.queryCursor).toBe(7);
+    expect(corrected.action).toEqual({
+        kind: "search",
+        query: { query: "fallback", workspace: "/work/one" },
+    });
+});
+
+test("search paste asks once with the inserted query", () => {
+    const transition = handleSearchOverlayPaste(
+        startSearchOverlay("/work/one"),
+        "provider fallback\n",
+    );
+    expect(transition.action).toEqual({
+        kind: "search",
+        query: { query: "provider fallback", workspace: "/work/one" },
+    });
 });
 
 test("each keystroke asks for a search and keeps the old results as stale", () => {

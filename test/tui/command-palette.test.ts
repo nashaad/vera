@@ -4,6 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     createTuiCommandPaletteView,
     handleTuiCommandPaletteKey,
+    handleTuiCommandPalettePaste,
     startTuiCommandPalette,
     updateTuiCommandPaletteCommands,
 } from "../../clients/tui/command-palette.ts";
@@ -63,6 +64,30 @@ test("command palette search accepts spaces between label words", () => {
     expect(state.commands.map((command) => command.name)).toEqual([
         "granted_permissions",
     ]);
+});
+
+test("command palette search edits at the caret", () => {
+    let state = startTuiCommandPalette(commands);
+    for (const name of "revew") {
+        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
+    }
+    state = handleTuiCommandPaletteKey(state, { name: "left" }).state ?? state;
+    state = handleTuiCommandPaletteKey(state, { name: "left" }).state ?? state;
+    state = handleTuiCommandPaletteKey(state, { name: "i" }).state ?? state;
+
+    expect(state.query).toBe("review");
+    expect(state.queryCursor).toBe(4);
+    expect(state.commands.map((command) => command.name)).toEqual([
+        "granted_permissions",
+    ]);
+});
+
+test("command palette paste inserts at the caret", () => {
+    let state = startTuiCommandPalette(commands);
+    state = handleTuiCommandPalettePaste(state, "review");
+    state = handleTuiCommandPaletteKey(state, { name: "home" }).state ?? state;
+    state = handleTuiCommandPalettePaste(state, "permissions ");
+    expect(state.query).toBe("permissions review");
 });
 
 test("command palette finds keyboard help by common wording and key hint", () => {

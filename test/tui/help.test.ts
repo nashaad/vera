@@ -4,6 +4,7 @@ import { createTestRenderer } from "@opentui/core/testing";
 import {
     createTuiHelpView,
     handleTuiHelpKey,
+    handleTuiHelpPaste,
     startTuiHelp,
 } from "../../clients/tui/help.ts";
 
@@ -64,6 +65,27 @@ test("help search accepts spaces", () => {
         state = handleTuiHelpKey(state, { name }).state ?? state;
     }
     expect(state.query).toBe("help me");
+});
+
+test("help search edits at the caret without switching tabs", () => {
+    let state = startTuiHelp(commands, extensions);
+    state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
+    for (const name of "hep") {
+        state = handleTuiHelpKey(state, { name }).state ?? state;
+    }
+    state = handleTuiHelpKey(state, { name: "left" }).state ?? state;
+    state = handleTuiHelpKey(state, { name: "l" }).state ?? state;
+
+    expect(state.tab).toBe("keys");
+    expect(state.query).toBe("help");
+    expect(state.queryCursor).toBe(3);
+});
+
+test("help paste filters the active tab", () => {
+    let state = startTuiHelp(commands, extensions);
+    state = handleTuiHelpKey(state, { name: "right" }).state ?? state;
+    state = handleTuiHelpPaste(state, "ctrl+shift");
+    expect(state.query).toBe("ctrl+shift");
 });
 
 test("help renders general guidance and extension attribution", async () => {

@@ -24,11 +24,17 @@ import {
     dialogOptionRow,
     dialogSearchNode,
 } from "./dialog-chrome.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    tuiSingleLineEditor,
+} from "./single-line-editor.ts";
 
 interface TimelinePickerBase {
     readonly operation?: "rewind" | "fork";
     readonly boundaries: readonly TimelineBoundary[];
     readonly query: string;
+    readonly queryCursor?: number;
     readonly selectedIndex: number;
     readonly notice?: string;
 }
@@ -114,6 +120,7 @@ export function applyTuiTimelineReply(
                 operation: state.operation,
                 boundaries,
                 query: "",
+                queryCursor: 0,
                 selectedIndex: 0,
             },
             handled: true,
@@ -216,6 +223,24 @@ export function handleTuiTimelineKey(
     return handleConfirmKey(state, key, createRequestId);
 }
 
+export function handleTuiTimelinePaste(
+    state: TuiTimelinePickerState,
+    text: string,
+): TuiTimelinePickerTransition {
+    if (state.screen !== "select") return unchanged(state, false);
+    const editor = insertTuiSingleLineText(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        text,
+    );
+    return changed({
+        ...state,
+        query: editor.value,
+        queryCursor: editor.cursor,
+        selectedIndex: 0,
+        notice: undefined,
+    });
+}
+
 export function createTuiTimelinePickerView(
     renderer: RenderContext,
 ): TuiTimelinePickerView {
@@ -283,7 +308,13 @@ function timelineNodes(
 
     const selected = selectedBoundary(state);
     if (state.screen === "select") {
-        nodes.push(dialogSearchNode(renderer, state.query));
+        nodes.push(dialogSearchNode(
+            renderer,
+            state.query,
+            "Search",
+            true,
+            state.queryCursor,
+        ));
         pushNotice(state.notice);
         const filtered = filteredBoundaries(state);
         if (filtered.length === 0) {
@@ -427,20 +458,16 @@ function handleSelectKey(
                 notice: undefined,
             });
     }
-    if (key.name === "backspace") {
-        return changed({
-            ...state,
-            query: state.query.slice(0, -1),
-            selectedIndex: 0,
-            notice: undefined,
-        });
-    }
-    const text = printableText(key);
-    return text === undefined
+    const edited = handleTuiSingleLineEditorKey(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        key,
+    );
+    return edited === undefined
         ? unchanged(state, false)
         : changed({
             ...state,
-            query: state.query + text,
+            query: edited.value,
+            queryCursor: edited.cursor,
             selectedIndex: 0,
             notice: undefined,
         });
@@ -581,6 +608,9 @@ function baseState(state: TimelinePickerBase): TimelinePickerBase {
             : { operation: state.operation }),
         boundaries: state.boundaries,
         query: state.query,
+        ...(state.queryCursor === undefined
+            ? {}
+            : { queryCursor: state.queryCursor }),
         selectedIndex: state.selectedIndex,
     };
 }
@@ -594,13 +624,6 @@ function unchanged(
     handled = true,
 ): TuiTimelinePickerTransition {
     return { state, handled };
-}
-
-function printableText(key: Pick<KeyEvent, "name" | "sequence">): string | undefined {
-    const value = key.sequence.length === 1 ? key.sequence : key.name;
-    return value.length === 1 && value >= " " && value !== "\u007f"
-        ? value
-        : undefined;
 }
 
 function hasCommandModifier(

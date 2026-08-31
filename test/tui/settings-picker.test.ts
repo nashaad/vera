@@ -9,6 +9,7 @@ import { resolveTuiTheme, VERA_TUI_THEME } from "../../clients/tui/theme.ts";
 
 import {
     handleTuiSettingsPickerKey,
+    handleTuiSettingsPickerPaste,
     handleTuiSettingsPickerScroll,
     startTuiConfigurePicker,
     startTuiSettingsMenu,
@@ -794,6 +795,46 @@ test("model picker filters its choices as the user types", async () => {
     expect(frame).toContain("gl");
     expect(frame).toMatch(/▼ openrouter/);
     expect(frame).toMatch(/GLM-5\.2/);
+});
+
+test("settings search edits at the caret", () => {
+    let state = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    for (const name of "gm") {
+        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
+    }
+    state = handleTuiSettingsPickerKey(state, { name: "left" }).state ?? state;
+    state = handleTuiSettingsPickerKey(state, { name: "l" }).state ?? state;
+
+    expect(state.query).toBe("glm");
+    expect(state.queryCursor).toBe(2);
+    expect(modelRows(state).map((option) => option.model)).toEqual([
+        "z-ai/glm-5.2",
+    ]);
+});
+
+test("settings paste filters once at the caret", () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const transition = handleTuiSettingsPickerPaste(state, "glm");
+    expect(transition.state?.query).toBe("glm");
+    expect(modelRows(transition.state!).map((option) => option.model)).toEqual([
+        "z-ai/glm-5.2",
+    ]);
 });
 
 test("model picker distinguishes the same model id across providers", async () => {

@@ -25,12 +25,18 @@ import {
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    tuiSingleLineEditor,
+} from "./single-line-editor.ts";
 
 export interface TuiCommandPaletteState {
     readonly allCommands: readonly TuiPaletteEntry[];
     readonly commands: readonly TuiPaletteEntry[];
     readonly selectedIndex: number;
     readonly query: string;
+    readonly queryCursor: number;
 }
 
 export interface TuiCommandPaletteKey {
@@ -65,7 +71,7 @@ export function updateTuiCommandPaletteCommands(
     state: TuiCommandPaletteState,
     commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
-    return filteredState(grouped(commands), state.query);
+    return filteredState(grouped(commands), state.query, state.queryCursor);
 }
 
 /**
@@ -91,16 +97,12 @@ export function handleTuiCommandPaletteKey(
     if (key.name === "escape") {
         return { handled: true };
     }
-    if (key.name === "backspace") {
-        return searched(state, state.query.slice(0, -1));
-    }
-    if (key.name.length === 1) {
-        return searched(state, state.query + key.name);
-    }
-    // Rows are verb phrases now, so "switch model" is the natural way to narrow
-    // to one. Terminals name the spacebar rather than sending the character.
-    if (key.name === "space") {
-        return searched(state, `${state.query} `);
+    const edited = handleTuiSingleLineEditorKey(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        key,
+    );
+    if (edited !== undefined) {
+        return searched(state, edited);
     }
     if (key.name === "up") {
         return {
@@ -130,6 +132,17 @@ export function handleTuiCommandPaletteKey(
         };
     }
     return { state, handled: false };
+}
+
+export function handleTuiCommandPalettePaste(
+    state: TuiCommandPaletteState,
+    text: string,
+): TuiCommandPaletteState {
+    const editor = insertTuiSingleLineText(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        text,
+    );
+    return filteredState(state.allCommands, editor.value, editor.cursor);
 }
 
 export function createTuiCommandPaletteView(
@@ -168,7 +181,13 @@ export function createTuiCommandPaletteView(
                 "Commands",
                 `${counter(state)} · esc`,
             );
-            const search = dialogSearchNode(renderer, state.query);
+            const search = dialogSearchNode(
+                renderer,
+                state.query,
+                "Search",
+                true,
+                state.queryCursor,
+            );
             box.add(header);
             box.add(search);
             nodes.push(header, search);
@@ -220,10 +239,10 @@ export function createTuiCommandPaletteView(
 
 function searched(
     state: TuiCommandPaletteState,
-    query: string,
+    editor: { readonly value: string; readonly cursor: number },
 ): TuiCommandPaletteTransition {
     return {
-        state: filteredState(state.allCommands, query),
+        state: filteredState(state.allCommands, editor.value, editor.cursor),
         handled: true,
     };
 }
@@ -231,6 +250,7 @@ function searched(
 function filteredState(
     allCommands: readonly TuiPaletteEntry[],
     query: string,
+    queryCursor = query.length,
 ): TuiCommandPaletteState {
     const normalized = query.toLowerCase();
     const commands = allCommands.filter((command) =>
@@ -240,7 +260,7 @@ function filteredState(
             .toLowerCase()
             .includes(normalized)
     );
-    return { allCommands, commands, selectedIndex: 0, query };
+    return { allCommands, commands, selectedIndex: 0, query, queryCursor };
 }
 
 /**

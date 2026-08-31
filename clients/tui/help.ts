@@ -32,6 +32,11 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import { activeTuiKeymap, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    tuiSingleLineEditor,
+} from "./single-line-editor.ts";
 
 export type TuiHelpTab =
     | "general"
@@ -44,11 +49,13 @@ export interface TuiHelpState {
     readonly commands: readonly TuiCommandCatalogEntry[];
     readonly extensionCommands: readonly ExtensionCommandDescriptor[];
     readonly query: string;
+    readonly queryCursor: number;
     readonly selectedIndex: number;
 }
 
 export interface TuiHelpKey {
     readonly name: string;
+    readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly super?: boolean;
@@ -153,6 +160,7 @@ export function startTuiHelp(
         commands,
         extensionCommands,
         query: "",
+        queryCursor: 0,
         selectedIndex: 0,
     };
 }
@@ -182,6 +190,27 @@ export function handleTuiHelpKey(
     if (key.ctrl || key.meta || key.super || key.hyper) {
         return { state, handled: false };
     }
+    if (
+        state.tab !== "general"
+        && (state.query.length > 0
+            || (key.name !== "left" && key.name !== "right"))
+    ) {
+        const edited = handleTuiSingleLineEditorKey(
+            tuiSingleLineEditor(state.query, state.queryCursor),
+            key,
+        );
+        if (edited !== undefined) {
+            return {
+                state: {
+                    ...state,
+                    query: edited.value,
+                    queryCursor: edited.cursor,
+                    selectedIndex: 0,
+                },
+                handled: true,
+            };
+        }
+    }
     if (key.name === "left") {
         return switchedTab(state, -1);
     }
@@ -190,12 +219,6 @@ export function handleTuiHelpKey(
     }
     if (state.tab === "general") {
         return { state, handled: false };
-    }
-    if (key.name === "backspace") {
-        return {
-            state: { ...state, query: state.query.slice(0, -1), selectedIndex: 0 },
-            handled: true,
-        };
     }
     if (key.name === "up") {
         return {
@@ -218,17 +241,24 @@ export function handleTuiHelpKey(
             handled: true,
         };
     }
-    if (key.name.length === 1 || key.name === "space") {
-        return {
-            state: {
-                ...state,
-                query: state.query + (key.name === "space" ? " " : key.name),
-                selectedIndex: 0,
-            },
-            handled: true,
-        };
-    }
     return { state, handled: false };
+}
+
+export function handleTuiHelpPaste(
+    state: TuiHelpState,
+    text: string,
+): TuiHelpState {
+    if (state.tab === "general") return state;
+    const editor = insertTuiSingleLineText(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        text,
+    );
+    return {
+        ...state,
+        query: editor.value,
+        queryCursor: editor.cursor,
+        selectedIndex: 0,
+    };
 }
 
 export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
@@ -276,7 +306,13 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                 box.add(general);
                 nodes.push(general);
             } else {
-                const search = dialogSearchNode(renderer, state.query);
+                const search = dialogSearchNode(
+                    renderer,
+                    state.query,
+                    "Search",
+                    true,
+                    state.queryCursor,
+                );
                 box.add(search);
                 nodes.push(search);
                 const commands = windowedCommands(renderer, state);
@@ -331,7 +367,13 @@ function switchedTab(
         (current + direction + HELP_TABS.length) % HELP_TABS.length
     ]!;
     return {
-        state: { ...state, tab, query: "", selectedIndex: 0 },
+        state: {
+            ...state,
+            tab,
+            query: "",
+            queryCursor: 0,
+            selectedIndex: 0,
+        },
         handled: true,
     };
 }

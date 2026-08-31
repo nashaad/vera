@@ -282,6 +282,7 @@ import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
     handleTuiCommandPaletteKey,
+    handleTuiCommandPalettePaste,
     handleTuiCommandPaletteScroll,
     startTuiCommandPalette,
     updateTuiCommandPaletteCommands,
@@ -290,6 +291,7 @@ import {
 import {
     createTuiHelpView,
     handleTuiHelpKey,
+    handleTuiHelpPaste,
     handleTuiHelpScroll,
     startTuiHelp,
     updateTuiHelpCommands,
@@ -414,6 +416,7 @@ import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
+    handleSearchOverlayPaste,
     openSelected,
     searchOverlayViewState,
     searchSelectionOf,
@@ -459,6 +462,7 @@ import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerScroll,
     handleTuiSettingsPickerKey,
+    handleTuiSettingsPickerPaste,
     tuiPickerViewportRows,
     startTuiReviewerMenu,
     startTuiReviewerPicker,
@@ -634,6 +638,7 @@ import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
+    handleTuiTimelinePaste,
     startTuiTimelinePicker,
 } from "./timeline-picker.ts";
 import {
@@ -4698,16 +4703,85 @@ export async function startTui(
      */
     let lastIdleEscapeAt: number | undefined;
 
-    // The composer takes pastes through its own renderable handler, but the
-    // secret prompt is a plain box drawn over whatever is behind it, so the
-    // paste has to be routed here. Ahead of the composer, which would otherwise
-    // end up with the key as visible text in the transcript.
+    // The composer takes pastes through its own renderable handler. Dialog
+    // fields are plain renderables, so their paste goes to the same editor as
+    // their keystrokes before the composer can claim it as draft text.
     renderer.keyInput.on("paste", (event) => {
         // A paste is input between the two presses, and a pasted image chip
         // is draft content even though it never lands in `plainText`, so a
         // paste always disarms the pair rather than leaving an armed first
         // escape to pair across it.
         lastIdleEscapeAt = undefined;
+        const uiRequest = focusedUiRequest();
+        const pasted = (): string =>
+            stripAnsiSequences(decodePasteBytes(event.bytes));
+        if (
+            uiRequest !== undefined
+            && isUserQuestionUiRequestUpdate(uiRequest)
+            && questionView.box.visible
+            && questionView.handlePaste(pasted())
+        ) {
+            event.preventDefault();
+            event.stopPropagation();
+            renderState();
+            return;
+        }
+        if (timelinePicker !== undefined && timelinePickerView.box.visible) {
+            const transition = handleTuiTimelinePaste(timelinePicker, pasted());
+            if (transition.handled) {
+                event.preventDefault();
+                event.stopPropagation();
+                timelinePicker = transition.state;
+                renderState();
+                return;
+            }
+        }
+        if (
+            settingsPicker !== undefined
+            && settingsPicker.kind !== "extension"
+            && settingsPickerView.box.visible
+        ) {
+            const transition = handleTuiSettingsPickerPaste(
+                settingsPicker,
+                pasted(),
+            );
+            if (transition.handled) {
+                event.preventDefault();
+                event.stopPropagation();
+                settingsPicker = transition.state;
+                renderState();
+                return;
+            }
+        }
+        if (searchOverlay !== undefined && searchOverlayView.surface.visible) {
+            const transition = handleSearchOverlayPaste(searchOverlay, pasted());
+            event.preventDefault();
+            event.stopPropagation();
+            searchOverlay = transition.state;
+            if (transition.action !== undefined) {
+                runSearchOverlayAction(transition.action);
+            } else {
+                renderState();
+            }
+            return;
+        }
+        if (commandPalette !== undefined && commandPaletteView.surface.visible) {
+            event.preventDefault();
+            event.stopPropagation();
+            commandPalette = handleTuiCommandPalettePaste(
+                commandPalette,
+                pasted(),
+            );
+            renderState();
+            return;
+        }
+        if (help !== undefined && helpView.box.visible && help.tab !== "general") {
+            event.preventDefault();
+            event.stopPropagation();
+            help = handleTuiHelpPaste(help, pasted());
+            renderState();
+            return;
+        }
         if (
             standingNudges !== undefined
             && standingNudgesView.surface.visible

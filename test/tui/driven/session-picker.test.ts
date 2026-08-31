@@ -94,7 +94,7 @@ test("session picker renames a conversation it is not attached to", async () => 
         for (const _character of "picker") {
             session.sendKey("Left");
         }
-        session.sendText("color ");
+        await session.sendPaste("color ");
         session.sendKey("Enter");
         // The pane comes back rebuilt from the host rather than patched.
         await session.waitForVisiblePane("Continue the theme color picker");

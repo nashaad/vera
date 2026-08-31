@@ -24,6 +24,10 @@ import {
     TUI_SELECTION_TEXT,
     TUI_TEXT,
 } from "./state.ts";
+import {
+    tuiSingleLineCaretColumn,
+    tuiSingleLineEditor,
+} from "./single-line-editor.ts";
 
 // Shared building blocks for Vera's overlay dialogs. Every picker/dialog is an
 // unbordered card: a bold title with an "esc" affordance, an optional search
@@ -242,6 +246,7 @@ export function dialogSearchNode(
     // and off it does not shift the rest of the card. It parks no caret: a
     // blinking cursor is what says a field takes typing.
     live = true,
+    cursor = query.length,
 ): TextRenderable {
     const typed = query.length > 0;
     if (!live) {
@@ -270,7 +275,9 @@ export function dialogSearchNode(
     // On an empty field the caret sits on the first letter of the placeholder,
     // which is what makes the line read as a live input without a magnifier or
     // a bar to explain it.
-    node.caretColumn = query.length;
+    node.caretColumn = tuiSingleLineCaretColumn(
+        tuiSingleLineEditor(query, cursor),
+    );
     return node;
 }
 

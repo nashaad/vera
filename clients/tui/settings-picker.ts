@@ -101,6 +101,11 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    tuiSingleLineEditor,
+} from "./single-line-editor.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 
@@ -375,6 +380,8 @@ export interface TuiSettingsPickerState {
     readonly options: readonly TuiSettingsPickerOption[];
     readonly selectedIndex: number;
     readonly query: string;
+    /** Absent on older/fixed states; an active search defaults to its end. */
+    readonly queryCursor?: number;
     /** Overrides the name the pane draws for its kind. */
     readonly title?: string;
     /** A line under the title, for a pane whose rows need the context. */
@@ -3010,9 +3017,25 @@ export function handleTuiSettingsPickerKey(
         }
         return { handled: true, ...preview };
     }
-    if (key.name === "backspace") {
-        if (!pickerIsSearchable(state)) return unchanged(state, true);
-        return searched(state, state.query.slice(0, -1));
+    const searchable = pickerIsSearchable(state);
+    if (
+        searchable
+        && (state.query.length > 0
+            || (key.name !== "left" && key.name !== "right"))
+        && !(digitQuickSelect(state)
+            && state.query === ""
+            && /^[1-9]$/.test(key.name))
+    ) {
+        const edited = handleTuiSingleLineEditorKey(
+            tuiSingleLineEditor(state.query, state.queryCursor),
+            key,
+        );
+        if (edited !== undefined) {
+            return searched(state, edited.value, edited.cursor);
+        }
+    }
+    if (key.name === "backspace" || key.name === "delete") {
+        return unchanged(state, true);
     }
     // Digits pick the numbered row directly on the short panes. Only while
     // the search is empty: a query that contains a digit is still a search.
@@ -3040,13 +3063,8 @@ export function handleTuiSettingsPickerKey(
     ) {
         return unchanged(state, true);
     }
-    if (
-        (key.name.length === 1 || key.name === "space")
-        && !key.ctrl
-        && !key.meta
-    ) {
-        if (!pickerIsSearchable(state)) return unchanged(state, true);
-        return searched(state, state.query + (key.name === "space" ? " " : key.name));
+    if (key.name.length === 1 || key.name === "space") {
+        return unchanged(state, true);
     }
     // Left and right open and close a section, the shape a tree has everywhere
     // else. On a row inside a section they act on the heading above it, so
@@ -3181,6 +3199,18 @@ export function handleTuiSettingsPickerKey(
         };
     }
     return unchanged(state, false);
+}
+
+export function handleTuiSettingsPickerPaste(
+    state: TuiSettingsPickerState,
+    text: string,
+): TuiSettingsPickerTransition {
+    if (!pickerIsSearchable(state)) return unchanged(state, false);
+    const editor = insertTuiSingleLineText(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        text,
+    );
+    return searched(state, editor.value, editor.cursor);
 }
 
 /**
@@ -4107,6 +4137,7 @@ function renderListPickerRows(
             state.query,
             "Search",
             tab !== "help",
+            "queryCursor" in state ? state.queryCursor : undefined,
         );
         box.add(search);
         nodes.push(search);
@@ -6141,7 +6172,13 @@ function renderThemePickerRows(
     pointer?: DialogRowPointer,
 ): void {
     const header = dialogHeaderNode(renderer, "Theme");
-    const search = dialogSearchNode(renderer, state.query);
+    const search = dialogSearchNode(
+        renderer,
+        state.query,
+        "Search",
+        true,
+        state.queryCursor,
+    );
     box.add(header);
     box.add(search);
     nodes.push(header, search);
@@ -6288,6 +6325,7 @@ function matching(
 function searched(
     state: TuiSettingsPickerState,
     query: string,
+    queryCursor = query.length,
 ): TuiSettingsPickerTransition {
     // Search stays inside the active tab. The tab is a claim about what the
     // list is showing, and a search that reached past it would leave the
@@ -6303,6 +6341,7 @@ function searched(
         options,
         selectedIndex: 0,
         query,
+        queryCursor,
         ...(state.kind === "model" ? { modelFocus: "list" as const } : {}),
     };
     return {

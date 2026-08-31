@@ -31,6 +31,7 @@ import {
 import { tuiBindingId } from "./keymap.ts";
 import {
     handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
     startTuiSingleLineEditor,
     tuiSingleLineText,
 } from "./single-line-editor.ts";
@@ -93,6 +94,8 @@ export interface TuiQuestionView {
         update: UserQuestionUiRequestUpdate,
         key: TuiQuestionKey,
     ): TuiQuestionKeyResult;
+    /** Paste only while the custom-answer or notes field owns input. */
+    handlePaste(text: string): boolean;
     repaint(): void;
 }
 
@@ -484,6 +487,19 @@ export function createTuiQuestionView(
             return response === undefined
                 ? { handled: false }
                 : { handled: true, response };
+        },
+        handlePaste(text): boolean {
+            if (enteringNotes) {
+                notesEditor = insertTuiSingleLineText(notesEditor, text);
+                renderNotes();
+                return true;
+            }
+            if (enteringCustom && lastUpdate !== undefined) {
+                customEditor = insertTuiSingleLineText(customEditor, text);
+                renderChoices(lastUpdate);
+                return true;
+            }
+            return false;
         },
         repaint(): void {
             bar.borderColor = TUI_ACCENT;

@@ -5,6 +5,7 @@ import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
+    handleTuiTimelinePaste,
     startTuiTimelinePicker,
     type TuiTimelinePickerState,
 } from "../../clients/tui/timeline-picker.ts";
@@ -205,6 +206,37 @@ test("timeline picker searches, moves, goes back, and closes locally", async () 
         key("escape"),
         values("unused"),
     ).state).toBeUndefined();
+});
+
+test("timeline search edits at the caret", () => {
+    let state = selectState();
+    for (const character of "blos") {
+        state = requiredState(handleTuiTimelineKey(
+            state,
+            key(character, character),
+            values("unused"),
+        ).state);
+    }
+    state = requiredState(handleTuiTimelineKey(
+        state,
+        key("left"),
+        values("unused"),
+    ).state);
+    state = requiredState(handleTuiTimelineKey(
+        state,
+        key("b", "b"),
+        values("unused"),
+    ).state);
+
+    expect(state).toMatchObject({ query: "blobs", queryCursor: 4 });
+});
+
+test("timeline paste inserts one query", () => {
+    const transition = handleTuiTimelinePaste(selectState(), "checkpoint\n");
+    expect(transition.state).toMatchObject({
+        screen: "select",
+        query: "checkpoint",
+    });
 });
 
 test("timeline picker cancels locally and refreshes stale plans", () => {

@@ -99,5 +99,7 @@ test("a pasted name drops the newline a copied line carries", () => {
     const state = startTuiNamePrompt(session, label);
     expect(handleTuiNamePromptPaste(state, "release notes\n").value)
         .toBe("release notes");
+    expect(handleTuiNamePromptPaste(state, "release ").value)
+        .toBe("release ");
     expect(handleTuiNamePromptPaste(state, "\n\n")).toBe(state);
 });

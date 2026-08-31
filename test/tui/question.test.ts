@@ -143,6 +143,24 @@ test("TUI question edits a custom answer at the caret", async () => {
     }
 });
 
+test("TUI question pastes into the active custom field", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(request);
+    try {
+        view.handleKey(request, { name: "3", sequence: "3" });
+        expect(view.handlePaste("Use Arc\n")).toBe(true);
+        expect(view.handleKey(request, { name: "enter" }).response?.response)
+            .toEqual({
+                type: "user_question",
+                outcome: "custom",
+                text: "Use Arc",
+            });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("TUI question arrow keys select without touching the engine early", async () => {
     const setup = await createTestRenderer({ width: 60, height: 20 });
     const view = createTuiQuestionView(setup.renderer);

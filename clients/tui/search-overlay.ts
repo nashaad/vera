@@ -1,5 +1,11 @@
 import type { LinesViewState } from "./lines-view.ts";
 import { tuiBindingId } from "./keymap.ts";
+import {
+    handleTuiSingleLineEditorKey,
+    insertTuiSingleLineText,
+    tuiSingleLineEditor,
+    tuiSingleLineText,
+} from "./single-line-editor.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 import type {
     SessionSearchFilter,
@@ -54,6 +60,7 @@ const SEARCH_SCOPES: readonly SearchScope[] = [
 
 export interface SearchOverlayState {
     readonly query: string;
+    readonly queryCursor: number;
     readonly filter?: SessionSearchFilter;
     readonly scope: SearchScope;
     /** The session's own workspace, which is what `workspace` scope means. */
@@ -100,6 +107,7 @@ export function startSearchOverlay(
         : scopes[0]!;
     return {
         query: "",
+        queryCursor: 0,
         scope,
         workspace,
         ...(start.sessionId === undefined ? {} : { sessionId: start.sessionId }),
@@ -208,24 +216,25 @@ export function handleSearchOverlayKey(
             handled: true,
         };
     }
-    if (key.name === "backspace") {
-        return requery(typed(state, state.query.slice(0, -1)));
-    }
-    if (key.name === "space") {
-        return requery(typed(state, `${state.query} `));
-    }
-    // The character as the terminal sent it, so a shifted key types its
-    // capital rather than the letter its name carries. Keys that are not
-    // characters arrive as escape sequences and are left alone.
-    const character = key.sequence?.length === 1 && key.sequence >= " "
-        ? key.sequence
-        : key.name.length === 1 && !key.shift
-            ? key.name
-            : undefined;
-    if (character !== undefined) {
-        return requery(typed(state, state.query + character));
+    const edited = handleTuiSingleLineEditorKey(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        key,
+    );
+    if (edited !== undefined) {
+        return requery(typed(state, edited));
     }
     return { state, handled: false };
+}
+
+export function handleSearchOverlayPaste(
+    state: SearchOverlayState,
+    text: string,
+): SearchOverlayTransition {
+    const editor = insertTuiSingleLineText(
+        tuiSingleLineEditor(state.query, state.queryCursor),
+        text,
+    );
+    return requery(typed(state, editor));
 }
 
 /**
@@ -235,11 +244,13 @@ export function handleSearchOverlayKey(
  */
 function typed(
     state: SearchOverlayState,
-    query: string,
+    editor: { readonly value: string; readonly cursor: number },
 ): SearchOverlayState {
+    const query = editor.value;
     const searching = query.trim().length > 0;
     const next: SearchOverlayState = {
         query: query,
+        queryCursor: editor.cursor,
         scope: state.scope,
         workspace: state.workspace,
         searching,
@@ -560,7 +571,12 @@ export function searchOverlayViewState(
     const cursorLine = lines.findIndex((line) => line.selected === true);
     return {
         title: searchOverlayHeader(state),
-        input: { text: `${state.query}▏` },
+        input: {
+            text: tuiSingleLineText(
+                tuiSingleLineEditor(state.query, state.queryCursor),
+                "▏",
+            ),
+        },
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.map((line) => ({
             text: line.text,

@@ -101,8 +101,7 @@ export function handleTuiNamePromptPaste(
     state: TuiNamePromptState,
     text: string,
 ): TuiNamePromptState {
-    const pasted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "")
-        .trim();
+    const pasted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "");
     return pasted.length === 0
         ? state
         : { ...state, ...insertTuiSingleLineText(state, pasted) };

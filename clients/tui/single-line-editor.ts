@@ -20,7 +20,22 @@ const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
 export function startTuiSingleLineEditor(
     value = "",
 ): TuiSingleLineEditorState {
-    return { value, cursor: value.length };
+    return tuiSingleLineEditor(value);
+}
+
+/** Adapt a field that stores its value and caret as separate properties. */
+export function tuiSingleLineEditor(
+    value: string,
+    cursor = value.length,
+): TuiSingleLineEditorState {
+    const clamped = Math.max(0, Math.min(cursor, value.length));
+    if (clamped === value.length) return { value, cursor: clamped };
+    let boundary = 0;
+    for (const part of GRAPHEMES.segment(value)) {
+        if (part.index > clamped) break;
+        boundary = part.index;
+    }
+    return { value, cursor: boundary };
 }
 
 /** Insert plain single-line text at the caret. */
