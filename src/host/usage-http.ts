@@ -1,5 +1,6 @@
 import { join } from "node:path";
 
+import { packedWebRoot } from "../release/layout.ts";
 import {
     foldUsageReport,
     foldUsageSessionDetail,
@@ -24,14 +25,14 @@ export interface StartUsageWebServerOptions {
 }
 
 /**
- * Loopback HTTP for Vera web. Binds 127.0.0.1 only. The browser fetches
- * `/api/usage`; everything else is the overview app.
+ * Loopback HTTP for the usage page. Binds 127.0.0.1 only. The browser fetches
+ * `/api/usage`; everything else is the already-packed app.
  */
 export async function startUsageWebServer(
     options: StartUsageWebServerOptions,
 ): Promise<UsageWebServer> {
     const hostname = options.hostname ?? "127.0.0.1";
-    const webRoot = options.webRoot ?? defaultWebRoot();
+    const webRoot = options.webRoot ?? packedWebRoot();
     const fold = options.fold ?? ((window) => foldUsageReport({
         sessionDirectory: options.sessionDirectory,
         window,
@@ -42,7 +43,7 @@ export async function startUsageWebServer(
             ? {}
             : { reviewLogPath: options.reviewLogPath }),
     }));
-    const assets = await buildWebAssets(webRoot);
+    const assets = await readPackedWebAssets(webRoot);
     const server = Bun.serve({
         hostname,
         port: options.port ?? 0,
@@ -121,32 +122,27 @@ export async function startUsageWebServer(
     };
 }
 
-function defaultWebRoot(): string {
-    return join(import.meta.dir, "../../clients/web");
-}
-
-async function buildWebAssets(webRoot: string): Promise<{
+async function readPackedWebAssets(webRoot: string): Promise<{
     readonly html: string;
     readonly js: string;
     readonly css: string;
 }> {
-    const html = await Bun.file(join(webRoot, "index.html")).text();
-    const css = await Bun.file(join(webRoot, "styles.css")).text();
-    const built = await Bun.build({
-        entrypoints: [join(webRoot, "main.tsx")],
-        target: "browser",
-        format: "esm",
-        minify: false,
-    });
-    if (!built.success) {
-        const detail = built.logs.map((log) => String(log)).join("\n");
-        throw new Error(`Vera web failed to bundle:\n${detail}`);
+    const html = await readPackedAsset(webRoot, "index.html");
+    const js = await readPackedAsset(webRoot, "main.js");
+    const css = await readPackedAsset(webRoot, "styles.css");
+    return { html, js, css };
+}
+
+async function readPackedAsset(webRoot: string, name: string): Promise<string> {
+    const path = join(webRoot, name);
+    const file = Bun.file(path);
+    if (!(await file.exists())) {
+        throw new Error(`Packed web asset missing: ${path}`);
     }
-    const script = built.outputs.find((output) =>
-        output.path.endsWith(".js") || output.type === "entry-point"
-    );
-    if (script === undefined) {
-        throw new Error("Vera web bundle produced no JavaScript");
+    try {
+        return await file.text();
+    } catch (error) {
+        const reason = error instanceof Error ? error.message : String(error);
+        throw new Error(`Packed web asset unreadable: ${path}: ${reason}`);
     }
-    return { html, js: await script.text(), css };
 }

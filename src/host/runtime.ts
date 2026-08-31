@@ -225,6 +225,8 @@ export interface StartResidentHostOptions {
     readonly startupLog?: HostLog;
     /** Collects what extension startup found; tests read it back. */
     readonly startupFindings?: StartupFindings;
+    /** Packed usage assets. Defaults to the packed release web directory. */
+    readonly webRoot?: string;
 }
 
 export interface ResidentHost {
@@ -1190,6 +1192,9 @@ export async function startResidentHost(
                 sessionDirectory,
                 catalogCacheDir: providerCatalogCacheDir(),
                 reviewLogPath: defaultReviewLogPath(),
+                ...(options.webRoot === undefined
+                    ? {}
+                    : { webRoot: options.webRoot }),
             });
             usageWebUrl = usageWeb.url;
         } catch (error) {

@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { packWebAssets } from "../../scripts/pack-web.ts";
 import { startUsageWebServer } from "../../src/host/usage-http.ts";
 import {
     foldUsageReport,
@@ -43,6 +44,12 @@ function usage(overrides: Partial<ModelUsage> = {}): ModelUsage {
         cost: 0.41,
         ...overrides,
     };
+}
+
+async function packedWebDir(): Promise<string> {
+    const directory = tempDir("vera-packed-web-");
+    await packWebAssets(directory, { force: true });
+    return directory;
 }
 
 async function writeSession(directory: string): Promise<void> {
@@ -89,6 +96,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     const server = await startUsageWebServer({
         sessionDirectory,
         catalogCacheDir: cacheDir,
+        webRoot: await packedWebDir(),
         fold: (window) => foldUsageReport({
             sessionDirectory,
             window,
@@ -138,6 +146,14 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     expect(body.calls).toHaveLength(1);
 });
 
+test("missing packed assets fail with an explicit path", async () => {
+    const sessionDirectory = tempDir("vera-usage-http-missing-");
+    await expect(startUsageWebServer({
+        sessionDirectory,
+        webRoot: tempDir("vera-usage-http-empty-"),
+    })).rejects.toThrow(/Packed web asset missing: .*index\.html/);
+});
+
 test("resident host answers usage_web with a loopback page", async () => {
     const root = tempDir("vera-usage-runtime-");
     const host = await startResidentHost({
@@ -152,6 +168,7 @@ test("resident host answers usage_web with a loopback page", async () => {
         lockPath: join(root, "host.json"),
         sessionDirectory: join(root, "sessions"),
         eventLogDirectory: join(root, "logs"),
+        webRoot: await packedWebDir(),
     });
     try {
         const url = await readUsageWebUrlThroughHost(host.server.socketPath);
