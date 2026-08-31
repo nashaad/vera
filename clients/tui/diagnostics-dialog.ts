@@ -311,7 +311,7 @@ export function createTuiDiagnosticsDialogView(
 function inspectMarkdownStyle(): SyntaxStyle {
     return SyntaxStyle.fromStyles({
         default: { fg: TUI_TEXT },
-        "markup.heading": { fg: TUI_ACCENT, bold: true },
+        "markup.heading": { fg: TUI_TEXT, bold: true },
         "markup.strong": { fg: TUI_TEXT, bold: true },
         "markup.italic": { fg: TUI_TEXT, italic: true },
         "markup.raw": { fg: TUI_NOTICE },

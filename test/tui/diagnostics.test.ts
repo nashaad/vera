@@ -85,8 +85,8 @@ test("TUI diagnostics remains useful before model activity arrives", () => {
     expect(text).toContain("| Context | Unavailable |");
     expect(text).toContain("| ID | Unavailable |");
     expect(text).toContain("| File | Unavailable |");
-    expect(text).not.toContain("Model failures");
-    expect(text).not.toContain("Pre-image stash");
+    expect(text).not.toContain("MODEL FAILURES");
+    expect(text).not.toContain("PRE-IMAGE STASH");
 });
 
 test("TUI session diagnostics prints the session ID and keeps Vera data out", () => {
@@ -109,10 +109,10 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
     expect(text).toContain(
         "| File | /home/user/.vera/sessions/session-123.jsonl |",
     );
-    expect(text).not.toContain("## Build");
-    expect(text).not.toContain("## Extensions");
-    expect(text).not.toContain("## Model failures");
-    expect(text).not.toContain("## Pre-image stash");
+    expect(text).not.toContain("## BUILD");
+    expect(text).not.toContain("## EXTENSIONS");
+    expect(text).not.toContain("## MODEL FAILURES");
+    expect(text).not.toContain("## PRE-IMAGE STASH");
 });
 
 test("TUI session diagnostics shows the live process chain and memory", () => {
@@ -130,7 +130,7 @@ test("TUI session diagnostics shows the live process chain and memory", () => {
         ],
     });
 
-    expect(text).toContain("## Processes");
+    expect(text).toContain("## PROCESSES");
     expect(text).toContain("| client | 101 | 10.0 MiB |");
     expect(text).toContain("| host | 102 | 256.0 MiB |");
     expect(text).toContain("| worker | 103 | 1.50 GiB |");
@@ -159,7 +159,7 @@ test("TUI diagnostics shows marked startup timings near the top", () => {
         },
     });
 
-    expect(text.indexOf("Build")).toBeLessThan(text.indexOf("Startup"));
+    expect(text.indexOf("BUILD")).toBeLessThan(text.indexOf("STARTUP"));
     expect(text).not.toContain("Runtime");
     expect(text).toContain("| total | 1.68s | ok |");
     expect(text).toContain("| model_discovery | 308ms | ok, slowest |");
@@ -192,7 +192,7 @@ test("TUI diagnostics puts itemized session usage above runtime", () => {
         runningBackgroundAgents: 0,
     });
 
-    expect(text.indexOf("Session usage")).toBeLessThan(text.indexOf("Runtime"));
+    expect(text.indexOf("SESSION USAGE")).toBeLessThan(text.indexOf("RUNTIME"));
     expect(text).toContain("| Runtime | 2.50s |");
     expect(text).toContain("### openrouter/deepseek/deepseek-v4");
     expect(text).toContain("| Input | 12,000 |");

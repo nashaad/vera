@@ -63,7 +63,7 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     const { state } = snapshot;
     const lines = [
         "# Session diagnostics",
-        "## Session",
+        ...sectionHeading("Session"),
         ...fieldTable([
             ["Identity", snapshot.sessionIdentity ?? "Unavailable"],
             ["ID", snapshot.sessionId ?? "Unavailable"],
@@ -72,13 +72,13 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
             ["Background", `${snapshot.runningBackgroundAgents} running`],
         ]),
         "",
-        "## Processes",
+        ...sectionHeading("Processes"),
         ...processTableLines(snapshot.processes),
         "",
-        "## Session usage",
+        ...sectionHeading("Session usage"),
         ...sessionUsageLines(state.sessionUsage),
         "",
-        "## Runtime",
+        ...sectionHeading("Runtime"),
         ...fieldTable([
             ["Turn", state.working ? snapshot.activity : "Idle"],
             ["Elapsed", state.working ? snapshot.elapsed : "—"],
@@ -89,8 +89,7 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
 
     const model = state.modelActivity;
     const modelRows: string[][] = [];
-    lines.push("");
-    lines.push("## Model");
+    lines.push("", ...sectionHeading("Model"));
     if (model !== undefined) {
         const now = snapshot.now ?? Date.now();
         const retrying = Date.parse(model.retryAt) > now;
@@ -194,9 +193,9 @@ function formatMemory(bytes: number): string {
 function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     return [
         "# Vera diagnostics",
-        "## Build",
+        ...sectionHeading("Build"),
         ...markdownTable(
-            ["Component", "Value"],
+            ["", ""],
             [
                 ["Client", snapshot.build?.clientVersion ?? "unknown"],
                 ["Client entrypoint", snapshot.build?.clientEntrypoint ?? "unknown"],
@@ -205,21 +204,21 @@ function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
             ],
         ),
         "",
-        "## Startup",
+        ...sectionHeading("Startup"),
         ...startupSummaryLines(snapshot.startup),
         "",
-        "## Startup extensions",
+        ...sectionHeading("Startup extensions"),
         ...startupExtensionLines(snapshot.startup),
         "",
-        "## Extensions",
+        ...sectionHeading("Extensions"),
         ...extensionLines(snapshot),
         "",
         ...clientExtensionReloadLines(snapshot),
         "",
-        "## Model failures",
+        ...sectionHeading("Model failures"),
         ...modelFailureLines(snapshot),
         "",
-        "## Pre-image stash",
+        ...sectionHeading("Pre-image stash"),
         ...stashLines(snapshot),
     ].join("\n");
 }
@@ -366,7 +365,11 @@ function markdownTable(
 }
 
 function fieldTable(rows: readonly (readonly string[])[]): string[] {
-    return markdownTable(["Field", "Value"], rows);
+    return markdownTable(["", ""], rows);
+}
+
+function sectionHeading(title: string): string[] {
+    return [`## ${title.toUpperCase()}`, "", "---"];
 }
 
 function markdownTableCell(value: string): string {

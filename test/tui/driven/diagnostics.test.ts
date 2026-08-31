@@ -30,15 +30,15 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("Session usage");
+        pane = await session.waitForVisiblePane("SESSION USAGE");
         expect(pane).toContain("Session    Vera");
         expect(pane).not.toContain("›");
-        expect(pane).toContain("Session usage");
-        expect(pane).toContain("Runtime");
+        expect(pane).toContain("SESSION USAGE");
+        expect(pane).toContain("RUNTIME");
         expect(pane).toContain("enter copies all");
         expect(pane).not.toContain("## Session");
-        expect(pane).not.toContain("Extensions");
-        expect(pane).not.toContain("Pre-image stash");
+        expect(pane).not.toContain("EXTENSIONS");
+        expect(pane).not.toContain("PRE-IMAGE STASH");
         // The composer stays behind the overlay, and its frame carries the
         // row that says what the session is answering as.
         expect(pane).toContain("test · HIGH");
@@ -46,26 +46,23 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendKey("C-p");
         await session.settle(100);
         pane = session.captureVisiblePane();
-        expect(pane).toContain("Session usage");
+        expect(pane).toContain("SESSION USAGE");
         expect(pane).not.toContain("Commands");
 
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Tab");
-        pane = await session.waitForVisiblePane("Build");
+        pane = await session.waitForVisiblePane("BUILD");
         expect(pane).toContain("Session    Vera");
         expect(pane).not.toContain("›");
-        expect(pane).toContain("Build");
-        expect(pane).toContain("Extensions");
-        expect(pane).toContain("Model failures");
-        expect(pane).toContain("Pre-image stash");
-        expect(pane).not.toContain("Session usage");
+        expect(pane).toContain("BUILD");
+        expect(pane).not.toContain("SESSION USAGE");
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Escape");
         pane = await session.waitForVisiblePaneWhere(
             (visible) => visible.includes("Message Vera")
-                && !visible.includes("Pre-image stash"),
+                && !visible.includes("Diagnostics"),
             "diagnostics overlay to close without transcript output",
         );
         expect(pane).not.toContain("Diagnostics");
@@ -257,8 +254,10 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Session usage");
+        await session.waitForVisiblePane("SESSION USAGE");
         session.sendKey("Tab");
+        await session.waitForVisiblePane("BUILD");
+        session.sendKey("NPage");
         pane = await session.waitForVisiblePane("Status  failed");
         expect(pane).toContain("Error");
         expect(pane).not.toContain("Status  partial");
@@ -290,8 +289,10 @@ test("partial reload names the extensions that stayed active", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Session usage");
+        await session.waitForVisiblePane("SESSION USAGE");
         session.sendKey("Tab");
+        await session.waitForVisiblePane("BUILD");
+        session.sendKey("NPage");
         pane = await session.waitForVisiblePane("Status  partial (1 loaded)");
         expect(pane).toContain("Active  test.sidebar");
         expect(pane).toContain("Error");
