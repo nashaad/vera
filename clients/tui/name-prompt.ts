@@ -80,14 +80,12 @@ export function startTuiNamePrompt(
     target: TuiNamePromptTarget,
     label: string,
     parent?: TuiSettingsPickerState,
+    value = "",
 ): TuiNamePromptState {
-    // The field opens empty rather than holding the current row text: a row
-    // with no name of its own reads as its first prompt, and prefilling would
-    // offer to save that sentence as the name.
     return {
         target,
         label,
-        value: "",
+        value,
         ...(parent === undefined ? {} : { parent }),
     };
 }
@@ -167,7 +165,7 @@ export function createTuiNamePromptView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "⏎ save · ⏎ on an empty field clears · esc cancel",
+        content: "⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -204,7 +202,9 @@ export function createTuiNamePromptView(
             title.content = state.target.kind === "session"
                 ? "Rename conversation"
                 : "Name shortlisted model";
-            hint.content = state.label;
+            hint.content = state.target.kind === "session"
+                ? "Name"
+                : state.label;
             entry.content = tuiNamePromptEntryLine(state.value);
         },
     };
@@ -212,9 +212,7 @@ export function createTuiNamePromptView(
 
 export function tuiNamePromptEntryLine(value: string): StyledText {
     return new StyledText([
-        value.length === 0
-            ? fg(TUI_MUTED)("name")
-            : fg(TUI_TEXT)(value),
+        ...(value.length === 0 ? [] : [fg(TUI_TEXT)(value)]),
         fg(TUI_ACCENT)("▏"),
     ]);
 }

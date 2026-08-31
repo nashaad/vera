@@ -1014,6 +1014,26 @@ function normalizeSessionName(
         : trimmed;
 }
 
+/** Rename a durable session that has no resident agent in this host. */
+export async function renameStoredSession(
+    sessionPath: string,
+    name: string | null,
+): Promise<RenameSessionOutcome> {
+    const requested = normalizeSessionName(name);
+    if (requested === undefined) {
+        return { status: "invalid" };
+    }
+    try {
+        const store = await SessionStore.open(sessionPath);
+        await store.appendName(requested);
+        return { status: "renamed", name: store.name() ?? null };
+    } catch (error) {
+        return (error as NodeJS.ErrnoException).code === "ENOENT"
+            ? { status: "not_found" }
+            : { status: "failed" };
+    }
+}
+
 interface InheritedAgentSettings {
     readonly approvalMode: ApprovalMode;
     readonly modelSettings?: ModelTurnSettings;

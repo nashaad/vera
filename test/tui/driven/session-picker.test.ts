@@ -90,8 +90,10 @@ test("session picker renames a conversation it is not attached to", async () => 
         expect(pane).toContain("^r rename");
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
-        // The field opens empty: the row text is a fallback, not a name.
-        expect(pane).not.toContain("Rename conversation\nContinue");
+        expect(pane).toContain("Continue the theme picker");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
         session.sendText("release notes");
         session.sendKey("Enter");
         // The pane comes back rebuilt from the host rather than patched.
@@ -101,6 +103,51 @@ test("session picker renames a conversation it is not attached to", async () => 
         pane = await session.waitForVisiblePane(
             "session renamed: release notes",
         );
+        session.sendKey("C-c");
+        const exit = await session.waitForSessionExit();
+        await scenario.finish(exit);
+        expect(readFileSync(
+            join(home, "rename-session-result.txt"),
+            "utf8",
+        )).toBe(
+            "saved-session release notes\ncurrent Fix the deployment race",
+        );
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
+test("the focused sidebar renames its selected conversation", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-rename-"));
+    const scenario = createTuiRenameSessionScenario({ home });
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => scenario.dependencies,
+    });
+
+    try {
+        await session.waitForVisiblePane("Start a conversation");
+        session.sendKey("C-e");
+        let pane = await session.waitForVisiblePane("Rename  r");
+        expect(pane).toContain("Fix the deployme");
+        expect(pane).toContain("Continue the the");
+
+        session.sendKey("Up");
+        session.sendText("r");
+        pane = await session.waitForVisiblePane("Rename conversation");
+        expect(pane).toContain("Continue the theme pick");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
+        session.sendText("release notes");
+        session.sendKey("Enter");
+
+        pane = await session.waitForVisiblePane("release notes");
+        expect(pane).toContain("Rename  r");
+        session.sendKey("Escape");
+        await session.waitForVisiblePane("session renamed: release notes");
         session.sendKey("C-c");
         const exit = await session.waitForSessionExit();
         await scenario.finish(exit);
@@ -131,7 +178,11 @@ test("renaming the attached row goes through its own session", async () => {
         await session.waitForVisiblePane("Fix the deployment race");
         session.sendKey("Down");
         session.sendKey("C-r");
-        await session.waitForVisiblePane("Rename conversation");
+        pane = await session.waitForVisiblePane("Rename conversation");
+        expect(pane).toContain("Fix the deployment race");
+        for (const _character of "Fix the deployment race") {
+            session.sendKey("BSpace");
+        }
         session.sendText("the current one");
         session.sendKey("Enter");
         await session.waitForVisiblePane("the current one");
@@ -174,6 +225,9 @@ test("a refused rename says so and leaves the pane open", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("C-r");
         await session.waitForVisiblePane("Rename conversation");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
         session.sendText("release notes");
         session.sendKey("Enter");
         // The pane comes back with the row still under its old name.
@@ -221,4 +275,3 @@ test("session trash rejection keeps the picker usable", async () => {
         await session.close();
     }
 }, 15_000);
-

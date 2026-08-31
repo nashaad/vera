@@ -177,6 +177,8 @@ export interface TuiSettingsPickerOption {
     readonly card?: boolean;
     readonly rowMeta?: DialogMeta;
     readonly sessionId?: string;
+    /** Unclipped current session name, used to seed the rename field. */
+    readonly sessionName?: string;
     /**
      * Session rows carry their own columns rather than folding activity and
      * workspace into the description: a session is recognised by its title, so
@@ -663,6 +665,7 @@ export interface TuiSettingsPickerTransition {
     readonly renameCandidate?: {
         readonly sessionId: string;
         readonly label: string;
+        readonly value?: string;
     };
 }
 
@@ -2108,6 +2111,7 @@ export function startTuiSessionPicker(
             description: "",
             searchText: `${agent.id} ${agent.workspace}`,
             sessionId: agent.id,
+            ...(agent.title === undefined ? {} : { sessionName: agent.title }),
             activity: sessionActivity(agent, now),
             workspace: sessionWorkspace(agent),
             ...(agent.size_bytes === undefined
@@ -2419,6 +2423,9 @@ export function handleTuiSettingsPickerKey(
                 renameCandidate: {
                     sessionId: selected.sessionId,
                     label: selected.label,
+                    ...(selected.sessionName === undefined
+                        ? {}
+                        : { value: selected.sessionName }),
                 },
                 handled: true,
             };

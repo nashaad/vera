@@ -146,6 +146,7 @@ import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
 import {
     AgentRegistry,
+    renameStoredSession,
     type RegisteredAgentSummary,
 } from "./agent-registry.ts";
 import { subagentPoolPolicy } from "./subagent-policy.ts";
@@ -1149,8 +1150,23 @@ export async function startResidentHost(
                     ? { status: "closed", sessionRetained: true }
                     : { status: "not_found" };
             },
-            renameSession: (targetId, name) =>
-                registry.renameSession(targetId, name),
+            renameSession: async (targetId, name) => {
+                const resident = await registry.renameSession(targetId, name);
+                if (resident.status !== "not_found") return resident;
+                const sessionPath = await storedSessionPath(
+                    targetId,
+                    sessionDirectory,
+                    await storedSessions,
+                );
+                if (sessionPath === undefined) {
+                    return { status: "not_found" };
+                }
+                const renamed = await renameStoredSession(sessionPath, name);
+                if (renamed.status === "renamed") {
+                    await indexStoredSession(sessionPath, storedSessionIndex);
+                }
+                return renamed;
+            },
             runOnce: async (runOptions) => {
                 const result = await registry.runOnce(runOptions);
                 // The agent is already closed and off the roster, so the
@@ -2353,18 +2369,25 @@ async function storedSessionExists(
     sessionDirectory: string,
     index: ReadonlyMap<string, RegisteredAgentSummary>,
 ): Promise<boolean> {
-    if (index.has(agentId)) {
-        return true;
-    }
+    return (await storedSessionPath(agentId, sessionDirectory, index))
+        !== undefined;
+}
+
+async function storedSessionPath(
+    agentId: string,
+    sessionDirectory: string,
+    index: ReadonlyMap<string, RegisteredAgentSummary>,
+): Promise<string | undefined> {
+    const indexed = index.get(agentId)?.session_path;
+    if (indexed !== undefined) return indexed;
     if (!/^[A-Za-z0-9_-]+$/.test(agentId)) {
-        return false;
+        return undefined;
     }
+    const conventional = join(sessionDirectory, `${agentId}.jsonl`);
     try {
-        return (await stat(
-            join(sessionDirectory, `${agentId}.jsonl`),
-        )).isFile();
+        return (await stat(conventional)).isFile() ? conventional : undefined;
     } catch {
-        return false;
+        return undefined;
     }
 }
 
