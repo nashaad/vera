@@ -23,7 +23,7 @@ test("the mode is described, not itemized into rules the user cannot edit", () =
         }],
     })).toBe([
         "Permission mode: auto",
-        "a reviewer clears the safe ones, you decide the rest",
+        "a classifier clears the safe ones, you decide the rest",
         "1 session grant · 0 preferences",
         "/settings to review or remove them",
     ].join("\n"));

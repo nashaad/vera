@@ -20,7 +20,7 @@ test("the reviewer pane sets and clears both slots", async () => {
         await session.waitForVisiblePane("Start a conversation");
         session.sendText("/settings");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Reviewer");
+        await session.waitForVisiblePane("Classifier");
         session.sendText("revie");
         session.sendKey("Enter");
         await session.waitForVisiblePane("the agent's own model");
@@ -35,7 +35,7 @@ test("the reviewer pane sets and clears both slots", async () => {
 
         session.sendKey("Down");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("no failsafe reviewer");
+        await session.waitForVisiblePane("no failsafe classifier");
         session.sendKey("Down");
         session.sendKey("Down");
         session.sendKey("Enter");
@@ -45,7 +45,7 @@ test("the reviewer pane sets and clears both slots", async () => {
         // Clearing the primary drops the whole reviewer, failsafe included.
         session.sendKey("Up");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("Use the agent's model");
+        await session.waitForVisiblePane("Use configured default");
         session.sendKey("Up");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("the agent's own model");

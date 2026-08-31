@@ -22,6 +22,7 @@ import {
     developerOverrides,
     loadVeraConfig,
     updateVeraConfigDefaults,
+    type VeraConfig,
     VeraConfigError,
 } from "../src/config.ts";
 
@@ -1255,6 +1256,70 @@ test("a plain reviewer block is the default profile beside a catalog", () => {
         { model: "haiku", provider: "openrouter" },
         { model: "sonnet", provider: "openrouter" },
     ]);
+});
+
+test("an inline classifier assignment supplies the default reviewer", () => {
+    const config: VeraConfig = {
+        schema_version: 1,
+        provider: "openrouter",
+        model: "agent",
+        approval_mode: "auto",
+        model_assignments: {
+            reviewer: {
+                models: [{
+                    name: "classifier",
+                    provider: "openrouter",
+                    model: "qwen/qwen3.8-max",
+                    reasoning_effort: "medium",
+                }],
+            },
+        },
+    };
+
+    expect(configuredReviewer(config)).toEqual({
+        models: [{
+            provider: "openrouter",
+            model: "qwen/qwen3.8-max",
+            reasoningEffort: "medium",
+        }],
+    });
+});
+
+test("the direct classifier picker overrides a default profile route", () => {
+    const config: VeraConfig = {
+        schema_version: 1,
+        provider: "openrouter",
+        model: "agent",
+        approval_mode: "auto",
+        model_assignments: {
+            reviewer: {
+                models: [{
+                    name: "assigned",
+                    provider: "openrouter",
+                    model: "assigned-classifier",
+                }],
+            },
+        },
+        reviewer_profiles: {
+            default: {
+                policy: "Keep this policy.",
+                timeout_ms: 12_000,
+            },
+        },
+        reviewer: {
+            provider: "openrouter",
+            model: "picker-classifier",
+        },
+    };
+
+    expect(configuredReviewer(config)).toEqual({
+        models: [{
+            provider: "openrouter",
+            model: "picker-classifier",
+        }],
+        policy: "Keep this policy.",
+        timeoutMs: 12_000,
+    });
 });
 
 test("a configured hook is bound to the profile's hooks directory", () => {

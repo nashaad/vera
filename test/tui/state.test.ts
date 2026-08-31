@@ -2110,7 +2110,7 @@ test("an image sent with no prose still carries its file name", () => {
     });
 });
 
-test("reviewer decisions remain visible with their risk and authorization", () => {
+test("classifier decisions and failures use distinct visible language", () => {
     let state = createTuiState();
     state = applyAgentUpdate(state, {
         type: "tool_review",
@@ -2130,10 +2130,28 @@ test("reviewer decisions remain visible with their risk and authorization", () =
         userAuthorization: "unknown",
         seq: 2,
     });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "bash",
+        decision: "unavailable",
+        reason: "The approval classifier timed out after 60s. The action did not run.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        seq: 3,
+    });
+    state = applyAgentUpdate(state, {
+        type: "tool_review",
+        tool: "write",
+        decision: "unavailable",
+        reason: "The turn was cancelled before classification finished.",
+        riskLevel: "high",
+        userAuthorization: "unknown",
+        seq: 4,
+    });
 
     expect(state.entries[0]).toEqual({
         kind: "review",
-        text: "Auto review approved bash (risk: low, authorization: unknown):"
+        text: "Classifier allowed bash (risk: low, authorization: unknown):"
             + " Read-only listing of a sibling project.",
     });
     expect(state.entries[1]).toEqual({
@@ -2141,8 +2159,25 @@ test("reviewer decisions remain visible with their risk and authorization", () =
         text: "",
         diagnostic: resolveTuiDiagnostic(
             "permission_denied",
-            "Reviewer denied bash (critical risk):"
+            "Classifier denied bash (critical risk):"
                 + " Deletes files outside the workspace.",
+        ),
+    });
+    expect(state.entries[2]).toEqual({
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "unknown",
+            "Classifier failed for bash: The approval classifier timed out"
+                + " after 60s. The action did not run.",
+        ),
+    });
+    expect(state.entries[3]).toEqual({
+        kind: "notice",
+        text: "",
+        diagnostic: resolveTuiDiagnostic(
+            "unknown",
+            "Classification cancelled for write. The action did not run.",
         ),
     });
 });
@@ -2170,7 +2205,7 @@ function autoReviewEntry(
 test("auto-review approval uses semantic status colors", () => {
     const entry = autoReviewEntry(
         "unknown",
-        "Auto-review returned an allow decision; the sandbox does not allow"
+        "The classifier returned an allow decision; the sandbox does not allow"
             + " network access and matches an allow-list entry.",
     );
     const text = entry.text;
@@ -2182,14 +2217,14 @@ test("auto-review approval uses semantic status colors", () => {
 
     expect(chunks.map((chunk) => chunk.text.toString()).join(""))
         .toBe(text);
-    expect(chunkFor("approved")?.fg).toEqual(parseColor(TUI_SUCCESS));
+    expect(chunkFor("allowed")?.fg).toEqual(parseColor(TUI_SUCCESS));
     expect(chunkFor("authorization: unknown")?.fg)
         .toEqual(parseColor(TUI_MUTED));
     expect(chunkFor("allow")?.fg).toEqual(parseColor(TUI_SUCCESS));
     expect(chunkFor(" decision; the sandbox does not allow"
         + " network access and matches an allow-list entry.")?.fg)
         .toEqual(parseColor(TUI_MUTED));
-    expect(chunkFor("Auto review ")?.fg).toEqual(parseColor(TUI_MUTED));
+    expect(chunkFor("Classifier ")?.fg).toEqual(parseColor(TUI_MUTED));
     expect(chunkFor(" bash (risk: low, ")?.fg)
         .toEqual(parseColor(TUI_MUTED));
 });
@@ -2198,7 +2233,7 @@ test("authorization grades stay muted", () => {
     for (const grade of ["unknown", "high"] as const) {
         const entry = autoReviewEntry(
             grade,
-            "Auto-review returned an allow decision.",
+            "The classifier returned an allow decision.",
         );
         const rendered = renderTuiEntry(entry);
         const authorization = rendered.chunks.find((chunk) =>
@@ -2220,15 +2255,15 @@ test("auto-review approval resolves colors from the current theme", () => {
     applyTuiTheme(theme);
     try {
         const rendered = renderTuiEntry(
-            autoReviewEntry("unknown", "Auto-review returned an allow decision."),
+            autoReviewEntry("unknown", "The classifier returned an allow decision."),
         );
         const chunkFor = (text: string) => rendered.chunks.find((chunk) =>
             chunk.text.toString() === text
         );
 
-        expect(chunkFor("Auto review ")?.fg)
+        expect(chunkFor("Classifier ")?.fg)
             .toEqual(parseColor(theme.muted));
-        expect(chunkFor("approved")?.fg)
+        expect(chunkFor("allowed")?.fg)
             .toEqual(parseColor(theme.success));
         expect(chunkFor("authorization: unknown")?.fg)
             .toEqual(parseColor(theme.muted));

@@ -1812,13 +1812,14 @@ export function configuredSubagentModel(
 }
 
 /**
- * Maps the reviewer block onto engine settings. Returns `undefined` when no
- * reviewer is configured, which leaves the reviewer on the agent's own model.
+ * Resolves the default classifier from its assignment, named profile, or
+ * legacy reviewer block. `undefined` leaves classification on the agent model.
  */
 export function configuredReviewer(
     config: VeraConfig,
+    isReachable?: ReachabilityCheck,
 ): ToolReviewerSettings | undefined {
-    return configuredReviewers(config).default;
+    return configuredReviewers(config, isReachable).default;
 }
 
 /**
@@ -1895,24 +1896,24 @@ export function configuredReviewers(
     isReachable?: ReachabilityCheck,
 ): Readonly<Record<string, ToolReviewerSettings>> {
     const configured: Record<string, ToolReviewerSettings> = {};
-    if (
-        config.models !== undefined
-        && config.model_routes !== undefined
-        && config.reviewer_profiles !== undefined
-    ) {
-        const catalog = {
-            models: config.models,
-            model_routes: config.model_routes,
-            reviewer_profiles: config.reviewer_profiles,
-        };
-        const slot = bindModelAssignment(
-            catalog,
-            config.model_assignments ?? {},
-            { assignment: "reviewer" },
-            isReachable,
-        );
+    const catalog = {
+        models: config.models ?? [],
+        model_routes: config.model_routes ?? {},
+        reviewer_profiles: config.reviewer_profiles ?? {},
+    };
+    const assignment = bindModelAssignment(
+        catalog,
+        config.model_assignments ?? {},
+        { assignment: "reviewer" },
+        isReachable,
+    );
+    if (config.reviewer_profiles !== undefined) {
         for (const name of Object.keys(config.reviewer_profiles)) {
-            const resolved = resolveReviewerProfile(catalog, name, slot.models);
+            const resolved = resolveReviewerProfile(
+                catalog,
+                name,
+                assignment.models,
+            );
             if (resolved === undefined) {
                 continue;
             }
@@ -1933,15 +1934,33 @@ export function configuredReviewers(
     }
 
     const reviewer = config.reviewer;
-    // A catalog names reviewers; the plain block names the default one. A
-    // profile actually called `default` wins, since it was written by hand.
-    if (reviewer === undefined || configured.default !== undefined) {
+    // The legacy plain block is still written by the direct classifier picker,
+    // so it overrides only the default profile's route while preserving that
+    // profile's policy. Clearing it reveals the named profile or assignment.
+    if (reviewer === undefined) {
+        if (
+            configured.default === undefined
+            && assignment.models.length > 0
+        ) {
+            configured.default = {
+                models: assignment.models.map((model) => ({
+                    provider: model.provider,
+                    model: model.model,
+                    ...(model.reasoning_effort === undefined
+                        ? {}
+                        : { reasoningEffort: model.reasoning_effort }),
+                })),
+            };
+        }
         return configured;
     }
     const escalationConfigured = reviewer.escalation_model !== undefined
         || reviewer.escalation_provider !== undefined
         || reviewer.escalation_reasoning_effort !== undefined;
     configured.default = {
+        // A hand-written default profile may still supply the policy and any
+        // timeout the direct picker did not override.
+        ...configured.default,
         // Ordered route: the router walks it and moves on when a reviewer
         // cannot answer, so the fallback is simply the second entry.
         models: [

@@ -42,12 +42,12 @@ export function createReviewCircuitBreaker(): ReviewCircuitBreaker {
             }
             consecutiveDenials += 1;
             if (consecutiveDenials >= MAX_CONSECUTIVE_REVIEW_DENIALS_PER_TURN) {
-                return `The approval reviewer denied ${consecutiveDenials} actions in a row,`
+                return `The approval classifier denied ${consecutiveDenials} actions in a row,`
                     + " so the turn was stopped. Say what you want to happen next.";
             }
             const denials = recent.filter((entry) => entry === "deny").length;
             if (denials >= MAX_RECENT_REVIEW_DENIALS_PER_TURN) {
-                return `The approval reviewer denied ${denials} of the last`
+                return `The approval classifier denied ${denials} of the last`
                     + ` ${recent.length} actions, so the turn was stopped.`
                     + " Say what you want to happen next.";
             }

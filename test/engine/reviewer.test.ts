@@ -621,13 +621,13 @@ test("a decision that quotes an outcome inside its rationale is still read", () 
 test("missing scoring fields default from the outcome", () => {
     expect(parseReviewDecision('{"outcome":"allow"}')).toEqual({
         decision: "allow",
-        reason: "Auto-review returned an allow decision.",
+        reason: "The classifier returned an allow decision.",
         riskLevel: "low",
         userAuthorization: "unknown",
     });
     expect(parseReviewDecision('{"outcome":"deny"}')).toEqual({
         decision: "deny",
-        reason: "Auto-review returned a deny decision without a rationale.",
+        reason: "The classifier returned a deny decision without a rationale.",
         riskLevel: "high",
         userAuthorization: "unknown",
     });
@@ -636,7 +636,7 @@ test("missing scoring fields default from the outcome", () => {
         ?.riskLevel).toBe("low");
 });
 
-test("a reviewer that answers after the deadline is unavailable, not an allow", async () => {
+test("a classifier that answers after the deadline reports a timeout, not a denial", async () => {
     class SlowAdapter implements ModelAdapter {
         stream(): ModelStream {
             const stream = new ModelEventStream();
@@ -660,7 +660,9 @@ test("a reviewer that answers after the deadline is unavailable, not an allow", 
 
     // Not a denial: the reviewer said nothing about the action.
     expect(decision.decision).toBe("unavailable");
-    expect(decision.reason).toContain("timed out");
+    expect(decision.reason).toBe(
+        "The approval classifier timed out after 5ms. The action did not run.",
+    );
 });
 
 test("a decision that arrives after cancellation is not acted on", async () => {
@@ -710,7 +712,7 @@ test("a provider failure fails closed instead of allowing", async () => {
     const decision = await review(request, new AbortController().signal);
 
     expect(decision.decision).toBe("unavailable");
-    expect(decision.reason).toContain("unavailable");
+    expect(decision.reason).toContain("classifier failed");
 });
 
 test("a review cancelled before it starts is not a verdict", async () => {

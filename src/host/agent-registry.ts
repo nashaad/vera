@@ -383,6 +383,12 @@ export interface AgentRegistryOptions {
     readonly createEffortPool?: (projectRoot: string) => EffortPool;
     /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
+    /**
+     * Reads the current classifier binding. Hosts provide this when config can
+     * change while they run; tests and embedded callers may keep using the
+     * fixed `reviewer` value above.
+     */
+    readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
     /** Persists a reviewer choice. `null` clears it. */
@@ -1158,11 +1164,7 @@ export class AgentRegistry {
     private defaultProvider: string;
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
     private defaultApprovalMode: ApprovalMode;
-    /**
-     * The reviewer route in effect. Held here rather than read from options
-     * because choosing a reviewer has to reach a session already running: an
-     * agent reads it at each review, not once at start.
-     */
+    /** Fixed classifier route for embedded callers without a live reader. */
     private reviewerSettings: ToolReviewerSettings | undefined;
     private isClosed = false;
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
@@ -2032,12 +2034,14 @@ export class AgentRegistry {
     }
 
     private reviewerDefault(): ReviewerModelDefault {
-        return reviewerDefaultOf(this.reviewerSettings);
+        return reviewerDefaultOf(this.readReviewer());
     }
 
     /** The reviewer route agents read at each review, not once at start. */
     readReviewer(): ToolReviewerSettings | undefined {
-        return this.reviewerSettings;
+        return this.options.readReviewer === undefined
+            ? this.reviewerSettings
+            : this.options.readReviewer();
     }
 
     /**
@@ -2053,7 +2057,7 @@ export class AgentRegistry {
             this.options.writeReviewer?.(null);
             return true;
         }
-        const carried = this.reviewerSettings;
+        const carried = this.readReviewer();
         const fallback = patch.fallback === undefined
             ? carried?.models[1]
             : patch.fallback === null
@@ -4050,30 +4054,35 @@ export class AgentRegistry {
                     }),
                 // Read at each use, not copied for the session: a setting the
                 // user changes has to reach a session already running.
-                readPolicy: () => ({
-                    ...(store.header.delegation !== undefined
-                            || registry.options.modelFallback === undefined
-                        ? {}
-                        : {
-                        modelFallback: registry.options.modelFallback,
-                    }),
-                    ...(registry.options.permissionModes === undefined ? {} : {
-                        permissionModes: registry.options.permissionModes,
-                    }),
-                    ...(registry.options.reviewer === undefined ? {} : {
-                        reviewer: registry.options.reviewer,
-                    }),
-                    ...(registry.options.reviewers === undefined ? {} : {
-                        reviewers: registry.options.reviewers,
-                    }),
-                    disabledPromptContributions: disabledPromptContributions(),
-                    subagentPolicy: delegatedSubagentPolicy(
-                        this.options.readPolicy === undefined
-                            ? { allowSelf: true }
-                            : this.options.readPolicy(store.header.cwd),
-                        store.header.delegation,
-                    ),
-                }),
+                readPolicy: () => {
+                    const reviewer = this.readReviewer();
+                    return {
+                        ...(store.header.delegation !== undefined
+                                || registry.options.modelFallback === undefined
+                            ? {}
+                            : {
+                            modelFallback: registry.options.modelFallback,
+                        }),
+                        ...(registry.options.permissionModes === undefined
+                            ? {}
+                            : {
+                                permissionModes:
+                                    registry.options.permissionModes,
+                            }),
+                        ...(reviewer === undefined ? {} : { reviewer }),
+                        ...(registry.options.reviewers === undefined ? {} : {
+                            reviewers: registry.options.reviewers,
+                        }),
+                        disabledPromptContributions:
+                            disabledPromptContributions(),
+                        subagentPolicy: delegatedSubagentPolicy(
+                            this.options.readPolicy === undefined
+                                ? { allowSelf: true }
+                                : this.options.readPolicy(store.header.cwd),
+                            store.header.delegation,
+                        ),
+                    };
+                },
                 readModelSettings: () => settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,

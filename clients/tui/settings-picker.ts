@@ -766,7 +766,7 @@ const PERMISSION_OPTIONS: readonly TuiSettingsPickerOption[] = [
     {
         value: "auto",
         label: "Auto",
-        description: "a reviewer clears the safe ones, you decide the rest",
+        description: "a classifier clears the safe ones, you decide the rest",
     },
     {
         value: "full_access",
@@ -1108,8 +1108,8 @@ const SETTINGS_MENU_OPTIONS: readonly TuiSettingsPickerOption[] = [
     },
     {
         value: "reviewer",
-        label: "Reviewer",
-        description: "which model approves actions in auto mode",
+        label: "Classifier",
+        description: "which model classifies actions in auto mode",
         searchText: "approval auto review failsafe",
     },
     { value: "theme", label: "Theme", description: "TUI colors" },
@@ -1769,13 +1769,13 @@ export function startTuiReviewerMenu(
             description: agentModel
                 ? "the agent's own model"
                 : reviewerSlotLabel(reviewerDefault?.primary),
-            searchText: "reviewer approval auto",
+            searchText: "classifier reviewer approval auto",
         },
         {
             value: "reviewer_fallback",
             label: "Failsafe",
             description: reviewerSlotLabel(reviewerDefault?.fallback),
-            searchText: "reviewer fallback backup",
+            searchText: "classifier reviewer fallback backup",
         },
     ];
     return {
@@ -1817,10 +1817,10 @@ export function startTuiReviewerPicker(
     }
     const clearRow: TuiSettingsPickerOption = {
         value: REVIEWER_CLEAR_VALUE,
-        label: slot === "primary" ? "Use the agent's model" : "None",
+        label: slot === "primary" ? "Use configured default" : "None",
         description: slot === "primary"
-            ? "review with whatever model the session runs"
-            : "no failsafe reviewer",
+            ? "clear this override; use Defaults or the session model"
+            : "no failsafe classifier",
     };
     const options = [clearRow, ...rows];
     const currentValue = current === undefined
@@ -6967,9 +6967,9 @@ function pickerTitle(
                         : kind === "permission_settings"
                             ? "Permissions"
                             : kind === "reviewer_settings"
-                                ? "Reviewer"
+                                ? "Classifier"
                                 : kind === "reviewer"
-                                    ? "Select reviewer"
+                                    ? "Select classifier"
                                     : kind === "model_assignment"
                                         ? "Assign a model"
                                         : "Theme";

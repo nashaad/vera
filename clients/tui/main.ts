@@ -11045,7 +11045,7 @@ export async function startTui(
         selection: { slot: TuiReviewerSlot; provider?: string; model?: string },
     ): string {
         const name = selection.model === undefined
-            ? "default"
+            ? "configured default"
             : selection.model;
         return selection.slot === "primary" ? name : `failsafe ${name}`;
     }
@@ -13701,14 +13701,14 @@ export async function startTui(
             } else if (selection.kind === "reviewer") {
                 const patch = reviewerPatchFor(selection);
                 if (patch === undefined) {
-                    showStatusNotice("Choose a primary reviewer first");
+                    showStatusNotice("Choose a primary classifier first");
                 } else {
                     requestModelSettingsChange(
                         { reviewer: patch },
-                        `reviewer → ${reviewerToast(selection)}`,
+                        `classifier → ${reviewerToast(selection)}`,
                         `the ${selection.slot === "primary"
-                            ? "reviewer"
-                            : "failsafe reviewer"}`,
+                            ? "classifier"
+                            : "failsafe classifier"}`,
                         settingsPickerAgent,
                     );
                 }

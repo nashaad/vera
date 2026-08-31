@@ -401,16 +401,20 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         if (update.decision === "allow") {
             return appendEntry(state, {
                 kind: "review",
-                text: `Auto review approved ${update.tool}`
+                text: `Classifier allowed ${update.tool}`
                     + ` (risk: ${update.riskLevel},`
                     + ` authorization: ${update.userAuthorization}):`
                     + ` ${update.reason}`,
             });
         }
         const message = update.decision === "deny"
-            ? `Reviewer denied ${update.tool}`
+            ? `Classifier denied ${update.tool}`
                 + ` (${update.riskLevel} risk): ${update.reason}`
-            : `Reviewer unavailable for ${update.tool}: ${update.reason}`;
+            : update.reason
+                === "The turn was cancelled before classification finished."
+                ? `Classification cancelled for ${update.tool}.`
+                    + " The action did not run."
+                : `Classifier failed for ${update.tool}: ${update.reason}`;
         return appendTuiDiagnostic(
             state,
             update.decision === "deny" ? "permission_denied" : "unknown",
@@ -1620,20 +1624,20 @@ interface TuiReviewHighlightMatch {
 /** Routine approval is quiet; only its decision stands out. */
 function renderTuiReview(text: string): TextChunk[] {
     const chunks: TextChunk[] = [];
-    const approvalPrefix = "Auto review ";
+    const approvalPrefix = "Classifier ";
     if (!text.startsWith(approvalPrefix)) {
         return text.length === 0 ? [] : [fg(TUI_MUTED)(text)];
     }
     chunks.push(fg(TUI_MUTED)(approvalPrefix));
 
     let remaining = text.slice(approvalPrefix.length);
-    const approved = "approved";
-    if (!remaining.startsWith(approved)) {
+    const allowed = "allowed";
+    if (!remaining.startsWith(allowed)) {
         chunks.push(fg(TUI_MUTED)(remaining));
         return chunks;
     }
-    chunks.push(fg(TUI_SUCCESS)(approved));
-    remaining = remaining.slice(approved.length);
+    chunks.push(fg(TUI_SUCCESS)(allowed));
+    remaining = remaining.slice(allowed.length);
 
     const riskMarker = " (risk: ";
     const authorizationMarker = ", authorization: ";

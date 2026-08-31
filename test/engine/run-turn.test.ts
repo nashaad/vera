@@ -3635,7 +3635,7 @@ test("an unavailable reviewer rejects the tool without asking the user", async (
     const events = createTestEvents(channel.engine);
     const state = reviewedTurnState(channel, events, async () => ({
         decision: "unavailable",
-        reason: "The approval reviewer was unavailable (timed out).",
+        reason: "The approval classifier timed out after 60s. The action did not run.",
         riskLevel: "high",
         userAuthorization: "unknown",
     }));
@@ -3722,7 +3722,7 @@ test("auto rejects without asking when no reviewer is configured", async () => {
         isError: true,
     });
     expect(JSON.stringify(state.messages[2]))
-        .toContain("automatic reviewer is unavailable");
+        .toContain("automatic classifier is not configured");
     expect(JSON.stringify(message)).toContain("done");
 });
 

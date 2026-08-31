@@ -1303,7 +1303,7 @@ export function createReviewerProfileRouter(
         if (settings === undefined) {
             return Promise.resolve({
                 decision: "unavailable",
-                reason: `Reviewer profile ${profile} is unavailable.`,
+                reason: `Classifier profile ${profile} is unavailable.`,
                 riskLevel: "high",
                 userAuthorization: "unknown",
             });
@@ -2619,7 +2619,7 @@ async function executePreparedTool(
                     );
             if (reviewCall === undefined) {
                 const reason =
-                    "The automatic reviewer is unavailable, so the action did not run.";
+                    "The automatic classifier is not configured, so the action did not run.";
                 state.events.emit({
                     type: "tool_review_decided",
                     toolCall: hookCall,

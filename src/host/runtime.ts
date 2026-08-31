@@ -272,7 +272,6 @@ export async function startResidentHost(
     if (migration.notice !== undefined) {
         hostLog({ type: "pool_migrated", message: migration.notice });
     }
-    const reviewer = configuredReviewer(options.config);
     // The config as it stands on disk, not as it stood when the host came up.
     // Every setting below is read through this, so changing one in the
     // settings pane reaches the next session that starts and nothing has to be
@@ -689,7 +688,10 @@ export async function startResidentHost(
         get modelFallback() {
             return configuredModelFallback(currentConfig());
         },
-        ...(reviewer === undefined ? {} : { reviewer }),
+        readReviewer: () => configuredReviewer(
+            currentConfig(),
+            currentReachability(),
+        ),
         get subagentModel() {
             return configuredSubagentModel(currentConfig());
         },
