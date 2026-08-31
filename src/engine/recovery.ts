@@ -76,6 +76,8 @@ export interface ModelRetryScheduled {
     readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
+    /** The prior partial model attempt was rejected; this attempt replaces it. */
+    readonly replacesPartialAttempt?: true;
 }
 
 export interface ModelFallbackPolicy {
@@ -189,10 +191,7 @@ export async function requestModelWithRecovery(
                         options,
                     );
                 }
-                if (
-                    !contentStarted
-                    && event.error instanceof ProviderFailureError
-                ) {
+                if (event.error instanceof ProviderFailureError) {
                     const failure = event.error.failure;
                     // A refused capability is evidence about the model, so it
                     // is answered before the overload counters: it is neither
@@ -200,7 +199,7 @@ export async function requestModelWithRecovery(
                     // Asked on every failure, not only on requests carrying an
                     // effort: image, tool and thinking refusals arrive on
                     // requests that named no effort at all.
-                    if (options.coarsening !== undefined) {
+                    if (!contentStarted && options.coarsening !== undefined) {
                         coarsened = coarsenAfterFailure(
                             {
                                 provider: activeRequest.provider ?? "",
@@ -219,7 +218,8 @@ export async function requestModelWithRecovery(
                         ? consecutiveOverloadFailures + 1
                         : 0;
                     if (
-                        !fallbackSelected
+                        !contentStarted
+                        && !fallbackSelected
                         && options.fallback !== undefined
                         && options.fallback.model !== activeRequest.model
                         && failure.resolution === "retry"
@@ -238,6 +238,10 @@ export async function requestModelWithRecovery(
                     const delayMs = policy.delaysMs[retryAttempt];
                     if (
                         failure.resolution === "retry"
+                        && (
+                            !contentStarted
+                            || failure.partialOutputReplaceable === true
+                        )
                         && delayMs !== undefined
                     ) {
                         retry = {
@@ -247,6 +251,9 @@ export async function requestModelWithRecovery(
                                 maxAttempts: policy.delaysMs.length + 1,
                                 delayMs,
                                 failure,
+                                ...(contentStarted
+                                    ? { replacesPartialAttempt: true as const }
+                                    : {}),
                             },
                             message: event.message,
                         };

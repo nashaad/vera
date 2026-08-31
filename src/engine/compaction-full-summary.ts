@@ -1,4 +1,4 @@
-import type { ModelMessage } from "../model/types.ts";
+import type { ModelMessage, ModelUsage } from "../model/types.ts";
 import { measureMessages } from "./context-measurement.ts";
 import {
     CompactionRejectedError,
@@ -166,6 +166,7 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
         let summary: string;
         let model: string | undefined;
         let provider: string | undefined;
+        let usage: ModelUsage | undefined;
         try {
             const result = await complete({
                 systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -177,6 +178,7 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
             summary = result.text.trim();
             model = result.model;
             provider = result.provider;
+            usage = result.usage;
         } catch (error) {
             if (error instanceof CompletionUnavailableError) {
                 throw error;
@@ -194,6 +196,7 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
             projection: [summaryMessage(summary, files)],
             model,
             provider,
+            ...(usage === undefined ? {} : { usage }),
         };
     },
 };

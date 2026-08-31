@@ -11,6 +11,8 @@ export const HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE =
     "agent.attachment-release.v1";
 export const HOST_CAPABILITY_AGENT_CONTEXT_SYNC = "agent.context-sync.v1";
 export const HOST_CAPABILITY_HARNESS_MESSAGES = "harness-messages.v1";
+/** Session-owned queued prompt snapshots and atomic one/all release. */
+export const HOST_CAPABILITY_PROMPT_QUEUE_RELEASE = "prompt-queue.release.v1";
 /**
  * Session-scoped settings: dial a model or a posture for this session without
  * rewriting the host's defaults, read back what the session has held, and tell
@@ -25,6 +27,8 @@ export const HOST_CAPABILITY_SESSION_SCOPED_STATE = "session-scoped-state.v1";
 export const HOST_CAPABILITY_SKILL_COMMANDS = "skills.commands.v1";
 /** Machine-wide work inbox: a snapshot on attach, then changes as they land. */
 export const HOST_CAPABILITY_WORK_INDEX = "work.index.v1";
+/** Loopback Vera web usage page served by this host. */
+export const HOST_CAPABILITY_WEB_USAGE = "web.usage.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -34,9 +38,11 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_AGENT_CONTEXT_SYNC,
     HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
     HOST_CAPABILITY_SKILL_COMMANDS,
     HOST_CAPABILITY_WORK_INDEX,
+    HOST_CAPABILITY_WEB_USAGE,
 ] as const;
 
 export function parseHostCapabilities(

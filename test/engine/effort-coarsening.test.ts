@@ -252,6 +252,79 @@ test("coarsening stays off when no pool is wired in", async () => {
     expect(result.stopReason).toBe("error");
 });
 
+test("a replaceable partial failure retries without capability coarsening", async () => {
+    const attempts: string[] = [];
+    const adapter: ModelAdapter = {
+        stream(request): ModelEventStream {
+            const stream = new ModelEventStream();
+            attempts.push(request.reasoningEffort ?? "");
+            stream.push({ type: "start" });
+            if (attempts.length === 1) {
+                stream.push({ type: "text_start", contentIndex: 0 });
+                stream.push({
+                    type: "text_delta",
+                    contentIndex: 0,
+                    text: "partial",
+                });
+                const error = new ProviderFailureError({
+                    kind: "invalid_request",
+                    resolution: "retry",
+                    statusCode: 400,
+                    message:
+                        "Invalid value: 'xhigh'. reasoning_effort is not "
+                        + "supported for this model",
+                    partialOutputReplaceable: true,
+                }, undefined);
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        ...message("partial"),
+                        stopReason: "error",
+                        errorMessage: error.message,
+                    },
+                });
+                return stream;
+            }
+            stream.push({ type: "done", message: message("ok") });
+            return stream;
+        },
+    };
+    const learned: LearnedFact[] = [];
+    const retries: unknown[] = [];
+
+    const result = await requestModelWithRecovery(
+        adapter,
+        {
+            provider: "cerebras",
+            model: "m",
+            reasoningEffort: "xhigh",
+            messages: [],
+        },
+        {
+            onEvent: () => {},
+            onRetry: (retry) => retries.push(retry),
+            onFallback: () => {},
+            coarsening: {
+                pool: fakePool(FULL_EFFORTS, (_ref, _key, fact) => {
+                    learned.push(fact);
+                }),
+            },
+            onCoarsened: () => {
+                throw new Error("partial output must not enter coarsening");
+            },
+            wait: async () => {},
+        },
+    );
+
+    expect(result.stopReason).toBe("stop");
+    expect(attempts).toEqual(["xhigh", "xhigh"]);
+    expect(learned).toEqual([]);
+    expect(retries).toEqual([
+        expect.objectContaining({ replacesPartialAttempt: true }),
+    ]);
+});
+
 test("a level the pool forbids is moved before the request goes out", () => {
     const pool = fakePool({ ...FULL_EFFORTS, xhigh: null }, () => {});
 

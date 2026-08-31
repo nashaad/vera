@@ -200,6 +200,21 @@ test("attachment IDs remain ordered across commands and transcript projection", 
     }]);
 });
 
+test("queued prompt release commands accept only one or all", () => {
+    expect(parseClientCommand({
+        type: "release_queued_prompts",
+        mode: "one",
+    })).toEqual({ type: "release_queued_prompts", mode: "one" });
+    expect(parseClientCommand({
+        type: "release_queued_prompts",
+        mode: "all",
+    })).toEqual({ type: "release_queued_prompts", mode: "all" });
+    expect(parseClientCommand({
+        type: "release_queued_prompts",
+        mode: "next",
+    })).toBeUndefined();
+});
+
 test("only invoke_skill can mint trusted skill authority", () => {
     expect(parseClientCommand({
         type: "prompt",
@@ -345,6 +360,29 @@ test("protocol checkpoints keep the current update sequence", () => {
             seq: 1,
         },
     ]);
+});
+
+test("prompt queue state is sequenced and survives a checkpoint", () => {
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    const queue = {
+        prompts: [{ content: "next", state: "held" as const }],
+        draining: false,
+    };
+
+    protocol({ type: "prompt_queue_changed", queue });
+    protocol.checkpoint([]);
+
+    expect(withoutSessionUsage(updates)).toEqual([
+        { type: "prompt_queue", queue, seq: 1 },
+        { type: "history", entries: [], promptQueue: queue, seq: 1 },
+    ]);
+    expect(parseAgentUpdate(updates[0])).toEqual(updates[0]);
+    expect(parseAgentUpdate(updates[1])).toEqual(updates[1]);
 });
 
 test("protocol replay restores usage against the effective context cap", () => {
@@ -931,6 +969,7 @@ test("model retry activity crosses the protocol boundary", () => {
         nextAttempt: 2,
         maxAttempts: 3,
         delayMs: 500,
+        replacesPartialAttempt: true,
         failure: {
             kind: "server",
             resolution: "retry",
@@ -946,6 +985,7 @@ test("model retry activity crosses the protocol boundary", () => {
         nextAttempt: 2,
         maxAttempts: 3,
         delayMs: 500,
+        replacesPartialAttempt: true,
         failure: {
             kind: "server",
             statusCode: 503,

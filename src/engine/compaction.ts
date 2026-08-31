@@ -1,4 +1,4 @@
-import type { ModelMessage } from "../model/types.ts";
+import type { ModelMessage, ModelUsage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import type { CompleteText } from "./completion-service.ts";
 import { measureMessages } from "./context-measurement.ts";
@@ -43,6 +43,8 @@ export interface CompactionProposal {
     readonly model?: string;
     /** The provider that produced the projection, when known. */
     readonly provider?: string;
+    /** Billed usage of the summarizer call, when the strategy received it. */
+    readonly usage?: ModelUsage;
 }
 
 export type CompactionStrategy = (

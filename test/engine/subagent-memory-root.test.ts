@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
+import { MEMORY_ENABLED } from "../../src/engine/memory.ts";
 import { projectMemoryDir } from "../../src/engine/memory-paths.ts";
 import { runSubagent } from "../../src/engine/subagent.ts";
 import {
@@ -15,8 +16,12 @@ import { FauxAdapter } from "../support/faux-adapter.ts";
 // root at a scratch directory is to set HOME before the process starts.
 const ISOLATED = "VERA_SUBAGENT_MEMORY_TEST_HOME";
 
+// The write tool is only registered while memory is read, so with memory off
+// there is no call for these to make.
+const memoryTest = MEMORY_ENABLED ? test : test.skip;
+
 if (process.env[ISOLATED] === undefined) {
-    test("a child's memory write lands under an isolated HOME", async () => {
+    memoryTest("a child's memory write lands under an isolated HOME", async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-subagent-home-"));
         try {
             const child = Bun.spawn(["bun", "test", import.meta.path], {
@@ -39,7 +44,7 @@ if (process.env[ISOLATED] === undefined) {
 }
 
 function registerTests(): void {
-    test("a subagent writes project memory under the parent's instruction root", async () => {
+    memoryTest("a subagent writes project memory under the parent's instruction root", async () => {
         const workspace = await mkdtemp(join(tmpdir(), "vera-child-cwd-"));
         const parentRoot = await mkdtemp(join(tmpdir(), "vera-parent-root-"));
         const responses: AssistantMessage[] = [

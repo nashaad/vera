@@ -400,8 +400,19 @@ export interface PreToolUseReply {
     readonly outcome: PreToolUseOutcome;
 }
 
-export interface CompletionReply {
-    readonly text: string;
+/**
+ * One summarizer call. `unavailable` is a successful reply, not a pipe
+ * error, so the ladder can still see whether more room would change the
+ * outcome.
+ */
+export interface CompactionCompleteReply {
+    readonly text?: string;
+    readonly model?: string;
+    readonly provider?: string;
+    readonly unavailable?: {
+        readonly reason: string;
+        readonly roomRelated: boolean;
+    };
 }
 
 export type WorkerReply =
@@ -413,7 +424,7 @@ export type WorkerReply =
     | ContributionsReply
     | ToolResultReply
     | PreToolUseReply
-    | CompletionReply;
+    | CompactionCompleteReply;
 
 // Worker to host: notifications.
 

@@ -1,4 +1,5 @@
 import {
+    bg,
     BoxRenderable,
     CliRenderEvents,
     decodePasteBytes,
@@ -167,12 +168,14 @@ import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import {
     HOST_CAPABILITY_AGENT_ATTACHMENT_RELEASE,
     HOST_CAPABILITY_HARNESS_MESSAGES,
+    HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
     HOST_CAPABILITY_SESSION_SCOPED_STATE,
     HOST_CAPABILITY_SKILL_COMMANDS,
 } from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
     hostEntrypointMismatchNotice,
+    worktreeRuntimeNotice,
 } from "../host/launch.ts";
 import {
     createTuiApprovalView,
@@ -393,6 +396,9 @@ import {
     readModelSettingsThroughHost,
 } from "../../src/host/model-settings-client.ts";
 import {
+    readUsageWebUrlThroughHost,
+} from "../../src/host/usage-web-client.ts";
+import {
     createHomeState,
     createTuiHomeView,
     handleHomeKey,
@@ -539,6 +545,7 @@ import {
     composeDialStrip,
     DIAL_HUD_CAP,
     DIAL_HUD_RECENT_CAP,
+    dialEffortPending,
     handleDialStripKey,
     openDialStrip,
     renderDialStrip,
@@ -547,7 +554,10 @@ import {
     type DialPoolEntry,
     type DialStripState,
 } from "./dials.ts";
-import { paintDialHud } from "./dial-paint.ts";
+import {
+    AUTO_MODE_ANIMATION_DURATION_MS,
+    paintDialHud,
+} from "./dial-paint.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -591,7 +601,13 @@ import {
     standingNudgeIndicatorRow,
     type TuiStandingNudgesState,
 } from "./standing-nudges.ts";
-import { veraProfileDirectory } from "../../src/profile-paths.ts";
+import { HostReplacementBusyError } from "../../src/host/discovery.ts";
+import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
+import {
+    DEFAULT_PROFILE_NAME,
+    veraProfileDirectory,
+    veraProfileName,
+} from "../../src/profile-paths.ts";
 import {
     loadStandingNudges,
     type StandingNudge,
@@ -703,6 +719,7 @@ import {
     createTuiMarkdownEntry,
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
+import { openTuiLink } from "./markdown-links.ts";
 import {
     createTuiGutterEntry,
     markTuiGutterEntry,
@@ -727,6 +744,20 @@ const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
 };
 
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+
+export function reconnectBusyMessage(profile = veraProfileName()): string {
+    const stop = profile === DEFAULT_PROFILE_NAME
+        ? "vera host stop --force"
+        : `vera host stop --force --profile ${profile}`;
+    return "Could not restart the host: other work is still using it. "
+        + `Run ${stop} then /reconnect.`;
+}
+
+/** Typed `/reconnect` force-stops a wedge. It does not kill a busy answering host. */
+export function confirmManualReconnectUpgrade(error: Error): boolean {
+    return error instanceof HostUnresponsiveError;
+}
+
 const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
 const HUD_HINT = tuiKeyHint("dials.open");
 const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
@@ -946,7 +977,10 @@ export interface TuiDependencies {
     readonly searchSessions?: (
         query: SessionSearchQuery,
     ) => Promise<SessionSearchResults>;
-    readonly reconnectSession?: (agentId: string) => Promise<TuiAgentClient>;
+    readonly reconnectSession?: (
+        agentId: string,
+        options?: { readonly replaceExisting?: boolean },
+    ) => Promise<TuiAgentClient>;
     readonly onSessionEntered?: (agentId: string) => void;
     readonly initialDraft?: TuiDraft;
     /** Notice lines shown in the transcript before anything else happens. */
@@ -972,6 +1006,8 @@ export interface TuiDependencies {
     };
     /** Overrides the read-only process sampler for deterministic TUI tests. */
     readonly doctor?: () => Promise<VeraDoctorReport>;
+    /** Loopback URL for Vera web. Absent when this host does not serve it. */
+    readonly openUsagePage?: () => Promise<string | undefined>;
     /** Overrides `~/.vera/auth.json`, so a test never reads real credentials. */
     readonly authStorage?: AuthStorage;
     /** Overrides the browser hand-off a provider's OAuth row would run. */
@@ -1153,8 +1189,10 @@ export async function startConfiguredTui(
         // A pool file the parser had to reduce still produced a pool, so this
         // says so instead of failing: the entries that were dropped are the
         // ones the user thinks are in force.
+        const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
             ...(mismatchNotice === undefined ? [] : [mismatchNotice]),
+            ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
             ...poolFileIssueNotices(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
             ),
@@ -1205,15 +1243,18 @@ export async function startConfiguredTui(
             // profile from the one it is attached to.
             searchSessions: (query) =>
                 searchSessionsThroughHost(host.socket_path, query),
-            reconnectSession: async (currentAgentId) => {
-                // No confirmation here, unlike at startup: the renderer owns
-                // the screen and stdin by now, and a readline prompt would
-                // draw into the alternate screen and hand back a terminal
-                // without raw mode. Declining surfaces the error with its
-                // recovery commands instead, which the user runs elsewhere.
+            reconnectSession: async (currentAgentId, options) => {
+                // No readline here: the renderer owns the screen. Typed
+                // `/reconnect` is the confirm for a wedge; auto-restart after
+                // a drop is not. A busy answering host, including one bound
+                // to another project, must refuse rather than be killed.
+                const replaceExisting = options?.replaceExisting === true;
                 host = await findOrStartResidentHost({
                     projectRoot: process.cwd(),
-                    confirmBusyUpgrade: () => false,
+                    confirmBusyUpgrade: replaceExisting
+                        ? confirmManualReconnectUpgrade
+                        : () => false,
+                    ...(replaceExisting ? { replaceExisting: true } : {}),
                 });
                 return attach(currentAgentId);
             },
@@ -1248,6 +1289,7 @@ export async function startConfiguredTui(
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
+            openUsagePage: () => readUsageWebUrlThroughHost(host.socket_path),
             flightRecorder,
         });
         process.stdout.write(renderResumeHint(exit.agentId));
@@ -1485,6 +1527,9 @@ export async function startTui(
     const announcedKeymapNotices = new Set<string>();
     /** The dial strip, open only while it is on screen. */
     let dialStrip: DialStripState | undefined;
+    /** A decorative flourish shown only inside the HUD when auto is entered. */
+    let autoModeAnimationStartedAt: number | undefined;
+    let autoModeAnimationTimer: ReturnType<typeof setInterval> | undefined;
     /** The last catalog the host sent, which /agent opens against. */
     let agentCatalog: TuiAgentCatalog | undefined;
     /** Suggesters escape put away, for the rest of this session. */
@@ -2201,7 +2246,8 @@ export async function startTui(
         return action?.type === "resume_viewed_session"
             || action?.type === "open_resume_picker"
             || action?.type === "open_help"
-            || action?.type === "open_theme_picker";
+            || action?.type === "open_theme_picker"
+            || action?.type === "open_usage";
     }
 
     let markdownStyle = createMarkdownStyle(theme);
@@ -3546,7 +3592,38 @@ export async function startTui(
         });
     }
 
+    function stopAutoModeAnimation(): void {
+        if (autoModeAnimationTimer !== undefined) {
+            clearInterval(autoModeAnimationTimer);
+            autoModeAnimationTimer = undefined;
+        }
+        autoModeAnimationStartedAt = undefined;
+    }
+
+    function startAutoModeAnimation(): void {
+        stopAutoModeAnimation();
+        autoModeAnimationStartedAt = Date.now();
+        autoModeAnimationTimer = setInterval(() => {
+            if (
+                shuttingDown
+                || dialStrip === undefined
+                || autoModeAnimationStartedAt === undefined
+            ) {
+                stopAutoModeAnimation();
+                return;
+            }
+            if (
+                Date.now() - autoModeAnimationStartedAt
+                >= AUTO_MODE_ANIMATION_DURATION_MS
+            ) {
+                stopAutoModeAnimation();
+            }
+            renderState();
+        }, 16);
+    }
+
     function closeDials(): void {
+        stopAutoModeAnimation();
         dialStrip = undefined;
         renderState();
         focusActiveSurface();
@@ -3559,6 +3636,7 @@ export async function startTui(
      * rail is navigation outside that pane: it yields focus but stays visible.
      */
     function closeTransientOverlaysForUiRequest(): void {
+        stopAutoModeAnimation();
         dialStrip = undefined;
         settingsPicker = undefined;
         standingNudges = undefined;
@@ -3668,6 +3746,29 @@ export async function startTui(
         abortRequested = true;
         activity = "stopping";
         sendCommand({ type: "abort" });
+    }
+
+    function releaseFocusedQueuedPrompts(mode: "one" | "all"): void {
+        if (focusedAgentState().queueDraining) return;
+        const target = focusedAgentClient();
+        if (
+            target.supportsHostCapability?.(
+                HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
+            ) === false
+        ) {
+            showStatusNotice("Queued release needs the current resident host");
+            return;
+        }
+        void target.send({
+            type: "release_queued_prompts",
+            mode,
+        }).catch(reportConnectionError);
+    }
+
+    function hostOwnsPromptQueue(target: TuiAgentClient): boolean {
+        return target.supportsHostCapability?.(
+            HOST_CAPABILITY_PROMPT_QUEUE_RELEASE,
+        ) !== false;
     }
 
     function visibleMentions(): readonly string[] {
@@ -3961,7 +4062,9 @@ export async function startTui(
             }
         }
         if (update.type === "turn_finished") {
-            pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
+            if (!hostOwnsPromptQueue(pane.client)) {
+                pane.state.state = beginNextQueuedTuiTurn(pane.state.state);
+            }
             if (pane.state.state.working) {
                 pane.state.workingSince = Date.now();
                 pane.state.phaseSince = pane.state.workingSince;
@@ -4364,6 +4467,7 @@ export async function startTui(
         stopWatchingTerminal();
         flightRecorder?.record({ type: "renderer_destroyed" });
         shuttingDown = true;
+        stopAutoModeAnimation();
         renderCoalescer.stop();
         clearInterval(statusTimer);
         stopWatchingBackgroundAgents?.();
@@ -4526,6 +4630,11 @@ export async function startTui(
         ];
         if (
             isTranscriptSelection(selection, [
+                // Drafts use the same drag-to-copy interaction as settled
+                // transcript text. The textarea owns the highlight; this
+                // gate only decides whether the selected text may reach the
+                // clipboard.
+                composer,
                 ...copyableNodes,
                 ...sidebar.blocks().map((block) => block.node),
                 // An extension view is text on the same screen, so the same
@@ -5001,7 +5110,20 @@ export async function startTui(
                 tuiBindingId("dials", key),
             );
             if (action.kind === "state") {
+                const previousPermission =
+                    dialStrip.permissionModes[dialStrip.permissionIndex];
+                const nextPermission = action.state.permissionModes[
+                    action.state.permissionIndex
+                ];
                 dialStrip = action.state;
+                if (
+                    nextPermission === "auto"
+                    && previousPermission !== "auto"
+                ) {
+                    startAutoModeAnimation();
+                } else if (nextPermission !== "auto") {
+                    stopAutoModeAnimation();
+                }
                 renderState();
             } else if (action.kind === "cancel") {
                 closeDials();
@@ -5734,6 +5856,22 @@ export async function startTui(
             return;
         }
 
+        if (
+            key.name === "escape"
+            && !key.ctrl
+            && !key.shift
+            && !key.meta
+            && !anyOverlayOpen()
+            && !sessionSwitchPending
+            && pendingImages.length === 0
+            && focusedAgentState().queuedPrompts.length > 0
+        ) {
+            key.preventDefault();
+            key.stopPropagation();
+            releaseFocusedQueuedPrompts("one");
+            return;
+        }
+
         // Two plain escapes while idle open the timeline picker, the same
         // gesture /rewind is. The clear branch above already took any escape
         // with text, and a working agent's escape belongs to the stop handling
@@ -6451,6 +6589,12 @@ export async function startTui(
             : undefined;
         const prompt = withQuote(typed, quoted);
         if (prompt.length === 0 && pendingImages.length === 0) {
+            if (
+                interceptedText === undefined
+                && focusedAgentState().queuedPrompts.length > 0
+            ) {
+                releaseFocusedQueuedPrompts("all");
+            }
             return;
         }
         // Typing is the signal the tip has been read or ignored. The next one
@@ -6774,6 +6918,29 @@ export async function startTui(
                     renderState();
                 });
             }
+            return;
+        }
+        if (commandAction?.type === "open_usage") {
+            composer.rememberSubmittedText(prompt);
+            composer.clearComposer();
+            renderCommandSuggestions();
+            void (async () => {
+                const url = await dependencies.openUsagePage?.();
+                if (shuttingDown) return;
+                if (url === undefined) {
+                    state = appendTuiNotice(
+                        state,
+                        "This host does not serve the usage page.",
+                    );
+                    renderState();
+                    return;
+                }
+                openTuiLink(url);
+                state = appendTuiNotice(state, `Opened ${url}`);
+                renderState();
+            })();
+            renderState();
+            focusActiveSurface();
             return;
         }
         if (commandAction?.type === "show_doctor") {
@@ -7343,20 +7510,17 @@ export async function startTui(
             }
             const currentAgentId = client.agentId;
             if (
-                !connectionFailed
-                || dependencies.reconnectSession === undefined
+                dependencies.reconnectSession === undefined
                 || currentAgentId === undefined
             ) {
                 state = appendTuiError(
                     state,
-                    connectionFailed
-                        ? "Reconnecting this session is unavailable"
-                        : "The host connection is already active",
+                    "Reconnecting this session is unavailable",
                 );
                 renderState();
                 return;
             }
-            beginHostReconnect({ clearComposer: true });
+            beginHostReconnect({ clearComposer: true, replaceExisting: true });
             return;
         }
         if (commandAction?.type === "create_session") {
@@ -7539,7 +7703,7 @@ export async function startTui(
             );
             // A prompt sent mid-turn is queued by the host, so the transcript
             // shows it queued rather than opening a turn of its own.
-            const queueing = state.working;
+            const queueing = state.working || state.queuedPrompts.length > 0;
             promptSubmitting = true;
             renderStatus();
             flightRecorder?.record({ type: "submit_dispatched" });
@@ -7558,9 +7722,9 @@ export async function startTui(
                 pendingImages = pendingImages.filter(
                     (image) => !submittedRequestIds.has(image.requestId),
                 );
-                if (queueing) {
+                if (queueing && !hostOwnsPromptQueue(client)) {
                     state = queueTuiPrompt(state, prompt);
-                } else {
+                } else if (!queueing) {
                     if (
                         !userEntryShows(state.entries.at(-1), prompt, attachments)
                     ) {
@@ -7586,11 +7750,14 @@ export async function startTui(
         }
         composer.rememberSubmittedText(prompt);
         composer.clearComposer();
-        state = state.working
-            ? queueTuiPrompt(state, prompt)
+        const queueing = state.working || state.queuedPrompts.length > 0;
+        state = queueing
+            ? hostOwnsPromptQueue(client)
+                ? state
+                : queueTuiPrompt(state, prompt)
             : beginTuiTurn(state, prompt, attachments, injectedPrefix);
         adoptFallbackSessionTitle(prompt, injectedPrefix);
-        if (workingSince === undefined) {
+        if (!queueing && workingSince === undefined) {
             workingSince = Date.now();
             phaseSince = workingSince;
             activity = "thinking";
@@ -7706,6 +7873,8 @@ export async function startTui(
                                 ),
                             }),
                     });
+                    const queueing = side.state.state.working
+                        || side.state.state.queuedPrompts.length > 0;
                     if (
                         !userEntryShows(
                             side.state.state.entries.at(-1),
@@ -7713,22 +7882,26 @@ export async function startTui(
                             attachments,
                         )
                     ) {
-                        side.state.state = side.state.state.working
-                            ? queueTuiPrompt(side.state.state, route.text)
+                        side.state.state = queueing
+                            ? hostOwnsPromptQueue(side.client)
+                                ? side.state.state
+                                : queueTuiPrompt(side.state.state, route.text)
                             : beginTuiTurn(
                                 side.state.state,
                                 route.text,
                                 attachments,
                             );
-                    } else if (!side.state.state.working) {
+                    } else if (!queueing) {
                         side.state.state = {
                             ...side.state.state,
                             working: true,
                         };
                     }
-                    side.state.workingSince ??= Date.now();
-                    side.state.phaseSince ??= side.state.workingSince;
-                    side.state.activity = "thinking";
+                    if (!queueing) {
+                        side.state.workingSince ??= Date.now();
+                        side.state.phaseSince ??= side.state.workingSince;
+                        side.state.activity = "thinking";
+                    }
                     if (sendsToMain) {
                         sidebarPromptSubmitting = false;
                         submitPrompt(route.text);
@@ -8410,6 +8583,12 @@ export async function startTui(
                     update.type === "turn_finished"
                     || update.type === "agent_failed"
                 ) {
+                    if (
+                        update.type === "turn_finished"
+                        && !hostOwnsPromptQueue(client)
+                    ) {
+                        state = beginNextQueuedTuiTurn(state);
+                    }
                     abortRequested = false;
                     finishStreamingAssistant();
                     if (update.type === "agent_failed") {
@@ -8417,8 +8596,6 @@ export async function startTui(
                         pendingUiRequest = undefined;
                         timelinePicker = undefined;
                         settingsPicker = undefined;
-                    } else {
-                        state = beginNextQueuedTuiTurn(state);
                     }
                     if (state.working) {
                         workingSince = Date.now();
@@ -9297,10 +9474,14 @@ export async function startTui(
     /**
      * After attach-only retry has already failed, start a replacement host
      * the same way `/reconnect` does. `switchToClient` runs only after attach
-     * succeeds.
+     * succeeds. Typed `/reconnect` sets `replaceExisting`; auto-restart does
+     * not.
      */
     function beginHostReconnect(
-        options: { readonly clearComposer: boolean },
+        options: {
+            readonly clearComposer: boolean;
+            readonly replaceExisting?: boolean;
+        },
     ): void {
         const currentAgentId = client.agentId;
         if (
@@ -9315,11 +9496,19 @@ export async function startTui(
         }
         sessionSwitchPending = true;
         sessionSwitchActivity = "restarting host…";
-        settleLostHost("Host connection closed");
+        const stayAttached = options.replaceExisting === true
+            && !connectionFailed;
+        if (!stayAttached) {
+            settleLostHost("Host connection closed");
+        }
         const draft = options.clearComposer ? undefined : currentDraft();
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.reconnectSession(currentAgentId),
+            dependencies.reconnectSession(currentAgentId, {
+                ...(options.replaceExisting === true
+                    ? { replaceExisting: true }
+                    : {}),
+            }),
             discardSwitchTarget,
         ).then((next) => {
             if (shuttingDown) {
@@ -9330,13 +9519,31 @@ export async function startTui(
         }).catch((error) => {
             if (shuttingDown) return;
             sessionSwitchPending = false;
+            if (error instanceof HostReplacementBusyError) {
+                state = appendTuiError(state, reconnectBusyMessage());
+                composer.focus();
+                renderState();
+                return;
+            }
+            const message = error instanceof Error ? error.message : String(error);
             if (connectionFailed) {
                 state = appendTuiError(
                     state,
-                    `Could not reconnect: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
+                    `Could not reconnect: ${message}`,
                 );
+                renderState();
+                return;
+            }
+            if (options.replaceExisting === true) {
+                connectionFailed = true;
+                connectionFailure = message;
+                activity = "disconnected";
+                settleLostHost(message);
+                state = appendTuiError(
+                    state,
+                    `Could not reconnect: ${message}`,
+                );
+                composer.focus();
                 renderState();
                 return;
             }
@@ -15741,6 +15948,10 @@ export async function startTui(
                 && !focusedAbort
             ? workingHint
             : "";
+        const dialWidth = Math.max(
+            1,
+            renderer.width - composerHorizontalInset - railInset,
+        );
         const stripLines = dialStrip === undefined
             ? undefined
             : renderDialStrip(
@@ -15753,8 +15964,10 @@ export async function startTui(
                     "⏎ apply",
                     "/permissions for more",
                 ].join(" · "),
-                Math.max(1, renderer.width - composerHorizontalInset - railInset),
-                Math.max(3, Math.min(9, renderer.height - 23)),
+                dialWidth,
+                // A hidden-model ellipsis already spends the next row. Let an
+                // actual model use that row when the full composition fits.
+                Math.max(3, Math.min(DIAL_HUD_CAP, renderer.height - 22)),
             );
         dialCard.visible = stripLines !== undefined;
         dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
@@ -15776,8 +15989,31 @@ export async function startTui(
                 background: hudBg,
                 success: TUI_HUD?.success ?? TUI_SUCCESS,
                 secondary: theme.secondary,
+                accessAsk: VERA_TUI_THEME.accent,
+                accessAuto: VERA_TUI_THEME.hud?.auto
+                    ?? VERA_TUI_THEME.success,
+            }, {
+                effortPending: dialStrip === undefined
+                    ? false
+                    : dialEffortPending(dialStrip),
+                autoAnimation: autoModeAnimationStartedAt === undefined
+                    ? undefined
+                    : {
+                        progress: Math.min(
+                            1,
+                            (Date.now() - autoModeAnimationStartedAt)
+                            / AUTO_MODE_ANIMATION_DURATION_MS,
+                        ),
+                        width: dialWidth,
+                    },
             }).flatMap((spans, index) => [
-                ...spans.map((span) => fg(span.color)(span.text)),
+                ...spans.map((span) =>
+                    fg(span.color)(
+                        span.background === undefined
+                            ? span.text
+                            : bg(span.background)(span.text)
+                    )
+                ),
                 ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
             ]),
         );
@@ -16122,6 +16358,9 @@ export async function startTui(
             activity = "ready";
         } else if (update.type === "model_activity") {
             workingSince ??= Date.now();
+            if (update.replacesPartialAttempt === true) {
+                phaseSince = undefined;
+            }
             activity = `retrying ${update.model}`;
         } else if (update.type === "user_prompt") {
             workingSince ??= Date.now();

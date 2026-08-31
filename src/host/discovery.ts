@@ -21,6 +21,13 @@ import {
 const DEFAULT_STARTUP_TIMEOUT_MS = 5_000;
 const DEFAULT_POLL_INTERVAL_MS = 25;
 
+export class HostReplacementBusyError extends Error {
+    constructor() {
+        super("other work is still using the resident host");
+        this.name = "HostReplacementBusyError";
+    }
+}
+
 export class HostProjectMismatchError extends Error {
     readonly pid: number;
     readonly startedAt: string;
@@ -62,6 +69,12 @@ export interface EnsureResidentHostOptions {
         identity: HostIdentity,
         requesterProtocolVersion: number,
     ) => Promise<ShutdownForReplacementResponse | undefined>;
+    /**
+     * Replace a healthy answering host. Manual `/reconnect` sets this.
+     * Auto-restart after a drop must not. After the first host steps aside,
+     * rediscovery clears the flag so the replacement is not replaced again.
+     */
+    readonly replaceExisting?: boolean;
     readonly confirmBusyUpgrade?: (
         error:
             | HostProtocolMismatchError
@@ -133,6 +146,7 @@ export async function ensureResidentHost(
         }
         return ensureResidentHost({
             ...options,
+            replaceExisting: false,
             startupTimeoutMs: remainingMs,
         });
     };
@@ -261,6 +275,9 @@ export async function ensureResidentHost(
             || response.pid !== error.pid
             || response.started_at !== error.startedAt
         ) {
+            if (options.replaceExisting === true) {
+                throw new HostReplacementBusyError();
+            }
             const approved = await withoutDeadline(
                 () => options.confirmBusyUpgrade?.(error) ?? false,
             );
@@ -336,6 +353,9 @@ export async function ensureResidentHost(
             || response.pid !== running.pid
             || response.started_at !== running.started_at
         ) {
+            if (options.replaceExisting === true) {
+                throw new HostReplacementBusyError();
+            }
             const approved = await withoutDeadline(
                 () => options.confirmBusyUpgrade?.(mismatch) ?? false,
             );
@@ -368,7 +388,47 @@ export async function ensureResidentHost(
         return rediscover();
     }
     if (running !== undefined) {
-        return running;
+        if (options.replaceExisting !== true) {
+            return running;
+        }
+        const identity: HostIdentity = {
+            pid: running.pid,
+            started_at: running.started_at,
+            protocol_version: HOST_PROTOCOL_VERSION,
+        };
+        const replacement = await beforeDeadline(
+            () => shutdownForReplacement(
+                running.socket_path,
+                identity,
+                HOST_PROTOCOL_VERSION,
+            ),
+            "Resident host replacement exceeded its deadline",
+        );
+        if (
+            replacement?.type === "shutdown_for_replacement_refused"
+            && replacement.reason === "identity_mismatch"
+        ) {
+            return rediscover();
+        }
+        const response = replacement?.type
+                === "shutdown_for_replacement_accepted"
+            ? replacement
+            : await beforeDeadline(
+                () => shutdownIfIdle(running.socket_path, identity),
+                "Resident host replacement exceeded its deadline",
+            );
+        if (
+            (
+                response?.type === "shutdown_if_idle_accepted"
+                || response?.type === "shutdown_for_replacement_accepted"
+            )
+            && response.pid === running.pid
+            && response.started_at === running.started_at
+        ) {
+            await waitForHostDeparture(running);
+            return rediscover();
+        }
+        throw new HostReplacementBusyError();
     }
 
     // A recorded host whose pid is alive but whose socket never answers is

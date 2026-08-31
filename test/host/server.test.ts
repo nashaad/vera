@@ -60,9 +60,17 @@ afterEach(() => {
             expect(await requestHostShutdownIfIdle(
                 socketPath,
                 server.identity,
+                HOST_PROTOCOL_VERSION - 1,
             )).toEqual({
                 type: "shutdown_if_idle_refused",
                 reason: "requester_not_newer",
+            });
+            expect(await requestHostShutdownIfIdle(
+                socketPath,
+                server.identity,
+            )).toEqual({
+                type: "shutdown_if_idle_refused",
+                reason: "busy",
             });
             expect(await requestHostShutdownIfIdle(
                 socketPath,
@@ -191,6 +199,41 @@ afterEach(() => {
             await expect(attached.receive()).rejects.toThrow();
         } finally {
             attached.close();
+            agent.close();
+            await server.close();
+        }
+    },
+);
+
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "same-protocol replacement is accepted when resident work is idle",
+    async () => {
+        const directory = temporaryHostDirectory();
+        const socketPath = join(directory, "host.sock");
+        const agent = new ResidentAgent("agent-1", "/work/one");
+        const server = await startHostServer({
+            socketPath,
+            lockPath: join(directory, "host.json"),
+            findAgent: () => agent,
+            canReplace: () => true,
+        });
+        try {
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+                HOST_PROTOCOL_VERSION - 1,
+            )).toEqual({
+                type: "shutdown_for_replacement_refused",
+                reason: "requester_not_newer",
+            });
+            expect(await requestHostShutdownForReplacement(
+                socketPath,
+                server.identity,
+            )).toMatchObject({
+                type: "shutdown_for_replacement_accepted",
+                pid: server.identity.pid,
+            });
+        } finally {
             agent.close();
             await server.close();
         }

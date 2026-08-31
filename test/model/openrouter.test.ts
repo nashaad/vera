@@ -570,6 +570,7 @@ describe("OpenRouter adapter", () => {
         expect(error.error).toBeInstanceOf(ProviderFailureError);
         const failure = (error.error as ProviderFailureError).failure;
         expect(failure.resolution).toBe("retry");
+        expect(failure.partialOutputReplaceable).toBe(true);
         expect(failure.message).toContain("invalid JSON for tool call");
     });
 

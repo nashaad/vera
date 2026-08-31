@@ -54,6 +54,14 @@ import type {
     WorkerHostCapabilities,
     WorkerSessionSeed,
 } from "./start.ts";
+import { bindRemoteCompaction, type CompactionWireSpec } from
+    "../../engine/compaction-binding.ts";
+import {
+    CompletionUnavailableError,
+    type CompleteText,
+    type CompletionRequest,
+} from "../../engine/completion-service.ts";
+import type { CompactionCompleteReply } from "../../engine/host-protocol.ts";
 
 export interface RemoteHostBoundaryOptions {
     readonly pipe: JsonPipe;
@@ -64,6 +72,7 @@ export interface RemoteHostBoundaryOptions {
     /** Present when this process loaded the extensions itself. */
     readonly localExtensionTools?: readonly RegisteredTool[];
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
+    readonly compaction?: CompactionWireSpec;
 }
 
 export interface RemoteHostBoundary {
@@ -150,6 +159,20 @@ export function createRemoteHostBoundary(
             },
         }),
         );
+
+    let compaction: ReturnType<typeof bindRemoteCompaction>;
+    if (options.compaction !== undefined) {
+        compaction = bindRemoteCompaction(
+            options.compaction,
+            (slot) => completeOverPipe(pipe, slot),
+        );
+        if (compaction === undefined) {
+            throw new Error(
+                `Worker cannot reconstruct compaction strategy `
+                    + `${options.compaction.strategyId}.`,
+            );
+        }
+    }
 
     const boundary: HostBoundary = {
         offers: options.offers,
@@ -279,6 +302,7 @@ export function createRemoteHostBoundary(
             processRegistry,
             ...(reviewLog === undefined ? {} : { reviewLog }),
             ...(extensionTools.length === 0 ? {} : { extensionTools }),
+            ...(compaction === undefined ? {} : { compaction }),
             router: {
                 ...(capabilities.wearAgent
                     ? {
@@ -420,4 +444,69 @@ let callCounter = 0;
 function newCallId(): string {
     callCounter += 1;
     return `w${callCounter}`;
+}
+
+function completeOverPipe(pipe: JsonPipe, role: string): CompleteText {
+    return async (request, signal) => {
+        if (signal.aborted) {
+            throw new CompletionUnavailableError("Cancelled.");
+        }
+        const callId = newCallId();
+        const abort = (): void =>
+            pipe.notify({ method: "call.cancel", callId });
+        signal.addEventListener("abort", abort, { once: true });
+        try {
+            if (signal.aborted) {
+                abort();
+                throw new CompletionUnavailableError("Cancelled.");
+            }
+            const reply = await pipe.request({
+                method: "compaction.complete",
+                callId,
+                role,
+                prompt: completionPrompt(request),
+                ...(request.systemPrompt.length === 0
+                    ? {}
+                    : { system: request.systemPrompt }),
+            }) as CompactionCompleteReply;
+            if (signal.aborted) {
+                throw new CompletionUnavailableError("Cancelled.");
+            }
+            if (reply.unavailable !== undefined) {
+                throw new CompletionUnavailableError(
+                    reply.unavailable.reason,
+                    reply.unavailable.roomRelated,
+                );
+            }
+            if (reply.text === undefined || reply.model === undefined) {
+                throw new CompletionUnavailableError(
+                    "The host returned no summary.",
+                );
+            }
+            return {
+                text: reply.text,
+                model: reply.model,
+                ...(reply.provider === undefined
+                    ? {}
+                    : { provider: reply.provider }),
+            };
+        } finally {
+            signal.removeEventListener("abort", abort);
+        }
+    };
+}
+
+function completionPrompt(request: CompletionRequest): string {
+    const parts: string[] = [];
+    for (const message of request.messages) {
+        if (message.role !== "user" && message.role !== "assistant") {
+            continue;
+        }
+        for (const block of message.content) {
+            if (block.type === "text" && block.text.length > 0) {
+                parts.push(block.text);
+            }
+        }
+    }
+    return parts.join("\n\n");
 }

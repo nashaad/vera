@@ -45,6 +45,7 @@ import type {
 } from "./reviewer.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
+import type { PromptQueueState } from "./prompt-queue.ts";
 
 export type AgentStatus = "idle" | "working" | "waiting";
 
@@ -203,6 +204,11 @@ export interface AttachImageCommand {
 
 export interface AbortCommand {
     readonly type: "abort";
+}
+
+export interface ReleaseQueuedPromptsCommand {
+    readonly type: "release_queued_prompts";
+    readonly mode: "one" | "all";
 }
 
 export interface UiResponseCommand {
@@ -464,6 +470,7 @@ export type ClientCommand =
     | AppendHarnessMessageCommand
     | AttachImageCommand
     | AbortCommand
+    | ReleaseQueuedPromptsCommand
     | UiResponseCommand
     | GetModelSettingsCommand
     | UpdateModelSettingsCommand
@@ -502,6 +509,13 @@ export interface HistoryUpdate {
     readonly status?: AgentStatus;
     readonly context?: ContextMeasurement;
     readonly usage?: SessionModelUsage;
+    readonly promptQueue?: PromptQueueState;
+}
+
+export interface PromptQueueUpdate {
+    readonly type: "prompt_queue";
+    readonly queue: PromptQueueState;
+    readonly seq: number;
 }
 
 export interface SessionModelUsageRow extends ModelUsage {
@@ -539,6 +553,8 @@ export interface ModelRetryActivityUpdate {
         readonly kind: ProviderFailure["kind"];
         readonly statusCode?: number;
     };
+    /** The prior partial model attempt was rejected; this retry replaces it. */
+    readonly replacesPartialAttempt?: true;
     readonly seq: number;
 }
 
@@ -1046,6 +1062,7 @@ export type AgentUpdate =
     | ToolPresentationUpdate
     | TurnFinishedUpdate
     | AgentFailedUpdate
+    | PromptQueueUpdate
     | ContextUpdate
     | ModelActivityUpdate
     | ModelSubstitutionUpdate
@@ -1121,6 +1138,12 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
     }
     if (command.type === "abort") {
         return { type: "abort" };
+    }
+    if (
+        command.type === "release_queued_prompts"
+        && (command.mode === "one" || command.mode === "all")
+    ) {
+        return { type: "release_queued_prompts", mode: command.mode };
     }
     if (
         command.type === "attach_image"
@@ -1620,8 +1643,19 @@ export function createProtocolEncoder(
     let measuredContext: ContextMeasurement | undefined;
     let measuredModel: string | undefined;
     let pendingCheckpointFloor: ContextMeasurement | undefined;
+    let promptQueue: PromptQueueState | undefined;
 
     const encode = (event: Parameters<EngineEventSubscriber>[0]): void => {
+        if (event.type === "prompt_queue_changed") {
+            promptQueue = structuredClone(event.queue);
+            seq += 1;
+            sender.send({
+                type: "prompt_queue",
+                queue: structuredClone(event.queue),
+                seq,
+            });
+            return;
+        }
         if (event.type === "turn_started") {
             seq += 1;
             sender.send({
@@ -1975,6 +2009,9 @@ export function createProtocolEncoder(
                         ? {}
                         : { statusCode: event.failure.statusCode }),
                 },
+                ...(event.replacesPartialAttempt === true
+                    ? { replacesPartialAttempt: true as const }
+                    : {}),
                 seq,
             });
         }
@@ -2170,6 +2207,9 @@ export function createProtocolEncoder(
                 ),
                 ...(context === undefined ? {} : { context }),
                 usage: sessionUsage,
+                ...(promptQueue === undefined
+                    ? {}
+                    : { promptQueue: structuredClone(promptQueue) }),
                 seq,
             });
         },

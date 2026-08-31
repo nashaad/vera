@@ -32,6 +32,7 @@ import type { HookToolCall } from "../sdk/hooks.ts";
 import type { ModelTurnSettings } from "./model-settings.ts";
 import type { SessionSettingOrigin } from "../store/session-store.ts";
 import type { SettingsDestination } from "./settings-destination.ts";
+import type { PromptQueueState } from "./prompt-queue.ts";
 import type {
     ApprovalMode,
     PermissionGrantProposal,
@@ -58,6 +59,11 @@ export interface DeliveryTurnStartedEvent {
 export interface PromptQueuedEvent {
     readonly type: "prompt_queued";
     readonly content: string;
+}
+
+export interface PromptQueueChangedEvent {
+    readonly type: "prompt_queue_changed";
+    readonly queue: PromptQueueState;
 }
 
 export interface AbortRequestedEvent {
@@ -455,6 +461,8 @@ export interface ModelRetryScheduledEvent {
     readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
+    /** The prior partial model attempt was rejected; this attempt replaces it. */
+    readonly replacesPartialAttempt?: true;
 }
 
 export interface ModelFallbackSelectedEvent {
@@ -603,6 +611,7 @@ export type EngineEvent =
     | TurnStartedEvent
     | DeliveryTurnStartedEvent
     | PromptQueuedEvent
+    | PromptQueueChangedEvent
     | AbortRequestedEvent
     | TaskNotificationEvent
     | NoticeEvent
@@ -772,6 +781,7 @@ const EVENT_LEVELS: Record<EngineEvent["type"], EventLogLevel> = {
     pool_admission_progress: "debug",
     pool_admission_result: "info",
     prompt_prefix_drift: "warn",
+    prompt_queue_changed: "debug",
     prompt_queued: "info",
     session_model_settings_history: "debug",
     skill_catalog: "debug",

@@ -855,7 +855,7 @@ test("TUI stops working when the resident agent fails", () => {
     });
 });
 
-test("TUI connection failure stops work and clears unsendable prompts", () => {
+test("TUI connection failure stops work and preserves unconfirmed prompts", () => {
     const connected = applyAgentUpdate(
         queueTuiPrompt(
             beginTuiTurn(createTuiState(), "active prompt"),
@@ -871,7 +871,8 @@ test("TUI connection failure stops work and clears unsendable prompts", () => {
     const state = failTuiConnection(connected);
 
     expect(state.working).toBe(false);
-    expect(state.queuedPrompts).toEqual([]);
+    expect(state.queuedPrompts).toEqual(["queued prompt"]);
+    expect(state.queueDraining).toBe(false);
     expect(entryLine(state.entries[1]!)).toBe("Ran");
     // Disconnection is status-line state, so the transcript gains no row.
     expect(state.entries).toHaveLength(connected.entries.length);
@@ -1913,18 +1914,25 @@ test("a new tool header is separated from the rendered diff above it", () => {
         .toEqual([0, 1, 0]);
 });
 
-test("TUI queues a follow-up without interrupting the active transcript", () => {
+test("TUI follows the host-owned queue when a follow-up starts", () => {
     let state = beginTuiTurn(createTuiState(), "first");
     state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "current ",
         seq: 1,
     });
-    state = queueTuiPrompt(state, "steer next");
+    state = applyAgentUpdate(state, {
+        type: "prompt_queue",
+        queue: {
+            prompts: [{ content: "steer next", state: "held" }],
+            draining: false,
+        },
+        seq: 2,
+    });
     state = applyAgentUpdate(state, {
         type: "assistant_delta",
         text: "answer",
-        seq: 2,
+        seq: 3,
     });
 
     expect(state.entries).toEqual([
@@ -1933,12 +1941,58 @@ test("TUI queues a follow-up without interrupting the active transcript", () => 
     ]);
     expect(renderTuiQueuedPrompt(state)).toBe("queued · steer next");
 
-    state = applyAgentUpdate(state, { type: "turn_finished", seq: 3 });
-    state = beginNextQueuedTuiTurn(state);
+    state = applyAgentUpdate(state, { type: "turn_finished", seq: 4 });
+    expect(state.working).toBe(false);
+    expect(state.queuedPrompts).toEqual(["steer next"]);
+
+    state = applyAgentUpdate(state, {
+        type: "prompt_queue",
+        queue: { prompts: [], draining: true },
+        seq: 5,
+    });
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "steer next",
+        seq: 6,
+    });
 
     expect(state.working).toBe(true);
     expect(state.queuedPrompts).toEqual([]);
     expect(state.entries.at(-1)).toEqual({ kind: "user", text: "steer next" });
+});
+
+test("a started prompt does not consume an identical queued successor", () => {
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "prompt_queue",
+        queue: {
+            prompts: [{ content: "repeat", state: "released" }],
+            draining: true,
+        },
+        seq: 1,
+    });
+
+    state = applyAgentUpdate(state, {
+        type: "user_prompt",
+        content: "repeat",
+        seq: 2,
+    });
+
+    expect(state.queuedPrompts).toEqual(["repeat"]);
+});
+
+test("a legacy host advances its client-owned queue after a turn", () => {
+    const queued = queueTuiPrompt(
+        beginTuiTurn(createTuiState(), "first"),
+        "second",
+    );
+
+    const next = beginNextQueuedTuiTurn(
+        applyAgentUpdate(queued, { type: "turn_finished", seq: 1 }),
+    );
+
+    expect(next.working).toBe(true);
+    expect(next.queuedPrompts).toEqual([]);
+    expect(next.entries.at(-1)).toEqual({ kind: "user", text: "second" });
 });
 
 test("TUI queue preview compacts prompts and counts the remainder", () => {
@@ -1950,6 +2004,10 @@ test("TUI queue preview compacts prompts and counts the remainder", () => {
 
     expect(renderTuiQueuedPrompt(state))
         .toBe(`queued · explain ${"x".repeat(39)}… · +1`);
+
+    state = { ...state, queueDraining: true };
+    expect(renderTuiQueuedPrompt(state))
+        .toBe(`sending · explain ${"x".repeat(39)}… · +1`);
 });
 
 test("TUI state leaves timeline replies for the future picker", () => {
