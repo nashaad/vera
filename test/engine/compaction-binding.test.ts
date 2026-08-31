@@ -3,6 +3,8 @@ import { expect, test } from "bun:test";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
+    bindRemoteCompaction,
+    compactionWireSpec,
 } from "../../src/engine/compaction-binding.ts";
 import { FULL_SUMMARY_STRATEGY_ID } from
     "../../src/engine/compaction-full-summary.ts";
@@ -185,4 +187,42 @@ test("no developer overrides leaves a bound profile untouched", () => {
     expect(plain?.trigger).toEqual({ fraction: 0.8 });
     expect(plain?.postCompactionTargetFraction).toBeUndefined();
     expect(plain?.summaryWordCap).toBeUndefined();
+});
+
+test("a bound compaction round-trips through the worker wire spec", () => {
+    const bound = bindCompaction(
+        profile({
+            trigger_fraction: 0.2,
+            trigger_tokens: 30_000,
+            target_tokens: 10_000,
+        }),
+        adapter,
+        undefined,
+        BUNDLED_COMPACTION_STRATEGIES,
+    );
+    expect(bound).toBeDefined();
+    const restored = bindRemoteCompaction(
+        compactionWireSpec(bound!),
+        () => async () => ({ text: "ok", model: "test" }),
+    );
+
+    expect(restored?.strategy.id).toBe(bound?.strategy.id);
+    expect(Object.keys(restored?.models ?? {})).toEqual(["summarizer"]);
+    expect(restored?.trigger).toEqual(bound?.trigger);
+    expect(restored?.targetTokens).toBe(10_000);
+    expect(restored?.diagnostics).toEqual(bound?.diagnostics);
+});
+
+test("an unknown strategy on the wire binds nothing", () => {
+    expect(bindRemoteCompaction(
+        { strategyId: "other/thing", slots: ["summarizer"] },
+        () => async () => ({ text: "ok", model: "test" }),
+    )).toBeUndefined();
+});
+
+test("a missing slot on the wire binds nothing", () => {
+    expect(bindRemoteCompaction(
+        { strategyId: FULL_SUMMARY_STRATEGY_ID, slots: [] },
+        () => async () => ({ text: "ok", model: "test" }),
+    )).toBeUndefined();
 });

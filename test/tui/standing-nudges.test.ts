@@ -22,10 +22,6 @@ import {
   workspaceStandingNudgeLabel,
 } from "../../clients/tui/standing-nudges.ts";
 import {
-  dialogInsetBottomOffset,
-  dialogInsetTop,
-} from "../../clients/tui/dialog-chrome.ts";
-import {
   loadStandingNudges,
   saveStandingNudges,
   type StandingNudge,
@@ -244,6 +240,36 @@ test("arrow keys move both directions through a form", () => {
   expect(transition.state.field).toBe("id");
 });
 
+test("tab and shift+tab move through a form", () => {
+  let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
+  if (state.screen !== "create") throw new Error("expected create state");
+  expect(state.field).toBe("id");
+  state = key(state, "tab");
+  if (state.screen !== "create") throw new Error("expected create state");
+  expect(state.field).toBe("text");
+  state = key(state, "backtab");
+  if (state.screen !== "create") throw new Error("expected create state");
+  expect(state.field).toBe("id");
+  state = key(state, "tab");
+  const back = handleTuiStandingNudgesKey(state, { name: "tab", shift: true });
+  expect(back.handled).toBe(true);
+  if (back.state?.screen !== "create") {
+    throw new Error("expected create state");
+  }
+  expect(back.state.field).toBe("id");
+});
+
+test("tab leaves an open editor and lands on the next field", () => {
+  let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
+  state = beginEdit(state);
+  for (const character of "quiet") state = key(state, character);
+  state = key(state, "tab");
+  if (state.screen !== "create") throw new Error("expected create state");
+  expect(state.editing).toBe(false);
+  expect(state.field).toBe("text");
+  expect(state.draft.id).toBe("quiet");
+});
+
 test("the form exposes Active and Inactive status on create and edit", () => {
   const directory = profile();
   let state = key(openTuiStandingNudges(directory, "/workspace"), "n");
@@ -274,7 +300,7 @@ test("choice rows use Space while horizontal arrows leave values alone", () => {
   state = key(state, "down");
   state = key(state, "down");
   expect(renderTuiStandingNudges(state)).toContain(
-    "Space toggle · ↑↓ field · esc back",
+    "Space toggle · ↑↓/tab field · esc back",
   );
   state = key(state, "left");
   state = key(state, "right");
@@ -284,7 +310,7 @@ test("choice rows use Space while horizontal arrows leave values alone", () => {
 
   state = key(state, "down");
   expect(renderTuiStandingNudges(state)).toContain(
-    "Space change · ↑↓ field · esc back",
+    "Space change · ↑↓/tab field · esc back",
   );
   state = key(state, "left");
   state = key(state, "right");
@@ -302,7 +328,7 @@ test("frequency cycles from every turn through two to ten turns", () => {
     "Frequency    Every turn",
   );
   expect(renderTuiStandingNudges(state)).toContain(
-    "Space change · ↑↓ field · esc back",
+    "Space change · ↑↓/tab field · esc back",
   );
   state = key(state, "space");
   expect(renderTuiStandingNudges(state)).toContain(
@@ -328,7 +354,7 @@ test("typing in navigation mode does not change a text field", () => {
   state = key(state, "p", "p");
   expect(state.screen === "create" ? state.draft.id : undefined).toBe("");
   expect(renderTuiStandingNudges(state)).toContain(
-    "⏎ edit · ↑↓ field · esc back",
+    "⏎ edit · ↑↓/tab field · esc back",
   );
 });
 
@@ -394,6 +420,55 @@ test("editing never offers or changes the id and shows a full workspace path", (
     id: "teach-go",
     text: "teach-go text plus Python comparisons",
   });
+});
+
+test("the save row is a button and names unsaved changes only after an edit", () => {
+  const directory = profile();
+  saveStandingNudges(directory, [nudge("concise")]);
+  let state = key(openTuiStandingNudges(directory, "/workspace"), "enter");
+  expect(renderTuiStandingNudges(state)).toContain("  Save changes");
+  expect(renderTuiStandingNudges(state)).not.toContain("Unsaved changes");
+  state = key(state, "down");
+  state = key(state, "space");
+  const edited = renderTuiStandingNudges(state);
+  expect(edited).toContain("Status       Inactive");
+  expect(edited).toContain("Save changes  Unsaved changes");
+  state = key(state, "space");
+  expect(renderTuiStandingNudges(state)).not.toContain("Unsaved changes");
+});
+
+test("a new nudge counts as unsaved as soon as the draft carries anything", () => {
+  let state = key(openTuiStandingNudges(profile(), "/workspace"), "n");
+  expect(renderTuiStandingNudges(state)).not.toContain("Unsaved changes");
+  state = beginEdit(state);
+  state = handleTuiStandingNudgesPaste(state, "pirate");
+  state = finishEdit(state);
+  expect(renderTuiStandingNudges(state)).toContain(
+    "Save changes  Unsaved changes",
+  );
+});
+
+test("the instruction editor sits on its own ground below a blank row", async () => {
+  const directory = profile();
+  saveStandingNudges(directory, [nudge("pirate")]);
+  const state = beginEdit(
+    key(openTuiStandingNudges(directory, "/workspace"), "enter"),
+  );
+  const setup = await createTestRenderer({ width: 80, height: 24 });
+  const view = createTuiStandingNudgesView(setup.renderer);
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
+  try {
+    view.update(state);
+    await setup.flush();
+    const lines = setup.captureCharFrame().split("\n");
+    const title = lines.findIndex((line) => line.includes("Edit instruction"));
+    expect(title).toBeGreaterThanOrEqual(0);
+    expect(lines[title + 1]?.trim()).toBe("");
+    expect(lines[title + 2]).toContain("pirate text");
+  } finally {
+    setup.renderer.destroy();
+  }
 });
 
 test("delete uses a second screen, Enter confirms, and Escape only goes back", () => {
@@ -556,8 +631,8 @@ test("the OpenTUI view preserves the plain selection and status markers", async 
   ]);
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(openTuiStandingNudges(directory, "/workspace"));
     await setup.flush();
@@ -571,13 +646,18 @@ test("the OpenTUI view preserves the plain selection and status markers", async 
   }
 });
 
-test("the OpenTUI view uses the shared inset dialog geometry", async () => {
+test("the OpenTUI card is centred on its own full-screen surface", async () => {
   const setup = await createTestRenderer({ width: 80, height: 32 });
   const view = createTuiStandingNudgesView(setup.renderer);
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
-    expect(view.surface).toBe(view.box);
-    expect(view.box.top).toBe(dialogInsetTop(setup.renderer));
-    expect(dialogInsetBottomOffset(setup.renderer)).toBeGreaterThan(1);
+    expect(view.surface).not.toBe(view.box);
+    expect(view.box.parent).toBe(view.surface);
+    view.update(openTuiStandingNudges(profile(), "/workspace"));
+    await setup.flush();
+    expect(view.box.y).toBeGreaterThan(1);
+    expect(view.box.y + view.box.height).toBeLessThan(setup.renderer.height);
   } finally {
     setup.renderer.destroy();
   }
@@ -597,8 +677,8 @@ test("Enter opens a real cursor editor and Save changes commits it", async () =>
   );
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     view.focus();
@@ -655,8 +735,8 @@ test("a short-terminal form keeps every field and its footer visible", async () 
   state = finishEdit(state);
   const setup = await createTestRenderer({ width: 60, height: 12 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -668,7 +748,7 @@ test("a short-terminal form keeps every field and its footer visible", async () 
     expect(frame).toContain("Apply when");
     expect(frame).toContain("Frequency");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓ field");
+    expect(frame).toContain("⏎ edit · ↑↓/tab field");
     expect(frame).toContain("back");
   } finally {
     setup.renderer.destroy();
@@ -690,8 +770,8 @@ test("a long instruction stays bounded while Status and Apply when remain visibl
   state = finishEdit(state);
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -701,7 +781,7 @@ test("a long instruction stays bounded while Status and Apply when remain visibl
     expect(frame).toContain("Status       Active");
     expect(frame).toContain("Apply when   Always");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓ field · esc back");
+    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
 
     state = key(state, "down");
     view.update(state);
@@ -730,8 +810,8 @@ test("a 17-row form keeps Apply when below a long instruction", async () => {
   state = finishEdit(state);
   const setup = await createTestRenderer({ width: 80, height: 17 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -740,7 +820,7 @@ test("a 17-row form keeps Apply when below a long instruction", async () => {
     expect(frame).toContain("Status       Active");
     expect(frame).toContain("Apply when   Always");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓ field · esc back");
+    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
   } finally {
     setup.renderer.destroy();
   }
@@ -756,8 +836,8 @@ test("a normal-height OpenTUI edit view shows the complete workspace path", asyn
   const state = key(openTuiStandingNudges(directory, workspace), "enter");
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -787,8 +867,8 @@ test("a workspace path longer than four wrapped lines remains complete", async (
   const state = key(openTuiStandingNudges(directory, workspace), "enter");
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -797,7 +877,7 @@ test("a workspace path longer than four wrapped lines remains complete", async (
     expect(frame).toContain("Status       Inactive");
     expect(frame).toContain("Apply when   Workspace");
     expect(frame).toContain("Save changes");
-    expect(frame).toContain("⏎ edit · ↑↓ field · esc back");
+    expect(frame).toContain("⏎ edit · ↑↓/tab field · esc back");
     expect(frame).not.toContain("earlier lines");
     expect(frame).not.toContain("more lines");
   } finally {
@@ -821,8 +901,8 @@ test("an exceptionally deep workspace match scrolls without hiding controls", as
   let state = key(openTuiStandingNudges(directory, workspace), "enter");
   const setup = await createTestRenderer({ width: 80, height: 24 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -882,8 +962,8 @@ test("intermediate terminal heights page deep matches in whole rows", async () =
   for (const height of [17, 18]) {
     const setup = await createTestRenderer({ width: 80, height });
     const view = createTuiStandingNudgesView(setup.renderer);
-    setup.renderer.root.add(view.box);
-    view.box.visible = true;
+    setup.renderer.root.add(view.surface);
+    view.surface.visible = true;
     try {
       view.update(state);
       await setup.flush();
@@ -935,8 +1015,8 @@ test("a two-row match viewport always shows editable match text", async () => {
   let state = key(openTuiStandingNudges(directory, workspace), "enter");
   const setup = await createTestRenderer({ width: 80, height: 17 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();
@@ -978,8 +1058,8 @@ test("a long rendered list windows around the cursor and keeps its footer", asyn
   for (let index = 1; index < 32; index += 1) state = key(state, "down");
   const setup = await createTestRenderer({ width: 80, height: 18 });
   const view = createTuiStandingNudgesView(setup.renderer);
-  setup.renderer.root.add(view.box);
-  view.box.visible = true;
+  setup.renderer.root.add(view.surface);
+  view.surface.visible = true;
   try {
     view.update(state);
     await setup.flush();

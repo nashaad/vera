@@ -15,6 +15,7 @@ import {
 } from "./completion-service.ts";
 import { contextWindowForModel } from "./model-settings.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
+import type { SessionCompactionDiagnostics } from "../store/session-store.ts";
 
 /**
  * Strategies Vera ships. The host passes these into `bindCompaction` the same
@@ -183,6 +184,102 @@ function withOverrides(
         ...(overrides.summaryWordCap === undefined
             ? {}
             : { summaryWordCap: overrides.summaryWordCap }),
+    };
+}
+
+/**
+ * The JSON a worker needs to reconstruct a bound compaction: the strategy and
+ * the bounds, not the live `CompleteText` functions. Each slot becomes a
+ * `compaction.complete` call back to the host, which is where credentials and
+ * the real route stay.
+ */
+export interface CompactionWireSpec {
+    readonly strategyId: string;
+    readonly slots: readonly string[];
+    readonly diagnostics?: SessionCompactionDiagnostics;
+    readonly trigger?: CompactionTrigger;
+    readonly targetTokens?: number;
+    readonly postCompactionTargetFraction?: number;
+    readonly summaryWordCap?: number;
+    readonly retainedUserTurns?: number;
+}
+
+/** The JSON half of a bound compaction, for `worker.start`. */
+export function compactionWireSpec(
+    bound: SessionCompactionOptions,
+): CompactionWireSpec {
+    return {
+        strategyId: bound.strategy.id,
+        slots: bound.strategy.models,
+        ...(bound.diagnostics === undefined
+            ? {}
+            : { diagnostics: bound.diagnostics }),
+        ...(bound.trigger === undefined ? {} : { trigger: bound.trigger }),
+        ...(bound.targetTokens === undefined
+            ? {}
+            : { targetTokens: bound.targetTokens }),
+        ...(bound.postCompactionTargetFraction === undefined
+            ? {}
+            : {
+                postCompactionTargetFraction: bound.postCompactionTargetFraction,
+            }),
+        ...(bound.summaryWordCap === undefined
+            ? {}
+            : { summaryWordCap: bound.summaryWordCap }),
+        ...(bound.retainedUserTurns === undefined
+            ? {}
+            : { retainedUserTurns: bound.retainedUserTurns }),
+    };
+}
+
+/**
+ * Rebuilds a bound compaction on the worker side. Each slot's model call is
+ * whatever `complete` returns for that name; the host answers those as
+ * `compaction.complete`. Unknown strategies and missing slots return
+ * `undefined`, same as `bindCompaction`. The remote boundary treats that as a
+ * worker start failure when a spec was sent: omitting compaction here would
+ * be the same silent no-op this split exists to close.
+ */
+export function bindRemoteCompaction(
+    spec: CompactionWireSpec,
+    complete: (slot: string) => CompleteText,
+    strategies: readonly CompactionStrategyDefinition[] =
+        BUNDLED_COMPACTION_STRATEGIES,
+): SessionCompactionOptions | undefined {
+    const strategy = strategies.find(
+        (candidate) => candidate.id === spec.strategyId,
+    );
+    if (strategy === undefined) {
+        return undefined;
+    }
+    const models: Record<string, CompleteText> = {};
+    for (const slot of strategy.models) {
+        if (!spec.slots.includes(slot)) {
+            return undefined;
+        }
+        models[slot] = complete(slot);
+    }
+    return {
+        strategy,
+        models,
+        ...(spec.diagnostics === undefined
+            ? {}
+            : { diagnostics: spec.diagnostics }),
+        ...(spec.trigger === undefined ? {} : { trigger: spec.trigger }),
+        ...(spec.targetTokens === undefined
+            ? {}
+            : { targetTokens: spec.targetTokens }),
+        ...(spec.postCompactionTargetFraction === undefined
+            ? {}
+            : {
+                postCompactionTargetFraction: spec.postCompactionTargetFraction,
+            }),
+        ...(spec.summaryWordCap === undefined
+            ? {}
+            : { summaryWordCap: spec.summaryWordCap }),
+        ...(spec.retainedUserTurns === undefined
+            ? {}
+            : { retainedUserTurns: spec.retainedUserTurns }),
     };
 }
 

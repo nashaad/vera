@@ -22,7 +22,10 @@
       "input": "#0F1016",
       "menu": "#16161E",
       "chrome": "plain",
-      "selectionText": "#0F1016"
+      "selectionText": "#0F1016",
+      "hud": {
+        "auto": "#40C977"
+      }
     },
     "muted-blue": {
       "accent": "#4C9BCF",

@@ -1,4 +1,5 @@
 import {
+  bg,
   BoxRenderable,
   fg,
   italic,
@@ -25,20 +26,28 @@ import {
   type StandingNudgeTrigger,
 } from "../../src/standing-nudges.ts";
 import {
+  APP_PADDING_TOP,
+  centeredDialogSurface,
   DIALOG_CARD_PADDING,
-  DIALOG_CARD_Z_INDEX,
   dialogFooterNode,
   dialogHeaderNode,
   dialogInsetBottomOffset,
-  dialogInsetTop,
 } from "./dialog-chrome.ts";
 import {
-  dialogBoxHeight,
-  listWindowRows,
+  LIST_MIN_ROWS,
   listWindowSlice,
   wheelCursor,
 } from "./list-window.ts";
-import { TUI_ACCENT, TUI_MUTED, TUI_PANEL, TUI_TEXT } from "./state.ts";
+import {
+  TUI_ACCENT,
+  TUI_ELEMENT,
+  TUI_INPUT,
+  TUI_MUTED,
+  TUI_NOTICE,
+  TUI_PANEL,
+  TUI_SELECTION_TEXT,
+  TUI_TEXT,
+} from "./state.ts";
 import { type TuiThemeBinding, tuiThemeProperties } from "./theme-bindings.ts";
 
 export interface TuiStandingNudgesKey {
@@ -233,12 +242,25 @@ export function createTuiStandingNudgesView(
     wrapMode: "word",
     textColor: TUI_TEXT,
     focusedTextColor: TUI_TEXT,
-    backgroundColor: TUI_PANEL,
-    focusedBackgroundColor: TUI_PANEL,
+    backgroundColor: TUI_INPUT,
+    focusedBackgroundColor: TUI_INPUT,
     cursorColor: TUI_ACCENT,
     placeholderColor: TUI_MUTED,
+  });
+  // The editor sits on its own darker ground so the field a keystroke lands in
+  // is visible without reading the footer. The margin is what holds it off the
+  // title above it; a textarea paints from its first row, so padding would put
+  // the gap inside the field.
+  const editorBox = new BoxRenderable(renderer, {
+    width: "100%",
+    height: "auto",
+    backgroundColor: TUI_INPUT,
+    paddingLeft: 1,
+    paddingRight: 1,
+    marginTop: 1,
     visible: false,
   });
+  editorBox.add(editor);
   const body = new TextRenderable(renderer, {
     content: "",
     fg: TUI_TEXT,
@@ -261,28 +283,27 @@ export function createTuiStandingNudgesView(
     id: "standing-nudges",
     border: false,
     backgroundColor: TUI_PANEL,
-    position: "absolute",
-    top: dialogInsetTop(renderer),
-    left: "10%",
     width: "80%",
     height: "auto",
-    maxHeight: renderer.height - dialogInsetTop(renderer) -
-      dialogInsetBottomOffset(renderer),
-    zIndex: DIALOG_CARD_Z_INDEX,
+    maxHeight: standingNudgesCardRows(renderer),
     flexDirection: "column",
     paddingLeft: DIALOG_CARD_PADDING,
     paddingRight: DIALOG_CARD_PADDING,
     paddingTop: 1,
     paddingBottom: 1,
     focusable: true,
-    visible: false,
   });
   box.add(headerSlot);
   box.add(hint);
-  box.add(editor);
+  box.add(editorBox);
   box.add(body);
   box.add(empty);
   box.add(footer);
+  const surface = centeredDialogSurface(
+    renderer,
+    "standing-nudges-surface",
+    box,
+  );
   let shownState: TuiStandingNudgesState | undefined;
   let shownField: TuiStandingNudgeFormField | undefined;
   let shownEquals: string | undefined;
@@ -296,7 +317,7 @@ export function createTuiStandingNudgesView(
     state: TuiStandingNudgesState,
     viewportOnly = false,
   ): void => {
-    const compact = renderer.height <= 16;
+    const compact = standingNudgesCompact(renderer);
     const formWidth = Math.max(
       20,
       Math.floor(renderer.width * 0.8) -
@@ -307,6 +328,7 @@ export function createTuiStandingNudgesView(
     const editing = form && state.editing && formTextField(state.field);
     body.marginTop = dense ? 0 : 1;
     empty.marginTop = dense ? 0 : 1;
+    editorBox.marginTop = dense ? 0 : 1;
     footer.marginTop = dense ? 0 : 1;
     footer.height = dense ? 1 : 2;
     box.paddingBottom = dense ? 0 : 1;
@@ -329,7 +351,7 @@ export function createTuiStandingNudgesView(
       ? "Change the instruction, status, or where it applies."
       : "";
     hint.content = hintContent;
-    editor.visible = editing;
+    editorBox.visible = editing;
     body.visible = !emptyList && !editing;
     empty.visible = emptyList;
     body.wrapMode = form ? "char" : "word";
@@ -347,14 +369,16 @@ export function createTuiStandingNudgesView(
         editor.cursorOffset = editor.plainText.length;
       }
       editor.wrapMode = state.field === "id" ? "none" : "word";
+      // The field's own box spends a row on the gap under the title.
+      const editorRows = Math.max(1, maxBodyRows - (dense ? 0 : 1));
       editor.height = state.field === "id"
         ? 1
         : state.field === "text"
         ? Math.max(
           2,
-          Math.min(MAX_STANDING_NUDGE_TEXT_LINES, maxBodyRows),
+          Math.min(MAX_STANDING_NUDGE_TEXT_LINES, editorRows),
         )
-        : Math.max(3, Math.min(8, maxBodyRows));
+        : Math.max(3, Math.min(8, editorRows));
       editor.placeholder = formPlaceholder(state, state.field);
     }
     let equalsWindow: FormValueWindow | undefined;
@@ -368,7 +392,9 @@ export function createTuiStandingNudgesView(
         .reduce(
           (rows, field) =>
             rows +
-            formValueLines(state, field, formWidth, false).length,
+            formValueLines(state, field, formWidth, false).length +
+            // The save button is held off the fields above it by a blank row.
+            (field === "save" ? 1 : 0),
           state.error === undefined
             ? 0
             : 2 + wrapFormValue(state.error, formWidth).length,
@@ -426,7 +452,7 @@ export function createTuiStandingNudgesView(
     body.content = bodyContent;
     const overflowChoiceHint = form ? formNavigationActionHint(state) : "";
     footer.content = equalsOverflow
-      ? `${overflowChoiceHint}pgup/pgdn match · ↑↓ field · esc back`
+      ? `${overflowChoiceHint}pgup/pgdn match · ↑↓/tab field · esc back`
       : content.footer;
     shownState = state;
     shownField = form ? state.field : undefined;
@@ -448,17 +474,18 @@ export function createTuiStandingNudgesView(
 
   return {
     box,
-    surface: box,
+    surface,
     themeBindings: [
       tuiThemeProperties(body, { fg: "text" }),
       tuiThemeProperties(editor, {
         textColor: "text",
         focusedTextColor: "text",
-        backgroundColor: "panel",
-        focusedBackgroundColor: "panel",
+        backgroundColor: "input",
+        focusedBackgroundColor: "input",
         cursorColor: "accent",
         placeholderColor: "muted",
       }),
+      tuiThemeProperties(editorBox, { backgroundColor: "input" }),
       tuiThemeProperties(hint, { fg: "muted" }),
       tuiThemeProperties(empty, { fg: "muted" }),
       tuiThemeProperties(footer, { fg: "muted" }),
@@ -490,6 +517,15 @@ export function createTuiStandingNudgesView(
             ...editDraft(state, editor.plainText),
             editing: false,
           },
+          handled: true,
+        };
+      }
+      const tabStep = formTabStep(key);
+      if (tabStep !== undefined) {
+        // Enter writes a newline in the text field, so tab is the only way out
+        // of it that is not a cancel.
+        return {
+          state: moveField(editDraft(state, editor.plainText), tabStep),
           handled: true,
         };
       }
@@ -571,14 +607,7 @@ function handleListKey(
       state: {
         ...state,
         screen: "create",
-        draft: {
-          id: "",
-          text: "",
-          enabled: true,
-          trigger: "always",
-          equals: "",
-          turnsApart: 0,
-        },
+        draft: EMPTY_STANDING_NUDGE_DRAFT,
         field: "id",
         editing: false,
       },
@@ -641,6 +670,10 @@ function handleFormKey(
       handled: true,
     };
   }
+  const tabStep = formTabStep(key);
+  if (tabStep !== undefined) {
+    return { state: moveField(state, tabStep), handled: true };
+  }
   if (
     (state.field === "enabled" || state.field === "trigger" ||
       state.field === "turnsApart") &&
@@ -681,6 +714,10 @@ function handleFallbackEditorKey(
 ): TuiStandingNudgesTransition {
   if (key.name === "escape") {
     return { state: { ...state, editing: false }, handled: true };
+  }
+  const tabStep = formTabStep(key);
+  if (tabStep !== undefined) {
+    return { state: moveField(state, tabStep), handled: true };
   }
   if (
     (key.name === "return" || key.name === "enter") &&
@@ -1158,17 +1195,17 @@ function screenContent(
           ...(state.error === undefined ? [] : ["", state.error]),
         ].join("\n"),
         footer: state.editing && state.field === "text"
-          ? "4 lines max · ←→ move · ↑↓ move · ⏎ newline · esc done"
+          ? "4 lines max · ↑↓ move · ⏎ newline · tab next · esc done"
           : state.editing
-          ? "←→ move · ⏎ done · esc done"
+          ? "←→ move · ⏎ done · tab next · esc done"
           : state.field === "enabled"
-          ? "Space toggle · ↑↓ field · esc back"
+          ? "Space toggle · ↑↓/tab field · esc back"
           : state.field === "trigger" ||
               state.field === "turnsApart"
-          ? "Space change · ↑↓ field · esc back"
+          ? "Space change · ↑↓/tab field · esc back"
           : state.field === "save"
-          ? "⏎ save · ↑↓ field · esc back"
-          : "⏎ edit · ↑↓ field · esc back",
+          ? "⏎ save · ↑↓/tab field · esc back"
+          : "⏎ edit · ↑↓/tab field · esc back",
       };
     case "delete_confirm":
       return {
@@ -1227,14 +1264,33 @@ function visibleListIndices(
   return listWindowSlice(
     indices,
     state.selectedIndex,
-    listWindowRows(
-      dialogBoxHeight(
+    Math.max(
+      LIST_MIN_ROWS,
+      // The list and the form window themselves against the same row budget,
+      // so a card that fits one cannot clip the other.
+      standingNudgeBodyViewportRows(
         renderer,
-        dialogInsetTop(renderer),
-        dialogInsetBottomOffset(renderer),
+        standingNudgesCompact(renderer),
+        0,
       ),
-      6,
     ),
+  );
+}
+
+/** Below this height the card gives its blank rows back to content. */
+function standingNudgesCompact(renderer: RenderContext): boolean {
+  return renderer.height <= 16;
+}
+
+/**
+ * How tall the card may grow. The card is centred, so this is a height budget
+ * and not a position: it leaves the screen's top row and the shared bottom
+ * clearance uncovered when the card fills its budget.
+ */
+function standingNudgesCardRows(renderer: RenderContext): number {
+  return Math.max(
+    1,
+    renderer.height - APP_PADDING_TOP - dialogInsetBottomOffset(renderer),
   );
 }
 
@@ -1254,15 +1310,15 @@ interface FormValueWindow {
 function plainFormRows(
   state: TuiStandingNudgesFormState,
 ): readonly string[] {
-  return formFields(state).map((field) => {
+  return formFields(state).flatMap((field) => {
     const selected = field === state.field;
     if (field === "save") {
-      return `${selected ? "›" : " "} Save changes`;
+      return ["", `${selected ? "›" : " "} ${saveButtonLabel(state)}`];
     }
     const value = fieldValue(state, field);
-    return `${selected ? "›" : " "} ${
+    return [`${selected ? "›" : " "} ${
       formLabel(state, field).padEnd(FORM_LABEL_WIDTH)
-    } ${value}`;
+    } ${value}`];
   });
 }
 
@@ -1278,10 +1334,19 @@ export function tuiStandingNudgeFormContent(
     if (index > 0) chunks.push(fg(TUI_TEXT)("\n"));
     const focused = field === state.field;
     if (field === "save") {
+      // A short card spends its blank rows on fields instead.
+      if (!compact) chunks.push(fg(TUI_TEXT)("\n"));
       chunks.push(
-        fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "› " : "  "),
-        fg(TUI_TEXT)("Save changes"),
+        // The fill opens a column early so its own padding lands in the marker
+        // gutter and the button's text lines up with the labels above it.
+        fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "›" : " "),
+        focused
+          ? fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(SAVE_BUTTON_FACE))
+          : fg(TUI_TEXT)(bg(TUI_ELEMENT)(SAVE_BUTTON_FACE)),
       );
+      if (formHasUnsavedChanges(state)) {
+        chunks.push(fg(TUI_NOTICE)(`  ${UNSAVED_CHANGES_LABEL}`));
+      }
       return;
     }
     const allLines = formValueLines(state, field, lineWidth, compact);
@@ -1385,8 +1450,7 @@ function standingNudgeBodyViewportRows(
   dense: boolean,
   hintRows: number,
 ): number {
-  const maxCardRows = renderer.height - dialogInsetTop(renderer) -
-    dialogInsetBottomOffset(renderer);
+  const maxCardRows = standingNudgesCardRows(renderer);
   const fixedRows = 1 + // top padding
     (dense ? 0 : 1) + // bottom padding
     1 + // header
@@ -1470,6 +1534,56 @@ function compactFormValue(value: string, limit: number): string {
   return oneLine.length <= limit
     ? oneLine
     : `${oneLine.slice(0, Math.max(1, limit - 1))}…`;
+}
+
+// The blank row above it and its lone label carry the button in a monochrome
+// render: no other form row stands on its own without a label column.
+const SAVE_BUTTON_FACE = " Save changes ";
+const UNSAVED_CHANGES_LABEL = "Unsaved changes";
+
+function saveButtonLabel(state: TuiStandingNudgesFormState): string {
+  const button = SAVE_BUTTON_FACE.trim();
+  return formHasUnsavedChanges(state)
+    ? `${button}  ${UNSAVED_CHANGES_LABEL}`
+    : button;
+}
+
+const EMPTY_STANDING_NUDGE_DRAFT: TuiStandingNudgeDraft = {
+  id: "",
+  text: "",
+  enabled: true,
+  trigger: "always",
+  equals: "",
+  turnsApart: 0,
+};
+
+/** What Save would write back, so a draft can be compared against it. */
+function savedDraft(
+  state: TuiStandingNudgesFormState,
+): TuiStandingNudgeDraft {
+  if (state.screen === "create") return EMPTY_STANDING_NUDGE_DRAFT;
+  const saved = state.nudges[state.selectedIndex];
+  if (saved === undefined) return state.draft;
+  return {
+    id: saved.id,
+    text: saved.text,
+    enabled: saved.enabled,
+    trigger: saved.trigger.type,
+    equals: saved.trigger.type === "always" ? "" : saved.trigger.equals,
+    turnsApart: saved.turnsApart,
+  };
+}
+
+export function formHasUnsavedChanges(
+  state: TuiStandingNudgesFormState,
+): boolean {
+  const saved = savedDraft(state);
+  return saved.id !== state.draft.id ||
+    saved.text !== state.draft.text ||
+    saved.enabled !== state.draft.enabled ||
+    saved.trigger !== state.draft.trigger ||
+    saved.equals !== state.draft.equals ||
+    saved.turnsApart !== state.draft.turnsApart;
 }
 
 function formTextField(field: TuiStandingNudgeFormField): boolean {
@@ -1662,6 +1776,13 @@ function clampIndex(index: number, length: number): number {
 function modified(key: TuiStandingNudgesKey): boolean {
   return key.ctrl === true || key.meta === true || key.super === true ||
     key.hyper === true || key.shift === true;
+}
+
+/** Terminals send shift+tab either as a shifted tab or as its own key. */
+function formTabStep(key: TuiStandingNudgesKey): -1 | 1 | undefined {
+  if (key.name === "backtab") return -1;
+  if (key.name !== "tab") return undefined;
+  return key.shift === true ? -1 : 1;
 }
 
 function commandModified(key: TuiStandingNudgesKey): boolean {

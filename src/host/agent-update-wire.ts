@@ -53,7 +53,14 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             && (update.context === undefined
                 || isContextMeasurement(update.context))
             && (update.usage === undefined || isSessionModelUsage(update.usage))
+            && (update.promptQueue === undefined
+                || isPromptQueueState(update.promptQueue))
             && (update.status === undefined || isAgentStatus(update.status))
+            ? value as AgentUpdate
+            : undefined;
+    }
+    if (update.type === "prompt_queue") {
+        return isPromptQueueState(update.queue)
             ? value as AgentUpdate
             : undefined;
     }
@@ -401,6 +408,23 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
     return undefined;
 }
 
+function isPromptQueueState(value: unknown): boolean {
+    const queue = asRecord(value);
+    return queue !== undefined
+        && typeof queue.draining === "boolean"
+        && Array.isArray(queue.prompts)
+        && queue.prompts.every((candidate) => {
+            const prompt = asRecord(candidate);
+            return prompt !== undefined
+                && typeof prompt.content === "string"
+                && (prompt.state === "held" || prompt.state === "released")
+                && (prompt.attachmentIds === undefined
+                    || (Array.isArray(prompt.attachmentIds)
+                        && prompt.attachmentIds.every((id) =>
+                            typeof id === "string" && id.length > 0)));
+        });
+}
+
 function isSessionModelUsage(value: unknown): boolean {
     const usage = asRecord(value);
     if (!Array.isArray(usage?.rows)) return false;
@@ -446,6 +470,8 @@ function parseModelActivity(
             && !Number.isNaN(Date.parse(update.retryAt))
             && failure !== undefined
             && isProviderFailureKind(failure?.kind)
+            && (update.replacesPartialAttempt === undefined
+                || update.replacesPartialAttempt === true)
             && (failure.statusCode === undefined
                 || (Number.isSafeInteger(failure.statusCode)
                     && (failure.statusCode as number) >= 100

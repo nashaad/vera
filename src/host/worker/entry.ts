@@ -68,42 +68,48 @@ export async function runWorker(
             // nothing else. The host recorded the same load once already.
             onFailure: () => {},
         });
-    const remote = createRemoteHostBoundary({
-        pipe,
-        session: options.session,
-        offers: options.offers,
-        capabilities: options.capabilities,
-        state: options.state,
-        ...(extensions === undefined
-            ? {}
-            : { localExtensionTools: extensions.tools() }),
-        ...(options.extensionToolDefinitions === undefined
-            ? {}
-            : { extensionToolDefinitions: options.extensionToolDefinitions }),
-    });
-    acceptHostNotification = remote.acceptNotification;
-    for (const body of pendingHost.splice(0)) {
-        acceptHostNotification(body);
-    }
-
-    // The client endpoint has not moved host-side yet, so it lives here and
-    // its two directions ride the same pipe. See `start.ts`.
-    const channel = createInProcessChannel();
-    const client = channel.client as unknown as {
-        send(message: EngineCommand): void;
-    };
-    deliverCommand = (command: EngineCommand): void => {
-        client.send(command);
-    };
-    for (const command of pending.splice(0)) {
-        deliverCommand(command);
-    }
-    forwardUpdates(channel.client as unknown as {
-        receive(): Promise<AgentUpdate>;
-    }, pipe);
-
     let failure: string | undefined;
     try {
+        const remote = createRemoteHostBoundary({
+            pipe,
+            session: options.session,
+            offers: options.offers,
+            capabilities: options.capabilities,
+            state: options.state,
+            ...(extensions === undefined
+                ? {}
+                : { localExtensionTools: extensions.tools() }),
+            ...(options.extensionToolDefinitions === undefined
+                ? {}
+                : {
+                    extensionToolDefinitions:
+                        options.extensionToolDefinitions,
+                }),
+            ...(options.compaction === undefined
+                ? {}
+                : { compaction: options.compaction }),
+        });
+        acceptHostNotification = remote.acceptNotification;
+        for (const body of pendingHost.splice(0)) {
+            acceptHostNotification(body);
+        }
+
+        // The client endpoint has not moved host-side yet, so it lives here
+        // and its two directions ride the same pipe. See `start.ts`.
+        const channel = createInProcessChannel();
+        const client = channel.client as unknown as {
+            send(message: EngineCommand): void;
+        };
+        deliverCommand = (command: EngineCommand): void => {
+            client.send(command);
+        };
+        for (const command of pending.splice(0)) {
+            deliverCommand(command);
+        }
+        forwardUpdates(channel.client as unknown as {
+            receive(): Promise<AgentUpdate>;
+        }, pipe);
+
         await runHeadlessLoop(
             channel.engine as never,
             adapter,

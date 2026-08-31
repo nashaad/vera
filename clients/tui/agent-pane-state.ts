@@ -91,6 +91,9 @@ export class TuiAgentPaneState {
             this.activity = "ready";
         } else if (update.type === "model_activity") {
             this.workingSince ??= now;
+            if (update.replacesPartialAttempt === true) {
+                this.phaseSince = undefined;
+            }
             this.activity = `retrying ${update.model}`;
         } else if (update.type === "user_prompt") {
             this.workingSince ??= now;

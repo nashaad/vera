@@ -5,6 +5,7 @@
  */
 import {
     DIAL_DEFAULT_SEPARATOR,
+    DIAL_PICK_MARKER,
     DIAL_PROVIDER_SEPARATOR,
     type DialLane,
 } from "./dials.ts";
@@ -14,6 +15,7 @@ import { mixHex } from "./theme.ts";
 export interface DialSpan {
     readonly text: string;
     readonly color: string;
+    readonly background?: string;
 }
 
 /** The colours the HUD draws with, resolved from the live theme. */
@@ -25,6 +27,8 @@ export interface DialPaintTheme {
     readonly background: string;
     readonly success: string;
     readonly secondary: string;
+    readonly accessAsk: string;
+    readonly accessAuto: string;
 }
 
 /** Where each rung's row sits, and how tall the effort block is. */
@@ -36,6 +40,16 @@ export interface DialRowMap {
     readonly modelEnd: number;
     readonly agent: number;
 }
+
+export interface DialPaintState {
+    readonly effortPending?: boolean;
+    readonly autoAnimation?: {
+        readonly progress: number;
+        readonly width: number;
+    };
+}
+
+export const AUTO_MODE_ANIMATION_DURATION_MS = 1_450;
 
 /**
  * How far an unfocused rung's chosen value is pulled toward the background.
@@ -97,6 +111,7 @@ export function paintDialRow(
     lane: DialLane | undefined,
     theme: DialPaintTheme,
     rows: DialRowMap = mapDialRows(hudRows),
+    state: DialPaintState = {},
 ): readonly DialSpan[] {
     const line = hudRows[index] ?? "";
     const providerParts = line.split(DIAL_PROVIDER_SEPARATOR);
@@ -105,33 +120,41 @@ export function paintDialRow(
     const isModelRow = rows.modelStart >= 0
         && index >= rows.modelStart
         && index < modelEnd;
-    const activeRow = lane === "model"
-        ? isModelRow
-        : lane === "effort"
-        ? rows.effort >= 0
-            && index >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0)
-            && index <= rows.effort + (rows.effortScaleRows > 0 ? 1 : 0)
-        : lane === "agent"
-        ? index === rows.agent
-        : lane === "access"
-        ? index === rows.access
+    const isEffortRow = rows.effort >= 0
+        && index >= rows.effort - (rows.effortScaleRows > 0 ? 1 : 0)
+        && index <= rows.effort + (rows.effortScaleRows > 0 ? 1 : 0);
+    const activeRow = lane === "model" && isModelRow
+        || (lane === "effort" || state.effortPending === true) && isEffortRow
+        || lane === "agent" && index === rows.agent
+        || lane === "access" && index === rows.access
+        ? true
         : false;
     const settled = (hex: string): string =>
         activeRow ? hex : mixHex(theme.background, hex, SETTLED_MIX);
     // The access modes keep their hue whether or not the lane is focused: the
     // posture the session is running under is worth reading at a glance, not
     // only while it is being changed.
+    const accessHue = (part: string): string =>
+        part.includes("readonly")
+            ? theme.secondary
+            : part.includes("ask")
+            ? theme.accessAsk
+            : part.includes("auto")
+            ? theme.accessAuto
+            : theme.text;
     const selectedColor = (part: string): string =>
-        index !== rows.access ? settled(theme.text) : settled(
-            part.includes("readonly")
-                ? theme.secondary
-                : part.includes("ask")
-                ? theme.accent
-                : part.includes("auto")
-                ? theme.success
-                : theme.text,
-        );
-    const span = (text: string, color: string): DialSpan => ({ text, color });
+        index !== rows.access
+            ? settled(theme.text)
+            : settled(accessHue(part));
+    const span = (
+        text: string,
+        color: string,
+        background?: string,
+    ): DialSpan => ({
+        text,
+        color,
+        ...(background === undefined ? {} : { background }),
+    });
 
     const isEffortScale = rows.effortScaleRows > 0
         && index >= rows.effort - 1
@@ -139,7 +162,7 @@ export function paintDialRow(
     if (isEffortScale) {
         // The gutter chip is delimited rather than matched by text: it is the
         // one span on these rows that is not part of the axis, and it carries
-        // the selection brackets when it is chosen.
+        // the pick mark when it is chosen.
         const parts = main.split(DIAL_DEFAULT_SEPARATOR);
         const axis = parts.length > 1 ? parts.pop() ?? "" : main;
         // Odd spans are the gutter marks, even spans the plain text between
@@ -180,13 +203,34 @@ export function paintDialRow(
     // Only the lane holding the focus is lit, name included, so the eye lands
     // on one rung instead of reading four equally bright ones.
     const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)?.[0];
-    // The bracketed row is the one the dial is sitting on, and it reads as
-    // chosen whether or not the model lane holds the focus, the same way the
-    // picked agent and access cells do.
-    const pickedRow = isModelRow && main.includes("[");
+    // The marked row is the one the dial is sitting on, and it reads as chosen
+    // whether or not the model lane holds the focus, the same way the picked
+    // agent and access cells do.
+    const pickedRow = isModelRow && main.includes(DIAL_PICK_MARKER, 2);
+    // Once focus leaves the model lane, its pick settles back to plain text:
+    // still the chosen row, no longer the row being chosen.
+    const cursorColor = activeRow ? theme.accent : settled(theme.text);
     const body: DialSpan[] = [];
     if (isModelRow) {
-        if (index === rows.modelStart) {
+        const selected = pickedRow && lane === "model";
+        if (selected) {
+            // The source mark remains outside the selection bar, like the
+            // shortlist dot in the model picker. The bar begins at the pick
+            // mark and runs through the padded model/provider cell.
+            const pickAt = main.indexOf(DIAL_PICK_MARKER, 2);
+            const prefixLength = pickAt < 0 ? 0 : pickAt;
+            body.push(
+                span(
+                    main.slice(0, prefixLength),
+                    index === rows.modelStart ? theme.text : theme.muted,
+                ),
+                span(
+                    main.slice(prefixLength),
+                    theme.background,
+                    theme.accent,
+                ),
+            );
+        } else if (index === rows.modelStart) {
             const prefixLength = laneLabel?.length ?? 2;
             body.push(
                 span(
@@ -195,42 +239,99 @@ export function paintDialRow(
                 ),
                 span(
                     main.slice(prefixLength),
-                    pickedRow ? settled(theme.text) : theme.muted,
+                    pickedRow ? cursorColor : theme.muted,
                 ),
             );
         } else {
-            body.push(
-                span(main, pickedRow ? settled(theme.text) : theme.muted),
-            );
+            body.push(span(main, pickedRow ? cursorColor : theme.muted));
         }
     } else {
         const prefix = laneLabel ?? main.slice(0, 2);
         body.push(span(prefix, activeRow ? theme.text : theme.muted));
+        // A picked cell runs from its mark to the space before the next cell.
         for (
             const part of main.slice(prefix.length)
-                .split(/(\[[^\]]+\])/)
+                .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)*)`, "u"))
                 .filter(Boolean)
         ) {
+            const picked = part.startsWith(DIAL_PICK_MARKER);
+            const highlightedAccess = picked
+                && index === rows.access
+                && lane === "access";
             body.push(
-                span(part, part.startsWith("[") ? selectedColor(part) : theme.muted),
+                span(
+                    part,
+                    highlightedAccess
+                        ? theme.background
+                        : picked
+                        ? selectedColor(part)
+                        : theme.muted,
+                    highlightedAccess ? accessHue(part) : undefined,
+                ),
             );
         }
     }
     return [
         ...body,
-        // The provider is muted; anything after it is the closing bracket,
-        // which belongs to the choice, not to the provider.
+        // The provider is muted; anything after it belongs to the choice, not to
+        // the provider.
         ...providerParts.slice(1).map((part, at) =>
             span(
                 part,
                 at === 0
-                    ? theme.muted
+                    ? selectedModelColor(pickedRow, lane, theme)
                     : pickedRow
-                    ? settled(theme.text)
+                    ? cursorColor
                     : theme.muted,
+                pickedRow && lane === "model" ? theme.accent : undefined,
             )
         ),
     ];
+}
+
+/** A narrow green tracer that travels down the HUD's far-right edge. */
+export function autoModeEdgeIntensity(
+    progress: number,
+    row: number,
+    rowCount: number,
+): number {
+    if (
+        !Number.isFinite(progress)
+        || !Number.isFinite(row)
+        || !Number.isFinite(rowCount)
+        || row < 0
+        || rowCount <= 0
+        || row >= rowCount
+    ) return 0;
+    const bounded = Math.max(0, Math.min(1, progress));
+    const rows = Math.max(1, rowCount);
+    const trailRows = Math.min(7, Math.max(4, Math.ceil(rows / 4)));
+    const sweepProgress = easeInOutCubic(Math.min(1, bounded / 0.88));
+    // Fractional travel lets each cell brighten between positions instead of
+    // making the terminal-sized trail jump one whole row at a time.
+    const head = sweepProgress * (rows + trailRows * 2) - trailRows;
+    const distance = head - row;
+    if (distance < 0 || distance >= trailRows) return 0;
+    const fade = bounded <= 0.9
+        ? 1
+        : Math.max(0, 1 - (bounded - 0.9) / 0.1);
+    return Math.sin((1 - distance / trailRows) * Math.PI / 2) ** 2
+        * 0.92
+        * fade;
+}
+
+function easeInOutCubic(value: number): number {
+    return value < 0.5
+        ? 4 * value ** 3
+        : 1 - (-2 * value + 2) ** 3 / 2;
+}
+
+function selectedModelColor(
+    picked: boolean,
+    lane: DialLane | undefined,
+    theme: DialPaintTheme,
+): string {
+    return picked && lane === "model" ? theme.background : theme.muted;
 }
 
 /** Every row of the HUD, coloured. */
@@ -238,9 +339,63 @@ export function paintDialHud(
     hudRows: readonly string[],
     lane: DialLane | undefined,
     theme: DialPaintTheme,
+    state: DialPaintState = {},
 ): readonly (readonly DialSpan[])[] {
     const rows = mapDialRows(hudRows);
-    return hudRows.map((_, index) =>
-        paintDialRow(hudRows, index, lane, theme, rows)
+    const painted = hudRows.map((_, index) =>
+        paintDialRow(hudRows, index, lane, theme, rows, state)
     );
+    const animation = state.autoAnimation;
+    if (animation === undefined) return painted;
+    const animationWidth = Number.isFinite(animation.width)
+        ? Math.max(0, Math.floor(animation.width))
+        : 0;
+    if (animationWidth === 0) return painted;
+    return painted.map((spans, index) => {
+        const intensity = autoModeEdgeIntensity(
+            animation.progress,
+            index,
+            painted.length,
+        );
+        if (intensity <= 0) return spans;
+        const visibleWidth = spans.reduce(
+            (total, span) => total + span.text.length,
+            0,
+        );
+        const edgeWidth = Math.min(
+            2,
+            Math.max(0, animationWidth - visibleWidth),
+        );
+        if (edgeWidth === 0) return spans;
+        const padding = Math.max(
+            0,
+            animationWidth - visibleWidth - edgeWidth,
+        );
+        return [
+            ...spans,
+            ...(padding === 0
+                ? []
+                : [{ text: " ".repeat(padding), color: theme.background }]),
+            ...(edgeWidth === 1
+                ? []
+                : [{
+                    text: " ",
+                    color: theme.background,
+                    background: mixHex(
+                        theme.background,
+                        theme.accessAuto,
+                        intensity * 0.42,
+                    ),
+                }]),
+            {
+                text: " ",
+                color: theme.background,
+                background: mixHex(
+                    theme.background,
+                    theme.accessAuto,
+                    intensity,
+                ),
+            },
+        ];
+    });
 }

@@ -225,6 +225,7 @@ test("host wire validates model activity", () => {
         maxAttempts: 3,
         delayMs: 500,
         retryAt: "2026-07-29T17:00:00.000Z",
+        replacesPartialAttempt: true as const,
         failure: {
             kind: "server" as const,
             statusCode: 503,
@@ -234,6 +235,8 @@ test("host wire validates model activity", () => {
 
     expect(parseAgentUpdate(retry)).toEqual(retry);
     expect(parseAgentUpdate({ ...retry, nextAttempt: 4 })).toBeUndefined();
+    expect(parseAgentUpdate({ ...retry, replacesPartialAttempt: false }))
+        .toBeUndefined();
     expect(parseAgentUpdate({
         ...retry,
         failure: { ...retry.failure, kind: "made_up" },

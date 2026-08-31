@@ -1,4 +1,5 @@
 import {
+    bg,
     BoxRenderable,
     bold,
     fg,
@@ -18,6 +19,7 @@ import {
     TUI_MUTED,
     TUI_NOTICE,
     TUI_PANEL,
+    TUI_SELECTION_TEXT,
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
@@ -212,16 +214,20 @@ export function createTuiDiagnosticsDialogView(
 }
 
 function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
-    const session = scope === "session"
-        ? bold(fg(TUI_TEXT)("[Session]"))
-        : fg(TUI_MUTED)("Session");
-    const vera = scope === "vera"
-        ? bold(fg(TUI_TEXT)("[Vera]"))
-        : fg(TUI_MUTED)("Vera");
+    // The marker is what survives a monochrome render; the fill decorates it.
+    const tab = (label: string, active: boolean) =>
+        active
+            ? [
+                // The fill already opens with a space, so the marker column is
+                // one character wide and the two labels stay aligned.
+                fg(TUI_ACCENT)("\u203a"),
+                bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `))),
+            ]
+            : [fg(TUI_MUTED)(" "), fg(TUI_MUTED)(` ${label} `)];
     return new StyledText([
-        session,
+        ...tab("Session", scope === "session"),
         fg(TUI_MUTED)("  "),
-        vera,
+        ...tab("Vera", scope === "vera"),
         fg(TUI_MUTED)("    tab switch"),
     ]);
 }
