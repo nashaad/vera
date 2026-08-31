@@ -3,8 +3,11 @@ import {
     BoxRenderable,
     bold,
     fg,
+    MarkdownRenderable,
     ScrollBoxRenderable,
     StyledText,
+    SyntaxStyle,
+    TextTableRenderable,
     TextRenderable,
     type RenderContext,
     type TextChunk,
@@ -16,7 +19,6 @@ import {
 } from "./dialog-chrome.ts";
 import {
     TUI_ACCENT,
-    TUI_DANGER,
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
@@ -27,7 +29,6 @@ import {
 } from "./state.ts";
 import type { TuiDiagnosticsScope } from "./diagnostics.ts";
 import { tuiBindingId } from "./keymap.ts";
-import { doctorLineEmphasis } from "../process-doctor.ts";
 
 export const INSPECT_COPY_HINT = "drag a section · enter copies all";
 
@@ -162,14 +163,45 @@ export function createTuiDiagnosticsDialogView(
             marginTop: 1,
         })
         : undefined;
-    const bodyText = new TextRenderable(renderer, {
-        id: `${id}-text`,
+    let markdownStyle = inspectMarkdownStyle();
+    let occupancyBlock = 0;
+    const bodyMarkdown = new MarkdownRenderable(renderer, {
+        id: `${id}-markdown`,
         content: "",
+        syntaxStyle: markdownStyle,
         fg: TUI_TEXT,
         width: "100%",
-        height: "auto",
-        wrapMode: "none",
-        selectable: true,
+        conceal: true,
+        internalBlockMode: "top-level",
+        tableOptions: {
+            style: "columns",
+            columnFitter: "balanced",
+            wrapMode: "word",
+            selectable: true,
+        },
+        renderNode(token, context) {
+            if (
+                token.type === "table"
+                && token.header.length === 2
+                && token.header[0]?.text.trim() === "Field"
+                && token.header[1]?.text.trim() === "Value"
+            ) {
+                const table = context.defaultRender();
+                if (table instanceof TextTableRenderable) {
+                    table.content = table.content.slice(1);
+                }
+                return table;
+            }
+            if (!/[█░▒]/u.test(token.raw)) return undefined;
+            occupancyBlock += 1;
+            return new TextRenderable(renderer, {
+                id: `${id}-occupancy-${occupancyBlock}`,
+                content: styledInspectOccupancy(token.raw.trimEnd()),
+                width: "100%",
+                wrapMode: "char",
+                selectable: true,
+            });
+        },
     });
     const body = new ScrollBoxRenderable(renderer, {
         id: `${id}-body`,
@@ -178,14 +210,15 @@ export function createTuiDiagnosticsDialogView(
         minHeight: 1,
         marginTop: 1,
         scrollY: true,
-        // Horizontal scroll is a backstop when one line still overflows.
-        // Reports reflow to the body width so that path stays unused.
-        scrollX: true,
+        // A horizontal scroll viewport measures its child without a width
+        // constraint, which prevents Markdown's word/character fallback from
+        // wrapping long paths. Inspect reports scroll vertically only.
+        scrollX: false,
         focusable: true,
         viewportCulling: true,
         contentOptions: { flexDirection: "column" },
     });
-    body.add(bodyText);
+    body.add(bodyMarkdown);
     const footer = new BoxRenderable(renderer, {
         id: `${id}-footer`,
         width: "100%",
@@ -213,7 +246,28 @@ export function createTuiDiagnosticsDialogView(
     if (scopeTabs !== undefined) box.add(scopeTabs);
     box.add(body);
     box.add(footer);
+    box.once("destroyed", () => markdownStyle.destroy());
     let activeScope: TuiDiagnosticsScope = "session";
+
+    const refreshFrame = (): void => {
+        const next = inspectDialogFrame(renderer.width);
+        box.left = next.left;
+        box.width = next.width;
+    };
+
+    const documentWidth = (): number => {
+        const frame = inspectDialogFrame(renderer.width);
+        const laidOut = typeof body.width === "number" && body.width > 1
+            ? body.width
+            : frame.width - 4;
+        // Layout catches up one paint after an absolute box is resized. Cap a
+        // stale body measurement to the new frame immediately so report
+        // builders never emit full-width rules for the old, wider viewport.
+        const available = Math.min(laidOut, frame.width - 4);
+        // Leave the vertical scrollbar column out of the document width so a
+        // full-width occupancy bar does not force horizontal scroll.
+        return Math.max(20, available - 1);
+    };
 
     return {
         box,
@@ -221,17 +275,14 @@ export function createTuiDiagnosticsDialogView(
             body.focus();
         },
         contentWidth(): number {
-            const frame = inspectDialogFrame(renderer.width);
-            box.left = frame.left;
-            box.width = frame.width;
-            const laidOut = typeof body.width === "number" && body.width > 1
-                ? body.width
-                : frame.width - 4;
-            // Leave the vertical scrollbar column out of the document width so
-            // a full-width occupancy bar does not force horizontal scroll.
-            return Math.max(20, laidOut - 1);
+            refreshFrame();
+            return documentWidth();
         },
         update(state): void {
+            // Absolute coordinates do not follow a terminal resize. Re-read
+            // the viewport whenever the open dialog paints so the capped card
+            // remains centered instead of drifting against the right edge.
+            refreshFrame();
             if (headerTitle !== undefined && state.title !== undefined) {
                 headerTitle.content = state.title;
             }
@@ -242,10 +293,10 @@ export function createTuiDiagnosticsDialogView(
                 activeScope = state.scope ?? "session";
                 scopeTabs.content = diagnosticsScopeTabs(activeScope);
             }
-            bodyText.content = styledInspectDocument(state.text, {
-                skipFirstLine: options.skipFirstLine,
-                emphasis: options.emphasis,
-            });
+            bodyMarkdown.content = inspectDocumentMarkdown(
+                state.text,
+                options.skipFirstLine,
+            );
             copyHint.content = state.copyStatus === "copied"
                 ? "✓ copied"
                 : state.copyStatus === "failed"
@@ -259,7 +310,12 @@ export function createTuiDiagnosticsDialogView(
         },
         repaint(): void {
             box.backgroundColor = TUI_PANEL;
-            bodyText.fg = TUI_TEXT;
+            const retiredStyle = markdownStyle;
+            markdownStyle = inspectMarkdownStyle();
+            bodyMarkdown.syntaxStyle = markdownStyle;
+            bodyMarkdown.fg = TUI_TEXT;
+            bodyMarkdown.refreshStyles();
+            retiredStyle.destroy();
             if (scopeTabs !== undefined) {
                 scopeTabs.content = diagnosticsScopeTabs(activeScope);
             }
@@ -269,17 +325,29 @@ export function createTuiDiagnosticsDialogView(
     };
 }
 
+export function inspectMarkdownStyle(): SyntaxStyle {
+    return SyntaxStyle.fromStyles({
+        default: { fg: TUI_TEXT },
+        "markup.heading": { fg: TUI_MUTED, bold: true },
+        "markup.heading.1": { fg: TUI_MUTED, bold: true },
+        "markup.heading.2": { fg: TUI_MUTED, bold: true },
+        "markup.heading.3": { fg: TUI_MUTED, bold: true },
+        "markup.strong": { fg: TUI_TEXT, bold: true },
+        "markup.italic": { fg: TUI_TEXT, italic: true },
+        "markup.raw": { fg: TUI_NOTICE },
+        "markup.raw.block": { fg: TUI_NOTICE },
+        "markup.list": { fg: TUI_ACCENT },
+        "markup.quote": { fg: TUI_MUTED, italic: true },
+        "punctuation.special": { fg: TUI_ELEMENT },
+        conceal: { fg: TUI_ELEMENT },
+    });
+}
+
 function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
-    // The marker is what survives a monochrome render; the fill decorates it.
     const tab = (label: string, active: boolean) =>
         active
-            ? [
-                // The fill already opens with a space, so the marker column is
-                // one character wide and the two labels stay aligned.
-                fg(TUI_ACCENT)("\u203a"),
-                bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `))),
-            ]
-            : [fg(TUI_MUTED)(" "), fg(TUI_MUTED)(` ${label} `)];
+            ? [bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `)))]
+            : [fg(TUI_MUTED)(` ${label} `)];
     return new StyledText([
         ...tab("Session", scope === "session"),
         fg(TUI_MUTED)("  "),
@@ -288,43 +356,8 @@ function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
     ]);
 }
 
-interface InspectStyleOptions {
-    readonly skipFirstLine?: boolean | undefined;
-    readonly emphasis?: "doctor" | undefined;
-}
-
-/**
- * The inspect dialog is a markdown document. Headings, tables, and quotes stay
- * in the text so a dragged selection copies the source, not a restyled costume.
- * Color is decoration: occupancy cells match the status ctx meter.
- */
-export function styledInspectDocument(
-    text: string,
-    options: InspectStyleOptions = {},
-): StyledText {
-    const lines = inspectDocumentLines(text, options.skipFirstLine);
-    return new StyledText(lines.flatMap((line, index) => {
-        const heading = isMarkdownHeading(line);
-        const chunks = options.emphasis === "doctor"
-            ? styledDoctorLine(line, heading)
-            : styledInspectLine(line, heading);
-        return index === lines.length - 1
-            ? chunks
-            : [...chunks, fg(TUI_TEXT)("\n")];
-    }));
-}
-
-function styledInspectLine(line: string, heading: boolean) {
-    if (heading) return [bold(fg(TUI_ACCENT)(line))];
-    if (/^─+$/.test(line)) return [fg(TUI_MUTED)(line)];
-    if (line.startsWith("> !") || line.startsWith("!  ")) {
-        return [fg(TUI_NOTICE)(line)];
-    }
-    if (line.startsWith("/context")) return [fg(TUI_MUTED)(line)];
-    return occupancyGlyphChunks(line);
-}
-
-function occupancyGlyphChunks(line: string): TextChunk[] {
+/** Context occupancy remains legible as used, free, and reserved capacity. */
+export function styledInspectOccupancy(text: string): StyledText {
     const chunks: TextChunk[] = [];
     let buffer = "";
     let tone: "used" | "free" | "reserve" | "text" | undefined;
@@ -340,7 +373,7 @@ function occupancyGlyphChunks(line: string): TextChunk[] {
         chunks.push(fg(color)(buffer));
         buffer = "";
     };
-    for (const character of Array.from(line)) {
+    for (const character of Array.from(text)) {
         const next = character === "█"
             ? "used"
             : character === "░"
@@ -355,7 +388,7 @@ function occupancyGlyphChunks(line: string): TextChunk[] {
         buffer += character;
     }
     flush();
-    return chunks.length === 0 ? [fg(TUI_TEXT)(line)] : chunks;
+    return new StyledText(chunks);
 }
 
 /** Visible inspect-dialog body: the markdown, optionally without the H1 title. */
@@ -366,40 +399,9 @@ export function inspectDocumentLines(
     return text.split("\n").slice(skipFirstLine === false ? 0 : 1);
 }
 
-function isMarkdownHeading(line: string): boolean {
-    return /^#{1,6} /.test(line);
-}
-
-const INVENTORY_ROLE_LINE =
-    /^(?<indent>\s+)(?<role>TUI|host|worker|supervisor|watchdog)(?<rest>\s+PID \d+.*)$/;
-
-function styledDoctorLine(line: string, heading: boolean) {
-    if (heading || doctorLineEmphasis(line) === "heading") {
-        return [bold(fg(TUI_ACCENT)(line))];
-    }
-    const tone = doctorLineEmphasis(line);
-    if (tone === "success") return [bold(fg(TUI_SUCCESS)(line))];
-    if (tone === "danger") return [fg(TUI_DANGER)(line)];
-    if (tone === "tally") return [fg(TUI_TEXT)(line)];
-    if (tone === "role") {
-        const match = INVENTORY_ROLE_LINE.exec(line);
-        const role = match?.groups?.role;
-        if (match !== null && role !== undefined) {
-            return [
-                fg(TUI_MUTED)(match.groups?.indent ?? ""),
-                fg(inventoryRoleColor(role))(role),
-                fg(TUI_MUTED)(match.groups?.rest ?? ""),
-            ];
-        }
-    }
-    return [fg(TUI_TEXT)(line)];
-}
-
-function inventoryRoleColor(role: string): string {
-    if (role === "TUI") return TUI_ACCENT;
-    if (role === "host") return TUI_TEXT;
-    if (role === "worker") return TUI_SUCCESS;
-    if (role === "supervisor") return TUI_NOTICE;
-    if (role === "watchdog") return TUI_ACCENT;
-    return TUI_TEXT;
+export function inspectDocumentMarkdown(
+    text: string,
+    skipFirstLine?: boolean,
+): string {
+    return inspectDocumentLines(text, skipFirstLine).join("\n");
 }

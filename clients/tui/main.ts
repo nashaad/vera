@@ -1707,6 +1707,7 @@ export async function startTui(
     let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
     let diagnosticsSessionPathResolved = false;
     let diagnosticsGeneration = 0;
+    let diagnosticsReportWidth: number | undefined;
     let doctorDialog: TuiDiagnosticsDialogState | undefined;
     let doctorInspectionGeneration = 0;
     let extensionsDialog: TuiDiagnosticsDialogState | undefined;
@@ -5697,7 +5698,7 @@ export async function startTui(
                         ? "vera"
                         : "session";
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6488,6 +6489,14 @@ export async function startTui(
         };
     }
 
+    function renderDiagnostics(
+        snapshot = diagnosticsSnapshot(),
+    ): string {
+        const width = diagnosticsDialogView.contentWidth();
+        diagnosticsReportWidth = width;
+        return renderTuiDiagnostics(snapshot, width);
+    }
+
     /**
      * A model failing the same way again is worth one line saying so, because
      * the per-turn error alone reads as Vera breaking rather than as a pattern
@@ -6810,7 +6819,7 @@ export async function startTui(
             if (diagnosticsDialog !== undefined) {
                 diagnosticsDialog = {
                     ...diagnosticsDialog,
-                    text: renderTuiDiagnostics({
+                    text: renderDiagnostics({
                         ...diagnosticsSnapshot(),
                         sessionPath: diagnosticsSessionPath,
                     }),
@@ -6843,7 +6852,7 @@ export async function startTui(
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         ...diagnosticsDialog,
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6862,7 +6871,7 @@ export async function startTui(
                 if (diagnosticsDialog !== undefined) {
                     diagnosticsDialog = {
                         ...diagnosticsDialog,
-                        text: renderTuiDiagnostics({
+                        text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
                             sessionPath: diagnosticsSessionPath,
                         }),
@@ -6898,7 +6907,7 @@ export async function startTui(
             doctorDialog = undefined;
             extensionsDialog = undefined;
             diagnosticsDialog = {
-                text: renderTuiDiagnostics({
+                text: renderDiagnostics({
                     ...diagnosticsSnapshot(),
                 }),
                 scope: diagnosticsScope,
@@ -6921,7 +6930,7 @@ export async function startTui(
                     diagnosticsWorkerPid = listed?.worker_pid;
                     diagnosticsSupervisorPid = listed?.supervisor_pid;
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                        text: renderDiagnostics(),
                         scope: diagnosticsScope,
                         copyReady: true,
                     };
@@ -6939,7 +6948,7 @@ export async function startTui(
                         || client.agentId !== agentId
                     ) return;
                     diagnosticsDialog = {
-                        text: renderTuiDiagnostics(diagnosticsSnapshot()),
+                        text: renderDiagnostics(),
                         scope: diagnosticsScope,
                         copyReady: true,
                     };
@@ -10729,6 +10738,12 @@ export async function startTui(
             doctorDialogView.update(doctorDialog);
         }
         if (diagnosticsDialog !== undefined) {
+            if (diagnosticsDialogView.contentWidth() !== diagnosticsReportWidth) {
+                diagnosticsDialog = {
+                    ...diagnosticsDialog,
+                    text: renderDiagnostics(),
+                };
+            }
             diagnosticsDialogView.update(diagnosticsDialog);
         }
         if (extensionsDialog !== undefined) {
