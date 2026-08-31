@@ -128,7 +128,7 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
             "| Field | Value |",
             "| --- | --- |",
             "| Identity | misty-knoll:3574 |",
-            "| File | /Users/nash/.vera/profiles/default/runtime/sessions/session.jsonl |",
+            "| File | `/Users/nash/.vera/profiles/default/runtime/sessions/session.jsonl` |",
             "",
             "## Usage",
             "| Metric | Value |",
@@ -147,6 +147,7 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
         expect(frame).not.toContain("Field  Value");
         expect(frame).not.toContain("| Metric | Value |");
         expect(frame).toContain("Metric  Value");
+        expect(frame).not.toContain("`/Users/nash");
         const lines = frame.split("\n");
         const firstIndex = lines.findIndex((line) => line.includes("/Users/nash"));
         const first = lines[firstIndex];

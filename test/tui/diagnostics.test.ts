@@ -104,10 +104,10 @@ test("TUI session diagnostics prints the session ID and keeps Vera data out", ()
     });
 
     expect(text).toContain("# Session diagnostics");
-    expect(text).toContain("| ID | session-123 |");
-    expect(text).toContain("| Identity | calm-wren:0001 |");
+    expect(text).toContain("| ID | `session-123` |");
+    expect(text).toContain("| Identity | `calm-wren:0001` |");
     expect(text).toContain(
-        "| File | /home/user/.vera/sessions/session-123.jsonl |",
+        "| File | `/home/user/.vera/sessions/session-123.jsonl` |",
     );
     expect(text).not.toContain("## BUILD");
     expect(text).not.toContain("## EXTENSIONS");
@@ -131,10 +131,10 @@ test("TUI session diagnostics shows the live process chain and memory", () => {
     });
 
     expect(text).toContain("## PROCESSES");
-    expect(text).toContain("| client | 101 | 10.0 MiB |");
-    expect(text).toContain("| host | 102 | 256.0 MiB |");
-    expect(text).toContain("| worker | 103 | 1.50 GiB |");
-    expect(text).toContain("| supervisor | 104 | Unavailable |");
+    expect(text).toContain("| client | `101` | `10.0 MiB` |");
+    expect(text).toContain("| host | `102` | `256.0 MiB` |");
+    expect(text).toContain("| worker | `103` | `1.50 GiB` |");
+    expect(text).toContain("| supervisor | `104` | Unavailable |");
 });
 
 test("TUI diagnostics shows marked startup timings near the top", () => {
@@ -223,13 +223,13 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
         }],
     }, 42);
 
-    expect(text).toContain("| Client | source abc1234+dirty |");
+    expect(text).toContain("| Client | `source abc1234+dirty` |");
     expect(text).toContain("| Field | Value |");
-    expect(text).toContain("| Client entrypoint | /worktree/clients/tui/main.ts |");
-    expect(text).toContain("| Host | PID 42 · started 2026-08-09T20:00:00.000Z |");
-    expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");
-    expect(text).toContain("| Enabled | /worktree/examples/extensions/sample |");
-    expect(text).toContain("| Disabled | /old/disabled-extension |");
+    expect(text).toContain("| Client entrypoint | `/worktree/clients/tui/main.ts` |");
+    expect(text).toContain("| Host | PID `42` · started 2026-08-09T20:00:00.000Z |");
+    expect(text).toContain("| Host entrypoint | `/other/clients/host/main.ts` |");
+    expect(text).toContain("| Enabled | `/worktree/examples/extensions/sample` |");
+    expect(text).toContain("| Disabled | `/old/disabled-extension` |");
     expect(text).not.toContain("─".repeat(40));
 });
 
@@ -412,7 +412,7 @@ test("TUI diagnostics reports the pre-image stash with recovery steps", () => {
         "| Stash | 17 pre-images across 17 sessions (17.0 KiB, oldest 1h) |",
     );
     expect(text).toContain(
-        "| 1h ago | 1.0 KiB | /vault/note-15.md | /home/user/.vera/stash/session-15 |",
+        "| 1h ago | 1.0 KiB | `/vault/note-15.md` | `/home/user/.vera/stash/session-15` |",
     );
     expect(text).not.toContain("/vault/note-16.md");
     expect(text).toContain("> 2 more in /home/user/.vera/stash.");
@@ -431,7 +431,7 @@ test("TUI diagnostics reports an empty stash without recovery steps", () => {
     });
 
     expect(text).toContain("| Stash | Empty |");
-    expect(text).toContain("| Filesystem | /home/user/.vera/stash |");
+    expect(text).toContain("| Filesystem | `/home/user/.vera/stash` |");
     expect(text).not.toContain("cp <key> <path>");
 });
 
@@ -486,7 +486,7 @@ test("TUI diagnostics ranks repeated model failures worst first", () => {
     expect(kimi).toBeLessThan(text.indexOf("openai/gpt-5.6-sol"));
     expect(text).toContain("no visible response");
     expect(text).toContain(
-        "| Ledger | /home/user/.vera/failures/ledger.jsonl |",
+        "| Ledger | `/home/user/.vera/failures/ledger.jsonl` |",
     );
     expect(text).toContain(
         "| Last request | 80,004 estimated tokens (attempted, not billed usage) |",

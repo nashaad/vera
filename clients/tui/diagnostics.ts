@@ -70,10 +70,10 @@ function renderSessionDiagnostics(
         "# Session diagnostics",
         ...inspectReportSection("Session", undefined, width),
         ...fieldTable([
-            ["Identity", snapshot.sessionIdentity ?? "Unavailable"],
-            ["ID", snapshot.sessionId ?? "Unavailable"],
-            ["File", snapshot.sessionPath ?? "Unavailable"],
-            ["Workspace", snapshot.workspace],
+            ["Identity", markedAvailable(snapshot.sessionIdentity)],
+            ["ID", markedAvailable(snapshot.sessionId)],
+            ["File", markedAvailable(snapshot.sessionPath)],
+            ["Workspace", markedDiagnosticValue(snapshot.workspace)],
             ["Background", `${snapshot.runningBackgroundAgents} running`],
         ]),
         "",
@@ -179,10 +179,10 @@ function processTableLines(
         ["Role", "PID", "Memory"],
         processes.map((process) => [
             process.role,
-            String(process.pid),
+            markedDiagnosticValue(String(process.pid)),
             process.rssBytes === undefined
                 ? "Unavailable"
-                : formatMemory(process.rssBytes),
+                : markedDiagnosticValue(formatMemory(process.rssBytes)),
         ]),
     );
 }
@@ -205,10 +205,19 @@ function renderVeraDiagnostics(
         ...markdownTable(
             ["", ""],
             [
-                ["Client", snapshot.build?.clientVersion ?? "unknown"],
-                ["Client entrypoint", snapshot.build?.clientEntrypoint ?? "unknown"],
+                ["Client", markedAvailable(
+                    snapshot.build?.clientVersion,
+                    "unknown",
+                )],
+                ["Client entrypoint", markedAvailable(
+                    snapshot.build?.clientEntrypoint,
+                    "unknown",
+                )],
                 ["Host", hostLabel(snapshot)],
-                ["Host entrypoint", snapshot.build?.hostEntrypoint ?? "unknown"],
+                ["Host entrypoint", markedAvailable(
+                    snapshot.build?.hostEntrypoint,
+                    "unknown",
+                )],
             ],
         ),
         "",
@@ -255,7 +264,10 @@ function modelFailureLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     }
     const details: string[][] = [];
     if (snapshot.modelFailureLedgerPath !== undefined) {
-        details.push(["Ledger", snapshot.modelFailureLedgerPath]);
+        details.push([
+            "Ledger",
+            markedDiagnosticValue(snapshot.modelFailureLedgerPath),
+        ]);
     }
     const worst = summary.signatures[0];
     if (worst !== undefined) {
@@ -380,6 +392,23 @@ function markdownTableCell(value: string): string {
     return value.replaceAll("|", "\\|").replaceAll("\n", "<br>");
 }
 
+function markedDiagnosticValue(value: string): string {
+    const flattened = value.replace(/[\r\n]+/g, " ");
+    const longestRun = Math.max(
+        0,
+        ...Array.from(flattened.matchAll(/`+/g), (match) => match[0].length),
+    );
+    const fence = "`".repeat(longestRun + 1);
+    return `${fence}${flattened}${fence}`;
+}
+
+function markedAvailable(
+    value: string | undefined,
+    fallback = "Unavailable",
+): string {
+    return value === undefined ? fallback : markedDiagnosticValue(value);
+}
+
 function formatTokens(tokens: number): string {
     return Intl.NumberFormat("en-US").format(tokens);
 }
@@ -497,7 +526,8 @@ function hostLabel(snapshot: TuiDiagnosticsSnapshot): string {
     const pid = snapshot.build?.hostPid;
     const started = snapshot.build?.hostStartedAt;
     if (pid === undefined) return "unknown";
-    return `PID ${pid}${started === undefined ? "" : ` · started ${started}`}`;
+    return `PID ${markedDiagnosticValue(String(pid))}`
+        + `${started === undefined ? "" : ` · started ${started}`}`;
 }
 
 function extensionLines(snapshot: TuiDiagnosticsSnapshot): string[] {
@@ -508,7 +538,7 @@ function extensionLines(snapshot: TuiDiagnosticsSnapshot): string[] {
         ["State", "Path"],
         snapshot.extensions.map((extension) => [
             extension.enabled ? "Enabled" : "Disabled",
-            extension.path,
+            markedDiagnosticValue(extension.path),
         ]),
     );
 }
@@ -521,7 +551,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
     if (stash === undefined) {
         return fieldTable([
             ["Stash", "Empty"],
-            ["Filesystem", snapshot.stashRoot],
+            ["Filesystem", markedDiagnosticValue(snapshot.stashRoot)],
         ]);
     }
     const now = snapshot.now ?? Date.now();
@@ -533,7 +563,7 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
         `${stash.preimages} pre-image${stash.preimages === 1 ? "" : "s"}`
             + ` across ${stash.sessions} session${stash.sessions === 1 ? "" : "s"}`
             + ` (${formatStashBytes(stash.bytes)}${oldest})`,
-    ], ["Filesystem", snapshot.stashRoot]]);
+    ], ["Filesystem", markedDiagnosticValue(snapshot.stashRoot)]]);
     lines.push(
         "",
         "### Recent captures",
@@ -542,8 +572,10 @@ function stashLines(snapshot: TuiDiagnosticsSnapshot): string[] {
             stash.entries.slice(0, MAX_STASH_ENTRIES).map((entry) => [
                 `${age(entry.capturedAt, now)} ago`,
                 formatStashBytes(entry.bytes),
-                entry.path,
-                `${snapshot.stashRoot}/${entry.sessionId}`,
+                markedDiagnosticValue(entry.path),
+                markedDiagnosticValue(
+                    `${snapshot.stashRoot}/${entry.sessionId}`,
+                ),
             ]),
         ),
     );
