@@ -36,7 +36,7 @@ const PRIOR_LABEL: Readonly<Record<UsageWindowId, string>> = {
     all: "vs prior",
 };
 
-function WebChrome({ onHome }: { readonly onHome: () => void }) {
+function AnnexChrome({ onHome }: { readonly onHome: () => void }) {
     const [open, setOpen] = useState(false);
     const toggleRef = useRef<HTMLButtonElement>(null);
     const closeRef = useRef<HTMLButtonElement>(null);
@@ -70,7 +70,7 @@ function WebChrome({ onHome }: { readonly onHome: () => void }) {
                     type="button"
                     aria-label="Menu"
                     aria-expanded={open}
-                    aria-controls="vera-web-menu"
+                    aria-controls="vera-annex-menu"
                     onClick={() => setOpen((current) => !current)}
                 >
                     ≡
@@ -83,11 +83,11 @@ function WebChrome({ onHome }: { readonly onHome: () => void }) {
                         <div className="nav-scrim" onClick={close} />
                         <aside
                             ref={sidebarRef}
-                            id="vera-web-menu"
+                            id="vera-annex-menu"
                             className="nav-sidebar"
                             role="dialog"
                             aria-modal="true"
-                            aria-label="Vera web"
+                            aria-label="Annex"
                         >
                             <div className="nav-sidebar-head">
                                 <div className="brand">Vera</div>
@@ -319,7 +319,7 @@ export function UsageApp() {
 
     return (
         <div className="page">
-            <WebChrome onHome={() => setSessionId(undefined)} />
+            <AnnexChrome onHome={() => setSessionId(undefined)} />
             <div className="toolbar">
                 <div className="seg">
                     {WINDOWS.map((entry) => (
@@ -680,7 +680,7 @@ function SessionDetailPage({
     const session = detail?.session;
     return (
         <div className="page">
-            <WebChrome onHome={onHome} />
+            <AnnexChrome onHome={onHome} />
             <button className="back" type="button" onClick={onBack}>
                 ← Usage
             </button>

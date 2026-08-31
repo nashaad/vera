@@ -249,11 +249,11 @@ test("missing packed assets report annex: failed in host health", async () => {
     }
 });
 
-test("packed host serves usage with clients/web and react hidden", async () => {
+test("packed host serves usage with clients/annex and react hidden", async () => {
     const webRoot = await packedWebDir();
     const hostRoot = tempDir("vera-usage-hidden-");
     const repoRoot = resolve(import.meta.dir, "../..");
-    const sourceWeb = join(repoRoot, "clients", "web");
+    const sourceWeb = join(repoRoot, "clients", "annex");
     const react = join(repoRoot, "node_modules", "react");
     const hiddenWeb = `${sourceWeb}.hidden-${process.pid}`;
     const hiddenReact = `${react}.hidden-${process.pid}`;

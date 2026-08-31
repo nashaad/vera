@@ -7,7 +7,7 @@ import { fileURLToPath } from "node:url";
 import { packedBuildId } from "../src/release/build-id.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const WEB_SOURCE_DIR = join(REPO_ROOT, "clients", "web");
+const WEB_SOURCE_DIR = join(REPO_ROOT, "clients", "annex");
 const SOURCE_FILES = [
     "index.html",
     "main.tsx",
