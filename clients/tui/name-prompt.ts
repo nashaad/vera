@@ -217,6 +217,7 @@ export function createTuiNamePromptView(
             title.content = session
                 ? "Rename conversation"
                 : "Name shortlisted model";
+            hint.visible = !session;
             hint.content = session ? "" : state.label;
             updateDialogTextFieldNode(
                 entry,

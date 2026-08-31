@@ -42,16 +42,19 @@ test("an empty rename uses the shared card field chrome and cursor", async () =>
         const entry = view.box.findDescendantById(
             "name-prompt-entry",
         ) as TextareaRenderable;
-        const visibleLines = setup.captureCharFrame()
+        const frameLines = setup.captureCharFrame()
             .split("\n")
-            .map((line) => line.trim())
-            .filter((line) => line.length > 0);
+            .map((line) => line.trim());
+        const visibleLines = frameLines.filter((line) => line.length > 0);
 
         expect(visibleLines).toEqual([
             "Rename conversation",
             "New name",
             "←→ move · ⏎ save · empty clears · esc cancel",
         ]);
+        expect(frameLines.indexOf("New name")
+            - frameLines.indexOf("Rename conversation"))
+            .toBe(2);
         expect(entry.placeholder).toBe("New name");
         expect(entry.backgroundColor.toInts())
             .toEqual(RGBA.fromHex(TUI_PANEL).toInts());
