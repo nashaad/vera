@@ -89,6 +89,7 @@ const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "provider_form", title: "Provider declaration" },
     { scope: "preferences_list", title: "Preferences" },
     { scope: "help", title: "This card" },
+    { scope: "diagnostics", title: "Inspect" },
 ];
 
 const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
