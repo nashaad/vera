@@ -17,12 +17,14 @@ import {
     forceStopResidentHost,
     gracefulStopResidentHost,
 } from "../../src/host/force-stop.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 
 const record: HostLockRecord = {
     schema_version: 2,
     pid: 101,
     started_at: "2026-08-20T12:00:00.000Z",
     socket_path: "/tmp/vera-test.sock",
+    build_id: thisProcessBuildId(),
 };
 
 test("a silent socket with a live pid diagnoses as wedged, not absent", async () => {

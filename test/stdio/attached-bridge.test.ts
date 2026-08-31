@@ -16,6 +16,7 @@ import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import { createAgentThroughHost } from "../../src/host/agent-start-client.ts";
 import { attachReconnectingAgent } from "../../src/host/reconnecting-agent-client.ts";
 import { HOST_PROTOCOL_VERSION } from "../../src/host/protocol.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import type {
     ExtensionCommandDescriptor,
@@ -115,6 +116,7 @@ test("stdio frames updates after its attached marker", async () => {
             agent_id: "agent-1",
             workspace: "/workspace",
             protocol_version: HOST_PROTOCOL_VERSION,
+            build_id: thisProcessBuildId(),
         },
         {
             type: "background_agents",
@@ -285,6 +287,7 @@ test("stdio forwards extension command responses", async () => {
             agent_id: "agent-1",
             workspace: "/workspace",
             protocol_version: HOST_PROTOCOL_VERSION,
+            build_id: thisProcessBuildId(),
         },
         {
             type: "background_agents",
@@ -397,6 +400,7 @@ test("stdio drives a real resident host turn and leaves the agent running", asyn
                 agent_id: created.id,
                 workspace,
                 protocol_version: HOST_PROTOCOL_VERSION,
+                build_id: thisProcessBuildId(),
             });
             expect(frames.some((frame) => frame.type === "context"
                 && typeof (frame.measurement as { capacity?: unknown })?.capacity === "number"))
@@ -520,6 +524,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             type: "stdio_attached",
             workspace: process.cwd(),
             protocol_version: HOST_PROTOCOL_VERSION,
+            build_id: thisProcessBuildId(),
         });
         expect(createdFrames).toContainEqual(expect.objectContaining({
             type: "stdio_rejected",

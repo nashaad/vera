@@ -15,6 +15,7 @@ import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
 import type { VeraDoctorReport } from "../clients/process-doctor.ts";
 import {
+    HostBuildMismatchError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
@@ -1094,6 +1095,24 @@ test("vera reports host upgrades without a runtime stack trace", async () => {
     );
     expect(errorOutput).not.toContain("clients/tui/main.ts");
     expect(errorOutput).not.toContain("HostProtocolMismatchError:");
+});
+
+test("vera reports a build mismatch without a runtime stack trace", async () => {
+    let errorOutput = "";
+    const exitCode = await runCliMain([], {
+        runTui: () =>
+            Promise.reject(
+                new HostBuildMismatchError("vera-client-c", "vera-host-b"),
+            ),
+        stderr: { write: (text: string) => errorOutput += text },
+    });
+
+    expect(exitCode).toBe(1);
+    expect(errorOutput).toContain("vera-client-c");
+    expect(errorOutput).toContain("vera-host-b");
+    expect(errorOutput).toContain("vera host stop");
+    expect(errorOutput).not.toContain("clients/tui/main.ts");
+    expect(errorOutput).not.toContain("HostBuildMismatchError:");
 });
 
 test("vera host stop confirms the explicit resident-host shutdown", async () => {

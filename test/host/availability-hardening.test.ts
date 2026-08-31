@@ -9,12 +9,14 @@ import {
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import { runResidentHostProcess } from "../../clients/host/process-lifecycle.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 
 const record: HostLockRecord = {
     schema_version: 2,
     pid: 101,
     started_at: "2026-08-20T12:00:00.000Z",
     socket_path: "/tmp/vera-test.sock",
+    build_id: thisProcessBuildId(),
 };
 
 function wedgedLockfile(started: () => boolean): HostLockfile {

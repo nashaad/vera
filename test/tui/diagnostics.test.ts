@@ -208,9 +208,8 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
         workspace: "/workspace",
         runningBackgroundAgents: 0,
         build: {
-            clientVersion: "source abc1234+dirty",
-            clientEntrypoint: "/worktree/clients/tui/main.ts",
-            hostEntrypoint: "/other/clients/host/main.ts",
+            clientVersion: "vera-abc1234",
+            hostBuildId: "vera-def5678",
             hostPid: 42,
             hostStartedAt: "2026-08-09T20:00:00.000Z",
         },
@@ -223,10 +222,11 @@ test("TUI diagnostics identifies the build, host, and extension paths", () => {
         }],
     });
 
-    expect(text).toContain("| Client | source abc1234+dirty |");
-    expect(text).toContain("| Client entrypoint | /worktree/clients/tui/main.ts |");
-    expect(text).toContain("| Host | PID 42 · started 2026-08-09T20:00:00.000Z |");
-    expect(text).toContain("| Host entrypoint | /other/clients/host/main.ts |");
+    expect(text).toContain("| Client | vera-abc1234 |");
+    expect(text).toContain("| Host | vera-def5678 |");
+    expect(text).toContain("| Host process | PID 42 · started 2026-08-09T20:00:00.000Z |");
+    expect(text).not.toContain("Client entrypoint");
+    expect(text).not.toContain("Host entrypoint");
     expect(text).toContain("enabled       /worktree/examples/extensions/sample");
     expect(text).toContain("disabled      /old/disabled-extension");
     expect(text).not.toContain("────");

@@ -35,8 +35,11 @@ import {
 } from "../../src/host/run-once-client.ts";
 import {
     createHostLockfile,
+    HostBuildMismatchError,
     HostProtocolMismatchError,
     HostUnresponsiveError,
+    assertMatchingHostBuild,
+    type HostLockRecord,
 } from "../../src/host/lockfile.ts";
 import { HostProjectMismatchError } from "../../src/host/discovery.ts";
 import {
@@ -1080,6 +1083,9 @@ export function renderCliFailure(error: unknown): string {
         return `Vera host upgrade required: ${error.message}\n`
             + "Close the older Vera client and retry, or run 'vera host stop'.";
     }
+    if (error instanceof HostBuildMismatchError) {
+        return error.message;
+    }
     if (error instanceof VeraConfigError) {
         return `${error.message}\n`
             + `Fix or remove ${error.path} and run Vera again.`;
@@ -1138,14 +1144,14 @@ function truncate(value: string, limit: number): string {
 
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     return host === undefined
         ? []
         : listAgentsThroughHost(host.socket_path);
 }
 
 async function abortLiveAgent(agentId: string): Promise<void> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
@@ -1153,11 +1159,18 @@ async function abortLiveAgent(agentId: string): Promise<void> {
 }
 
 async function closeLiveAgent(agentId: string): Promise<CloseAgentResult> {
-    const host = await createHostLockfile().read();
+    const host = await readPairedLiveHost();
     if (host === undefined) {
         throw new Error("No live Vera host");
     }
     return closeAgentThroughHost(host.socket_path, agentId);
+}
+
+async function readPairedLiveHost(): Promise<HostLockRecord | undefined> {
+    const host = await createHostLockfile().read();
+    if (host === undefined) return undefined;
+    assertMatchingHostBuild(host);
+    return host;
 }
 
 function closeRejectionText(

@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { findOrStartResidentHost } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
+import { seedTestRelease } from "../support/seed-test-release.ts";
 
 interface DetachedHostResult {
     readonly starterPid: number;
@@ -87,6 +88,7 @@ async function startDetachedHost(): Promise<{
     const veraHome = join(home, ".vera");
     const profile = join(veraHome, "profiles", "default");
     await mkdir(profile, { recursive: true });
+    seedTestRelease(home);
     await writeFile(join(profile, "config.json"), `${JSON.stringify({
         schema_version: 1,
         provider: "openrouter",

@@ -16,6 +16,7 @@ import {
     parseAttachedClientMessage,
     type AttachedClientMessage,
 } from "../../src/host/protocol.ts";
+import { thisProcessBuildId } from "../../src/release/stamp.ts";
 
 interface NdjsonOutput {
     write(text: string): unknown;
@@ -98,6 +99,7 @@ export async function runAttachedStdioBridge(
         agent_id: client.agentId,
         workspace: client.workspace,
         protocol_version: HOST_PROTOCOL_VERSION,
+        build_id: thisProcessBuildId(),
     });
     writeJson(output, {
         type: "background_agents",

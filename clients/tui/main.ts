@@ -174,7 +174,6 @@ import {
 } from "../../src/host/capabilities.ts";
 import {
     findOrStartResidentHost,
-    hostEntrypointMismatchNotice,
     worktreeRuntimeNotice,
 } from "../host/launch.ts";
 import {
@@ -1000,8 +999,7 @@ export interface TuiDependencies {
     };
     readonly build?: {
         readonly clientVersion: string;
-        readonly clientEntrypoint: string;
-        readonly hostEntrypoint?: string;
+        readonly hostBuildId?: string;
         readonly hostPid?: number;
         readonly hostStartedAt?: string;
     };
@@ -1186,13 +1184,11 @@ export async function startConfiguredTui(
         const listAgents = () => listAgentsThroughHost(host.socket_path);
         const listSessionPage = (options: ListAgentsOptions) =>
             listAgentPageThroughHost(host.socket_path, options);
-        const mismatchNotice = hostEntrypointMismatchNotice(host);
         // A pool file the parser had to reduce still produced a pool, so this
         // says so instead of failing: the entries that were dropped are the
         // ones the user thinks are in force.
         const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
-            ...(mismatchNotice === undefined ? [] : [mismatchNotice]),
             ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
             ...poolFileIssueNotices(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
@@ -1283,10 +1279,9 @@ export async function startConfiguredTui(
             },
             build: {
                 clientVersion: readStampedRelease().build_id,
-                clientEntrypoint: import.meta.path,
-                ...(host.entrypoint === undefined
+                ...(host.build_id === undefined
                     ? {}
-                    : { hostEntrypoint: host.entrypoint }),
+                    : { hostBuildId: host.build_id }),
                 hostPid: host.pid,
                 hostStartedAt: host.started_at,
             },
