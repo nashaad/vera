@@ -202,24 +202,21 @@ function renderVeraDiagnostics(
     return [
         "# Vera diagnostics",
         ...inspectReportSection("Build", undefined, width),
-        ...markdownTable(
-            ["", ""],
-            [
-                ["Client", markedAvailable(
-                    snapshot.build?.clientVersion,
-                    "unknown",
-                )],
-                ["Client entrypoint", markedAvailable(
-                    snapshot.build?.clientEntrypoint,
-                    "unknown",
-                )],
-                ["Host", hostLabel(snapshot)],
-                ["Host entrypoint", markedAvailable(
-                    snapshot.build?.hostEntrypoint,
-                    "unknown",
-                )],
-            ],
-        ),
+        ...fieldTable([
+            ["Client", markedAvailable(
+                snapshot.build?.clientVersion,
+                "unknown",
+            )],
+            ["Client entrypoint", markedAvailable(
+                snapshot.build?.clientEntrypoint,
+                "unknown",
+            )],
+            ["Host", hostLabel(snapshot)],
+            ["Host entrypoint", markedAvailable(
+                snapshot.build?.hostEntrypoint,
+                "unknown",
+            )],
+        ]),
         "",
         ...inspectReportSection("Startup", undefined, width),
         ...startupSummaryLines(snapshot.startup),
