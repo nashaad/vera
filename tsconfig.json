@@ -11,6 +11,10 @@
     // Bundler mode
     "moduleResolution": "bundler",
     "allowImportingTsExtensions": true,
+    "baseUrl": ".",
+    "paths": {
+      "vera/sdk/inspect-report": ["src/sdk/inspect-report.ts"]
+    },
     "verbatimModuleSyntax": true,
     "noEmit": true,
 

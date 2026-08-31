@@ -1,4 +1,5 @@
 import { AsyncLocalStorage } from "node:async_hooks";
+import { fileURLToPath } from "node:url";
 
 import { inferReasoningSelection } from "../model/reasoning-effort.ts";
 import type { JsonValue } from "../sdk/hooks.ts";
@@ -71,6 +72,9 @@ import {
 const DEFAULT_ACTIVATION_TIMEOUT_MS = 5_000;
 const DEFAULT_HANDLER_TIMEOUT_MS = 10_000;
 const DEFAULT_DISPOSE_TIMEOUT_MS = 2_000;
+const INSPECT_REPORT_SDK_PATH = fileURLToPath(
+    new URL("../sdk/inspect-report.ts", import.meta.url),
+);
 
 const CLIENT_COMMAND_CAPABILITY = "client.commands.register";
 const CLIENT_KEYBINDING_CAPABILITY = "client.keybindings.register";
@@ -2180,6 +2184,15 @@ async function importFreshClientExtension(
         format: "esm",
         sourcemap: "inline",
         external: ["@opentui/core"],
+        plugins: [{
+            name: "vera-client-sdk",
+            setup(builder) {
+                builder.onResolve(
+                    { filter: /^vera\/sdk\/inspect-report$/ },
+                    () => ({ path: INSPECT_REPORT_SDK_PATH }),
+                );
+            },
+        }],
     });
     if (!build.success) {
         throw new Error(

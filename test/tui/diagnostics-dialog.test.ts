@@ -162,3 +162,23 @@ test("an open inspect dialog recenters after the terminal resizes", async () => 
         setup.renderer.destroy();
     }
 });
+
+test("inspect content width shrinks before layout catches up", async () => {
+    const setup = await createTestRenderer({ width: 120, height: 30 });
+    const view = createTuiDiagnosticsDialogView(setup.renderer);
+    setup.renderer.root.add(view.box);
+    view.box.visible = true;
+
+    try {
+        await setup.flush();
+        const wide = view.contentWidth();
+        setup.resize(64, 30);
+        const narrow = view.contentWidth();
+
+        expect(narrow).toBeLessThan(wide);
+        expect(narrow).toBeLessThanOrEqual(inspectDialogFrame(64).width - 5);
+    } finally {
+        view.box.destroyRecursively();
+        setup.renderer.destroy();
+    }
+});

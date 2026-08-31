@@ -3,6 +3,7 @@ import type {
     VeraClientContextPart,
     VeraClientContextSnapshot,
 } from "../../../src/sdk/context.ts";
+import { inspectReportSection } from "vera/sdk/inspect-report";
 
 export type ContextResponsiveMode = "wide" | "narrow";
 
@@ -185,11 +186,8 @@ export function contextReportLines(
     detail: boolean,
 ): readonly string[] {
     const inner = Math.max(20, width - 2);
-    const rule = "─".repeat(inner);
     const lines: string[] = [
-        ...headingBlock("## CONTEXT USAGE", report.headline, inner),
-        rule,
-        "",
+        ...inspectReportSection("Context usage", report.headline, width),
     ];
     if (report.occupancy !== undefined) {
         lines.push(report.occupancy.bar, report.occupancy.bar);
@@ -206,19 +204,12 @@ export function contextReportLines(
         lines.push("");
         lines.push(...occupancyLegend(report, inner));
         lines.push("");
-    } else {
-        lines.push(report.headline);
-        lines.push("");
     }
 
-    const breakdownHeading = report.snapshot.headline === undefined
-        ? ["## BREAKDOWN"]
-        : headingBlock(
-            "## BREAKDOWN",
-            `share of ${formatTokens(report.snapshot.headline.tokens)} used`,
-            inner,
-        );
-    lines.push(...breakdownHeading, rule, "");
+    const breakdownValue = report.snapshot.headline === undefined
+        ? undefined
+        : `share of ${formatTokens(report.snapshot.headline.tokens)} used`;
+    lines.push(...inspectReportSection("Breakdown", breakdownValue, width));
     if (report.breakdownMissing !== undefined) {
         lines.push(report.breakdownMissing);
     } else {
@@ -235,13 +226,11 @@ export function contextReportLines(
 
     if (report.instructions.length > 0) {
         lines.push(
-            ...headingBlock(
-                "## INSTRUCTIONS",
+            ...inspectReportSection(
+                "Instructions",
                 report.instructionSummary ?? "",
-                inner,
+                width,
             ),
-            rule,
-            "",
         );
         for (const row of formatInstructionTable(
             report.instructions,
@@ -503,21 +492,8 @@ function shareBar(tokens: number, total: number, width: number): string {
     return "█".repeat(filled);
 }
 
-function headingBlock(left: string, right: string, width: number): readonly string[] {
-    if (right.length === 0) return [clip(left, width)];
-    if (left.length + 1 + right.length <= width) {
-        return [padSides(left, right, width)];
-    }
-    return [clip(left, width), clip(right, width)];
-}
-
 function clip(text: string, width: number): string {
     return text.length <= width ? text : text.slice(0, width);
-}
-
-function padSides(left: string, right: string, width: number): string {
-    const gap = Math.max(1, width - left.length - right.length);
-    return `${left}${" ".repeat(gap)}${right}`.trimEnd();
 }
 
 function clamp(value: number, min: number, max: number): number {

@@ -129,10 +129,24 @@ test("context markdown shows occupancy sections at 120, 80, and 60 columns", () 
         expect(markdown).not.toContain("├─");
         expect(markdown).toContain("/context [all] to expand");
         const inner = Math.max(20, width - 2);
+        expect(markdown).toContain("─".repeat(width - 2));
         for (const line of markdown.split("\n")) {
             expect(line.length).toBeLessThanOrEqual(inner);
         }
     }
+});
+
+test("context headline appears once before and after the first request", () => {
+    const occurrences = (text: string, value: string) =>
+        text.split(value).length - 1;
+    const emptyHeadline = "No completed model request yet";
+    const empty = contextReportMarkdown({ availability: "partial" }, false, 60);
+    expect(occurrences(empty, emptyHeadline)).toBe(1);
+
+    const snapshot = availableSnapshot();
+    const report = buildContextReport(snapshot, false, 60);
+    const measured = contextReportMarkdown(snapshot, false, 60);
+    expect(occurrences(measured, report.headline)).toBe(1);
 });
 
 test("breakdown bars share one left edge when /context all expands components", () => {

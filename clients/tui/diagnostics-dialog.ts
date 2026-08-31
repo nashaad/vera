@@ -247,9 +247,13 @@ export function createTuiDiagnosticsDialogView(
         const laidOut = typeof body.width === "number" && body.width > 1
             ? body.width
             : frame.width - 4;
+        // Layout catches up one paint after an absolute box is resized. Cap a
+        // stale body measurement to the new frame immediately so report
+        // builders never emit full-width rules for the old, wider viewport.
+        const available = Math.min(laidOut, frame.width - 4);
         // Leave the vertical scrollbar column out of the document width so a
         // full-width occupancy bar does not force horizontal scroll.
-        return Math.max(20, laidOut - 1);
+        return Math.max(20, available - 1);
     };
 
     return {

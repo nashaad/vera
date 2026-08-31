@@ -203,6 +203,55 @@ test("client registry exposes client-owned services without TUI objects", async 
     expect(readFileSync(cleanupPath, "utf8")).toBe("disposed\n");
 });
 
+test("installed client extensions can import the inspect report SDK", async () => {
+    const extension = createExtension(
+        "client.inspect-report",
+        ["client.commands.register"],
+        `
+            import { inspectReportSection } from "vera/sdk/inspect-report";
+
+            export function activateClient(vera) {
+                vera.commands.register({
+                    name: "inspect-section",
+                    description: "Render an inspect section",
+                    usage: "/inspect-section",
+                    run() {
+                        return {
+                            kind: "text",
+                            text: inspectReportSection(
+                                "Status",
+                                "ready",
+                                22,
+                            ).join("\\n"),
+                        };
+                    },
+                });
+            }
+        `,
+    );
+    const registry = await startClientExtensionRegistry({
+        extensions: [configured(extension)],
+        ...createHarness().adapters,
+    });
+
+    try {
+        await expect(registry.invokeCommand(
+            "inspect-section",
+            "",
+            "/workspace",
+        )).resolves.toEqual({
+            version: 1,
+            source: "client.inspect-report/inspect-section",
+            body: {
+                kind: "text",
+                text: `## STATUS${" ".repeat(6)}ready\n${"─".repeat(20)}\n`,
+            },
+        });
+    } finally {
+        await registry.close();
+    }
+});
+
 test("client picker rejects a non-string subtitle", async () => {
     const extension = createExtension(
         "client.invalid-subtitle",
