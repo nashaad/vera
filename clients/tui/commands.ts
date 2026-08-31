@@ -1014,6 +1014,32 @@ export function tuiSuggestionGaps(
  */
 export const SLASH_COMPACT_WIDTH = 36;
 
+/**
+ * Ghost argument text after a finished command name and exactly one trailing
+ * space. The slash list is the name only; this is what sits on the input
+ * line, so `/context ` shows `[all]`. Commands that already complete a live
+ * first argument keep that list instead of a usage ghost.
+ */
+export function tuiCommandArgumentHint(
+    commands: readonly TuiCommandCatalogEntry[],
+    input: string,
+): string | undefined {
+    const match = /^\/([a-z][a-z0-9-]*) $/.exec(input);
+    if (match === null) {
+        return undefined;
+    }
+    const command = commands.find((entry) => entry.name === match[1]);
+    if (command === undefined || command.arguments !== undefined) {
+        return undefined;
+    }
+    const prefix = `/${command.name} `;
+    if (!command.usage.startsWith(prefix)) {
+        return undefined;
+    }
+    const hint = command.usage.slice(prefix.length);
+    return hint.length > 0 ? hint : undefined;
+}
+
 export function renderTuiCommandSuggestions(
     commands: readonly TuiCommandCatalogEntry[],
     selectedIndex = -1,
@@ -1041,7 +1067,9 @@ export function renderTuiCommandSuggestions(
             // Selection still needs a text marker, not just the accent
             // colour, so the row reads the same with colour off.
             chunks.push(active ? fg(TUI_ACCENT)("› ") : fg(TUI_MUTED)("  "));
-            chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(`/${command.name}`));
+            chunks.push(fg(active ? TUI_ACCENT : TUI_TEXT)(
+                `/${command.name}`,
+            ));
         });
         if (hidden > 0) {
             chunks.push(fg(TUI_MUTED)(`\n  … ${hidden} more`));

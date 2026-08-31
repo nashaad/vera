@@ -30,11 +30,12 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        pane = await session.waitForVisiblePane("copy  enter");
+        pane = await session.waitForVisiblePane("enter copies all");
         expect(pane).toContain("[Session]");
         expect(pane).toContain("Session usage");
         expect(pane).toContain("Runtime");
-        expect(pane).toContain("copy  enter");
+        expect(pane).toContain("enter copies all");
+        expect(pane).toContain("## Session");
         expect(pane).not.toContain("Extensions");
         expect(pane).not.toContain("Pre-image stash");
         // The composer stays behind the overlay, and its frame carries the

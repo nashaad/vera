@@ -1,6 +1,9 @@
 import { homedir } from "node:os";
 
-import type { ModelTurnSettings } from "../../src/engine/model-settings.ts";
+import {
+    effectiveContextWindow,
+    type ModelTurnSettings,
+} from "../../src/engine/model-settings.ts";
 import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import type { ApprovalMode } from "../../src/engine/permissions.ts";
 import {
@@ -31,6 +34,7 @@ export function tuiStatusSnapshot(
     runningBackgroundAgents: number,
     turn: StatusLineSnapshot["turn"],
 ): StatusLineSnapshot {
+    const capacity = visibleContextCapacity(settings, context);
     return {
         version: 1,
         turn,
@@ -52,9 +56,7 @@ export function tuiStatusSnapshot(
             context: {
                 tokens: context.tokens,
                 estimated: context.estimated,
-                ...(context.capacity === undefined
-                    ? {}
-                    : { capacity: context.capacity }),
+                ...(capacity === undefined ? {} : { capacity }),
             },
         }),
     };
@@ -279,7 +281,7 @@ export function renderTuiStatusDetailsRows(
             : []),
         separator,
         muted(thinking.toUpperCase()),
-        ...contextChunks(context),
+        ...contextChunks(context, settings),
         ...(includePermissions
             ? [separator, {
                 text: permissions,
@@ -373,11 +375,25 @@ function muted(text: string): TuiStatusChunk {
  * a request has no honest percentage to show: its prompt and tool definitions
  * already occupy the window, so "0%" would be a number nobody measured.
  */
+/**
+ * The window on the status line is the selected model's, not the last
+ * request's. Used tokens still come from the last measurement.
+ */
+export function visibleContextCapacity(
+    settings: ModelTurnSettings | undefined,
+    context: ContextMeasurement | undefined,
+): number | undefined {
+    return effectiveContextWindow(settings?.contextWindow, settings?.contextLimit)
+        ?? context?.capacity;
+}
+
 function contextChunks(
     context: ContextMeasurement | undefined,
+    settings: ModelTurnSettings | undefined,
 ): TuiStatusChunk[] {
-    if (context?.capacity === undefined) return [];
-    const { tokens, capacity, estimated } = context;
+    const capacity = visibleContextCapacity(settings, context);
+    if (context === undefined || capacity === undefined) return [];
+    const { tokens, estimated } = context;
     const percent = Math.min(100, Math.round(tokens / capacity * 100));
     const filled = Math.min(8, Math.round(percent / 100 * 8));
     return [

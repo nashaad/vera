@@ -545,7 +545,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             )),
             ...(update.context === undefined
                 ? {}
-                : { context: update.context }),
+                : {
+                    context: keepLastContextRecipe(
+                        update.context,
+                        state.context,
+                    ),
+                }),
             ...(update.usage === undefined
                 ? {}
                 : { sessionUsage: update.usage }),
@@ -2850,6 +2855,23 @@ function sameAttachments(
 ): boolean {
     return left.length === right.length
         && left.every((name, index) => name === right[index]);
+}
+
+/**
+ * A reconnect history can carry occupancy without the last request recipe.
+ * Keep the named files the live snapshot already had.
+ */
+function keepLastContextRecipe(
+    incoming: ContextMeasurement,
+    live: ContextMeasurement | undefined,
+): ContextMeasurement {
+    if (
+        incoming.projection !== undefined
+        || live?.projection === undefined
+    ) {
+        return incoming;
+    }
+    return { ...incoming, projection: live.projection };
 }
 
 function assertNever(value: never): never {

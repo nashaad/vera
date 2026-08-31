@@ -66,6 +66,20 @@ test("TUI status marks a character-counted measurement as approximate", () => {
     );
 });
 
+test("TUI status context max follows the selected model before the next turn", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "gpt-5.6-sol",
+        reasoningEffort: "high",
+        contextWindow: 204_800,
+    }, "auto", {
+        tokens: 64_500,
+        capacity: 258_000,
+        estimated: true,
+    }, "/workspace")).toBe(
+        "gpt-5.6-sol · HIGH · ctx ~64.5k/204.8k [██░░░░░░] 31% · auto\n/workspace",
+    );
+});
+
 test("TUI status line shows host-reported reasoning off", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",

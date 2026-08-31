@@ -16,6 +16,9 @@ import { installTestProcessGuard } from "./self-terminate-guard.ts";
 export interface TuiChildOptions {
     /** The first doctor pass answers late with another PID, like a stale run. */
     readonly staleDoctor?: boolean;
+    readonly sessionPath?: string;
+    readonly resumeSessionPath?: string;
+    readonly clientExtensions?: TuiDependencies["clientExtensions"];
 }
 
 export function createTuiChildDependencies(
@@ -33,6 +36,12 @@ export function createTuiChildDependencies(
         "high",
         {
             approvalMode: "auto",
+            ...(options.sessionPath === undefined
+                ? {}
+                : { sessionPath: options.sessionPath }),
+            ...(options.resumeSessionPath === undefined
+                ? {}
+                : { resumeSessionPath: options.resumeSessionPath }),
         },
         {
             readModelSettings: () => ({
@@ -71,6 +80,9 @@ export function createTuiChildDependencies(
             }
             return doctorReport(4242);
         },
+        ...(options.clientExtensions === undefined
+            ? {}
+            : { clientExtensions: options.clientExtensions }),
     };
 }
 

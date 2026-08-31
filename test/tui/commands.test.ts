@@ -10,6 +10,7 @@ import {
     renderTuiCommandSuggestions,
     tuiArgumentCompletion,
     tuiArgumentSuggestions,
+    tuiCommandArgumentHint,
     tuiCommandSuggestionWidth,
     tuiSuggestionGaps,
     tuiSuggestionWindow,
@@ -406,10 +407,10 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.suggestions("/rewind now")).toEqual([]);
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
-    ))).toContain("/model              Change the model for the next turn");
+    ))).toContain("/fork");
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
-    ))).toContain("/fork               Fork from an earlier prompt");
+    ))).toContain("Fork from an earlier prompt");
     // The highlighted command carries the chevron marker; others are indented.
     expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
         registry.suggestions("/"),
@@ -421,6 +422,50 @@ test("typing slash exposes the built-in rewind command", () => {
     expect(registry.completion("/wat")).toBeUndefined();
     expect(registry.completion("/rew now")).toBeUndefined();
     expect(registry.completion("rew")).toBeUndefined();
+});
+
+test("slash context lists the name and ghosts [all] after a space", () => {
+    const registry = createBuiltinTuiCommandRegistry();
+    registerExtensionTuiCommands(registry, [{
+        name: "context",
+        description: "Show context usage",
+        usage: "/context [all]",
+        source: "example.context",
+    }]);
+    const listed = tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/context"),
+    ));
+    expect(listed).toContain("/context");
+    expect(listed).not.toContain("/context [all]");
+    expect(listed).toContain("Show context usage");
+    expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/context"),
+        0,
+        20,
+        0,
+        true,
+        true,
+    ))).toContain("/context");
+    expect(tuiCommandSuggestionsText(renderTuiCommandSuggestions(
+        registry.suggestions("/context"),
+        0,
+        20,
+        0,
+        true,
+        true,
+    ))).not.toContain("/context [all]");
+
+    const commands = registry.registeredCommands();
+    expect(tuiCommandArgumentHint(commands, "/context ")).toBe("[all]");
+    expect(tuiCommandArgumentHint(commands, "/context")).toBeUndefined();
+    expect(tuiCommandArgumentHint(commands, "/context all")).toBeUndefined();
+    expect(tuiCommandArgumentHint(commands, "/context  ")).toBeUndefined();
+    expect(tuiCommandArgumentHint(commands, "/contex ")).toBeUndefined();
+    expect(tuiCommandArgumentHint(commands, "/effort ")).toBe(
+        "<off|low|medium|high|max>",
+    );
+    expect(tuiCommandArgumentHint(commands, "/rewind ")).toBeUndefined();
+    expect(tuiCommandArgumentHint(commands, "/model ")).toBe("<model-id>");
 });
 
 test("completion automatically includes every registered command", () => {
@@ -843,6 +888,10 @@ test("only a declaring command completes its first argument", () => {
     expect(registry.argumentPrefix("/drop m1")).toBeUndefined();
     expect(registry.argumentPrefix("/add")).toBeUndefined();
     expect(registry.argumentPrefix("hello /add gpt")).toBeUndefined();
+    expect(tuiCommandArgumentHint(registry.registeredCommands(), "/add "))
+        .toBeUndefined();
+    expect(tuiCommandArgumentHint(registry.registeredCommands(), "/drop "))
+        .toBe("<alias>");
 });
 
 test("argument suggestions put prefix matches ahead of the rest", () => {

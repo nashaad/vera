@@ -549,6 +549,11 @@ export interface TuiComposerPanel {
     readonly status: TextRenderable;
     /** The line between the text and that row, repainted with the theme. */
     readonly rule: BoxRenderable;
+    /**
+     * Muted usage ghost after a finished slash name and a space. Not buffer
+     * text: submitting `/context ` still runs `/context`.
+     */
+    readonly argumentHint: TextRenderable;
 }
 
 export interface TuiComposerPanelAppearance {
@@ -606,10 +611,29 @@ export function createTuiComposerPanel(
         height: 1,
         flexShrink: 0,
     });
-    panel.add(composer);
+    const composerSlot = new BoxRenderable(renderer, {
+        id: "composer-slot",
+        width: "100%",
+        position: "relative",
+        flexShrink: 0,
+    });
+    const argumentHint = new TextRenderable(renderer, {
+        id: "slash-argument-hint",
+        position: "absolute",
+        left: 0,
+        top: 0,
+        fg: TUI_MUTED,
+        bg: TUI_INPUT,
+        wrapMode: "none",
+        selectable: false,
+        visible: false,
+    });
+    composerSlot.add(composer);
+    composerSlot.add(argumentHint);
+    panel.add(composerSlot);
     panel.add(rule);
     panel.add(status);
-    return { panel, status, rule };
+    return { panel, status, rule, argumentHint };
 }
 
 function shouldCollapsePaste(text: string): boolean {

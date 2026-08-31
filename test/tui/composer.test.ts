@@ -45,6 +45,33 @@ test("clicking composer padding focuses the textarea", async () => {
     }
 });
 
+test("slash argument hint overlays after the typed command", async () => {
+    const setup = await createTestRenderer({ width: 40, height: 8 });
+    const composer = createTuiComposer(setup.renderer, () => {});
+    const { panel, argumentHint } = createTuiComposerPanel(
+        setup.renderer,
+        composer,
+    );
+    setup.renderer.root.add(panel);
+    composer.setComposerText("/context ");
+    argumentHint.content = "[all]";
+    argumentHint.visible = true;
+    argumentHint.left = Bun.stringWidth("/context ");
+
+    try {
+        await setup.flush();
+        expect(argumentHint.visible).toBe(true);
+        expect(argumentHint.left).toBe(9);
+        expect(argumentHint.screenX).toBe(composer.screenX + 9);
+        expect(argumentHint.screenY).toBe(composer.screenY);
+        expect(
+            argumentHint.content.chunks.map((chunk) => chunk.text).join(""),
+        ).toBe("[all]");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("composer panel applies configurable geometry and boundary color", async () => {
     const setup = await createTestRenderer({ width: 40, height: 10 });
     const composer = createTuiComposer(setup.renderer, () => {});

@@ -6,6 +6,7 @@ import {
     StyledText,
     TextRenderable,
     type RenderContext,
+    type TextChunk,
 } from "@opentui/core";
 
 import {
@@ -15,6 +16,7 @@ import {
 import {
     TUI_ACCENT,
     TUI_DANGER,
+    TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
     TUI_PANEL,
@@ -25,8 +27,38 @@ import type { TuiDiagnosticsScope } from "./diagnostics.ts";
 import { tuiBindingId } from "./keymap.ts";
 import { doctorLineEmphasis } from "../process-doctor.ts";
 
+export const INSPECT_COPY_HINT = "drag a section · enter copies all";
+
+/** Cap so the report is a column, not a full-bleed pane. */
+export const INSPECT_DIALOG_MAX_WIDTH = 72;
+const INSPECT_DIALOG_GUTTER = 2;
+
+/**
+ * Where the inspect card sits. Wide terminals keep a 72-column column;
+ * a skinny terminal keeps a two-column gutter and uses the rest.
+ */
+export function inspectDialogFrame(terminalWidth: number): {
+    readonly left: number;
+    readonly width: number;
+} {
+    const width = Math.max(
+        24,
+        Math.min(
+            INSPECT_DIALOG_MAX_WIDTH,
+            terminalWidth - INSPECT_DIALOG_GUTTER * 2,
+        ),
+    );
+    const left = Math.max(
+        0,
+        Math.floor((Math.max(terminalWidth, width) - width) / 2),
+    );
+    return { left, width };
+}
+
 export interface TuiDiagnosticsDialogState {
     readonly text: string;
+    readonly title?: string;
+    readonly footerText?: string;
     readonly scope?: TuiDiagnosticsScope;
     readonly copyReady?: boolean;
     readonly copyStatus?: "copied" | "failed";
@@ -47,6 +79,7 @@ export interface TuiDiagnosticsDialogKey {
 export interface TuiDiagnosticsDialogView {
     readonly box: BoxRenderable;
     focus(): void;
+    contentWidth(): number;
     update(state: TuiDiagnosticsDialogState): void;
     repaint(): void;
 }
@@ -56,7 +89,6 @@ export interface TuiDiagnosticsDialogOptions {
     readonly title?: string;
     readonly footerText?: string;
     readonly pendingText?: string;
-    readonly sections?: ReadonlySet<string>;
     readonly skipFirstLine?: boolean;
     readonly showScopeTabs?: boolean;
     /** Doctor reports paint Result / stray / role labels; copy stays plain. */
@@ -95,14 +127,16 @@ export function createTuiDiagnosticsDialogView(
     options: TuiDiagnosticsDialogOptions = {},
 ): TuiDiagnosticsDialogView {
     const id = options.id ?? "diagnostics-dialog";
+    const defaultTitle = options.title ?? "Diagnostics";
+    const frame = inspectDialogFrame(renderer.width);
     const box = new BoxRenderable(renderer, {
         id,
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",
         top: "6%",
-        left: "4%",
-        width: "92%",
+        left: frame.left,
+        width: frame.width,
         // Stop above the composer rather than at a fraction of the screen. The
         // composer's own rows say what the session is answering as, and an
         // overlay drawn across them reads as two surfaces fighting.
@@ -115,7 +149,8 @@ export function createTuiDiagnosticsDialogView(
         focusable: true,
         visible: false,
     });
-    const header = dialogHeaderNode(renderer, options.title ?? "Diagnostics");
+    const header = dialogHeaderNode(renderer, defaultTitle);
+    const headerTitle = header.getChildren()[0] as TextRenderable | undefined;
     const scopeTabs = options.showScopeTabs === true
         ? new TextRenderable(renderer, {
             id: `${id}-scope-tabs`,
@@ -128,10 +163,10 @@ export function createTuiDiagnosticsDialogView(
     const bodyText = new TextRenderable(renderer, {
         id: `${id}-text`,
         content: "",
-        fg: TUI_MUTED,
+        fg: TUI_TEXT,
         width: "100%",
         height: "auto",
-        wrapMode: "word",
+        wrapMode: "none",
         selectable: true,
     });
     const body = new ScrollBoxRenderable(renderer, {
@@ -141,7 +176,9 @@ export function createTuiDiagnosticsDialogView(
         minHeight: 1,
         marginTop: 1,
         scrollY: true,
-        scrollX: false,
+        // Horizontal scroll is a backstop when one line still overflows.
+        // Reports reflow to the body width so that path stays unused.
+        scrollX: true,
         focusable: true,
         viewportCulling: true,
         contentOptions: { flexDirection: "column" },
@@ -152,18 +189,21 @@ export function createTuiDiagnosticsDialogView(
         width: "100%",
         height: 2,
         marginTop: 1,
-        flexDirection: "row",
-        justifyContent: "space-between",
+        flexDirection: "column",
     });
     const shareHint = new TextRenderable(renderer, {
         content: options.footerText ?? "Share this when reporting an issue.",
         fg: TUI_MUTED,
+        width: "100%",
         height: 1,
+        wrapMode: "none",
     });
     const copyHint = new TextRenderable(renderer, {
-        content: "copy  enter",
+        content: INSPECT_COPY_HINT,
         fg: TUI_MUTED,
+        width: "100%",
         height: 1,
+        wrapMode: "none",
     });
     footer.add(shareHint);
     footer.add(copyHint);
@@ -178,13 +218,29 @@ export function createTuiDiagnosticsDialogView(
         focus(): void {
             body.focus();
         },
+        contentWidth(): number {
+            const frame = inspectDialogFrame(renderer.width);
+            box.left = frame.left;
+            box.width = frame.width;
+            const laidOut = typeof body.width === "number" && body.width > 1
+                ? body.width
+                : frame.width - 4;
+            // Leave the vertical scrollbar column out of the document width so
+            // a full-width occupancy bar does not force horizontal scroll.
+            return Math.max(20, laidOut - 1);
+        },
         update(state): void {
+            if (headerTitle !== undefined && state.title !== undefined) {
+                headerTitle.content = state.title;
+            }
+            if (state.footerText !== undefined) {
+                shareHint.content = state.footerText;
+            }
             if (scopeTabs !== undefined) {
                 activeScope = state.scope ?? "session";
                 scopeTabs.content = diagnosticsScopeTabs(activeScope);
             }
-            bodyText.content = styledDiagnostics(state.text, {
-                sections: options.sections,
+            bodyText.content = styledInspectDocument(state.text, {
                 skipFirstLine: options.skipFirstLine,
                 emphasis: options.emphasis,
             });
@@ -194,14 +250,14 @@ export function createTuiDiagnosticsDialogView(
                 ? "copy failed · enter retry"
                 : state.copyReady === false
                 ? options.pendingText ?? "finding session path…"
-                : "copy  enter";
+                : INSPECT_COPY_HINT;
             copyHint.fg = state.copyStatus === "copied"
                 ? TUI_SUCCESS
                 : TUI_MUTED;
         },
         repaint(): void {
             box.backgroundColor = TUI_PANEL;
-            bodyText.fg = TUI_MUTED;
+            bodyText.fg = TUI_TEXT;
             if (scopeTabs !== undefined) {
                 scopeTabs.content = diagnosticsScopeTabs(activeScope);
             }
@@ -226,48 +282,86 @@ function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
     ]);
 }
 
-const DIAGNOSTIC_SECTIONS = new Set([
-    "## Build",
-    "## Startup",
-    "## Session usage",
-    "## Processes",
-    "## Startup extensions",
-    "## Extensions",
-    "## Runtime",
-    "## Model",
-    "## Session",
-    "## Model failures",
-    "## Pre-image stash",
-]);
-
-interface DiagnosticsStyleOptions {
-    readonly sections?: ReadonlySet<string> | undefined;
+interface InspectStyleOptions {
     readonly skipFirstLine?: boolean | undefined;
     readonly emphasis?: "doctor" | undefined;
 }
 
-/** Low-contrast report text with just enough hierarchy to scan quickly. */
-export function styledDiagnostics(
+/**
+ * The inspect dialog is a markdown document. Headings, tables, and quotes stay
+ * in the text so a dragged selection copies the source, not a restyled costume.
+ * Color is decoration: occupancy cells match the status ctx meter.
+ */
+export function styledInspectDocument(
     text: string,
-    options: DiagnosticsStyleOptions = {},
+    options: InspectStyleOptions = {},
 ): StyledText {
-    const lines = terminalDiagnosticsLines(text.split("\n").slice(
-        options.skipFirstLine === false ? 0 : 1,
-    ));
-    const sections = options.sections ?? DIAGNOSTIC_SECTIONS;
+    const lines = inspectDocumentLines(text, options.skipFirstLine);
     return new StyledText(lines.flatMap((line, index) => {
-        const heading = sections.has(line) || line.startsWith("### ");
+        const heading = isMarkdownHeading(line);
         const chunks = options.emphasis === "doctor"
             ? styledDoctorLine(line, heading)
-            : [
-                heading
-                    ? bold(fg(TUI_TEXT)(line.replace(/^#{2,3} /, "")))
-                    : fg(TUI_MUTED)(line),
-            ];
+            : styledInspectLine(line, heading);
         return index === lines.length - 1
             ? chunks
-            : [...chunks, fg(TUI_MUTED)("\n")];
+            : [...chunks, fg(TUI_TEXT)("\n")];
     }));
+}
+
+function styledInspectLine(line: string, heading: boolean) {
+    if (heading) return [bold(fg(TUI_ACCENT)(line))];
+    if (/^─+$/.test(line)) return [fg(TUI_MUTED)(line)];
+    if (line.startsWith("> !") || line.startsWith("!  ")) {
+        return [fg(TUI_NOTICE)(line)];
+    }
+    if (line.startsWith("/context")) return [fg(TUI_MUTED)(line)];
+    return occupancyGlyphChunks(line);
+}
+
+function occupancyGlyphChunks(line: string): TextChunk[] {
+    const chunks: TextChunk[] = [];
+    let buffer = "";
+    let tone: "used" | "free" | "reserve" | "text" | undefined;
+    const flush = (): void => {
+        if (buffer.length === 0 || tone === undefined) return;
+        const color = tone === "used"
+            ? TUI_ACCENT
+            : tone === "free"
+                ? TUI_ELEMENT
+                : tone === "reserve"
+                    ? TUI_NOTICE
+                    : TUI_TEXT;
+        chunks.push(fg(color)(buffer));
+        buffer = "";
+    };
+    for (const character of Array.from(line)) {
+        const next = character === "█"
+            ? "used"
+            : character === "░"
+                ? "free"
+                : character === "▒"
+                    ? "reserve"
+                    : "text";
+        if (next !== tone) {
+            flush();
+            tone = next;
+        }
+        buffer += character;
+    }
+    flush();
+    return chunks.length === 0 ? [fg(TUI_TEXT)(line)] : chunks;
+}
+
+/** Visible inspect-dialog body: the markdown, optionally without the H1 title. */
+export function inspectDocumentLines(
+    text: string,
+    skipFirstLine?: boolean,
+): string[] {
+    return text.split("\n").slice(skipFirstLine === false ? 0 : 1);
+}
+
+function isMarkdownHeading(line: string): boolean {
+    return /^#{1,6} /.test(line);
 }
 
 const INVENTORY_ROLE_LINE =
@@ -275,7 +369,7 @@ const INVENTORY_ROLE_LINE =
 
 function styledDoctorLine(line: string, heading: boolean) {
     if (heading || doctorLineEmphasis(line) === "heading") {
-        return [bold(fg(TUI_TEXT)(line))];
+        return [bold(fg(TUI_ACCENT)(line))];
     }
     const tone = doctorLineEmphasis(line);
     if (tone === "success") return [bold(fg(TUI_SUCCESS)(line))];
@@ -292,7 +386,7 @@ function styledDoctorLine(line: string, heading: boolean) {
             ];
         }
     }
-    return [fg(TUI_MUTED)(line)];
+    return [fg(TUI_TEXT)(line)];
 }
 
 function inventoryRoleColor(role: string): string {
@@ -302,54 +396,4 @@ function inventoryRoleColor(role: string): string {
     if (role === "supervisor") return TUI_NOTICE;
     if (role === "watchdog") return TUI_ACCENT;
     return TUI_TEXT;
-}
-
-/** Keeps copied diagnostics as Markdown while presenting native terminal text. */
-export function terminalDiagnosticsLines(lines: readonly string[]): string[] {
-    const rendered: string[] = [];
-    for (let index = 0; index < lines.length;) {
-        const cells = markdownRow(lines[index]);
-        const separator = markdownRow(lines[index + 1]);
-        if (
-            cells !== undefined
-            && separator?.every((cell) => /^:?-{3,}:?$/.test(cell))
-        ) {
-            const rows: string[][] = [cells];
-            index += 2;
-            while (index < lines.length) {
-                const next = markdownRow(lines[index]);
-                if (next === undefined) break;
-                rows.push(next);
-                index += 1;
-            }
-            rendered.push(...terminalTable(rows));
-            continue;
-        }
-        const line = lines[index] ?? "";
-        rendered.push(line.startsWith("> ") ? `Note: ${line.slice(2)}` : line);
-        index += 1;
-    }
-    return rendered;
-}
-
-function markdownRow(line: string | undefined): string[] | undefined {
-    if (line === undefined || !line.startsWith("| ") || !line.endsWith(" |")) {
-        return undefined;
-    }
-    return line.slice(2, -2).split(" | ");
-}
-
-function terminalTable(rows: readonly (readonly string[])[]): string[] {
-    const columns = Math.max(...rows.map((row) => row.length));
-    const widths = Array.from({ length: columns }, (_, column) =>
-        Math.max(...rows.map((row) => row[column]?.length ?? 0))
-    );
-    const render = (row: readonly string[]) => row.map((cell, column) =>
-        cell.padEnd(widths[column] ?? cell.length)
-    ).join("  ").trimEnd();
-    return [
-        render(rows[0] ?? []),
-        widths.map((width) => "─".repeat(width)).join("  "),
-        ...rows.slice(1).map(render),
-    ];
 }

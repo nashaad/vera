@@ -262,6 +262,34 @@ test("streamed reasoning shows live and is rebuilt from what arrived", () => {
     expect(state.pendingThinking).toBe("first part");
 });
 
+test("a history rebuild keeps the last request recipe when occupancy arrives without one", () => {
+    const projection = {
+        estimatedTokens: 100,
+        components: [{
+            kind: "prompt_contribution" as const,
+            id: "core.project-instructions",
+            owner: "core",
+            source: "contextual",
+            displayName: "Project instructions",
+            count: 1,
+            estimatedTokens: 100,
+        }],
+    };
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "context",
+        measurement: { tokens: 100, estimated: true, projection },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [],
+        context: { tokens: 120, estimated: true },
+        seq: 1,
+    });
+    expect(state.context?.tokens).toBe(120);
+    expect(state.context?.projection).toEqual(projection);
+});
+
 test("the thought summary folds the reasoning it collected", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_thinking",
