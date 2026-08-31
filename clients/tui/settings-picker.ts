@@ -1972,9 +1972,15 @@ export function startTuiModelAssignmentPicker(
         standardRows.push({
             value,
             label: entry.poolName ?? entry.label,
-            description: currentModels.includes(value)
-                ? `${entry.provider} · assigned ${currentModels.indexOf(value) + 1}`
-                : entry.provider,
+            description: entry.provider,
+            ...(currentModels.includes(value)
+                ? {
+                    rowMeta: [{
+                        text: `assigned ${currentModels.indexOf(value) + 1}`,
+                        tone: "positive" as const,
+                    }],
+                }
+                : {}),
             provider: entry.provider,
             model: entry.model,
             searchText: `${entry.provider} ${entry.model}`,
