@@ -112,3 +112,11 @@ export function releaseSourceIdentity(
 export function releaseBuildId(cwd: string = DEFAULT_CWD): string {
     return releaseSourceIdentity(cwd).buildId;
 }
+
+export function tryReleaseBuildId(cwd: string = DEFAULT_CWD): string | undefined {
+    try {
+        return releaseBuildId(cwd);
+    } catch {
+        return undefined;
+    }
+}

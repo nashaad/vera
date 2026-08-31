@@ -54,7 +54,7 @@ import {
     runStdioProcess,
     type StdioStartTarget,
 } from "../stdio/process.ts";
-import { sourceVersion } from "../../src/build-info.ts";
+import { releaseBuildId } from "../../src/release/build-id.ts";
 import {
     exportSession,
     type SessionExportFormat,
@@ -318,8 +318,15 @@ export async function runCli(
         args.length === 1
         && (args[0] === "--version" || args[0] === "-v")
     ) {
-        output.write(`vera ${dependencies.version ?? sourceVersion()}\n`);
-        return 0;
+        try {
+            output.write(`${dependencies.version ?? releaseBuildId()}\n`);
+            return 0;
+        } catch (error) {
+            errorOutput.write(
+                `vera: ${error instanceof Error ? error.message : String(error)}\n`,
+            );
+            return 1;
+        }
     }
 
     if (args.length === 0) {

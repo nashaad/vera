@@ -60,6 +60,7 @@ import { createReviewLogger } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
+import { tryReleaseBuildId } from "../release/build-id.ts";
 
 const hostLog = createHostLogger();
 const reviewLog = createReviewLogger();
@@ -242,6 +243,7 @@ export interface ResidentHost {
     readonly shutdownRequested: Promise<void>;
     readonly health: HostHealth;
     readonly annexPid?: number;
+    readonly buildId?: string;
     close(): Promise<void>;
 }
 
@@ -1275,9 +1277,11 @@ export async function startResidentHost(
         throw error;
     }
 
+    const buildId = tryReleaseBuildId();
     startupLog({
         type: "host_startup_complete",
         duration_ms: performance.now() - startupStarted,
+        ...(buildId === undefined ? {} : { build_id: buildId }),
     });
     return {
         registry,
@@ -1286,6 +1290,7 @@ export async function startResidentHost(
         shutdownRequested,
         health: annexHealth,
         ...(annex === undefined ? {} : { annexPid: annex.pid }),
+        ...(buildId === undefined ? {} : { buildId }),
         close: closeHost,
     };
 }

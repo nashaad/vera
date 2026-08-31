@@ -19,6 +19,7 @@ import {
     HostUnresponsiveError,
 } from "../src/host/lockfile.ts";
 import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
+import { releaseBuildId } from "../src/release/build-id.ts";
 import { SupervisionUnsupportedError } from "../src/host/supervision.ts";
 import { renderCliHelp } from "../clients/cli/help.ts";
 import { loadHelpCorpus } from "../clients/cli/help-corpus.ts";
@@ -31,7 +32,7 @@ test("vera help and version are available without starting a client", async () =
             started = true;
         },
         stdout: { write: (text: string) => output += text },
-        version: "source abc1234",
+        version: "vera-abc1234",
     };
 
     expect(await runCli(["--help"], dependencies)).toBe(0);
@@ -53,7 +54,7 @@ test("vera help and version are available without starting a client", async () =
 
     output = "";
     expect(await runCli(["--version"], dependencies)).toBe(0);
-    expect(output).toBe("vera source abc1234\n");
+    expect(output).toBe("vera-abc1234\n");
     expect(started).toBe(false);
 });
 
@@ -219,7 +220,7 @@ test("the package bin runs help from outside the checkout", () => {
             },
         );
         expect(version.exitCode).toBe(0);
-        expect(version.stdout.toString()).toMatch(/^vera source [0-9a-f]+(?:\+dirty)?\n$/);
+        expect(version.stdout.toString()).toBe(`${releaseBuildId()}\n`);
         expect(version.stderr.toString()).toBe("");
     } finally {
         rmSync(directory, { recursive: true, force: true });
