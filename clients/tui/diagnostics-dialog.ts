@@ -323,16 +323,10 @@ function inspectMarkdownStyle(): SyntaxStyle {
 }
 
 function diagnosticsScopeTabs(scope: TuiDiagnosticsScope): StyledText {
-    // The marker is what survives a monochrome render; the fill decorates it.
     const tab = (label: string, active: boolean) =>
         active
-            ? [
-                // The fill already opens with a space, so the marker column is
-                // one character wide and the two labels stay aligned.
-                fg(TUI_ACCENT)("\u203a"),
-                bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `))),
-            ]
-            : [fg(TUI_MUTED)(" "), fg(TUI_MUTED)(` ${label} `)];
+            ? [bold(fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(` ${label} `)))]
+            : [fg(TUI_MUTED)(` ${label} `)];
     return new StyledText([
         ...tab("Session", scope === "session"),
         fg(TUI_MUTED)("  "),

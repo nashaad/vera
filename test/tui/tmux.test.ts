@@ -101,7 +101,7 @@ test.skipIf(!tmuxAvailable)(
 
             sendText(socket, session, "/diagnostics");
             sendKey(socket, session, "Enter");
-            await waitForVisiblePane(socket, session, "› Session");
+            await waitForVisiblePane(socket, session, "Session usage");
             sendKey(socket, session, "Tab");
             pane = await waitForVisiblePane(
                 socket,
