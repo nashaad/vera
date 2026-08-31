@@ -58,3 +58,41 @@ test("real TUI mouse drag copies transcript text and keeps it highlighted", asyn
         await session.close();
     }
 }, 15_000);
+
+test("real TUI mouse drag copies text from the composer", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-composer-selection-"));
+    const copiedTextPath = join(home, "copied-text");
+    const selectedText = "COPY THIS COMPOSER TEXT";
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        height: 30,
+        dependencies: () => createTuiSelectionDependencies(copiedTextPath),
+    });
+
+    try {
+        await session.waitForVisiblePane("COPY THIS TEXT");
+        session.sendText(selectedText);
+        const pane = await session.waitForVisiblePane(selectedText);
+        const lines = pane.split("\n");
+        const row = lines.findIndex((line) => line.includes(selectedText));
+        const selectedLine = lines[row];
+        if (selectedLine === undefined) {
+            throw new Error("Selected composer line was not visible");
+        }
+        const column = selectedLine.indexOf(selectedText);
+
+        await session.sendMouseDrag(
+            column,
+            row,
+            column + selectedText.length,
+            row,
+        );
+        await session.waitForVisiblePane(
+            `copied ${selectedText.length} characters`,
+        );
+        expect(readFileSync(copiedTextPath, "utf8")).toBe(selectedText);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
