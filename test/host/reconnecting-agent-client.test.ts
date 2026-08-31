@@ -108,8 +108,8 @@ test("attachment-private work makes a disconnect terminal", async () => {
         return fakeClient([], 4);
     });
     await client.send({
-        type: "consult",
-        requestId: "consult-1",
+        type: "oneshot",
+        requestId: "oneshot-1",
         model: "test",
         messages: [],
     });

@@ -1917,50 +1917,50 @@ test("session name commands normalize, clear, and reject invalid names", async (
     expect(names).toEqual(["Human name", null]);
 });
 
-test("a consult answers out of band and never becomes a turn", async () => {
+test("a oneshot answers out of band and never becomes a turn", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
     const asked: string[] = [];
     const router = new InboundCommandRouter(channel.engine, events, {
-        async consult(request) {
+        async oneshot(request) {
             asked.push(request.model);
             if (request.model === "missing-model") {
                 throw new Error("No provider serves missing-model.");
             }
             return { text: "a second read", model: request.model };
         },
-        sendConsultReply(_ownerId, reply) {
+        sendOneshotReply(_ownerId, reply) {
             channel.engine.send(reply);
         },
     });
 
     channel.client.send({
-        type: "consult",
+        type: "oneshot",
         requestId: "one",
         model: "claude-opus-5",
         messages: [{ role: "user", content: "what do you think" }],
     });
     expect(await channel.client.receive()).toEqual({
-        type: "consult_result",
+        type: "oneshot_result",
         requestId: "one",
         text: "a second read",
         model: "claude-opus-5",
     });
 
     channel.client.send({
-        type: "consult",
+        type: "oneshot",
         requestId: "two",
         model: "missing-model",
         messages: [{ role: "user", content: "hello" }],
     });
     expect(await channel.client.receive()).toEqual({
-        type: "consult_rejected",
+        type: "oneshot_rejected",
         requestId: "two",
         reason: "No provider serves missing-model.",
     });
 
-    // The consults must not have queued anything for the agent to run.
+    // The oneshots must not have queued anything for the agent to run.
     channel.client.send({ type: "prompt", content: "the real turn" });
     const turn = await router.startTurn();
     expect(turn.prompt.content).toBe("the real turn");
@@ -1968,24 +1968,24 @@ test("a consult answers out of band and never becomes a turn", async () => {
     expect(asked).toEqual(["claude-opus-5", "missing-model"]);
 });
 
-test("a session that cannot consult refuses rather than substituting", async () => {
+test("a session that cannot run a oneshot refuses rather than substituting", async () => {
     const channel = createInProcessChannel();
     const events = new EngineEventBus();
     events.subscribe(createProtocolEncoder(channel.engine));
     new InboundCommandRouter(channel.engine, events, {
-        sendConsultReply(_ownerId, reply) {
+        sendOneshotReply(_ownerId, reply) {
             channel.engine.send(reply);
         },
     });
 
     channel.client.send({
-        type: "consult",
+        type: "oneshot",
         requestId: "one",
         model: "claude-opus-5",
         messages: [{ role: "user", content: "hello" }],
     });
     const update = await channel.client.receive();
-    expect(update.type).toBe("consult_rejected");
+    expect(update.type).toBe("oneshot_rejected");
 });
 
 test("a later settings command cannot change an earlier queued prompt", async () => {

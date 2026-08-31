@@ -91,7 +91,7 @@ export function failureReportMarkdown(options: FailureReportOptions): string {
  * file, and deliberately the summary rather than the raw ledger: session ids
  * and timestamps tell a stranger nothing and a model less.
  */
-export function failureReportConsultInput(
+export function failureReportOneshotInput(
     records: readonly ModelFailureRecord[],
     home?: string,
 ): string {

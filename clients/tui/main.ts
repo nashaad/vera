@@ -110,8 +110,8 @@ import {
     findActiveComposeSuggester,
 } from "./compose-suggester.ts";
 import type {
-    VeraClientConsultRequest,
-    VeraClientConsultResult,
+    VeraClientOneshotRequest,
+    VeraClientOneshotResult,
     VeraClientModelSettingsPatch,
     VeraClientModelSettingsUpdateResult,
     VeraClientPickerRequest,
@@ -270,7 +270,7 @@ import {
 } from "../../src/store/model-failures.ts";
 import {
     defaultFailureReportDirectory,
-    failureReportConsultInput,
+    failureReportOneshotInput,
     failureReportMarkdown,
     writeFailureReport,
 } from "../../src/store/failure-report.ts";
@@ -1851,11 +1851,11 @@ export async function startTui(
         readonly commandText?: string;
     } | undefined;
     /**
-     * Consults in flight, keyed by request. Several may run at once: an
+     * Oneshots in flight, keyed by request. Several may run at once: an
      * extension with more than one seat asks them all in parallel.
      */
-    const pendingConsults = new Map<string, {
-        readonly resolve: (result: VeraClientConsultResult) => void;
+    const pendingOneshots = new Map<string, {
+        readonly resolve: (result: VeraClientOneshotResult) => void;
         readonly reject: (reason: Error) => void;
     }>();
     const hostedSidebar = new TuiHostedSidebarAgent({
@@ -1991,8 +1991,8 @@ export async function startTui(
             },
             requestPicker: (request, signal) =>
                 requestExtensionPicker(request, signal),
-            requestConsult: (request, signal) =>
-                requestExtensionConsult(request, signal),
+            requestOneshot: (request, signal) =>
+                requestExtensionOneshot(request, signal),
             openSidebar(extensionId) {
                 hostedSidebar.claim(extensionId);
                 sidebar.setHeader(undefined);
@@ -6496,7 +6496,7 @@ export async function startTui(
                 + ` again.`;
         } else {
             try {
-                const result = await requestExtensionConsult({
+                const result = await requestExtensionOneshot({
                     model: settings.model,
                     ...(settings.provider === undefined
                         ? {}
@@ -6504,7 +6504,7 @@ export async function startTui(
                     systemPrompt: FAILURE_REPORT_PROMPT,
                     messages: [{
                         role: "user",
-                        content: failureReportConsultInput(records),
+                        content: failureReportOneshotInput(records),
                     }],
                     maxTokens: FAILURE_REPORT_SUMMARY_TOKENS,
                 }, new AbortController().signal);
@@ -8089,12 +8089,12 @@ export async function startTui(
                     continue;
                 }
                 if (
-                    update.type === "consult_result"
-                    || update.type === "consult_rejected"
+                    update.type === "oneshot_result"
+                    || update.type === "oneshot_rejected"
                 ) {
-                    const pending = pendingConsults.get(update.requestId);
+                    const pending = pendingOneshots.get(update.requestId);
                     if (pending === undefined) continue;
-                    if (update.type === "consult_result") {
+                    if (update.type === "oneshot_result") {
                         pending.resolve({
                             text: update.text,
                             model: update.model,
@@ -8755,8 +8755,8 @@ export async function startTui(
      * client's data to resolve.
      */
     function resolvePooledModel(
-        request: VeraClientConsultRequest,
-    ): VeraClientConsultRequest {
+        request: VeraClientOneshotRequest,
+    ): VeraClientOneshotRequest {
         const wanted = request.model.toLowerCase();
         for (const entry of state.modelSettings?.pooled ?? []) {
             if (entry.poolName?.toLowerCase() !== wanted) continue;
@@ -8771,26 +8771,26 @@ export async function startTui(
         return request;
     }
 
-    function requestExtensionConsult(
-        consultRequest: VeraClientConsultRequest,
+    function requestExtensionOneshot(
+        oneshotRequest: VeraClientOneshotRequest,
         signal: AbortSignal,
-    ): Promise<VeraClientConsultResult> {
-        const request = resolvePooledModel(consultRequest);
+    ): Promise<VeraClientOneshotResult> {
+        const request = resolvePooledModel(oneshotRequest);
         if (signal.aborted) {
             return Promise.reject(signal.reason as Error);
         }
         const requestId = randomUUID();
-        return new Promise<VeraClientConsultResult>((resolve, reject) => {
+        return new Promise<VeraClientOneshotResult>((resolve, reject) => {
             const settle = (): void => {
                 signal.removeEventListener("abort", onAbort);
-                pendingConsults.delete(requestId);
+                pendingOneshots.delete(requestId);
             };
             const onAbort = (): void => {
                 settle();
                 reject(signal.reason as Error);
             };
             signal.addEventListener("abort", onAbort, { once: true });
-            pendingConsults.set(requestId, {
+            pendingOneshots.set(requestId, {
                 resolve: (result) => {
                     settle();
                     resolve(result);
@@ -8801,7 +8801,7 @@ export async function startTui(
                 },
             });
             sendCommand({
-                type: "consult",
+                type: "oneshot",
                 requestId,
                 model: request.model,
                 ...(request.provider === undefined
@@ -9552,10 +9552,10 @@ export async function startTui(
     }
 
     function settleLostHost(reason: string): void {
-        for (const pending of pendingConsults.values()) {
+        for (const pending of pendingOneshots.values()) {
             pending.reject(new Error(reason));
         }
-        pendingConsults.clear();
+        pendingOneshots.clear();
         for (const image of pendingImages) {
             composer.removeImageChip(image.requestId);
         }
@@ -13850,7 +13850,7 @@ export async function startTui(
         clientGeneration += 1;
         agentFailedThisAttachment = false;
         // The old session owned these calls; nothing will answer them now.
-        for (const pending of [...pendingConsults.values()]) {
+        for (const pending of [...pendingOneshots.values()]) {
             pending.reject(new Error("The conversation changed"));
         }
         rejectPendingExtensionSettingsFor(

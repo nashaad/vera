@@ -8,9 +8,9 @@ import { startHostServer } from "../../src/host/server.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
-    "a consult reply reaches the client that asked, through the host",
+    "a oneshot reply reaches the client that asked, through the host",
     async () => {
-        const root = await mkdtemp(join(tmpdir(), "vera-consult-client-"));
+        const root = await mkdtemp(join(tmpdir(), "vera-oneshot-client-"));
         const agent = new ResidentAgent("agent-1", "/work/one");
         const server = await startHostServer({
             socketPath: join(root, "host.sock"),
@@ -24,25 +24,25 @@ import { attachAgent } from "../../src/host/attached-client.ts";
         try {
             expect((await client.receive()).type).toBe("history");
             await client.send({
-                type: "consult",
-                requestId: "consult-1",
+                type: "oneshot",
+                requestId: "oneshot-1",
                 model: "gpt-5.5",
                 messages: [{ role: "user", content: "which way" }],
             });
             const command = await agent.engine.receive();
-            expect(command.type).toBe("owned_consult_command");
-            if (command.type !== "owned_consult_command") return;
-            expect(command.command.requestId).toBe("consult-1");
+            expect(command.type).toBe("owned_oneshot_command");
+            if (command.type !== "owned_oneshot_command") return;
+            expect(command.command.requestId).toBe("oneshot-1");
 
-            agent.sendConsultReply(command.ownerId, {
-                type: "consult_result",
-                requestId: "consult-1",
+            agent.sendOneshotReply(command.ownerId, {
+                type: "oneshot_result",
+                requestId: "oneshot-1",
                 text: "that way",
                 model: "gpt-5.5",
             });
             expect(await client.receive()).toEqual({
-                type: "consult_result",
-                requestId: "consult-1",
+                type: "oneshot_result",
+                requestId: "oneshot-1",
                 text: "that way",
                 model: "gpt-5.5",
             });

@@ -5,8 +5,8 @@ import type {
     AgentStatus,
     AgentUpdate,
     ClientCommand,
-    ConsultRejectedUpdate,
-    ConsultResultUpdate,
+    OneshotRejectedUpdate,
+    OneshotResultUpdate,
     HistoryUpdate,
     ImageAttachedUpdate,
     SessionNameReplyUpdate,
@@ -16,7 +16,7 @@ import {
     isTimelineCommand,
     isTimelineReplyUpdate,
     isSessionNameReplyUpdate,
-    isConsultReplyUpdate,
+    isOneshotReplyUpdate,
 } from "../engine/protocol.ts";
 import type { UiRequest } from "../engine/events.ts";
 import type { MessageChannel } from "../engine/message-channel.ts";
@@ -259,9 +259,9 @@ export class ResidentAgent {
                                     ownerId: attachmentId,
                                     command: clone(command),
                                 }
-                            : command.type === "consult"
+                            : command.type === "oneshot"
                                 ? {
-                                    type: "owned_consult_command",
+                                    type: "owned_oneshot_command",
                                     ownerId: attachmentId,
                                     command: clone(command),
                                 }
@@ -313,9 +313,9 @@ export class ResidentAgent {
         }
     }
 
-    sendConsultReply(
+    sendOneshotReply(
         ownerId: string,
-        reply: ConsultResultUpdate | ConsultRejectedUpdate,
+        reply: OneshotResultUpdate | OneshotRejectedUpdate,
     ): void {
         const outgoing = this.attachments.get(ownerId);
         if (outgoing !== undefined && !this.isClosed) {
@@ -501,8 +501,8 @@ export class ResidentAgent {
         if (isSessionNameReplyUpdate(update)) {
             throw new Error("Session name replies must target one attachment");
         }
-        if (isConsultReplyUpdate(update)) {
-            throw new Error("Consult replies must target one attachment");
+        if (isOneshotReplyUpdate(update)) {
+            throw new Error("Oneshot replies must target one attachment");
         }
         if (
             update.type === "image_attached"

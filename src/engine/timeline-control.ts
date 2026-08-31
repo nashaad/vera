@@ -10,7 +10,7 @@ import { attachmentRefs } from "./protocol.ts";
 import type {
     AttachmentNameLookup,
     ClientCommand,
-    ConsultCommand,
+    OneshotCommand,
     ProtocolEncoder,
     TimelineActionRejectionReason,
     TimelineActionPlan,
@@ -41,17 +41,17 @@ export interface OwnedSessionNameCommand {
     readonly command: UpdateSessionNameCommand;
 }
 
-export interface OwnedConsultCommand {
-    readonly type: "owned_consult_command";
+export interface OwnedOneshotCommand {
+    readonly type: "owned_oneshot_command";
     readonly ownerId: string;
-    readonly command: ConsultCommand;
+    readonly command: OneshotCommand;
 }
 
 export type EngineCommand =
     | ClientCommand
     | OwnedTimelineCommand
     | OwnedSessionNameCommand
-    | OwnedConsultCommand
+    | OwnedOneshotCommand
     | TimelineOwnerDetachedCommand
     | TriggerDeliveryTurnCommand;
 

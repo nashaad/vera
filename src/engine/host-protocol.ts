@@ -155,7 +155,7 @@ export type HostNotification =
 //
 // These are the calls the loop supplies to `InboundCommandRouter`. The router
 // stays host-side, because it owns the client endpoint and handles model
-// settings, pool edits, wear, permission preferences and consult. Keeping it
+// settings, pool edits, wear, permission preferences and oneshot. Keeping it
 // there removes its own 23 callbacks from the wire entirely and means the
 // client endpoint never reaches the worker. What is left is the router calling
 // into the loop, which is this direction.

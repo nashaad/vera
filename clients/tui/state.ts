@@ -696,11 +696,11 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
-    // A consult belongs to the extension that asked for it, not to the
+    // A oneshot belongs to the extension that asked for it, not to the
     // transcript: nothing here changes because another model answered.
     if (
-        update.type === "consult_result"
-        || update.type === "consult_rejected"
+        update.type === "oneshot_result"
+        || update.type === "oneshot_rejected"
     ) {
         return state;
     }

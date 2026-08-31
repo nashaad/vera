@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    failureReportConsultInput,
+    failureReportOneshotInput,
     failureReportMarkdown,
     sanitizeReportText,
     writeFailureReport,
@@ -92,7 +92,7 @@ test("a model's summary is scrubbed like everything else", () => {
 // The same scrubbing has to happen before the text reaches a model, not only
 // before it reaches the file.
 test("the text sent to a model carries no paths, mail, or session ids", () => {
-    const input = failureReportConsultInput([
+    const input = failureReportOneshotInput([
         record({
             detail: `failed reading ${HOME}/notes for ada@example.com`,
             sessionId: "session-secret",

@@ -17,7 +17,7 @@ import type {
     VeraClientModelSettingsListener,
     VeraClientModelSettingsSnapshot,
     VeraClientPickerRequest,
-    VeraClientConsultRequest,
+    VeraClientOneshotRequest,
     VeraClientPickerResult,
 } from "../../src/sdk/extensions.ts";
 import {
@@ -1362,9 +1362,9 @@ test("intercepting messages requires the capability", async () => {
     await registry.close();
 });
 
-test("a consult reaches the client adapter and returns the named model's answer", async () => {
+test("a oneshot reaches the client adapter and returns the named model's answer", async () => {
     const extension = createExtension("client.seat", [
-        "client.consult",
+        "client.oneshot",
         "client.ui.notice",
         "client.commands.register",
     ], `
@@ -1374,7 +1374,7 @@ test("a consult reaches the client adapter and returns the named model's answer"
                 description: "ask the second seat",
                 usage: "/ask",
                 async run() {
-                    const answer = await vera.consult({
+                    const answer = await vera.oneshot({
                         model: "claude-opus-5",
                         messages: [{ role: "user", content: "hello" }],
                     });
@@ -1384,11 +1384,11 @@ test("a consult reaches the client adapter and returns the named model's answer"
         }
     `);
     const harness = createHarness();
-    const asked: VeraClientConsultRequest[] = [];
+    const asked: VeraClientOneshotRequest[] = [];
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
         ...harness.adapters,
-        consult: {
+        oneshot: {
             async request(_extensionId, request) {
                 asked.push(request);
                 return { text: "an answer", model: request.model };
@@ -1404,7 +1404,7 @@ test("a consult reaches the client adapter and returns the named model's answer"
     await registry.close();
 });
 
-test("consulting requires the capability", async () => {
+test("oneshot requires the capability", async () => {
     const extension = createExtension("client.nocap", ["client.commands.register"], `
         export function activateClient(vera) {
             vera.commands.register({
@@ -1412,7 +1412,7 @@ test("consulting requires the capability", async () => {
                 description: "ask",
                 usage: "/ask",
                 async run() {
-                    await vera.consult({
+                    await vera.oneshot({
                         model: "claude-opus-5",
                         messages: [{ role: "user", content: "hello" }],
                     });
@@ -1424,12 +1424,12 @@ test("consulting requires the capability", async () => {
     const registry = await startClientExtensionRegistry({
         extensions: [configured(extension)],
         ...createHarness().adapters,
-        consult: { async request() { throw new Error("must not be reached"); } },
+        oneshot: { async request() { throw new Error("must not be reached"); } },
         onFailure: (failure) => failures.push(failure),
     });
 
     await expect(registry.invokeCommand("ask", "", "/tmp/workspace"))
-        .rejects.toThrow("client.consult");
+        .rejects.toThrow("client.oneshot");
     expect(failures).toEqual([]);
     await registry.close();
 });

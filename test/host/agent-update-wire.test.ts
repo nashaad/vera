@@ -791,28 +791,28 @@ test("host wire replays a substitution entry inside a history update", () => {
     })).toBeUndefined();
 });
 
-test("host wire carries consult replies to the client that asked", () => {
+test("host wire carries oneshot replies to the client that asked", () => {
     const result = {
-        type: "consult_result" as const,
-        requestId: "consult-1",
+        type: "oneshot_result" as const,
+        requestId: "oneshot-1",
         text: "a second opinion",
         model: "gpt-5.5",
     };
 
     expect(parseAgentUpdate(result)).toEqual(result);
     expect(parseAgentUpdate({ ...result, provider: "openrouter" })).toBeDefined();
-    // A consult is not a turn, so it carries no sequence.
+    // A oneshot is not a turn, so it carries no sequence.
     expect(parseAgentUpdate({ ...result, seq: 1 })).toBeUndefined();
     expect(parseAgentUpdate({ ...result, model: undefined })).toBeUndefined();
     expect(parseAgentUpdate({ ...result, requestId: "" })).toBeUndefined();
     expect(parseAgentUpdate({
-        type: "consult_rejected",
-        requestId: "consult-2",
+        type: "oneshot_rejected",
+        requestId: "oneshot-2",
         reason: "unknown model",
     })).toBeDefined();
     expect(parseAgentUpdate({
-        type: "consult_rejected",
-        requestId: "consult-2",
+        type: "oneshot_rejected",
+        requestId: "oneshot-2",
     })).toBeUndefined();
 });
 

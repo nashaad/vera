@@ -70,7 +70,7 @@ function session(id: string): TuiAgentClient {
             updateApprovalMode: async () => undefined,
             router: {
                 updateModelSettings: async () => undefined,
-                async consult(request) {
+                async oneshot(request) {
                     if (request.model === "faux-broken") {
                         throw new Error("provider is down");
                     }
@@ -80,7 +80,7 @@ function session(id: string): TuiAgentClient {
                         model: request.model,
                     };
                 },
-                sendConsultReply: (_ownerId, reply) =>
+                sendOneshotReply: (_ownerId, reply) =>
                     channel.engine.send(reply),
             },
         },

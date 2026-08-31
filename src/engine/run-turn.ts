@@ -729,10 +729,10 @@ export async function runHeadlessLoop(
             : { updateSessionName: router.updateSessionName }),
         sendSessionNameReply: router.sendSessionNameReply
             ?? ((_ownerId, reply): void => endpoint.send(reply)),
-        ...(router.consult === undefined ? {} : { consult: router.consult }),
-        ...(router.sendConsultReply === undefined
+        ...(router.oneshot === undefined ? {} : { oneshot: router.oneshot }),
+        ...(router.sendOneshotReply === undefined
             ? {}
-            : { sendConsultReply: router.sendConsultReply }),
+            : { sendOneshotReply: router.sendOneshotReply }),
         addPermissionGrants,
         removePermissionGrant,
         handleTimelineCommand: (ownerId, command) =>
