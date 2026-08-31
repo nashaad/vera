@@ -8569,6 +8569,7 @@ export async function startTui(
                                 ? settingsPicker
                                 : undefined,
                         );
+                        renderState();
                         focusActiveSurface();
                     }
                 }
@@ -9298,7 +9299,7 @@ export async function startTui(
             return () => providerFormView.box.focus();
         }
         if (namePrompt !== undefined) {
-            return () => namePromptView.box.focus();
+            return () => namePromptView.focus();
         }
         if (secretPrompt !== undefined) {
             return () => secretPromptView.box.focus();

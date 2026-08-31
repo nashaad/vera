@@ -12,7 +12,10 @@ import {
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { centeredDialogSurface } from "./dialog-chrome.ts";
+import {
+    centeredDialogSurface,
+    dialogSearchNode,
+} from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 import {
     tuiThemeProperties,
@@ -73,6 +76,7 @@ export interface TuiNamePromptView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
+    focus(): void;
     update(state: TuiNamePromptState): void;
 }
 
@@ -157,13 +161,9 @@ export function createTuiNamePromptView(
         height: "auto",
         wrapMode: "word",
     });
-    const entry = new TextRenderable(renderer, {
-        content: "",
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-        marginTop: 1,
-    });
+    const entry = dialogSearchNode(renderer, "", "Name") as TextRenderable & {
+        caretColumn: number;
+    };
     const footer = new TextRenderable(renderer, {
         content: "⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
@@ -195,6 +195,7 @@ export function createTuiNamePromptView(
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
             tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(entry, { fg: "text" }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
@@ -205,7 +206,15 @@ export function createTuiNamePromptView(
             hint.content = state.target.kind === "session"
                 ? "Name"
                 : state.label;
-            entry.content = tuiNamePromptEntryLine(state.value);
+            entry.content = new StyledText([
+                state.value.length === 0
+                    ? fg(TUI_MUTED)("Name")
+                    : fg(TUI_TEXT)(state.value),
+            ]);
+            entry.caretColumn = state.value.length;
+        },
+        focus(): void {
+            entry.focus();
         },
     };
 }
