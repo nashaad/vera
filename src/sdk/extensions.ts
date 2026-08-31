@@ -194,7 +194,7 @@ export interface VeraClientExtensionApi {
     readonly thread: VeraClientExtensionThread;
     readonly sessions: VeraClientExtensionSessions;
     readonly conversation: VeraClientExtensionConversation;
-    readonly consult: VeraClientExtensionConsult;
+    readonly oneshot: VeraClientExtensionOneshot;
     readonly agents: VeraClientExtensionAgents;
     readonly tips: VeraClientExtensionTips;
     /** Experimental, TUI-only component host. Not a portable SDK surface. */
@@ -908,32 +908,33 @@ export interface VeraClientSessionFailure {
 }
 
 /**
- * A second model's read on the conversation, outside the turn.
+ * A silent one-shot model call. Named model, messages in, text out.
  *
  * The named model answers or the call fails. Vera never substitutes another
  * one, because an extension that asked for a specific model has no use for a
- * different model's answer. A consult runs no tools, streams nothing, and adds
- * nothing to the session.
+ * different model's answer. A oneshot runs no tools, streams nothing, and adds
+ * nothing to the session. `systemPrompt` is whatever the caller passes; omit
+ * it and the host sends "".
  */
-export interface VeraClientExtensionConsult {
-    (request: VeraClientConsultRequest): Promise<VeraClientConsultResult>;
+export interface VeraClientExtensionOneshot {
+    (request: VeraClientOneshotRequest): Promise<VeraClientOneshotResult>;
 }
 
-export interface VeraClientConsultRequest {
+export interface VeraClientOneshotRequest {
     readonly model: string;
     readonly provider?: string;
     readonly reasoningEffort?: string;
     readonly systemPrompt?: string;
-    readonly messages: readonly VeraClientConsultMessage[];
+    readonly messages: readonly VeraClientOneshotMessage[];
     readonly maxTokens?: number;
 }
 
-export interface VeraClientConsultMessage {
+export interface VeraClientOneshotMessage {
     readonly role: "user" | "assistant";
     readonly content: string;
 }
 
-export interface VeraClientConsultResult {
+export interface VeraClientOneshotResult {
     readonly text: string;
     /** Which model answered. Diagnostic only; it is the one that was asked. */
     readonly model: string;

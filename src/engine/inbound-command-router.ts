@@ -13,10 +13,10 @@ import type {
 } from "./events.ts";
 import type {
     AgentUpdate,
-    ConsultCommand,
-    ConsultMessage,
-    ConsultRejectedUpdate,
-    ConsultResultUpdate,
+    OneshotCommand,
+    OneshotMessage,
+    OneshotRejectedUpdate,
+    OneshotResultUpdate,
     PromptCommand,
     SessionNameReplyUpdate,
     UiResponseCommand,
@@ -382,13 +382,13 @@ export interface InboundCommandRouterOptions {
      * named model answers or the call fails: this never falls back to another
      * model, because the caller asked for a specific one.
      */
-    readonly consult?: (
+    readonly oneshot?: (
         request: {
             readonly provider?: string;
             readonly model: string;
             readonly reasoningEffort?: string;
             readonly systemPrompt?: string;
-            readonly messages: readonly ConsultMessage[];
+            readonly messages: readonly OneshotMessage[];
             readonly maxTokens?: number;
         },
         signal: AbortSignal,
@@ -397,9 +397,9 @@ export interface InboundCommandRouterOptions {
         readonly model: string;
         readonly provider?: string;
     }>;
-    readonly sendConsultReply?: (
+    readonly sendOneshotReply?: (
         ownerId: string,
-        reply: ConsultResultUpdate | ConsultRejectedUpdate,
+        reply: OneshotResultUpdate | OneshotRejectedUpdate,
     ) => void;
     readonly sendSessionNameReply?: (
         ownerId: string,
@@ -1090,10 +1090,10 @@ export class InboundCommandRouter {
                     );
                     continue;
                 }
-                if (command.type === "owned_consult_command") {
-                    // Not awaited: a consult is a side call, and blocking the
+                if (command.type === "owned_oneshot_command") {
+                    // Not awaited: a oneshot is a side call, and blocking the
                     // command loop on it would stall the user's own turn.
-                    void this.consult(command.ownerId, command.command);
+                    void this.oneshot(command.ownerId, command.command);
                     continue;
                 }
                 if (command.type === "owned_session_name_command") {
@@ -1320,10 +1320,10 @@ export class InboundCommandRouter {
                     continue;
                 }
 
-                if (command.type === "consult") {
-                    // Not awaited: a consult is a side call, and blocking the
+                if (command.type === "oneshot") {
+                    // Not awaited: a oneshot is a side call, and blocking the
                     // command loop on it would stall the user's own turn.
-                    void this.consult("direct-client", command);
+                    void this.oneshot("direct-client", command);
                     continue;
                 }
 
@@ -1861,16 +1861,16 @@ export class InboundCommandRouter {
         return this.activeTurn !== undefined || this.pendingPromptCount > 0;
     }
 
-    private async consult(
+    private async oneshot(
         ownerId: string,
-        command: ConsultCommand,
+        command: OneshotCommand,
     ): Promise<void> {
-        const run = this.options.consult;
+        const run = this.options.oneshot;
         if (run === undefined) {
-            this.options.sendConsultReply?.(ownerId, {
-                type: "consult_rejected",
+            this.options.sendOneshotReply?.(ownerId, {
+                type: "oneshot_rejected",
                 requestId: command.requestId,
-                reason: "This session cannot consult another model.",
+                reason: "This session cannot run a oneshot model call.",
             });
             return;
         }
@@ -1891,8 +1891,8 @@ export class InboundCommandRouter {
                     ? {}
                     : { maxTokens: command.maxTokens }),
             }, new AbortController().signal);
-            this.options.sendConsultReply?.(ownerId, {
-                type: "consult_result",
+            this.options.sendOneshotReply?.(ownerId, {
+                type: "oneshot_result",
                 requestId: command.requestId,
                 text: result.text,
                 model: result.model,
@@ -1901,8 +1901,8 @@ export class InboundCommandRouter {
                     : { provider: result.provider }),
             });
         } catch (error) {
-            this.options.sendConsultReply?.(ownerId, {
-                type: "consult_rejected",
+            this.options.sendOneshotReply?.(ownerId, {
+                type: "oneshot_rejected",
                 requestId: command.requestId,
                 reason: error instanceof Error ? error.message : String(error),
             });

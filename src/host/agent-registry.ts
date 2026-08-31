@@ -84,7 +84,7 @@ import {
 } from "../engine/subagent.ts";
 import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
-    isConsultReplyUpdate,
+    isOneshotReplyUpdate,
     isConfigurationRequiredUiRequestUpdate,
     isSessionNameReplyUpdate,
     isTimelineReplyUpdate,
@@ -175,7 +175,7 @@ import {
     type StartupProfile,
 } from "../startup-profile.ts";
 import type { UserMessage } from "../model/types.ts";
-import type { ConsultMessage } from "../engine/protocol.ts";
+import type { OneshotMessage } from "../engine/protocol.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
 import type { LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
@@ -4114,7 +4114,7 @@ export class AgentRegistry {
                     poolMove: (poolEntry, delta) =>
                         this.poolMove(agent.id, poolEntry, delta),
                     ...(adapter === undefined ? {} : {
-                        consult: (request, signal) => {
+                        oneshot: (request, signal) => {
                             // One candidate, so the route cannot fall back:
                             // the caller named a model and gets that model or
                             // an error.
@@ -4143,7 +4143,7 @@ export class AgentRegistry {
                             return complete({
                                 systemPrompt: request.systemPrompt ?? "",
                                 messages: request.messages.map((message) =>
-                                    consultModelMessage(message)
+                                    oneshotModelMessage(message)
                                 ),
                                 ...(request.maxTokens === undefined
                                     ? {}
@@ -4151,8 +4151,8 @@ export class AgentRegistry {
                             }, signal);
                         },
                     }),
-                    sendConsultReply: (ownerId, reply) =>
-                        agent.sendConsultReply(ownerId, reply),
+                    sendOneshotReply: (ownerId, reply) =>
+                        agent.sendOneshotReply(ownerId, reply),
                     readApprovalModeOrigin: () =>
                         entry.store.approvalModeOrigin(),
                     ...(this.options.permissionPreferences === undefined
@@ -4429,8 +4429,8 @@ export class AgentRegistry {
                     agent.sendSessionNameReply(ownerId, update);
                     return;
                 }
-                if (isConsultReplyUpdate(update)) {
-                    agent.sendConsultReply(ownerId, update);
+                if (isOneshotReplyUpdate(update)) {
+                    agent.sendOneshotReply(ownerId, update);
                     return;
                 }
                 throw new Error(
@@ -5537,7 +5537,7 @@ function settingsForClient(
 
 /**
  * The reviewer route as the client sees it. The first entry is the reviewer
- * auto mode consults; a second is the failsafe, tried only when the first
+ * auto mode oneshots; a second is the failsafe, tried only when the first
  * cannot answer. No configured reviewer means auto mode reviews on the
  * agent's own model, which is `agent` rather than an empty selection.
  */
@@ -5557,10 +5557,10 @@ function reviewerDefaultOf(
 }
 
 /**
- * A consult carries plain text in both directions, so the peer turns it
+ * A oneshot carries plain text in both directions, so the peer turns it
  * replays are reconstructed rather than taken from a transcript.
  */
-function consultModelMessage(message: ConsultMessage): ModelMessage {
+function oneshotModelMessage(message: OneshotMessage): ModelMessage {
     const content = [{ type: "text" as const, text: message.content }];
     if (message.role === "user") {
         return { role: "user", content };
@@ -5568,7 +5568,7 @@ function consultModelMessage(message: ConsultMessage): ModelMessage {
     return {
         role: "assistant",
         content,
-        source: { provider: "consult", api: "consult", model: "consult" },
+        source: { provider: "oneshot", api: "oneshot", model: "oneshot" },
         usage: emptyUsage(),
         stopReason: "stop",
     };
@@ -5679,7 +5679,7 @@ function delegationAllows(
  * Commands the host answers itself while the loop runs in a worker.
  *
  * Each one reads or writes state this process owns outright: the catalog, the
- * pool, the roster, the session header, consults, and the dials. The loop keeps
+ * pool, the roster, the session header, oneshots, and the dials. The loop keeps
  * no copy it could answer from, and every dial change is pushed into the worker
  * as a new `LoopState` before the next read.
  *
@@ -5699,8 +5699,8 @@ const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "catalog_refresh",
     "update_session_name",
     "owned_session_name_command",
-    "consult",
-    "owned_consult_command",
+    "oneshot",
+    "owned_oneshot_command",
     "update_model_settings",
     "update_session_model_settings",
     "update_session_permission_mode",

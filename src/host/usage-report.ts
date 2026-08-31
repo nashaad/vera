@@ -76,7 +76,7 @@ export type UsageCallKind =
     | "turn"
     | "compaction"
     | "reviewer"
-    | "consult"
+    | "oneshot"
     | "probe";
 
 export interface UsageCallRow {

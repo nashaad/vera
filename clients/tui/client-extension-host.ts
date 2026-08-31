@@ -6,7 +6,7 @@ import {
     type ClientExtensionAddressingAdapter,
     type ClientExtensionAgentsAdapter,
     type ClientExtensionComposeAdapter,
-    type ClientExtensionConsultAdapter,
+    type ClientExtensionOneshotAdapter,
     type ClientExtensionContextAdapter,
     type ClientExtensionExperimentalTuiAdapter,
     type ClientExtensionMentionsAdapter,
@@ -20,8 +20,8 @@ import {
     type ClientExtensionTranscriptAdapter,
 } from "../../src/extensions/client-registry.ts";
 import type {
-    VeraClientConsultRequest,
-    VeraClientConsultResult,
+    VeraClientOneshotRequest,
+    VeraClientOneshotResult,
     VeraClientPickerRequest,
     VeraClientPickerResult,
     VeraClientThreadTurn,
@@ -49,7 +49,7 @@ export interface StartTuiClientExtensionHostOptions {
     readonly updateModelSettings: ClientExtensionModelSettingsAdapter["update"];
     readonly subscribeModelSettings: ClientExtensionModelSettingsAdapter["subscribe"];
     readonly requestPicker: ClientExtensionPickerAdapter["request"];
-    readonly requestConsult: ClientExtensionConsultAdapter["request"];
+    readonly requestOneshot: ClientExtensionOneshotAdapter["request"];
     readonly openSidebar: ClientExtensionSidebarAdapter["open"];
     readonly appendSidebar: ClientExtensionSidebarAdapter["append"];
     readonly clearSidebar: ClientExtensionSidebarAdapter["clear"];
@@ -86,10 +86,10 @@ export interface TuiClientExtensionHostBindings {
         request: VeraClientPickerRequest,
         signal: AbortSignal,
     ) => Promise<VeraClientPickerResult>;
-    readonly requestConsult: (
-        request: VeraClientConsultRequest,
+    readonly requestOneshot: (
+        request: VeraClientOneshotRequest,
         signal: AbortSignal,
-    ) => Promise<VeraClientConsultResult>;
+    ) => Promise<VeraClientOneshotResult>;
     readonly openSidebar: ClientExtensionSidebarAdapter["open"];
     readonly appendSidebar: ClientExtensionSidebarAdapter["append"];
     readonly clearSidebar: ClientExtensionSidebarAdapter["clear"];
@@ -141,8 +141,8 @@ export function createTuiClientExtensionHostStarter(
             subscribeModelSettings: options.subscribeModelSettings,
             requestPicker: (_extensionId, request, requestSignal) =>
                 options.requestPicker(request, requestSignal),
-            requestConsult: (_extensionId, request, requestSignal) =>
-                options.requestConsult(request, requestSignal),
+            requestOneshot: (_extensionId, request, requestSignal) =>
+                options.requestOneshot(request, requestSignal),
             openSidebar: options.openSidebar,
             appendSidebar: options.appendSidebar,
             clearSidebar: options.clearSidebar,
@@ -271,7 +271,7 @@ export async function startTuiClientExtensionHost(
             subscribe: options.subscribeModelSettings,
         },
         picker: { request: options.requestPicker },
-        consult: { request: options.requestConsult },
+        oneshot: { request: options.requestOneshot },
         sidebar: {
             open: options.openSidebar,
             append: options.appendSidebar,

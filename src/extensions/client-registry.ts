@@ -12,12 +12,12 @@ import type {
     VeraClientExtensionModule,
     VeraClientExtensionStatusLineSpec,
     VeraClientMessageDecision,
-    VeraClientConsultRequest,
+    VeraClientOneshotRequest,
     VeraClientThreadTurn,
     VeraClientSessionListRequest,
     VeraClientSessionPage,
     VeraClientTranscriptBlock,
-    VeraClientConsultResult,
+    VeraClientOneshotResult,
     VeraClientMessageInterceptor,
     VeraClientExtensionComposeSuggesterSpec,
     VeraClientExtensionTipSpec,
@@ -80,7 +80,7 @@ const CLIENT_PICKER_CAPABILITY = "client.ui.picker";
 const CLIENT_NOTICE_CAPABILITY = "client.ui.notice";
 const CLIENT_STATUS_LINE_CAPABILITY = "client.status_line";
 const CLIENT_MESSAGE_INTERCEPT_CAPABILITY = "client.messages.intercept";
-const CLIENT_CONSULT_CAPABILITY = "client.consult";
+const CLIENT_ONESHOT_CAPABILITY = "client.oneshot";
 const CLIENT_TRANSCRIPT_CAPABILITY = "client.ui.transcript";
 const CLIENT_CONTEXT_CAPABILITY = "client.context.read";
 const CLIENT_SIDEBAR_CAPABILITY = "client.ui.sidebar";
@@ -200,12 +200,12 @@ export interface ClientExtensionPickerAdapter {
     ): Promise<VeraClientPickerResult>;
 }
 
-export interface ClientExtensionConsultAdapter {
+export interface ClientExtensionOneshotAdapter {
     request(
         extensionId: string,
-        request: VeraClientConsultRequest,
+        request: VeraClientOneshotRequest,
         signal: AbortSignal,
-    ): Promise<VeraClientConsultResult>;
+    ): Promise<VeraClientOneshotResult>;
 }
 
 export interface ClientExtensionNoticeAdapter {
@@ -340,7 +340,7 @@ export interface StartClientExtensionRegistryOptions {
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
-    readonly consult?: ClientExtensionConsultAdapter;
+    readonly oneshot?: ClientExtensionOneshotAdapter;
     readonly transcript?: ClientExtensionTranscriptAdapter;
     readonly context?: ClientExtensionContextAdapter;
     readonly compose?: ClientExtensionComposeAdapter;
@@ -558,7 +558,7 @@ export async function startClientExtensionRegistry(
                 modelSettings: options.modelSettings,
                 picker: options.picker,
                 notice: options.notice,
-                consult: options.consult,
+                oneshot: options.oneshot,
                 transcript: options.transcript,
                 context: options.context,
                 compose: options.compose,
@@ -927,7 +927,7 @@ interface ActivateClientExtensionOptions {
     readonly modelSettings: ClientExtensionModelSettingsAdapter;
     readonly picker: ClientExtensionPickerAdapter;
     readonly notice: ClientExtensionNoticeAdapter;
-    readonly consult: ClientExtensionConsultAdapter | undefined;
+    readonly oneshot: ClientExtensionOneshotAdapter | undefined;
     readonly transcript: ClientExtensionTranscriptAdapter | undefined;
     readonly sidebar: ClientExtensionSidebarAdapter | undefined;
     readonly mentions: ClientExtensionMentionsAdapter | undefined;
@@ -1610,16 +1610,16 @@ async function activateClientExtension(
                 statusLine = spec.render;
             },
         }),
-        consult(request: VeraClientConsultRequest): Promise<
-            VeraClientConsultResult
+        oneshot(request: VeraClientOneshotRequest): Promise<
+            VeraClientOneshotResult
         > {
             requireAvailable();
-            requireCapability(CLIENT_CONSULT_CAPABILITY);
-            validateConsultRequest(request);
-            const adapter = options.consult;
+            requireCapability(CLIENT_ONESHOT_CAPABILITY);
+            validateOneshotRequest(request);
+            const adapter = options.oneshot;
             if (adapter === undefined) {
                 return Promise.reject(
-                    new Error("This client cannot consult another model"),
+                    new Error("This client cannot run a oneshot model call"),
                 );
             }
             return adapter.request(
@@ -2543,19 +2543,19 @@ function validateAgentMessageRequest(
     };
 }
 
-function validateConsultRequest(request: VeraClientConsultRequest): void {
+function validateOneshotRequest(request: VeraClientOneshotRequest): void {
     if (typeof request?.model !== "string" || request.model.trim().length === 0) {
-        throw new Error("Consult request must name a model");
+        throw new Error("Oneshot request must name a model");
     }
     if (!Array.isArray(request.messages) || request.messages.length === 0) {
-        throw new Error("Consult request must carry at least one message");
+        throw new Error("Oneshot request must carry at least one message");
     }
     for (const message of request.messages) {
         if (message?.role !== "user" && message?.role !== "assistant") {
-            throw new Error("Consult message role must be user or assistant");
+            throw new Error("Oneshot message role must be user or assistant");
         }
         if (typeof message.content !== "string" || message.content.length === 0) {
-            throw new Error("Consult message content must not be empty");
+            throw new Error("Oneshot message content must not be empty");
         }
     }
 }

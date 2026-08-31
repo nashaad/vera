@@ -297,7 +297,7 @@ export function createReconnectingAgentClient(
 
 function privateRequestId(command: ClientCommand): string | undefined {
     return command.type === "attach_image"
-            || command.type === "consult"
+            || command.type === "oneshot"
             || command.type === "update_session_name"
             || command.type === "list_timeline"
             || command.type === "preview_timeline_action"
@@ -309,8 +309,8 @@ function privateRequestId(command: ClientCommand): string | undefined {
 function privateReplyRequestId(update: AgentUpdate): string | undefined {
     return update.type === "image_attached"
             || update.type === "image_attachment_rejected"
-            || update.type === "consult_result"
-            || update.type === "consult_rejected"
+            || update.type === "oneshot_result"
+            || update.type === "oneshot_rejected"
             || update.type === "session_name"
             || update.type === "session_name_rejected"
             || update.type === "timeline"

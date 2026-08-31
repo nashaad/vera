@@ -105,7 +105,7 @@ export interface RunHeadlessLoopData {
  * Callbacks consumed only by `InboundCommandRouter`.
  *
  * The router handles model settings, pool edits, agent wear, permission
- * preferences, session name, and consult. Those are owner concerns, so the
+ * preferences, session name, and oneshot. Those are owner concerns, so the
  * router stays owner-side and the owner splits the `EngineCommand` stream
  * before a remote loop sees it. Nothing here is designed as a wire protocol,
  * because none of it crosses the boundary once that split exists.
@@ -181,8 +181,8 @@ export interface InboundRouterHostHooks {
         ownerId: string,
         reply: SessionNameReplyUpdate,
     ) => void;
-    readonly consult?: InboundCommandRouterOptions["consult"];
-    readonly sendConsultReply?: InboundCommandRouterOptions["sendConsultReply"];
+    readonly oneshot?: InboundCommandRouterOptions["oneshot"];
+    readonly sendOneshotReply?: InboundCommandRouterOptions["sendOneshotReply"];
 }
 
 /**

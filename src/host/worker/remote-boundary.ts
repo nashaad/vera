@@ -365,7 +365,7 @@ export function createRemoteHostBoundary(
                         update,
                     });
                 },
-                sendConsultReply: (ownerId, update): void => {
+                sendOneshotReply: (ownerId, update): void => {
                     pipe.notify({
                         method: "client.update",
                         ownerId,

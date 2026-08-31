@@ -159,39 +159,39 @@ export interface AppendHarnessMessageCommand {
 }
 
 /**
- * One bounded model call outside the turn, for a client extension that wants a
- * second model's read on the conversation.
+ * A silent one-shot model call. Named model, messages in, text out.
  *
  * It is not a turn: no tools, no streaming, nothing appended to the session,
- * and no change to the agent's own model selection. The named model is used or
+ * and no change to the agent's own model selection. `systemPrompt` is whatever
+ * the caller passes; omit it and the host sends "". The named model is used or
  * the request is refused; Vera never substitutes another one here.
  */
-export interface ConsultCommand {
-    readonly type: "consult";
+export interface OneshotCommand {
+    readonly type: "oneshot";
     readonly requestId: string;
     readonly provider?: string;
     readonly model: string;
     readonly reasoningEffort?: string;
     readonly systemPrompt?: string;
-    readonly messages: readonly ConsultMessage[];
+    readonly messages: readonly OneshotMessage[];
     readonly maxTokens?: number;
 }
 
-export interface ConsultMessage {
+export interface OneshotMessage {
     readonly role: "user" | "assistant";
     readonly content: string;
 }
 
-export interface ConsultResultUpdate {
-    readonly type: "consult_result";
+export interface OneshotResultUpdate {
+    readonly type: "oneshot_result";
     readonly requestId: string;
     readonly text: string;
     readonly model: string;
     readonly provider?: string;
 }
 
-export interface ConsultRejectedUpdate {
-    readonly type: "consult_rejected";
+export interface OneshotRejectedUpdate {
+    readonly type: "oneshot_rejected";
     readonly requestId: string;
     readonly reason: string;
 }
@@ -482,7 +482,7 @@ export type ClientCommand =
     | ListSkillsCommand
     | InvokeSkillCommand
     | UpdateAgentDefaultPairCommand
-    | ConsultCommand
+    | OneshotCommand
     | PoolAddCommand
     | PoolRemoveCommand
     | CatalogRefreshCommand
@@ -1088,8 +1088,8 @@ export type AgentUpdate =
     | SessionNameReplyUpdate
     | TimelineReplyUpdate
     | ImageAttachmentReplyUpdate
-    | ConsultResultUpdate
-    | ConsultRejectedUpdate
+    | OneshotResultUpdate
+    | OneshotRejectedUpdate
     | PromptRejectedUpdate;
 
 export interface AgentUpdateSender {
@@ -1345,8 +1345,8 @@ export function parseClientCommand(value: unknown): ClientCommand | undefined {
             mode: command.mode,
         };
     }
-    if (command.type === "consult" && isRequestId(command.requestId)) {
-        const parsed = parseConsultCommand(command, command.requestId);
+    if (command.type === "oneshot" && isRequestId(command.requestId)) {
+        const parsed = parseOneshotCommand(command, command.requestId);
         if (parsed !== undefined) {
             return parsed;
         }
@@ -1525,11 +1525,11 @@ export function isTimelineReplyUpdate(
         || update.type === "timeline_action_rejected";
 }
 
-export function isConsultReplyUpdate(
+export function isOneshotReplyUpdate(
     update: AgentUpdate,
-): update is ConsultResultUpdate | ConsultRejectedUpdate {
-    return update.type === "consult_result"
-        || update.type === "consult_rejected";
+): update is OneshotResultUpdate | OneshotRejectedUpdate {
+    return update.type === "oneshot_result"
+        || update.type === "oneshot_rejected";
 }
 
 export function isSessionNameReplyUpdate(
@@ -2575,18 +2575,18 @@ export function attachmentRefs(
     return refs.length === 0 ? {} : { attachments: refs };
 }
 
-/** Caps the conversation a consult may carry, so one call cannot ship a whole session. */
-const CONSULT_MAX_MESSAGES = 200;
+/** Caps the conversation a oneshot may carry, so one call cannot ship a whole session. */
+const ONESHOT_MAX_MESSAGES = 200;
 
-function parseConsultCommand(
+function parseOneshotCommand(
     command: Record<string, unknown>,
     requestId: string,
-): ConsultCommand | undefined {
+): OneshotCommand | undefined {
     const model = command.model;
     if (typeof model !== "string" || model.trim().length === 0) {
         return undefined;
     }
-    const messages = parseConsultMessages(command.messages);
+    const messages = parseOneshotMessages(command.messages);
     if (messages === undefined) {
         return undefined;
     }
@@ -2605,7 +2605,7 @@ function parseConsultCommand(
         return undefined;
     }
     return {
-        type: "consult",
+        type: "oneshot",
         requestId,
         model,
         messages,
@@ -2616,16 +2616,16 @@ function parseConsultCommand(
     };
 }
 
-function parseConsultMessages(
+function parseOneshotMessages(
     value: unknown,
-): readonly ConsultMessage[] | undefined {
+): readonly OneshotMessage[] | undefined {
     if (
         !Array.isArray(value) || value.length === 0
-        || value.length > CONSULT_MAX_MESSAGES
+        || value.length > ONESHOT_MAX_MESSAGES
     ) {
         return undefined;
     }
-    const messages: ConsultMessage[] = [];
+    const messages: OneshotMessage[] = [];
     for (const entry of value) {
         if (typeof entry !== "object" || entry === null) {
             return undefined;

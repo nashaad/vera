@@ -32,9 +32,9 @@ export function parseAgentUpdate(value: unknown): AgentUpdate | undefined {
             ? parseImageAttachmentReply(value, update)
             : undefined;
     }
-    if (isConsultReplyType(update.type)) {
+    if (isOneshotReplyType(update.type)) {
         return update.seq === undefined
-            ? parseConsultReply(value, update)
+            ? parseOneshotReply(value, update)
             : undefined;
     }
     if (update.type === "prompt_rejected") {
@@ -736,18 +736,18 @@ function isTimelineReplyType(value: unknown): boolean {
         || value === "timeline_action_rejected";
 }
 
-function isConsultReplyType(value: unknown): boolean {
-    return value === "consult_result" || value === "consult_rejected";
+function isOneshotReplyType(value: unknown): boolean {
+    return value === "oneshot_result" || value === "oneshot_rejected";
 }
 
-function parseConsultReply(
+function parseOneshotReply(
     value: unknown,
     update: Record<string, unknown>,
 ): AgentUpdate | undefined {
     if (typeof update.requestId !== "string" || update.requestId.length === 0) {
         return undefined;
     }
-    if (update.type === "consult_result") {
+    if (update.type === "oneshot_result") {
         return typeof update.text === "string"
                 && typeof update.model === "string"
                 && (update.provider === undefined

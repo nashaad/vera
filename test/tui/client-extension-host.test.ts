@@ -143,7 +143,7 @@ test("the TUI extension host binds a configured extension to client surfaces", a
         requestPicker: async () => {
             throw new Error("unused");
         },
-        requestConsult: async () => {
+        requestOneshot: async () => {
             throw new Error("unused");
         },
         openSidebar: (extensionId) => sidebar.push(`open:${extensionId}`),
