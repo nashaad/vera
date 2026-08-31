@@ -121,11 +121,16 @@ test("session picker renames a conversation it is not attached to", async () => 
 test("the focused sidebar renames its selected conversation", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-sidebar-rename-"));
     const scenario = createTuiRenameSessionScenario({ home });
+    let focusedRenderable = (): string | undefined => undefined;
     const session = await startTuiTestSession({
         home,
         width: 100,
         height: 30,
-        dependencies: () => scenario.dependencies,
+        dependencies: (renderer) => {
+            focusedRenderable = () =>
+                renderer.currentFocusedRenderable?.id;
+            return scenario.dependencies;
+        },
     });
 
     try {
@@ -139,10 +144,15 @@ test("the focused sidebar renames its selected conversation", async () => {
         session.sendText("r");
         pane = await session.waitForVisiblePane("Rename conversation");
         expect(pane).toContain("Continue the theme pick");
+        expect(focusedRenderable()).toBe("name-prompt-entry");
         for (const _character of "Continue the theme picker") {
             session.sendKey("BSpace");
         }
-        session.sendText("release notes");
+        session.sendText("release ntes");
+        session.sendKey("Left");
+        session.sendKey("Left");
+        session.sendKey("Left");
+        session.sendText("o");
         session.sendKey("Enter");
 
         pane = await session.waitForVisiblePane("release notes");

@@ -1,11 +1,5 @@
 import type { LinesViewState } from "./lines-view.ts";
 import { tuiBindingId } from "./keymap.ts";
-import {
-    handleTuiSingleLineEditorKey,
-    insertTuiSingleLineText,
-    tuiSingleLineEditor,
-    tuiSingleLineText,
-} from "./single-line-editor.ts";
 import { relativeTime } from "../../src/relative-time.ts";
 import type {
     SessionSearchFilter,
@@ -216,25 +210,15 @@ export function handleSearchOverlayKey(
             handled: true,
         };
     }
-    const edited = handleTuiSingleLineEditorKey(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        key,
-    );
-    if (edited !== undefined) {
-        return requery(typed(state, edited));
-    }
     return { state, handled: false };
 }
 
-export function handleSearchOverlayPaste(
+export function updateSearchOverlayText(
     state: SearchOverlayState,
-    text: string,
+    query: string,
+    cursor = query.length,
 ): SearchOverlayTransition {
-    const editor = insertTuiSingleLineText(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        text,
-    );
-    return requery(typed(state, editor));
+    return requery(typed(state, { value: query, cursor }));
 }
 
 /**
@@ -572,10 +556,9 @@ export function searchOverlayViewState(
     return {
         title: searchOverlayHeader(state),
         input: {
-            text: tuiSingleLineText(
-                tuiSingleLineEditor(state.query, state.queryCursor),
-                "▏",
-            ),
+            text: state.query,
+            cursor: state.queryCursor,
+            placeholder: "Search",
         },
         ...(cursorLine === -1 ? {} : { cursorLine }),
         lines: lines.map((line) => ({

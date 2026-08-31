@@ -20,15 +20,15 @@ import {
     dialogOptionRows,
     dialogRowPointer,
     type DialogRowPointer,
-    dialogSearchNode,
+    createDialogSearchNode,
+    updateDialogSearchNode,
     centeredDialogSurface,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
 import {
-    handleTuiSingleLineEditorKey,
-    insertTuiSingleLineText,
-    tuiSingleLineEditor,
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
 } from "./single-line-editor.ts";
 
 export interface TuiCommandPaletteState {
@@ -41,6 +41,7 @@ export interface TuiCommandPaletteState {
 
 export interface TuiCommandPaletteKey {
     readonly name: string;
+    readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly super?: boolean;
@@ -58,6 +59,15 @@ export interface TuiCommandPaletteView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
+    focus(): void;
+    handleEditorKey(
+        state: TuiCommandPaletteState,
+        key: TuiCommandPaletteKey,
+    ): TuiCommandPaletteTransition;
+    handleEditorPaste(
+        state: TuiCommandPaletteState,
+        text: string,
+    ): TuiCommandPaletteState;
     update(state: TuiCommandPaletteState): void;
 }
 
@@ -97,13 +107,6 @@ export function handleTuiCommandPaletteKey(
     if (key.name === "escape") {
         return { handled: true };
     }
-    const edited = handleTuiSingleLineEditorKey(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        key,
-    );
-    if (edited !== undefined) {
-        return searched(state, edited);
-    }
     if (key.name === "up") {
         return {
             state: {
@@ -134,21 +137,11 @@ export function handleTuiCommandPaletteKey(
     return { state, handled: false };
 }
 
-export function handleTuiCommandPalettePaste(
-    state: TuiCommandPaletteState,
-    text: string,
-): TuiCommandPaletteState {
-    const editor = insertTuiSingleLineText(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        text,
-    );
-    return filteredState(state.allCommands, editor.value, editor.cursor);
-}
-
 export function createTuiCommandPaletteView(
     renderer: RenderContext,
 ): TuiCommandPaletteView {
     let nodes: Renderable[] = [];
+    const search = createDialogSearchNode(renderer, "command-palette-search");
     const box = new BoxRenderable(renderer, {
         id: "command-palette",
         // No borderColor here. OpenTUI's BoxRenderable constructor reads any
@@ -171,7 +164,35 @@ export function createTuiCommandPaletteView(
     const view: TuiCommandPaletteView = {
         box,
         surface,
+        focus(): void {
+            search.focus();
+        },
+        handleEditorKey(state, key): TuiCommandPaletteTransition {
+            if (
+                key.name === "escape" || key.name === "up"
+                || key.name === "down" || key.name === "return"
+                || key.name === "enter" || key.name === "kpenter"
+            ) {
+                return { state, handled: false };
+            }
+            const handled = search.handleKeyPress(tuiTextareaKey(key));
+            return handled
+                ? searched(state, {
+                    value: search.plainText,
+                    cursor: search.cursorOffset,
+                })
+                : { state, handled: false };
+        },
+        handleEditorPaste(state, text): TuiCommandPaletteState {
+            insertTuiSingleLinePaste(search, text);
+            return filteredState(
+                state.allCommands,
+                search.plainText,
+                search.cursorOffset,
+            );
+        },
         update(state): void {
+            search.parent?.remove(search.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -181,16 +202,10 @@ export function createTuiCommandPaletteView(
                 "Commands",
                 `${counter(state)} · esc`,
             );
-            const search = dialogSearchNode(
-                renderer,
-                state.query,
-                "Search",
-                true,
-                state.queryCursor,
-            );
+            updateDialogSearchNode(search, state.query, "Search", true, state.queryCursor);
             box.add(header);
             box.add(search);
-            nodes.push(header, search);
+            nodes.push(header);
 
             const rows = state.commands.length === 0 ? [] : windowedRows(renderer, state);
             if (rows.length === 0) {

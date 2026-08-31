@@ -3,10 +3,10 @@ import {
     BoxRenderable,
     fg,
     type MouseEvent,
-    parseColor,
     type Renderable,
     StyledText,
     type TextChunk,
+    TextareaRenderable,
     TextRenderable,
     underline,
     type RenderContext,
@@ -25,8 +25,8 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import {
-    tuiSingleLineCaretColumn,
-    tuiSingleLineEditor,
+    createTuiSingleLineTextarea,
+    syncTuiSingleLineTextarea,
 } from "./single-line-editor.ts";
 
 // Shared building blocks for Vera's overlay dialogs. Every picker/dialog is an
@@ -216,69 +216,56 @@ export function dialogHeaderNode(
     return header;
 }
 
-/**
- * The search line of a dialog. It parks the terminal's own cursor on the caret
- * cell, so the caret blinks the way the terminal draws it everywhere else, and
- * hides it again when the dialog goes away.
- */
-class DialogSearchRenderable extends TextRenderable {
-    caretColumn = 0;
-
-    protected override renderSelf(
-        buffer: Parameters<TextRenderable["renderSelf"]>[0],
-    ): void {
-        super.renderSelf(buffer);
-        // One-based: the terminal counts its own cursor from column and row 1.
-        this._ctx.setCursorPosition(this.x + this.caretColumn + 1, this.y + 1, true);
-    }
-
-    protected override destroySelf(): void {
-        this._ctx.setCursorPosition(0, 0, false);
-        super.destroySelf();
-    }
+export function createDialogSearchNode(
+    renderer: RenderContext,
+    id: string,
+): TextareaRenderable {
+    return createDialogTextFieldNode(renderer, id, "Search");
 }
 
-export function dialogSearchNode(
+/** Native one-line editor with the spacing and ground used inside a card. */
+export function createDialogTextFieldNode(
     renderer: RenderContext,
-    query: string,
-    placeholder = "Search",
-    // A view that holds nothing to filter still draws the field, so moving on
-    // and off it does not shift the rest of the card. It parks no caret: a
-    // blinking cursor is what says a field takes typing.
-    live = true,
-    cursor = query.length,
-): TextRenderable {
-    const typed = query.length > 0;
-    if (!live) {
-        return new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_MUTED)(placeholder)]),
-            width: "100%",
-            height: 2,
-            marginTop: 1,
-        });
-    }
-    renderer.setCursorStyle({
-        style: "block",
-        blinking: true,
-        color: parseColor(TUI_ACCENT),
-    });
-    const node = new DialogSearchRenderable(renderer, {
-        content: new StyledText([
-            typed ? fg(TUI_TEXT)(query) : fg(TUI_MUTED)(placeholder),
-        ]),
-        width: "100%",
+    id: string,
+    placeholder: string,
+): TextareaRenderable {
+    return createTuiSingleLineTextarea(renderer, {
+        id,
+        placeholder,
+        backgroundColor: TUI_PANEL,
         height: 2,
-        // A blank line above and below: the search line is the card's second
-        // thing to read, not a subtitle stuck to the title.
         marginTop: 1,
     });
-    // On an empty field the caret sits on the first letter of the placeholder,
-    // which is what makes the line read as a live input without a magnifier or
-    // a bar to explain it.
-    node.caretColumn = tuiSingleLineCaretColumn(
-        tuiSingleLineEditor(query, cursor),
-    );
-    return node;
+}
+
+/** Keep a persistent native search editor aligned with its presentation state. */
+export function updateDialogSearchNode(
+    node: TextareaRenderable,
+    query: string,
+    placeholder = "Search",
+    live = true,
+    cursor = query.length,
+): void {
+    updateDialogTextFieldNode(node, query, placeholder, live, cursor);
+}
+
+/** Keep a persistent native card editor aligned with its presentation state. */
+export function updateDialogTextFieldNode(
+    node: TextareaRenderable,
+    value: string,
+    placeholder: string,
+    live = true,
+    cursor = value.length,
+): void {
+    node.placeholder = placeholder;
+    node.textColor = TUI_TEXT;
+    node.focusedTextColor = TUI_TEXT;
+    node.backgroundColor = TUI_PANEL;
+    node.focusedBackgroundColor = TUI_PANEL;
+    node.cursorColor = TUI_ACCENT;
+    node.placeholderColor = TUI_MUTED;
+    syncTuiSingleLineTextarea(node, value, cursor);
+    if (!live) node.blur();
 }
 
 export function dialogFooterNode(

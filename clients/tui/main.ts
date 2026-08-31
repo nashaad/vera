@@ -282,7 +282,6 @@ import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
 import {
     createTuiCommandPaletteView,
     handleTuiCommandPaletteKey,
-    handleTuiCommandPalettePaste,
     handleTuiCommandPaletteScroll,
     startTuiCommandPalette,
     updateTuiCommandPaletteCommands,
@@ -291,7 +290,6 @@ import {
 import {
     createTuiHelpView,
     handleTuiHelpKey,
-    handleTuiHelpPaste,
     handleTuiHelpScroll,
     startTuiHelp,
     updateTuiHelpCommands,
@@ -416,12 +414,12 @@ import {
     applySearchFailure,
     applySearchResults,
     handleSearchOverlayKey,
-    handleSearchOverlayPaste,
     openSelected,
     searchOverlayViewState,
     searchSelectionOf,
     searchSelections,
     startSearchOverlay,
+    updateSearchOverlayText,
     type SearchOverlayState,
     type SearchScope,
 } from "./search-overlay.ts";
@@ -462,7 +460,6 @@ import {
     createTuiSettingsPickerView,
     handleTuiSettingsPickerScroll,
     handleTuiSettingsPickerKey,
-    handleTuiSettingsPickerPaste,
     tuiPickerViewportRows,
     startTuiReviewerMenu,
     startTuiReviewerPicker,
@@ -523,9 +520,8 @@ import {
 } from "./secret-prompt.ts";
 import {
     createTuiNamePromptView,
-    handleTuiNamePromptKey,
-    handleTuiNamePromptPaste,
     startTuiNamePrompt,
+    type TuiNamePromptTarget,
     type TuiNamePromptState,
     type TuiNamePromptTransition,
 } from "./name-prompt.ts";
@@ -638,7 +634,6 @@ import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
-    handleTuiTimelinePaste,
     startTuiTimelinePicker,
 } from "./timeline-picker.ts";
 import {
@@ -4727,7 +4722,10 @@ export async function startTui(
             return;
         }
         if (timelinePicker !== undefined && timelinePickerView.box.visible) {
-            const transition = handleTuiTimelinePaste(timelinePicker, pasted());
+            const transition = timelinePickerView.handleEditorPaste(
+                timelinePicker,
+                pasted(),
+            );
             if (transition.handled) {
                 event.preventDefault();
                 event.stopPropagation();
@@ -4741,7 +4739,7 @@ export async function startTui(
             && settingsPicker.kind !== "extension"
             && settingsPickerView.box.visible
         ) {
-            const transition = handleTuiSettingsPickerPaste(
+            const transition = settingsPickerView.handleEditorPaste(
                 settingsPicker,
                 pasted(),
             );
@@ -4754,7 +4752,12 @@ export async function startTui(
             }
         }
         if (searchOverlay !== undefined && searchOverlayView.surface.visible) {
-            const transition = handleSearchOverlayPaste(searchOverlay, pasted());
+            searchOverlayView.insertInputPaste(pasted());
+            const transition = updateSearchOverlayText(
+                searchOverlay,
+                searchOverlayView.inputText(),
+                searchOverlayView.inputCursor(),
+            );
             event.preventDefault();
             event.stopPropagation();
             searchOverlay = transition.state;
@@ -4768,7 +4771,7 @@ export async function startTui(
         if (commandPalette !== undefined && commandPaletteView.surface.visible) {
             event.preventDefault();
             event.stopPropagation();
-            commandPalette = handleTuiCommandPalettePaste(
+            commandPalette = commandPaletteView.handleEditorPaste(
                 commandPalette,
                 pasted(),
             );
@@ -4778,7 +4781,7 @@ export async function startTui(
         if (help !== undefined && helpView.box.visible && help.tab !== "general") {
             event.preventDefault();
             event.stopPropagation();
-            help = handleTuiHelpPaste(help, pasted());
+            help = helpView.handleEditorPaste(help, pasted());
             renderState();
             return;
         }
@@ -4833,7 +4836,7 @@ export async function startTui(
         ) {
             event.preventDefault();
             event.stopPropagation();
-            namePrompt = handleTuiNamePromptPaste(
+            namePrompt = namePromptView.handlePaste(
                 namePrompt,
                 stripAnsiSequences(decodePasteBytes(event.bytes)),
             );
@@ -5370,11 +5373,13 @@ export async function startTui(
         }
 
         if (timelinePicker !== undefined) {
-            const transition = handleTuiTimelineKey(
+            const editorTransition = timelinePickerView.handleEditorKey(
                 timelinePicker,
                 key,
-                randomUUID,
             );
+            const transition = editorTransition.handled
+                ? editorTransition
+                : handleTuiTimelineKey(timelinePicker, key, randomUUID);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5464,7 +5469,7 @@ export async function startTui(
         }
 
         if (namePrompt !== undefined) {
-            const transition = handleTuiNamePromptKey(
+            const transition = namePromptView.handleKey(
                 namePrompt,
                 key,
             );
@@ -5531,9 +5536,28 @@ export async function startTui(
                 settingsPicker,
                 verificationConsoleRows(),
             );
-            const transition = settingsPicker.kind === "extension"
-                ? handleTuiSettingsPickerKey(settingsPicker, key, viewportRows)
-                : handleTuiSettingsPickerKey(settingsPicker, key, viewportRows);
+            let transition:
+                | TuiSettingsPickerTransition
+                | TuiExtensionPickerTransition;
+            if (settingsPicker.kind === "extension") {
+                transition = handleTuiSettingsPickerKey(
+                    settingsPicker,
+                    key,
+                    viewportRows,
+                );
+            } else {
+                const edited = settingsPickerView.handleEditorKey(
+                    settingsPicker,
+                    key,
+                );
+                transition = edited.handled
+                    ? edited
+                    : handleTuiSettingsPickerKey(
+                        settingsPicker,
+                        key,
+                        viewportRows,
+                    );
+            }
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5568,7 +5592,7 @@ export async function startTui(
                         composer.focus();
                     } else {
                         settingsPickerView.update(settingsPicker);
-                        settingsPickerView.box.focus();
+                        settingsPickerView.focus();
                     }
                 }
                 renderState();
@@ -5621,7 +5645,16 @@ export async function startTui(
         }
 
         if (searchOverlay !== undefined) {
-            const transition = handleSearchOverlayKey(searchOverlay, key);
+            const structural = handleSearchOverlayKey(searchOverlay, key);
+            const transition = structural.handled
+                ? structural
+                : searchOverlayView.handleInputKey(key)
+                ? updateSearchOverlayText(
+                    searchOverlay,
+                    searchOverlayView.inputText(),
+                    searchOverlayView.inputCursor(),
+                )
+                : structural;
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5637,7 +5670,13 @@ export async function startTui(
         }
 
         if (commandPalette !== undefined) {
-            const transition = handleTuiCommandPaletteKey(commandPalette, key);
+            const editorTransition = commandPaletteView.handleEditorKey(
+                commandPalette,
+                key,
+            );
+            const transition = editorTransition.handled
+                ? editorTransition
+                : handleTuiCommandPaletteKey(commandPalette, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5660,7 +5699,10 @@ export async function startTui(
         }
 
         if (help !== undefined) {
-            const transition = handleTuiHelpKey(help, key);
+            const editorTransition = helpView.handleEditorKey(help, key);
+            const transition = editorTransition.handled
+                ? editorTransition
+                : handleTuiHelpKey(help, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -8539,7 +8581,7 @@ export async function startTui(
                     const pending = pendingPoolName;
                     pendingPoolName = undefined;
                     if (update.verdict === "added" && namePrompt === undefined) {
-                        namePrompt = startTuiNamePrompt(
+                        openNamePrompt(
                             {
                                 kind: "pool",
                                 provider: pending.provider,
@@ -8550,7 +8592,6 @@ export async function startTui(
                                 ? settingsPicker
                                 : undefined,
                         );
-                        focusActiveSurface();
                     }
                 }
                 if (
@@ -9228,10 +9269,17 @@ export async function startTui(
             return () => experimentalTuiHost.focus();
         }
         if (timelinePicker !== undefined) {
-            return () => timelinePickerView.box.focus();
+            return () => timelinePickerView.focus();
+        }
+        // A rename prompt is a modal child of the sidebar or settings pane it
+        // was opened from. Its editor must win while the parent remains open
+        // underneath it, then the parent's existing focus state can resume
+        // when the prompt closes.
+        if (namePrompt !== undefined) {
+            return () => namePromptView.focus();
         }
         if (commandPalette !== undefined) {
-            return () => commandPaletteView.box.focus();
+            return () => commandPaletteView.focus();
         }
         if (workTab !== undefined) {
             return () => workTabView.box.focus();
@@ -9240,10 +9288,10 @@ export async function startTui(
             return () => workspaceSidebarView.box.focus();
         }
         if (searchOverlay !== undefined) {
-            return () => searchOverlayView.box.focus();
+            return () => searchOverlayView.focus();
         }
         if (help !== undefined) {
-            return () => helpView.box.focus();
+            return () => helpView.focus();
         }
         if (doctorDialog !== undefined) {
             return () => doctorDialogView.focus();
@@ -9278,14 +9326,11 @@ export async function startTui(
         if (providerForm !== undefined) {
             return () => providerFormView.box.focus();
         }
-        if (namePrompt !== undefined) {
-            return () => namePromptView.box.focus();
-        }
         if (secretPrompt !== undefined) {
             return () => secretPromptView.box.focus();
         }
         if (settingsPicker !== undefined) {
-            return () => settingsPickerView.box.focus();
+            return () => settingsPickerView.focus();
         }
         if (preferencesList !== undefined) {
             return () => preferencesListView.box.focus();
@@ -9372,7 +9417,7 @@ export async function startTui(
             composer.blur();
             timelinePickerView.update(timelinePicker);
             if (pendingUiRequest === undefined) {
-                timelinePickerView.box.focus();
+                timelinePickerView.focus();
             }
         }
         renderState();
@@ -13250,14 +13295,12 @@ export async function startTui(
             return;
         }
         if (action.kind === "rename_session") {
-            namePrompt = startTuiNamePrompt(
+            openNamePrompt(
                 { kind: "session", sessionId: action.session_id },
                 action.label,
                 undefined,
                 action.value,
             );
-            renderState();
-            focusActiveSurface();
             return;
         }
         workspaceSidebarFocused = false;
@@ -13480,6 +13523,18 @@ export async function startTui(
      * opened with no session behind it starts at the workspace instead of at a
      * scope that would search nothing.
      */
+    function openNamePrompt(
+        target: TuiNamePromptTarget,
+        label: string,
+        parent: TuiSettingsPickerState | undefined,
+        value?: string,
+    ): void {
+        namePrompt = startTuiNamePrompt(target, label, parent, value);
+        composer.blur();
+        renderState();
+        focusActiveSurface();
+    }
+
     function openSearchOverlay(scope?: SearchScope): void {
         // The previous landing answered the previous question. Clearing it on
         // open, not on close, keeps the mark visible for as long as the reader
@@ -13585,7 +13640,7 @@ export async function startTui(
             "renameCandidate" in transition
             && transition.renameCandidate !== undefined
         ) {
-            namePrompt = startTuiNamePrompt(
+            openNamePrompt(
                 {
                     kind: "session",
                     sessionId: transition.renameCandidate.sessionId,
@@ -13596,8 +13651,6 @@ export async function startTui(
                     : previousPicker,
                 transition.renameCandidate.value,
             );
-            renderState();
-            focusActiveSurface();
             return;
         }
         if (
@@ -13700,7 +13753,7 @@ export async function startTui(
             return;
         }
         if ("poolName" in transition && transition.poolName !== undefined) {
-            namePrompt = startTuiNamePrompt(
+            openNamePrompt(
                 {
                     kind: "pool",
                     provider: transition.poolName.provider,
@@ -13709,8 +13762,6 @@ export async function startTui(
                 transition.poolName.label,
                 previousPicker?.kind === "extension" ? undefined : previousPicker,
             );
-            renderState();
-            focusActiveSurface();
             return;
         }
         if ("poolMove" in transition && transition.poolMove !== undefined) {
@@ -13878,7 +13929,7 @@ export async function startTui(
                     );
                     composer.blur();
                     settingsPickerView.update(settingsPicker);
-                    settingsPickerView.box.focus();
+                    settingsPickerView.focus();
                     renderState();
                     return;
                 }
@@ -14025,7 +14076,7 @@ export async function startTui(
                     );
                     composer.blur();
                     settingsPickerView.update(settingsPicker);
-                    settingsPickerView.box.focus();
+                    settingsPickerView.focus();
                     renderState();
                     return;
                 }
@@ -14101,7 +14152,7 @@ export async function startTui(
         } else {
             composer.blur();
             settingsPickerView.update(settingsPicker);
-            settingsPickerView.box.focus();
+            settingsPickerView.focus();
         }
         if (returningToModelPicker) {
             requestAgentSettings(focusedAgentClient());

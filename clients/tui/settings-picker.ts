@@ -90,7 +90,8 @@ import {
     dialogOptionRows,
     dialogRowPointer,
     type DialogRowPointer,
-    dialogSearchNode,
+    createDialogSearchNode,
+    updateDialogSearchNode,
     registerDialogCard,
     type DialogMeta,
     type DialogMetaPart,
@@ -102,9 +103,8 @@ import {
 } from "./theme-bindings.ts";
 import { tuiBindingId, tuiKeyHint } from "./keymap.ts";
 import {
-    handleTuiSingleLineEditorKey,
-    insertTuiSingleLineText,
-    tuiSingleLineEditor,
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
 } from "./single-line-editor.ts";
 import type { TuiSessionLeaveDisposition } from "./session-lifecycle.ts";
 import { relativeTime } from "../../src/relative-time.ts";
@@ -777,6 +777,15 @@ export interface TuiSettingsPickerView {
     onTab?: (tab: TuiModelPickerTab) => void;
     /** Opens provider connection without changing which model tab is active. */
     onConfigure?: () => void;
+    focus(): void;
+    handleEditorKey(
+        state: TuiSettingsPickerState,
+        key: TuiSettingsPickerKey,
+    ): TuiSettingsPickerTransition;
+    handleEditorPaste(
+        state: TuiSettingsPickerState,
+        text: string,
+    ): TuiSettingsPickerTransition;
     /**
      * `railInset` is the width, in columns, of a workspace rail the picker is
      * drawn beside rather than over. Omit or pass 0 when nothing occupies the
@@ -3017,26 +3026,6 @@ export function handleTuiSettingsPickerKey(
         }
         return { handled: true, ...preview };
     }
-    const searchable = pickerIsSearchable(state);
-    if (
-        searchable
-        && (state.query.length > 0
-            || (key.name !== "left" && key.name !== "right"))
-        && !(digitQuickSelect(state)
-            && state.query === ""
-            && /^[1-9]$/.test(key.name))
-    ) {
-        const edited = handleTuiSingleLineEditorKey(
-            tuiSingleLineEditor(state.query, state.queryCursor),
-            key,
-        );
-        if (edited !== undefined) {
-            return searched(state, edited.value, edited.cursor);
-        }
-    }
-    if (key.name === "backspace" || key.name === "delete") {
-        return unchanged(state, true);
-    }
     // Digits pick the numbered row directly on the short panes. Only while
     // the search is empty: a query that contains a digit is still a search.
     if (
@@ -3201,18 +3190,6 @@ export function handleTuiSettingsPickerKey(
     return unchanged(state, false);
 }
 
-export function handleTuiSettingsPickerPaste(
-    state: TuiSettingsPickerState,
-    text: string,
-): TuiSettingsPickerTransition {
-    if (!pickerIsSearchable(state)) return unchanged(state, false);
-    const editor = insertTuiSingleLineText(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        text,
-    );
-    return searched(state, editor.value, editor.cursor);
-}
-
 /**
  * The wheel over an open pane.
  *
@@ -3242,10 +3219,23 @@ export function handleTuiSettingsPickerScroll(
     return { state: next, handled: true, ...themePreview(next) };
 }
 
+/** Apply text already edited by the native search field to the active pane. */
+export function updateTuiSettingsPickerSearch(
+    state: TuiSettingsPickerState,
+    query: string,
+    cursor = query.length,
+): TuiSettingsPickerTransition {
+    return pickerIsSearchable(state)
+        ? searched(state, query, cursor)
+        : unchanged(state, false);
+}
+
 export function createTuiSettingsPickerView(
     renderer: RenderContext,
 ): TuiSettingsPickerView {
     let nodes: Renderable[] = [];
+    let searchLive = false;
+    const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
         // No borderColor here. OpenTUI's BoxRenderable constructor reads any
@@ -3270,11 +3260,61 @@ export function createTuiSettingsPickerView(
 
     const view: TuiSettingsPickerView = {
         box,
+        focus(): void {
+            if (searchLive) search.focus();
+            else box.focus();
+        },
+        handleEditorKey(state, key): TuiSettingsPickerTransition {
+            if (
+                !pickerIsSearchable(state)
+                || (state.kind === "model" && state.tab === "help")
+                || key.name === "escape" || key.name === "up"
+                || key.name === "down" || key.name === "return"
+                || key.name === "enter" || key.name === "kpenter"
+                || tuiBindingId("picker", key) !== undefined
+                || (state.kind === "model"
+                    && tuiBindingId("model_picker", key) !== undefined)
+                || (state.kind === "session"
+                    && tuiBindingId("session_picker", key) !== undefined)
+                || (state.query.length === 0
+                    && (key.name === "left" || key.name === "right"))
+                || (digitQuickSelect(state) && state.query === ""
+                    && /^[1-9]$/.test(key.name))
+            ) {
+                return unchanged(state, false);
+            }
+            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+                return unchanged(state, false);
+            }
+            return updateTuiSettingsPickerSearch(
+                state,
+                search.plainText,
+                search.cursorOffset,
+            );
+        },
+        handleEditorPaste(state, text): TuiSettingsPickerTransition {
+            if (
+                !pickerIsSearchable(state)
+                || (state.kind === "model" && state.tab === "help")
+            ) {
+                return unchanged(state, false);
+            }
+            insertTuiSingleLinePaste(search, text);
+            return updateTuiSettingsPickerSearch(
+                state,
+                search.plainText,
+                search.cursorOffset,
+            );
+        },
         update(state, railInset = 0): void {
+            search.parent?.remove(search.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
             nodes = [];
+            searchLive = state.kind !== "extension"
+                && pickerIsSearchable(state)
+                && !(state.kind === "model" && state.tab === "help");
             box.title = undefined;
             if (state.kind === "theme") {
                 box.paddingTop = 2;
@@ -3283,7 +3323,14 @@ export function createTuiSettingsPickerView(
                 box.left = "20%";
                 box.width = "60%";
                 box.height = "auto";
-                renderThemePickerRows(renderer, box, state, nodes, view.pointer);
+                renderThemePickerRows(
+                    renderer,
+                    box,
+                    state,
+                    nodes,
+                    search,
+                    view.pointer,
+                );
                 return;
             }
             // A session is recognised by its title, and titles are the one row
@@ -3305,6 +3352,7 @@ export function createTuiSettingsPickerView(
                 view.verification,
                 view.onTab,
                 view.onConfigure,
+                search,
                 railInset,
             );
         },
@@ -4088,6 +4136,7 @@ function renderListPickerRows(
     verification?: { readonly subject: string },
     onTab?: (tab: TuiModelPickerTab) => void,
     onConfigure?: () => void,
+    search?: ReturnType<typeof createDialogSearchNode>,
     railInset = 0,
 ): void {
     const tab = state.kind === "model" ? state.tab ?? "all" : undefined;
@@ -4131,16 +4180,15 @@ function renderListPickerRows(
         // two wrapped text lines and trailing blank when sizing the list.
         subtitleLines = 4;
     }
-    if (searchable) {
-        const search = dialogSearchNode(
-            renderer,
+    if (searchable && search !== undefined) {
+        updateDialogSearchNode(
+            search,
             state.query,
             "Search",
             tab !== "help",
             "queryCursor" in state ? state.queryCursor : undefined,
         );
         box.add(search);
-        nodes.push(search);
     }
     let tabStripHeight = 0;
     if (stop !== undefined && stripPane !== undefined) {
@@ -6169,11 +6217,12 @@ function renderThemePickerRows(
     box: BoxRenderable,
     state: TuiSettingsPickerState,
     nodes: Renderable[],
+    search: ReturnType<typeof createDialogSearchNode>,
     pointer?: DialogRowPointer,
 ): void {
     const header = dialogHeaderNode(renderer, "Theme");
-    const search = dialogSearchNode(
-        renderer,
+    updateDialogSearchNode(
+        search,
         state.query,
         "Search",
         true,
@@ -6181,7 +6230,7 @@ function renderThemePickerRows(
     );
     box.add(header);
     box.add(search);
-    nodes.push(header, search);
+    nodes.push(header);
 
     // Show the curated catalog even while filtering: unmatched rows dim rather
     // than vanish, so the list keeps its stable palette-card shape.

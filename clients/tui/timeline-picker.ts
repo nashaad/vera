@@ -22,12 +22,12 @@ import {
     dialogRowPointer,
     type DialogRowPointer,
     dialogOptionRow,
-    dialogSearchNode,
+    createDialogSearchNode,
+    updateDialogSearchNode,
 } from "./dialog-chrome.ts";
 import {
-    handleTuiSingleLineEditorKey,
-    insertTuiSingleLineText,
-    tuiSingleLineEditor,
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
 } from "./single-line-editor.ts";
 
 interface TimelinePickerBase {
@@ -90,6 +90,18 @@ export interface TuiTimelinePickerTransition {
 export interface TuiTimelinePickerView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
+    focus(): void;
+    handleEditorKey(
+        state: TuiTimelinePickerState,
+        key: Pick<
+            KeyEvent,
+            "name" | "sequence" | "ctrl" | "meta" | "shift" | "super" | "hyper"
+        >,
+    ): TuiTimelinePickerTransition;
+    handleEditorPaste(
+        state: TuiTimelinePickerState,
+        text: string,
+    ): TuiTimelinePickerTransition;
     update(state: TuiTimelinePickerState): void;
 }
 
@@ -223,28 +235,12 @@ export function handleTuiTimelineKey(
     return handleConfirmKey(state, key, createRequestId);
 }
 
-export function handleTuiTimelinePaste(
-    state: TuiTimelinePickerState,
-    text: string,
-): TuiTimelinePickerTransition {
-    if (state.screen !== "select") return unchanged(state, false);
-    const editor = insertTuiSingleLineText(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        text,
-    );
-    return changed({
-        ...state,
-        query: editor.value,
-        queryCursor: editor.cursor,
-        selectedIndex: 0,
-        notice: undefined,
-    });
-}
-
 export function createTuiTimelinePickerView(
     renderer: RenderContext,
 ): TuiTimelinePickerView {
     let nodes: Renderable[] = [];
+    let shownScreen: TuiTimelinePickerState["screen"] = "loading";
+    const search = createDialogSearchNode(renderer, "timeline-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "timeline-picker",
         border: false,
@@ -267,17 +263,69 @@ export function createTuiTimelinePickerView(
 
     const view: TuiTimelinePickerView = {
         box,
-        update(state): void {
-            for (const node of nodes) {
-                node.destroyRecursively();
+        focus(): void {
+            if (shownScreen === "select") search.focus();
+            else box.focus();
+        },
+        handleEditorKey(state, key): TuiTimelinePickerTransition {
+            if (
+                state.screen !== "select" || key.name === "escape"
+                || key.name === "up" || key.name === "down"
+                || key.name === "return" || key.name === "enter"
+                || key.name === "kpenter"
+            ) {
+                return unchanged(state, false);
             }
-            nodes = timelineNodes(renderer, state, view.pointer);
+            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+                return unchanged(state, false);
+            }
+            return updateTuiTimelineSearch(
+                state,
+                search.plainText,
+                search.cursorOffset,
+            );
+        },
+        handleEditorPaste(state, text): TuiTimelinePickerTransition {
+            if (state.screen !== "select") return unchanged(state, false);
+            insertTuiSingleLinePaste(search, text);
+            return changed({
+                ...state,
+                query: search.plainText,
+                queryCursor: search.cursorOffset,
+                selectedIndex: 0,
+                notice: undefined,
+            });
+        },
+        update(state): void {
+            shownScreen = state.screen;
+            search.parent?.remove(search.id);
+            for (const node of nodes) {
+                if (node !== search) node.destroyRecursively();
+            }
+            nodes = timelineNodes(renderer, state, search, view.pointer);
             for (const node of nodes) {
                 box.add(node);
             }
         },
     };
     return view;
+}
+
+/** Apply text already edited by the native timeline search field. */
+export function updateTuiTimelineSearch(
+    state: TuiTimelinePickerState,
+    query: string,
+    cursor = query.length,
+): TuiTimelinePickerTransition {
+    return state.screen !== "select"
+        ? unchanged(state, false)
+        : changed({
+            ...state,
+            query,
+            queryCursor: cursor,
+            selectedIndex: 0,
+            notice: undefined,
+        });
 }
 
 // The rewind flow is several screens: a searchable boundary list, an action
@@ -288,6 +336,7 @@ export function createTuiTimelinePickerView(
 function timelineNodes(
     renderer: RenderContext,
     state: TuiTimelinePickerState,
+    search: ReturnType<typeof createDialogSearchNode>,
     pointer?: DialogRowPointer,
 ): Renderable[] {
     const nodes: Renderable[] = [
@@ -308,13 +357,14 @@ function timelineNodes(
 
     const selected = selectedBoundary(state);
     if (state.screen === "select") {
-        nodes.push(dialogSearchNode(
-            renderer,
+        updateDialogSearchNode(
+            search,
             state.query,
             "Search",
             true,
             state.queryCursor,
-        ));
+        );
+        nodes.push(search);
         pushNotice(state.notice);
         const filtered = filteredBoundaries(state);
         if (filtered.length === 0) {
@@ -458,19 +508,7 @@ function handleSelectKey(
                 notice: undefined,
             });
     }
-    const edited = handleTuiSingleLineEditorKey(
-        tuiSingleLineEditor(state.query, state.queryCursor),
-        key,
-    );
-    return edited === undefined
-        ? unchanged(state, false)
-        : changed({
-            ...state,
-            query: edited.value,
-            queryCursor: edited.cursor,
-            selectedIndex: 0,
-            notice: undefined,
-        });
+    return unchanged(state, false);
 }
 
 function handleActionsKey(

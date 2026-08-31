@@ -1,134 +1,112 @@
-export interface TuiSingleLineEditorState {
-    readonly value: string;
-    /** JavaScript string index, always parked on a grapheme boundary. */
-    readonly cursor: number;
-}
+import {
+    TextareaRenderable,
+    type RenderContext,
+} from "@opentui/core";
 
-export interface TuiSingleLineEditorKey {
+import {
+    TUI_ACCENT,
+    TUI_INPUT,
+    TUI_MUTED,
+    TUI_TEXT,
+} from "./state.ts";
+
+export interface TuiTextEditorKey {
     readonly name: string;
     readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
+    readonly option?: boolean;
     readonly shift?: boolean;
     readonly super?: boolean;
     readonly hyper?: boolean;
 }
 
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
-const GRAPHEMES = new Intl.Segmenter(undefined, { granularity: "grapheme" });
-
-export function startTuiSingleLineEditor(
-    value = "",
-): TuiSingleLineEditorState {
-    return tuiSingleLineEditor(value);
-}
-
-/** Adapt a field that stores its value and caret as separate properties. */
-export function tuiSingleLineEditor(
-    value: string,
-    cursor = value.length,
-): TuiSingleLineEditorState {
-    const clamped = Math.max(0, Math.min(cursor, value.length));
-    if (clamped === value.length) return { value, cursor: clamped };
-    let boundary = 0;
-    for (const part of GRAPHEMES.segment(value)) {
-        if (part.index > clamped) break;
-        boundary = part.index;
-    }
-    return { value, cursor: boundary };
-}
-
-/** Insert plain single-line text at the caret. */
-export function insertTuiSingleLineText(
-    state: TuiSingleLineEditorState,
-    text: string,
-): TuiSingleLineEditorState {
-    const inserted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "");
-    if (inserted.length === 0) return state;
-    return {
-        value: state.value.slice(0, state.cursor)
-            + inserted
-            + state.value.slice(state.cursor),
-        cursor: state.cursor + inserted.length,
-    };
+export interface TuiSingleLineTextareaOptions {
+    readonly id: string;
+    /**
+     * OpenTUI paints an empty field's cursor over its first placeholder cell,
+     * so every ordinary field needs a visible placeholder.
+     */
+    readonly placeholder: string;
+    readonly backgroundColor?: string;
+    readonly height?: number;
+    readonly marginTop?: number;
 }
 
 /**
- * Ordinary single-line editing. Submit, cancel, and vertical/list movement stay
- * with the surface that owns the field.
+ * Vera's ordinary one-line fields use OpenTUI's editor directly. Keeping the
+ * renderable native is what gives every field the composer's cursor,
+ * selection, word movement, deletion, and undo behavior.
  */
-export function handleTuiSingleLineEditorKey(
-    state: TuiSingleLineEditorState,
-    key: TuiSingleLineEditorKey,
-): TuiSingleLineEditorState | undefined {
-    if (key.ctrl || key.meta || key.super || key.hyper) return undefined;
-    if (key.name === "left") {
-        return { ...state, cursor: previousGraphemeStart(state.value, state.cursor) };
-    }
-    if (key.name === "right") {
-        return { ...state, cursor: nextGraphemeEnd(state.value, state.cursor) };
-    }
-    if (key.name === "home") return { ...state, cursor: 0 };
-    if (key.name === "end") return { ...state, cursor: state.value.length };
-    if (key.name === "backspace") {
-        const start = previousGraphemeStart(state.value, state.cursor);
-        return start === state.cursor
-            ? state
-            : {
-                value: state.value.slice(0, start)
-                    + state.value.slice(state.cursor),
-                cursor: start,
-            };
-    }
-    if (key.name === "delete") {
-        const end = nextGraphemeEnd(state.value, state.cursor);
-        return end === state.cursor
-            ? state
-            : {
-                value: state.value.slice(0, state.cursor)
-                    + state.value.slice(end),
-                cursor: state.cursor,
-            };
-    }
-    const typed = key.sequence !== undefined && key.sequence.length > 0
-        ? key.sequence
-        : key.name === "space"
-        ? " "
-        : key.name.length === 1
-        ? key.name
-        : undefined;
-    if (typed === undefined || CONTROL_CHARACTERS.test(typed)) return undefined;
-    return insertTuiSingleLineText(state, typed);
+export function createTuiSingleLineTextarea(
+    renderer: RenderContext,
+    options: TuiSingleLineTextareaOptions,
+): TextareaRenderable {
+    const backgroundColor = options.backgroundColor ?? TUI_INPUT;
+    return new TextareaRenderable(renderer, {
+        id: options.id,
+        width: "100%",
+        height: options.height ?? 1,
+        wrapMode: "none",
+        textColor: TUI_TEXT,
+        focusedTextColor: TUI_TEXT,
+        backgroundColor,
+        focusedBackgroundColor: backgroundColor,
+        cursorColor: TUI_ACCENT,
+        placeholderColor: TUI_MUTED,
+        placeholder: options.placeholder,
+        ...(options.marginTop === undefined
+            ? {}
+            : { marginTop: options.marginTop }),
+    });
 }
 
-/** Plain-text caret used by fields that do not park the terminal cursor. */
-export function tuiSingleLineText(
-    state: TuiSingleLineEditorState,
-    caret: string,
-): string {
-    return state.value.slice(0, state.cursor)
-        + caret
-        + state.value.slice(state.cursor);
+/** Convert Vera's key shape to the native OpenTUI editor event. */
+export function tuiTextareaKey(
+    key: TuiTextEditorKey,
+): Parameters<TextareaRenderable["handleKeyPress"]>[0] {
+    return {
+        ...key,
+        name: key.name === "enter" ? "return" : key.name,
+        sequence: key.sequence ?? "",
+        ctrl: key.ctrl ?? false,
+        meta: key.meta ?? false,
+        shift: key.shift ?? false,
+        option: key.option ?? false,
+        super: key.super ?? false,
+        hyper: key.hyper ?? false,
+        number: false,
+        raw: key.sequence ?? "",
+        eventType: "press",
+        source: "raw",
+    } as Parameters<TextareaRenderable["handleKeyPress"]>[0];
 }
 
-export function tuiSingleLineCaretColumn(
-    state: TuiSingleLineEditorState,
-): number {
-    return Bun.stringWidth(state.value.slice(0, state.cursor));
+/** Insert clipboard text without allowing a one-line field to grow lines. */
+export function insertTuiSingleLinePaste(
+    editor: TextareaRenderable,
+    text: string,
+): boolean {
+    const pasted = text.replaceAll(/[\u0000-\u001f\u007f]/g, "");
+    if (pasted.length === 0) return false;
+    editor.insertText(pasted);
+    return true;
 }
 
-function previousGraphemeStart(value: string, cursor: number): number {
-    let previous = 0;
-    for (const part of GRAPHEMES.segment(value)) {
-        if (part.index >= cursor) break;
-        previous = part.index;
+/** Replace a field's text without guessing OpenTUI's display-cell offsets. */
+export function syncTuiSingleLineTextarea(
+    editor: TextareaRenderable,
+    value: string,
+    cursor?: number,
+): void {
+    if (editor.plainText === value) return;
+    editor.setText(value);
+    if (cursor === undefined) {
+        editor.gotoBufferEnd();
+        return;
     }
-    return previous;
-}
-
-function nextGraphemeEnd(value: string, cursor: number): number {
-    for (const part of GRAPHEMES.segment(value)) {
-        if (part.index >= cursor) return part.index + part.segment.length;
-    }
-    return value.length;
+    editor.cursorOffset = Math.max(
+        0,
+        Math.min(cursor, Bun.stringWidth(value)),
+    );
 }

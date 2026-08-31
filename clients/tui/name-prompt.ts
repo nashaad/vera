@@ -1,30 +1,28 @@
 import {
     BoxRenderable,
-    fg,
-    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
 
 import {
-    TUI_ACCENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
-import { centeredDialogSurface } from "./dialog-chrome.ts";
+import {
+    centeredDialogSurface,
+    createDialogTextFieldNode,
+    updateDialogTextFieldNode,
+} from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 import {
-    handleTuiSingleLineEditorKey,
-    insertTuiSingleLineText,
-    startTuiSingleLineEditor,
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
 } from "./single-line-editor.ts";
-
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
 
 export interface TuiSessionNameTarget {
     readonly kind: "session";
@@ -46,11 +44,11 @@ export type TuiNamePromptTarget = TuiSessionNameTarget | TuiPoolNameTarget;
  * names the row, and the picker's box filters the list.
  */
 export interface TuiNamePromptState {
+    readonly editorSession: number;
     readonly target: TuiNamePromptTarget;
     /** The row as it reads now, which may still be a fallback label. */
     readonly label: string;
     readonly value: string;
-    readonly cursor: number;
     /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
 }
@@ -79,6 +77,12 @@ export interface TuiNamePromptView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
+    focus(): void;
+    handleKey(
+        state: TuiNamePromptState,
+        key: TuiNamePromptKey,
+    ): TuiNamePromptTransition;
+    handlePaste(state: TuiNamePromptState, text: string): TuiNamePromptState;
     update(state: TuiNamePromptState): void;
 }
 
@@ -88,23 +92,13 @@ export function startTuiNamePrompt(
     parent?: TuiSettingsPickerState,
     value = "",
 ): TuiNamePromptState {
-    const editor = startTuiSingleLineEditor(value);
     return {
+        editorSession: nextEditorSession++,
         target,
         label,
-        ...editor,
+        value,
         ...(parent === undefined ? {} : { parent }),
     };
-}
-
-export function handleTuiNamePromptPaste(
-    state: TuiNamePromptState,
-    text: string,
-): TuiNamePromptState {
-    const pasted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "");
-    return pasted.length === 0
-        ? state
-        : { ...state, ...insertTuiSingleLineText(state, pasted) };
 }
 
 export function handleTuiNamePromptKey(
@@ -114,29 +108,17 @@ export function handleTuiNamePromptKey(
     if (key.name === "escape") {
         return { handled: true };
     }
-    // Everything else is swallowed rather than passed down. The pane this is
-    // drawn over is a list with its own bindings, and a key that fell through
-    // would move a row nobody can see, or reopen this prompt over itself and
-    // lose what has been typed. Interrupt and the palette are decided ahead of
-    // any overlay, so they are not reachable from here to begin with.
-    if (key.ctrl || key.meta || key.super || key.hyper) {
-        return { state, handled: true };
-    }
-    const edited = handleTuiSingleLineEditorKey(state, key);
-    if (edited !== undefined) {
-        return {
-            state: { ...state, ...edited },
-            handled: true,
-        };
-    }
-    if (key.name === "return" || key.name === "enter") {
+    if (
+        (key.name === "return" || key.name === "enter")
+        && !key.ctrl && !key.meta && !key.shift && !key.super && !key.hyper
+    ) {
         const value = state.value.trim();
         // Submitting an empty field clears the name and restores the
         // first-prompt fallback, which is what bare `/rename` does. Escape is
         // the way out for someone who meant neither.
         return { handled: true, submitted: value.length === 0 ? null : value };
     }
-    return { state, handled: true };
+    return { state, handled: false };
 }
 
 export function createTuiNamePromptView(
@@ -156,13 +138,11 @@ export function createTuiNamePromptView(
         height: "auto",
         wrapMode: "word",
     });
-    const entry = new TextRenderable(renderer, {
-        content: "",
-        width: "100%",
-        height: "auto",
-        wrapMode: "word",
-        marginTop: 1,
-    });
+    const entry = createDialogTextFieldNode(
+        renderer,
+        "name-prompt-entry",
+        "New name",
+    );
     const footer = new TextRenderable(renderer, {
         content: "←→ move · ⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
@@ -188,36 +168,63 @@ export function createTuiNamePromptView(
     box.add(entry);
     box.add(footer);
     const surface = centeredDialogSurface(renderer, "name-prompt-surface", box);
+    let shownEditorSession: number | undefined;
     return {
         box,
         surface,
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
             tuiThemeProperties(hint, { fg: "muted" }),
+            tuiThemeProperties(entry, {
+                textColor: "text",
+                focusedTextColor: "text",
+                backgroundColor: "panel",
+                focusedBackgroundColor: "panel",
+                cursorColor: "accent",
+                placeholderColor: "muted",
+            }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
+        focus(): void {
+            entry.focus();
+        },
+        handleKey(state, key): TuiNamePromptTransition {
+            const current = { ...state, value: entry.plainText };
+            const transition = handleTuiNamePromptKey(current, key);
+            if (transition.handled) return transition;
+            entry.handleKeyPress(tuiTextareaKey(key));
+            return {
+                state: { ...current, value: entry.plainText },
+                // This prompt is modal. Unknown keys stop here instead of
+                // reaching the picker hidden underneath it.
+                handled: true,
+            };
+        },
+        handlePaste(state, text): TuiNamePromptState {
+            insertTuiSingleLinePaste(entry, text);
+            return { ...state, value: entry.plainText };
+        },
         update(state): void {
-            title.content = state.target.kind === "session"
+            if (shownEditorSession !== state.editorSession) {
+                if (entry.plainText !== state.value) {
+                    entry.setText(state.value);
+                }
+                entry.gotoBufferEnd();
+                shownEditorSession = state.editorSession;
+            }
+            const session = state.target.kind === "session";
+            title.content = session
                 ? "Rename conversation"
                 : "Name shortlisted model";
-            hint.content = state.target.kind === "session"
-                ? "Name"
-                : state.label;
-            entry.content = tuiNamePromptEntryLine(state.value, state.cursor);
+            hint.content = session ? "" : state.label;
+            updateDialogTextFieldNode(
+                entry,
+                state.value,
+                session ? "New name" : "Name",
+            );
         },
     };
 }
 
-export function tuiNamePromptEntryLine(
-    value: string,
-    cursor = value.length,
-): StyledText {
-    const before = value.slice(0, cursor);
-    const after = value.slice(cursor);
-    return new StyledText([
-        ...(before.length === 0 ? [] : [fg(TUI_TEXT)(before)]),
-        fg(TUI_ACCENT)("▏"),
-        ...(after.length === 0 ? [] : [fg(TUI_TEXT)(after)]),
-    ]);
-}
+let nextEditorSession = 1;

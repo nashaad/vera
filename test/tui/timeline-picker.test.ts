@@ -5,8 +5,8 @@ import {
     applyTuiTimelineReply,
     createTuiTimelinePickerView,
     handleTuiTimelineKey,
-    handleTuiTimelinePaste,
     startTuiTimelinePicker,
+    updateTuiTimelineSearch,
     type TuiTimelinePickerState,
 } from "../../clients/tui/timeline-picker.ts";
 import { DIALOG_CARD_Z_INDEX } from "../../clients/tui/dialog-chrome.ts";
@@ -164,21 +164,13 @@ test("fork picker returns the selected prompt without rewinding", () => {
 
 test("timeline picker searches, moves, goes back, and closes locally", async () => {
     let state = selectState();
-    state = requiredState(handleTuiTimelineKey(
-        state,
-        key("b", "b"),
-        values("unused"),
-    ).state);
+    state = requiredState(updateTuiTimelineSearch(state, "b").state);
     expect(state).toMatchObject({ screen: "select", query: "b" });
     let frame = await timelineFrame(state);
     expect(frame).toContain("Capture checkpoint blobs");
     expect(frame).not.toContain("Add stale-file protection");
 
-    state = requiredState(handleTuiTimelineKey(
-        state,
-        key("backspace"),
-        values("unused"),
-    ).state);
+    state = requiredState(updateTuiTimelineSearch(state, "").state);
     state = requiredState(handleTuiTimelineKey(
         state,
         key("down"),
@@ -208,35 +200,41 @@ test("timeline picker searches, moves, goes back, and closes locally", async () 
     ).state).toBeUndefined();
 });
 
-test("timeline search edits at the caret", () => {
+test("timeline search edits at the native caret", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 18 });
+    const view = createTuiTimelinePickerView(setup.renderer);
     let state = selectState();
-    for (const character of "blos") {
-        state = requiredState(handleTuiTimelineKey(
-            state,
-            key(character, character),
-            values("unused"),
-        ).state);
+    view.update(state);
+    try {
+        for (const character of "blos") {
+            state = requiredState(view.handleEditorKey(
+                state,
+                key(character, character),
+            ).state);
+            view.update(state);
+        }
+        state = requiredState(view.handleEditorKey(state, key("left")).state);
+        state = requiredState(view.handleEditorKey(state, key("b", "b")).state);
+        expect(state).toMatchObject({ query: "blobs", queryCursor: 4 });
+    } finally {
+        setup.renderer.destroy();
     }
-    state = requiredState(handleTuiTimelineKey(
-        state,
-        key("left"),
-        values("unused"),
-    ).state);
-    state = requiredState(handleTuiTimelineKey(
-        state,
-        key("b", "b"),
-        values("unused"),
-    ).state);
-
-    expect(state).toMatchObject({ query: "blobs", queryCursor: 4 });
 });
 
-test("timeline paste inserts one query", () => {
-    const transition = handleTuiTimelinePaste(selectState(), "checkpoint\n");
-    expect(transition.state).toMatchObject({
-        screen: "select",
-        query: "checkpoint",
-    });
+test("timeline paste inserts one query", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 18 });
+    const view = createTuiTimelinePickerView(setup.renderer);
+    const state = selectState();
+    view.update(state);
+    try {
+        const transition = view.handleEditorPaste(state, "checkpoint\n");
+        expect(transition.state).toMatchObject({
+            screen: "select",
+            query: "checkpoint",
+        });
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("timeline picker cancels locally and refreshes stale plans", () => {
@@ -342,7 +340,7 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
     setup.renderer.root.add(view.box);
     view.box.visible = true;
     view.update(selectState());
-    view.box.focus();
+    view.focus();
 
     try {
         await setup.flush();
@@ -350,7 +348,8 @@ test("OpenTUI renders and focuses the client-owned timeline picker", async () =>
         expect(frame).toContain("Rewind: select a point");
         expect(frame).toContain("Add stale-file protection");
         expect(frame).toContain("Workspace files and external effects will not change");
-        expect(setup.renderer.currentFocusedRenderable).toBe(view.box);
+        expect(setup.renderer.currentFocusedRenderable?.id)
+            .toBe("timeline-picker-search");
         expect(view.box.zIndex).toBe(DIALOG_CARD_Z_INDEX);
         expect(view.box.screenX).toBeGreaterThan(0);
         expect(view.box.top).toBe(1);
@@ -411,6 +410,7 @@ function key(name: string, sequence = "") {
         sequence,
         ctrl: false,
         meta: false,
+        shift: false,
         super: false,
         hyper: false,
     };
