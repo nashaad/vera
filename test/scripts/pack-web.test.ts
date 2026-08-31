@@ -53,9 +53,10 @@ test("dev scripts pack web assets first", () => {
     expect(pkg.scripts["pack:web"]).toBe(
         "bun run scripts/pack-web.ts dist/release/annex",
     );
-    expect(pkg.scripts.host?.startsWith("bun run pack:web &&")).toBe(true);
-    expect(pkg.scripts.tui?.startsWith("bun run pack:web &&")).toBe(true);
-    expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:web &&"))
+    expect(pkg.scripts["pack:release"]).toBe("bun run scripts/pack-release.ts");
+    expect(pkg.scripts.host?.startsWith("bun run pack:release &&")).toBe(true);
+    expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
+    expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:release &&"))
         .toBe(true);
 });
 
