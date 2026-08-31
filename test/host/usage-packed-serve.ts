@@ -34,7 +34,7 @@ async function main(): Promise<void> {
             process.stderr.write("no usage url\n");
             process.exit(1);
         }
-        const page = await fetch(url);
+        const page = await fetch(new URL("usage", url).href);
         const text = await page.text();
         if (page.status !== 200 || !text.includes("Vera · Usage")) {
             process.stderr.write("usage page missing\n");

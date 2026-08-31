@@ -13,7 +13,7 @@ import type { HostLogEntry } from "../../src/host/host-log.ts";
 
 import { packWebAssets } from "../../scripts/pack-web.ts";
 import { packedWebRoot } from "../../src/release/layout.ts";
-import { startUsageWebServer } from "../../src/host/usage-http.ts";
+import { startAnnexServer } from "../../src/annex/server.ts";
 import {
     foldUsageReport,
     type UsageReport,
@@ -102,7 +102,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
         }],
     }, { cacheDir });
     await writeSession(sessionDirectory);
-    const server = await startUsageWebServer({
+    const server = await startAnnexServer({
         sessionDirectory,
         catalogCacheDir: cacheDir,
         webRoot: await packedWebDir(),
@@ -116,6 +116,9 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     servers.push(server);
     expect(server.url.startsWith("http://127.0.0.1:")).toBe(true);
 
+    const root = await fetch(server.url);
+    expect(root.status).toBe(404);
+
     const bad = await fetch(`${server.url}api/usage?window=year`);
     expect(bad.status).toBe(400);
 
@@ -126,7 +129,7 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     expect(report.totals.spend.reported).toBeCloseTo(0.41, 8);
     expect(report.totals.calls).toBe(1);
 
-    const page = await fetch(server.url);
+    const page = await fetch(`${server.url}usage`);
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("Vera · Usage");
 
@@ -157,19 +160,19 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
 
 test("missing packed assets fail with an explicit path", async () => {
     const sessionDirectory = tempDir("vera-usage-http-missing-");
-    await expect(startUsageWebServer({
+    await expect(startAnnexServer({
         sessionDirectory,
         webRoot: tempDir("vera-usage-http-empty-"),
-    })).rejects.toThrow(/Packed web asset missing: .*index\.html/);
+    })).rejects.toThrow(/Packed annex asset missing: .*index\.html/);
 });
 
 test("usage server defaults to the packed release web root", async () => {
     await packWebAssets(packedWebRoot(), { force: true });
-    const server = await startUsageWebServer({
+    const server = await startAnnexServer({
         sessionDirectory: tempDir("vera-usage-http-default-"),
     });
     servers.push(server);
-    const page = await fetch(server.url);
+    const page = await fetch(`${server.url}usage`);
     expect(page.status).toBe(200);
     expect(await page.text()).toContain("Vera · Usage");
 });
@@ -193,7 +196,7 @@ test("resident host answers usage_web with a loopback page", async () => {
     try {
         const url = await readUsageWebUrlThroughHost(host.server.socketPath);
         expect(url).toMatch(/^http:\/\/127\.0\.0\.1:\d+\/$/);
-        const page = await fetch(url!);
+        const page = await fetch(new URL("usage", url).href);
         expect(page.status).toBe(200);
         expect(await page.text()).toContain("Vera · Usage");
         expect(host.health.annex).toBe("ok");
@@ -206,10 +209,10 @@ test("unreadable packed assets fail with an explicit path", async () => {
     const webRoot = await packedWebDir();
     chmodSync(join(webRoot, "index.html"), 0);
     try {
-        await expect(startUsageWebServer({
+        await expect(startAnnexServer({
             sessionDirectory: tempDir("vera-usage-http-unreadable-"),
             webRoot,
-        })).rejects.toThrow(/Packed web asset (missing|unreadable): .*index\.html/);
+        })).rejects.toThrow(/Packed annex asset (missing|unreadable): .*index\.html/);
     } finally {
         chmodSync(join(webRoot, "index.html"), 0o600);
     }
@@ -235,13 +238,13 @@ test("missing packed assets report annex: failed in host health", async () => {
     });
     try {
         expect(host.health.annex).toBe("failed");
-        expect(host.health.annexReason).toMatch(/Packed web asset missing:/);
+        expect(host.health.annexReason).toMatch(/Packed annex asset missing:/);
         const failed = entries.find((entry) => entry.type === "usage_web_failed");
         expect(failed).toMatchObject({
             type: "usage_web_failed",
             health: "annex: failed",
         });
-        expect(String(failed?.message)).toMatch(/Packed web asset missing:/);
+        expect(String(failed?.message)).toMatch(/Packed annex asset missing:/);
         expect(await readUsageWebUrlThroughHost(host.server.socketPath))
             .toBeUndefined();
     } finally {
