@@ -24,6 +24,7 @@ import {
     startTuiSessionPicker,
     startTuiExtensionPicker,
     createTuiSettingsPickerView,
+    updateTuiSettingsPickerSearch,
     tuiProviderGroup,
     mergeTuiModelPickerSettings,
     moveTuiSettingsPickerPointer,
@@ -170,16 +171,15 @@ test("session picker filters titled durable conversations and selects an agent",
     expect(frame).toContain("⏎ stop & switch");
     expect(frame).toContain("tab keep running");
 
-    let searched = state;
-    for (const name of "11111111-first-session") {
-        searched = handleTuiSettingsPickerKey(searched, { name }).state
-            ?? searched;
-    }
+    const searched = updateTuiSettingsPickerSearch(
+        state,
+        "11111111-first-session",
+    ).state!;
     expect(searched.options).toHaveLength(1);
 });
 
 test("session search accepts spaces between words", () => {
-    let state = startTuiSessionPicker([{
+    const start = startTuiSessionPicker([{
         id: "11111111-first-session",
         workspace: "/work/alpha",
         session_path: "/sessions/first.jsonl",
@@ -188,9 +188,7 @@ test("session search accepts spaces between words", () => {
         live: false,
         title: "Turn planning",
     }]);
-    for (const name of ["t", "u", "r", "n", "space", "p"]) {
-        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
-    }
+    const state = updateTuiSettingsPickerSearch(start, "turn p").state!;
     expect(state.query).toBe("turn p");
     expect(state.options).toHaveLength(1);
 });
@@ -542,7 +540,7 @@ test("a fork loses its thread when search hides the parent", async () => {
         live: false,
         updated_at: "2026-07-20T20:00:00.000Z",
     };
-    let state = startTuiSessionPicker([
+    const start = startTuiSessionPicker([
         {
             ...base,
             id: "parent",
@@ -564,9 +562,7 @@ test("a fork loses its thread when search hides the parent", async () => {
         },
     ]);
 
-    for (const name of "cheese") {
-        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
-    }
+    const state = updateTuiSettingsPickerSearch(start, "cheese").state!;
     expect(state.options.map((option) => option.sessionId))
         .toEqual(["child", "unrelated"]);
     // Without the parent on screen the fork is its own row, not something
@@ -781,8 +777,7 @@ test("model picker filters its choices as the user types", async () => {
         "default",
         "openrouter",
     );
-    const first = handleTuiSettingsPickerKey(state, { name: "g" });
-    const second = handleTuiSettingsPickerKey(first.state ?? state, { name: "l" });
+    const second = updateTuiSettingsPickerSearch(state, "gl");
 
     expect(second.state?.query).toBe("gl");
     expect(modelRows(second.state!).map((option) => option.model)).toEqual([
@@ -794,6 +789,61 @@ test("model picker filters its choices as the user types", async () => {
     expect(frame).toContain("gl");
     expect(frame).toMatch(/▼ openrouter/);
     expect(frame).toMatch(/GLM-5\.2/);
+});
+
+test("settings search edits at the native caret", async () => {
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    let state = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    view.update(state);
+    try {
+        for (const name of ["g", "m", "left", "l"]) {
+            state = view.handleEditorKey(state, {
+                name,
+                ...(name.length === 1 ? { sequence: name } : {}),
+            }).state ?? state;
+            view.update(state);
+        }
+        expect(state.query).toBe("glm");
+        expect(state.queryCursor).toBe(2);
+        expect(modelRows(state).map((option) => option.model)).toEqual([
+            "z-ai/glm-5.2",
+        ]);
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("settings paste filters once at the caret", async () => {
+    const state = startTuiSettingsPicker(
+        "model",
+        "moonshotai/kimi-k3",
+        "max",
+        "auto",
+        availableModels,
+        "default",
+        "openrouter",
+    );
+    const setup = await createTestRenderer({ width: 80, height: 24 });
+    const view = createTuiSettingsPickerView(setup.renderer);
+    view.update(state);
+    try {
+        const transition = view.handleEditorPaste(state, "glm");
+        expect(transition.state?.query).toBe("glm");
+        expect(modelRows(transition.state!).map((option) => option.model)).toEqual([
+            "z-ai/glm-5.2",
+        ]);
+    } finally {
+        setup.renderer.destroy();
+    }
 });
 
 test("model picker distinguishes the same model id across providers", async () => {
@@ -837,9 +887,7 @@ test("model picker distinguishes the same model id across providers", async () =
 
 test("every settings picker filters as the user types", async () => {
     const reasoning = startTuiReasoningPicker(REASONING_LEVELS, undefined, "high");
-    const filteredReasoning = handleTuiSettingsPickerKey(reasoning, {
-        name: "m",
-    });
+    const filteredReasoning = updateTuiSettingsPickerSearch(reasoning, "m");
     expect(filteredReasoning.state?.options.map((option) => option.value))
         .toEqual(["max", "medium"]);
 
@@ -849,13 +897,10 @@ test("every settings picker filters as the user types", async () => {
         "high",
         "auto",
     );
-    let filteredPermissions = permissions;
-    for (const name of "full") {
-        filteredPermissions = handleTuiSettingsPickerKey(
-            filteredPermissions,
-            { name },
-        ).state ?? filteredPermissions;
-    }
+    const filteredPermissions = updateTuiSettingsPickerSearch(
+        permissions,
+        "full",
+    ).state!;
     expect(filteredPermissions.options.map((option) => option.value))
         .toEqual(["full_access"]);
     expect(await pickerFrame(filteredPermissions)).toContain("full");
@@ -880,7 +925,7 @@ test("digits quick-select on the short panes and stay search input elsewhere", a
 
     // Once a query filters the list, digits are search input again and the
     // numbers leave the rows.
-    const filtered = handleTuiSettingsPickerKey(reasoning, { name: "m" });
+    const filtered = updateTuiSettingsPickerSearch(reasoning, "m");
     expect(await pickerFrame(filtered.state!)).not.toContain("1. Max");
     expect(handleTuiSettingsPickerKey(filtered.state!, { name: "1" })
         .selection).toBeUndefined();
@@ -898,7 +943,7 @@ test("digits quick-select on the short panes and stay search input elsewhere", a
             description: "",
         }],
     );
-    const typed = handleTuiSettingsPickerKey(model, { name: "5" });
+    const typed = updateTuiSettingsPickerSearch(model, "5");
     expect(typed.selection).toBeUndefined();
     expect(typed.state?.query).toBe("5");
 });
@@ -1113,11 +1158,7 @@ test("the settings menu routes into permissions and its two entries", () => {
         "reviewer",
         "theme",
     ]);
-    let permissions = settings;
-    for (const name of "perm") {
-        permissions = handleTuiSettingsPickerKey(permissions, { name }).state
-            ?? permissions;
-    }
+    const permissions = updateTuiSettingsPickerSearch(settings, "perm").state!;
     expect(handleTuiSettingsPickerKey(permissions, { name: "enter" }).selection)
         .toEqual({ kind: "menu", target: "permissions" });
 
@@ -1324,11 +1365,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         "windows-31",
     ]);
     expect(themes.options[themes.selectedIndex]?.value).toBe("nightowl");
-    let filtered = themes;
-    for (const name of "owl") {
-        filtered = handleTuiSettingsPickerKey(filtered, { name }).state
-            ?? filtered;
-    }
+    const filtered = updateTuiSettingsPickerSearch(themes, "owl").state!;
     expect(filtered.options.map((option) => option.value)).toEqual([
         "nightowl",
     ]);
@@ -1336,7 +1373,7 @@ test("theme picker is curated, searchable, and keeps the current theme selected"
         .toBe("github");
     expect(handleTuiSettingsPickerKey(themes, { name: "escape" }).previewTheme)
         .toBe("nightowl");
-    expect(handleTuiSettingsPickerKey(filtered, { name: "backspace" }).previewTheme)
+    expect(updateTuiSettingsPickerSearch(filtered, "ow").previewTheme)
         .toBe("nightowl");
 });
 
@@ -1452,11 +1489,7 @@ function typedInto(
     start: TuiSettingsPickerState,
     text: string,
 ): TuiSettingsPickerState {
-    let state = start;
-    for (const name of text.split("")) {
-        state = handleTuiSettingsPickerKey(state, { name }).state ?? state;
-    }
-    return state;
+    return updateTuiSettingsPickerSearch(start, text).state ?? start;
 }
 
 test("an empty model list says which emptiness it is", async () => {
@@ -2350,15 +2383,14 @@ test("a fold survives a tab away and back, and a search opens everything", () =>
     ]);
 
     // A heading over hidden rows would claim the search found nothing there.
-    const searched = handleTuiSettingsPickerKey(folded, { name: "g" }).state!;
+    const searched = updateTuiSettingsPickerSearch(folded, "g").state!;
     expect(modelRows(searched).map((option) => option.label)).toEqual([
         "GLM-5.2",
     ]);
     expect(sectionRows(searched)).toEqual([["openrouter", false]]);
 
     // Clearing the query puts the fold back.
-    const cleared = handleTuiSettingsPickerKey(searched, { name: "backspace" })
-        .state!;
+    const cleared = updateTuiSettingsPickerSearch(searched, "").state!;
     expect(sectionRows(cleared)).toEqual([
         ["Top picks", false],
         ["openrouter", true],
@@ -2522,7 +2554,7 @@ test("a model row is the name alone, with no description beside it", async () =>
     // A model's blurb is not what anyone picks on, and at card widths it only
     // ever arrived clipped to a few characters, so the row is the name and the
     // provider heading above it.
-    const searched = handleTuiSettingsPickerKey(long, { name: "k" }).state!;
+    const searched = updateTuiSettingsPickerSearch(long, "k").state!;
     const frame = await pickerFrame(searched);
 
     expect(frame).toContain("Kimi K3");
@@ -2532,7 +2564,7 @@ test("a model row is the name alone, with no description beside it", async () =>
 
 test("a search stays inside the tab it was typed on", () => {
     const onPool = modelPickerWithPool();
-    const searched = handleTuiSettingsPickerKey(onPool, { name: "k" });
+    const searched = updateTuiSettingsPickerSearch(onPool, "k");
 
     // kimi is runnable but not pooled, so it has no row on this tab, and a
     // search must not conjure one: the heading says Pool, so the rows under it
@@ -2541,10 +2573,7 @@ test("a search stays inside the tab it was typed on", () => {
         .not.toContain("moonshotai/kimi-k3");
 
     // Clearing the query drops back to the tab's own list.
-    const cleared = handleTuiSettingsPickerKey(
-        searched.state!,
-        { name: "backspace" },
-    );
+    const cleared = updateTuiSettingsPickerSearch(searched.state!, "");
     expect(cleared.state?.options.map((option) => option.model)).toEqual([
         "gpt-5.6-sol",
         "z-ai/glm-5.2",
@@ -2813,11 +2842,8 @@ test("the provider marker moves independently of connected status", async () => 
 });
 
 test("provider search keeps matching group headings in group order", async () => {
-    let pane = startTuiProviderPicker(PROVIDER_ROWS);
-    for (const character of "open") {
-        pane = handleTuiSettingsPickerKey(pane, { name: character })
-            .state as TuiSettingsPickerState;
-    }
+    const start = startTuiProviderPicker(PROVIDER_ROWS);
+    const pane = updateTuiSettingsPickerSearch(start, "open").state!;
 
     expect(pane.options.map((option) => option.value)).toEqual([
         "openai-codex",
@@ -2945,11 +2971,7 @@ test("delete on the declare row asks to forget nothing", () => {
 test("the declare row survives a search that matches no provider", async () => {
     const pane = startTuiProviderPicker(PROVIDER_ROWS);
 
-    let filtered = pane;
-    for (const character of "zzz") {
-        filtered = handleTuiSettingsPickerKey(filtered, { name: character })
-            .state as TuiSettingsPickerState;
-    }
+    const filtered = updateTuiSettingsPickerSearch(pane, "zzz").state!;
 
     // A search that found nothing is exactly when declaring is the next thing
     // to do, so the row stays and stays last.
@@ -4036,10 +4058,10 @@ test("the Actions tab lists what the pane can do in words", () => {
 });
 
 test("an action is found by word from the model list, above the models", () => {
-    let state = pickerWithActions();
-    for (const name of "refresh") {
-        state = handleTuiSettingsPickerKey(state, { name }).state!;
-    }
+    const state = updateTuiSettingsPickerSearch(
+        pickerWithActions(),
+        "refresh",
+    ).state!;
 
     // Searching the shortlist narrows models. Actions are not models, so they
     // never appear in the column and never bring a heading with them.

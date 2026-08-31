@@ -13,6 +13,7 @@ import {
     searchSelections,
     searchOverlayText,
     startSearchOverlay,
+    updateSearchOverlayText,
     type SearchOverlayState,
 } from "../../clients/tui/search-overlay.ts";
 import type {
@@ -22,14 +23,8 @@ import type {
 const NOW = new Date("2026-08-14T12:00:00.000Z");
 
 function typing(query: string): SearchOverlayState {
-    let state = startSearchOverlay("/work/one");
-    for (const character of query) {
-        const transition = handleSearchOverlayKey(state, {
-            name: character === " " ? "space" : character,
-        });
-        state = transition.state ?? state;
-    }
-    return state;
+    const state = startSearchOverlay("/work/one");
+    return updateSearchOverlayText(state, query).state ?? state;
 }
 
 function results(): SessionSearchResults {
@@ -80,6 +75,28 @@ test("typing builds a query scoped to this workspace by default", () => {
     expect(searchOverlayHeader(state)).toBe("Search · all · this workspace");
 });
 
+test("search edits and re-queries at the caret", () => {
+    const corrected = updateSearchOverlayText(typing("fallbak"), "fallback", 7);
+
+    expect(corrected.state?.query).toBe("fallback");
+    expect(corrected.state?.queryCursor).toBe(7);
+    expect(corrected.action).toEqual({
+        kind: "search",
+        query: { query: "fallback", workspace: "/work/one" },
+    });
+});
+
+test("search paste asks once with the inserted query", () => {
+    const transition = updateSearchOverlayText(
+        startSearchOverlay("/work/one"),
+        "provider fallback",
+    );
+    expect(transition.action).toEqual({
+        kind: "search",
+        query: { query: "provider fallback", workspace: "/work/one" },
+    });
+});
+
 test("each keystroke asks for a search and keeps the old results as stale", () => {
     const state = applySearchResults(
         typing("fallback"),
@@ -88,7 +105,7 @@ test("each keystroke asks for a search and keeps the old results as stale", () =
     );
     expect(state.results?.results).toHaveLength(2);
 
-    const next = handleSearchOverlayKey(state, { name: "s" });
+    const next = updateSearchOverlayText(state, "fallbacks");
     expect(next.action).toEqual({
         kind: "search",
         query: { query: "fallbacks", workspace: "/work/one" },
@@ -113,11 +130,7 @@ test("clearing the query back to empty drops the stale results", () => {
         results(),
     );
 
-    let cleared = state;
-    for (let press = 0; press < "fallback".length; press += 1) {
-        cleared = handleSearchOverlayKey(cleared, { name: "backspace" })
-            .state ?? cleared;
-    }
+    const cleared = updateSearchOverlayText(state, "").state ?? state;
     expect(cleared.results).toBeUndefined();
     expect(searchOverlayText(cleared, { width: 78, now: NOW }))
         .toContain("Type to search past work.");
@@ -330,9 +343,7 @@ test("results from another scope are dropped even when the text matches", () => 
         scope: "conversation",
         sessionId: "current-session",
     });
-    for (const character of "fallback") {
-        state = handleSearchOverlayKey(state, { name: character }).state ?? state;
-    }
+    state = updateSearchOverlayText(state, "fallback").state ?? state;
 
     const stale = applySearchResults(
         state,
@@ -468,16 +479,11 @@ test("the match is found whatever case the transcript wrote it in", () => {
 
 /** Typing into a pane opened from inside a conversation. */
 function typingInside(query: string): SearchOverlayState {
-    let state = startSearchOverlay("/work/one", {
+    const state = startSearchOverlay("/work/one", {
         sessionId: "relay-gui",
         scope: "conversation",
     });
-    for (const character of query) {
-        state = handleSearchOverlayKey(state, {
-            name: character === " " ? "space" : character,
-        }).state ?? state;
-    }
-    return state;
+    return updateSearchOverlayText(state, query).state ?? state;
 }
 
 test("a search opened inside a conversation asks about that conversation", () => {
@@ -582,11 +588,7 @@ test("a chord the pane does not claim is passed through untouched", () => {
 test("a capital is typed, not treated as a chord", () => {
     // Shift arrives on every capital letter, so a pane that passes shift
     // through cannot be typed a name, a path, or a sentence that starts one.
-    const state = handleSearchOverlayKey(typing("fall"), {
-        name: "b",
-        shift: true,
-        sequence: "B",
-    });
+    const state = updateSearchOverlayText(typing("fall"), "fallB");
     expect(state.handled).toBe(true);
     expect(state.state?.query).toBe("fallB");
 

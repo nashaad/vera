@@ -31,6 +31,13 @@ import {
     TUI_SUCCESS,
     TUI_TEXT,
 } from "./state.ts";
+import {
+    createTuiSingleLineTextarea,
+    insertTuiSingleLinePaste,
+    syncTuiSingleLineTextarea,
+    tuiTextareaKey,
+    type TuiTextEditorKey,
+} from "./single-line-editor.ts";
 
 /**
  * A card that draws a header, a block of already-laid-out lines, and a footer.
@@ -103,7 +110,11 @@ export interface LinesViewState {
      * types is the same kind of place as the composer and is framed the same
      * way, and the list stays a list of results.
      */
-    readonly input?: { readonly text: string };
+    readonly input?: {
+        readonly text: string;
+        readonly cursor?: number;
+        readonly placeholder?: string;
+    };
     readonly lines: readonly LinesViewLine[];
     /**
      * Which line the cursor is on, so a list too long for the card scrolls
@@ -130,6 +141,11 @@ export interface LinesView {
     readonly box: BoxRenderable;
     /** The full-screen flex parent that keeps the card centered. */
     readonly surface: BoxRenderable;
+    focus(): void;
+    handleInputKey(key: TuiTextEditorKey): boolean;
+    insertInputPaste(text: string): boolean;
+    inputText(): string;
+    inputCursor(): number;
     /**
      * Told which line the mouse hovered or clicked, by the id the surface put
      * on it. The card knows where its lines are drawn; only the surface knows
@@ -275,6 +291,7 @@ export function createTuiLinesView(
     options: LinesViewOptions = {},
 ): LinesView {
     let nodes: Renderable[] = [];
+    let inputActive = false;
     let bottomInset = COMPOSER_RESERVE;
     let rail: number | undefined;
     let footerRows = 1;
@@ -309,6 +326,21 @@ export function createTuiLinesView(
         paddingBottom: 1,
         focusable: true,
     });
+    const inputEditor = createTuiSingleLineTextarea(renderer, {
+        id: `${id}-input`,
+        placeholder: "Search",
+    });
+    const inputField = new BoxRenderable(renderer, {
+        id: `${id}-input-field`,
+        border: false,
+        backgroundColor: TUI_INPUT,
+        width: "100%",
+        height: INPUT_BOX_ROWS,
+        justifyContent: "center",
+        paddingLeft: 2,
+        paddingRight: 2,
+    });
+    inputField.add(inputEditor);
     const surface = centeredDialogSurface(renderer, `${id}-surface`, box, {
         registerCard: options.railDivider !== true,
     });
@@ -322,6 +354,23 @@ export function createTuiLinesView(
     const view: LinesView = {
         box,
         surface,
+        focus(): void {
+            if (inputActive) inputEditor.focus();
+            else box.focus();
+        },
+        handleInputKey(key): boolean {
+            return inputActive
+                && inputEditor.handleKeyPress(tuiTextareaKey(key));
+        },
+        insertInputPaste(text): boolean {
+            return inputActive && insertTuiSingleLinePaste(inputEditor, text);
+        },
+        inputText(): string {
+            return inputEditor.plainText;
+        },
+        inputCursor(): number {
+            return inputEditor.cursorOffset;
+        },
         contentWidth(): number {
             if (rail !== undefined) return rail;
             return Math.max(
@@ -383,6 +432,8 @@ export function createTuiLinesView(
         update(state): void {
             footerRows = footerContentRows(state);
             inputRows = state.input === undefined ? 0 : INPUT_BLOCK_ROWS;
+            inputActive = state.input !== undefined;
+            inputField.parent?.remove(inputField.id);
             for (const node of nodes) node.destroyRecursively();
             nodes = [];
             const add = (node: Renderable): void => {
@@ -436,24 +487,20 @@ export function createTuiLinesView(
                 muted("");
             }
             if (state.input !== undefined) {
-                const field = new BoxRenderable(renderer, {
-                    border: false,
-                    backgroundColor: TUI_INPUT,
-                    width: "100%",
-                    height: INPUT_BOX_ROWS,
-                    justifyContent: "center",
-                    paddingLeft: 2,
-                    paddingRight: 2,
-                });
-                field.add(new TextRenderable(renderer, {
-                    id: `${id}-input`,
-                    content: state.input.text,
-                    fg: TUI_TEXT,
-                    bg: TUI_INPUT,
-                    width: "100%",
-                    height: 1,
-                }));
-                add(field);
+                inputField.backgroundColor = TUI_INPUT;
+                inputEditor.textColor = TUI_TEXT;
+                inputEditor.focusedTextColor = TUI_TEXT;
+                inputEditor.backgroundColor = TUI_INPUT;
+                inputEditor.focusedBackgroundColor = TUI_INPUT;
+                inputEditor.cursorColor = TUI_ACCENT;
+                inputEditor.placeholderColor = TUI_MUTED;
+                inputEditor.placeholder = state.input.placeholder ?? "Search";
+                syncTuiSingleLineTextarea(
+                    inputEditor,
+                    state.input.text,
+                    state.input.cursor,
+                );
+                box.add(inputField);
                 muted("");
             }
             // The card is a fixed height, so a longer list is windowed around

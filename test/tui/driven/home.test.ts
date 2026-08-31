@@ -330,6 +330,31 @@ test("the card centres on what the rail leaves, not on the terminal", async () =
     }
 }, 15_000);
 
+test("left and right hand focus between home and its rail", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-tui-home-rail-focus-"));
+    const session = await startTuiTestSession({
+        home,
+        width: 100,
+        dependencies: () => homeDependencies(home, true),
+    });
+
+    try {
+        await session.waitForVisiblePane(HOME_TYPING_HINT);
+        session.sendKey("C-e");
+        await session.waitForVisiblePane("Chat    →");
+
+        session.sendKey("Right");
+        let pane = await session.waitForVisiblePane("Focus  ←");
+        expect(pane).toContain(HOME_TYPING_HINT);
+
+        session.sendKey("Left");
+        pane = await session.waitForVisiblePane("Chat    →");
+        expect(pane).toContain(HOME_TYPING_HINT);
+    } finally {
+        await session.close();
+    }
+}, 15_000);
+
 test("ctrl+f searches the transcripts without opening a session", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-home-search-"));
     const session = await startTuiTestSession({

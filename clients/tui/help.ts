@@ -22,7 +22,8 @@ import {
     dialogOptionRows,
     dialogRowPointer,
     type DialogRowPointer,
-    dialogSearchNode,
+    createDialogSearchNode,
+    updateDialogSearchNode,
 } from "./dialog-chrome.ts";
 import {
     TUI_ACCENT,
@@ -32,6 +33,10 @@ import {
     TUI_TEXT,
 } from "./state.ts";
 import { activeTuiKeymap, tuiBindingId, type TuiKeyScope } from "./keymap.ts";
+import {
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 
 export type TuiHelpTab =
     | "general"
@@ -44,11 +49,13 @@ export interface TuiHelpState {
     readonly commands: readonly TuiCommandCatalogEntry[];
     readonly extensionCommands: readonly ExtensionCommandDescriptor[];
     readonly query: string;
+    readonly queryCursor: number;
     readonly selectedIndex: number;
 }
 
 export interface TuiHelpKey {
     readonly name: string;
+    readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly super?: boolean;
@@ -64,6 +71,9 @@ export interface TuiHelpTransition {
 export interface TuiHelpView {
     readonly box: BoxRenderable;
     pointer?: DialogRowPointer;
+    focus(): void;
+    handleEditorKey(state: TuiHelpState, key: TuiHelpKey): TuiHelpTransition;
+    handleEditorPaste(state: TuiHelpState, text: string): TuiHelpState;
     update(state: TuiHelpState): void;
 }
 
@@ -154,6 +164,7 @@ export function startTuiHelp(
         commands,
         extensionCommands,
         query: "",
+        queryCursor: 0,
         selectedIndex: 0,
     };
 }
@@ -192,12 +203,6 @@ export function handleTuiHelpKey(
     if (state.tab === "general") {
         return { state, handled: false };
     }
-    if (key.name === "backspace") {
-        return {
-            state: { ...state, query: state.query.slice(0, -1), selectedIndex: 0 },
-            handled: true,
-        };
-    }
     if (key.name === "up") {
         return {
             state: {
@@ -219,21 +224,13 @@ export function handleTuiHelpKey(
             handled: true,
         };
     }
-    if (key.name.length === 1 || key.name === "space") {
-        return {
-            state: {
-                ...state,
-                query: state.query + (key.name === "space" ? " " : key.name),
-                selectedIndex: 0,
-            },
-            handled: true,
-        };
-    }
     return { state, handled: false };
 }
 
 export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
     let nodes: Renderable[] = [];
+    let shownTab: TuiHelpTab = "general";
+    const search = createDialogSearchNode(renderer, "help-search");
     const box = new BoxRenderable(renderer, {
         id: "help",
         border: false,
@@ -255,7 +252,47 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
 
     const view: TuiHelpView = {
         box,
+        focus(): void {
+            if (shownTab === "general") box.focus();
+            else search.focus();
+        },
+        handleEditorKey(state, key): TuiHelpTransition {
+            if (
+                state.tab === "general" || key.name === "escape"
+                || key.name === "up" || key.name === "down"
+                || key.name === "return" || key.name === "enter"
+                || key.name === "kpenter"
+                || (state.query.length === 0
+                    && (key.name === "left" || key.name === "right"))
+            ) {
+                return { state, handled: false };
+            }
+            if (!search.handleKeyPress(tuiTextareaKey(key))) {
+                return { state, handled: false };
+            }
+            return {
+                state: {
+                    ...state,
+                    query: search.plainText,
+                    queryCursor: search.cursorOffset,
+                    selectedIndex: 0,
+                },
+                handled: true,
+            };
+        },
+        handleEditorPaste(state, text): TuiHelpState {
+            if (state.tab === "general") return state;
+            insertTuiSingleLinePaste(search, text);
+            return {
+                ...state,
+                query: search.plainText,
+                queryCursor: search.cursorOffset,
+                selectedIndex: 0,
+            };
+        },
         update(state): void {
+            shownTab = state.tab;
+            search.parent?.remove(search.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -277,9 +314,14 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
                 box.add(general);
                 nodes.push(general);
             } else {
-                const search = dialogSearchNode(renderer, state.query);
+                updateDialogSearchNode(
+                    search,
+                    state.query,
+                    "Search",
+                    true,
+                    state.queryCursor,
+                );
                 box.add(search);
-                nodes.push(search);
                 const commands = windowedCommands(renderer, state);
                 if (commands.length === 0) {
                     const empty = new TextRenderable(renderer, {
@@ -332,7 +374,13 @@ function switchedTab(
         (current + direction + HELP_TABS.length) % HELP_TABS.length
     ]!;
     return {
-        state: { ...state, tab, query: "", selectedIndex: 0 },
+        state: {
+            ...state,
+            tab,
+            query: "",
+            queryCursor: 0,
+            selectedIndex: 0,
+        },
         handled: true,
     };
 }

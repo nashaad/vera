@@ -18,6 +18,7 @@ import { VERA_HOME_ENV } from "../../src/profile-paths.ts";
  */
 export interface TuiTestSession {
     sendText(value: string): void;
+    sendPaste(value: string): Promise<void>;
     sendKey(key: string): void;
     /** Ctrl-modified arrows and friends, the way sendEscapeSequence sent them. */
     sendKeyWithModifiers(
@@ -190,6 +191,9 @@ export async function startTuiTestSession(
             for (const char of value) {
                 setup.mockInput.pressKey(char);
             }
+        },
+        sendPaste(value) {
+            return setup.mockInput.pasteBracketedText(value);
         },
         sendKey(key) {
             pressTmuxKey(setup.mockInput, key);

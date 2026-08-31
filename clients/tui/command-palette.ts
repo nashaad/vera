@@ -20,21 +20,28 @@ import {
     dialogOptionRows,
     dialogRowPointer,
     type DialogRowPointer,
-    dialogSearchNode,
+    createDialogSearchNode,
+    updateDialogSearchNode,
     centeredDialogSurface,
 } from "./dialog-chrome.ts";
 import { TUI_PALETTE_GROUPS, type TuiPaletteEntry } from "./commands.ts";
 import { TUI_MUTED, TUI_PANEL } from "./state.ts";
+import {
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 
 export interface TuiCommandPaletteState {
     readonly allCommands: readonly TuiPaletteEntry[];
     readonly commands: readonly TuiPaletteEntry[];
     readonly selectedIndex: number;
     readonly query: string;
+    readonly queryCursor: number;
 }
 
 export interface TuiCommandPaletteKey {
     readonly name: string;
+    readonly sequence?: string;
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly super?: boolean;
@@ -52,6 +59,15 @@ export interface TuiCommandPaletteView {
     readonly box: BoxRenderable;
     readonly surface: BoxRenderable;
     pointer?: DialogRowPointer;
+    focus(): void;
+    handleEditorKey(
+        state: TuiCommandPaletteState,
+        key: TuiCommandPaletteKey,
+    ): TuiCommandPaletteTransition;
+    handleEditorPaste(
+        state: TuiCommandPaletteState,
+        text: string,
+    ): TuiCommandPaletteState;
     update(state: TuiCommandPaletteState): void;
 }
 
@@ -65,7 +81,7 @@ export function updateTuiCommandPaletteCommands(
     state: TuiCommandPaletteState,
     commands: readonly TuiPaletteEntry[],
 ): TuiCommandPaletteState {
-    return filteredState(grouped(commands), state.query);
+    return filteredState(grouped(commands), state.query, state.queryCursor);
 }
 
 /**
@@ -90,17 +106,6 @@ export function handleTuiCommandPaletteKey(
     }
     if (key.name === "escape") {
         return { handled: true };
-    }
-    if (key.name === "backspace") {
-        return searched(state, state.query.slice(0, -1));
-    }
-    if (key.name.length === 1) {
-        return searched(state, state.query + key.name);
-    }
-    // Rows are verb phrases now, so "switch model" is the natural way to narrow
-    // to one. Terminals name the spacebar rather than sending the character.
-    if (key.name === "space") {
-        return searched(state, `${state.query} `);
     }
     if (key.name === "up") {
         return {
@@ -136,6 +141,7 @@ export function createTuiCommandPaletteView(
     renderer: RenderContext,
 ): TuiCommandPaletteView {
     let nodes: Renderable[] = [];
+    const search = createDialogSearchNode(renderer, "command-palette-search");
     const box = new BoxRenderable(renderer, {
         id: "command-palette",
         // No borderColor here. OpenTUI's BoxRenderable constructor reads any
@@ -158,7 +164,35 @@ export function createTuiCommandPaletteView(
     const view: TuiCommandPaletteView = {
         box,
         surface,
+        focus(): void {
+            search.focus();
+        },
+        handleEditorKey(state, key): TuiCommandPaletteTransition {
+            if (
+                key.name === "escape" || key.name === "up"
+                || key.name === "down" || key.name === "return"
+                || key.name === "enter" || key.name === "kpenter"
+            ) {
+                return { state, handled: false };
+            }
+            const handled = search.handleKeyPress(tuiTextareaKey(key));
+            return handled
+                ? searched(state, {
+                    value: search.plainText,
+                    cursor: search.cursorOffset,
+                })
+                : { state, handled: false };
+        },
+        handleEditorPaste(state, text): TuiCommandPaletteState {
+            insertTuiSingleLinePaste(search, text);
+            return filteredState(
+                state.allCommands,
+                search.plainText,
+                search.cursorOffset,
+            );
+        },
         update(state): void {
+            search.parent?.remove(search.id);
             for (const node of nodes) {
                 node.destroyRecursively();
             }
@@ -168,10 +202,10 @@ export function createTuiCommandPaletteView(
                 "Commands",
                 `${counter(state)} · esc`,
             );
-            const search = dialogSearchNode(renderer, state.query);
+            updateDialogSearchNode(search, state.query, "Search", true, state.queryCursor);
             box.add(header);
             box.add(search);
-            nodes.push(header, search);
+            nodes.push(header);
 
             const rows = state.commands.length === 0 ? [] : windowedRows(renderer, state);
             if (rows.length === 0) {
@@ -220,10 +254,10 @@ export function createTuiCommandPaletteView(
 
 function searched(
     state: TuiCommandPaletteState,
-    query: string,
+    editor: { readonly value: string; readonly cursor: number },
 ): TuiCommandPaletteTransition {
     return {
-        state: filteredState(state.allCommands, query),
+        state: filteredState(state.allCommands, editor.value, editor.cursor),
         handled: true,
     };
 }
@@ -231,6 +265,7 @@ function searched(
 function filteredState(
     allCommands: readonly TuiPaletteEntry[],
     query: string,
+    queryCursor = query.length,
 ): TuiCommandPaletteState {
     const normalized = query.toLowerCase();
     const commands = allCommands.filter((command) =>
@@ -240,7 +275,7 @@ function filteredState(
             .toLowerCase()
             .includes(normalized)
     );
-    return { allCommands, commands, selectedIndex: 0, query };
+    return { allCommands, commands, selectedIndex: 0, query, queryCursor };
 }
 
 /**

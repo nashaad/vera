@@ -17,6 +17,7 @@ import { isUserQuestionUiRequestUpdate } from "../../src/engine/protocol.ts";
 import {
     TUI_ACCENT,
     TUI_ELEMENT,
+    TUI_INPUT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
@@ -29,6 +30,11 @@ import {
     type DialogRowPointer,
 } from "./dialog-chrome.ts";
 import { tuiBindingId } from "./keymap.ts";
+import {
+    createTuiSingleLineTextarea,
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 
 /**
  * Below this the panel is too narrow to seat a choice list and a preview box
@@ -88,6 +94,8 @@ export interface TuiQuestionView {
         update: UserQuestionUiRequestUpdate,
         key: TuiQuestionKey,
     ): TuiQuestionKeyResult;
+    /** Paste only while the custom-answer or notes field owns input. */
+    handlePaste(text: string): boolean;
     repaint(): void;
 }
 
@@ -100,9 +108,7 @@ export function createTuiQuestionView(
     // never travels to the engine, which only ever sees the chosen choiceId.
     let selectedIndex = 0;
     let enteringCustom = false;
-    let customText = "";
     let enteringNotes = false;
-    let notesText = "";
     let choiceRows: Renderable[] = [];
 
     const detailsText = new TextRenderable(renderer, {
@@ -126,6 +132,21 @@ export function createTuiQuestionView(
         flexDirection: "column",
         flexShrink: 0,
     });
+    const customEditor = createTuiSingleLineTextarea(renderer, {
+        id: "question-custom-answer",
+        placeholder: "Type another answer",
+    });
+    const customEditorBox = new BoxRenderable(renderer, {
+        id: "question-custom-answer-box",
+        width: "auto",
+        height: 1,
+        flexGrow: 1,
+        flexShrink: 1,
+        backgroundColor: TUI_INPUT,
+        paddingLeft: 1,
+        paddingRight: 1,
+    });
+    customEditorBox.add(customEditor);
     const details = new ScrollBoxRenderable(renderer, {
         id: "question-details",
         width: "100%",
@@ -181,17 +202,33 @@ export function createTuiQuestionView(
     choicesRow.add(choicesColumn);
     choicesRow.add(preview);
 
-    const notes = new TextRenderable(renderer, {
+    const notesLabel = new TextRenderable(renderer, {
         id: "question-notes",
-        content: "",
+        content: "Notes:",
         fg: TUI_MUTED,
+        width: 7,
+        height: 1,
+        flexShrink: 0,
+    });
+    const notesEditor = createTuiSingleLineTextarea(renderer, {
+        id: "question-notes-entry",
+        placeholder: "Optional context",
+    });
+    const notes = new BoxRenderable(renderer, {
+        id: "question-notes-box",
+        backgroundColor: TUI_INPUT,
         marginLeft: DIALOG_GUTTER_WIDTH,
-        height: "auto",
+        width: "100%",
+        height: 1,
         marginTop: 1,
         flexShrink: 0,
-        wrapMode: "word",
+        flexDirection: "row",
+        paddingLeft: 1,
+        paddingRight: 1,
         visible: false,
     });
+    notes.add(notesLabel);
+    notes.add(notesEditor);
 
     // The question sits above the scroll region, not in it: it is the card's
     // heading, and a heading that scrolls away leaves a list of answers to a
@@ -278,6 +315,7 @@ export function createTuiQuestionView(
     box.add(panel);
 
     function renderChoices(update: UserQuestionUiRequestUpdate): void {
+        customEditorBox.parent?.remove(customEditorBox.id);
         for (const row of choiceRows) {
             row.destroyRecursively();
         }
@@ -299,7 +337,7 @@ export function createTuiQuestionView(
         const other = questionChoiceRow(renderer, {
             number: otherIndex + 1,
             label: "Other",
-            answer: enteringCustom ? `${customText}▌` : undefined,
+            ...(enteringCustom ? { answerEditor: customEditorBox } : {}),
             active: otherIndex === selectedIndex,
             pointer: view.pointer,
         });
@@ -320,10 +358,7 @@ export function createTuiQuestionView(
     }
 
     function renderNotes(): void {
-        notes.visible = enteringNotes || notesText.length > 0;
-        notes.content = enteringNotes
-            ? `Notes: ${notesText}▌`
-            : `Notes: ${notesText}`;
+        notes.visible = enteringNotes || notesEditor.plainText.length > 0;
     }
 
     /**
@@ -351,7 +386,9 @@ export function createTuiQuestionView(
         choiceAction,
         cancelAction,
         focus(): void {
-            details.focus();
+            if (enteringCustom) customEditor.focus();
+            else if (enteringNotes) notesEditor.focus();
+            else details.focus();
         },
         update(update): void {
             lastUpdate = update;
@@ -369,18 +406,15 @@ export function createTuiQuestionView(
             currentRequestId = update.requestId;
             selectedIndex = 0;
             enteringCustom = false;
-            customText = "";
+            customEditor.setText("");
             enteringNotes = false;
-            notesText = "";
+            notesEditor.setText("");
             detailsText.content = update.request.question;
             choiceAction.content = questionChoiceHint();
             renderChoices(update);
             details.scrollTo(0);
         },
         handleKey(update, key): TuiQuestionKeyResult {
-            if (hasModifier(key)) {
-                return { handled: false };
-            }
             const choices = displayedQuestionChoices(update);
             const count = choices.length + 1;
             // Notes ride alongside a choice rather than replacing it, so the
@@ -388,12 +422,8 @@ export function createTuiQuestionView(
             if (enteringNotes) {
                 if (key.name === "escape" || notesBinding(key)) {
                     enteringNotes = false;
+                    details.focus();
                     choiceAction.content = questionChoiceHint();
-                    renderNotes();
-                    return { handled: true };
-                }
-                if (key.name === "backspace") {
-                    notesText = [...notesText].slice(0, -1).join("");
                     renderNotes();
                     return { handled: true };
                 }
@@ -406,13 +436,11 @@ export function createTuiQuestionView(
                             response: selectedResponse(
                                 update,
                                 choice.id,
-                                notesText.trim(),
+                                notesEditor.plainText.trim(),
                             ),
                         };
                 }
-                const typed = key.sequence ?? key.name;
-                if (typed.length === 1) {
-                    notesText += typed;
+                if (notesEditor.handleKeyPress(tuiTextareaKey(key))) {
                     renderNotes();
                     return { handled: true };
                 }
@@ -420,6 +448,7 @@ export function createTuiQuestionView(
             }
             if (notesBinding(key) && !enteringCustom) {
                 enteringNotes = true;
+                notesEditor.focus();
                 choiceAction.content = "type notes · ⏎ answer · esc back ";
                 renderNotes();
                 return { handled: true };
@@ -427,28 +456,25 @@ export function createTuiQuestionView(
             if (enteringCustom) {
                 if (key.name === "escape") {
                     enteringCustom = false;
-                    customText = "";
+                    customEditor.setText("");
+                    details.focus();
                     renderChoices(update);
                     choiceAction.content = questionChoiceHint();
                     return { handled: true };
                 }
-                if (key.name === "backspace") {
-                    customText = [...customText].slice(0, -1).join("");
-                    renderChoices(update);
-                    return { handled: true };
-                }
                 if (key.name === "return" || key.name === "enter") {
-                    const text = customText.trim();
+                    const text = customEditor.plainText.trim();
                     return text.length === 0
                         ? { handled: true }
                         : { handled: true, response: customResponse(update, text) };
                 }
-                const value = key.sequence ?? key.name;
-                if (value.length > 0 && !key.ctrl && !key.meta) {
-                    customText += value;
+                if (customEditor.handleKeyPress(tuiTextareaKey(key))) {
                     renderChoices(update);
                     return { handled: true };
                 }
+                return { handled: false };
+            }
+            if (hasModifier(key)) {
                 return { handled: false };
             }
             if (key.name === "up" || key.name === "down") {
@@ -465,6 +491,7 @@ export function createTuiQuestionView(
                 const choice = choices[selectedIndex];
                 if (choice === undefined && selectedIndex === count - 1) {
                     enteringCustom = true;
+                    customEditor.focus();
                     choiceAction.content = "type answer · ⏎ submit · esc back ";
                     renderChoices(update);
                     return { handled: true };
@@ -479,6 +506,7 @@ export function createTuiQuestionView(
             if (Number(directValue) - 1 === count - 1) {
                 selectedIndex = count - 1;
                 enteringCustom = true;
+                customEditor.focus();
                 choiceAction.content = "type answer · ⏎ submit · esc back ";
                 renderChoices(update);
                 return { handled: true };
@@ -488,12 +516,35 @@ export function createTuiQuestionView(
                 ? { handled: false }
                 : { handled: true, response };
         },
+        handlePaste(text): boolean {
+            if (enteringNotes) {
+                insertTuiSingleLinePaste(notesEditor, text);
+                renderNotes();
+                return true;
+            }
+            if (enteringCustom && lastUpdate !== undefined) {
+                insertTuiSingleLinePaste(customEditor, text);
+                renderChoices(lastUpdate);
+                return true;
+            }
+            return false;
+        },
         repaint(): void {
             bar.borderColor = TUI_ACCENT;
             box.backgroundColor = TUI_PANEL;
+            customEditorBox.backgroundColor = TUI_INPUT;
+            notes.backgroundColor = TUI_INPUT;
             detailsText.fg = TUI_ACCENT;
             previewText.fg = TUI_MUTED;
-            notes.fg = TUI_MUTED;
+            notesLabel.fg = TUI_MUTED;
+            for (const editor of [customEditor, notesEditor]) {
+                editor.textColor = TUI_TEXT;
+                editor.focusedTextColor = TUI_TEXT;
+                editor.backgroundColor = TUI_INPUT;
+                editor.focusedBackgroundColor = TUI_INPUT;
+                editor.cursorColor = TUI_ACCENT;
+                editor.placeholderColor = TUI_MUTED;
+            }
             choiceAction.fg = TUI_MUTED;
             cancelAction.fg = TUI_MUTED;
             if (lastUpdate !== undefined) {
@@ -586,8 +637,7 @@ function questionChoiceHint(): string {
 interface QuestionChoiceRow {
     readonly number: number;
     readonly label: string;
-    /** What the reader has typed so far, when the row is the custom one. */
-    readonly answer?: string;
+    readonly answerEditor?: BoxRenderable;
     readonly description?: string;
     readonly recommended?: true;
     readonly active: boolean;
@@ -628,20 +678,18 @@ function questionChoiceRow(
         // leaves the wrap nothing to measure against and the label is cut at
         // one line. The highlight still ends where the answer does, because a
         // text node paints only the cells its glyphs fill.
-        // A row that carries a typed answer gives the label only its own width,
-        // so the answer has somewhere to sit.
-        flexGrow: content.answer === undefined ? 1 : 0,
-        flexShrink: content.answer === undefined ? 1 : 0,
+        flexGrow: content.answerEditor === undefined ? 1 : 0,
+        flexShrink: content.answerEditor === undefined ? 1 : 0,
         height: "auto",
         wrapMode: "word",
     }));
-    if (content.answer !== undefined) {
-        // Outside the highlighted label: what the reader typed is their own
-        // words, not one of the offered answers, so it is not dressed as one.
+    if (content.answerEditor !== undefined) {
         line.add(new TextRenderable(renderer, {
-            content: new StyledText([fg(TUI_TEXT)(`: ${content.answer}`)]),
+            content: ":",
+            fg: TUI_TEXT,
             flexShrink: 0,
         }));
+        line.add(content.answerEditor);
     }
     row.add(line);
     if (content.recommended === true) {

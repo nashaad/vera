@@ -1,28 +1,28 @@
 import {
     BoxRenderable,
-    fg,
-    StyledText,
     TextRenderable,
     type RenderContext,
 } from "@opentui/core";
 
 import {
-    TUI_ACCENT,
     TUI_MUTED,
     TUI_PANEL,
     TUI_TEXT,
 } from "./state.ts";
 import {
     centeredDialogSurface,
-    dialogSearchNode,
+    createDialogTextFieldNode,
+    updateDialogTextFieldNode,
 } from "./dialog-chrome.ts";
 import type { TuiSettingsPickerState } from "./settings-picker.ts";
 import {
     tuiThemeProperties,
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
-
-const CONTROL_CHARACTERS = /[\u0000-\u001f\u007f]/;
+import {
+    insertTuiSingleLinePaste,
+    tuiTextareaKey,
+} from "./single-line-editor.ts";
 
 export interface TuiSessionNameTarget {
     readonly kind: "session";
@@ -44,6 +44,7 @@ export type TuiNamePromptTarget = TuiSessionNameTarget | TuiPoolNameTarget;
  * names the row, and the picker's box filters the list.
  */
 export interface TuiNamePromptState {
+    readonly editorSession: number;
     readonly target: TuiNamePromptTarget;
     /** The row as it reads now, which may still be a fallback label. */
     readonly label: string;
@@ -77,6 +78,11 @@ export interface TuiNamePromptView {
     readonly surface: BoxRenderable;
     readonly themeBindings: readonly TuiThemeBinding[];
     focus(): void;
+    handleKey(
+        state: TuiNamePromptState,
+        key: TuiNamePromptKey,
+    ): TuiNamePromptTransition;
+    handlePaste(state: TuiNamePromptState, text: string): TuiNamePromptState;
     update(state: TuiNamePromptState): void;
 }
 
@@ -87,22 +93,12 @@ export function startTuiNamePrompt(
     value = "",
 ): TuiNamePromptState {
     return {
+        editorSession: nextEditorSession++,
         target,
         label,
         value,
         ...(parent === undefined ? {} : { parent }),
     };
-}
-
-export function handleTuiNamePromptPaste(
-    state: TuiNamePromptState,
-    text: string,
-): TuiNamePromptState {
-    const pasted = text.replaceAll(new RegExp(CONTROL_CHARACTERS, "g"), "")
-        .trim();
-    return pasted.length === 0
-        ? state
-        : { ...state, value: state.value + pasted };
 }
 
 export function handleTuiNamePromptKey(
@@ -112,36 +108,17 @@ export function handleTuiNamePromptKey(
     if (key.name === "escape") {
         return { handled: true };
     }
-    // Everything else is swallowed rather than passed down. The pane this is
-    // drawn over is a list with its own bindings, and a key that fell through
-    // would move a row nobody can see, or reopen this prompt over itself and
-    // lose what has been typed. Interrupt and the palette are decided ahead of
-    // any overlay, so they are not reachable from here to begin with.
-    if (key.ctrl || key.meta || key.super || key.hyper) {
-        return { state, handled: true };
-    }
-    if (key.name === "backspace") {
-        return {
-            state: { ...state, value: state.value.slice(0, -1) },
-            handled: true,
-        };
-    }
-    if (key.name === "return" || key.name === "enter") {
+    if (
+        (key.name === "return" || key.name === "enter")
+        && !key.ctrl && !key.meta && !key.shift && !key.super && !key.hyper
+    ) {
         const value = state.value.trim();
         // Submitting an empty field clears the name and restores the
         // first-prompt fallback, which is what bare `/rename` does. Escape is
         // the way out for someone who meant neither.
         return { handled: true, submitted: value.length === 0 ? null : value };
     }
-    const typed = key.sequence !== undefined && key.sequence.length > 0
-        ? key.sequence
-        : key.name.length === 1
-        ? key.name
-        : undefined;
-    if (typed === undefined || CONTROL_CHARACTERS.test(typed)) {
-        return { state, handled: true };
-    }
-    return { state: { ...state, value: state.value + typed }, handled: true };
+    return { state, handled: false };
 }
 
 export function createTuiNamePromptView(
@@ -161,11 +138,13 @@ export function createTuiNamePromptView(
         height: "auto",
         wrapMode: "word",
     });
-    const entry = dialogSearchNode(renderer, "", "Name") as TextRenderable & {
-        caretColumn: number;
-    };
+    const entry = createDialogTextFieldNode(
+        renderer,
+        "name-prompt-entry",
+        "New name",
+    );
     const footer = new TextRenderable(renderer, {
-        content: "⏎ save · empty clears · esc cancel",
+        content: "←→ move · ⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -189,39 +168,64 @@ export function createTuiNamePromptView(
     box.add(entry);
     box.add(footer);
     const surface = centeredDialogSurface(renderer, "name-prompt-surface", box);
+    let shownEditorSession: number | undefined;
     return {
         box,
         surface,
         themeBindings: [
             tuiThemeProperties(title, { fg: "text" }),
             tuiThemeProperties(hint, { fg: "muted" }),
-            tuiThemeProperties(entry, { fg: "text" }),
+            tuiThemeProperties(entry, {
+                textColor: "text",
+                focusedTextColor: "text",
+                backgroundColor: "panel",
+                focusedBackgroundColor: "panel",
+                cursorColor: "accent",
+                placeholderColor: "muted",
+            }),
             tuiThemeProperties(footer, { fg: "muted" }),
             tuiThemeProperties(box, { backgroundColor: "panel" }),
         ],
-        update(state): void {
-            title.content = state.target.kind === "session"
-                ? "Rename conversation"
-                : "Name shortlisted model";
-            hint.content = state.target.kind === "session"
-                ? "Name"
-                : state.label;
-            entry.content = new StyledText([
-                state.value.length === 0
-                    ? fg(TUI_MUTED)("Name")
-                    : fg(TUI_TEXT)(state.value),
-            ]);
-            entry.caretColumn = state.value.length;
-        },
         focus(): void {
             entry.focus();
+        },
+        handleKey(state, key): TuiNamePromptTransition {
+            const current = { ...state, value: entry.plainText };
+            const transition = handleTuiNamePromptKey(current, key);
+            if (transition.handled) return transition;
+            entry.handleKeyPress(tuiTextareaKey(key));
+            return {
+                state: { ...current, value: entry.plainText },
+                // This prompt is modal. Unknown keys stop here instead of
+                // reaching the picker hidden underneath it.
+                handled: true,
+            };
+        },
+        handlePaste(state, text): TuiNamePromptState {
+            insertTuiSingleLinePaste(entry, text);
+            return { ...state, value: entry.plainText };
+        },
+        update(state): void {
+            if (shownEditorSession !== state.editorSession) {
+                if (entry.plainText !== state.value) {
+                    entry.setText(state.value);
+                }
+                entry.gotoBufferEnd();
+                shownEditorSession = state.editorSession;
+            }
+            const session = state.target.kind === "session";
+            title.content = session
+                ? "Rename conversation"
+                : "Name shortlisted model";
+            hint.visible = !session;
+            hint.content = session ? "" : state.label;
+            updateDialogTextFieldNode(
+                entry,
+                state.value,
+                session ? "New name" : "Name",
+            );
         },
     };
 }
 
-export function tuiNamePromptEntryLine(value: string): StyledText {
-    return new StyledText([
-        ...(value.length === 0 ? [] : [fg(TUI_TEXT)(value)]),
-        fg(TUI_ACCENT)("▏"),
-    ]);
-}
+let nextEditorSession = 1;

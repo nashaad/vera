@@ -121,6 +121,46 @@ test("TUI question accepts a typed custom answer", async () => {
     }
 });
 
+test("TUI question edits a custom answer at the caret", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(request);
+    try {
+        view.handleKey(request, { name: "3", sequence: "3" });
+        for (const character of "Use Ac") {
+            view.handleKey(request, { name: character, sequence: character });
+        }
+        view.handleKey(request, { name: "left" });
+        view.handleKey(request, { name: "r", sequence: "r" });
+        expect(view.handleKey(request, { name: "enter" }).response?.response)
+            .toEqual({
+                type: "user_question",
+                outcome: "custom",
+                text: "Use Arc",
+            });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("TUI question pastes into the active custom field", async () => {
+    const setup = await createTestRenderer({ width: 60, height: 20 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(request);
+    try {
+        view.handleKey(request, { name: "3", sequence: "3" });
+        expect(view.handlePaste("Use Arc\n")).toBe(true);
+        expect(view.handleKey(request, { name: "enter" }).response?.response)
+            .toEqual({
+                type: "user_question",
+                outcome: "custom",
+                text: "Use Arc",
+            });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
 test("TUI question arrow keys select without touching the engine early", async () => {
     const setup = await createTestRenderer({ width: 60, height: 20 });
     const view = createTuiQuestionView(setup.renderer);
@@ -601,6 +641,32 @@ test("notes typed alongside a choice travel with the answer", async () => {
                 },
             },
         });
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("question notes support caret movement and forward delete", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 24 });
+    const view = createTuiQuestionView(setup.renderer);
+    view.update(previewRequest);
+    try {
+        view.handleKey(previewRequest, { name: "tab" });
+        for (const character of "pin itt") {
+            view.handleKey(previewRequest, {
+                name: character,
+                sequence: character,
+            });
+        }
+        view.handleKey(previewRequest, { name: "left" });
+        view.handleKey(previewRequest, { name: "delete" });
+        expect(view.handleKey(previewRequest, { name: "enter" })
+            .response?.response).toEqual({
+                type: "user_question",
+                outcome: "selected",
+                choiceId: "stable-channel",
+                notes: "pin it",
+            });
     } finally {
         setup.renderer.destroy();
     }

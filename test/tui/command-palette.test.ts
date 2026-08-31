@@ -6,6 +6,7 @@ import {
     handleTuiCommandPaletteKey,
     startTuiCommandPalette,
     updateTuiCommandPaletteCommands,
+    type TuiCommandPaletteState,
 } from "../../clients/tui/command-palette.ts";
 import type { TuiPaletteEntry } from "../../clients/tui/commands.ts";
 
@@ -34,14 +35,34 @@ const commands = [{
     action: { type: "open_preferences_list" },
 }] as const satisfies readonly TuiPaletteEntry[];
 
-test("command palette searches labels and descriptions, not just names", () => {
-    let state = startTuiCommandPalette(commands);
+async function editedPalette(
+    entries: readonly TuiPaletteEntry[],
+    keys: readonly string[],
+): Promise<TuiCommandPaletteState> {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiCommandPaletteView(setup.renderer);
+    let state = startTuiCommandPalette(entries);
+    view.update(state);
+    try {
+        for (const name of keys) {
+            const transition = view.handleEditorKey(state, {
+                name,
+                ...(name.length === 1 ? { sequence: name } : {}),
+            });
+            state = transition.state ?? state;
+            view.update(state);
+        }
+        return state;
+    } finally {
+        setup.renderer.destroy();
+    }
+}
+
+test("command palette searches labels and descriptions, not just names", async () => {
     // "revoke" appears in no command name or label; the palette finds it in the
     // description anyway, which is why it earns a place next to the composer's
     // prefix match.
-    for (const name of "revoke") {
-        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
-    }
+    const state = await editedPalette(commands, [..."revoke"]);
 
     expect(state.commands.map((command) => command.name)).toEqual([
         "granted_permissions",
@@ -53,11 +74,11 @@ test("command palette searches labels and descriptions, not just names", () => {
     });
 });
 
-test("command palette search accepts spaces between label words", () => {
-    let state = startTuiCommandPalette(commands);
-    for (const name of ["r", "e", "v", "i", "e", "w", "space", "g"]) {
-        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
-    }
+test("command palette search accepts spaces between label words", async () => {
+    const state = await editedPalette(
+        commands,
+        ["r", "e", "v", "i", "e", "w", "space", "g"],
+    );
 
     expect(state.query).toBe("review g");
     expect(state.commands.map((command) => command.name)).toEqual([
@@ -65,7 +86,35 @@ test("command palette search accepts spaces between label words", () => {
     ]);
 });
 
-test("command palette finds keyboard help by common wording and key hint", () => {
+test("command palette search edits at the caret", async () => {
+    const state = await editedPalette(
+        commands,
+        [..."revew", "left", "left", "i"],
+    );
+
+    expect(state.query).toBe("review");
+    expect(state.queryCursor).toBe(4);
+    expect(state.commands.map((command) => command.name)).toEqual([
+        "granted_permissions",
+    ]);
+});
+
+test("command palette paste inserts at the caret", async () => {
+    const setup = await createTestRenderer({ width: 100, height: 30 });
+    const view = createTuiCommandPaletteView(setup.renderer);
+    let state = startTuiCommandPalette(commands);
+    view.update(state);
+    try {
+        state = view.handleEditorPaste(state, "review");
+        state = view.handleEditorKey(state, { name: "home" }).state ?? state;
+        state = view.handleEditorPaste(state, "permissions ");
+        expect(state.query).toBe("permissions review");
+    } finally {
+        setup.renderer.destroy();
+    }
+});
+
+test("command palette finds keyboard help by common wording and key hint", async () => {
     const help = {
         name: "help",
         label: "Show keyboard shortcuts",
@@ -81,10 +130,7 @@ test("command palette finds keyboard help by common wording and key hint", () =>
         "ctrl+p",
         "control p",
     ]) {
-        let state = startTuiCommandPalette([help]);
-        for (const name of query) {
-            state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
-        }
+        const state = await editedPalette([help], [...query]);
         expect(state.commands).toEqual([help]);
     }
 
@@ -99,10 +145,7 @@ test("command palette finds keyboard help by common wording and key hint", () =>
             destination: { kind: "reasoning" },
         },
     } as const satisfies TuiPaletteEntry;
-    let state = startTuiCommandPalette([effort]);
-    for (const name of "ctrl+o") {
-        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
-    }
+    const state = await editedPalette([effort], [..."ctrl+o"]);
     expect(state.commands).toEqual([effort]);
 });
 
@@ -120,11 +163,8 @@ test("command palette orders entries by group, not registration", () => {
     ]);
 });
 
-test("an open palette picks up commands loaded later", () => {
-    let state = startTuiCommandPalette(commands.slice(0, 1));
-    for (const name of "model") {
-        state = handleTuiCommandPaletteKey(state, { name }).state ?? state;
-    }
+test("an open palette picks up commands loaded later", async () => {
+    let state = await editedPalette(commands.slice(0, 1), [..."model"]);
     expect(state.commands).toEqual([]);
 
     state = updateTuiCommandPaletteCommands(state, commands);
