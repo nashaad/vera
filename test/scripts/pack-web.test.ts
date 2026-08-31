@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, statSync, utimesSync, writeFileSync } from "
 import { tmpdir } from "node:os";
 import { join, resolve, sep } from "node:path";
 
-import { packedBuildId } from "../../src/release/build-id.ts";
+import { releaseBuildId } from "../../src/release/build-id.ts";
 import { packedReleaseRoot, packedWebRoot } from "../../src/release/layout.ts";
 import { packWebAssets } from "../../scripts/pack-web.ts";
 
@@ -15,16 +15,16 @@ test("packed web root is the release web directory", () => {
     expect(packedWebRoot().split(sep)).not.toContain("clients");
 });
 
-test("packed build id is vera-shortsha with dirty when the tree is dirty", () => {
-    const id = packedBuildId(repoRoot);
-    expect(id).toMatch(/^vera-[0-9a-f]+(\+dirty)?$/);
+test("packed build id is vera-shortsha plus a digest when the tree is dirty", () => {
+    const id = releaseBuildId(repoRoot);
+    expect(id).toMatch(/^vera-[0-9a-f]+(\+[0-9a-f]{12})?$/);
 });
 
 test("pack-web writes index.html, main.js, and styles.css", async () => {
     const output = mkdtempSync(join(tmpdir(), "vera-release-test-"));
     const result = await packWebAssets(output, { force: true });
     expect(result.packed).toBe(true);
-    expect(result.buildId).toMatch(/^vera-[0-9a-f]+(\+dirty)?$/);
+    expect(result.buildId).toMatch(/^vera-[0-9a-f]+(\+[0-9a-f]{12})?$/);
     expect(readFileSync(join(output, "index.html"), "utf8")).toContain("Vera · Usage");
     expect(readFileSync(join(output, "styles.css"), "utf8").length).toBeGreaterThan(0);
     const javascript = readFileSync(join(output, "main.js"), "utf8");

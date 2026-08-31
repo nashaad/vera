@@ -4,7 +4,7 @@ import { mkdirSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { packedBuildId } from "../src/release/build-id.ts";
+import { releaseBuildId } from "../src/release/build-id.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
 const WEB_SOURCE_DIR = join(REPO_ROOT, "clients", "annex");
@@ -72,7 +72,7 @@ export async function packWebAssets(
     const sourceRoot = options.sourceRoot ?? WEB_SOURCE_DIR;
     const cwd = options.cwd ?? REPO_ROOT;
     const target = resolve(outputDirectory);
-    const buildId = packedBuildId(cwd);
+    const buildId = releaseBuildId(cwd);
     const inputPaths = [
         ...SOURCE_FILES.map((name) => join(sourceRoot, name)),
         fileURLToPath(import.meta.url),
