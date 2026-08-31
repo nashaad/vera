@@ -476,6 +476,13 @@ export function dialStripSelection(
     };
 }
 
+/** Whether left/right has changed the highlighted model's pending effort. */
+export function dialEffortPending(state: DialStripState): boolean {
+    if (state.editedEffort === undefined) return false;
+    const applied = state.slots[state.index]?.pair?.effort;
+    return (state.editedEffort ?? undefined) !== applied;
+}
+
 /**
  * The strip as one line, plus the line under it that names the keys.
  *
@@ -487,7 +494,7 @@ export function renderDialStrip(
     state: DialStripState,
     hints: string,
     width = Number.POSITIVE_INFINITY,
-    maxModelRows = 9,
+    maxModelRows = DIAL_HUD_CAP,
 ): readonly string[] {
     const cells = state.slots.map((slot, index) => {
         const label = slot.label;
@@ -511,7 +518,6 @@ export function renderDialStrip(
         width,
         state.index,
         maxModelRows,
-        state.overflow > 0,
         state.recent.map((slot) => slot.label),
         state.lane === "model",
     );
@@ -524,19 +530,22 @@ export function renderDialStrip(
                 ? "no effort dial"
                 : hints;
     const agentCells = state.agents.map((agent, index) =>
-        index === state.agentIndex ? `[${agent}]` : agent
+        dialChoiceCell(agent, index === state.agentIndex)
     );
     const permissionCells = state.permissionModes.map((mode, index) =>
-        index === state.permissionIndex ? `[${mode.replaceAll("_", " ")}]` : mode.replaceAll("_", " ")
+        dialChoiceCell(
+            mode.replaceAll("_", " "),
+            index === state.permissionIndex,
+        )
     );
     const selectedSlot = state.slots[state.index];
     const selectedEffort = state.editedEffort === undefined
         ? selectedSlot?.pair?.effort
         : state.editedEffort ?? undefined;
     const effortCells = [
-        selectedEffort === undefined ? "[default]" : "default",
+        dialChoiceCell("default", selectedEffort === undefined),
         ...(selectedSlot?.efforts.map((effort) =>
-        effort === selectedEffort ? `[${effort}]` : effort
+            dialChoiceCell(effort, effort === selectedEffort)
         ) ?? []),
     ];
     const showEffortScale = Number.isFinite(width)
@@ -566,7 +575,7 @@ export function renderDialStrip(
             state.lane === "effort",
             "EFFORT",
             selectedSlot?.efforts.length === 0
-                ? ["not available"]
+                ? [dialChoiceCell("not available", false)]
                 : effortCells,
             selectedEffort === undefined
                 ? 0
@@ -580,18 +589,23 @@ export function renderDialStrip(
             selectedSlot?.efforts ?? [],
             selectedEffort,
             width,
-            selectedEffort === undefined ? "[default]" : "default",
+            dialChoiceCell("default", selectedEffort === undefined),
             selectedSlot?.defaultEffort,
             state.lane === "effort",
         ),
+        "",
         accessNote === undefined
             ? accessLine
             : appendDialNote(accessLine, accessNote, width),
+        "",
         ...modelLines,
+        "",
         renderDialLane(
             state.lane === "agent",
             "AGENT",
-            agentCells.length === 0 ? ["unavailable"] : agentCells,
+            agentCells.length === 0
+                ? [dialChoiceCell("unavailable", false)]
+                : agentCells,
             state.agentIndex,
             width,
         ),
@@ -671,7 +685,9 @@ export function renderEffortScale(
     // it: choosing default is not a point on the Faster/Smarter axis.
     // Padded to the same width every other rung uses, so the chip starts in
     // the column the access and agent choices start in.
-    const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(DIAL_CHOICE_COLUMN);
+    const laneLabel = `${active ? "›" : " "} EFFORT`.padEnd(
+        DIAL_CHOICE_COLUMN - 1,
+    );
     const chipStart = defaultCell === undefined
         ? indent
         : laneLabel.length + defaultCell.length;
@@ -691,7 +707,9 @@ export function renderEffortScale(
     const chipMarker = defaultCell !== undefined && selected === undefined
         ? "\u25b2"
         : "";
-    const noteLead = laneLabel.length;
+    // One past the label so the mark sits under the chip's text and not under
+    // the pick-mark column that opens it.
+    const noteLead = laneLabel.length + 1;
     const gutterMarks = [chipMarker, note].filter((part) => part !== "");
     const gutterText = gutterMarks.join(" ");
     const optionGutter = gutterText === ""
@@ -735,7 +753,6 @@ function renderExpandedModelLane(
     width: number,
     selected: number,
     maxRows: number,
-    hiddenAfter: boolean,
     recent: readonly string[],
     active: boolean,
 ): readonly string[] {
@@ -757,8 +774,8 @@ function renderExpandedModelLane(
             cell.split(DIAL_PROVIDER_SEPARATOR)[1]?.length ?? 0
         ),
     );
-    // Measured without the leading source marker, which sits outside the
-    // brackets and so is not part of the name column.
+    // Measured without the leading source marker, which sits before the pick
+    // mark and so is not part of the name column.
     const widestChoice = Math.max(
         0,
         ...cells.map((cell) =>
@@ -774,21 +791,21 @@ function renderExpandedModelLane(
     const modelRow = (cell: string, rowIndex: number, right = "") => {
         const [choice = "", provider] = cell.split(DIAL_PROVIDER_SEPARATOR);
         const compact = leftWidth < 42;
-        // The marker sits in the two columns before the choice column, so the
-        // brackets open where the access and agent brackets open.
+        // The source marker sits in the two columns before the choice column, so
+        // the pick mark lands where the access and agent pick marks land.
         const indent = rowIndex === 0
             ? compact
                 ? `${active ? "›" : " "} `
                 : `${active ? "›" : " "} MODEL`.padEnd(12)
             : " ".repeat(compact ? 2 : 12);
-        // The brackets enclose the name and its provider together, so the
-        // highlight reads as one choice rather than as a name with an unclaimed
-        // label trailing it. Unpicked rows spend the same columns on spaces.
+        // The pick mark leads the row, so the name and its provider stay on the
+        // same columns whether or not the dial is sitting on them. Unpicked
+        // rows spend the same column on a space.
         const picked = start + rowIndex === selected;
         const marker = choice.slice(0, 1);
         const name = choice.slice(2);
-        const open = picked ? "[" : " ";
-        const close = picked ? "]" : " ";
+        const open = picked ? DIAL_PICK_MARKER : " ";
+        const close = " ";
         const head = `${indent}${marker} ${open} `;
         const providerText = showProviders ? provider ?? "" : "";
         const nameWidth = providerText.length === 0
@@ -816,10 +833,7 @@ function renderExpandedModelLane(
     return [
         ...(start > 0
             ? [row(
-                leftWidth < 42
-                    ? `${active ? "›" : " "} …`
-                    : `${active ? "›" : " "} MODEL       …`,
-                "RECENTLY USED",
+                leftWidth < 42 ? "  …" : "              …",
             )]
             : []),
         ...cells.slice(start, end).map((cell, index) =>
@@ -829,16 +843,27 @@ function renderExpandedModelLane(
                 index === 0 ? "RECENTLY USED" : recent[index - 1] ?? "",
             )
         ),
-        ...(end < cells.length || hiddenAfter
+        ...(end < cells.length
             ? [leftWidth < 42 ? "  …" : "              …"]
             : []),
     ];
 }
 
 /**
+ * The mark on the choice a rung is currently set to. It leads the cell instead
+ * of enclosing it, so an unpicked cell spends the same column on a space and
+ * the rung's choices stay on fixed columns as the dial moves.
+ */
+export const DIAL_PICK_MARKER = "\u203a";
+
+function dialChoiceCell(label: string, picked: boolean): string {
+    return `${picked ? DIAL_PICK_MARKER : " "}${label}`;
+}
+
+/**
  * The column every rung's first choice starts in. The model rung spends the
- * four columns before it on its source marker and opening bracket, so the
- * other rungs pad their labels out to the same place.
+ * four columns before it on its source marker and pick mark, so the other
+ * rungs pad their labels out to the same place.
  */
 const DIAL_CHOICE_COLUMN = 16;
 /** The same column once the labels are dropped on a narrow terminal. */
@@ -854,10 +879,12 @@ function renderDialLane(
 ): string {
     // Keep the controls on a shared label gutter, then let choices remain
     // compact; fixed-width choices become excessively airy on wide terminals.
+    // Every cell opens with its own pick-mark column, so the label gutter is one
+    // column shorter than the column the choices themselves start in.
     const prefix = Number.isFinite(width) && width < 42
-        ? `${active ? "›" : " "} `.padEnd(DIAL_CHOICE_COLUMN_COMPACT)
+        ? `${active ? "›" : " "} `.padEnd(DIAL_CHOICE_COLUMN_COMPACT - 1)
         : `${active ? "›" : " "} ${
-            label.padEnd(DIAL_CHOICE_COLUMN - 2)
+            label.padEnd(DIAL_CHOICE_COLUMN - 3)
         }`;
     let start = 0;
     let end = cells.length;

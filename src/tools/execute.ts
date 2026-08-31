@@ -32,6 +32,7 @@ import { poolAddTool } from "./pool-add.ts";
 import { agentRosterTool } from "./agent-roster.ts";
 import { agentSendTool } from "./agent-send.ts";
 import { agentInboxTool } from "./agent-inbox.ts";
+import { MEMORY_ENABLED } from "../engine/memory.ts";
 import { memoryWriteTool } from "./memory-write.ts";
 import {
     limitToolResult,
@@ -50,7 +51,9 @@ const ordinaryTools: readonly RegisteredTool[] = [
     webFetchTool,
     webDownloadTool,
     catalogSearchTool,
-    memoryWriteTool,
+    // Offered only while memory is read: a store nothing loads is a place to
+    // write things nobody comes back for.
+    ...(MEMORY_ENABLED ? [memoryWriteTool] : []),
 ];
 const registeredTools: readonly RegisteredTool[] = [
     ...ordinaryTools,

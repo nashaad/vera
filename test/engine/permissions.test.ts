@@ -1,5 +1,6 @@
 import { beforeAll, expect, test } from "bun:test";
 
+import { MEMORY_ENABLED } from "../../src/engine/memory.ts";
 import { initBashParser } from "../../src/tools/bash-parser.ts";
 import {
     BUILT_IN_PERMISSION_MODES,
@@ -1009,36 +1010,41 @@ test("the session scratch dir is canonical so realpathed tool paths match it", a
     }
 });
 
-test("memory writes are routine and named in the decision record", () => {
-    const call = toolCall("memory_write", {
-        scope: "project",
-        file: "layout.md",
-        content: "Engine never imports UI.",
-        title: "Layout",
-        hook: "where each layer lives",
-    });
-    for (const mode of ["ask", "auto"] as const) {
-        const decision = decideToolPermission(
-            mode,
-            call,
-            workspace,
-            [],
-            { homeDirectory },
-        );
-        expect(decision).toEqual({
-            behavior: "allow",
-            actions: [{
-                action: {
-                    tool: "memory_write",
-                    verb: "unknown",
-                    operation: "memory.write",
-                },
-                outcome: "allow",
-                rule: "routine.memory_write",
-            }],
+// The rule stays in place while memory itself is off, so this asserts it again
+// the moment the write tool is registered.
+test.skipIf(!MEMORY_ENABLED)(
+    "memory writes are routine and named in the decision record",
+    () => {
+        const call = toolCall("memory_write", {
+            scope: "project",
+            file: "layout.md",
+            content: "Engine never imports UI.",
+            title: "Layout",
+            hook: "where each layer lives",
         });
-    }
-});
+        for (const mode of ["ask", "auto"] as const) {
+            const decision = decideToolPermission(
+                mode,
+                call,
+                workspace,
+                [],
+                { homeDirectory },
+            );
+            expect(decision).toEqual({
+                behavior: "allow",
+                actions: [{
+                    action: {
+                        tool: "memory_write",
+                        verb: "unknown",
+                        operation: "memory.write",
+                    },
+                    outcome: "allow",
+                    rule: "routine.memory_write",
+                }],
+            });
+        }
+    },
+);
 
 test("memory.write is a configurable operation", () => {
     expect(CORE_PERMISSION_OPERATIONS.has("memory.write")).toBe(true);

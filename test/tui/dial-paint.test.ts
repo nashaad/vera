@@ -4,6 +4,7 @@ import {
     composeDialStrip,
     DIAL_DEFAULT_SEPARATOR,
     DIAL_PROVIDER_SEPARATOR,
+    dialEffortPending,
     type DialLane,
     type DialPoolEntry,
     type DialStripState,
@@ -12,6 +13,8 @@ import {
     renderDialStrip,
 } from "../../clients/tui/dials.ts";
 import {
+    autoModeEdgeIntensity,
+    DIAL_AUTO_GREEN,
     type DialPaintTheme,
     type DialSpan,
     mapDialRows,
@@ -27,6 +30,8 @@ const THEME: DialPaintTheme = {
     background: "#000000",
     success: "#00ff00",
     secondary: "#c586c0",
+    accessAsk: "#0066ff",
+    accessAuto: "#00cc66",
 };
 /** What a chosen value looks like on a rung the cursor has left. */
 const settled = (hex: string): string => mixHex(THEME.background, hex, 0.45);
@@ -73,7 +78,9 @@ const rowsOf = (state: DialStripState, width = 80): readonly string[] =>
     renderDialStrip(state, "hints", width).slice(0, -1);
 
 const paint = (state: DialStripState, width = 80) =>
-    paintDialHud(rowsOf(state, width), state.lane, THEME);
+    paintDialHud(rowsOf(state, width), state.lane, THEME, {
+        effortPending: dialEffortPending(state),
+    });
 
 /** The colour of the first span whose text opens with `startsWith`. */
 function colorOf(
@@ -83,6 +90,18 @@ function colorOf(
     for (const row of painted) {
         for (const span of row) {
             if (span.text.trimStart().startsWith(startsWith)) return span.color;
+        }
+    }
+    return undefined;
+}
+
+function spanOf(
+    painted: readonly (readonly DialSpan[])[],
+    startsWith: string,
+): DialSpan | undefined {
+    for (const row of painted) {
+        for (const span of row) {
+            if (span.text.trimStart().startsWith(startsWith)) return span;
         }
     }
     return undefined;
@@ -131,6 +150,30 @@ test("only the focused rung's label is lit", () => {
     });
 });
 
+/** The model cell under the cursor, including its optional selection fill. */
+function cursorRowSpan(state: DialStripState): DialSpan | undefined {
+    const rows = rowsOf(state);
+    const map = mapDialRows(rows);
+    const painted = paintDialHud(rows, state.lane, THEME);
+    const end = map.modelEnd < 0 ? rows.length : map.modelEnd;
+    for (let index = map.modelStart; index < end; index += 1) {
+        if (!(rows[index] ?? "").includes("\u203a", 2)) continue;
+        return painted[index]?.find((span) => span.text.includes("sol"));
+    }
+    return undefined;
+}
+
+test("the active model cursor uses the normal filled selection row", () => {
+    expect(cursorRowSpan(strip("model"))).toMatchObject({
+        color: THEME.background,
+        background: THEME.accent,
+    });
+    expect(cursorRowSpan(strip("agent"))).toEqual(expect.objectContaining({
+        color: settled(THEME.text),
+    }));
+    expect(cursorRowSpan(strip("agent"))?.background).toBeUndefined();
+});
+
 /** The colour of a span on one named rung, ignoring the rest of the HUD. */
 function colorOnAgentRow(
     state: DialStripState,
@@ -145,8 +188,8 @@ function colorOnAgentRow(
 test("a chosen value on an unfocused rung sits between lit and muted", () => {
     // The agent rung holds "default" either way: focused it is full text,
     // left behind it settles, and it never drops to the unchosen weight.
-    expect(colorOnAgentRow(strip("agent"), "[default]")).toBe(THEME.text);
-    const away = colorOnAgentRow(strip("model"), "[default]");
+    expect(colorOnAgentRow(strip("agent"), "›default")).toBe(THEME.text);
+    const away = colorOnAgentRow(strip("model"), "›default");
     expect(away).toBe(settled(THEME.text));
     expect(away).not.toBe(THEME.muted);
 });
@@ -156,19 +199,33 @@ test("unchosen values stay muted even on the focused rung", () => {
 });
 
 test("access modes keep their hue when the cursor is elsewhere", () => {
-    expect(colorOf(paint(strip("access")), "[ask]")).toBe(THEME.accent);
-    expect(colorOf(paint(strip("model")), "[ask]")).toBe(settled(THEME.accent));
+    expect(spanOf(paint(strip("access")), "›ask")).toMatchObject({
+        color: THEME.background,
+        background: THEME.accessAsk,
+    });
+    expect(colorOf(paint(strip("model")), "›ask")).toBe(
+        settled(THEME.accessAsk),
+    );
 });
 
-test("each access mode gets its own colour", () => {
-    const modeColor = (mode: string): string | undefined => {
+test("each active access mode fills with its own colour", () => {
+    const modeSpan = (mode: string): DialSpan | undefined => {
         let state = opened(mode);
         while (state.lane !== "access") state = moveDialLane(state, 1);
-        return colorOf(paint(state), `[${mode}]`);
+        return spanOf(paint(state), `›${mode}`);
     };
-    expect(modeColor("readonly")).toBe(THEME.secondary);
-    expect(modeColor("ask")).toBe(THEME.accent);
-    expect(modeColor("auto")).toBe(THEME.success);
+    expect(modeSpan("readonly")).toMatchObject({
+        color: THEME.background,
+        background: THEME.secondary,
+    });
+    expect(modeSpan("ask")).toMatchObject({
+        color: THEME.background,
+        background: THEME.accessAsk,
+    });
+    expect(modeSpan("auto")).toMatchObject({
+        color: THEME.background,
+        background: THEME.accessAuto,
+    });
 
     const veraPaint = (state: DialStripState) =>
         paintDialHud(rowsOf(state), state.lane, {
@@ -179,10 +236,116 @@ test("each access mode gets its own colour", () => {
             background: VERA_TUI_THEME.background,
             success: VERA_TUI_THEME.success,
             secondary: VERA_TUI_THEME.secondary,
+            accessAsk: VERA_TUI_THEME.accent,
+            accessAuto: DIAL_AUTO_GREEN,
         });
     let veraState = opened("auto");
     while (veraState.lane !== "access") veraState = moveDialLane(veraState, 1);
-    expect(colorOf(veraPaint(veraState), "[auto]")).toBe("#9ECE6A");
+    expect(spanOf(veraPaint(veraState), "›auto")?.background).toBe("#40C977");
+});
+
+test("entering auto draws a tracer only on the HUD's right edge", () => {
+    const state = strip("access");
+    const rows = rowsOf(state, 60);
+    const painted = paintDialHud(rows, state.lane, THEME, {
+        autoAnimation: { progress: 0.55, width: 60 },
+    });
+    const litRows = painted.filter((row) =>
+        row.at(-1)?.background !== undefined
+    );
+
+    expect(litRows.length).toBeGreaterThan(1);
+    expect(litRows.length).toBeLessThanOrEqual(7);
+    for (const row of litRows) {
+        expect(row.map((span) => span.text).join("")).toHaveLength(60);
+        expect(row.at(-1)?.text).toBe(" ");
+    }
+    expect(painted.flatMap((row) => row).map((span) => span.text).join(""))
+        .not.toContain("AUTO");
+    expect(painted).toHaveLength(rows.length);
+});
+
+test("the auto tracer moves vertically instead of filling a row", () => {
+    const peakRow = (progress: number): number => {
+        const values = Array.from(
+            { length: 20 },
+            (_, row) => autoModeEdgeIntensity(progress, row, 20),
+        );
+        return values.indexOf(Math.max(...values));
+    };
+
+    expect(peakRow(0.35)).toBeLessThan(peakRow(0.7));
+    expect(autoModeEdgeIntensity(1, 19, 20)).toBe(0);
+});
+
+test("the auto tracer survives adversarial widths and progress values", () => {
+    const state = strip("access");
+    const sentinels = new RegExp(
+        `[${DIAL_PROVIDER_SEPARATOR}${DIAL_DEFAULT_SEPARATOR}]`,
+        "g",
+    );
+    const color = /^#[0-9a-f]{6}$/i;
+    for (const width of [1, 2, 8, 20, 40, 60, 120]) {
+        const rows = rowsOf(state, width);
+        const plain = rows.map((row) => row.replace(sentinels, ""));
+        for (
+            const progress of [
+                -1,
+                0,
+                0.001,
+                0.25,
+                0.5,
+                0.88,
+                0.999,
+                1,
+                2,
+                Number.NaN,
+                Number.POSITIVE_INFINITY,
+            ]
+        ) {
+            const painted = paintDialHud(rows, state.lane, THEME, {
+                autoAnimation: { progress, width },
+            });
+            expect(painted).toHaveLength(rows.length);
+            for (const [index, spans] of painted.entries()) {
+                const text = spans.map((span) => span.text).join("");
+                expect(text.startsWith(plain[index] ?? "")).toBe(true);
+                expect(text.length).toBeLessThanOrEqual(
+                    Math.max(width, plain[index]?.length ?? 0),
+                );
+                expect(text).not.toContain("AUTO");
+                for (const span of spans) {
+                    expect(span.color).toMatch(color);
+                    if (span.background !== undefined) {
+                        expect(span.background).toMatch(color);
+                    }
+                }
+            }
+        }
+    }
+});
+
+test("invalid tracer geometry is inert", () => {
+    for (
+        const [progress, row, rowCount] of [
+            [Number.NaN, 0, 10],
+            [0.5, Number.NaN, 10],
+            [0.5, -1, 10],
+            [0.5, 10, 10],
+            [0.5, 0, 0],
+            [0.5, 0, Number.POSITIVE_INFINITY],
+        ]
+    ) {
+        expect(autoModeEdgeIntensity(progress!, row!, rowCount!)).toBe(0);
+    }
+
+    const state = strip("access");
+    const rows = rowsOf(state, 60);
+    expect(() =>
+        paintDialHud(rows, state.lane, THEME, {
+            autoAnimation: { progress: 0.5, width: Number.POSITIVE_INFINITY },
+        })
+    ).not.toThrow();
 });
 
 test("the effort track lights only while the effort rung is focused", () => {
@@ -213,6 +376,19 @@ test("stepping the effort dial keeps the levels on the track colour", () => {
     expect(colorOf(painted, "low")).toBe(THEME.accent);
 });
 
+test("a pending effort edit lights while model selection keeps focus", () => {
+    const model = strip("model");
+    expect(colorOf(paint(model), "──")).toBe(THEME.muted);
+
+    const changed = adjustDialEffort(model, 1);
+    expect(dialEffortPending(changed)).toBe(true);
+    expect(colorOf(paint(changed), "──")).toBe(THEME.accent);
+
+    const restored = adjustDialEffort(changed, -1);
+    expect(dialEffortPending(restored)).toBe(false);
+    expect(colorOf(paint(restored), "──")).toBe(THEME.muted);
+});
+
 test("every span carries a colour the theme names", () => {
     const known = new Set<string>([
         ...Object.values(THEME),
@@ -222,6 +398,8 @@ test("every span carries a colour the theme names", () => {
             THEME.notice,
             THEME.success,
             THEME.secondary,
+            THEME.accessAsk,
+            THEME.accessAuto,
         ]
             .map(settled),
     ]);

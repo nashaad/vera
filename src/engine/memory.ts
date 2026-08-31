@@ -107,6 +107,21 @@ export interface LoadMemoryOptions {
 }
 
 /**
+ * Whether memory is part of a turn at all.
+ *
+ * Held off while the retrieval model is reconsidered. An index the agent may
+ * or may not follow asks it to decide whether to open a topic file before it
+ * knows what the file says, and a one-line summary of a procedure loses the
+ * runnable part of it. In practice the line is read, the file is not, and the
+ * summary is mistaken for the fact. Skills answer the same question by
+ * obliging the read, which is the shape to revisit this against.
+ *
+ * Flipping this back on restores loading, the prompt section, and the write
+ * tool together; nothing else has to change.
+ */
+export const MEMORY_ENABLED: boolean = false;
+
+/**
  * Reads the index of each scope and nothing else. Topic files are left for
  * the agent to read with the file tools when a hook in the index matches.
  */

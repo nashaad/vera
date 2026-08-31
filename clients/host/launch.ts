@@ -3,10 +3,11 @@ import {
     mkdirSync,
     readFileSync,
     renameSync,
+    statSync,
     unlinkSync,
     writeFileSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -14,7 +15,12 @@ import {
     type EnsureResidentHostOptions,
 } from "../../src/host/discovery.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
-import { veraRuntimeDirectory } from "../../src/profile-paths.ts";
+import {
+    VERA_HOME_ENV,
+    VERA_RUNTIME_DIR_ENV,
+    VERA_WORKTREE_RUNTIME_ENV,
+    veraRuntimeDirectory,
+} from "../../src/profile-paths.ts";
 
 export type FindOrStartHostOptions = Omit<
     EnsureResidentHostOptions,
@@ -54,6 +60,45 @@ export function hostEntrypointMismatchNotice(
     return `attached to a resident host running ${record.entrypoint}; `
         + `this checkout would start ${expected}. `
         + "Stop the host to pick up this checkout's code.";
+}
+
+/**
+ * The warning a client shows when it was started inside a linked worktree
+ * that has no runtime of its own. The session attaches to the main checkout's
+ * resident host instead, so the worktree's code never runs and the change
+ * under test looks like it did not take.
+ *
+ * Silent whenever the runtime was chosen deliberately: an explicit runtime or
+ * home is an answer to this question, not a mistake.
+ */
+export function worktreeRuntimeNotice(
+    cwd: string = process.cwd(),
+    environment: Record<string, string | undefined> = process.env,
+): string | undefined {
+    const chosen = [
+        VERA_WORKTREE_RUNTIME_ENV,
+        VERA_RUNTIME_DIR_ENV,
+        VERA_HOME_ENV,
+    ].some((name) => (environment[name] ?? "").trim().length > 0);
+    if (chosen || !insideLinkedWorktree(cwd)) return undefined;
+    return "started inside a Git worktree with no runtime of its own, so this"
+        + " session is attached to the main checkout's host and does not run"
+        + " this worktree's code. Quit and start it with"
+        + " 'bun run tui:worktree'.";
+}
+
+/** A linked worktree records `.git` as a file; the main checkout as a directory. */
+function insideLinkedWorktree(cwd: string): boolean {
+    let directory = resolve(cwd);
+    for (;;) {
+        const marker = statSync(join(directory, ".git"), {
+            throwIfNoEntry: false,
+        });
+        if (marker !== undefined) return marker.isFile();
+        const parent = dirname(directory);
+        if (parent === directory) return false;
+        directory = parent;
+    }
 }
 
 /**

@@ -1,4 +1,5 @@
 import {
+    bg,
     BoxRenderable,
     CliRenderEvents,
     decodePasteBytes,
@@ -172,6 +173,7 @@ import {
 import {
     findOrStartResidentHost,
     hostEntrypointMismatchNotice,
+    worktreeRuntimeNotice,
 } from "../host/launch.ts";
 import {
     createTuiApprovalView,
@@ -536,6 +538,7 @@ import {
     composeDialStrip,
     DIAL_HUD_CAP,
     DIAL_HUD_RECENT_CAP,
+    dialEffortPending,
     handleDialStripKey,
     openDialStrip,
     renderDialStrip,
@@ -544,7 +547,11 @@ import {
     type DialPoolEntry,
     type DialStripState,
 } from "./dials.ts";
-import { paintDialHud } from "./dial-paint.ts";
+import {
+    AUTO_MODE_ANIMATION_DURATION_MS,
+    DIAL_AUTO_GREEN,
+    paintDialHud,
+} from "./dial-paint.ts";
 import {
     recordTuiTipShown,
     selectTuiTip,
@@ -1136,8 +1143,10 @@ export async function startConfiguredTui(
         // A pool file the parser had to reduce still produced a pool, so this
         // says so instead of failing: the entries that were dropped are the
         // ones the user thinks are in force.
+        const worktreeNotice = worktreeRuntimeNotice();
         const startupNotices = [
             ...(mismatchNotice === undefined ? [] : [mismatchNotice]),
+            ...(worktreeNotice === undefined ? [] : [worktreeNotice]),
             ...poolFileIssueNotices(
                 loadPoolFile({ projectRoot: process.cwd() }).issues,
             ),
@@ -1464,6 +1473,9 @@ export async function startTui(
     const announcedKeymapNotices = new Set<string>();
     /** The dial strip, open only while it is on screen. */
     let dialStrip: DialStripState | undefined;
+    /** A decorative flourish shown only inside the HUD when auto is entered. */
+    let autoModeAnimationStartedAt: number | undefined;
+    let autoModeAnimationTimer: ReturnType<typeof setInterval> | undefined;
     /** The last catalog the host sent, which /agent opens against. */
     let agentCatalog: TuiAgentCatalog | undefined;
     /** Suggesters escape put away, for the rest of this session. */
@@ -3499,7 +3511,38 @@ export async function startTui(
         });
     }
 
+    function stopAutoModeAnimation(): void {
+        if (autoModeAnimationTimer !== undefined) {
+            clearInterval(autoModeAnimationTimer);
+            autoModeAnimationTimer = undefined;
+        }
+        autoModeAnimationStartedAt = undefined;
+    }
+
+    function startAutoModeAnimation(): void {
+        stopAutoModeAnimation();
+        autoModeAnimationStartedAt = Date.now();
+        autoModeAnimationTimer = setInterval(() => {
+            if (
+                shuttingDown
+                || dialStrip === undefined
+                || autoModeAnimationStartedAt === undefined
+            ) {
+                stopAutoModeAnimation();
+                return;
+            }
+            if (
+                Date.now() - autoModeAnimationStartedAt
+                >= AUTO_MODE_ANIMATION_DURATION_MS
+            ) {
+                stopAutoModeAnimation();
+            }
+            renderState();
+        }, 16);
+    }
+
     function closeDials(): void {
+        stopAutoModeAnimation();
         dialStrip = undefined;
         renderState();
         focusActiveSurface();
@@ -3512,6 +3555,7 @@ export async function startTui(
      * rail is navigation outside that pane: it yields focus but stays visible.
      */
     function closeTransientOverlaysForUiRequest(): void {
+        stopAutoModeAnimation();
         dialStrip = undefined;
         settingsPicker = undefined;
         standingNudges = undefined;
@@ -4314,6 +4358,7 @@ export async function startTui(
         stopWatchingTerminal();
         flightRecorder?.record({ type: "renderer_destroyed" });
         shuttingDown = true;
+        stopAutoModeAnimation();
         renderCoalescer.stop();
         clearInterval(statusTimer);
         stopWatchingBackgroundAgents?.();
@@ -4947,7 +4992,20 @@ export async function startTui(
                 tuiBindingId("dials", key),
             );
             if (action.kind === "state") {
+                const previousPermission =
+                    dialStrip.permissionModes[dialStrip.permissionIndex];
+                const nextPermission = action.state.permissionModes[
+                    action.state.permissionIndex
+                ];
                 dialStrip = action.state;
+                if (
+                    nextPermission === "auto"
+                    && previousPermission !== "auto"
+                ) {
+                    startAutoModeAnimation();
+                } else if (nextPermission !== "auto") {
+                    stopAutoModeAnimation();
+                }
                 renderState();
             } else if (action.kind === "cancel") {
                 closeDials();
@@ -15606,6 +15664,10 @@ export async function startTui(
                 && !focusedAbort
             ? workingHint
             : "";
+        const dialWidth = Math.max(
+            1,
+            renderer.width - composerHorizontalInset - railInset,
+        );
         const stripLines = dialStrip === undefined
             ? undefined
             : renderDialStrip(
@@ -15618,8 +15680,10 @@ export async function startTui(
                     "⏎ apply",
                     "/permissions for more",
                 ].join(" · "),
-                Math.max(1, renderer.width - composerHorizontalInset - railInset),
-                Math.max(3, Math.min(9, renderer.height - 23)),
+                dialWidth,
+                // A hidden-model ellipsis already spends the next row. Let an
+                // actual model use that row when the full composition fits.
+                Math.max(3, Math.min(DIAL_HUD_CAP, renderer.height - 22)),
             );
         dialCard.visible = stripLines !== undefined;
         dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
@@ -15641,8 +15705,30 @@ export async function startTui(
                 background: hudBg,
                 success: TUI_HUD?.success ?? TUI_SUCCESS,
                 secondary: theme.secondary,
+                accessAsk: VERA_TUI_THEME.accent,
+                accessAuto: DIAL_AUTO_GREEN,
+            }, {
+                effortPending: dialStrip === undefined
+                    ? false
+                    : dialEffortPending(dialStrip),
+                autoAnimation: autoModeAnimationStartedAt === undefined
+                    ? undefined
+                    : {
+                        progress: Math.min(
+                            1,
+                            (Date.now() - autoModeAnimationStartedAt)
+                            / AUTO_MODE_ANIMATION_DURATION_MS,
+                        ),
+                        width: dialWidth,
+                    },
             }).flatMap((spans, index) => [
-                ...spans.map((span) => fg(span.color)(span.text)),
+                ...spans.map((span) =>
+                    fg(span.color)(
+                        span.background === undefined
+                            ? span.text
+                            : bg(span.background)(span.text)
+                    )
+                ),
                 ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
             ]),
         );

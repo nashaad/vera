@@ -31,7 +31,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendText("/diagnostics");
         session.sendKey("Enter");
         pane = await session.waitForVisiblePane("copy  enter");
-        expect(pane).toContain("[Session]");
+        expect(pane).toContain("› Session");
         expect(pane).toContain("Session usage");
         expect(pane).toContain("Runtime");
         expect(pane).toContain("copy  enter");
@@ -50,7 +50,7 @@ test("diagnostics opens as a large copyable overlay instead of transcript text",
         session.sendKey("Enter");
         await session.waitForVisiblePane("✓ copied");
         session.sendKey("Tab");
-        pane = await session.waitForVisiblePane("[Vera]");
+        pane = await session.waitForVisiblePane("› Vera");
         expect(pane).toContain("Build");
         expect(pane).toContain("Extensions");
         expect(pane).toContain("Model failures");
@@ -253,7 +253,7 @@ test("reload failure reaches the TUI diagnostics overlay", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("[Session]");
+        await session.waitForVisiblePane("› Session");
         session.sendKey("Tab");
         pane = await session.waitForVisiblePane("reload       failed");
         expect(pane).toContain("reload error");
@@ -286,7 +286,7 @@ test("partial reload names the extensions that stayed active", async () => {
 
         session.sendText("/diagnostics");
         session.sendKey("Enter");
-        await session.waitForVisiblePane("[Session]");
+        await session.waitForVisiblePane("› Session");
         session.sendKey("Tab");
         pane = await session.waitForVisiblePane("reload       partial (1 loaded)");
         expect(pane).toContain("active       test.sidebar");

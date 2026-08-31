@@ -70,7 +70,11 @@ import type {
     ToolEffectContext,
     ToolOutput,
 } from "../tools/types.ts";
-import { loadMemory, type InstructionRoot } from "./memory.ts";
+import {
+    type InstructionRoot,
+    loadMemory,
+    MEMORY_ENABLED,
+} from "./memory.ts";
 import { loadProjectInstructions } from "./project-instructions.ts";
 import {
     type ContextualContributionContext,
@@ -1558,7 +1562,8 @@ export async function runTurn(
             const projectInstructions = state.loadOptionalContext !== false
                 ? await loadProjectInstructions(state.toolRuntime.workspace)
                 : { files: [], warnings: [] };
-            const memory = state.loadOptionalContext !== false
+            const memory = MEMORY_ENABLED
+                    && state.loadOptionalContext !== false
                 ? await loadMemory(
                     state.instructionRoot
                         ?? {

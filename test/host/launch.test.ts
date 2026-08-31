@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
     hostEntrypointMismatchNotice,
     residentHostEntrypoint,
+    worktreeRuntimeNotice,
 } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
@@ -126,3 +127,48 @@ async function waitForProcessExit(pid: number): Promise<void> {
     }
     throw new Error(`Detached host ${pid} did not exit`);
 }
+
+/** A checkout whose `.git` is a file, the way a linked worktree records it. */
+async function linkedWorktree(): Promise<string> {
+    const root = await mkdtemp(join(tmpdir(), "vera-linked-worktree-"));
+    await writeFile(join(root, ".git"), "gitdir: /elsewhere/.git/worktrees/x\n");
+    await mkdir(join(root, "clients"), { recursive: true });
+    return root;
+}
+
+test("a worktree started without its own runtime is warned about", async () => {
+    const root = await linkedWorktree();
+    try {
+        expect(worktreeRuntimeNotice(join(root, "clients"), {}))
+            .toContain("bun run tui:worktree");
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a deliberate runtime silences the worktree warning", async () => {
+    const root = await linkedWorktree();
+    try {
+        for (
+            const environment of [
+                { VERA_WORKTREE_RUNTIME: "/tmp/vera-worktrees/x" },
+                { VERA_RUNTIME_DIR: "/tmp/vera-worktrees/x" },
+                { VERA_HOME: "/tmp/vera-home" },
+            ]
+        ) {
+            expect(worktreeRuntimeNotice(root, environment)).toBeUndefined();
+        }
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("the main checkout is not warned about", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-main-checkout-"));
+    try {
+        await mkdir(join(root, ".git"), { recursive: true });
+        expect(worktreeRuntimeNotice(root, {})).toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
