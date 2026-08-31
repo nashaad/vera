@@ -1,12 +1,13 @@
 import { afterAll, expect, test } from "bun:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
-    estimateUsd,
     foldUsageReport,
+    foldUsageSessionDetail,
+    estimateUsd,
 } from "../../src/host/usage-report.ts";
 import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 import type { ModelMessage, ModelUsage } from "../../src/model/types.ts";
@@ -43,10 +44,19 @@ function assistant(
     provider: string,
     model: string,
     modelUsage: ModelUsage,
+    tools?: readonly string[],
 ): ModelMessage {
     return {
         role: "assistant",
-        content: [{ type: "text", text: "ok" }],
+        content: [
+            { type: "text", text: "ok" },
+            ...(tools ?? []).map((name) => ({
+                type: "tool_call" as const,
+                id: `${name}-1`,
+                name,
+                input: {},
+            })),
+        ],
         source: { provider, api: provider, model },
         usage: modelUsage,
         durationMs: 500,
@@ -229,6 +239,7 @@ test("parent combined cost includes descendants; totals count each call once", a
         children: 0.5,
         combined: 2.5,
         kind: "interactive",
+        costKind: "reported",
     });
     expect(child).toMatchObject({
         parentId: "parent",
@@ -306,4 +317,287 @@ test("windows keep calls by timestamp even when the file is recent", async () =>
     expect((await fold("7d")).totals.spend.combined).toBe(12);
     expect((await fold("30d")).totals.spend.combined).toBe(14);
     expect((await fold("all")).totals.spend.combined).toBe(15);
+});
+
+test("assistant tool_call names roll up per model", async () => {
+    const sessionDirectory = tempDir("vera-usage-tools-");
+    await writeSession({
+        directory: sessionDirectory,
+        id: "tools",
+        at: NOW,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 0.2 }),
+            ["bash", "bash", "read"],
+        )],
+    });
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.models[0]?.tools).toEqual([
+        { name: "bash", calls: 2 },
+        { name: "read", calls: 1 },
+    ]);
+});
+
+test("compaction billed usage counts as a compaction call", async () => {
+    const sessionDirectory = tempDir("vera-usage-compact-");
+    const path = join(sessionDirectory, "compacted.jsonl");
+    const store = await SessionStore.create(path, {
+        sessionId: "compacted",
+        cwd: "/work/vera",
+        now: () => NOW,
+    });
+    await store.appendMessage({
+        role: "user",
+        content: [{ type: "text", text: "hello" }],
+    });
+    const first = await store.appendMessage(assistant(
+        "openrouter",
+        "anthropic/claude-sonnet-4",
+        usage({ cost: 1 }),
+    ));
+    await store.appendCompaction({
+        boundaryMessageId: first.id,
+        firstRetainedMessageId: null,
+        projection: [{
+            role: "user",
+            content: [{ type: "text", text: "summary" }],
+        }],
+        measured: { inputTokens: 10, estimated: true },
+        billed: {
+            provider: "openrouter",
+            model: "anthropic/claude-sonnet-4",
+            usage: usage({ cost: 0.05 }),
+        },
+    });
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.totals.calls).toBe(2);
+    expect(report.totals.spend.combined).toBeCloseTo(1.05, 8);
+    const detail = await foldUsageSessionDetail({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+        sessionId: "compacted",
+    });
+    expect(detail?.calls.some((call) => call.kind === "compaction")).toBe(true);
+});
+
+test("session detail lists own calls and child spend separately", async () => {
+    const sessionDirectory = tempDir("vera-usage-detail-");
+    await writeSession({
+        directory: sessionDirectory,
+        id: "parent",
+        at: NOW,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 2 }),
+            ["edit"],
+        )],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "child",
+        at: NOW,
+        parentId: "parent",
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 0.5 }),
+        )],
+    });
+    const detail = await foldUsageSessionDetail({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+        sessionId: "parent",
+    });
+    expect(detail?.session.combined).toBeCloseTo(2.5, 8);
+    expect(detail?.calls).toHaveLength(1);
+    expect(detail?.children).toHaveLength(1);
+    expect(detail?.totals.calls).toBe(2);
+});
+
+test("7d prior totals count the previous week, not the current one", async () => {
+    const sessionDirectory = tempDir("vera-usage-prior-");
+    const previous = new Date(2026, 7, 20, 12, 0, 0);
+    const path = await writeSession({
+        directory: sessionDirectory,
+        id: "older",
+        at: previous,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 3 }),
+        )],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "current",
+        at: NOW,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 1 }),
+        )],
+    });
+    const previousSeconds = previous.getTime() / 1000;
+    await utimes(path, previousSeconds, previousSeconds);
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.totals.spend.combined).toBeCloseTo(1, 8);
+    expect(report.prior?.spend.combined).toBeCloseTo(3, 8);
+});
+
+test("an old parent of a recent child still appears on the leaderboard", async () => {
+    const sessionDirectory = tempDir("vera-usage-old-parent-");
+    const oldAt = new Date(2026, 5, 1, 12, 0, 0);
+    const parentPath = await writeSession({
+        directory: sessionDirectory,
+        id: "parent",
+        at: oldAt,
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 1 }),
+        )],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "child",
+        at: NOW,
+        parentId: "parent",
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 0.4 }),
+        )],
+    });
+    const oldSeconds = oldAt.getTime() / 1000;
+    await utimes(parentPath, oldSeconds, oldSeconds);
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    const parent = report.sessions.find((row) => row.id === "parent");
+    expect(parent).toMatchObject({
+        own: 0,
+        children: 0.4,
+        combined: 0.4,
+        costKind: "reported",
+    });
+});
+
+test("combined costKind includes descendant calls, not only own", async () => {
+    const sessionDirectory = tempDir("vera-usage-kind-tree-");
+    await writeSession({
+        directory: sessionDirectory,
+        id: "parent",
+        at: NOW,
+        messages: [assistant("omlx", "local", usage())],
+    });
+    await writeSession({
+        directory: sessionDirectory,
+        id: "child",
+        at: NOW,
+        parentId: "parent",
+        messages: [assistant(
+            "openrouter",
+            "anthropic/claude-sonnet-4",
+            usage({ cost: 0.5 }),
+        )],
+    });
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    const parent = report.sessions.find((row) => row.id === "parent");
+    expect(parent).toMatchObject({
+        own: 0,
+        children: 0.5,
+        combined: 0.5,
+        costKind: "mixed",
+    });
+});
+
+test("own reported plus estimated is mixed, not estimated", async () => {
+    const sessionDirectory = tempDir("vera-usage-mixed-own-");
+    await writeSession({
+        directory: sessionDirectory,
+        id: "mix",
+        at: NOW,
+        messages: [
+            assistant(
+                "openrouter",
+                "anthropic/claude-sonnet-4",
+                usage({ cost: 2 }),
+            ),
+            assistant(
+                "openrouter",
+                "anthropic/claude-sonnet-4",
+                usage(),
+            ),
+        ],
+    });
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+    });
+    expect(report.sessions[0]?.costKind).toBe("mixed");
+    expect(report.models[0]?.kind).toBe("mixed");
+});
+
+test("reviewer spend in the prior window counts toward prior totals", async () => {
+    const sessionDirectory = tempDir("vera-usage-review-prior-");
+    const previous = new Date(2026, 7, 20, 12, 0, 0);
+    const logPath = join(tempDir("vera-usage-review-log-"), "reviewer.jsonl");
+    writeFileSync(logPath, [
+        JSON.stringify({
+            timestamp: previous.toISOString(),
+            type: "tool_review",
+            provider: "openrouter",
+            model: "anthropic/claude-sonnet-4",
+            usage: usage({ cost: 4 }),
+            sessionId: "older",
+        }),
+        JSON.stringify({
+            timestamp: NOW.toISOString(),
+            type: "tool_review",
+            provider: "openrouter",
+            model: "anthropic/claude-sonnet-4",
+            usage: usage({ cost: 1 }),
+            sessionId: "current",
+        }),
+    ].join("\n") + "\n");
+    const report = await foldUsageReport({
+        sessionDirectory,
+        window: "7d",
+        now: NOW,
+        catalogCacheDir: catalogDir(),
+        reviewLogPath: logPath,
+    });
+    expect(report.totals.spend.combined).toBeCloseTo(1, 8);
+    expect(report.prior?.spend.combined).toBeCloseTo(4, 8);
 });

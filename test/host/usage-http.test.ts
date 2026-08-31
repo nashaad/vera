@@ -118,6 +118,24 @@ test("GET /api/usage?window=7d returns a folded report on loopback", async () =>
     const javascript = await script.text();
     expect(javascript).toContain("at current OpenRouter rates");
     expect(javascript).toContain("/api/usage");
+    expect(javascript).toContain("/api/usage/session/");
+    expect(javascript).toContain("aria-label");
+    expect(javascript).toContain("Menu");
+    expect(javascript).toContain("≡");
+    expect(javascript).toContain("combobox");
+    expect(javascript).toContain("nav-sidebar");
+    expect(javascript).toContain("Close menu");
+    expect(javascript).not.toContain("this machine · this profile");
+    expect(javascript).not.toContain("this machine · loopback");
+
+    const missing = await fetch(`${server.url}api/usage/session/nope?window=7d`);
+    expect(missing.status).toBe(404);
+
+    const detail = await fetch(`${server.url}api/usage/session/live?window=7d`);
+    expect(detail.status).toBe(200);
+    const body = await detail.json() as { session: { id: string }; calls: unknown[] };
+    expect(body.session.id).toBe("live");
+    expect(body.calls).toHaveLength(1);
 });
 
 test("resident host answers usage_web with a loopback page", async () => {

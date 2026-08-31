@@ -56,7 +56,7 @@ import {
 } from "../model/catalog-cache.ts";
 import { reduceModels } from "../model/catalog-reduction.ts";
 import { createHostLogger, type HostLog } from "./host-log.ts";
-import { createReviewLogger } from "../engine/review-log.ts";
+import { createReviewLogger, defaultReviewLogPath } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
@@ -1189,6 +1189,7 @@ export async function startResidentHost(
             usageWeb = await startUsageWebServer({
                 sessionDirectory,
                 catalogCacheDir: providerCatalogCacheDir(),
+                reviewLogPath: defaultReviewLogPath(),
             });
             usageWebUrl = usageWeb.url;
         } catch (error) {

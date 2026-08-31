@@ -2,6 +2,7 @@ import { join } from "node:path";
 
 import {
     foldUsageReport,
+    foldUsageSessionDetail,
     isUsageWindowId,
     type UsageReport,
     type UsageWindowId,
@@ -15,6 +16,7 @@ export interface UsageWebServer {
 export interface StartUsageWebServerOptions {
     readonly sessionDirectory: string;
     readonly catalogCacheDir?: string;
+    readonly reviewLogPath?: string;
     readonly webRoot?: string;
     readonly hostname?: string;
     readonly port?: number;
@@ -36,6 +38,9 @@ export async function startUsageWebServer(
         ...(options.catalogCacheDir === undefined
             ? {}
             : { catalogCacheDir: options.catalogCacheDir }),
+        ...(options.reviewLogPath === undefined
+            ? {}
+            : { reviewLogPath: options.reviewLogPath }),
     }));
     const assets = await buildWebAssets(webRoot);
     const server = Bun.serve({
@@ -53,6 +58,38 @@ export async function startUsageWebServer(
                 }
                 const report = await fold(raw);
                 return Response.json(report, {
+                    headers: { "cache-control": "no-store" },
+                });
+            }
+            const sessionMatch = /^\/api\/usage\/session\/([^/]+)$/.exec(
+                url.pathname,
+            );
+            if (sessionMatch !== null) {
+                const raw = url.searchParams.get("window") ?? "7d";
+                if (!isUsageWindowId(raw)) {
+                    return Response.json(
+                        { error: "unknown window" },
+                        { status: 400 },
+                    );
+                }
+                const detail = await foldUsageSessionDetail({
+                    sessionDirectory: options.sessionDirectory,
+                    window: raw,
+                    sessionId: decodeURIComponent(sessionMatch[1] ?? ""),
+                    ...(options.catalogCacheDir === undefined
+                        ? {}
+                        : { catalogCacheDir: options.catalogCacheDir }),
+                    ...(options.reviewLogPath === undefined
+                        ? {}
+                        : { reviewLogPath: options.reviewLogPath }),
+                });
+                if (detail === undefined) {
+                    return Response.json(
+                        { error: "unknown session" },
+                        { status: 404 },
+                    );
+                }
+                return Response.json(detail, {
                     headers: { "cache-control": "no-store" },
                 });
             }
