@@ -8,6 +8,7 @@ import {
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
+import type { ModelUsage } from "../model/types.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 
 export type ReviewLogTier = "single" | "fast" | "strong";
@@ -40,6 +41,8 @@ export interface ReviewLogEntry {
     readonly userAuthorization?: string;
     readonly latencyMs: number;
     readonly error?: string;
+    readonly usage?: ModelUsage;
+    readonly sessionId?: string;
 }
 
 export type ReviewLog = (entry: ReviewLogEntry) => void;

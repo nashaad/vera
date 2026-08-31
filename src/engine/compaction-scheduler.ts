@@ -1,4 +1,4 @@
-import type { ModelMessage } from "../model/types.ts";
+import type { ModelMessage, ModelUsage } from "../model/types.ts";
 import type {
     SessionCompactionDiagnostics,
     SessionMessageEntry,
@@ -447,6 +447,7 @@ async function attemptCompaction(
     let projection: readonly ModelMessage[];
     let proposalModel: string | undefined;
     let proposalProvider: string | undefined;
+    let proposalUsage: ModelUsage | undefined;
     try {
         const proposal = await options.strategy.compact(request, signal);
         // Checked here as well as in the catch, for the abort that lands as
@@ -459,6 +460,7 @@ async function attemptCompaction(
         projection = validateProposal(proposal, request);
         proposalModel = proposal.model;
         proposalProvider = proposal.provider;
+        proposalUsage = proposal.usage;
     } catch (error) {
         if (signal.aborted) {
             return { result: { outcome: "cancelled" }, retry: false };
@@ -530,6 +532,17 @@ async function attemptCompaction(
                         ...(proposalProvider === undefined
                             ? {}
                             : { provider: proposalProvider }),
+                    },
+                }),
+            ...(proposalUsage === undefined
+                    || proposalModel === undefined
+                    || proposalProvider === undefined
+                ? {}
+                : {
+                    billed: {
+                        provider: proposalProvider,
+                        model: proposalModel,
+                        usage: proposalUsage,
                     },
                 }),
         });

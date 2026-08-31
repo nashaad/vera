@@ -10,7 +10,7 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 
 import type { AgentWearSnapshot } from "../agents/wear.ts";
-import type { ModelMessage } from "../model/types.ts";
+import type { ModelMessage, ModelUsage } from "../model/types.ts";
 import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import {
     assembleAgedToolResults,
@@ -231,6 +231,7 @@ export interface SessionCompactionEntry {
     readonly projection: readonly ModelMessage[];
     readonly measured: SessionCompactionMeasurement;
     readonly diagnostics?: SessionCompactionDiagnostics;
+    readonly billed?: SessionCompactionBilled;
 }
 
 export interface SessionCompactionMeasurement {
@@ -250,12 +251,19 @@ export interface SessionCompactionDiagnostics {
     readonly model?: string;
 }
 
+export interface SessionCompactionBilled {
+    readonly provider: string;
+    readonly model: string;
+    readonly usage: ModelUsage;
+}
+
 export interface AppendCompactionRequest {
     readonly boundaryMessageId: string;
     readonly firstRetainedMessageId: string | null;
     readonly projection: readonly ModelMessage[];
     readonly measured: SessionCompactionMeasurement;
     readonly diagnostics?: SessionCompactionDiagnostics;
+    readonly billed?: SessionCompactionBilled;
 }
 
 export interface CreateSessionStoreOptions {
@@ -2489,6 +2497,7 @@ function validateCompaction(
         ...(request.diagnostics === undefined
             ? {}
             : { diagnostics: { ...request.diagnostics } }),
+        ...(request.billed === undefined ? {} : { billed: request.billed }),
     };
 }
 
