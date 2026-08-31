@@ -10,7 +10,11 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { defineAgent, type AgentDefinition } from "../../src/agents/definition.ts";
-import type { VeraConfig } from "../../src/config.ts";
+import {
+    updateVeraConfigDefaults,
+    type VeraConfig,
+} from "../../src/config.ts";
+import { veraProfileDirectory } from "../../src/profile-paths.ts";
 import {
     Vera,
     type AgentOutputSchema,
@@ -139,6 +143,75 @@ test("A4 defaultPair selects the model and effort", async () => {
         });
     } finally {
         rmSync(workspace, { recursive: true, force: true });
+    }
+});
+
+test("an SDK config snapshot applies exact-model request options", async () => {
+    const requests: ModelRequest[] = [];
+    const vera = await scriptedVera([answer("configured", "openrouter", "test/model")], requests, {
+        config: {
+            ...baseConfig(),
+            provider: "openrouter",
+            model: "test/model",
+            model_request_options: {
+                "openrouter/test/model": {
+                    body: { provider: { only: ["z-ai"] } },
+                },
+            },
+        },
+    });
+
+    await vera.agent(basicDefinition()).run("review");
+
+    expect(requests[0]?.bodyExtensions).toEqual({
+        provider: { only: ["z-ai"] },
+    });
+});
+
+test("an SDK active-profile instance reads later request options", async () => {
+    const profile = `sdk-request-options-${process.pid}`;
+    const profileDirectory = veraProfileDirectory({
+        ...process.env,
+        VERA_PROFILE: profile,
+    });
+    const path = join(profileDirectory, "config.json");
+    mkdirSync(profileDirectory, { recursive: true });
+    writeFileSync(path, JSON.stringify({
+        schema_version: 1,
+        provider: "openrouter",
+        model: "test/model",
+        approval_mode: "readonly",
+        model_request_options: {
+            "openrouter/test/model": {
+                body: { provider: { only: ["first"] } },
+            },
+        },
+    }));
+    const requests: ModelRequest[] = [];
+    const scripted = new FauxAdapter([
+        answer("first", "openrouter", "test/model"),
+        answer("second", "openrouter", "test/model"),
+    ]);
+    try {
+        const vera = await Vera.create({
+            profile,
+            createAdapter: () => capture(scripted, requests),
+        });
+        await vera.agent(basicDefinition()).run("first");
+        updateVeraConfigDefaults({
+            model_request_options: {
+                model: "openrouter/test/model",
+                body: { provider: { only: ["second-longer"] } },
+            },
+        }, { path });
+        await vera.agent(basicDefinition()).run("second");
+
+        expect(requests.map((request) => request.bodyExtensions)).toEqual([
+            { provider: { only: ["first"] } },
+            { provider: { only: ["second-longer"] } },
+        ]);
+    } finally {
+        rmSync(profileDirectory, { recursive: true, force: true });
     }
 });
 

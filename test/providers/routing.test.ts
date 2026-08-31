@@ -1,6 +1,9 @@
 import { expect, test } from "bun:test";
 
-import { ProviderRoutingAdapter } from "../../src/providers/routing.ts";
+import {
+    createRequestOptionsSnapshotAdapter,
+    ProviderRoutingAdapter,
+} from "../../src/providers/routing.ts";
 import type { ModelAdapter, ModelStream } from "../../src/model/types.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 
@@ -96,6 +99,7 @@ test("a host with no credential store keeps one client per provider", () => {
 
 test("request preparation finishes before the provider sees the request", async () => {
     let received: Record<string, unknown> | undefined;
+    let preparedPair: string | undefined;
     const routing = new ProviderRoutingAdapter(
         () => ({
             stream(request) {
@@ -123,10 +127,13 @@ test("request preparation finishes before the provider sees the request", async 
         }),
         "vera-strata",
         undefined,
-        async (request) => ({
-            ...request,
-            bodyExtensions: { strata: { corpus_id: "corpus-1" } },
-        }),
+        async (request, provider) => {
+            preparedPair = `${provider}/${request.model}`;
+            return {
+                ...request,
+                bodyExtensions: { strata: { corpus_id: "corpus-1" } },
+            };
+        },
     );
 
     const result = await routing.stream({
@@ -134,7 +141,140 @@ test("request preparation finishes before the provider sees the request", async 
         messages: [],
     }).result();
     expect(result.stopReason).toBe("stop");
+    expect(preparedPair).toBe("vera-strata/strata");
     expect(received).toEqual({ strata: { corpus_id: "corpus-1" } });
+});
+
+test("a retry reuses the request's originally prepared options", async () => {
+    let currentOnly = "openai";
+    let prepared = 0;
+    const received: unknown[] = [];
+    const routing = new ProviderRoutingAdapter(
+        () => ({
+            stream(request) {
+                received.push(request.bodyExtensions);
+                const stream = new ModelEventStream();
+                stream.push({
+                    type: "done",
+                    message: {
+                        role: "assistant",
+                        content: [],
+                        source: {
+                            provider: "openrouter",
+                            api: "test",
+                            model: request.model,
+                        },
+                        usage: {
+                            inputTokens: 0,
+                            outputTokens: 0,
+                            cachedInputTokens: 0,
+                            reasoningTokens: 0,
+                            totalTokens: 0,
+                        },
+                        stopReason: "stop",
+                    },
+                });
+                return stream;
+            },
+        }),
+        "openrouter",
+        undefined,
+        (request) => {
+            prepared += 1;
+            return {
+                ...request,
+                bodyExtensions: { provider: { only: [currentOnly] } },
+            };
+        },
+    );
+    const request = { model: "anthropic/claude-sonnet-4.5", messages: [] };
+
+    await routing.stream(request).result();
+    currentOnly = "anthropic";
+    await routing.stream(request).result();
+
+    expect(prepared).toBe(1);
+    expect(received).toEqual([
+        { provider: { only: ["openai"] } },
+        { provider: { only: ["openai"] } },
+    ]);
+});
+
+test("a bounded operation keeps one request-options snapshot across calls", async () => {
+    const received: unknown[] = [];
+    const adapter = createRequestOptionsSnapshotAdapter(
+        () => ({
+            stream(request) {
+                received.push(request.bodyExtensions);
+                const stream = new ModelEventStream();
+                stream.push({
+                    type: "done",
+                    message: {
+                        role: "assistant",
+                        content: [],
+                        source: {
+                            provider: "openrouter",
+                            api: "test",
+                            model: request.model,
+                        },
+                        usage: {
+                            inputTokens: 0,
+                            outputTokens: 0,
+                            cachedInputTokens: 0,
+                            reasoningTokens: 0,
+                            totalTokens: 0,
+                        },
+                        stopReason: "stop",
+                    },
+                });
+                return stream;
+            },
+        }),
+        "openrouter",
+        {
+            model_request_options: {
+                "openrouter/test/model": {
+                    body: { provider: { only: ["z-ai"] } },
+                },
+            },
+        },
+    );
+
+    await adapter.stream({ model: "test/model", messages: [] }).result();
+    await adapter.stream({ model: "test/model", messages: [] }).result();
+
+    expect(received).toEqual([
+        { provider: { only: ["z-ai"] } },
+        { provider: { only: ["z-ai"] } },
+    ]);
+});
+
+test("a request-body collision is one terminal failure before dispatch", async () => {
+    let sent = false;
+    const routing = new ProviderRoutingAdapter(
+        () => ({
+            stream() {
+                sent = true;
+                return new ModelEventStream();
+            },
+        }),
+        "openrouter",
+        undefined,
+        async () => {
+            throw new Error(
+                'Model request body field "provider" is defined by both hook and profile',
+            );
+        },
+    );
+
+    const result = await routing.stream({
+        model: "test/model",
+        messages: [],
+    }).result();
+
+    expect(sent).toBe(false);
+    expect(result.stopReason).toBe("error");
+    expect(result.errorMessage).toContain('field "provider"');
 });
 
 test("a prepared stream that ends early becomes a terminal error", async () => {

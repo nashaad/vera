@@ -1,6 +1,5 @@
 import { readdir, realpath, stat } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
-import { statSync } from "node:fs";
 import { join } from "node:path";
 
 import {
@@ -10,6 +9,7 @@ import {
     configuredCompaction,
     configuredCompactionModels,
     configuredReviewers,
+    createLiveVeraConfigReader,
     defaultVeraConfigPath,
     developerOverrides,
     eventLogEnabled,
@@ -18,6 +18,12 @@ import {
     type VeraProviderId,
     type VeraConfig,
 } from "../config.ts";
+import {
+    applyModelRequestOptions,
+    createRequestOptionsSnapshotAdapter,
+    mergeModelRequestBody,
+} from "../providers/routing.ts";
+import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
@@ -182,6 +188,8 @@ const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
+    /** Profile config path for live settings; defaults to the active profile. */
+    readonly configPath?: string;
     readonly createAdapter?: () => ModelAdapter;
     readonly socketPath?: string;
     readonly lockPath?: string;
@@ -280,24 +288,13 @@ export async function startResidentHost(
     // Re-read only when the file has moved on, because some of these are asked
     // on every subagent spawn. A file that is mid-edit or unreadable keeps the
     // last good answer: a bad save must not take a session's settings with it.
-    let lastConfig = options.config;
-    let lastStamp = "";
-    const currentConfig = (): VeraConfig => {
-        const path = defaultVeraConfigPath();
-        try {
-            const stat = statSync(path);
-            const stamp = `${stat.mtimeMs}:${stat.size}`;
-            if (stamp === lastStamp) {
-                return lastConfig;
-            }
-            const loaded = loadVeraConfig({ path });
-            lastStamp = stamp;
-            lastConfig = loaded;
-        } catch {
-            // Absent, mid-write, or malformed: keep what last parsed.
-        }
-        return lastConfig;
-    };
+    const configPath = options.configPath ?? defaultVeraConfigPath();
+    const currentConfig = createLiveVeraConfigReader(options.config, {
+        path: configPath,
+        ...(options.projectRoot === undefined
+            ? {}
+            : { projectRoot: options.projectRoot }),
+    });
     // The pool is what says a model can be used, so assignment bindings are
     // judged against it rather than against the catalog alone. User scope
     // only: these bindings are read before any project is known.
@@ -485,7 +482,11 @@ export async function startResidentHost(
                 }) => ({
                     module: WORKER_ADAPTER_MODULE,
                     export: "createWorkerAdapter",
-                    options: { ...context, config: currentConfig() },
+                    options: createWorkerAdapterOptions(
+                        currentConfig(),
+                        configPath,
+                        context,
+                    ),
                 }),
             }),
         provider: options.config.provider,
@@ -612,14 +613,20 @@ export async function startResidentHost(
                     hostLog({ type: "pool_write_refused", message: error.message }),
             }),
         readPolicy: (projectRoot) => subagentPoolPolicy(scoped(projectRoot)),
-        admitToPool: (entry, onStep, options) =>
-            admitToPool(entry, onStep, {
-                ...options,
-                createAdapter,
+        admitToPool: (entry, onStep, admissionOptions) => {
+            const config = currentConfig();
+            return admitToPool(entry, onStep, {
+                ...admissionOptions,
+                createAdapter: (provider) => createRequestOptionsSnapshotAdapter(
+                    (selected) => createAdapter(selected),
+                    provider,
+                    config,
+                ),
                 readFeedRow,
                 onWriteRefused: (error) =>
                     hostLog({ type: "pool_write_refused", message: error.message }),
-            }),
+            });
+        },
         removeFromPool: (entry) => {
             refusedPoolWrite(() => {
                 removePoolModel(`${entry.provider}/${entry.model}`);
@@ -873,38 +880,42 @@ export async function startResidentHost(
             }
             return hooks;
         },
-        ...(!hasModelRequestHooks ? {} : {
-            prepareModelRequest: ({ sessionId, workspace }) => async (request) => {
-                const body: Record<string, import("../sdk/hooks.ts").JsonValue> = {};
-                for (const hook of extensions.modelRequestHooks()) {
-                    const value = await hook.run({
-                        type: "model_request",
-                        provider: request.provider ?? currentConfig().provider,
-                        model: request.model,
-                        sessionId,
-                        workspace,
-                        ...(request.signal === undefined
-                            ? {}
-                            : { signal: request.signal }),
-                    });
-                    if (value === undefined) continue;
-                    const cloned = structuredClone(value);
-                    const serialized = JSON.stringify(cloned);
-                    if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) {
-                        throw new Error(
-                            `Model request contribution ${hook.namespace} exceeded 65536 bytes`,
-                        );
-                    }
-                    body[hook.namespace] = cloned;
+        prepareModelRequest: ({ sessionId, workspace }) => async (request, provider) => {
+            const body: Record<string, import("../sdk/hooks.ts").JsonValue> = {};
+            for (const hook of extensions.modelRequestHooks()) {
+                const value = await hook.run({
+                    type: "model_request",
+                    provider,
+                    model: request.model,
+                    sessionId,
+                    workspace,
+                    ...(request.signal === undefined
+                        ? {}
+                        : { signal: request.signal }),
+                });
+                if (value === undefined) continue;
+                const cloned = structuredClone(value);
+                const serialized = JSON.stringify(cloned);
+                if (Buffer.byteLength(serialized, "utf8") > 64 * 1024) {
+                    throw new Error(
+                        `Model request contribution ${hook.namespace} exceeded 65536 bytes`,
+                    );
                 }
-                return Object.keys(body).length === 0
-                    ? request
-                    : {
-                        ...request,
-                        bodyExtensions: { ...request.bodyExtensions, ...body },
-                    };
-            },
-        }),
+                body[hook.namespace] = cloned;
+            }
+            const contributed = Object.keys(body).length === 0
+                ? request
+                : mergeModelRequestBody(
+                    request,
+                    body,
+                    "model request hooks",
+                );
+            return applyModelRequestOptions(
+                contributed,
+                currentConfig(),
+                provider,
+            );
+        },
         get disabledPromptContributions() {
             return currentConfig().disabled_prompt_contributions;
         },
