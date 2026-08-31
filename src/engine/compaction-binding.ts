@@ -52,7 +52,8 @@ export interface SessionModel {
  * A strategy may declare several model slots, and a profile need not name a
  * route for each. `slotModels` is the compaction assignment, and it binds every
  * slot when set; a route the profile names for a slot is only read when no
- * assignment resolves.
+ * assignment resolves. An assignment with no profile still binds: Defaults
+ * writes the assignment, not a compaction profile.
  *
  * Returns undefined rather than a partly bound profile when the strategy is
  * unknown, or a slot it declared has neither a route nor a fallback: a session
@@ -67,7 +68,17 @@ export function bindCompaction(
     slotModels?: readonly VeraCatalogModel[],
     overrides?: CompactionOverrides,
 ): SessionCompactionOptions | undefined {
-    if (profile === undefined) {
+    const assignment = slotModels !== undefined && slotModels.length > 0
+        ? slotModels
+        : undefined;
+    const resolved = profile ?? (assignment === undefined
+        ? undefined
+        : {
+            strategy: DEFAULT_COMPACTION_STRATEGY_ID,
+            routes: {},
+            slots: {},
+        });
+    if (resolved === undefined) {
         return sessionModel === undefined
             ? undefined
             : withOverrides(
@@ -76,17 +87,15 @@ export function bindCompaction(
             );
     }
     const strategy = strategies.find(
-        (candidate) => candidate.id === profile.strategy,
+        (candidate) => candidate.id === resolved.strategy,
     );
     if (strategy === undefined) {
         return undefined;
     }
     const models: Record<string, CompleteText> = {};
     for (const slot of strategy.models) {
-        const named = profile.slots[slot];
-        const route = slotModels !== undefined && slotModels.length > 0
-            ? slotModels
-            : named;
+        const named = resolved.slots[slot];
+        const route = assignment ?? named;
         if (route === undefined || route.length === 0) {
             return undefined;
         }
@@ -106,26 +115,25 @@ export function bindCompaction(
                     ...(window === undefined ? {} : { contextWindow: window }),
                 };
             }),
-            ...(profile.timeout_ms === undefined
+            ...(resolved.timeout_ms === undefined
                 ? {}
-                : { timeoutMs: profile.timeout_ms }),
+                : { timeoutMs: resolved.timeout_ms }),
         });
     }
     const primary = strategy.models[0];
-    const assigned = slotModels !== undefined && slotModels.length > 0;
-    const route = primary === undefined || assigned
+    const route = primary === undefined || assignment !== undefined
         ? undefined
-        : profile.routes[primary];
+        : resolved.routes[primary];
     const firstModel = primary === undefined
         ? undefined
-        : (assigned ? slotModels[0] : profile.slots[primary]?.[0]);
+        : (assignment?.[0] ?? resolved.slots[primary]?.[0]);
     const trigger: CompactionTrigger = {
-        ...(profile.trigger_fraction === undefined
+        ...(resolved.trigger_fraction === undefined
             ? {}
-            : { fraction: profile.trigger_fraction }),
-        ...(profile.trigger_tokens === undefined
+            : { fraction: resolved.trigger_fraction }),
+        ...(resolved.trigger_tokens === undefined
             ? {}
-            : { tokens: profile.trigger_tokens }),
+            : { tokens: resolved.trigger_tokens }),
     };
     return withOverrides({
         strategy,
@@ -140,12 +148,12 @@ export function bindCompaction(
             }),
         },
         ...(Object.keys(trigger).length === 0 ? {} : { trigger }),
-        ...(profile.target_tokens === undefined
+        ...(resolved.target_tokens === undefined
             ? {}
-            : { targetTokens: profile.target_tokens }),
-        ...(profile.retained_user_turns === undefined
+            : { targetTokens: resolved.target_tokens }),
+        ...(resolved.retained_user_turns === undefined
             ? {}
-            : { retainedUserTurns: profile.retained_user_turns }),
+            : { retainedUserTurns: resolved.retained_user_turns }),
     }, overrides);
 }
 

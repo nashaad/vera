@@ -68,13 +68,42 @@ import type { ToolReviewerSettings } from "./reviewer.ts";
 import type { TimelineCommand } from "./protocol.ts";
 
 /**
+ * Compaction as the status line should name it. Present when this session
+ * has a compaction binding.
+ */
+export interface LoopCompactionState {
+    readonly strategy: string;
+    readonly provider?: string;
+    readonly model?: string;
+}
+
+export function loopCompactionState(
+    diagnostics: {
+        readonly strategy: string;
+        readonly provider?: string;
+        readonly model?: string;
+    } | undefined,
+): LoopCompactionState | undefined {
+    if (diagnostics === undefined) {
+        return undefined;
+    }
+    return {
+        strategy: diagnostics.strategy,
+        ...(diagnostics.provider === undefined
+            ? {}
+            : { provider: diagnostics.provider }),
+        ...(diagnostics.model === undefined ? {} : { model: diagnostics.model }),
+    };
+}
+
+/**
  * The owner state the loop reads mid-turn.
  *
  * Every read of it in `run-turn.ts` is synchronous, so none of them can become
  * a round trip without rewriting the loop. The host therefore pushes this whole
  * object with `state.changed` whenever any part of it changes, and the worker
- * answers each read from its last copy. Six fine-grained reads collapse into
- * one pushed snapshot and one message.
+ * answers each read from its last copy. Fine-grained reads collapse into one
+ * pushed snapshot and one message.
  *
  * A field is absent when the owner does not offer that capability at all,
  * which is a different state from offering it and getting nothing back.
@@ -86,6 +115,7 @@ export interface LoopState {
     readonly approvalMode?: ApprovalMode;
     readonly permissionPreferences?: readonly PermissionPreference[];
     readonly reviewer?: ToolReviewerSettings;
+    readonly compaction?: LoopCompactionState;
 }
 
 /**

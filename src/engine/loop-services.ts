@@ -236,10 +236,10 @@ export interface RunHeadlessLoopServices {
      */
     readonly extensionTools?: readonly RegisteredTool[];
     /**
-     * Strategy and bound models. Absent means the session never compacts and
-     * always sends its whole transcript. The strategy and the numbers are
-     * JSON; `models` is a record of live completion functions, whose JSON form
-     * is `complete { callId, role, request }` with a reply.
+     * Strategy and bound models, read at each compact. Absent means this
+     * compact is skipped. The strategy and the numbers are JSON; `models` is a
+     * record of live completion functions, whose JSON form is
+     * `complete { callId, role, request }` with a reply.
      */
     readonly compaction?: SessionCompactionOptions;
 

@@ -61,22 +61,22 @@ const SUMMARY =
     + "# Decisions\nnot stated\n\n# Constraints\nnot stated\n\n# Open\n"
     + "not stated";
 
-function summarizer(): CompleteText {
+function summarizer(model = "summarizer-test"): CompleteText {
     return async () => ({
         text: SUMMARY,
-        model: "summarizer-test",
+        model,
         provider: "faux",
     });
 }
 
-function compaction(): SessionCompactionOptions {
+function compaction(model = "summarizer-test"): SessionCompactionOptions {
     return {
         strategy: fullSummaryStrategy,
-        models: { summarizer: summarizer() },
+        models: { summarizer: summarizer(model) },
         diagnostics: {
             strategy: FULL_SUMMARY_STRATEGY_ID,
             provider: "faux",
-            model: "summarizer-test",
+            model,
         },
     };
 }
@@ -90,6 +90,7 @@ interface StartedWorker {
 async function startAgent(
     id: string,
     bound: SessionCompactionOptions = compaction(),
+    services?: { readonly compaction?: SessionCompactionOptions },
 ): Promise<StartedWorker> {
     const directory = workspace();
     const path = join(directory, "session.jsonl");
@@ -116,7 +117,7 @@ async function startAgent(
             options: { script: [text("first done"), text("second done")] },
         },
         data: { approvalMode: "full_access" },
-        services: { compaction: bound },
+        services: services ?? { compaction: bound },
         onUpdate: (update) => void updates.push(update),
     });
     push = handle.server.pushRecord;
@@ -176,6 +177,77 @@ test("a worker /compact request summarizes through the host", async () => {
             strategy: FULL_SUMMARY_STRATEGY_ID,
         });
         expect(agent.store.latestCompaction()).toBeDefined();
+    } finally {
+        agent.handle.kill();
+        await agent.handle.outcome;
+    }
+}, 30_000);
+
+test("a worker compact uses the host's current assignment", async () => {
+    let model = "old-summarizer";
+    const agent = await startAgent("live-assignment", compaction(model), {
+        get compaction() {
+            return compaction(model);
+        },
+    });
+    try {
+        agent.handle.send({
+            type: "prompt",
+            content: "first job: set up the workspace. " + "alpha ".repeat(800),
+        });
+        await waitFor(() =>
+            agent.store.activeEntries().some((entry) =>
+                entry.message.role === "assistant"
+            )
+        );
+        agent.handle.send({
+            type: "prompt",
+            content: "second job: finish the remaining work. "
+                + "beta ".repeat(800),
+        });
+        await waitFor(() =>
+            agent.store.activeEntries().filter((entry) =>
+                entry.message.role === "assistant"
+            ).length >= 2
+        );
+
+        agent.handle.send({ type: "compact", requestId: "ask-old" });
+        await waitFor(() =>
+            agent.updates.some((update) =>
+                update.type === "compaction" && update.phase === "finished"
+            )
+        );
+        const firstStarted = agent.updates.find((update) =>
+            update.type === "compaction" && update.phase === "started"
+        );
+        expect(firstStarted).toMatchObject({ model: "old-summarizer" });
+
+        agent.updates.length = 0;
+        model = "new-summarizer";
+        agent.handle.pushState({
+            policy: {},
+            compaction: {
+                strategy: FULL_SUMMARY_STRATEGY_ID,
+                provider: "faux",
+                model,
+            },
+        });
+        await Bun.sleep(25);
+        agent.handle.send({ type: "compact", requestId: "ask-new" });
+        await waitFor(() =>
+            agent.updates.some((update) =>
+                update.type === "compaction" && update.phase === "finished"
+            )
+        );
+        expect(agent.updates.find((update) =>
+            update.type === "compaction" && update.phase === "started"
+        )).toMatchObject({ model: "new-summarizer" });
+        expect(agent.updates.find((update) =>
+            update.type === "compaction" && update.phase === "finished"
+        )).toMatchObject({
+            outcome: "compacted",
+            model: "new-summarizer",
+        });
     } finally {
         agent.handle.kill();
         await agent.handle.outcome;
