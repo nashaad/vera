@@ -13008,6 +13008,8 @@ export async function startTui(
             namePrompt = startTuiNamePrompt(
                 { kind: "session", sessionId: action.session_id },
                 action.label,
+                undefined,
+                action.value,
             );
             renderState();
             focusActiveSurface();
@@ -13347,6 +13349,7 @@ export async function startTui(
                 previousPicker?.kind === "extension"
                     ? undefined
                     : previousPicker,
+                transition.renameCandidate.value,
             );
             renderState();
             focusActiveSurface();

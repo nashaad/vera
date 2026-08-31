@@ -1018,6 +1018,9 @@ test.skipIf(!tmuxAvailable)(
             }
             sendText(socket, session, "r");
             await waitForVisiblePane(socket, session, "Rename conversation");
+            for (const _character of "peer research") {
+                sendKey(socket, session, "BSpace");
+            }
             sendText(socket, session, "peer from rail");
             sendKey(socket, session, "Enter");
             pane = await waitForVisiblePaneWhere(

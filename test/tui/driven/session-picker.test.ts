@@ -90,8 +90,10 @@ test("session picker renames a conversation it is not attached to", async () => 
         expect(pane).toContain("^r rename");
         session.sendKey("C-r");
         pane = await session.waitForVisiblePane("Rename conversation");
-        // The field opens empty: the row text is a fallback, not a name.
-        expect(pane).not.toContain("Rename conversation\nContinue");
+        expect(pane).toContain("Continue the theme picker");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
         session.sendText("release notes");
         session.sendKey("Enter");
         // The pane comes back rebuilt from the host rather than patched.
@@ -136,6 +138,9 @@ test("the focused sidebar renames its selected conversation", async () => {
         session.sendText("r");
         pane = await session.waitForVisiblePane("Rename conversation");
         expect(pane).toContain("Continue the theme pick");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
         session.sendText("release notes");
         session.sendKey("Enter");
 
@@ -173,7 +178,11 @@ test("renaming the attached row goes through its own session", async () => {
         await session.waitForVisiblePane("Fix the deployment race");
         session.sendKey("Down");
         session.sendKey("C-r");
-        await session.waitForVisiblePane("Rename conversation");
+        pane = await session.waitForVisiblePane("Rename conversation");
+        expect(pane).toContain("Fix the deployment race");
+        for (const _character of "Fix the deployment race") {
+            session.sendKey("BSpace");
+        }
         session.sendText("the current one");
         session.sendKey("Enter");
         await session.waitForVisiblePane("the current one");
@@ -216,6 +225,9 @@ test("a refused rename says so and leaves the pane open", async () => {
         await session.waitForVisiblePane("Continue the theme picker");
         session.sendKey("C-r");
         await session.waitForVisiblePane("Rename conversation");
+        for (const _character of "Continue the theme picker") {
+            session.sendKey("BSpace");
+        }
         session.sendText("release notes");
         session.sendKey("Enter");
         // The pane comes back with the row still under its old name.

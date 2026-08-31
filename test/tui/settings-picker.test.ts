@@ -164,6 +164,7 @@ test("session picker filters titled durable conversations and selects an agent",
     ).renameCandidate).toEqual({
         sessionId: "11111111-first-session",
         label: "Fix the deployment race",
+        value: "Fix the deployment race",
     });
     expect(frame).toContain("^r rename");
     expect(frame).toContain("⏎ stop & switch");

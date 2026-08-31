@@ -135,6 +135,7 @@ export type WorkspaceSidebarAction =
         readonly kind: "rename_session";
         readonly session_id: string;
         readonly label: string;
+        readonly value?: string;
     }
     | {
         readonly kind: "open_session";
@@ -486,6 +487,9 @@ export function handleWorkspaceSidebarKey(
             (candidate) => candidate.kind === "session"
                 && candidate.id === layout.selectedId,
         );
+        const session = state.sessions.find(
+            (candidate) => candidate.id === layout.selectedId,
+        );
         return row === undefined || row.kind !== "session"
             ? { state, handled: true }
             : {
@@ -493,6 +497,9 @@ export function handleWorkspaceSidebarKey(
                     kind: "rename_session",
                     session_id: row.id,
                     label: row.title,
+                    ...(session?.title === undefined
+                        ? {}
+                        : { value: session.title }),
                 },
                 handled: true,
             };

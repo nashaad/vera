@@ -645,6 +645,7 @@ describe("the cursor", () => {
                 kind: "rename_session",
                 session_id: "b",
                 label: "release planning",
+                value: "release planning",
             },
             handled: true,
         });
@@ -1140,6 +1141,7 @@ describe("the drawn card", () => {
                     kind: "rename_session",
                     session_id: "a",
                     label: "session a",
+                    value: "session a",
                 });
         } finally {
             installTuiKeymap(original);

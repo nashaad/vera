@@ -80,14 +80,12 @@ export function startTuiNamePrompt(
     target: TuiNamePromptTarget,
     label: string,
     parent?: TuiSettingsPickerState,
+    value = "",
 ): TuiNamePromptState {
-    // The field opens empty rather than holding the current row text: a row
-    // with no name of its own reads as its first prompt, and prefilling would
-    // offer to save that sentence as the name.
     return {
         target,
         label,
-        value: "",
+        value,
         ...(parent === undefined ? {} : { parent }),
     };
 }
@@ -204,7 +202,9 @@ export function createTuiNamePromptView(
             title.content = state.target.kind === "session"
                 ? "Rename conversation"
                 : "Name shortlisted model";
-            hint.content = state.label;
+            hint.content = state.target.kind === "session"
+                ? "Name"
+                : state.label;
             entry.content = tuiNamePromptEntryLine(state.value);
         },
     };

@@ -12,12 +12,15 @@ const session = {
 } as const;
 const label = "Fix the deployment race";
 
-test("the rename prompt opens empty rather than offering the row text", () => {
-    expect(startTuiNamePrompt(session, label)).toEqual({
+test("the rename prompt opens on the current name", () => {
+    const state = startTuiNamePrompt(session, label, undefined, label);
+    expect(state).toEqual({
         target: session,
         label,
-        value: "",
+        value: label,
     });
+    expect(handleTuiNamePromptKey(state, { name: "backspace" }).state?.value)
+        .toBe("Fix the deployment rac");
 });
 
 test("typing builds the name and Enter submits it", () => {
