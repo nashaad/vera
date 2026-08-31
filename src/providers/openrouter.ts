@@ -255,7 +255,10 @@ export class OpenRouterAdapter implements ModelAdapter {
                     error: "the provider ended the stream with an error",
                 });
                 const error = new Error(
-                    withCapturePath("OpenRouter stopped with an error", path),
+                    withCapturePath(
+                        `Provider ${this.profile.provider} stopped with an error`,
+                        path,
+                    ),
                 );
                 stream.push({
                     type: "error",
@@ -263,10 +266,37 @@ export class OpenRouterAdapter implements ModelAdapter {
                     message: { ...message, errorMessage: error.message },
                 });
             } else {
-                // A turn that produced nothing readable is a failure the user
-                // can see and the logs cannot explain, so the request is kept
-                // even though the stream itself never reported an error. The
-                // turn's own outcome is left alone.
+                if (isReasoningOnlyStop(message)) {
+                    const failure: ProviderFailure = {
+                        kind: "unknown",
+                        resolution: "retry",
+                        message: `Provider ${this.profile.provider} returned no visible response or structured tool call`,
+                        // No complete tool call was accepted, so this attempt
+                        // cannot have caused a tool side effect.
+                        partialOutputReplaceable: true,
+                    };
+                    const path = capture("empty_response", {
+                        error: `the provider returned no content (stop reason ${message.stopReason})`,
+                        failure,
+                    });
+                    const error = new ProviderFailureError(
+                        {
+                            ...failure,
+                            message: withCapturePath(failure.message, path),
+                        },
+                        new Error(failure.message),
+                    );
+                    stream.push({
+                        type: "error",
+                        error,
+                        message: {
+                            ...message,
+                            stopReason: "error",
+                            errorMessage: error.message,
+                        },
+                    });
+                    return;
+                }
                 if (isEmptyResponse(message)) {
                     capture("empty_response", {
                         error: `the provider returned no content (stop reason ${message.stopReason})`,
@@ -382,6 +412,18 @@ function isEmptyResponse(message: AssistantMessage): boolean {
         block.type === "thinking"
         || (block.type === "text" && block.text.trim().length === 0)
     );
+}
+
+function isReasoningOnlyStop(message: AssistantMessage): boolean {
+    return message.stopReason === "stop"
+        && isEmptyResponse(message)
+        && message.content.some((block) =>
+            block.type === "thinking"
+            && (
+                block.text.trim().length > 0
+                || (block.signature?.length ?? 0) > 0
+            )
+        );
 }
 
 /** Names the capture so whoever reads the error can open the request. */

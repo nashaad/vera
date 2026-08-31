@@ -4,6 +4,7 @@ import type {
     ModelUsage,
 } from "../model/types.ts";
 import type { ProviderReasoningEffort } from "../model/reasoning-effort.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
 
 export interface OpenAICodexInputText {
     readonly type: "input_text";
@@ -189,17 +190,34 @@ export function parseOpenAICodexToolInput(
     let parsed: unknown;
     try {
         parsed = JSON.parse(value);
-    } catch {
-        throw new Error(
+    } catch (cause) {
+        throw malformedOpenAICodexToolCall(
             `OpenAI Codex returned invalid JSON for tool call at index ${outputIndex}`,
+            cause,
         );
     }
     if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) {
-        throw new Error(
+        throw malformedOpenAICodexToolCall(
             `OpenAI Codex returned non-object input for tool call at index ${outputIndex}`,
+            undefined,
         );
     }
     return parsed as Record<string, unknown>;
+}
+
+export function malformedOpenAICodexToolCall(
+    message: string,
+    cause: unknown,
+): ProviderFailureError {
+    return new ProviderFailureError(
+        {
+            kind: "unknown",
+            resolution: "retry",
+            message,
+            partialOutputReplaceable: true,
+        },
+        cause,
+    );
 }
 
 export function openAICodexUsage(value: unknown): ModelUsage {

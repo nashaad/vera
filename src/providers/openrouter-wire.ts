@@ -184,6 +184,7 @@ function decodeReasoningDetails(value: string): ReasoningDetailUnion[] {
 export function parseOpenRouterToolInput(
     value: string,
     index: number,
+    provider = "OpenRouter",
 ): Readonly<Record<string, unknown>> {
     let parsed: unknown;
 
@@ -192,15 +193,15 @@ export function parseOpenRouterToolInput(
     } catch (cause) {
         // Malformed arguments are transient model output, not a request the
         // user can fix, so the failure is retryable.
-        throw malformedToolCall(
-            `OpenRouter returned invalid JSON for tool call at index ${index}`,
+        throw malformedOpenRouterToolCall(
+            `Provider ${provider} returned invalid JSON for tool call at index ${index}`,
             cause,
         );
     }
 
     if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
-        throw malformedToolCall(
-            `OpenRouter returned non-object input for tool call at index ${index}`,
+        throw malformedOpenRouterToolCall(
+            `Provider ${provider} returned non-object input for tool call at index ${index}`,
             undefined,
         );
     }
@@ -208,7 +209,10 @@ export function parseOpenRouterToolInput(
     return parsed as Record<string, unknown>;
 }
 
-function malformedToolCall(message: string, cause: unknown): ProviderFailureError {
+export function malformedOpenRouterToolCall(
+    message: string,
+    cause: unknown,
+): ProviderFailureError {
     return new ProviderFailureError(
         {
             kind: "unknown",

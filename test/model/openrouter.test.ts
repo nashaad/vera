@@ -574,6 +574,203 @@ describe("OpenRouter adapter", () => {
         expect(failure.message).toContain("invalid JSON for tool call");
     });
 
+    test("incomplete tool calls classify as retryable before any tool can run", async () => {
+        const adapter = new OpenRouterAdapter(async () => {
+            return chunks([chatChunk({
+                delta: {
+                    toolCalls: [{
+                        index: 0,
+                        id: "call-1",
+                        function: { arguments: "{}" },
+                    }],
+                },
+                finishReason: "tool_calls" as ChatFinishReasonEnum,
+            })]);
+        });
+        const stream = adapter.stream({
+            model: "test/model",
+            messages: [],
+        });
+
+        const events: ModelStreamEvent[] = [];
+        for await (const event of stream) {
+            events.push(event);
+        }
+
+        const error = events.find((event) => event.type === "error");
+        expect(error?.type).toBe("error");
+        if (error?.type !== "error") {
+            throw new Error("expected an error event");
+        }
+        expect(error.error).toBeInstanceOf(ProviderFailureError);
+        expect((error.error as ProviderFailureError).failure).toMatchObject({
+            resolution: "retry",
+            partialOutputReplaceable: true,
+        });
+    });
+
+    test("retries a reasoning-only response that cannot have caused a side effect", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? chunks([
+                    chatChunk({ delta: { reasoning: "still deciding" } }),
+                    chatChunk({ delta: {}, finishReason: "stop" }),
+                ])
+                : chunks([
+                    chatChunk({ delta: { content: "complete" } }),
+                    chatChunk({ delta: {}, finishReason: "stop" }),
+                ]);
+        });
+        const retries: { readonly replacesPartialAttempt?: true }[] = [];
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "test/model", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: (retry) => retries.push(retry),
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(retries).toEqual([
+            expect.objectContaining({ replacesPartialAttempt: true }),
+        ]);
+        expect(message).toMatchObject({
+            content: [{ type: "text", text: "complete" }],
+            stopReason: "stop",
+        });
+    });
+
+    test("retries a response containing only signed reasoning metadata", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? chunks([
+                    chatChunk({
+                        delta: {
+                            reasoningDetails: [{
+                                type: "reasoning.encrypted",
+                                data: "opaque",
+                            }],
+                        },
+                    }),
+                    chatChunk({ delta: {}, finishReason: "stop" }),
+                ])
+                : chunks([
+                    chatChunk({ delta: { content: "complete" } }),
+                    chatChunk({ delta: {}, finishReason: "stop" }),
+                ]);
+        });
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "test/model", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {},
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(message.content).toEqual([{ type: "text", text: "complete" }]);
+    });
+
+    test("leaves reasoning-only length responses for continuation recovery", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return chunks([
+                chatChunk({ delta: { reasoning: "unfinished" } }),
+                chatChunk({ delta: {}, finishReason: "length" }),
+            ]);
+        });
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "test/model", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {
+                    throw new Error("length response must not be retried here");
+                },
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(1);
+        expect(message.stopReason).toBe("length");
+    });
+
+    test("does not retry a length-truncated tool call", async () => {
+        let attempts = 0;
+        const adapter = new OpenRouterAdapter(async () => {
+            attempts += 1;
+            return chunks([chatChunk({
+                delta: {
+                    toolCalls: [{
+                        index: 0,
+                        id: "call-1",
+                        function: { name: "read", arguments: "{\"path\":" },
+                    }],
+                },
+                finishReason: "length",
+            })]);
+        });
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "test/model", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {
+                    throw new Error("truncated tool call must not be retried");
+                },
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(1);
+        expect(message).toMatchObject({
+            content: [],
+            stopReason: "error",
+            errorMessage: "Provider openrouter reached its output limit during a tool call",
+        });
+    });
+
+    test("reasoning-only errors name the configured compatible provider", async () => {
+        const adapter = new OpenRouterAdapter(
+            async () => chunks([
+                chatChunk({ delta: { reasoning: "unfinished" } }),
+                chatChunk({ delta: {}, finishReason: "stop" }),
+            ]),
+            undefined,
+            {
+                provider: "ollama",
+                api: "openai-chat-completions",
+            },
+        );
+        const stream = adapter.stream({ model: "qwen3:1.7b", messages: [] });
+
+        for await (const _event of stream) {
+            // Drain the stream.
+        }
+
+        expect(await stream.result()).toMatchObject({
+            stopReason: "error",
+            errorMessage: "Provider ollama returned no visible response or structured tool call",
+        });
+    });
+
     test("an unknown finish reason falls back to the content instead of failing", async () => {
         const adapter = new OpenRouterAdapter(async () => {
             return chunks([

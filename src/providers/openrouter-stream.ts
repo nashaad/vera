@@ -9,6 +9,7 @@ import { ModelEventStream } from "../model/stream.ts";
 import { classifyOpenRouterStreamError } from "./openrouter-error-classifier.ts";
 import {
     encodeReasoningDetails,
+    malformedOpenRouterToolCall,
     openRouterStopReason,
     openRouterUsage,
     parseOpenRouterToolInput,
@@ -96,8 +97,19 @@ export class OpenRouterStreamDecoder {
             }
             this.output.push({ type: "thinking_end", contentIndex: this.thinkingIndex });
         }
+        const stopReason = this.finishReason ?? this.inferredStopReason();
+        if (stopReason === "length" && this.toolCalls.size > 0) {
+            throw new ProviderFailureError(
+                {
+                    kind: "unknown",
+                    resolution: "none",
+                    message: `Provider ${this.source.provider} reached its output limit during a tool call`,
+                },
+                undefined,
+            );
+        }
         this.finishToolCalls();
-        return this.message(this.finishReason ?? this.inferredStopReason());
+        return this.message(stopReason);
     }
 
     /**
@@ -209,15 +221,20 @@ export class OpenRouterStreamDecoder {
         const ordered = [...this.toolCalls].sort(([left], [right]) => left - right);
         for (const [providerIndex, pending] of ordered) {
             if (!pending.id || !pending.name) {
-                throw new Error(
-                    `OpenRouter returned incomplete tool call at index ${providerIndex}`,
+                throw malformedOpenRouterToolCall(
+                    `Provider ${this.source.provider} returned incomplete tool call at index ${providerIndex}`,
+                    undefined,
                 );
             }
             const toolCall = {
                 type: "tool_call" as const,
                 id: pending.id,
                 name: pending.name,
-                input: parseOpenRouterToolInput(pending.arguments, providerIndex),
+                input: parseOpenRouterToolInput(
+                    pending.arguments,
+                    providerIndex,
+                    this.source.provider,
+                ),
             };
             this.content[pending.contentIndex] = toolCall;
             this.output.push({

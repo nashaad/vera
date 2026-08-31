@@ -21,6 +21,7 @@ import {
 import { ModelEventStream } from "../model/stream.ts";
 import { transformMessages } from "../model/transform.ts";
 import type {
+    AssistantMessage,
     ModelAdapter,
     ModelRequest,
     ModelSource,
@@ -116,14 +117,39 @@ export class OpenAICodexAdapter implements ModelAdapter {
                 decoder.accept(event);
             }
 
-            stream.push({ type: "done", message: decoder.finish() });
+            const message = decoder.finish();
+            if (isReasoningOnlyStop(message)) {
+                const failure: ProviderFailure = {
+                    kind: "unknown",
+                    resolution: "retry",
+                    message: "OpenAI Codex returned no visible response or structured tool call",
+                    partialOutputReplaceable: true,
+                };
+                const error = new ProviderFailureError(
+                    failure,
+                    new Error(failure.message),
+                );
+                stream.push({
+                    type: "error",
+                    error,
+                    message: {
+                        ...message,
+                        stopReason: "error",
+                        errorMessage: error.message,
+                    },
+                });
+                return;
+            }
+            stream.push({ type: "done", message });
         } catch (value) {
             const error = request.signal?.aborted
                 ? toError(value)
-                : new ProviderFailureError(
-                    classifyOpenAICodexError(value),
-                    value,
-                );
+                : value instanceof ProviderFailureError
+                    ? value
+                    : new ProviderFailureError(
+                        classifyOpenAICodexError(value),
+                        value,
+                    );
             const stopReason = request.signal?.aborted ? "aborted" : "error";
             stream.push({
                 type: "error",
@@ -132,6 +158,21 @@ export class OpenAICodexAdapter implements ModelAdapter {
             });
         }
     }
+}
+
+function isReasoningOnlyStop(message: AssistantMessage): boolean {
+    return message.stopReason === "stop"
+        && message.content.every((block) =>
+            block.type === "thinking"
+            || (block.type === "text" && block.text.trim().length === 0)
+        )
+        && message.content.some((block) =>
+            block.type === "thinking"
+            && (
+                block.text.trim().length > 0
+                || (block.signature?.length ?? 0) > 0
+            )
+        );
 }
 
 function snapshotImageInputs(request: ModelRequest): ModelRequest {

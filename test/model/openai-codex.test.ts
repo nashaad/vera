@@ -17,6 +17,7 @@ import {
     readOpenAICodexEvents,
 } from "../../src/providers/openai-codex-wire.ts";
 import { ProviderFailureError } from "../../src/model/provider-failure.ts";
+import { requestModelWithRecovery } from "../../src/engine/recovery.ts";
 import type { ModelMessage, ModelStreamEvent } from "../../src/model/types.ts";
 
 test("tool result encoding includes only model-facing text", () => {
@@ -464,6 +465,196 @@ describe("OpenAI Codex adapter", () => {
             });
         }
         expect(attempts).toBe(1);
+    });
+
+    test("retries a reasoning-only completed response", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? events([
+                    {
+                        type: "response.output_item.added",
+                        output_index: 0,
+                        item: { type: "reasoning" },
+                    },
+                    {
+                        type: "response.reasoning_summary_text.delta",
+                        output_index: 0,
+                        delta: "Still deciding.",
+                    },
+                    { type: "response.completed", response: {} },
+                ])
+                : events([
+                    {
+                        type: "response.output_text.delta",
+                        output_index: 0,
+                        delta: "Complete.",
+                    },
+                    { type: "response.completed", response: {} },
+                ]);
+        });
+        const retries: { readonly replacesPartialAttempt?: true }[] = [];
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: (retry) => retries.push(retry),
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(retries).toEqual([
+            expect.objectContaining({ replacesPartialAttempt: true }),
+        ]);
+        expect(message).toMatchObject({
+            content: [{ type: "text", text: "Complete." }],
+            stopReason: "stop",
+        });
+    });
+
+    test("retries a response containing only encrypted reasoning metadata", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? events([
+                    {
+                        type: "response.output_item.done",
+                        output_index: 0,
+                        item: {
+                            type: "reasoning",
+                            id: "reasoning-1",
+                            encrypted_content: "encrypted-1",
+                        },
+                    },
+                    { type: "response.completed", response: {} },
+                ])
+                : events([
+                    {
+                        type: "response.output_text.delta",
+                        output_index: 0,
+                        delta: "Complete.",
+                    },
+                    { type: "response.completed", response: {} },
+                ]);
+        });
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {},
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(message.content).toEqual([{ type: "text", text: "Complete." }]);
+    });
+
+    test("does not retry a length-truncated tool call", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return events([
+                {
+                    type: "response.output_item.added",
+                    output_index: 0,
+                    item: {
+                        type: "function_call",
+                        call_id: "call-1",
+                        name: "read",
+                    },
+                },
+                {
+                    type: "response.incomplete",
+                    response: { incomplete_details: { reason: "max_output_tokens" } },
+                },
+            ]);
+        });
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: () => {
+                    throw new Error("truncated tool call must not be retried");
+                },
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(1);
+        expect(message).toMatchObject({
+            content: [],
+            stopReason: "error",
+            errorMessage: "OpenAI Codex reached its output limit during a tool call",
+        });
+    });
+
+    test("retries malformed tool-call output before any tool can run", async () => {
+        let attempts = 0;
+        const adapter = new OpenAICodexAdapter(async () => {
+            attempts += 1;
+            return attempts === 1
+                ? events([
+                    {
+                        type: "response.output_item.added",
+                        output_index: 0,
+                        item: {
+                            type: "function_call",
+                            call_id: "call-1",
+                            name: "read",
+                        },
+                    },
+                    {
+                        type: "response.output_item.done",
+                        output_index: 0,
+                        item: {
+                            type: "function_call",
+                            call_id: "call-1",
+                            name: "read",
+                            arguments: "{ not json",
+                        },
+                    },
+                ])
+                : events([
+                    {
+                        type: "response.output_text.delta",
+                        output_index: 0,
+                        delta: "Recovered.",
+                    },
+                    { type: "response.completed", response: {} },
+                ]);
+        });
+        const retries: { readonly failure: { readonly partialOutputReplaceable?: boolean } }[] = [];
+
+        const message = await requestModelWithRecovery(
+            adapter,
+            { model: "gpt-5.6-sol", messages: [] },
+            {
+                onEvent: () => {},
+                onRetry: (retry) => retries.push(retry),
+                onFallback: () => {},
+                wait: async () => {},
+            },
+        );
+
+        expect(attempts).toBe(2);
+        expect(retries[0]?.failure).toMatchObject({
+            resolution: "retry",
+            partialOutputReplaceable: true,
+        });
+        expect(message.content).toEqual([{ type: "text", text: "Recovered." }]);
     });
 
     test("classifies HTTP 408 as timeout rather than server overload", async () => {

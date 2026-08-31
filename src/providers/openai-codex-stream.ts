@@ -1,6 +1,8 @@
 import { ModelEventStream } from "../model/stream.ts";
+import { ProviderFailureError } from "../model/provider-failure.ts";
 import {
     encodeOpenAICodexReasoningItem,
+    malformedOpenAICodexToolCall,
     openAICodexUsage,
     parseOpenAICodexToolInput,
     type OpenAICodexReasoningInput,
@@ -283,8 +285,9 @@ export class OpenAICodexStreamDecoder {
         const name = item.name ?? pending.name;
         const argumentsValue = item.arguments ?? pending.arguments;
         if (!id || !name) {
-            throw new Error(
+            throw malformedOpenAICodexToolCall(
                 `OpenAI Codex returned incomplete tool call at index ${outputIndex}`,
+                undefined,
             );
         }
         const toolCall = {
@@ -339,8 +342,19 @@ export class OpenAICodexStreamDecoder {
         }
         if (this.toolCalls.size > 0) {
             const outputIndex = this.toolCalls.keys().next().value;
-            throw new Error(
+            if (this.finishReason === "length") {
+                throw new ProviderFailureError(
+                    {
+                        kind: "unknown",
+                        resolution: "none",
+                        message: "OpenAI Codex reached its output limit during a tool call",
+                    },
+                    undefined,
+                );
+            }
+            throw malformedOpenAICodexToolCall(
                 `OpenAI Codex returned incomplete tool call at index ${outputIndex}`,
+                undefined,
             );
         }
     }

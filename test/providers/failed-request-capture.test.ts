@@ -109,12 +109,25 @@ describe("failed request capture", () => {
             messages: [{ role: "user", content: [{ type: "text", text: "hi" }] }],
         }).result();
 
+        const path = join(directory, "session-empty-1.json");
         const written = JSON.parse(
-            readFileSync(join(directory, "session-empty-1.json"), "utf8"),
-        ) as { outcome: string };
+            readFileSync(path, "utf8"),
+        ) as {
+            outcome: string;
+            failure: {
+                resolution: string;
+                partialOutputReplaceable: boolean;
+            };
+        };
         expect(written.outcome).toBe("empty_response");
-        // The turn's own outcome is unchanged by having been captured.
-        expect(message.stopReason).toBe("stop");
+        expect(written.failure).toMatchObject({
+            resolution: "retry",
+            partialOutputReplaceable: true,
+        });
+        expect(message).toMatchObject({
+            stopReason: "error",
+            errorMessage: `Provider openrouter returned no visible response or structured tool call (request captured at ${path})`,
+        });
     });
 
     test("writes nothing when the turn succeeds", async () => {
