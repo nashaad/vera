@@ -253,16 +253,16 @@ test("offset and limit are 1-indexed and refuse 0", async () => {
 test("disable-model-invocation requires the trusted top-level skill turn", async () => {
     const cwd = await workspace();
     try {
-        const skillDir = join(cwd, ".vera", "skills", "adversarial");
+        const skillDir = join(cwd, ".vera", "skills", "review");
         await mkdir(skillDir, { recursive: true });
         await writeFile(join(skillDir, "SKILL.md"), `---
-name: adversarial
-description: Read-only adversarial review.
+name: review
+description: Review an immutable code target through one native leaf reviewer.
 disable-model-invocation: true
 ---
 Body.
 `);
-        const skillPath = join(".vera", "skills", "adversarial", "SKILL.md");
+        const skillPath = join(".vera", "skills", "review", "SKILL.md");
 
         const subagentRuntime = new ToolRuntime(
             cwd,
@@ -299,11 +299,11 @@ Body.
         expect(automatic.kind).toBe("output");
         if (automatic.kind === "output") {
             expect(automatic.isError).toBe(true);
-            expect(automatic.output).toContain("invoke /adversarial explicitly");
+            expect(automatic.output).toContain("invoke /review explicitly");
         }
 
         topLevelRuntime.allowedSkills = [];
-        topLevelRuntime.userInvokedSkill = "adversarial";
+        topLevelRuntime.userInvokedSkill = "review";
         const disallowed = await readTool.execute(
             { path: skillPath },
             topLevelRuntime,
@@ -317,7 +317,7 @@ Body.
             );
         }
 
-        topLevelRuntime.allowedSkills = ["adversarial"];
+        topLevelRuntime.allowedSkills = ["review"];
         const explicitlyInvoked = await readTool.execute(
             { path: skillPath },
             topLevelRuntime,

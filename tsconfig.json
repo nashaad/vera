@@ -32,7 +32,6 @@
     "python/**/*.ts",
     "clients/tui/**/*.ts",
     "examples/sdk-reviewer/**/*.ts",
-    "examples/extensions/adversarial-review/**/*.ts",
     "test/**/*.ts",
     "scripts/**/*.ts",
     "dev/model/**/*.ts"

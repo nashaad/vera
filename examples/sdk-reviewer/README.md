@@ -10,10 +10,10 @@ bun run examples/sdk-reviewer/main.ts --uncommitted
 
 The application imports the public `index.ts` SDK surface. That surface hides
 provider routing, permissions, the bounded model loop, tool enforcement,
-structured output parsing, cancellation, and terminal results. The optional
-adapter in `examples/extensions/adversarial-review/` depends on this application
-in one direction. The application does not depend on the adapter, and Vera does
-not load either example by default.
+structured output parsing, cancellation, and terminal results. This is a
+CLI-only example. It is not adapted into `/review`, and Vera does not load it
+by default. The separate personal `review` skill uses the active harness's
+native subagent facility instead of this application.
 
 The directory is intentionally large because Git snapshotting, bounded process
 capture, schemas, the review fan, refutation, aggregation, reporting, and CLI

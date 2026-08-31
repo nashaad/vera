@@ -112,7 +112,6 @@ test("copyable example skills are valid opt-in packages", async () => {
 
     expect(catalog.warnings).toEqual([]);
     expect(catalog.skills.map((skill) => skill.metadata.name)).toEqual([
-        "adversarial",
         "browser-research",
         "consult",
     ]);
