@@ -69,7 +69,8 @@ export interface TuiDiagnosticsDialogState {
 export type TuiDiagnosticsDialogAction =
     | "copy"
     | "dismiss"
-    | "switch_scope";
+    | "switch_scope"
+    | "check_health";
 
 export interface TuiDiagnosticsDialogKey {
     readonly name: string;
@@ -100,6 +101,7 @@ export interface TuiDiagnosticsDialogOptions {
 export function handleTuiDiagnosticsDialogKey(
     key: TuiDiagnosticsDialogKey,
     canSwitchScope = false,
+    canCheckHealth = false,
 ): TuiDiagnosticsDialogAction | undefined {
     if (key.ctrl || key.meta) {
         return undefined;
@@ -109,6 +111,12 @@ export function handleTuiDiagnosticsDialogKey(
         && tuiBindingId("diagnostics", key) === "switch_diagnostics_scope"
     ) {
         return "switch_scope";
+    }
+    if (
+        canCheckHealth
+        && tuiBindingId("diagnostics", key) === "check_provider_health"
+    ) {
+        return "check_health";
     }
     if (key.shift) return undefined;
     if (key.name === "escape") {
@@ -321,8 +329,25 @@ function styledInspectLine(line: string, heading: boolean) {
         return [fg(TUI_NOTICE)(line)];
     }
     if (line.startsWith("/context")) return [fg(TUI_MUTED)(line)];
+    const health = HEALTH_TONE_LINE.exec(line);
+    if (health?.groups !== undefined) {
+        const tone = health.groups.tone;
+        const color = tone === "green"
+            ? TUI_SUCCESS
+            : tone === "yellow"
+            ? TUI_NOTICE
+            : TUI_DANGER;
+        return [
+            fg(TUI_TEXT)(health.groups.indent ?? ""),
+            fg(color)(tone ?? ""),
+            fg(TUI_TEXT)(health.groups.rest ?? ""),
+        ];
+    }
     return occupancyGlyphChunks(line);
 }
+
+const HEALTH_TONE_LINE =
+    /^(?<indent>\s+)(?<tone>green|yellow|red)(?<rest>\s+.*)$/;
 
 function occupancyGlyphChunks(line: string): TextChunk[] {
     const chunks: TextChunk[] = [];

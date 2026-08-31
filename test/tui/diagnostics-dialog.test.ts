@@ -13,6 +13,8 @@ import {
     TUI_ELEMENT,
     TUI_MUTED,
     TUI_NOTICE,
+    TUI_SUCCESS,
+    TUI_DANGER,
 } from "../../clients/tui/state.ts";
 import { parseColor } from "@opentui/core";
 
@@ -28,6 +30,15 @@ test("diagnostics dialog switches scope with Tab", () => {
     expect(handleTuiDiagnosticsDialogKey({ name: "tab", shift: true }, true))
         .toBe("switch_scope");
     expect(handleTuiDiagnosticsDialogKey({ name: "tab" }))
+        .toBeUndefined();
+});
+
+test("diagnostics dialog runs provider health on v only when allowed", () => {
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }, true, true))
+        .toBe("check_health");
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }, true))
+        .toBeUndefined();
+    expect(handleTuiDiagnosticsDialogKey({ name: "v" }))
         .toBeUndefined();
 });
 
@@ -81,6 +92,21 @@ test("inspect occupancy cells reuse the status ctx meter colors", () => {
     expect(color("> !  AGENTS.local.md is 43 KB and rides every turn."))
         .toEqual(parseColor(TUI_NOTICE));
     expect(color("/context [all] to expand")).toEqual(parseColor(TUI_MUTED));
+});
+
+test("inspect health tones keep the word and decorate it", () => {
+    const styled = styledInspectDocument([
+        "# Session diagnostics",
+        "  green    openrouter/glm-flash answered",
+        "  yellow   only the last shortlist model answered",
+        "  red      no provider configured",
+    ].join("\n"));
+    const color = (text: string) =>
+        styled.chunks.find((chunk) => chunk.text.toString() === text)?.fg;
+
+    expect(color("green")).toEqual(parseColor(TUI_SUCCESS));
+    expect(color("yellow")).toEqual(parseColor(TUI_NOTICE));
+    expect(color("red")).toEqual(parseColor(TUI_DANGER));
 });
 
 test("the inspect dialog is a capped column, not a full-bleed pane", () => {

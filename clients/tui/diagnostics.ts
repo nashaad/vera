@@ -5,6 +5,11 @@ import type {
     HostStartupTimingRow,
     HostStartupTimingSnapshot,
 } from "./host-startup-diagnostics.ts";
+import {
+    idleProviderHealth,
+    renderProviderHealth,
+    type ProviderHealthStatus,
+} from "./provider-health.ts";
 
 export type TuiDiagnosticsScope = "session" | "vera";
 
@@ -43,6 +48,7 @@ export interface TuiDiagnosticsSnapshot {
     }[];
     readonly clientExtensionReload?: TuiClientExtensionReloadSnapshot;
     readonly startup?: HostStartupTimingSnapshot;
+    readonly health?: ProviderHealthStatus;
 }
 
 export interface TuiClientExtensionReloadSnapshot {
@@ -63,6 +69,7 @@ function renderSessionDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     const { state } = snapshot;
     const lines = [
         "# Session diagnostics",
+        ...providerHealthSection(snapshot),
         "## Session",
         `  identity     ${snapshot.sessionIdentity ?? "unavailable"}`,
         `  id           ${snapshot.sessionId ?? "unavailable"}`,
@@ -172,6 +179,7 @@ function formatMemory(bytes: number): string {
 function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
     return [
         "# Vera diagnostics",
+        ...providerHealthSection(snapshot),
         "## Build",
         ...markdownTable(
             ["Component", "Value"],
@@ -199,6 +207,14 @@ function renderVeraDiagnostics(snapshot: TuiDiagnosticsSnapshot): string {
         "## Pre-image stash",
         ...stashLines(snapshot),
     ].join("\n");
+}
+
+function providerHealthSection(snapshot: TuiDiagnosticsSnapshot): string[] {
+    return [
+        "## Provider health",
+        ...renderProviderHealth(snapshot.health ?? idleProviderHealth()),
+        "",
+    ];
 }
 
 /** Most repeated first: the top row is the one worth acting on. */
