@@ -106,7 +106,9 @@ test("dev scripts pack the release before tui and host", () => {
     const pkg = JSON.parse(
         readFileSync(join(repoRoot, "package.json"), "utf8"),
     ) as { scripts: Record<string, string> };
-    expect(pkg.scripts["pack:release"]).toBe("bun run scripts/pack-release.ts");
+    expect(pkg.scripts["pack:release"]).toBe(
+        "bun run scripts/pack-release.ts dist/release",
+    );
     expect(pkg.scripts.host?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:release &&"))

@@ -11,7 +11,10 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import { packRelease } from "../../scripts/pack-release.ts";
-import { packedReleaseRoot } from "../../src/release/layout.ts";
+import {
+    packedReleaseRoot,
+    releaseManifestPath,
+} from "../../src/release/layout.ts";
 import { VERA_PRODUCT_VERSION } from "../../src/release/manifest.ts";
 import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 
@@ -51,36 +54,20 @@ function copyTreeWithoutGit(from: string, to: string): void {
         if (!existsSync(source)) continue;
         cpSync(source, join(to, name), { recursive: true });
     }
-    mkdirSync(join(to, "dist"), { recursive: true });
-    cpSync(
-        join(from, "dist", "release"),
-        join(to, "dist", "release"),
-        { recursive: true },
-    );
     symlinkSync(join(from, "node_modules"), join(to, "node_modules"));
 }
 
-test("vera --version reads the packed stamp with git gone and the repo moved", async () => {
-    const packed = await packRelease(packedReleaseRoot(), {
-        force: true,
-        cwd: repoRoot,
-    });
+test("vera --version reads the activated stamp with git gone", async () => {
     const relocated = mkdtempSync(join(tmpdir(), "vera-stamp-relocated-"));
     try {
         copyTreeWithoutGit(repoRoot, relocated);
+        const stampRoot = packedReleaseRoot(join(relocated, ".local"));
+        mkdirSync(stampRoot, { recursive: true });
+        const packed = await packRelease(stampRoot, {
+            force: true,
+            cwd: repoRoot,
+        });
         expect(existsSync(join(relocated, ".git"))).toBe(false);
-        let gitAvailable = false;
-        try {
-            gitAvailable = Bun.spawnSync(["git", "rev-parse", "HEAD"], {
-                cwd: relocated,
-                env: { PATH: pathWithoutGit(), HOME: relocated },
-                stdout: "pipe",
-                stderr: "pipe",
-            }).exitCode === 0;
-        } catch {
-            gitAvailable = false;
-        }
-        expect(gitAvailable).toBe(false);
 
         const version = Bun.spawnSync(
             [process.execPath, join(relocated, "clients", "cli", "main.ts"), "--version"],
@@ -97,10 +84,11 @@ test("vera --version reads the packed stamp with git gone and the repo moved", a
         expect(version.stderr.toString()).toBe("");
         expect(version.exitCode).toBe(0);
         expect(version.stdout.toString()).toBe(
-            `${formatVeraVersion(readStampedRelease(join(relocated, "dist", "release")))}\n`,
+            `${formatVeraVersion(readStampedRelease(stampRoot))}\n`,
         );
         expect(version.stdout.toString()).toContain(VERA_PRODUCT_VERSION);
         expect(version.stdout.toString()).toContain(packed.manifest.build_id);
+        expect(releaseManifestPath(stampRoot)).toBe(join(stampRoot, "manifest.json"));
     } finally {
         rmSync(relocated, { recursive: true, force: true });
     }
@@ -110,7 +98,6 @@ test("vera --version fails loudly when the stamp is missing", () => {
     const relocated = mkdtempSync(join(tmpdir(), "vera-stamp-missing-"));
     try {
         copyTreeWithoutGit(repoRoot, relocated);
-        rmSync(join(relocated, "dist"), { recursive: true, force: true });
         const version = Bun.spawnSync(
             [process.execPath, join(relocated, "clients", "cli", "main.ts"), "--version"],
             {

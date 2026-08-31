@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 
-import { packedReleaseRoot, releaseManifestPath } from "./layout.ts";
+import { releaseManifestPath, thisProcessReleaseRoot } from "./layout.ts";
 import {
     parseReleaseManifest,
     type ReleaseManifest,
@@ -11,7 +11,7 @@ import {
  * the packer wrote into this process's release directory.
  */
 export function readStampedRelease(
-    releaseRoot = packedReleaseRoot(),
+    releaseRoot = thisProcessReleaseRoot(),
 ): ReleaseManifest {
     const path = releaseManifestPath(releaseRoot);
     let text: string;

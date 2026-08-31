@@ -212,7 +212,7 @@ test("the package bin runs help from outside the checkout", () => {
             {
                 cwd: directory,
                 env: {
-                    HOME: directory,
+                    ...process.env,
                     PATH: process.env.PATH ?? "",
                 },
                 stdout: "pipe",

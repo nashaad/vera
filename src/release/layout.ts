@@ -1,11 +1,49 @@
-import { join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { existsSync } from "node:fs";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 
-const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
+/** Names of the executables at the root of a packed release. */
+export const RELEASE_CLI_NAME = "vera";
+export const RELEASE_HOST_NAME = "host";
+export const RELEASE_WORKER_NAME = "worker";
+export const RELEASE_ANNEX_NAME = "vera-annex";
+export const RELEASE_SUPERVISOR_NAME = "vera-supervisor";
+export const RELEASE_BUN_NAME = "bun";
 
-/** Packed release directory this tree's pack step writes. */
-export function packedReleaseRoot(): string {
-    return join(REPO_ROOT, "dist", "release");
+export function defaultInstallPrefix(home = homedir()): string {
+    return join(home, ".local");
+}
+
+export function veraShareRoot(prefix = defaultInstallPrefix()): string {
+    return join(prefix, "share", "vera");
+}
+
+export function releasesDirectory(prefix = defaultInstallPrefix()): string {
+    return join(veraShareRoot(prefix), "releases");
+}
+
+export function releaseDirectory(
+    buildId: string,
+    prefix = defaultInstallPrefix(),
+): string {
+    return join(releasesDirectory(prefix), buildId);
+}
+
+export function currentSymlinkPath(prefix = defaultInstallPrefix()): string {
+    return join(veraShareRoot(prefix), "current");
+}
+
+export function launcherPath(prefix = defaultInstallPrefix()): string {
+    return join(prefix, "bin", RELEASE_CLI_NAME);
+}
+
+/**
+ * The activated release root: `current`, not a particular `releases/<id>`
+ * path. Running processes that belong to one release should pass that
+ * release's directory instead of using this default.
+ */
+export function packedReleaseRoot(prefix = defaultInstallPrefix()): string {
+    return currentSymlinkPath(prefix);
 }
 
 /** Packed annex assets: index.html, main.js, styles.css, build-id. */
@@ -16,4 +54,26 @@ export function packedAnnexRoot(releaseRoot = packedReleaseRoot()): string {
 /** Release manifest written next to the packed artifacts. */
 export function releaseManifestPath(releaseRoot = packedReleaseRoot()): string {
     return join(releaseRoot, "manifest.json");
+}
+
+export function releaseBinaryPath(
+    name: string,
+    releaseRoot = thisProcessReleaseRoot(),
+): string {
+    return join(releaseRoot, name);
+}
+
+/**
+ * The release this process belongs to. A packed bun sits next to
+ * `manifest.json`. Anything else (source `bun test`, a checkout CLI) uses
+ * the activated `current`.
+ */
+export function thisProcessReleaseRoot(
+    prefix = defaultInstallPrefix(),
+): string {
+    const candidate = dirname(process.execPath);
+    if (existsSync(releaseManifestPath(candidate))) {
+        return candidate;
+    }
+    return packedReleaseRoot(prefix);
 }

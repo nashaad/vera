@@ -9,7 +9,6 @@ import { HOST_PROTOCOL_VERSION } from "../src/host/protocol.ts";
 import { releaseSourceIdentity } from "../src/release/build-id.ts";
 import {
     packedAnnexRoot,
-    packedReleaseRoot,
     releaseManifestPath,
 } from "../src/release/layout.ts";
 import {
@@ -63,7 +62,7 @@ export function digestPackedAnnex(directory: string): string {
 }
 
 export async function packRelease(
-    outputDirectory: string = packedReleaseRoot(),
+    outputDirectory: string,
     options: PackReleaseOptions = {},
 ): Promise<PackReleaseResult> {
     const cwd = options.cwd ?? REPO_ROOT;
@@ -114,11 +113,11 @@ function parseArgs(argv: readonly string[]): {
         }
         positional.push(arg);
     }
-    if (positional.length > 1) {
-        fail("usage: scripts/pack-release.ts [output-directory] [--force]");
+    if (positional.length !== 1) {
+        fail("usage: scripts/pack-release.ts <output-directory> [--force]");
     }
     return {
-        outputDirectory: positional[0] ?? packedReleaseRoot(),
+        outputDirectory: positional[0] as string,
         force,
     };
 }
