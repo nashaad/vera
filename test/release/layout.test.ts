@@ -14,6 +14,7 @@ import {
     releaseManifestPath,
     releasesDirectory,
     thisProcessReleaseRoot,
+    upgradeJournalPath,
     veraShareRoot,
 } from "../../src/release/layout.ts";
 
@@ -26,9 +27,13 @@ test("the activated release lives under ~/.local/share/vera/current", () => {
         join(prefix, "share", "vera", "releases", "vera-abc"),
     );
     expect(currentSymlinkPath(prefix)).toBe(join(prefix, "share", "vera", "current"));
+    expect(upgradeJournalPath(prefix)).toBe(
+        join(prefix, "share", "vera", "upgrade.json"),
+    );
     expect(packedReleaseRoot(prefix)).toBe(currentSymlinkPath(prefix));
     expect(launcherPath(prefix)).toBe(join(prefix, "bin", "vera"));
     expect(packedReleaseRoot().split(sep)).not.toContain("dist");
+    expect(currentReleaseBuildId("/tmp/vera-no-such-prefix")).toBeUndefined();
 });
 
 test("release layout names annex assets and the manifest", () => {

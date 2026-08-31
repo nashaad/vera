@@ -65,6 +65,14 @@ export function currentReleaseBuildId(
     return buildId;
 }
 
+/**
+ * Record of an in-progress local upgrade. One file next to `current`, not a
+ * locator and not consulted to choose a daily installation.
+ */
+export function upgradeJournalPath(prefix = defaultInstallPrefix()): string {
+    return join(veraShareRoot(prefix), "upgrade.json");
+}
+
 export function launcherPath(prefix = defaultInstallPrefix()): string {
     return join(prefix, "bin", RELEASE_CLI_NAME);
 }

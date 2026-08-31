@@ -1,7 +1,6 @@
 #!/usr/bin/env bun
 
-import { createHash } from "node:crypto";
-import { mkdirSync, readFileSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -25,15 +24,10 @@ import {
     type ReleaseManifest,
 } from "../src/release/manifest.ts";
 import { readStampedRelease } from "../src/release/stamp.ts";
+import { digestPackedAnnex } from "../src/release/verify.ts";
 import { packWebAssets } from "./pack-web.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
-const ANNEX_ASSET_FILES = [
-    "index.html",
-    "main.js",
-    "styles.css",
-    "build-id",
-] as const;
 
 export interface PackReleaseResult {
     readonly outputDirectory: string;
@@ -55,17 +49,6 @@ export interface PackReleaseOptions {
 function fail(message: string): never {
     console.error(`vera pack-release: ${message}`);
     process.exit(1);
-}
-
-export function digestPackedAnnex(directory: string): string {
-    const hash = createHash("sha256");
-    for (const name of ANNEX_ASSET_FILES) {
-        hash.update(name);
-        hash.update("\0");
-        hash.update(readFileSync(join(directory, name)));
-        hash.update("\0");
-    }
-    return `sha256:${hash.digest("hex")}`;
 }
 
 export async function packRelease(
@@ -126,6 +109,28 @@ export interface InstalledRelease {
 export async function installRelease(
     options: InstallReleaseOptions = {},
 ): Promise<InstalledRelease> {
+    const packed = await packRunnableRelease(options);
+    activateRelease(packed.releaseRoot, packed.prefix);
+    return {
+        prefix: packed.prefix,
+        releaseRoot: packed.releaseRoot,
+        launcher: launcherPath(packed.prefix),
+        current: packedReleaseRoot(packed.prefix),
+        manifest: packed.manifest,
+    };
+}
+
+/**
+ * Pack a runnable tree at releases/<build-id> without pointing `current` at
+ * it. Does not write ~/.vera.
+ */
+export async function packRunnableRelease(
+    options: InstallReleaseOptions = {},
+): Promise<{
+    readonly prefix: string;
+    readonly releaseRoot: string;
+    readonly manifest: ReleaseManifest;
+}> {
     const prefix = options.prefix ?? defaultInstallPrefix();
     const cwd = options.cwd ?? REPO_ROOT;
     const sourceRoot = options.sourceRoot ?? REPO_ROOT;
@@ -138,7 +143,7 @@ export async function installRelease(
     } catch {
         manifest = undefined;
     }
-    if (manifest?.build_id !== identity.buildId) {
+    if (manifest?.build_id !== identity.buildId || options.force === true) {
         const packed = await packRelease(target, {
             cwd,
             force: options.force ?? true,
@@ -147,12 +152,12 @@ export async function installRelease(
         assembleRunnableRelease(target, sourceRoot);
         manifest = packed.manifest;
     }
-    activateRelease(target, prefix);
+    if (manifest === undefined) {
+        throw new Error(`No release stamp at ${releaseManifestPath(target)}`);
+    }
     return {
         prefix,
         releaseRoot: target,
-        launcher: launcherPath(prefix),
-        current: packedReleaseRoot(prefix),
         manifest,
     };
 }
