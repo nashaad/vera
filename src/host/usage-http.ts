@@ -7,7 +7,7 @@ import {
     isUsageWindowId,
     type UsageReport,
     type UsageWindowId,
-} from "./usage-report.ts";
+} from "../annex/usage-report.ts";
 
 export interface UsageWebServer {
     readonly url: string;

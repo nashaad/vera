@@ -1,4 +1,4 @@
-import type { UsageSessionRow } from "../../src/host/usage-report.ts";
+import type { UsageSessionRow } from "../../src/annex/usage-report.ts";
 
 export const SESSION_PAGE_SIZE = 25;
 

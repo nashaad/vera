@@ -10,7 +10,7 @@ import {
     sessionMatchesModelQuery,
     sortSessions,
 } from "../../clients/annex/sessions-table.ts";
-import type { UsageSessionRow } from "../../src/host/usage-report.ts";
+import type { UsageSessionRow } from "../../src/annex/usage-report.ts";
 
 function row(overrides: Partial<UsageSessionRow>): UsageSessionRow {
     return {

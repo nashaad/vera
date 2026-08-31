@@ -8,7 +8,7 @@ import type {
     UsageSessionRow,
     UsageToolCount,
     UsageWindowId,
-} from "../../src/host/usage-report.ts";
+} from "../../src/annex/usage-report.ts";
 import {
     DEFAULT_SESSION_SORT,
     modelListQuery,

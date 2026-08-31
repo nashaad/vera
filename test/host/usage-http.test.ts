@@ -17,7 +17,7 @@ import { startUsageWebServer } from "../../src/host/usage-http.ts";
 import {
     foldUsageReport,
     type UsageReport,
-} from "../../src/host/usage-report.ts";
+} from "../../src/annex/usage-report.ts";
 import { readUsageWebUrlThroughHost } from "../../src/host/usage-web-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
