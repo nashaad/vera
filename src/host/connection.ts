@@ -19,6 +19,23 @@ export interface HostConnectionOptions {
 }
 
 /**
+ * Peer closed the socket. `expected` is true only when the caller marked this
+ * as a one-shot helper and no receive was still waiting for a frame. That
+ * close is the helper finishing. A close while receive() still has no frame
+ * is a loss, even on a helper.
+ */
+export class HostConnectionClosedError extends Error {
+    constructor(readonly expected: boolean) {
+        super("host connection closed");
+        this.name = "HostConnectionClosedError";
+    }
+}
+
+export function isExpectedHostClose(error: unknown): boolean {
+    return error instanceof HostConnectionClosedError && error.expected;
+}
+
+/**
  * A persistent NDJSON connection over a Unix socket: send JSON values as
  * newline-delimited frames and receive parsed JSON values in order. The
  * connection attempt has a fixed deadline; an established connection remains
@@ -30,6 +47,12 @@ export interface HostConnection {
     send(value: unknown): Promise<void>;
     receive(): Promise<unknown>;
     closedReason(): Promise<Error>;
+    /**
+     * Mark this connection as a one-shot helper. A peer close after the reply
+     * is completion. A close while receive() still has no frame is still a
+     * loss.
+     */
+    expectPeerClose(): void;
     close(): void;
     readonly closed: boolean;
 }
@@ -104,6 +127,7 @@ function createConnection_(
     let discardingBytes = 0;
     let closed = false;
     let remoteEnded = false;
+    let peerCloseExpected = false;
     let failure: Error | undefined;
     const pendingValues: unknown[] = [];
     const pendingReceivers: Array<{
@@ -125,13 +149,24 @@ function createConnection_(
         if (closed) {
             return;
         }
+        processBufferedLines();
+        if (closed) {
+            return;
+        }
         if (buffered.length > 0) {
             teardown(new Error("host connection received an incomplete line"));
             return;
         }
+        while (pendingReceivers.length > 0 && pendingValues.length > 0) {
+            const queued = pendingValues.shift();
+            if (queued !== undefined) {
+                deliver(queued);
+            }
+        }
         closed = true;
         remoteEnded = true;
-        failure = new Error("host connection closed");
+        const expected = peerCloseExpected && pendingReceivers.length === 0;
+        failure = new HostConnectionClosedError(expected);
         resolveClosed?.(failure);
         for (const receiver of pendingReceivers.splice(0)) {
             receiver.reject(failure);
@@ -243,9 +278,14 @@ function createConnection_(
     socket.once("error", (error: Error) => fail(error));
     socket.once("end", finishRemote);
     socket.once("close", () => {
-        if (!remoteEnded) {
-            fail(new Error("host connection closed"));
+        if (remoteEnded) {
+            return;
         }
+        if (peerCloseExpected) {
+            finishRemote();
+            return;
+        }
+        fail(new HostConnectionClosedError(false));
     });
 
     return {
@@ -317,6 +357,9 @@ function createConnection_(
         },
         closedReason(): Promise<Error> {
             return closedReason;
+        },
+        expectPeerClose(): void {
+            peerCloseExpected = true;
         },
         close(): void {
             teardown(new Error("host connection is closed"));

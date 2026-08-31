@@ -3,7 +3,11 @@ import { createServer, type Server, type Socket } from "node:net";
 import { mkdtempSync, rmSync } from "node:fs";
 import { join } from "node:path";
 
-import { connectHost, type HostConnection } from "../../src/host/connection.ts";
+import {
+    connectHost,
+    isExpectedHostClose,
+    type HostConnection,
+} from "../../src/host/connection.ts";
 
 const skipIfNoNetwork = process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1"
     ? test.skip
@@ -373,8 +377,75 @@ skipIfNoNetwork(
             (socket) => socket.end(),
             async (socketPath) => {
                 const connection = await connectHost({ socketPath });
-                await expect(connection.receive()).rejects.toThrow();
+                await expect(connection.receive()).rejects.toThrow(
+                    "host connection closed",
+                );
                 expect(connection.closed).toBe(true);
+                expect(isExpectedHostClose(await connection.closedReason()))
+                    .toBe(false);
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "an expected peer close after a completed exchange is not a loss",
+    async () => {
+        await withServer(
+            (socket) => {
+                socket.setEncoding("utf8");
+                socket.on("data", () => {
+                    socket.end(`${JSON.stringify({ type: "done" })}\n`);
+                });
+            },
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                connection.expectPeerClose();
+                await connection.send({ type: "ask" });
+                expect(await connection.receive()).toEqual({ type: "done" });
+                expect(isExpectedHostClose(await connection.closedReason()))
+                    .toBe(true);
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "an expected peer destroy after a completed exchange is not a loss",
+    async () => {
+        await withServer(
+            (socket) => {
+                socket.setEncoding("utf8");
+                socket.on("data", () => {
+                    socket.write(`${JSON.stringify({ type: "done" })}\n`);
+                    socket.destroy();
+                });
+            },
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                connection.expectPeerClose();
+                await connection.send({ type: "ask" });
+                expect(await connection.receive()).toEqual({ type: "done" });
+                expect(isExpectedHostClose(await connection.closedReason()))
+                    .toBe(true);
+            },
+        );
+    },
+);
+
+skipIfNoNetwork(
+    "expectPeerClose does not hide a close before the reply arrives",
+    async () => {
+        await withServer(
+            (socket) => socket.end(),
+            async (socketPath) => {
+                const connection = await connectHost({ socketPath });
+                connection.expectPeerClose();
+                await expect(connection.receive()).rejects.toThrow(
+                    "host connection closed",
+                );
+                expect(isExpectedHostClose(await connection.closedReason()))
+                    .toBe(false);
             },
         );
     },
@@ -389,7 +460,11 @@ skipIfNoNetwork(
                 const connection = await connectHost({ socketPath });
                 await new Promise((resolve) => setTimeout(resolve, 50));
                 expect(await connection.receive()).toEqual({ type: "done" });
-                await expect(connection.receive()).rejects.toThrow();
+                await expect(connection.receive()).rejects.toThrow(
+                    "host connection closed",
+                );
+                expect(isExpectedHostClose(await connection.closedReason()))
+                    .toBe(false);
             },
         );
     },
