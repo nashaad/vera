@@ -165,7 +165,7 @@ export function createTuiNamePromptView(
         marginTop: 1,
     });
     const footer = new TextRenderable(renderer, {
-        content: "⏎ save · ⏎ on an empty field clears · esc cancel",
+        content: "⏎ save · empty clears · esc cancel",
         fg: TUI_MUTED,
         width: "100%",
         height: 1,
@@ -212,9 +212,7 @@ export function createTuiNamePromptView(
 
 export function tuiNamePromptEntryLine(value: string): StyledText {
     return new StyledText([
-        value.length === 0
-            ? fg(TUI_MUTED)("name")
-            : fg(TUI_TEXT)(value),
+        ...(value.length === 0 ? [] : [fg(TUI_TEXT)(value)]),
         fg(TUI_ACCENT)("▏"),
     ]);
 }

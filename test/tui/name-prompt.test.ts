@@ -4,6 +4,7 @@ import {
     handleTuiNamePromptKey,
     handleTuiNamePromptPaste,
     startTuiNamePrompt,
+    tuiNamePromptEntryLine,
 } from "../../clients/tui/name-prompt.ts";
 
 const session = {
@@ -21,6 +22,11 @@ test("the rename prompt opens on the current name", () => {
     });
     expect(handleTuiNamePromptKey(state, { name: "backspace" }).state?.value)
         .toBe("Fix the deployment rac");
+});
+
+test("an empty rename field shows only its cursor", () => {
+    expect(tuiNamePromptEntryLine("").chunks.map((chunk) => chunk.text).join(""))
+        .toBe("▏");
 });
 
 test("typing builds the name and Enter submits it", () => {
