@@ -8,6 +8,7 @@ import {
     updateVeraConfigDefaults,
 } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import type { AgentRegistry } from "../../src/host/agent-registry.ts";
 import { ModelEventStream } from "../../src/model/stream.ts";
 import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
 
@@ -80,13 +81,12 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
             eventLogDirectory: join(root, "logs"),
         });
         try {
-            const result = await host.registry.runOnce({
+            await runHostedPrompt(host.registry, {
                 id: "strata-run",
                 workspace,
                 sessionPath: join(root, "sessions", "strata-run.jsonl"),
                 prompt: "audit this",
             });
-            expect(result.outcome).toBe("completed");
             expect(received).toEqual({
                 strata: { corpus: { path: workspace } },
             });
@@ -165,13 +165,12 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
             eventLogDirectory: join(root, "logs"),
         });
         try {
-            const first = await host.registry.runOnce({
+            await runHostedPrompt(host.registry, {
                 id: "request-options-first",
                 workspace,
                 sessionPath: join(root, "sessions", "first.jsonl"),
                 prompt: "first",
             });
-            expect(first.outcome).toBe("completed");
 
             updateVeraConfigDefaults({
                 model_request_options: {
@@ -179,13 +178,12 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
                     body: { provider: { only: ["second-longer"] } },
                 },
             }, { path: configPath });
-            const second = await host.registry.runOnce({
+            await runHostedPrompt(host.registry, {
                 id: "request-options-second",
                 workspace,
                 sessionPath: join(root, "sessions", "second.jsonl"),
                 prompt: "second",
             });
-            expect(second.outcome).toBe("completed");
 
             expect(received).toEqual([
                 {
@@ -286,3 +284,37 @@ import { emptyUsage, type ModelAdapter } from "../../src/model/types.ts";
         }
     },
 );
+
+async function runHostedPrompt(
+    registry: AgentRegistry,
+    options: {
+        readonly id: string;
+        readonly workspace: string;
+        readonly sessionPath: string;
+        readonly prompt: string;
+    },
+): Promise<void> {
+    const agent = await registry.create({
+        id: options.id,
+        workspace: options.workspace,
+        sessionPath: options.sessionPath,
+    });
+    const attachment = agent.attach();
+    try {
+        while (true) {
+            const update = await attachment.receive();
+            if (update.type === "history") {
+                agent.sendPrompt(options.prompt);
+                continue;
+            }
+            if (
+                update.type === "turn_finished"
+                || update.type === "agent_failed"
+            ) {
+                return;
+            }
+        }
+    } finally {
+        attachment.detach();
+    }
+}

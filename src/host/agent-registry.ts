@@ -85,14 +85,10 @@ import {
 import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
 import {
     isOneshotReplyUpdate,
-    isConfigurationRequiredUiRequestUpdate,
     isSessionNameReplyUpdate,
     isTimelineReplyUpdate,
     isToolApprovalUiRequestUpdate,
-    isUserQuestionUiRequestUpdate,
-    type ModelSubstitutionUpdate,
     type ToolApprovalUiRequestUpdate,
-    type UiRequestUpdate,
 } from "../engine/protocol.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
@@ -104,9 +100,6 @@ import type {
     ReviewerModelDefault,
     ReviewerSettingsPatch,
 } from "../engine/model-settings.ts";
-import { loadPoolFile } from "../model/pool-file-loader.ts";
-import { providerOf } from "../model/pool-file.ts";
-import { resolvePoolRef } from "../model/pool-names.ts";
 import type {
     ModelAdapter,
     ModelMessage,
@@ -582,29 +575,6 @@ export interface CreateRegisteredAgentOptions {
     readonly approvalMode?: ApprovalMode;
 }
 
-export interface RunOnceOptions extends CreateRegisteredAgentOptions {
-    readonly prompt: string;
-    /**
-     * The model this one run uses, as a pool name or a `provider/model` id.
-     * A run with nobody watching draws from the curated pool only, so a ref
-     * the pool does not hold ends the run instead of reaching the provider.
-     */
-    readonly modelRef?: string;
-    readonly reasoningEffort?: ModelReasoningEffort;
-}
-
-export interface RunOnceResult {
-    readonly agentId: string;
-    readonly sessionPath: string;
-    /** The final assistant text, empty when the turn produced none. */
-    readonly text: string;
-    readonly outcome: "completed" | "error" | "aborted";
-    /** Present only with the error outcome. */
-    readonly error?: string;
-    /** What the run decided on the user's behalf, in the user's words. */
-    readonly notes: readonly string[];
-}
-
 export interface ResumeRegisteredAgentOptions {
     readonly sessionPath: string;
     readonly eventLogPath?: string;
@@ -638,104 +608,6 @@ export interface BranchedRegisteredAgent {
 export type RenameSessionOutcome =
     | { readonly status: "renamed"; readonly name: string | null }
     | { readonly status: "invalid" | "busy" | "not_found" | "failed" };
-
-/** Returns undefined for a name the attached path would also refuse. */
-/**
- * What an attached client is told when it prompts a bounded run.
- *
- * Watching one is fully supported. Steering it is not, because the run
- * answers to whoever launched it, and its one input is the prompt they gave.
- */
-const CLIENT_PROMPT_REFUSAL =
-    "This agent is running a single bounded turn, so it takes no prompts. "
-    + "Start your own session to continue this work.";
-
-/**
- * Point the run at the model it was launched with, before the turn starts.
- *
- * This is the ordinary model-settings command an interactive model change
- * sends, so pool and catalog resolution, effort coarsening, and substitution
- * notices all behave the way they do in a session. A refusal ends the run
- * here: a bounded run that quietly fell back to the configured model would
- * report results for a model nobody asked for.
- */
-/**
- * The pooled model a `-p` run asked for, by name or by id.
- *
- * Throws rather than falling back: a headless run is the easiest place to
- * slip an unvetted endpoint into a workspace with nobody watching, so the ref
- * has to be one the user curated, and a miss is loud.
- */
-function resolveRunOnceModel(
-    options: RunOnceOptions,
-): { readonly provider?: string; readonly model: string } | undefined {
-    if (options.modelRef === undefined) {
-        return undefined;
-    }
-    const pool = loadPoolFile({ projectRoot: options.workspace }).merged;
-    const id = resolvePoolRef(pool, options.modelRef);
-    if (id === undefined) {
-        throw new UserFacingError(
-            `Model "${options.modelRef}" is not in the pool. `
-                + "A print-mode run uses pooled models only: add it with "
-                + "ctrl+s in the model picker, or /pool add.",
-        );
-    }
-    const provider = providerOf(id);
-    return provider === undefined
-        ? { model: id }
-        : { provider, model: id.slice(provider.length + 1) };
-}
-
-async function selectRunOnceModel(
-    attachment: AgentAttachment,
-    options: RunOnceOptions,
-    model: { readonly provider?: string; readonly model: string } | undefined,
-): Promise<void> {
-    if (model === undefined && options.reasoningEffort === undefined) {
-        return;
-    }
-    const requestId = randomUUID();
-    attachment.send({
-        type: "update_model_settings",
-        requestId,
-        patch: {
-            ...(model?.provider === undefined
-                ? {}
-                : { provider: model.provider }),
-            ...(model === undefined ? {} : { model: model.model }),
-            ...(options.reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: options.reasoningEffort }),
-        },
-    });
-    while (true) {
-        const update = await attachment.receive();
-        if (update.type === "model_settings" && update.requestId === requestId) {
-            return;
-        }
-        if (
-            update.type === "model_settings_rejected"
-            && update.requestId === requestId
-        ) {
-            throw new Error(
-                `${describeRunOnceModel(options)} was refused: `
-                + (update.reason === "unavailable"
-                    ? "this host cannot change the model."
-                    : "no such model, or the effort is not one it accepts."),
-            );
-        }
-    }
-}
-
-function describeRunOnceModel(options: RunOnceOptions): string {
-    if (options.modelRef === undefined) {
-        return `Effort ${options.reasoningEffort}`;
-    }
-    return options.reasoningEffort === undefined
-        ? `Model ${options.modelRef}`
-        : `Model ${options.modelRef} at effort ${options.reasoningEffort}`;
-}
 
 /**
  * The checkout a workspace belongs to, so every worktree of one project reads
@@ -1000,23 +872,6 @@ function encodedStringBytes(value: string): number {
     return Buffer.byteLength(JSON.stringify(value), "utf8") - 2;
 }
 
-function substitutionNote(update: ModelSubstitutionUpdate): string {
-    const using = update.using ?? "no reasoning level";
-    return `Ran on ${update.model} with ${using} instead of `
-        + `${update.requested}: ${update.reason}`;
-}
-
-/** The text a caller waiting on one turn is waiting for. */
-function finalAssistantText(store: SessionStore | undefined): string {
-    return store?.messages()
-        .findLast((message) => message.role === "assistant")
-        ?.content
-        .filter((block) => block.type === "text")
-        .map((block) => block.text)
-        .join("\n")
-        .trim() ?? "";
-}
-
 function normalizeSessionName(
     name: string | null,
 ): string | null | undefined {
@@ -1238,79 +1093,6 @@ export class AgentRegistry {
     }
 
     /**
-     * One prompt against a fresh agent, then the agent is gone.
-     *
-     * The bounded lifecycle is the whole feature: the agent is an ordinary
-     * resident agent running an ordinary turn, so it lists, attaches, and
-     * persists like any other, and the only thing that differs is that the
-     * host, not the client, owns when it ends. A client that dies mid-run
-     * cannot leak it, because nothing about the close depends on the client.
-     */
-    async runOnce(options: RunOnceOptions): Promise<RunOnceResult> {
-        const agent = await this.createWithKind(
-            options,
-            "interactive",
-            options.approvalMode === undefined
-                ? undefined
-                : { approvalMode: options.approvalMode },
-            CLIENT_PROMPT_REFUSAL,
-        );
-        const sessionPath = this.agents.get(agent.id)?.store.path ?? "";
-        const notes: string[] = [];
-        let outcome: RunOnceResult["outcome"] = "completed";
-        let error: string | undefined;
-        try {
-            const attachment = agent.attach();
-            try {
-                await selectRunOnceModel(
-                    attachment,
-                    options,
-                    resolveRunOnceModel(options),
-                );
-                agent.sendPrompt(options.prompt);
-                while (true) {
-                    const update = await attachment.receive();
-                    if (update.type === "model_substitution") {
-                        notes.push(substitutionNote(update));
-                        continue;
-                    }
-                    if (update.type === "ui_request") {
-                        notes.push(this.refuseHeadlessRequest(
-                            attachment,
-                            update,
-                        ));
-                        continue;
-                    }
-                    if (update.type === "agent_failed") {
-                        outcome = "error";
-                        error = update.detail;
-                        break;
-                    }
-                    if (update.type === "turn_finished") {
-                        if (update.outcome !== undefined) {
-                            outcome = update.outcome;
-                            error = update.error;
-                        }
-                        break;
-                    }
-                }
-            } finally {
-                attachment.detach();
-            }
-            return {
-                agentId: agent.id,
-                sessionPath,
-                text: finalAssistantText(this.agents.get(agent.id)?.store),
-                outcome,
-                ...(error === undefined ? {} : { error }),
-                notes,
-            };
-        } finally {
-            await this.closeAgent(agent.id);
-        }
-    }
-
-    /**
      * Stop one agent and forget it, leaving its session on disk.
      *
      * Distinct from `abort`, which cancels a turn and leaves the agent
@@ -1466,52 +1248,6 @@ export class AgentRegistry {
         };
         visit(id);
         return ordered;
-    }
-
-    /**
-     * The answer a run with nobody watching gives to a question it cannot ask.
-     *
-     * Always denial, even when a client happens to be attached: a bounded run
-     * that sometimes waits for a human is a bounded run that sometimes hangs,
-     * and the same prompt would then produce different work depending on who
-     * was looking.
-     */
-    private refuseHeadlessRequest(
-        attachment: AgentAttachment,
-        update: UiRequestUpdate,
-    ): string {
-        if (isToolApprovalUiRequestUpdate(update)) {
-            attachment.send({
-                type: "ui_response",
-                requestId: update.requestId,
-                response: { type: "tool_approval", decision: "deny" },
-            });
-            return `Denied ${update.request.toolCall.name}: `
-                + "a print-mode run never waits for approval. "
-                + "Re-run with an approval mode that allows it, "
-                + "or run it interactively.";
-        }
-        if (isUserQuestionUiRequestUpdate(update)) {
-            attachment.send({
-                type: "ui_response",
-                requestId: update.requestId,
-                response: { type: "user_question", outcome: "cancelled" },
-            });
-            return `Cancelled a question from the model: `
-                + `${update.request.question}`;
-        }
-        if (isConfigurationRequiredUiRequestUpdate(update)) {
-            attachment.send({
-                type: "ui_response",
-                requestId: update.requestId,
-                response: {
-                    type: "configuration_required",
-                    outcome: "unavailable",
-                },
-            });
-            return "Subagent configuration is unavailable in print mode; no child started.";
-        }
-        return "Refused a request that needs someone watching.";
     }
 
     private async createWithKind(

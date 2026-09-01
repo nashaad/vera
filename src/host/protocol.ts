@@ -179,41 +179,6 @@ export interface AgentContextSyncedResponse {
     readonly turns: number;
 }
 
-/**
- * One prompt, one turn, one agent that the host closes when the turn ends.
- *
- * `approval_mode` names a mode the config already defines. Print mode adds no
- * permission vocabulary of its own: it decides nothing about what is allowed,
- * only that nobody is there to be asked.
- */
-export interface RunOnceRequest {
-    readonly type: "run_once";
-    readonly workspace: string;
-    readonly prompt: string;
-    readonly approval_mode?: string;
-    /** A pool entry, by its user-chosen name or its `provider/model` id. */
-    readonly model?: string;
-    readonly effort?: string;
-    readonly startup_profile?: StartupProfile;
-}
-
-export interface RunOnceFinishedResponse {
-    readonly type: "run_once_finished";
-    readonly agent_id: string;
-    readonly session_path: string;
-    readonly text: string;
-    readonly outcome: "completed" | "error" | "aborted";
-    readonly error?: string;
-    /** Decisions the run made because nobody was there to make them. */
-    readonly notes?: readonly string[];
-}
-
-/** The run never started, so there is no agent and no turn to report on. */
-export interface RunOnceFailedResponse {
-    readonly type: "run_once_failed";
-    readonly reason?: string;
-}
-
 export interface TrashSessionRequest {
     readonly type: "trash_session";
     readonly target_agent_id: string;
@@ -534,7 +499,6 @@ export type HostRequest =
     | TrashSessionRequest
     | CloseAgentRequest
     | RenameSessionRequest
-    | RunOnceRequest
     | AnnexUrlRequest
     | AttachRequest;
 export type AttachedClientMessage =
@@ -563,8 +527,6 @@ export type HostResponse =
     | AgentCloseRejectedResponse
     | SessionRenamedResponse
     | SessionRenameRejectedResponse
-    | RunOnceFinishedResponse
-    | RunOnceFailedResponse
     | ShutdownIfIdleResponse
     | ShutdownForReplacementResponse
     | AttachedResponse
@@ -800,40 +762,6 @@ export function parseHostRequest(source: string): HostRequest | undefined {
             type: "rename_session",
             target_agent_id: value.target_agent_id,
             name: value.name as string | null,
-        };
-    }
-    if (
-        value?.type === "run_once"
-        && typeof value.workspace === "string"
-        && value.workspace.length > 0
-        && typeof value.prompt === "string"
-        && value.prompt.trim().length > 0
-        && (value.startup_profile === undefined
-            || isStartupProfile(value.startup_profile))
-        && (value.approval_mode === undefined
-            || (typeof value.approval_mode === "string"
-                && value.approval_mode.length > 0))
-        && (value.model === undefined
-            || (typeof value.model === "string" && value.model.length > 0))
-        && (value.effort === undefined
-            || (typeof value.effort === "string" && value.effort.length > 0))
-    ) {
-        return {
-            type: "run_once",
-            workspace: value.workspace,
-            prompt: value.prompt,
-            ...(value.approval_mode === undefined
-                ? {}
-                : { approval_mode: value.approval_mode as string }),
-            ...(value.model === undefined
-                ? {}
-                : { model: value.model as string }),
-            ...(value.effort === undefined
-                ? {}
-                : { effort: value.effort as string }),
-            ...(value.startup_profile === undefined
-                ? {}
-                : { startup_profile: value.startup_profile }),
         };
     }
     if (

@@ -33,8 +33,6 @@ import type {
     BranchRegisteredAgentOptions,
     RegisteredAgentSummary,
     RenameSessionOutcome,
-    RunOnceOptions,
-    RunOnceResult,
 } from "./agent-registry.ts";
 import type { AgentAttachment, ResidentAgent } from "./resident-agent.ts";
 import {
@@ -224,7 +222,6 @@ export interface StartHostServerOptions {
         workspace: string,
         signal: AbortSignal,
     ) => Promise<unknown>;
-    readonly runOnce?: (options: RunOnceOptions) => Promise<RunOnceResult>;
     readonly canShutdown?: () => boolean;
     readonly canReplace?: () => boolean;
     readonly onShutdownAccepted?: () => void | Promise<void>;
@@ -426,9 +423,6 @@ export async function startHostServer(
                 ?? (() => Promise.resolve({ status: "not_found" as const })),
             options.renameSession
                 ?? (() => Promise.resolve({ status: "not_found" })),
-            options.runOnce ?? (() => Promise.reject(
-                new Error("Bounded runs are unavailable"),
-            )),
             options.listExtensionCommands ?? (() => []),
             options.runExtensionCommand ?? (() => Promise.reject(
                 new Error("Extension commands are unavailable"),
@@ -544,7 +538,6 @@ function receiveConnection(
         targetAgentId: string,
         name: string | null,
     ) => Promise<RenameSessionOutcome>,
-    runOnce: (options: RunOnceOptions) => Promise<RunOnceResult>,
     listExtensionCommands: () => readonly ExtensionCommandDescriptor[],
     runExtensionCommand: (
         name: string,
@@ -1400,47 +1393,6 @@ function receiveConnection(
                     type: "session_rename_rejected",
                     agent_id: request.target_agent_id,
                     reason: "failed",
-                }),
-            ).then(() => socket.end(), () => socket.destroy());
-            return;
-        }
-        if (request?.type === "run_once") {
-            // No request deadline: this connection is held for a whole turn,
-            // and the timeout exists to drop a client that never speaks.
-            clearDeadline();
-            finished = true;
-            void runOnce({
-                workspace: request.workspace,
-                prompt: request.prompt,
-                ...(request.approval_mode === undefined
-                    ? {}
-                    : { approvalMode: request.approval_mode }),
-                ...(request.model === undefined
-                    ? {}
-                    : { modelRef: request.model }),
-                ...(request.effort === undefined
-                    ? {}
-                    : { reasoningEffort: request.effort }),
-                ...(request.startup_profile === undefined
-                    ? {}
-                    : { startupProfile: request.startup_profile }),
-            }).then(
-                (result) => send({
-                    type: "run_once_finished",
-                    agent_id: result.agentId,
-                    session_path: result.sessionPath,
-                    text: result.text,
-                    outcome: result.outcome,
-                    ...(result.error === undefined
-                        ? {}
-                        : { error: result.error }),
-                    ...(result.notes.length === 0
-                        ? {}
-                        : { notes: result.notes }),
-                }),
-                (error: unknown) => send({
-                    type: "run_once_failed",
-                    ...reasonOf(error),
                 }),
             ).then(() => socket.end(), () => socket.destroy());
             return;

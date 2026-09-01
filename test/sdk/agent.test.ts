@@ -640,6 +640,44 @@ test("Vera.run --session writes a durable SessionStore at the named path", async
     }
 });
 
+test("Vera.run uses the shipped default agent when none is named", async () => {
+    const result = await Vera.run({
+        prompt: "say hostless",
+        config: baseConfig(),
+        createAdapter: () => new FauxAdapter(
+            [answer("hostless")],
+            { chunkSize: 3 },
+        ),
+    });
+    expect(result.outcome).toBe("completed");
+    expect(result.text).toBe("hostless");
+});
+
+test("Vera.run does not start a child when subagent configuration is missing", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-run-subagent-"));
+    let adapters = 0;
+    try {
+        const result = await Vera.run({
+            prompt: "start one",
+            workspace: root,
+            config: { ...baseConfig(), approval_mode: "auto" },
+            createAdapter() {
+                adapters += 1;
+                return new FauxAdapter(adapters === 1
+                    ? [
+                        toolCall("async_subagent", { description: "waiting task" }),
+                        answer("No child was started."),
+                    ]
+                    : [answer("must not run")]);
+            },
+        });
+        expect(result.outcome).toBe("completed");
+        expect(adapters).toBe(1);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 interface FindingOutput {
     readonly findings: readonly { readonly summary: string }[];
 }

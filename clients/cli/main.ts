@@ -30,9 +30,6 @@ import {
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
-    type RunOnceOutcome,
-} from "../../src/host/run-once-client.ts";
-import {
     createHostLockfile,
     HostBuildMismatchError,
     HostProtocolMismatchError,
@@ -207,6 +204,15 @@ function cliStreamWantsColor(output: CliOutput): boolean {
     return "isTTY" in output && (output as { isTTY?: boolean }).isTTY === true;
 }
 
+interface PrintOutcome {
+    readonly agentId: string;
+    readonly sessionPath: string;
+    readonly text: string;
+    readonly outcome: "completed" | "error" | "aborted";
+    readonly error?: string;
+    readonly notes: readonly string[];
+}
+
 export interface CliDependencies {
     readonly abortAgent?: (agentId: string) => Promise<void>;
     readonly closeAgent?: (agentId: string) => Promise<CloseAgentResult>;
@@ -238,7 +244,7 @@ export interface CliDependencies {
         readonly effort?: string;
         readonly startupProfile?: StartupProfile;
         readonly sessionPath?: string;
-    }) => Promise<RunOnceOutcome>;
+    }) => Promise<PrintOutcome>;
     readonly runTui?: (
         target: TuiStartTarget,
         options?: TuiStartOptions,
@@ -950,7 +956,7 @@ async function runHostlessPrint(request: {
     readonly effort?: string;
     readonly startupProfile?: StartupProfile;
     readonly sessionPath?: string;
-}): Promise<RunOnceOutcome> {
+}): Promise<PrintOutcome> {
     const result = await Vera.run({
         prompt: request.prompt,
         workspace: request.workspace,

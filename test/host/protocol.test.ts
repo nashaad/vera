@@ -113,13 +113,7 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "run_once",
         workspace: "/work/one",
         prompt: "measure",
-        startup_profile: "prompt_only",
-    }))).toEqual({
-        type: "run_once",
-        workspace: "/work/one",
-        prompt: "measure",
-        startup_profile: "prompt_only",
-    });
+    }))).toBeUndefined();
     expect(parseHostRequest(
         '{"type":"resume_agent","session_path":"/sessions/one.jsonl"}',
     )).toEqual({

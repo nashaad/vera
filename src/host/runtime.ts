@@ -1239,18 +1239,6 @@ export async function startResidentHost(
                 }
                 return renamed;
             },
-            runOnce: async (runOptions) => {
-                const result = await registry.runOnce(runOptions);
-                // The agent is already closed and off the roster, so the
-                // stored index is the only place the listing can learn of it.
-                if (result.sessionPath !== "") {
-                    await indexStoredSession(
-                        result.sessionPath,
-                        storedSessionIndex,
-                    );
-                }
-                return result;
-            },
             listExtensionCommands: () => extensions.commands(),
             runExtensionCommand: (
                 name,

@@ -3281,7 +3281,7 @@ test("closing the host resolves a pending configuration workflow", async () => {
     }
 });
 
-test("print mode reports missing subagent configuration as unavailable", async () => {
+test("missing subagent configuration can be marked unavailable without starting a child", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-subagent-config-print-"));
     let adapters = 0;
     const registry = new AgentRegistry({
@@ -3316,17 +3316,35 @@ test("print mode reports missing subagent configuration as unavailable", async (
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
     });
     try {
-        const result = await registry.runOnce({
-            prompt: "start one",
+        const agent = await registry.create({
+            id: "print-subagent",
             workspace: root,
             startupProfile: "bare",
         });
-        expect(result.outcome).toBe("completed");
-        expect(result.notes).toContain(
-            "Subagent configuration is unavailable in print mode; no child started.",
-        );
+        const attachment = agent.attach();
+        expect((await attachment.receive()).type).toBe("history");
+        attachment.send({ type: "prompt", content: "start one" });
+        while (true) {
+            const update = await attachment.receive();
+            if (
+                update.type === "ui_request"
+                && update.request.type === "configuration_required"
+            ) {
+                attachment.send({
+                    type: "ui_response",
+                    requestId: update.requestId,
+                    response: {
+                        type: "configuration_required",
+                        outcome: "unavailable",
+                    },
+                });
+                continue;
+            }
+            if (update.type === "turn_finished") break;
+        }
+        attachment.detach();
         expect(adapters).toBe(1);
-        expect(registry.list()).toEqual([]);
+        expect(registry.find("print-subagent")).toBeDefined();
     } finally {
         await registry.close();
         await rm(root, { recursive: true, force: true });
@@ -3379,14 +3397,16 @@ test("an existing subagent policy refuses an out-of-policy model without UI", as
         sessionPathForId: (id) => join(root, `${id}.jsonl`),
     });
     try {
-        const result = await registry.runOnce({
-            prompt: "start forbidden task",
+        const agent = await registry.create({
+            id: "policy-run",
             workspace: root,
             startupProfile: "bare",
         });
-        expect(result.notes).toEqual([]);
+        const attachment = agent.attach();
+        await runPrompt(attachment, "start forbidden task");
+        attachment.detach();
         expect(adapters).toBe(1);
-        const toolResult = (await SessionStore.open(result.sessionPath))
+        const toolResult = (await SessionStore.open(join(root, "policy-run.jsonl")))
             .messages().find((message) => message.role === "tool_result");
         expect(toolResult?.role === "tool_result"
             ? toolResult.content[0]?.text

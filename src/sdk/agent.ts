@@ -24,12 +24,19 @@ import {
     builtInPermissionMode,
 } from "../engine/permissions.ts";
 import type { SessionModelUsage } from "../engine/protocol.ts";
+import {
+    isConfigurationRequiredUiRequestUpdate,
+    isToolApprovalUiRequestUpdate,
+    isUserQuestionUiRequestUpdate,
+    type UiRequestUpdate,
+} from "../engine/protocol.ts";
 import { runHeadlessLoop } from "../engine/run-turn.ts";
 import { ToolHooks } from "../engine/hooks.ts";
 import type { PreTurnHook } from "./hooks.ts";
 import {
     ResidentAgent,
     ResidentAgentClosedError,
+    type AgentAttachment,
 } from "../host/resident-agent.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
@@ -263,7 +270,11 @@ export class Vera {
     ): Agent {
         const normalized = typeof definition === "string"
             ? definition
-            : bindableDefinition(defineAgent(definition));
+            : bindableDefinition(
+                isShippedDefaultAgent(definition)
+                    ? definition
+                    : defineAgent(definition),
+            );
         if (typeof normalized !== "string") {
             effectivePosture(this.runtimePosture, normalized, this.config);
         }
@@ -398,6 +409,10 @@ export class Agent {
                 }
                 if (update.type === "model_substitution") {
                     substitutions.push(update);
+                    continue;
+                }
+                if (update.type === "ui_request") {
+                    refuseHeadlessUiRequest(attachment, update);
                     continue;
                 }
                 if (update.type === "agent_failed") {
@@ -576,6 +591,11 @@ function bindableDefinition(definition: AgentDefinition): AgentDefinition {
     return definition;
 }
 
+function isShippedDefaultAgent(definition: AgentDefinition): boolean {
+    return definition.name === DEFAULT_AGENT.name
+        && definition.instructions === "";
+}
+
 function effectivePosture(
     runtimePosture: string,
     definition: AgentDefinition,
@@ -711,4 +731,36 @@ function isUnusableCredential(message: string): boolean {
         || lowered.includes("auth.json")
         || lowered.includes("credential")
         || lowered.includes("401");
+}
+
+function refuseHeadlessUiRequest(
+    attachment: AgentAttachment,
+    update: UiRequestUpdate,
+): void {
+    if (isToolApprovalUiRequestUpdate(update)) {
+        attachment.send({
+            type: "ui_response",
+            requestId: update.requestId,
+            response: { type: "tool_approval", decision: "deny" },
+        });
+        return;
+    }
+    if (isUserQuestionUiRequestUpdate(update)) {
+        attachment.send({
+            type: "ui_response",
+            requestId: update.requestId,
+            response: { type: "user_question", outcome: "cancelled" },
+        });
+        return;
+    }
+    if (isConfigurationRequiredUiRequestUpdate(update)) {
+        attachment.send({
+            type: "ui_response",
+            requestId: update.requestId,
+            response: {
+                type: "configuration_required",
+                outcome: "unavailable",
+            },
+        });
+    }
 }

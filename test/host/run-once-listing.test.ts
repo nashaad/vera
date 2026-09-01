@@ -4,8 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
-import { runOnceThroughHost } from "../../src/host/run-once-client.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
+import { Vera } from "../../src/sdk/agent.ts";
 import { emptyUsage, type AssistantMessage } from "../../src/model/types.ts";
 import { FauxAdapter } from "../support/faux-adapter.ts";
 
@@ -20,7 +20,7 @@ function textReply(text: string): AssistantMessage {
 }
 
 (process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
-    "a finished bounded run stays on the session listing",
+    "a bounded run leaves the session listing unchanged",
     async () => {
         const root = await realpath(
             await mkdtemp(join(tmpdir(), "vera-run-once-listing-")),
@@ -33,29 +33,28 @@ function textReply(text: string): AssistantMessage {
                 model: "faux/test",
                 approval_mode: "auto",
             },
-            createAdapter: () => new FauxAdapter([textReply("done")]),
+            createAdapter: () => new FauxAdapter([textReply("host idle")]),
             socketPath,
             lockPath: join(root, "host.json"),
             sessionDirectory: join(root, "sessions"),
             eventLogDirectory: join(root, "logs"),
         });
         try {
-            const run = await runOnceThroughHost(socketPath, {
-                workspace: root,
+            const before = await listAgentsThroughHost(socketPath);
+            const result = await Vera.run({
                 prompt: "say done",
-            });
-            expect(run.outcome).toBe("completed");
-
-            // The run's agent is closed and off the roster, so only the
-            // stored-session index can carry it to the listing.
-            const listed = await listAgentsThroughHost(socketPath);
-            const entry = listed.find((agent) => agent.id === run.agentId);
-            expect(entry).toMatchObject({
-                session_path: run.sessionPath,
-                status: "completed",
-                live: false,
                 workspace: root,
+                config: {
+                    schema_version: 1,
+                    provider: "openrouter",
+                    model: "faux/test",
+                    approval_mode: "auto",
+                },
+                createAdapter: () => new FauxAdapter([textReply("done")]),
             });
+            expect(result.outcome).toBe("completed");
+            const after = await listAgentsThroughHost(socketPath);
+            expect(after).toEqual(before);
         } finally {
             await host.close();
             await rm(root, { recursive: true, force: true });

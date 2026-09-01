@@ -67,11 +67,29 @@ import { readModelFailures } from "../../src/store/model-failures.ts";
             modelFailureLedgerPath: ledgerPath,
         });
         try {
-            await host.registry.runOnce({
+            await host.registry.create({
                 id: "ledger-run",
                 workspace,
                 sessionPath: join(root, "sessions", "ledger-run.jsonl"),
-                prompt: "say something",
+            }).then(async (agent) => {
+                const attachment = agent.attach();
+                try {
+                    while (true) {
+                        const update = await attachment.receive();
+                        if (update.type === "history") {
+                            agent.sendPrompt("say something");
+                            continue;
+                        }
+                        if (
+                            update.type === "turn_finished"
+                            || update.type === "agent_failed"
+                        ) {
+                            return;
+                        }
+                    }
+                } finally {
+                    attachment.detach();
+                }
             });
             const records = readModelFailures(ledgerPath);
             expect(records).toHaveLength(1);
