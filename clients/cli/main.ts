@@ -1522,9 +1522,9 @@ if (import.meta.main) {
         const strays = unrecognisedHomeEntries();
         if (strays.length > 0) {
             stderr.write(
-                `${veraHomeDirectory()} holds entries no profile owns: ${strays.join(", ")}.\n`
-                + "Whatever wrote them joined the home directly instead of a profile;"
-                + " move them under a profile once it is fixed.\n",
+                `${veraHomeDirectory()} holds entries the home does not own: ${strays.join(", ")}.\n`
+                + "Whatever wrote them joined the home directly;"
+                + " move them or remove them.\n",
             );
         }
         process.exitCode = await runCliMain(process.argv.slice(2));

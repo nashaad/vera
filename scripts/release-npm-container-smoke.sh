@@ -63,9 +63,8 @@ docker run --platform linux/amd64 --rm --init \
         done
         test "$ready" = 1
 
-        mkdir -p "$VERA_HOME/profiles/default"
         printf "%s\n" "{\"schema_version\":1,\"provider\":\"faux-local\",\"model\":\"faux-model\",\"approval_mode\":\"auto\",\"providers\":{\"faux-local\":{\"protocol\":\"openai-chat\",\"base_url\":\"http://127.0.0.1:8790/v1\",\"credential\":\"none\"}}}" \
-            > "$VERA_HOME/profiles/default/config.json"
+            > "$VERA_HOME/config.json"
         response=$(vera -p "Reply with exactly: container faux passed" --prompt-only)
         test "$response" = "container faux passed"
         printf "version=%s\n" "$(vera --version)"
