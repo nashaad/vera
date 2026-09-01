@@ -1,0 +1,231 @@
+{
+  "schema_version": 1,
+  "generated_at": "2026-09-01",
+  "models": [
+    {
+      "id": "open/unsloth/qwen3.6-35b-a3b",
+      "dialect": "llama.cpp-openai",
+      "wire_id_match": [
+        "*Qwen3.6-35B*",
+        "*qwen3.6-35b*"
+      ],
+      "thinking": {
+        "style": "enable_thinking",
+        "request_layer": "enable-thinking-kwargs",
+        "efforts": {
+          "off": "false",
+          "high": "true"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["reasoning_effort"]
+      },
+      "notes": [
+        "preserve_thinking is a second binary; not a /effort rung",
+        "architectural max 262144 is not occupancy; loaded n_ctx is a launch flag"
+      ],
+      "provenance": {
+        "docs_url": "https://unsloth.ai/docs/models/qwen3.6",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/unsloth/qwen3.6-27b",
+      "dialect": "llama.cpp-openai",
+      "wire_id_match": [
+        "*Qwen3.6-27B*",
+        "*qwen3.6-27b*"
+      ],
+      "thinking": {
+        "style": "enable_thinking",
+        "request_layer": "enable-thinking-kwargs",
+        "efforts": {
+          "off": "false",
+          "high": "true"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["reasoning_effort"]
+      },
+      "notes": [
+        "preserve_thinking is a second binary; not a /effort rung",
+        "architectural max 262144 is not occupancy; loaded n_ctx is a launch flag"
+      ],
+      "provenance": {
+        "docs_url": "https://unsloth.ai/docs/models/qwen3.6",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/unsloth/qwen3.5-small",
+      "dialect": "llama.cpp-openai",
+      "wire_id_match": [
+        "*Qwen3.5-0.8B*",
+        "*Qwen3.5-2B*",
+        "*Qwen3.5-4B*",
+        "*Qwen3.5-9B*",
+        "*qwen3.5-0.8b*",
+        "*qwen3.5-2b*",
+        "*qwen3.5-4b*",
+        "*qwen3.5-9b*"
+      ],
+      "thinking": {
+        "style": "enable_thinking",
+        "request_layer": "enable-thinking-kwargs",
+        "efforts": {
+          "off": "false",
+          "high": "true"
+        },
+        "omit_means": "off",
+        "refuse_fields": ["reasoning_effort"]
+      },
+      "notes": [
+        "0.8B, 2B, 4B, and 9B ship thinking off if enable_thinking is omitted"
+      ],
+      "provenance": {
+        "docs_url": "https://unsloth.ai/docs/models/qwen3.5",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/unsloth/gpt-oss",
+      "dialect": "llama.cpp-openai",
+      "wire_id_match": [
+        "*gpt-oss*",
+        "*GPT-OSS*"
+      ],
+      "thinking": {
+        "style": "reasoning_effort",
+        "request_layer": "openai-reasoning-effort",
+        "efforts": {
+          "off": null,
+          "low": "low",
+          "medium": "medium",
+          "high": "high"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["enable_thinking"]
+      },
+      "notes": [
+        "Same Unsloth or llama.cpp server can load this beside Qwen; do not send enable_thinking",
+        "Ollama gpt-oss is a different dialect row"
+      ],
+      "provenance": {
+        "docs_url": "https://docs.ollama.com/capabilities/thinking",
+        "date": "2026-09-01",
+        "applies_to": "Harmony-style gpt-oss on llama.cpp / Unsloth Studio"
+      }
+    },
+    {
+      "id": "open/ollama/gpt-oss",
+      "dialect": "ollama",
+      "wire_id_match": [
+        "gpt-oss*",
+        "gpt-oss:*"
+      ],
+      "thinking": {
+        "style": "reasoning_effort",
+        "request_layer": "openai-reasoning-effort",
+        "efforts": {
+          "off": null,
+          "low": "low",
+          "medium": "medium",
+          "high": "high"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["enable_thinking", "chat_template_kwargs"]
+      },
+      "notes": [
+        "Ollama documents think low|medium|high only; true/false is ignored; the trace cannot be fully disabled"
+      ],
+      "provenance": {
+        "docs_url": "https://docs.ollama.com/capabilities/thinking",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/ollama/qwen3",
+      "dialect": "ollama",
+      "wire_id_match": [
+        "qwen3*",
+        "qwen3:*",
+        "qwen3.5*",
+        "qwen3.6*"
+      ],
+      "thinking": {
+        "style": "reasoning_effort",
+        "request_layer": "openai-reasoning-effort",
+        "efforts": {
+          "off": "none",
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "max": "max"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["enable_thinking", "chat_template_kwargs"]
+      },
+      "notes": [
+        "Native /api/chat uses think true|false or levels; Vera talks OpenAI-compat, so off is reasoning_effort none",
+        "Live /api/show still decides whether thinking exists; this row only names the vocabulary"
+      ],
+      "provenance": {
+        "docs_url": "https://docs.ollama.com/api/openai-compatibility",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/ollama/deepseek-r1",
+      "dialect": "ollama",
+      "wire_id_match": [
+        "deepseek-r1*",
+        "deepseek-r1:*"
+      ],
+      "thinking": {
+        "style": "reasoning_effort",
+        "request_layer": "openai-reasoning-effort",
+        "efforts": {
+          "off": "none",
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "max": "max"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["enable_thinking", "chat_template_kwargs"]
+      },
+      "notes": [
+        "Ollama documents think=false to disable; OpenAI-compat maps that to reasoning_effort none"
+      ],
+      "provenance": {
+        "docs_url": "https://docs.ollama.com/capabilities/thinking",
+        "date": "2026-09-01"
+      }
+    },
+    {
+      "id": "open/ollama/thinking",
+      "dialect": "ollama",
+      "wire_id_match": ["*"],
+      "requires_live_thinking": true,
+      "thinking": {
+        "style": "reasoning_effort",
+        "request_layer": "openai-reasoning-effort",
+        "efforts": {
+          "off": "none",
+          "low": "low",
+          "medium": "medium",
+          "high": "high",
+          "max": "max"
+        },
+        "omit_means": "on",
+        "refuse_fields": ["enable_thinking", "chat_template_kwargs"]
+      },
+      "notes": [
+        "Fallback for an Ollama model whose /api/show lists thinking and no family row matched",
+        "gpt-oss must not land here; its row is more specific and forbids off"
+      ],
+      "provenance": {
+        "docs_url": "https://docs.ollama.com/capabilities/thinking",
+        "date": "2026-09-01"
+      }
+    }
+  ]
+}
