@@ -1145,7 +1145,6 @@ export async function startConfiguredTui(
     // `vera attach` against an already-running host fail on a fresh machine.
     const config = loadOptionalVeraConfig({ projectRoot: process.cwd() });
     let host = await findOrStartResidentHost({
-        projectRoot: process.cwd(),
         ...(options.confirmBusyUpgrade === undefined
             ? {}
             : { confirmBusyUpgrade: options.confirmBusyUpgrade }),
@@ -1270,7 +1269,6 @@ export async function startConfiguredTui(
                 // to another project, must refuse rather than be killed.
                 const replaceExisting = options?.replaceExisting === true;
                 host = await findOrStartResidentHost({
-                    projectRoot: process.cwd(),
                     confirmBusyUpgrade: replaceExisting
                         ? confirmManualReconnectUpgrade
                         : () => false,

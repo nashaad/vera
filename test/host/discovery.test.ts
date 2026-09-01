@@ -2,7 +2,6 @@ import { expect, test } from "bun:test";
 
 import {
     ensureResidentHost,
-    HostProjectMismatchError,
     HostReplacementBusyError,
 } from "../../src/host/discovery.ts";
 import type {
@@ -34,91 +33,15 @@ test("host discovery reuses an already verified resident host", async () => {
     expect(starts).toBe(0);
 });
 
-test("host discovery gracefully replaces a host without project identity", async () => {
-    const replacementHost: HostLockRecord = {
-        ...runningHost,
-        pid: 202,
-        project_root: "/checkouts/current",
-    };
+test("clients from two projects reuse the same resident host", async () => {
     let starts = 0;
-    let shutdownIfIdleRequests = 0;
-    const host = await ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: scriptedLockfile([
-            runningHost,
-            undefined,
-            undefined,
-            replacementHost,
-        ]),
+    const hostA = await ensureResidentHost({
+        lockfile: scriptedLockfile([runningHost]),
         startHost: () => {
             starts += 1;
         },
-        shutdownForReplacement: async (socketPath, identity, requester) => {
-            expect(socketPath).toBe(runningHost.socket_path);
-            expect(identity).toEqual({
-                pid: runningHost.pid,
-                started_at: runningHost.started_at,
-                protocol_version: HOST_PROTOCOL_VERSION,
-            });
-            expect(requester).toBe(HOST_PROTOCOL_VERSION);
-            return {
-                type: "shutdown_for_replacement_accepted",
-                pid: runningHost.pid,
-                started_at: runningHost.started_at,
-            };
-        },
-        shutdownIfIdle: async () => {
-            shutdownIfIdleRequests += 1;
-            return undefined;
-        },
-        wait: async () => {},
     });
-
-    expect(host).toEqual(replacementHost);
-    expect(starts).toBe(1);
-    expect(shutdownIfIdleRequests).toBe(0);
-});
-
-test("a host that wins the startup race is also checked for project identity", async () => {
-    const wrongHost: HostLockRecord = {
-        ...runningHost,
-        project_root: "/checkouts/other",
-    };
-    const replacementHost: HostLockRecord = {
-        ...runningHost,
-        pid: 202,
-        project_root: "/checkouts/current",
-    };
-    let starts = 0;
-    const host = await ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: scriptedLockfile([
-            undefined,
-            wrongHost,
-            wrongHost,
-            undefined,
-            undefined,
-            replacementHost,
-        ]),
-        startHost: () => {
-            starts += 1;
-        },
-        shutdownForReplacement: async () => ({
-            type: "shutdown_for_replacement_accepted",
-            pid: wrongHost.pid,
-            started_at: wrongHost.started_at,
-        }),
-        wait: async () => {},
-    });
-
-    expect(host).toEqual(replacementHost);
-    expect(starts).toBe(2);
-});
-
-test("a busy project mismatch stays fail closed when replacement is declined", async () => {
-    let starts = 0;
-    const attempt = ensureResidentHost({
-        projectRoot: "/checkouts/current",
+    const hostB = await ensureResidentHost({
         lockfile: scriptedLockfile([{
             ...runningHost,
             project_root: "/checkouts/other",
@@ -126,199 +49,11 @@ test("a busy project mismatch stays fail closed when replacement is declined", a
         startHost: () => {
             starts += 1;
         },
-        shutdownForReplacement: async () => ({
-            type: "shutdown_for_replacement_refused",
-            reason: "busy",
-        }),
-        shutdownIfIdle: async () => ({
-            type: "shutdown_if_idle_refused",
-            reason: "busy",
-        }),
     });
 
-    await expect(attempt).rejects.toBeInstanceOf(HostProjectMismatchError);
-    await expect(attempt).rejects.toThrow(
-        "Resident host is bound to /checkouts/other, not /checkouts/current",
-    );
+    expect(hostA.pid).toBe(runningHost.pid);
+    expect(hostB.pid).toBe(runningHost.pid);
     expect(starts).toBe(0);
-});
-
-test("a busy project mismatch can be confirmed and replaced", async () => {
-    const mismatchedHost: HostLockRecord = {
-        ...runningHost,
-        project_root: "/checkouts/other",
-    };
-    const replacementHost: HostLockRecord = {
-        ...runningHost,
-        pid: 202,
-        project_root: "/checkouts/current",
-    };
-    let starts = 0;
-    let terminated: number | undefined;
-    const host = await ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: scriptedLockfile([
-            mismatchedHost,
-            mismatchedHost,
-            undefined,
-            undefined,
-            replacementHost,
-        ]),
-        startHost: () => {
-            starts += 1;
-        },
-        shutdownForReplacement: async () => ({
-            type: "shutdown_for_replacement_refused",
-            reason: "busy",
-        }),
-        shutdownIfIdle: async () => ({
-            type: "shutdown_if_idle_refused",
-            reason: "busy",
-        }),
-        confirmBusyUpgrade: async (error) => {
-            expect(error).toBeInstanceOf(HostProjectMismatchError);
-            return true;
-        },
-        terminateHost: async (pid) => {
-            terminated = pid;
-        },
-        wait: async () => {},
-    });
-
-    expect(host).toEqual(replacementHost);
-    expect(terminated).toBe(mismatchedHost.pid);
-    expect(starts).toBe(1);
-});
-
-test("replaceExisting on a busy project-mismatched host does not terminate", async () => {
-    const mismatchedHost: HostLockRecord = {
-        ...runningHost,
-        project_root: "/checkouts/other",
-    };
-    let terminated = 0;
-    await expect(ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: scriptedLockfile([mismatchedHost]),
-        replaceExisting: true,
-        startHost: () => {
-            throw new Error("must not start");
-        },
-        shutdownForReplacement: async () => ({
-            type: "shutdown_for_replacement_refused",
-            reason: "busy",
-        }),
-        shutdownIfIdle: async () => ({
-            type: "shutdown_if_idle_refused",
-            reason: "busy",
-        }),
-        confirmBusyUpgrade: () => true,
-        terminateHost: () => {
-            terminated += 1;
-        },
-        wait: async () => {},
-    })).rejects.toBeInstanceOf(HostReplacementBusyError);
-    expect(terminated).toBe(0);
-});
-
-test("a gracefully closing project host is not mistaken for wedged", async () => {
-    const mismatchedHost: HostLockRecord = {
-        ...runningHost,
-        project_root: "/checkouts/other",
-    };
-    const replacementHost: HostLockRecord = {
-        ...runningHost,
-        pid: 202,
-        project_root: "/checkouts/current",
-    };
-    const readings = [
-        mismatchedHost,
-        undefined,
-        undefined,
-        undefined,
-        replacementHost,
-    ];
-    let diagnoses = 0;
-    let starts = 0;
-    const host = await ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: {
-            ...scriptedLockfile(readings),
-            diagnose: async () => {
-                diagnoses += 1;
-                return diagnoses === 1
-                    ? { record: mismatchedHost, wedged: true }
-                    : {};
-            },
-        },
-        startHost: () => {
-            starts += 1;
-        },
-        shutdownForReplacement: async () => ({
-            type: "shutdown_for_replacement_accepted",
-            pid: mismatchedHost.pid,
-            started_at: mismatchedHost.started_at,
-        }),
-        confirmBusyUpgrade: () => {
-            throw new Error("graceful shutdown must not require confirmation");
-        },
-        wait: async () => {},
-    });
-
-    expect(host).toEqual(replacementHost);
-    expect(diagnoses).toBe(3);
-    expect(starts).toBe(1);
-});
-
-test("an older-protocol handoff rechecks the winning host's project", async () => {
-    const protocolMismatch = new HostProtocolMismatchError(
-        runningHost.pid,
-        HOST_PROTOCOL_VERSION - 1,
-        runningHost.started_at,
-        runningHost.socket_path,
-    );
-    const foreignHost: HostLockRecord = {
-        ...runningHost,
-        pid: 202,
-        project_root: "/checkouts/other",
-    };
-    let reads = 0;
-    let replacementRequests = 0;
-    const attempt = ensureResidentHost({
-        projectRoot: "/checkouts/current",
-        lockfile: {
-            publish(): Promise<HostLockRecord> {
-                throw new Error("not used");
-            },
-            read(): Promise<HostLockRecord | undefined> {
-                reads += 1;
-                return reads === 1
-                    ? Promise.reject(protocolMismatch)
-                    : Promise.resolve(foreignHost);
-            },
-        },
-        startHost: () => {
-            throw new Error("must not start");
-        },
-        shutdownForReplacement: async () => {
-            replacementRequests += 1;
-            return replacementRequests === 1
-                ? {
-                    type: "shutdown_for_replacement_refused",
-                    reason: "identity_mismatch",
-                }
-                : {
-                    type: "shutdown_for_replacement_refused",
-                    reason: "requester_not_newer",
-                };
-        },
-        shutdownIfIdle: async () => ({
-            type: "shutdown_if_idle_refused",
-            reason: "requester_not_newer",
-        }),
-    });
-
-    await expect(attempt).rejects.toBeInstanceOf(HostProjectMismatchError);
-    expect(replacementRequests).toBe(2);
 });
 
 test("host discovery starts once and waits for a verified lock record", async () => {

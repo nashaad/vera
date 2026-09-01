@@ -41,7 +41,6 @@ import {
     assertMatchingHostBuild,
     type HostLockRecord,
 } from "../../src/host/lockfile.ts";
-import { HostProjectMismatchError } from "../../src/host/discovery.ts";
 import {
     forceStopResidentHost,
     gracefulStopResidentHost,
@@ -940,9 +939,7 @@ async function runOnceOnResidentHost(request: {
     readonly startupProfile?: StartupProfile;
 }): Promise<RunOnceOutcome> {
     const { findOrStartResidentHost } = await import("../host/launch.ts");
-    const host = await findOrStartResidentHost({
-        projectRoot: request.workspace,
-    });
+    const host = await findOrStartResidentHost();
     return runOnceThroughHost(host.socket_path, request);
 }
 
@@ -1336,8 +1333,6 @@ async function confirmBusyHostUpgrade(error?: Error): Promise<boolean> {
         const answer = await prompt.question(
             error instanceof HostUnresponsiveError
                 ? `The resident Vera host (PID ${error.pid}) is not responding. Replace it? [y/N] `
-                : error instanceof HostProjectMismatchError
-                    ? "Vera needs to restart the resident host for this checkout. Restart it and disconnect attached clients? [y/N] "
                 : "An older Vera host is busy. Restart it and disconnect attached clients? [y/N] ",
         );
         return answer.trim().toLowerCase() === "y"

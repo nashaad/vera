@@ -24,7 +24,7 @@ const pinnedBuildCandidate = capturePinnedBuild(entrypoint);
 
 let config;
 try {
-    config = loadOrCreateVeraConfig({ projectRoot: process.cwd() });
+    config = loadOrCreateVeraConfig();
 } catch (error) {
     if (error instanceof VeraConfigError) {
         process.stderr.write(`${renderCliFailure(error)}\n`);
@@ -36,7 +36,6 @@ try {
 const start = (): ReturnType<typeof startResidentHost> =>
     startResidentHost({
         config,
-        projectRoot: process.cwd(),
     });
 
 let host;

@@ -15,10 +15,7 @@ import {
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 import { AsyncQueue } from "../../../src/engine/async-queue.ts";
 import type { AgentUpdate } from "../../../src/engine/protocol.ts";
-import {
-    HostProjectMismatchError,
-    HostReplacementBusyError,
-} from "../../../src/host/discovery.ts";
+import { HostReplacementBusyError } from "../../../src/host/discovery.ts";
 import {
     HostProtocolMismatchError,
     HostUnresponsiveError,
@@ -402,14 +399,5 @@ test("typed /reconnect only auto-confirms a wedged host", () => {
     );
     expect(confirmManualReconnectUpgrade(new HostProtocolMismatchError(101, 2)))
         .toBe(false);
-    expect(confirmManualReconnectUpgrade(
-        new HostProjectMismatchError({
-            schema_version: 1,
-            pid: 101,
-            started_at: "2026-08-30T12:00:00.000Z",
-            socket_path: "/tmp/vera-host.sock",
-            project_root: "/checkouts/other",
-        }, "/checkouts/current"),
-    )).toBe(false);
     expect(confirmManualReconnectUpgrade(new Error("other"))).toBe(false);
 });
