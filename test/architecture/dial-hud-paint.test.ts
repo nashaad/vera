@@ -4,8 +4,13 @@ const source = (path: string): Promise<string> =>
     Bun.file(new URL(`../../${path}`, import.meta.url)).text();
 
 test("the dial HUD is coloured in one place, not inside the renderer", async () => {
-    const main = await source("clients/tui/main.ts");
-    expect(main).toContain("paintDialHud");
+    const files = ["clients/tui/main.ts"];
+    for await (const path of new Bun.Glob("clients/tui/main/**/*.ts").scan()) {
+        files.push(path);
+    }
+    const sources = await Promise.all(files.map((path) => source(path)));
+    expect(sources.some((text) => text.includes("paintDialHud"))).toBe(true);
+    const main = sources.join("\n");
     // The sentinels split spans apart, so anything reading one is deciding
     // colour. That decision belongs in dial-paint.ts, where it can be asserted.
     for (const sentinel of ["DIAL_PROVIDER_SEPARATOR", "DIAL_DEFAULT_SEPARATOR"]) {

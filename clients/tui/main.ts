@@ -1,4 +1,4 @@
-import { bg, BoxRenderable, CliRenderEvents, decodePasteBytes, fg, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, StyledText, TextRenderable, createCliRenderer, KeyEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
+import { BoxRenderable, CliRenderEvents, decodePasteBytes, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, TextRenderable, createCliRenderer, KeyEvent, RGBA, type CliRenderer, type Selection, type MouseEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 
 import { AsyncLocalStorage } from "node:async_hooks";
@@ -94,10 +94,7 @@ import {
     findOrStartResidentHost,
     worktreeRuntimeNotice,
 } from "../host/launch.ts";
-import {
-    createTuiApprovalView,
-    tuiApprovalHint,
-} from "./approval.ts";
+import { createTuiApprovalView } from "./approval.ts";
 import {
     createTuiQuestionView,
 } from "./question.ts";
@@ -227,7 +224,7 @@ import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedMod
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView, handleTuiSecretPromptPaste } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
-import { tuiKeyChord, tuiKeyHint } from "./keymap.ts";
+import { tuiKeyHint } from "./keymap.ts";
 
 /** The agent list a /agent surface renders, as the host last reported it. */
 import { DIAL_HUD_CAP, dialEffortPending, renderDialStrip, DIAL_EXIT_SEPARATOR } from "./dials.ts";
@@ -251,7 +248,7 @@ import {
 } from "../../src/providers/auth-storage.ts";
 import { configuredProviders, findConfiguredProvider } from "../../src/providers/registry.ts";
 import { createTuiPreferencesListView, handleTuiPreferencesListScroll } from "./preferences-list.ts";
-import { createTuiStandingNudgesView, handleTuiStandingNudgesPaste, handleTuiStandingNudgesScroll, standingNudgeIndicatorRow } from "./standing-nudges.ts";
+import { createTuiStandingNudgesView, handleTuiStandingNudgesPaste, handleTuiStandingNudgesScroll } from "./standing-nudges.ts";
 import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 import {
@@ -271,8 +268,8 @@ export type {
     TuiStartTarget,
 } from "./session-target.ts";
 import { createTuiTimelinePickerView } from "./timeline-picker.ts";
-import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, appendTuiThought, dropTuiThinking, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
-import { resolveTuiTheme, tuiRecessColor, VERA_TUI_THEME } from "./theme.ts";
+import { TUI_HUD, TUI_MUTED, TUI_PANEL, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, appendTuiThought, dropTuiThinking, createTuiState, setTuiWorkspaceRoot, type TuiState, type TuiTranscriptEntry } from "./state.ts";
+import { resolveTuiTheme, tuiRecessColor } from "./theme.ts";
 import { tuiThemeProperties } from "./theme-bindings.ts";
 import { loadTuiActivityAnimationPreference, loadTuiActivityAnimationIntervalPreference, loadTuiActivityAnimationWidthPreference, loadTuiSidebarWidth, saveTuiSidebarWidth, loadTuiKeybindingOverlay, loadTuiPinnedSessionIds, loadTuiRecentSessionId, loadTuiThemePreference, loadTuiWorkspaceSidebarDocked, loadTuiWorkspaceSidebarWidth, saveTuiRecentSessionId, saveTuiWorkspaceSidebarWidth } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
@@ -300,6 +297,8 @@ import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseS
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
 import { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
+import { renderStatus } from "./main/render-status.ts";
+export { renderStatus };
 export { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
@@ -336,9 +335,9 @@ export const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
     action: { type: "resume_viewed_session" },
 };
 
-const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
+export const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 
-function tuiDevInstancePrefix(): string {
+export function tuiDevInstancePrefix(): string {
     const marker = process.env.VERA_DEV_INSTANCE?.trim();
     return marker === undefined || marker.length === 0
         ? ""
@@ -355,16 +354,16 @@ export function confirmManualReconnectUpgrade(error: Error): boolean {
     return error instanceof HostUnresponsiveError;
 }
 
-const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
-const HUD_HINT = tuiKeyHint("dials.open");
-const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
+export const MODEL_PICKER_HINT = tuiKeyHint("open_model_picker");
+export const HUD_HINT = tuiKeyHint("dials.open");
+export const SIDEBAR_HINT = tuiKeyHint("toggle_workspace_sidebar");
 
 /** Columns the quiet status row needs with the rail's chord in it. */
-function quietHintColumns(): number {
+export function quietHintColumns(): number {
     return HUD_HINT.length + MODEL_PICKER_HINT.length + SIDEBAR_HINT.length + 6;
 }
-const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
-const STOPPING_HINT = "stopping…";
+export const WORKING_HINT = `esc stop · ${tuiKeyHint("interrupt")}`;
+export const STOPPING_HINT = "stopping…";
 /** How much of a connection failure the status line carries. */
 const CONNECTION_FAILURE_HINT_LIMIT = 44;
 
@@ -382,7 +381,7 @@ export const FAILURE_REPORT_PROMPT =
     + " failing, how often, and what it looks like. State only what the list"
     + " shows.";
 
-function shortConnectionFailure(message: string): string {
+export function shortConnectionFailure(message: string): string {
     const line = message.split("\n")[0]?.trim() ?? "";
     return line.length > CONNECTION_FAILURE_HINT_LIMIT
         ? `${line.slice(0, CONNECTION_FAILURE_HINT_LIMIT - 1)}…`
@@ -390,7 +389,7 @@ function shortConnectionFailure(message: string): string {
 }
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
-const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
+export const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
 export const COPY_NOTICE_DURATION_MS = 1_500;
 export const MODE_TOAST_DURATION_MS = 2_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
@@ -428,7 +427,7 @@ export function assistantFollowsTools(
     return false;
 }
 
-function truncateFooterLine(text: string, width: number): string {
+export function truncateFooterLine(text: string, width: number): string {
     const characters = Array.from(text);
     const limit = Math.max(1, width);
     return characters.length <= limit
@@ -4497,481 +4496,6 @@ export function defaultModelChangeNotice(
 
 
 
-export function renderStatus(rt: TuiRuntime): void {
-    if (rt.shuttingDown) {
-        return;
-    }
-    const statusState = focusedAgentState(rt);
-    const uiRequest = focusedUiRequest(rt);
-    const focusedSide = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
-    const focusedAbort = focusedAbortRequested(rt);
-    const focusedActivity = focusedSide?.state.activity ?? rt.activity;
-    const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
-        ?? elapsedWorkingTime(rt);
-    const layout = rt.sidebar.layout();
-    const sideState = rt.hostedSidebar.pane?.state.state;
-    const paneHeadersVisible = !anyOverlayOpen(rt);
-    const sideWidth = rt.sidebar.width();
-    // The renderer still reports the whole terminal once the workspace
-    // rail has reserved its left side (see `tuiCommandSuggestionWidth`'s
-    // note above), so the HUD and status rows below the composer have to
-    // come out of the same budget or their content overruns the box the
-    // rail already narrowed them to.
-    const railInset = rt.workspaceSidebarView.railColumns() ?? 0;
-    const mainWidth = Math.max(1, rt.renderer.width - sideWidth - 1);
-    // Beside a second pane the row names each one, because the point of the
-    // row is telling the two columns apart. Alone it carries the session
-    // title, which is the only thing left worth putting there.
-    rt.sidebar.setMainHeader(!paneHeadersVisible || !rt.mainHeaderVisible
-        ? undefined
-        : rt.hostedSidebar.pane !== undefined
-        ? paneHeaderText(rt, 
-            "Vera",
-            rt.state.approvalMode,
-            rt.state.modelSettings,
-            layout === "split" ? mainWidth : rt.renderer.width,
-        )
-        : rt.sessionTitle !== undefined
-        ? `  Session: ${rt.sessionTitle}`
-        : undefined);
-    rt.sidebar.setHeader(
-        paneHeadersVisible
-            && rt.sidebarHeaderVisible
-            && rt.hostedSidebar.pane !== undefined
-            && sideState !== undefined
-        ? paneHeaderText(rt, 
-            rt.sidebarSessionTitle
-                ?? rt.hostedSidebar.mention
-                ?? rt.hostedSidebar.pane!.agentId,
-            sideState.approvalMode,
-            sideState.modelSettings,
-            layout === "split" ? sideWidth : rt.renderer.width,
-        )
-        : undefined);
-    const workingHint = focusedSide === undefined
-        ? WORKING_HINT
-        : `esc stop ${rt.hostedSidebar.mention ?? focusedSide.agentId}`
-            + ` · ${tuiKeyHint("interrupt")}`;
-    renderPendingQuote(rt);
-    renderHeldAddress(rt);
-    renderJumpToBottom(rt);
-    renderSidebarJump(rt);
-
-    let lifecycleHint = renderTuiIdleHint(
-        READY_HINT,
-        rt.runningBackgroundAgents,
-    );
-    if (rt.sessionSwitchPending) {
-        lifecycleHint = rt.sessionSwitchActivity;
-    } else if (rt.connectionFailed) {
-        lifecycleHint = `disconnected${
-            rt.connectionFailure === undefined
-                ? ""
-                : `: ${shortConnectionFailure(rt.connectionFailure)}`
-        } · /reconnect · ctrl+c quit`;
-    } else if (focusedAbort) {
-        lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
-    } else if (
-        uiRequest !== undefined
-        && isToolApprovalUiRequestUpdate(uiRequest)
-    ) {
-        lifecycleHint = tuiApprovalHint(uiRequest);
-    } else if (uiRequest?.request.type === "user_question") {
-        lifecycleHint = `${QUESTION_HINT} · ${focusedElapsed}`;
-    } else if (statusState.compactingSince !== undefined) {
-        lifecycleHint = renderTuiCompactionHint(
-            Date.now() - statusState.compactingSince,
-            {
-                strategy: statusState.compactionStrategy,
-                provider: statusState.compactionProvider,
-                model: statusState.compactionModel,
-            },
-        );
-    } else if (statusState.working) {
-        const modelActivity = statusState.modelActivity;
-        const waitingToRetry = modelActivity !== undefined
-            && Date.parse(modelActivity.retryAt) > Date.now();
-        lifecycleHint = waitingToRetry
-            ? `retrying · attempt ${modelActivity.nextAttempt}/${modelActivity.maxAttempts}`
-                + ` · ${focusedElapsed}`
-            : `${modelActivity === undefined ? focusedActivity : "thinking"}`
-                + ` · ${focusedElapsed}`;
-    } else if (rt.pendingImages.some((image) => image.id === undefined)) {
-        lifecycleHint = "attaching image…";
-    } else if (rt.promptSubmitting) {
-        lifecycleHint = rt.pendingSkillInvocations.size > 0
-            ? "invoking skill…"
-            : "sending prompt with image…";
-    } else if (rt.extensionCommandPending) {
-        lifecycleHint =
-            `${rt.extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
-    } else if (rt.pendingImages.length > 0) {
-        lifecycleHint = `${rt.pendingImages.length} image${rt.pendingImages.length === 1 ? "" : "s"} attached · enter send`;
-    }
-
-    if (
-        isWorkerFreeClient(rt.client)
-        && !rt.sessionSwitchPending
-        && !rt.connectionFailed
-    ) {
-        lifecycleHint = "";
-    }
-
-    rt.statusText.fg = statusState.approvalMode === "full_access"
-        ? rt.theme.critical
-        : rt.statusNotice !== undefined
-        ? TUI_NOTICE
-        : statusState.working
-                || statusState.compactingSince !== undefined
-                || uiRequest !== undefined
-                || rt.extensionCommandPending
-            ? TUI_ACCENT
-            : TUI_MUTED;
-    const hostedControls = rt.hostedSidebar.pane === undefined
-        ? []
-        : [
-            `${rt.hostedSidebar.modeLabel ?? rt.hostedSidebar.mention ?? "agent"} mode`,
-            rt.sidebar.layout() === "split"
-                ? "split"
-                : rt.sidebar.layout() === "sidebar"
-                ? `${rt.hostedSidebar.modeLabel ?? rt.hostedSidebar.mention ?? "agent"} only`
-                : "vera only",
-            "ctrl+\\ layout",
-            ...(rt.sidebar.layout() === "split"
-                ? [rt.sidebar.isFocused()
-                    ? "ctrl+g vera"
-                    : `ctrl+g ${rt.hostedSidebar.mention ?? rt.hostedSidebar.pane.agentId}`]
-                : []),
-        ];
-    const placeIdle = !focusedAbort
-        && !statusState.working
-        && statusState.compactingSince === undefined
-        && uiRequest === undefined
-        && !rt.sessionSwitchPending
-        && !rt.connectionFailed
-        && !rt.promptSubmitting
-        && !rt.extensionCommandPending
-        && rt.pendingImages.length === 0
-        && !isWorkerFreeClient(rt.client);
-    const hostedModeStatus = tuiPlaceRowModeLine(
-        READY_HINT,
-        placeIdle,
-        hostedControls,
-    );
-    rt.hostedModeText.content = hostedModeStatus;
-    rt.hostedModeText.visible = hostedModeStatus.length > 0;
-    const statusLine = [
-        tuiDevInstancePrefix(),
-        rt.statusNotice ?? lifecycleHint,
-    ].filter((part) => part.length > 0).join(" ");
-    rt.statusText.visible = !(rt.approvalView.box.visible
-        || rt.questionView.box.visible);
-    const quietActivity = rt.statusNotice === undefined
-        && !statusState.working
-        && uiRequest === undefined
-        && lifecycleHint === READY_HINT;
-    const activityHint = statusState.working
-            && uiRequest === undefined
-            && !focusedAbort
-        ? workingHint
-        : "";
-    const dialWidth = Math.max(
-        1,
-        rt.renderer.width - rt.composerHorizontalInset - railInset,
-    );
-    const stripLines = rt.dialStrip === undefined
-        ? undefined
-        : renderDialStrip(
-            rt.dialStrip,
-            [
-                "↑/↓ lane",
-                `${tuiKeyChord("dials.pair.prev")}/${
-                    tuiKeyChord("dials.pair.next")
-                } change`,
-                "⏎ apply",
-                "/permissions for more",
-            ].join(" · "),
-            dialWidth,
-            // A hidden-model ellipsis already spends the next row. Let an
-            // actual model use that row when the full composition fits.
-            Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 22)),
-        );
-    rt.dialCard.visible = stripLines !== undefined;
-    rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
-    const hudRows = stripLines?.slice(0, -1) ?? [];
-    rt.dialCardTitle.height = Math.max(1, hudRows.length);
-    rt.dialCard.height = hudRows.length + 3;
-    const hudBg = TUI_HUD?.background ?? TUI_PANEL;
-    const hudText = TUI_HUD?.text ?? TUI_TEXT;
-    const hudMuted = TUI_HUD?.muted ?? TUI_MUTED;
-    const hudAccent = TUI_HUD?.accent ?? TUI_ACCENT;
-    const hudNotice = TUI_HUD?.notice ?? TUI_NOTICE;
-    const hudSuccess = TUI_HUD?.success ?? VERA_TUI_THEME.success;
-    rt.dialCardTitle.content = new StyledText(
-        paintDialHud(hudRows, rt.dialStrip?.lane, {
-            text: hudText,
-            muted: hudMuted,
-            accent: hudAccent,
-            notice: hudNotice,
-            background: hudBg,
-            success: TUI_HUD?.success ?? TUI_SUCCESS,
-            secondary: rt.theme.secondary,
-            accessAsk: VERA_TUI_THEME.accent,
-            accessAuto: VERA_TUI_THEME.hud?.auto
-                ?? VERA_TUI_THEME.success,
-        }, {
-            effortPending: rt.dialStrip === undefined
-                ? false
-                : dialEffortPending(rt.dialStrip),
-            autoAnimation: rt.autoModeAnimationStartedAt === undefined
-                ? undefined
-                : {
-                    progress: Math.min(
-                        1,
-                        (Date.now() - rt.autoModeAnimationStartedAt)
-                        / AUTO_MODE_ANIMATION_DURATION_MS,
-                    ),
-                    width: dialWidth,
-                },
-        }).flatMap((spans, index) => [
-            ...spans.map((span) =>
-                fg(span.color)(
-                    span.background === undefined
-                        ? span.text
-                        : bg(span.background)(span.text)
-                )
-            ),
-            ...(index === hudRows.length - 1 ? [] : [fg(hudText)("\n")]),
-        ]),
-    );
-    const dialHintParts = (stripLines?.at(-1) ?? "")
-        .split(DIAL_EXIT_SEPARATOR);
-    rt.dialCardHint.content = stripLines === undefined
-        ? ""
-        : new StyledText([
-            fg(hudMuted)(dialHintParts[0] ?? ""),
-            fg(hudNotice)(dialHintParts[1] ?? ""),
-        ]);
-    rt.activityHintText.content = activityHint;
-    rt.activityHintText.visible = rt.statusText.visible
-        && activityHint.length > 0;
-    // Pull on repaint: the renderer is handed the snapshot and answers
-    // synchronously, or it does not answer at all. Nothing here waits on
-    // an extension, and a renderer that fails leaves the built-in line.
-    const extensionSegments = rt.clientExtensionRegistry?.renderStatusLine(
-        tuiStatusSnapshot(
-            statusState.modelSettings,
-            statusState.approvalMode,
-            statusState.context,
-            process.cwd(),
-            rt.runningBackgroundAgents,
-            rt.state.working
-                ? "working"
-                : uiRequest === undefined
-                    ? "idle"
-                    : "waiting",
-        ),
-    );
-    const statusDetailsRows: TuiStatusChunk[][] = isWorkerFreeClient(rt.client)
-        ? renderTuiFileViewStatusRows(
-            rt.client.workspace ?? process.cwd(),
-            rt.workspaceBranch.current(),
-        )
-        : extensionSegments === undefined
-        ? renderTuiStatusDetailsRows(
-                statusState.modelSettings,
-                statusState.approvalMode,
-                statusState.context,
-                process.cwd(),
-                0,
-                statusState.effortSubstitution,
-                rt.hostedSidebar.pane === undefined,
-                rt.workspaceBranch.current(),
-                {
-                    // `*` reads off the recorded origin, so dialling back
-                    // to the default clears it on every path.
-                    pairOverridden:
-                        statusState.modelSettingsOrigin === "user",
-                    ...(statusState.agent === undefined
-                        ? {}
-                        : { agent: statusState.agent.name }),
-                    postureOverridden:
-                        statusState.approvalModeOrigin === "user"
-                        && statusState.approvalMode
-                            !== statusState.agent?.posture,
-                    ...(statusState.modelFallback === undefined
-                        ? {}
-                        : { fallbackTo: statusState.modelFallback.to }),
-                },
-                rt.workIndex?.needs_you ?? 0,
-                Math.max(1, rt.renderer.width - rt.composerHorizontalInset - railInset),
-            )
-        : [[{
-                tone: "muted",
-                text: renderTuiStatusSegments(
-                    rt.hostedSidebar.pane === undefined
-                        ? extensionSegments
-                        : extensionSegments.filter((segment) =>
-                            segment.kind !== "permissions"
-                        ),
-                ),
-            }]];
-    // Hosted-pane controls live at the bottom right beside the workspace
-    // row. The activity row above can then change without hiding them.
-    const detailsRows = statusDetailsRows;
-    const runningNames = rt.runningBackgroundAgentNames.map((name) =>
-        truncateFooterLine(
-            `* ${name}`,
-            Math.min(72, rt.renderer.width - rt.composerHorizontalInset - railInset),
-        )
-    );
-    // The card's own inner width, past the band's indent, its border and
-    // its padding: notices and rules stop at the same right edge.
-    const cardWidth = Math.max(
-        1,
-        rt.renderer.width - rt.composerHorizontalInset - railInset,
-    );
-    const nudgeIndicator = isHomeClient(rt.client) || isWorkerFreeClient(rt.client)
-        ? undefined
-        : standingNudgeIndicatorRow(rt.standingNudgeRules, {
-            agent: statusState.agent?.name ?? "default",
-            workspace: focusedAgentClient(rt).workspace ?? "",
-        }, cardWidth);
-    const agentSection = rt.currentAgentHasParent
-        ? ["/parent to return"]
-        : runningNames.length === 0
-            ? []
-            : [
-                `${runningNames.length} subagent${
-                    runningNames.length === 1 ? "" : "s"
-                } running · /subagents to attach`,
-                ...runningNames,
-            ];
-    const agentHeader = agentSection[0] ?? "";
-    const animatedAgentHeader = runningNames.length === 0
-        ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-        : rt.activityAnimation === "off"
-        ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-        : renderTuiSpokes(
-            activityFrame(rt),
-            agentHeader,
-            {
-                active: TUI_ACCENT,
-                trail: rt.theme.activityTrail,
-                inactive: TUI_ELEMENT,
-                text: TUI_MUTED,
-            },
-        );
-    const rule = (glyph: string) =>
-        fg(TUI_ELEMENT)(`${glyph.repeat(cardWidth)}\n`);
-    // The first row says what the session is answering as, and it lives
-    // inside the composer's frame: it is a property of the thing being
-    // typed into. What is left describes where the session is, and reads
-    // under the frame.
-    const insideRow = detailsRows[0] ?? [];
-    const outsideRows = detailsRows.slice(1);
-    rt.composerStatusText.content = new StyledText(
-        insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
-    );
-    rt.needsYouChipWidth = needsYouChipColumns(
-        insideRow,
-        rt.workIndex?.needs_you ?? 0,
-    );
-    const detailChunks = outsideRows.flatMap((row, index) => [
-        ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
-        ...(index === outsideRows.length - 1
-            ? []
-            : [fg(TUI_MUTED)("\n"), rule("─")]),
-    ]);
-    rt.backgroundStatusText.content = new StyledText(detailChunks);
-    // Text nodes lay their content out from column zero, so the notice
-    // carries the indent the band gets as padding.
-    const noticeIndent = " ".repeat(rt.composerContentIndent);
-    rt.agentNoticeText.content = nudgeIndicator === undefined &&
-            agentSection.length === 0
-        ? new StyledText([])
-        : new StyledText([
-            ...(nudgeIndicator === undefined
-                ? []
-                : [
-                    fg(TUI_MUTED)(noticeIndent),
-                    fg(TUI_ACCENT)("● "),
-                    fg(TUI_MUTED)(
-                        `${nudgeIndicator.status}${nudgeIndicator.gap}${nudgeIndicator.detail}`,
-                    ),
-                ]),
-            ...(agentSection.length === 0
-                ? []
-                : [
-                    fg(TUI_MUTED)(
-                        `${nudgeIndicator === undefined ? "" : "\n"}${noticeIndent}`,
-                    ),
-                    ...animatedAgentHeader.chunks,
-                    fg(TUI_MUTED)(
-                        agentSection.length === 1
-                            ? ""
-                            : `\n${
-                                agentSection.slice(1)
-                                    .map((row) => `${noticeIndent}${row}`)
-                                    .join("\n")
-                            }`,
-                    ),
-                ]),
-        ]);
-    rt.agentNoticeRows = agentSection.length +
-        (nudgeIndicator === undefined ? 0 : 1);
-    rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
-    rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
-    // A rule separates each pair of status rows under the frame.
-    const cardRows = Math.max(1, outsideRows.length * 2 - 1);
-    rt.backgroundStatusText.height = cardRows;
-    // The band's own rows, which the composer sits straight on top of with
-    // no gutter of its own: the card, its border lines, and whichever
-    // status lines are showing above it. Nothing here varies, so the
-    // composer keeps one height off the foot of the screen.
-    setComposerMargin(rt, 
-        cardRows + 1,
-    );
-    // The HUD and the model picker are named here because nothing else on
-    // screen names them. The rail is named too while it is closed, for the
-    // same reason: once it is open it advertises its own chords.
-    const quietHint = [
-        fg(TUI_MUTED)(HUD_HINT.slice(0, -3)),
-        fg(TUI_ACCENT)("HUD"),
-        fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
-    ];
-    if (
-        rt.workspaceSidebar === undefined
-        && quietHintColumns() <= rt.renderer.width - rt.composerHorizontalInset
-    ) {
-        quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
-    }
-    rt.statusText.content = quietActivity
-        ? new StyledText(quietHint)
-        : statusState.working
-            && rt.statusNotice === undefined
-            && uiRequest === undefined
-            && !focusedAbort
-        ? renderTuiActivityAnimation(
-            rt.activityAnimation,
-            activityFrame(rt),
-            statusLine,
-            {
-                active: TUI_ACCENT,
-                // ActiveGrid has its own theme role instead of borrowing
-                // the success color.
-                trail: rt.activityAnimation === "shimmer"
-                    ? TUI_ELEMENT
-                    : rt.theme.activityTrail,
-                inactive: TUI_MUTED,
-                text: rt.state.approvalMode === "full_access"
-                    ? rt.theme.critical
-                    : TUI_ACCENT,
-            },
-            rt.activityAnimationWidth,
-        )
-        : statusLine;
-}
 
 export function watchBackgroundAgents(rt: TuiRuntime, next: TuiAgentClient): void {
     rt.stopWatchingBackgroundAgents?.();
