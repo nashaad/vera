@@ -11,6 +11,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { existsSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 import {
     RELEASE_WORKER_NAME,
@@ -101,10 +103,33 @@ export interface WorkerHandle {
     kill(): void;
 }
 
+/**
+ * The worker file a checkout pack starts. A packed install has `worker` next
+ * to the stamp; a checkout pack is stamp plus annex only.
+ */
+export function residentWorkerEntrypoint(): string {
+    return fileURLToPath(new URL("./entry.ts", import.meta.url));
+}
+
+/**
+ * A packed install has `worker` next to the stamp. A checkout pack is stamp
+ * plus annex only, so the worker is this process's bun and the TypeScript
+ * entry.
+ */
+export function residentWorkerSpawnCommand(
+    releaseRoot?: string,
+): readonly string[] {
+    const packed = releaseRoot === undefined
+        ? releaseBinaryPath(RELEASE_WORKER_NAME)
+        : releaseBinaryPath(RELEASE_WORKER_NAME, releaseRoot);
+    if (existsSync(packed)) return [packed];
+    return [process.execPath, residentWorkerEntrypoint()];
+}
+
 export async function startWorker(
     options: StartWorkerOptions,
 ): Promise<WorkerHandle> {
-    const command = options.command ?? [releaseBinaryPath(RELEASE_WORKER_NAME)];
+    const command = options.command ?? residentWorkerSpawnCommand();
     const [executable, ...args] = command;
     const child: ChildProcess = spawn(executable as string, args, {
         argv0: "vera-worker",
