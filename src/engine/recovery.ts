@@ -15,15 +15,6 @@ import {
     type ModelEffortCoarsened,
 } from "./effort-coarsening.ts";
 
-/**
- * Drops a reasoning effort the fallback model cannot be asked for.
- *
- * A fallback stays on the same provider (`run-turn.ts` refuses one that does
- * not), so the only way the effort becomes unaskable is a target with no
- * efforts at all, which on `openai-codex` means a model absent from
- * `MODEL_REASONING_PROFILES`. Carrying the effort there would turn a
- * recoverable overload into a hard failure.
- */
 function withSupportedReasoningEffort(
     request: ModelRequest,
     model: string,
@@ -40,16 +31,9 @@ function withSupportedReasoningEffort(
     return supported;
 }
 
-/**
- * An effort the adapter placed differently from what was asked for, named
- * against the model the request went to. Reported and then forgotten: the
- * request is already running on the placed level, so there is nothing to
- * retry.
- */
 export interface ModelEffortSubstituted {
     readonly model: string;
     readonly requested: string;
-    /** Absent means no reasoning level was sent at all. */
     readonly using?: string;
     readonly reason: string;
 }
@@ -76,7 +60,6 @@ export interface ModelRetryScheduled {
     readonly maxAttempts: number;
     readonly delayMs: number;
     readonly failure: ProviderFailure;
-    /** The prior partial model attempt was rejected; this attempt replaces it. */
     readonly replacesPartialAttempt?: true;
 }
 
@@ -113,10 +96,6 @@ export interface ModelRecoveryOptions {
     readonly onEvent: (event: ModelStreamEvent) => void;
     readonly onRetry: (retry: ModelRetryScheduled) => void;
     readonly onFallback: (fallback: ModelFallbackSelected) => void;
-    /**
-     * Present only where a pool is wired in. Absent leaves a capability
-     * refusal on the ordinary terminal path, which is what it was before.
-     */
     readonly coarsening?: EffortCoarseningOptions;
     readonly onCoarsened?: (coarsened: ModelEffortCoarsened) => void;
     readonly onEffortSubstituted?: (
@@ -172,9 +151,6 @@ export async function requestModelWithRecovery(
                 continue;
             }
             if (event.type === "effort_substituted") {
-                // Deliberately ahead of the content flag: a notice is not
-                // content, and letting it set the flag would take the
-                // coarsening path away from a refusal arriving right after.
                 options.onEffortSubstituted?.({
                     model: activeRequest.model,
                     requested: event.requested,
@@ -193,12 +169,6 @@ export async function requestModelWithRecovery(
                 }
                 if (event.error instanceof ProviderFailureError) {
                     const failure = event.error.failure;
-                    // A refused capability is evidence about the model, so it
-                    // is answered before the overload counters: it is neither
-                    // an overload nor something a plain retry would survive.
-                    // Asked on every failure, not only on requests carrying an
-                    // effort: image, tool and thinking refusals arrive on
-                    // requests that named no effort at all.
                     if (!contentStarted && options.coarsening !== undefined) {
                         coarsened = coarsenAfterFailure(
                             {
@@ -274,8 +244,6 @@ export async function requestModelWithRecovery(
         }
 
         if (coarsened !== undefined) {
-            // Non-blocking: the notice goes out and the turn continues on the
-            // coarser level without waiting for an answer.
             options.onCoarsened?.(coarsened);
             refusedEfforts.add(coarsened.requested);
             activeRequest = {

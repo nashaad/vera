@@ -17,49 +17,18 @@ import { contextWindowForModel } from "./model-settings.ts";
 import type { SessionCompactionOptions } from "./run-turn.ts";
 import type { SessionCompactionDiagnostics } from "../store/session-store.ts";
 
-/**
- * Strategies Vera ships. The host passes these into `bindCompaction` the same
- * way it will pass extension-registered ones: binding takes whatever registry
- * the host assembled, and holds no list of its own.
- */
 export const BUNDLED_COMPACTION_STRATEGIES:
     readonly CompactionStrategyDefinition[] = [fullSummaryStrategy];
 
-/**
- * Output ceiling for a summarizer call. A note of `MAX_SUMMARY_WORDS` is a few
- * thousand tokens; the rest is room for reasoning, which providers count
- * against the same limit.
- */
 export const COMPACTION_MAX_OUTPUT_TOKENS = 32_768;
 
-/** What an unconfigured session compacts with. */
 export const DEFAULT_COMPACTION_STRATEGY_ID = FULL_SUMMARY_STRATEGY_ID;
 
-/**
- * The model a session summarizes itself on when config says nothing: the one
- * it is already running. A catalog route is the better answer once there is a
- * cheaper model to name, but a session that fills its window has to compact
- * whether or not anyone configured it to.
- */
 export interface SessionModel {
     readonly provider?: string;
     readonly model: string;
 }
 
-/**
- * Binds a configured profile to the adapter the agent is running on.
- *
- * A strategy may declare several model slots, and a profile need not name a
- * route for each. `slotModels` is the compaction assignment, and it binds every
- * slot when set; a route the profile names for a slot is only read when no
- * assignment resolves. An assignment with no profile still binds: Defaults
- * writes the assignment, not a compaction profile.
- *
- * Returns undefined rather than a partly bound profile when the strategy is
- * unknown, or a slot it declared has neither a route nor a fallback: a session
- * that cannot compact correctly should not compact at all, and the alternative
- * is discovering the missing model at the moment the window fills.
- */
 export function bindCompaction(
     profile: ResolvedCompactionProfile | undefined,
     adapter: ModelAdapter,
@@ -157,13 +126,6 @@ export function bindCompaction(
     }, overrides);
 }
 
-/**
- * Values that replace what the profile and the engine's own constants would
- * have decided. Separate from the profile because they do not come from the
- * compaction block and are not a user's settings: they are what a developer
- * turned on to make a compaction happen sooner and smaller than any real
- * session would.
- */
 export interface CompactionOverrides {
     readonly triggerFraction?: number;
     readonly postCompactionTargetFraction?: number;
@@ -195,12 +157,6 @@ function withOverrides(
     };
 }
 
-/**
- * The JSON a worker needs to reconstruct a bound compaction: the strategy and
- * the bounds, not the live `CompleteText` functions. Each slot becomes a
- * `compaction.complete` call back to the host, which is where credentials and
- * the real route stay.
- */
 export interface CompactionWireSpec {
     readonly strategyId: string;
     readonly slots: readonly string[];
@@ -212,7 +168,6 @@ export interface CompactionWireSpec {
     readonly retainedUserTurns?: number;
 }
 
-/** The JSON half of a bound compaction, for `worker.start`. */
 export function compactionWireSpec(
     bound: SessionCompactionOptions,
 ): CompactionWireSpec {
@@ -240,14 +195,6 @@ export function compactionWireSpec(
     };
 }
 
-/**
- * Rebuilds a bound compaction on the worker side. Each slot's model call is
- * whatever `complete` returns for that name; the host answers those as
- * `compaction.complete`. Unknown strategies and missing slots return
- * `undefined`, same as `bindCompaction`. The remote boundary treats that as a
- * worker start failure when a spec was sent: omitting compaction here would
- * be the same silent no-op this split exists to close.
- */
 export function bindRemoteCompaction(
     spec: CompactionWireSpec,
     complete: (slot: string) => CompleteText,

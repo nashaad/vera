@@ -1,15 +1,3 @@
-/**
- * Reads permission data written before the model was simplified (claims with
- * `capability`, `confidence`, `pathScope`, `recursive`).
- *
- * Migrated:  capability -> verb, pathScope/path_scope -> scope,
- *            kind "capability" -> kind "action".
- * Rejected:  confidence, recursive, and capability execute/network, because
- *            dropping them would widen what the predicate matches.
- *
- * Callers decide what rejection means: config parsing fails loudly, session
- * grants are dropped.
- */
 
 import {
     isPermissionGrantKind,
@@ -27,18 +15,9 @@ const RENAMED_FIELDS = new Map([
     ["capability", "verb"],
     ["pathScope", "scope"],
     ["path_scope", "scope"],
-    // Not a legacy rename like the others: config JSON is snake_case
-    // (`reviewer_profile`, etc.), so this is just that convention for the
-    // predicate's `pathGlob` field, reusing the rename mechanism already
-    // applied to every parsed predicate.
     ["path_glob", "pathGlob"],
 ]);
 
-/**
- * Accepts either the current predicate shape or the legacy claim shape and
- * returns the current shape, or `undefined` when the value cannot be migrated
- * without changing what it matches.
- */
 export function migratePermissionPredicate(
     value: unknown,
 ): PermissionPredicate | undefined {
@@ -62,7 +41,6 @@ export function migratePermissionPredicate(
         }
         const renamed = RENAMED_FIELDS.get(key) ?? key;
         if (migrated[renamed] !== undefined) {
-            // e.g. both `scope` and `path_scope` present: ambiguous.
             return undefined;
         }
         migrated[renamed] = field;
@@ -70,10 +48,6 @@ export function migratePermissionPredicate(
     return isPermissionPredicate(migrated) ? migrated : undefined;
 }
 
-/**
- * Accepts either the current grant shape or the legacy one and returns the
- * current shape, or `undefined` when the grant cannot be migrated.
- */
 export function migratePermissionGrant(
     value: unknown,
 ): PermissionGrant | undefined {

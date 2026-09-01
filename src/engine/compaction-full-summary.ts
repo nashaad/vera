@@ -9,19 +9,8 @@ import { CompletionUnavailableError } from "./completion-service.ts";
 export const FULL_SUMMARY_STRATEGY_ID = "vera/full-summary";
 export const FULL_SUMMARY_MODEL_SLOT = "summarizer";
 
-/**
- * The most words a note is ever asked for. The room left in the window after
- * compaction is not a length the summarizer should fill: a note is read back
- * as context on every later turn, and it has to fit under the model output
- * ceiling with reasoning tokens counted against the same limit.
- */
 export const MAX_SUMMARY_WORDS = 3_000;
 
-/**
- * Budget in words, because the summarizer cannot count its own tokens. Two
- * thirds of the target leaves the framing and the estimator's own error inside
- * the budget the engine will check the answer against.
- */
 export function summaryWordBudget(targetTokens: number, cap?: number): number {
     return Math.min(
         cap ?? MAX_SUMMARY_WORDS,
@@ -29,11 +18,6 @@ export function summaryWordBudget(targetTokens: number, cap?: number): number {
     );
 }
 
-/**
- * Below this there is no note worth a model call: the summarizer would be
- * asked for a couple of sentences to stand for the whole session. A rung with
- * more room is the answer, which is why this rejection is room related.
- */
 export const MIN_NOTE_TOKENS = 200;
 
 const SUMMARY_SYSTEM_PROMPT =
@@ -80,12 +64,6 @@ short, but do not exceed it.
 {{TRANSCRIPT}}
 </transcript>`;
 
-/**
- * The anchored path. Re-summarizing a summary loses a little each time, and
- * the loss compounds over a long session until the early work is a sentence.
- * Updating a note instead means detail written once survives verbatim unless
- * something later actually supersedes it.
- */
 const SUMMARY_UPDATE_INSTRUCTION =
     `Below is the handover note for this session so far, then the part of the
 session that happened after it was written. Produce the updated note.
@@ -108,15 +86,6 @@ you drop from it is gone for good. Aim for roughly {{WORDS}} words.
 {{TRANSCRIPT}}
 </transcript>`;
 
-/**
- * Replaces the compacted span with one user message holding a written summary.
- *
- * One message rather than a reconstructed exchange: the projection is what the
- * model is sent from here on, and inventing an assistant turn that was never
- * produced puts words in the agent's mouth that it will read back as its own.
- * A labelled user message is the honest shape, and it composes with a retained
- * suffix that starts with whatever it starts with.
- */
 export const fullSummaryStrategy: CompactionStrategyDefinition = {
     id: FULL_SUMMARY_STRATEGY_ID,
     models: [FULL_SUMMARY_MODEL_SLOT],
@@ -127,8 +96,6 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
                 `No model is bound to the ${FULL_SUMMARY_MODEL_SLOT} slot.`,
             );
         }
-        // The span opens with this strategy's own previous note whenever there
-        // was one, so the note is updated rather than summarized again.
         const anchor = previousNote(request.messages);
         const span = request.messages.slice(anchor === undefined ? 0 : 1);
         const transcript = renderCompactionTranscript(span);
@@ -138,10 +105,6 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
             );
         }
         const files = mergeFiles(anchor?.files, filesTouched(span));
-        // The heading and the file list are written by this strategy, not by
-        // the summarizer, and the target has to hold all three. Asking for a
-        // note the size of the whole target and then adding them is how a
-        // rung that measured as viable comes back over it.
         const fixed = measureMessages([summaryMessage("", files)]);
         const room = request.targetTokens - fixed;
         if (room < MIN_NOTE_TOKENS) {
@@ -201,16 +164,6 @@ export const fullSummaryStrategy: CompactionStrategyDefinition = {
     },
 };
 
-/**
- * Every message in the span, in order, with nothing dropped.
- *
- * Deliberately not `renderReviewTranscript`, which is budgeted for the
- * reviewer and discards whole entries once it passes its cap. A summary built
- * from a transcript that quietly dropped its middle is worse than no
- * compaction: the loss is invisible and permanent. Individual tool results are
- * capped, because one command's output should not crowd out the rest of the
- * session, and the cap announces itself where it bites.
- */
 const MAX_TOOL_RESULT_CHARACTERS = 4_000;
 
 function renderCompactionTranscript(
@@ -265,8 +218,6 @@ function clamp(text: string): string {
         return text;
     }
     const omitted = text.length - MAX_TOOL_RESULT_CHARACTERS;
-    // Tail-biased: a command's outcome is at the end, and a head-only cut
-    // keeps the invocation and loses the answer.
     const head = Math.floor(MAX_TOOL_RESULT_CHARACTERS / 3);
     return `${text.slice(0, head)}\n`
         + `[${omitted} characters omitted]\n`
@@ -277,13 +228,8 @@ const SUMMARY_HEADING = `This is a summary of the earlier part of this `
     + `session, which is no longer available in full. Treat it as context, `
     + `not as a new request.`;
 
-/** Ends the note and opens the mechanically written file list. */
 const FILES_HEADING = "# Files";
 
-/**
- * The heading says what this is. Without it the next turn reads a description
- * of the work as a fresh instruction to do it again.
- */
 function summaryMessage(
     summary: string,
     files: FileList,
@@ -298,18 +244,10 @@ function summaryMessage(
 }
 
 interface Anchor {
-    /** The previous note's prose, without the heading or the file list. */
     readonly note: string;
     readonly files: FileList;
 }
 
-/**
- * This strategy's own previous note, when the span opens with one.
- *
- * Recognized by the heading it wrote itself. A user message that merely looks
- * like a summary is not one, and treating it as the anchor would ask the model
- * to update the user's own words.
- */
 function previousNote(messages: readonly ModelMessage[]): Anchor | undefined {
     const first = messages[0];
     if (first === undefined || first.role !== "user") {
@@ -321,8 +259,7 @@ function previousNote(messages: readonly ModelMessage[]): Anchor | undefined {
     }
     const body = text.slice(SUMMARY_HEADING.length).trim();
     const split = body.lastIndexOf(`\n${FILES_HEADING}\n`);
-    // A summarizer writing under a heading of its own must not cost the note
-    // everything below it, so the tail is taken only when it is a file block.
+    // A summarizer writing under a heading of its own must not cost the note everything below it, so the tail is taken only when it is a file block.
     if (split === -1 || !isFileBlock(body.slice(split))) {
         return { note: body, files: emptyFiles() };
     }
@@ -332,13 +269,6 @@ function previousNote(messages: readonly ModelMessage[]): Anchor | undefined {
     };
 }
 
-/**
- * Files the span read and changed, taken from the tool calls themselves.
- *
- * Mechanical on purpose. A summarizer asked to list the files it saw will
- * miss some and invent others, and a wrong path costs the next agent a failed
- * read before it finds out.
- */
 interface FileList {
     readonly read: readonly string[];
     readonly changed: readonly string[];
@@ -347,7 +277,6 @@ interface FileList {
 const READ_TOOLS = new Set(["read", "list", "grep"]);
 const WRITE_TOOLS = new Set(["write", "edit"]);
 
-/** Enough to orient the next agent; past this the list is noise, not context. */
 const MAX_FILES_PER_LIST = 40;
 
 function emptyFiles(): FileList {
@@ -389,18 +318,11 @@ function pathOf(input: unknown): string | undefined {
         : undefined;
 }
 
-/**
- * Newest wins on both lists, and a file that was changed is not also reported
- * as read: what matters about it is the change.
- */
 function mergeFiles(
     previous: FileList | undefined,
     next: FileList,
 ): FileList {
     const allChanged = [...(previous?.changed ?? []), ...next.changed];
-    // Filtered against every change, not only the ones that survived the cap:
-    // a file dropped for age is still a file that was written, and reporting
-    // it as merely read is worse than not reporting it at all.
     const changedSet = new Set(allChanged);
     const read = newest(
         [...(previous?.read ?? []), ...next.read]
@@ -426,11 +348,6 @@ function newest(paths: readonly string[]): readonly string[] {
     return kept.reverse();
 }
 
-/**
- * One path per line under its label. A separator inside a line would have to
- * be a character no path can hold, and there is none; a line each costs a few
- * tokens and survives commas, spaces, and quotes alike.
- */
 function renderFiles(files: FileList): string {
     const sections = [
         section("Changed", files.changed),
@@ -464,11 +381,6 @@ function parseFiles(block: string): FileList {
     return { changed, read };
 }
 
-/**
- * Whether a block is one this strategy wrote, rather than a section the
- * summarizer happened to head the same way. Only its own shape parses: a
- * label line, then paths, and nothing else.
- */
 function isFileBlock(block: string): boolean {
     const lines = block.split("\n")
         .map((line) => line.trim())

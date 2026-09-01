@@ -12,18 +12,11 @@ import {
     userMemoryDir,
 } from "./memory-paths.ts";
 
-/** Maximum number of topic bodies admitted to one model request. */
 export const MEMORY_TOPIC_MAX_COUNT = 8;
-/** Maximum UTF-8 bytes of topic bodies admitted to one model request. */
 export const MEMORY_TOPIC_MAX_TOTAL_BYTES = 64 * 1024;
 const TOPIC_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 const INDEX_ENTRY = /^\s*-\s*\[([^\]]+)\]\(([^)]+)\)\s*:\s*(\S(?:.*\S)?)\s*$/;
 
-/**
- * The directory a project's memory is keyed on, resolved once per agent by
- * the owner. `source` is `workspace` when the owner had no repository to
- * resolve, which is an ordinary case: a checkout is not required to run.
- */
 export interface InstructionRoot {
     readonly path: string;
     readonly source: "git" | "workspace";
@@ -85,10 +78,7 @@ export interface MemoryMetadata {
     readonly warnings: readonly string[];
 }
 
-/**
- * Where each scope's index lives. Defaulted from `memory-paths`; passed
- * explicitly only by callers that must not read the real home directory.
- */
+/** Where each scope's index lives. Defaulted from `memory-paths`; passed explicitly only by callers that must not read the real home directory. */
 export interface MemoryDirectories {
     readonly user: string;
     readonly project: string;
@@ -102,29 +92,11 @@ export interface MemorySnapshot {
 }
 
 export interface LoadMemoryOptions {
-    /** The current user request; omitted for delivery turns and discovery-only loads. */
     readonly query?: string;
 }
 
-/**
- * Whether memory is part of a turn at all.
- *
- * Held off while the retrieval model is reconsidered. An index the agent may
- * or may not follow asks it to decide whether to open a topic file before it
- * knows what the file says, and a one-line summary of a procedure loses the
- * runnable part of it. In practice the line is read, the file is not, and the
- * summary is mistaken for the fact. Skills answer the same question by
- * obliging the read, which is the shape to revisit this against.
- *
- * Flipping this back on restores loading, the prompt section, and the write
- * tool together; nothing else has to change.
- */
 export const MEMORY_ENABLED: boolean = false;
 
-/**
- * Reads the index of each scope and nothing else. Topic files are left for
- * the agent to read with the file tools when a hook in the index matches.
- */
 export async function loadMemory(
     instructionRoot: InstructionRoot,
     directories: MemoryDirectories = {
@@ -414,8 +386,6 @@ async function readTopic(
         return undefined;
     }
     try {
-        // Open with O_NOFOLLOW so a replacement between discovery and read
-        // cannot turn an ordinary topic into an outside-file read.
         const handle = await open(
             topic.path,
             constants.O_RDONLY | constants.O_NOFOLLOW,

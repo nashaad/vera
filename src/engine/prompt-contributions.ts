@@ -14,11 +14,8 @@ export interface PromptContribution {
     readonly content: string;
 }
 
-/** Host-owned facts frozen before additional contextual text is loaded. */
 export interface ContextualContributionContext {
-    /** Stable hosted-session identity; child subagents have their own id. */
     readonly sessionId?: string;
-    /** Delivery continuations reuse a user turn and never advance cadence. */
     readonly turn: "user" | "delivery";
     readonly workspace: string;
     readonly agent: string;
@@ -51,14 +48,6 @@ export interface StablePromptContributionInput {
     readonly workspace: string;
     readonly scratchDir?: string;
     readonly disabledContributions?: readonly string[];
-    /**
-     * The worn agent's instructions.
-     *
-     * Stable, and engine-owned: it sits after core instructions and before
-     * anything contextual, so it shares the cached prefix for as long as the
-     * same agent is worn. Wearing another agent re-prefills by design, which
-     * is why wearing one is a deliberate act and dialling is not.
-     */
     readonly agentInstructions?: string;
 }
 
@@ -174,9 +163,6 @@ const BUILT_IN_PROMPT_CONTRIBUTORS: readonly BuiltInPromptContributor[] = [
             },
     },
     {
-        // Last of the stable contributions and first of the agent's own
-        // voice: core says what Vera is, the agent says what it is being worn
-        // as, and nothing contextual has churned the prefix yet.
         id: "core.agent-instructions",
         owner: "core",
         target: "stable",

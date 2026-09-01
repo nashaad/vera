@@ -5,19 +5,11 @@ const MAX_LISTED_FILES = 20;
 const MAX_TODO_BYTES = 2000;
 
 export interface ScratchStateSnapshot {
-    /** Entry names, capped at MAX_LISTED_FILES. */
     readonly files: readonly string[];
-    /** How many entries the cap hid. */
     readonly truncatedFiles: number;
-    /** Contents of todo.md, capped at MAX_TODO_BYTES. */
     readonly todo?: string;
 }
 
-/**
- * Snapshots the scratch directory for the contextual prompt. An unreadable
- * directory reads as absent rather than failing the turn: the scratch dir is
- * an affordance, not a dependency.
- */
 export async function loadScratchState(
     scratchDir: string,
 ): Promise<ScratchStateSnapshot | undefined> {

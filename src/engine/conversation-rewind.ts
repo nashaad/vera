@@ -10,10 +10,6 @@ export interface ConversationRewindState {
     readonly store: SessionStore;
 }
 
-/**
- * Persist a conversation-only rewind, replace the live model context with the
- * store's active line, and publish one fresh canonical history snapshot.
- */
 export async function rewindConversationBefore(
     state: ConversationRewindState,
     protocol: ProtocolEncoder,

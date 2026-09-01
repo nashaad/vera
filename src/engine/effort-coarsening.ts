@@ -20,26 +20,11 @@ export interface EffortCoarseningOptions {
 
 export interface ModelEffortCoarsened {
     readonly model: string;
-    /** The level that was asked for and refused. */
     readonly requested: string;
-    /** The level the retry runs on. */
     readonly using: string;
-    /** The provider's own wording for the refusal. */
     readonly reason: string;
 }
 
-/**
- * Turns a provider refusal into the next request's effort level.
- *
- * Returns undefined whenever the failure is not a refusal of the effort
- * parameter, or the resolved data offers no other level. Refusals of other
- * capabilities (tools, thinking, images) are still recorded, because the fact
- * is true and useful, but they are not something an effort step can rescue.
- *
- * `requested` is absent when the request named no effort. There is then
- * nothing to coarsen from, but the other capabilities are still refused on
- * such requests and their facts are still recorded.
- */
 export function coarsenAfterFailure(
     ref: ModelRef,
     requested: string | undefined,
@@ -67,9 +52,6 @@ export function coarsenAfterFailure(
         return undefined;
     }
 
-    // A level the pool still calls supported after recording this rejection is
-    // one the user declared by hand. The pool's wording names that standoff;
-    // the bare provider message would look like a first-time refusal.
     const contradiction = resolved.providerEffort === undefined
         ? undefined
         : resolved.reason;
@@ -81,12 +63,6 @@ export function coarsenAfterFailure(
     };
 }
 
-/**
- * An effort learned key names the level that was refused. A request that
- * carried no level has none to name, so the refusal is dropped rather than
- * written against a level the model was never asked for. Every other
- * capability is about the model itself and is recorded either way.
- */
 function recordRejection(
     ref: ModelRef,
     requested: string | undefined,
@@ -109,28 +85,12 @@ function recordRejection(
     );
 }
 
-/**
- * What the pool says about a level before anything is sent.
- *
- * `using` absent means no level goes on the wire: the level is forbidden and
- * the model offers no neighbour to move to.
- */
 export interface EffortPreflight {
     readonly requested: string;
     readonly using?: string;
     readonly reason: string;
 }
 
-/**
- * Consults the pool before the request instead of waiting for the provider to
- * refuse again.
- *
- * A level the resolved data calls supported is sent verbatim, which is the
- * whole point of the pool: no pre-flight fold table. Only a level the pool
- * positively forbids, by a hand-declared `null` or a learned rejection, is
- * moved, and it moves by the same one-step rule a live refusal uses. A level
- * nothing knows anything about is left exactly as asked.
- */
 export function preflightEffort(
     pool: EffortPool,
     ref: ModelRef,
@@ -153,12 +113,6 @@ export function preflightEffort(
     };
 }
 
-/**
- * A completed image request is evidence the model takes images. Outages are
- * not: those never reach here. Unknown stays unknown until a request that
- * actually carried an image succeeds. Declared and already-learned facts are
- * left alone; the user's word outranks a later observation.
- */
 export function recordAcceptedImage(
     pool: EffortPool,
     ref: ModelRef,

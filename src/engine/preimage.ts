@@ -4,11 +4,6 @@ import { ToolRuntime } from "../tools/runtime.ts";
 
 let sweepStarted = false;
 
-/**
- * Builds the engine's ToolRuntime with pre-image capture wired in, so the
- * tools layer never imports the stash store. The first construction per
- * process also sweeps stash directories past their retention age.
- */
 export function newStashingToolRuntime(
     workspace: string,
     sessionId: string,

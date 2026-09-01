@@ -3,47 +3,17 @@ import { assertToolCallsPaired } from "../model/tool-pairing.ts";
 import type { CompleteText } from "./completion-service.ts";
 import { measureMessages } from "./context-measurement.ts";
 
-/**
- * What a strategy is given, and all it is given.
- *
- * The engine owns when compaction happens, where the boundary falls, whether
- * the answer is acceptable, and the durable append. A strategy owns one
- * question: given this context, what shorter context stands for it. It holds
- * no session, no store, no provider, no adapter and no credentials, and the
- * messages it receives are a frozen copy, so it cannot reach past its answer
- * to change what happens next.
- */
 export interface CompactionRequest {
-    /** The span being compacted, oldest first. Frozen. */
     readonly messages: readonly ModelMessage[];
-    /**
-     * What the returned projection must fit under, in estimated tokens. A
-     * proposal above this is rejected, so the strategy is told the number
-     * rather than left to guess a length from the window.
-     */
     readonly targetTokens: number;
-    /** The models the strategy declared, bound by name to a resolved route. */
     readonly models: Readonly<Record<string, CompleteText>>;
-    /**
-     * A lower ceiling on the length asked for, when the caller set one. A
-     * strategy that sizes its own request reads this in place of whatever
-     * ceiling it ships with.
-     */
     readonly summaryWordCap?: number;
 }
 
 export interface CompactionProposal {
-    /**
-     * The replacement context. Provider-neutral messages, not a summary
-     * string: this is what a resumed session sends, long after whatever
-     * produced it stopped being installed.
-     */
     readonly projection: readonly ModelMessage[];
-    /** The model that produced the projection, when the strategy knows it. */
     readonly model?: string;
-    /** The provider that produced the projection, when known. */
     readonly provider?: string;
-    /** Billed usage of the summarizer call, when the strategy received it. */
     readonly usage?: ModelUsage;
 }
 
@@ -53,25 +23,12 @@ export type CompactionStrategy = (
 ) => Promise<CompactionProposal>;
 
 export interface CompactionStrategyDefinition {
-    /** `<publisher>/<local-id>`, matched against the configured strategy. */
     readonly id: string;
-    /** Slot names config must map to routes. */
     readonly models: readonly string[];
     readonly compact: CompactionStrategy;
 }
 
-/**
- * A proposal the engine will not append. Separate from a provider failure or a
- * cancellation because it is the one outcome that says the strategy answered
- * and the answer was unusable, which is what a user needs told.
- */
 export class CompactionRejectedError extends Error {
-    /**
-     * Whether a boundary with more room to summarize into could have produced
-     * an accepted proposal. False for the structural faults, which a strategy
-     * would reproduce exactly at any boundary, and retrying those only spends
-     * calls to collect the same answer again.
-     */
     readonly roomRelated: boolean;
 
     constructor(reason: string, roomRelated = false) {
@@ -81,13 +38,6 @@ export class CompactionRejectedError extends Error {
     }
 }
 
-/**
- * Everything checked here is checked because a strategy is arbitrary code
- * whose output goes on to be sent to a provider verbatim, for the rest of the
- * session, including after a restart. The store validates the record's
- * relationship to the transcript; this validates the content itself, before
- * there is a record to write.
- */
 export function validateProposal(
     proposal: CompactionProposal,
     request: CompactionRequest,
@@ -124,11 +74,6 @@ export function validateProposal(
     return projection;
 }
 
-/**
- * Rejected rather than dropped. A projection carrying a block Vera cannot
- * resolve later, an attachment reference chief among them, would fail at the
- * provider on some future turn, with nothing left to explain why.
- */
 function assertUsableMessage(message: ModelMessage): void {
     if (message === null || typeof message !== "object") {
         throw new CompactionRejectedError(
