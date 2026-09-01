@@ -1,14 +1,25 @@
-export type StartupProfile = "default" | "bare" | "prompt_only";
+export type ContextAssemblyMode = "default" | "bare" | "prompt_only";
 
-export function isStartupProfile(value: unknown): value is StartupProfile {
+/** @deprecated Use ContextAssemblyMode. */
+export type StartupProfile = ContextAssemblyMode;
+
+export function isContextAssemblyMode(
+    value: unknown,
+): value is ContextAssemblyMode {
     return value === "default" || value === "bare" || value === "prompt_only";
 }
 
-export function storedStartupProfile(
-    profile: StartupProfile,
-): Exclude<StartupProfile, "default"> | undefined {
-    return profile === "default" ? undefined : profile;
+/** @deprecated Use isContextAssemblyMode. */
+export const isStartupProfile = isContextAssemblyMode;
+
+export function storedContextAssemblyMode(
+    mode: ContextAssemblyMode,
+): Exclude<ContextAssemblyMode, "default"> | undefined {
+    return mode === "default" ? undefined : mode;
 }
+
+/** @deprecated Use storedContextAssemblyMode. */
+export const storedStartupProfile = storedContextAssemblyMode;
 
 const BARE_DISABLED_CONTRIBUTIONS = [
     "core.scratchpad",
@@ -28,14 +39,17 @@ const PROMPT_ONLY_DISABLED_CONTRIBUTIONS = [
     "core.memory",
 ] as const;
 
-export function disabledContributionsForProfile(
-    profile: StartupProfile,
+export function disabledContributionsForMode(
+    mode: ContextAssemblyMode,
     configured: readonly string[] = [],
 ): readonly string[] {
-    const profileDisabled = profile === "prompt_only"
+    const modeDisabled = mode === "prompt_only"
         ? PROMPT_ONLY_DISABLED_CONTRIBUTIONS
-        : profile === "bare"
+        : mode === "bare"
             ? BARE_DISABLED_CONTRIBUTIONS
             : [];
-    return [...new Set([...configured, ...profileDisabled])];
+    return [...new Set([...configured, ...modeDisabled])];
 }
+
+/** @deprecated Use disabledContributionsForMode. */
+export const disabledContributionsForProfile = disabledContributionsForMode;

@@ -33,8 +33,8 @@ import {
     type PermissionGrantProposal,
 } from "../engine/permissions.ts";
 import {
-    isStartupProfile,
-    type StartupProfile,
+    isContextAssemblyMode,
+    type ContextAssemblyMode,
 } from "../startup-profile.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import {
@@ -55,7 +55,7 @@ export interface SessionHeader {
     readonly parentId?: string;
     /** Durable execution provenance and model boundary for delegated work. */
     readonly delegation?: SessionDelegation;
-    readonly startupProfile?: Exclude<StartupProfile, "default">;
+    readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
 }
 
 /** Legacy and current delegated sessions share the same durable provenance. */
@@ -289,7 +289,7 @@ export interface CreateSessionStoreOptions {
     readonly origin?: SessionOrigin;
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
-    readonly startupProfile?: Exclude<StartupProfile, "default">;
+    readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
     /** See `OpenSessionStoreOptions`. */
@@ -300,7 +300,7 @@ export interface CreateSessionStoreOptions {
 }
 
 export interface SessionCreationMetadata {
-    readonly startupProfile?: Exclude<StartupProfile, "default">;
+    readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
     readonly parentId?: string;
     readonly delegation?: SessionDelegation;
 }
@@ -417,9 +417,9 @@ export class SessionStore {
             ...(options.delegation === undefined
                 ? {}
                 : { delegation: validSessionDelegation(options.delegation) }),
-            ...(options.startupProfile === undefined
+            ...(options.contextAssemblyMode === undefined
                 ? {}
-                : { startupProfile: options.startupProfile }),
+                : { contextAssemblyMode: options.contextAssemblyMode }),
         };
 
         await mkdir(dirname(path), { recursive: true, mode: 0o700 });
@@ -2119,13 +2119,47 @@ export function parseHeaderRecord(
         || (value.delegation !== undefined
             && value.parentId !== undefined
             && (value.delegation as SessionDelegation).parentId !== value.parentId)
-        || (value.startupProfile !== undefined
-            && (!isStartupProfile(value.startupProfile)
-                || value.startupProfile === "default"))
+        || storedContextAssemblyModeInvalid(value)
     ) {
         throw invalidSession(path, "line 1 is not a valid session header");
     }
-    return value as unknown as SessionHeader;
+    return headerFromRecord(value);
+}
+
+function storedContextAssemblyModeInvalid(
+    value: Record<string, unknown>,
+): boolean {
+    const mode = storedContextAssemblyModeValue(value);
+    return mode !== undefined
+        && (!isContextAssemblyMode(mode) || mode === "default");
+}
+
+function storedContextAssemblyModeValue(
+    value: Record<string, unknown>,
+): unknown {
+    if (
+        value.contextAssemblyMode !== undefined
+        && value.startupProfile !== undefined
+        && value.contextAssemblyMode !== value.startupProfile
+    ) {
+        return "default";
+    }
+    return value.contextAssemblyMode ?? value.startupProfile;
+}
+
+function headerFromRecord(value: Record<string, unknown>): SessionHeader {
+    const {
+        startupProfile: _legacyStartupProfile,
+        contextAssemblyMode: _rawMode,
+        ...rest
+    } = value;
+    const mode = storedContextAssemblyModeValue(value);
+    return {
+        ...(rest as unknown as SessionHeader),
+        ...(typeof mode === "string" && mode !== "default"
+            ? { contextAssemblyMode: mode as Exclude<ContextAssemblyMode, "default"> }
+            : {}),
+    };
 }
 
 function validSessionDelegation(

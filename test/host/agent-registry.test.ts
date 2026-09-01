@@ -2549,7 +2549,7 @@ test("an async subagent returns immediately and delivers its final summary", asy
         expect(registry.find(child!.id)).toBeDefined();
         const childStore = await SessionStore.open(child!.session_path);
         expect(childStore.approvalMode()).toBe("full_access");
-        expect(childStore.header.startupProfile).toBe("bare");
+        expect(childStore.header.contextAssemblyMode).toBe("bare");
         const childEvents = (await readFile(
             join(root, `${child!.id}-events.jsonl`),
             "utf8",

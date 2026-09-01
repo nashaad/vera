@@ -107,17 +107,41 @@ test("session store creates a header and reloads one message chain", async () =>
     expect(reopened.messages()).toEqual([user, assistant, toolResult]);
 });
 
-test("startup profile persists in the session header", async () => {
+test("context assembly mode persists in the session header", async () => {
     const directory = temporaryDirectory();
     const path = join(directory, "bare.jsonl");
     const store = await SessionStore.create(path, {
         sessionId: "bare-session",
         cwd: "/work/vera",
-        startupProfile: "bare",
+        contextAssemblyMode: "bare",
     });
 
-    expect(store.header.startupProfile).toBe("bare");
-    expect((await SessionStore.open(path)).header.startupProfile).toBe("bare");
+    expect(store.header.contextAssemblyMode).toBe("bare");
+    const reopened = await SessionStore.open(path);
+    expect(reopened.header.contextAssemblyMode).toBe("bare");
+    const header = JSON.parse(readFileSync(path, "utf8").split("\n")[0]!);
+    expect(header.contextAssemblyMode).toBe("bare");
+    expect(header.startupProfile).toBeUndefined();
+});
+
+test("old startupProfile header field still loads as context assembly mode", async () => {
+    const directory = temporaryDirectory();
+    const path = join(directory, "legacy.jsonl");
+    writeFileSync(
+        path,
+        `${JSON.stringify({
+            type: "session",
+            version: 1,
+            id: "legacy-session",
+            timestamp: "2026-08-31T00:00:00.000Z",
+            cwd: "/work/vera",
+            startupProfile: "bare",
+        })}\n`,
+        { mode: 0o600 },
+    );
+    const store = await SessionStore.open(path);
+    expect(store.header.contextAssemblyMode).toBe("bare");
+    expect(store.header).not.toHaveProperty("startupProfile");
 });
 
 test("delegation provenance and its model boundary survive reopening", async () => {

@@ -1544,7 +1544,7 @@ export class AgentRegistry {
                     cwd: workspace,
                     ...(startupProfile === undefined
                         ? {}
-                        : { startupProfile }),
+                        : { contextAssemblyMode: startupProfile }),
                     ...(inherited?.parentId === undefined
                         ? {}
                         : { parentId: inherited.parentId }),
@@ -3716,7 +3716,7 @@ export class AgentRegistry {
         pendingPublication = false,
     ): Promise<ResidentAgent> {
         const identity = await this.bindSessionIdentity(store);
-        const startupProfile = store.header.startupProfile ?? "default";
+        const startupProfile = store.header.contextAssemblyMode ?? "default";
         const projectExtensionConfigs = startupProfile === "default"
             ? discoverProjectExtensionConfigs(store.header.cwd)
             : [];
@@ -3896,11 +3896,11 @@ export class AgentRegistry {
                 }),
             offerTools: startupProfile !== "prompt_only",
             loadOptionalContext: startupProfile === "default",
-            ...(store.header.startupProfile === undefined
+            ...(store.header.contextAssemblyMode === undefined
                 ? {}
                 : {
                     sessionMetadata: {
-                        startupProfile: store.header.startupProfile,
+                        contextAssemblyMode: store.header.contextAssemblyMode,
                     },
                 }),
             ...(this.options.readPool === undefined
@@ -5023,11 +5023,11 @@ export class AgentRegistry {
             child = await this.createWithKind(
                 {
                     workspace: parentStore.header.cwd,
-                    ...(parentStore.header.startupProfile === undefined
+                    ...(parentStore.header.contextAssemblyMode === undefined
                         ? {}
                         : {
                             startupProfile:
-                                parentStore.header.startupProfile,
+                                parentStore.header.contextAssemblyMode,
                         }),
                 },
                 "background",
