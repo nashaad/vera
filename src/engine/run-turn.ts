@@ -169,7 +169,7 @@ import {
     type WaitForModelRetry,
 } from "./recovery.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
-import { preflightEffort } from "./effort-coarsening.ts";
+import { preflightEffort, recordAcceptedImage } from "./effort-coarsening.ts";
 import {
     defaultSessionPath,
     sessionIsSubagent,
@@ -1977,6 +1977,21 @@ export async function runTurn(
                 ...assistantMessage,
                 durationMs: performance.now() - modelRequestStarted,
             };
+            if (
+                state.effortPool !== undefined
+                && modelSettings.provider !== undefined
+                && assistantMessage.stopReason !== "error"
+                && assistantMessage.stopReason !== "aborted"
+            ) {
+                recordAcceptedImage(
+                    state.effortPool,
+                    {
+                        provider: modelSettings.provider,
+                        model: activeModel,
+                    },
+                    modelRequest.messages,
+                );
+            }
             assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
             if (

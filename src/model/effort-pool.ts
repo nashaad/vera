@@ -71,6 +71,10 @@ export function learnedFact(error: string, now: Date = new Date()): LearnedFact 
     return { ok: false, seen: now.toISOString().slice(0, 10), error };
 }
 
+export function learnedSupportedFact(now: Date = new Date()): LearnedFact {
+    return { ok: true, seen: now.toISOString().slice(0, 10), checked: "user_key" };
+}
+
 export interface PoolEffortPoolOptions
     extends LoadPoolFileOptions, PoolStoreOptions, EffectiveCatalogOptions {
     /**

@@ -1,5 +1,6 @@
 import type { VeraConfig } from "../config.ts";
 import type { ModelAdapter } from "../model/types.ts";
+import type { ImageSupportLookup } from "../model/image-support.ts";
 import { UserFacingError } from "../user-facing-error.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import type { AuthStorage } from "./auth-storage.ts";
@@ -23,6 +24,7 @@ export interface GenericProviderOptions {
         init?: RequestInit,
     ) => Promise<Response>;
     readonly captureFailedRequest?: FailedRequestCapture;
+    readonly imageSupport?: ImageSupportLookup;
 }
 
 /** Builds an adapter from protocol and credential facts, without vendor code. */
@@ -45,6 +47,9 @@ export function createGenericProviderAdapter(
         ...(options.captureFailedRequest === undefined
             ? {}
             : { captureFailedRequest: options.captureFailedRequest }),
+        ...(options.imageSupport === undefined
+            ? {}
+            : { imageSupport: options.imageSupport }),
     };
     if (protocol === "openai-chat") {
         const openai: CustomOpenAIAdapterOptions = {

@@ -2,9 +2,11 @@ import type { VeraConfig } from "../config.ts";
 import type {
     EffortLevelsLookup,
 } from "../model/effort-levels.ts";
-import type {
-    ImageSupportLookup,
+import {
+    poolImageSupport,
+    type ImageSupportLookup,
 } from "../model/image-support.ts";
+import { createPoolEffortPool } from "../model/effort-pool.ts";
 import type { ModelAdapter } from "../model/types.ts";
 import { apiKey, type AuthStorage } from "./auth-storage.ts";
 import { findConfiguredProvider } from "./registry.ts";
@@ -60,6 +62,11 @@ export function createConfiguredModelAdapter(
             ...(options.env === undefined ? {} : { env: options.env }),
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
             ...capture(options),
+            ...imageLookup(
+                config.provider,
+                options,
+                config.providers?.[config.provider]?.images,
+            ),
         });
     }
     if (descriptor?.behaviorId !== undefined) {
@@ -73,6 +80,11 @@ export function createConfiguredModelAdapter(
             ...(options.env === undefined ? {} : { env: options.env }),
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
             ...capture(options),
+            ...imageLookup(
+                config.provider,
+                options,
+                config.providers?.[config.provider]?.images,
+            ),
         });
     }
     const custom = config.providers?.[config.provider];
@@ -90,6 +102,11 @@ export function createConfiguredModelAdapter(
             ...(apiKey === undefined ? {} : { apiKey }),
             ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
             ...capture(options),
+            ...imageLookup(
+                config.provider,
+                options,
+                config.providers?.[config.provider]?.images,
+            ),
         });
     }
     return createCustomAnthropicAdapter({
@@ -101,6 +118,7 @@ export function createConfiguredModelAdapter(
         ...(apiKey === undefined ? {} : { apiKey }),
         ...(options.fetch === undefined ? {} : { fetch: options.fetch }),
         ...capture(options),
+        ...imageLookup(config.provider, options, custom.images),
     });
 }
 
@@ -143,4 +161,23 @@ function capture(
     return options.captureFailedRequest === undefined
         ? {}
         : { captureFailedRequest: options.captureFailedRequest };
+}
+
+function imageLookup(
+    provider: string,
+    options: ConfiguredProviderOptions,
+    declared?: boolean,
+): { imageSupport?: ImageSupportLookup } {
+    if (options.imageSupport !== undefined) {
+        return { imageSupport: options.imageSupport };
+    }
+    if (declared !== undefined) {
+        return {};
+    }
+    const pool = createPoolEffortPool(
+        options.projectRoot === undefined ? {} : { projectRoot: options.projectRoot },
+    );
+    return {
+        imageSupport: poolImageSupport({ provider, pool }),
+    };
 }

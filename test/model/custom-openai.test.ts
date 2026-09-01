@@ -1,6 +1,25 @@
 import { expect, test } from "bun:test";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+
+function withIsolatedHome<T>(run: () => T): T {
+    const home = mkdtempSync(join(tmpdir(), "vera-custom-openai-"));
+    const previous = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    try {
+        return run();
+    } finally {
+        if (previous === undefined) {
+            delete process.env.VERA_HOME;
+        } else {
+            process.env.VERA_HOME = previous;
+        }
+        rmSync(home, { recursive: true, force: true });
+    }
+}
 
 test("a named OpenAI endpoint streams reasoning and text", async () => {
     let request: Request | undefined;
@@ -133,4 +152,70 @@ test("the built-in oMLX provider uses its local OpenAI endpoint", async () => {
     expect(request?.headers.get("authorization")).toBe(
         "Bearer stored-omlx-secret",
     );
+});
+
+test("an omitted custom images declaration stays unknown", () => {
+    withIsolatedHome(() => {
+        const adapter = createConfiguredModelAdapter({
+            schema_version: 1,
+            provider: "unsloth-local",
+            model: "qwen",
+            approval_mode: "ask",
+            providers: {
+                "unsloth-local": {
+                    protocol: "openai-chat",
+                    base_url: "http://127.0.0.1:8888/v1",
+                    credential: "none",
+                },
+            },
+        }, {
+            fetch: async () => new Response(
+                'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+            ),
+        });
+        expect(adapter.supportsImageInput).toBeUndefined();
+        expect(adapter.imageInputSupport?.("qwen")).toBeUndefined();
+    });
+});
+
+test("an explicit custom images declaration is the adapter's blanket answer", () => {
+    const blocked = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "unsloth-local",
+        model: "qwen",
+        approval_mode: "ask",
+        providers: {
+            "unsloth-local": {
+                protocol: "openai-chat",
+                base_url: "http://127.0.0.1:8888/v1",
+                credential: "none",
+                images: false,
+            },
+        },
+    }, {
+        fetch: async () => new Response(
+            'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        ),
+    });
+    expect(blocked.supportsImageInput).toBe(false);
+
+    const allowed = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "unsloth-local",
+        model: "qwen",
+        approval_mode: "ask",
+        providers: {
+            "unsloth-local": {
+                protocol: "openai-chat",
+                base_url: "http://127.0.0.1:8888/v1",
+                credential: "none",
+                images: true,
+            },
+        },
+    }, {
+        fetch: async () => new Response(
+            'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+        ),
+    });
+    expect(allowed.supportsImageInput).toBe(true);
 });

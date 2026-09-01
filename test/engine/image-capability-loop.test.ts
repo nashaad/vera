@@ -302,6 +302,11 @@ test("a model nothing knows about still gets its image sent", async () => {
         mediaType: "image/png",
         data: Uint8Array.from([137, 80, 78, 71]),
     }]);
+    expect(readLearned(context.poolPath).images).toEqual({
+        ok: true,
+        seen: new Date().toISOString().slice(0, 10),
+        checked: "user_key",
+    });
 });
 
 const SEEDED_FALSE = JSON.stringify({
