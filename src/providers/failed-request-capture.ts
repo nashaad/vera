@@ -5,7 +5,6 @@ import { join } from "node:path";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 
-/** Why a request was kept. */
 export type FailedRequestOutcome = "provider_error" | "empty_response";
 
 export interface FailedRequestDetail {
@@ -15,14 +14,11 @@ export interface FailedRequestDetail {
     readonly outcome: FailedRequestOutcome;
     readonly error?: string;
     readonly failure?: ProviderFailure;
-    /** The body as it was handed to the provider client. */
     readonly request: unknown;
-    /** Raw chunks the provider sent before it failed, oldest first. */
     readonly response: readonly unknown[];
     readonly responseTruncated?: boolean;
 }
 
-/** Writes one capture and answers with its path, or nothing when it wrote none. */
 export type FailedRequestCapture = (
     detail: FailedRequestDetail,
 ) => string | undefined;
@@ -42,15 +38,7 @@ export function defaultCaptureDirectory(): string {
     return join(veraRuntimeDirectory(), "logs", "captures");
 }
 
-/**
- * A per-session sink for provider requests that failed.
- *
- * Both caps are load-bearing rather than tidiness: a turn that retries against
- * a provider returning the same error would otherwise write one file per
- * attempt, and a request carrying a long transcript is megabytes each time.
- * A failed write answers with nothing, so a full disk loses the capture and
- * not the turn.
- */
+/** A per-session sink for provider requests that failed. Both caps are load-bearing rather than tidiness: a turn that retries against a provider returning the same error would. */
 export function createFailedRequestCapture(
     options: FailedRequestCaptureOptions,
 ): FailedRequestCapture {
@@ -100,22 +88,11 @@ interface CaptureFile extends FailedRequestDetail {
     readonly max_captures: number;
 }
 
-/**
- * The capture as JSON, never longer than `maxBytes`.
- *
- * Parts are dropped whole so the file stays parseable: clipping the encoded
- * text would leave a JSON document nothing can read, which is the one thing a
- * capture cannot afford to be.
- */
 function serializeCapture(file: CaptureFile, maxBytes: number): string {
     const full = encode(redactSecrets(file));
     if (byteLength(full) <= maxBytes) {
         return full;
     }
-    // The request is the transcript, which the session store already holds;
-    // the response is the provider behavior nothing else recorded. So the
-    // request goes first, and the response gives ground only from its head:
-    // the chunk that explains a failure is almost always the last one.
     const withoutRequest = encode(redactSecrets({
         ...file,
         request: null,
@@ -167,9 +144,6 @@ const SECRET_KEY = new RegExp(
     "i",
 );
 
-// Header lines carrying a credential, whatever scheme or shape the value has.
-// The value runs to the end of the line, stopping at a quote or separator so a
-// header inside a serialized object does not swallow its neighbours.
 const AUTH_HEADER = new RegExp(
     "\\b("
     + "authorization|proxy-authorization|www-authenticate"
@@ -177,14 +151,7 @@ const AUTH_HEADER = new RegExp(
     + ")(\\s*:\\s*)[^\\n\"',;]+",
     "gi",
 );
-// Bearer credentials wherever they appear, header or not. The colon is inside
-// the value class because a token can carry one and the tail is as secret as
-// the head. Other schemes are left to the header pass: their names are common
-// enough as prose that matching them loose would redact message content.
 const BEARER = /\bBearer\s+[\w\-._~+/:]+=*/gi;
-// Well-known token shapes. Captured requests carry prior tool output, so a
-// key can arrive as a bare literal (an `env` dump, a read .env file) with no
-// header name or Bearer prefix around it.
 const KEY_LITERAL = new RegExp(
     "\\b(?:"
     + "sk-[A-Za-z0-9\\-_]{8,}"
@@ -197,9 +164,6 @@ const KEY_LITERAL = new RegExp(
     + ")\\b",
     "g",
 );
-// `NAME=value` / `NAME: value` lines inside strings, for secrets whose value
-// has no recognizable shape (AWS secret keys, arbitrary passwords). The name
-// is the signal there, same as the object-key pass below.
 const SECRET_ASSIGNMENT = new RegExp(
     "\\b([A-Za-z0-9_-]*"
     + "(?:key|token|secret|password|passwd|credential)s?"
@@ -209,16 +173,6 @@ const SECRET_ASSIGNMENT = new RegExp(
     "gi",
 );
 
-/**
- * Credentials out, message content in.
- *
- * The bodies here are the user's own conversation, which is the whole reason
- * the file is worth reading, so only the fields and literals that carry a
- * provider credential are replaced. The literal pass matters because a key
- * reaches a capture inside an error string as often as it does under a header
- * name, and a bare `key=` in a query string is a credential as often as a
- * named one is.
- */
 export function redactSecrets(value: unknown): unknown {
     if (typeof value === "string") {
         return value.replace(AUTH_HEADER, `$1$2${REDACTED}`)

@@ -7,9 +7,6 @@ import {
 import type { ClientExtensionConfig } from "./client-registry.ts";
 
 const HELP_EXTENSION_ID = "vera.help";
-// Quickslots are gone: the dial strip replaced them, and the saved slots were
-// migrated into `favorite_pairs` once. The old namespace stays readable on
-// disk for a release so the migration can be undone by hand.
 const REASONING_CYCLE_EXTENSION_ID = "vera.reasoning-cycle";
 
 export function bundledClientExtensionConfigs(

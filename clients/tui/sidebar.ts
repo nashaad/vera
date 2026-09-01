@@ -376,7 +376,7 @@ export function createTuiSidebar(options: TuiSidebarOptions): TuiSidebar {
         },
         setFocused(nextFocused): void {
             focused = nextFocused;
-            // Keep the row mounted. OpenTUI can retain stale flex geometry when a child is repeatedly hidden and restored, which made the rail appear on first focus but not on later focus cyc…
+            // Keep the row mounted. OpenTUI can retain stale flex geometry when a child is repeatedly hidden and restored, which made the rail appear on first focus but not on later focus.
             paintFocusRails();
             options.onLayoutChanged?.();
         },

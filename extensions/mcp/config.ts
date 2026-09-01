@@ -1,5 +1,3 @@
-// A server name becomes part of every registered tool and command name, so it
-// is restricted to characters every model provider accepts in a tool name.
 const SERVER_NAME_PATTERN = /^[a-z0-9_-]{1,32}$/;
 
 export interface StdioServerConfig {
@@ -16,7 +14,6 @@ export interface HttpServerConfig {
     readonly url: string;
     readonly headers: Readonly<Record<string, string>>;
     readonly auth?: "oauth";
-    /** Pre-registered OAuth client id, for servers without dynamic registration. */
     readonly clientId?: string;
 }
 
@@ -24,14 +21,6 @@ export type McpServerConfig = StdioServerConfig | HttpServerConfig;
 
 export class McpConfigError extends Error {}
 
-/**
- * Parses the extension config: `{ servers: { <name>: <server> } }` where a
- * server is either `{ command: [...], env?, cwd?, enabled? }` for stdio or
- * `{ url, headers?, enabled? }` for HTTP with static headers. A server that
- * declares both `command` and `url`, or neither, is a config error rather
- * than a guess. Disabled servers are dropped here so the rest of the
- * extension never sees them.
- */
 export function parseMcpConfig(value: unknown): readonly McpServerConfig[] {
     if (value === null || value === undefined) {
         return [];

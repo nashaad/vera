@@ -1,4 +1,4 @@
-/** One merge pipeline for every key the TUI can dispatch. The static table, the chords extensions register at runtime, and the user's `keybindings` block in `tui.json` used to be t… */
+/** One merge pipeline for every key the TUI can dispatch. The static table, the chords extensions register at runtime, and the user's `keybindings` block in `tui.json` used to be. */
 
 import {
     TUI_KEYMAP,

@@ -71,11 +71,6 @@ export async function inspectLatestModelRequest(
     return `${JSON.stringify(inspected, null, 2)}\n`;
 }
 
-/**
- * The latest request comes from the snapshot beside the log. Logs written
- * before the snapshot existed still carry whole requests inline, so a missing
- * snapshot falls back to scanning them.
- */
 async function readModelRequest(
     path: string,
     sessionId: string,
@@ -293,12 +288,6 @@ function isRecord(value: unknown): value is Record<string, unknown> {
     return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-/**
- * Prefers the sharded location and falls back to the flat one, so a session
- * logged before the layout changed is still inspectable. The fallback path is
- * returned unread when neither exists, leaving the caller's own read to
- * produce the missing-file error.
- */
 async function resolveEventLogPath(
     sessionId: string,
     cwd: string,

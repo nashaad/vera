@@ -3,13 +3,6 @@ import { chmodSync, readFileSync, writeFileSync } from "node:fs";
 import { createServer, type Server } from "node:http";
 import { join } from "node:path";
 
-/**
- * OAuth 2.1 support for HTTP MCP servers: discovery through the protected
- * resource metadata chain, dynamic client registration, and the PKCE
- * authorization-code flow on a loopback redirect. Tokens live in one JSON
- * file inside the extension's machine storage directory.
- */
-
 export interface AuthorizationEndpoints {
     readonly authorizationEndpoint: string;
     readonly tokenEndpoint: string;
@@ -60,13 +53,6 @@ export class TokenStore {
     }
 }
 
-/**
- * Walks the discovery chain: an unauthenticated request to the MCP endpoint
- * answers 401 with a `WWW-Authenticate` header naming the protected resource
- * metadata (RFC 9728), which names the authorization server, whose own
- * metadata (RFC 8414) carries the endpoints. Servers that skip the header
- * still get the well-known fallback path probe.
- */
 export async function discoverAuthorization(
     url: string,
     signal?: AbortSignal,
@@ -134,19 +120,12 @@ export interface LoginOptions {
     readonly serverName: string;
     readonly serverUrl: string;
     readonly store: TokenStore;
-    /** Pre-registered client id; skips dynamic registration when set. */
     readonly clientId?: string;
-    /** Presents the authorization URL; defaults to the OS browser opener. */
     readonly openUrl?: (url: string) => void | Promise<void>;
     readonly timeoutMs?: number;
     readonly signal?: AbortSignal;
 }
 
-/**
- * Runs the whole interactive login: discovery, registration, browser,
- * loopback callback, code exchange, persistence. Resolves once the token is
- * stored, so callers that cannot wait fire it and drop the promise.
- */
 export async function loginServer(options: LoginOptions): Promise<StoredToken> {
     const endpoints = await discoverAuthorization(
         options.serverUrl,
@@ -190,11 +169,6 @@ export async function loginServer(options: LoginOptions): Promise<StoredToken> {
     }
 }
 
-/**
- * Returns a currently valid access token for the server, silently refreshing
- * an expired one, or undefined when no login has happened yet or the refresh
- * is rejected.
- */
 export async function freshAccessToken(
     store: TokenStore,
     serverName: string,
@@ -303,7 +277,6 @@ async function exchangeToken(
     };
 }
 
-/** Fetches candidate metadata URLs in order and returns the first JSON 200. */
 async function firstJson(
     urls: readonly string[],
     signal?: AbortSignal,

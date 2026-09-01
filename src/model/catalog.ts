@@ -37,10 +37,6 @@ interface SourceCatalog {
 
 export interface EffectiveCatalogOptions {
     readonly cacheDir?: string;
-    /**
-     * The curation that stamps `recommended` onto matching entries. Defaults to
-     * the file Vera ships; passing a list keeps a caller (and a test) off disk.
-     */
     readonly recommended?: readonly RecommendedModel[];
 }
 
@@ -52,13 +48,6 @@ export function loadDiscoveryCatalog(
     return catalog === undefined ? undefined : toProviderCatalog(catalog);
 }
 
-/**
- * What Vera knows about a provider's models. Discovery is the only source: a
- * provider is the authority on its own model list, and a list shipped in the
- * repo is out of date the day after it is written. A provider Vera has never
- * discovered yields an empty catalog rather than an error, which is the honest
- * answer to "what does this provider offer" before anyone has asked it.
- */
 export function effectiveCatalog(
     provider: string,
     options: EffectiveCatalogOptions = {},
@@ -79,11 +68,7 @@ export function effectiveCatalog(
     };
 }
 
-/**
- * The shipped curation, read once. A missing or damaged file leaves every entry
- * unflagged: a recommendation is a note, so losing it must not cost the user
- * the model list itself.
- */
+/** The shipped curation, read once. A missing or damaged file leaves every entry unflagged: a recommendation is a note, so losing it must not cost the user the model list itself. */
 let shipped: readonly RecommendedModel[] | undefined;
 
 function shippedRecommendations(): readonly RecommendedModel[] {
@@ -192,10 +177,7 @@ function parseModel(value: unknown): SourceModel | undefined {
     } as unknown as SourceModel;
 }
 
-/**
- * A malformed pricing object is omitted for that row. It must not drop the
- * model, and it must not empty the catalog.
- */
+/** A malformed pricing object is omitted for that row. It must not drop the model, and it must not empty the catalog. */
 function optionalPricing(value: unknown): ModelPricing | undefined {
     if (value === undefined) {
         return undefined;

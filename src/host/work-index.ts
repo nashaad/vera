@@ -4,13 +4,6 @@ import type {
     RegisteredAgentStatus,
 } from "./agent-registry.ts";
 
-/**
- * Every row belongs to exactly one section, and the order is fixed.
- *
- * `needs_you` is the only section a client may treat as a call to action, so
- * nothing lands there that the person cannot answer right now: a session
- * blocked on another session is working, not waiting on anyone.
- */
 export type WorkSection =
     | "needs_you"
     | "working"
@@ -25,36 +18,17 @@ export type WorkReason =
     | "review"
     | "schedule";
 
-/**
- * One line of the work inbox, and the whole of what the wire carries.
- *
- * Deliberately a projection and never a record: nothing here is stored, every
- * field is recomputed from live host state, and a fact the host cannot assert
- * has no field to be written into. There is no task object behind this.
- */
 export interface WorkRow {
-    /** Stable across rebuilds so a client can keep its selection. */
     readonly id: string;
     readonly session_id: string;
-    /**
-     * Where the transcript lives, because enter opens the session and the
-     * client resumes by path. Carried on the row rather than looked up after
-     * the fact: the row and the path are one reading of the registry, and a
-     * second reading could name a session the row no longer describes.
-     */
     readonly session_path: string;
     readonly title: string;
     readonly section: WorkSection;
     readonly reason?: WorkReason;
-    /** The human line: request summary, activity line, or completion note. */
     readonly summary: string;
-    /** Absent rather than zero when a session has no running subagents. */
     readonly subagent_count?: number;
-    /** Present on a review row: how many files the session changed. */
     readonly changed_files?: number;
-    /** Directory path, carried so a client can disambiguate similar titles. */
     readonly workspace: string;
-    /** ISO; clients render relative time. */
     readonly updated_at: string;
 }
 
@@ -70,7 +44,6 @@ export const EMPTY_WORK_INDEX: WorkIndexSnapshot = Object.freeze({
     working: 0,
 });
 
-/** What the host knows about one session when the index is built. */
 export interface WorkAgentFacts {
     readonly id: string;
     readonly session_path: string;
@@ -81,25 +54,13 @@ export interface WorkAgentFacts {
     readonly live: boolean;
     readonly updated_at: string;
     readonly parent_id?: string;
-    /** The open request this session is blocked on, when it is blocked. */
     readonly pending_request?: UiRequest;
-    /** The tool currently in flight, when one is. */
     readonly active_tool?: string;
-    /** A finished background result nobody has opened yet. */
     readonly unread_result?: boolean;
-    /**
-     * How many files this session was the first to change.
-     *
-     * A count of what it touched, never a judgement about it: nothing here
-     * knows whether an edit was later undone, whether it works, or whether it
-     * is worth landing.
-     */
     readonly changed_files?: number;
-    /** Terminal failure text, when the session failed. */
     readonly failure?: string;
 }
 
-/** A schedule run the scheduler has already emitted. */
 export interface WorkScheduleFacts {
     readonly schedule_id: string;
     readonly session_id: string;
@@ -110,7 +71,6 @@ export interface WorkScheduleFacts {
 }
 
 export interface WorkIndexOptions {
-    /** Rows older than this drop out of `done_recently`. Search covers the past. */
     readonly recentWindowMs?: number;
     readonly now?: () => number;
     readonly maxRows?: number;
@@ -159,15 +119,6 @@ export function buildWorkIndex(
     for (const agent of agents) {
         const row = drafted.get(agent.id);
         if (row === undefined) continue;
-        // A running subagent is already on screen, as the count on its
-        // parent's row. Listing it again would put one piece of work on the
-        // inbox twice and make the working count disagree with itself.
-        //
-        // Only when the parent is actually on the list, though: a parent that
-        // finished its turn while its children run has no row of its own, and
-        // folding them into a row that is not there would hide running work
-        // completely. A child blocked on its own approval always stands alone,
-        // because the count on a parent row cannot be answered.
         if (agent.parent_id !== undefined
             && drafted.has(agent.parent_id)
             && agent.pending_request === undefined) {
@@ -199,13 +150,6 @@ export function buildWorkIndex(
     };
 }
 
-/**
- * Whether a client already has this index.
- *
- * The registry reports that something changed, not what, and most changes it
- * reports leave every row identical. Comparing the rows is what keeps a client
- * from repainting the inbox on every keystroke in an unrelated session.
- */
 export function sameWorkIndex(
     left: WorkIndexSnapshot,
     right: WorkIndexSnapshot,
@@ -231,11 +175,6 @@ function sameWorkRow(left: WorkRow, right: WorkRow | undefined): boolean {
         && left.updated_at === right.updated_at;
 }
 
-/**
- * The one shape a work index arrives in, whether it rode the attach response
- * or a later notification. Rejects rather than repairs: a row the client
- * cannot trust field by field is a row that would state work that is not there.
- */
 export function parseWorkIndex(value: unknown): WorkIndexSnapshot | undefined {
     const snapshot = asRecord(value);
     if (
@@ -343,11 +282,6 @@ function agentRow(
     }
 
     if (agent.failure !== undefined) {
-        // A failure is actionable only where someone can act on it. An
-        // interactive session the user is holding open can be retried from
-        // where it stopped; a background failure is a result to read, and
-        // putting it in `needs_you` would ask for an answer that has no
-        // question behind it.
         const actionable = agent.kind === "interactive" && agent.live;
         return {
             ...base,
@@ -370,9 +304,6 @@ function agentRow(
         };
     }
 
-    // Finished, and it changed something. The count is the whole claim: this
-    // says a session touched files and stopped, not that the change is
-    // correct, complete, or ready to land.
     if (agent.changed_files !== undefined && agent.changed_files > 0) {
         return {
             ...base,
@@ -385,9 +316,6 @@ function agentRow(
         };
     }
 
-    // Every other session the host is holding is simply on disk. Idle is not
-    // work, and a list that showed it would describe last month's conversation
-    // exactly as it describes the one being typed into.
     return undefined;
 }
 
@@ -412,13 +340,6 @@ function requestSummary(request: UiRequest): string {
     );
 }
 
-/**
- * The part of a tool call worth putting on one line.
- *
- * Named inputs only: the whole input is arbitrary tool-defined JSON, so
- * printing the first string it happens to hold would put a different field on
- * screen every time the tool changed shape.
- */
 function toolCallPreview(
     input: Readonly<Record<string, unknown>>,
 ): string | undefined {

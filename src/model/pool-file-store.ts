@@ -1,16 +1,3 @@
-/**
- * Writing the declarative pool file.
- *
- * Every write lands in the user-scope file. The project-scope file is a
- * hand-maintained overlay a repository can commit, so a machine write into it
- * would put one developer's probe results in everyone else's checkout.
- *
- * Declared and learned are kept apart at the API, not by convention:
- * `addPoolModel` writes only declared fields, `recordLearned` writes only
- * learned keys, and neither reaches into the other's half of the entry.
- * Entry order is admission order, newest first, and using a model does not
- * move it.
- */
 
 import { randomUUID } from "node:crypto";
 import { mkdirSync, renameSync, writeFileSync } from "node:fs";
@@ -34,21 +21,9 @@ import { userPoolFilePath } from "./pool-file-loader.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 export interface PoolStoreOptions {
-    /** Overrides `~/.vera/pool.json`. */
     readonly path?: string;
 }
 
-/**
- * Thrown instead of writing when a value in the file on disk was rejected.
- *
- * A write serializes the parsed file back over the user's text, so a file with
- * a rejected value would be written back as whatever survived: in the worst
- * case an empty pool over a hand-written one. Refusing keeps the user's text
- * and leaves the failed write to be reported.
- *
- * Warnings do not refuse. The only warning is an unknown field, which is
- * carried through the write verbatim, so nothing of the user's is at risk.
- */
 export class PoolFileWriteRefusedError extends Error {
     readonly path: string;
     readonly issues: readonly PoolFileIssue[];
@@ -74,11 +49,6 @@ export function readUserPoolFile(options: PoolStoreOptions = {}): PoolFile {
     return readForUpdate(options.path ?? userPoolFilePath()).file;
 }
 
-/**
- * A missing file is an empty pool with no issues: there is nothing to preserve
- * and the first write creates it. A file that exists but does not parse keeps
- * its issues, which is what blocks the write.
- */
 function readForUpdate(path: string): ParsedPoolFile {
     let text: string;
     try {
@@ -93,11 +63,6 @@ function readForUpdate(path: string): ParsedPoolFile {
     return parsePoolFileText(text);
 }
 
-/**
- * Adds or updates the declared half of an entry. An entry with no declared
- * fields at all is still meaningful: it says the user put this model in the
- * pool, which is the fact `pool_add` records before any probe has run.
- */
 export function addPoolModel(
     modelId: string,
     declared: PoolFileModel = {},
@@ -122,16 +87,7 @@ export function addPoolModel(
     });
 }
 
-/**
- * Sets or clears the name on an entry that is already pooled.
- *
- * Separate from `addPoolModel`, which replaces the declared half wholesale
- * and moves the entry to the front: a rename changes one field and must not
- * reorder the pool, because file order is what the failsafe rung walks.
- *
- * The caller checks `poolNameRefusal` first. This refuses only the case that
- * the check cannot see, an entry that is not in the file at all.
- */
+/** Sets or clears the name on an entry that is already pooled. Separate from `addPoolModel`, which replaces the declared half wholesale and moves the entry to the front: a rename. */
 export function namePoolModel(
     modelId: string,
     name: string | undefined,
@@ -153,18 +109,6 @@ export function namePoolModel(
     });
 }
 
-/**
- * Moves an entry within the pool's declared order, by `delta` places.
- *
- * File order is the mechanism rather than a field, because it already is:
- * admission writes to the front, and the failsafe rung walks the file in the
- * order it finds. This rewrites the key order and nothing else, so an entry's
- * declared and learned halves both travel with it untouched.
- *
- * A move past either end clamps rather than wrapping. The pool is a ranked
- * shortlist, and wrapping would send the user's first preference to last on a
- * keypress they meant as "already at the top".
- */
 export function movePoolModel(
     modelId: string,
     delta: number,
@@ -203,13 +147,6 @@ export function removePoolModel(
     });
 }
 
-/**
- * Merges machine-concluded facts into an entry, key by key, so a fresh
- * rejection does not erase what an earlier probe established about other
- * levels. Creates the entry when the model is not in the pool yet: learning
- * something about a model is not the same as the user admitting it, but the
- * fact still needs somewhere to live.
- */
 export function recordLearned(
     modelId: string,
     facts: LearnedFacts,
@@ -230,12 +167,6 @@ export function recordLearned(
     });
 }
 
-/**
- * Drops learned keys, which is how a model is sent back for reverification:
- * the old evidence is no longer trusted, so it is removed rather than being
- * flagged and left in place to be read by something that misses the flag.
- * Omitting `keys` drops every learned fact for the model.
- */
 export function clearLearned(
     modelId: string,
     keys?: readonly string[],
@@ -273,13 +204,6 @@ export function updateDefaults(
     }));
 }
 
-/**
- * Read, transform, write through a temporary file. Hand edits to sections this
- * write did not touch survive, since the whole parsed file is written back,
- * fields the parser does not model included. A rejected value is the one thing
- * a round trip cannot carry, so a file holding one is never written: the text
- * it would replace is the only copy of what the parse dropped.
- */
 function updatePoolFile(
     options: PoolStoreOptions,
     update: (file: PoolFile) => PoolFile,
@@ -306,11 +230,6 @@ function updatePoolFile(
     return updated;
 }
 
-/**
- * Puts the fields the parser does not model back where they were. Parsed
- * values win: an unknown field never shadows one this file understands, and an
- * entry the update removed takes its unknown fields with it.
- */
 function serialize(
     file: PoolFile,
     preserved: PreservedPoolFields,

@@ -2,12 +2,6 @@ import type { RegisteredTool } from "./types.ts";
 
 const MAX_MODELS = 8;
 
-/**
- * The one agent path into the pool. The effect resolves through the same
- * admission the client's own add goes through, so both paths write the entry
- * the same way; the tool only carries the request. Add-only on purpose:
- * removal is the destructive action and stays a human action in the client.
- */
 export const poolAddTool: RegisteredTool = {
     effectType: "pool_add",
     permissionOperation: "pool.add",

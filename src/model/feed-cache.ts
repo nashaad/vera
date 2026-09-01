@@ -1,15 +1,3 @@
-/**
- * The consumer half of the custodian feed: fetch, validate, and read rows.
- *
- * The shipped copy is the floor: a fetch that fails, returns malformed JSON,
- * or carries a schema version this build does not understand falls back to the
- * copy in the repo rather than surfacing an error, because the feed is only a
- * fast path and the local probe remains the guarantee.
- *
- * Freshness is bound to the feed run's cadence: a row older than one missed
- * run (four days) stops counting, so a stalled central run degrades to local
- * probing instead of vouching forever.
- */
 
 import { fileURLToPath } from "node:url";
 
@@ -28,7 +16,6 @@ import {
 } from "./feed-shape.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
-/** One missed two-day cadence: the point a hit stops counting as fresh. */
 export const FEED_FRESHNESS_MS = 4 * 24 * 60 * 60 * 1_000;
 
 const SHIPPED_FEED_PATH = fileURLToPath(
@@ -40,7 +27,6 @@ export type ModelFeedSource = "fetched" | "shipped" | "none";
 export interface ModelFeedResult {
     readonly feed?: ModelFeed;
     readonly source: ModelFeedSource;
-    /** Why the fetched copy was not used, when it was not. */
     readonly refusal?: string;
 }
 
@@ -49,7 +35,6 @@ export interface FeedFetch {
 }
 
 export interface LoadModelFeedOptions {
-    /** Absent means no fetch is attempted and the shipped copy answers. */
     readonly url?: string;
     readonly fetch?: FeedFetch;
     readonly shippedPath?: string;
@@ -107,13 +92,6 @@ export interface FeedRowReaderOptions extends LoadModelFeedOptions {
     readonly now?: () => Date;
 }
 
-/**
- * One feed load per process, shared by every admission that follows.
- *
- * Every failure answers `undefined`, which is the same answer as a model the
- * feed has never heard of, so an unreachable or malformed feed costs a local
- * probe rather than a session.
- */
 export function createFeedRowReader(
     options: FeedRowReaderOptions = {},
 ): FeedRowReader {
@@ -139,11 +117,7 @@ export function loadShippedModelFeed(
     }
 }
 
-/**
- * Undefined for anything this build must not act on: a version it does not
- * understand refuses the whole file, while a single malformed row drops that
- * row only, so one bad entry cannot cost every model the fast path.
- */
+/** Undefined for anything this build must not act on: a version it does not understand refuses the whole file, while a single malformed row drops that row only, so one bad entry. */
 export function parseModelFeed(value: unknown): ModelFeed | undefined {
     const feed = asRecord(value);
     if (
@@ -163,11 +137,6 @@ export function parseModelFeed(value: unknown): ModelFeed | undefined {
     };
 }
 
-/**
- * The row that lets admission skip the local probe, or undefined. Only an
- * `added` row within the freshness window answers: a published failure is a
- * fact worth reading elsewhere, but it never vouches for a skip.
- */
 export function freshFeedRow(
     feed: ModelFeed,
     provider: string,
@@ -188,13 +157,6 @@ export function freshFeedRow(
     return age >= 0 && age <= FEED_FRESHNESS_MS ? row : undefined;
 }
 
-/**
- * A fresh feed row as the learned facts a local probe would have recorded,
- * with `checked: "vera"` naming who vouches. The level mapping is the same
- * one admission uses, so a feed-admitted model and a locally probed one
- * normalize identically; a wire string that maps to no ladder rung is dropped
- * rather than recorded against a rung it does not name.
- */
 export function feedLearnedFacts(row: ModelFeedRow): LearnedFacts {
     const facts: Record<string, LearnedFact> = {};
     for (const wire of row.verified_levels) {
@@ -230,9 +192,6 @@ function parseRow(value: unknown): ModelFeedRow | undefined {
     if (row === undefined) {
         return undefined;
     }
-    // The published feed writes JSON null for an optional field it has no
-    // value for. Dropping the row over it would cost every model the fast
-    // path, so null and absent are read the same way.
     const providerDefaultLevel = absentIfNull(row.provider_default_level);
     const responseModel = absentIfNull(row.response_model);
     const reason = absentIfNull(row.reason);

@@ -12,10 +12,6 @@ import { dirname } from "node:path";
 interface StartupClaimRecord {
     readonly pid: number;
     readonly token: string;
-    /**
-     * When the claim was written. Absent on a record from a build that
-     * predates claim aging; such a claim never expires by age.
-     */
     readonly created_at?: string;
 }
 
@@ -33,18 +29,11 @@ export interface AcquireHostStartupClaimOptions {
     readonly pid?: number;
     readonly createToken?: () => string;
     readonly isProcessAlive?: (pid: number) => boolean;
-    /**
-     * How old a claim may grow before it stops blocking, even with its owner
-     * alive. Startup phases are logged and finite, so a claim this old means
-     * the owner hung mid-startup; without a bound it blocks new hosts forever.
-     */
     readonly maxClaimAgeMs?: number;
     readonly now?: () => number;
-    /** Called with the holder of an over-age claim before it is replaced. */
     readonly onStaleClaim?: (holder: { readonly pid: number }) => void;
 }
 
-/** Minutes, not seconds: a slow cold start must never lose its claim. */
 const DEFAULT_MAX_CLAIM_AGE_MS = 5 * 60 * 1_000;
 
 export class HostStartupInProgressError extends Error {
@@ -126,7 +115,6 @@ export async function acquireHostStartupClaim(
             if (!published) {
                 throw error;
             }
-            // The claim is valid even if its temporary hard link remains.
         }
     }
 }

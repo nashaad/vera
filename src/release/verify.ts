@@ -100,10 +100,6 @@ function requireExecutable(releaseRoot: string, name: string): void {
     }
 }
 
-/**
- * Confirm a packed release is complete enough to activate. Does not write
- * ~/.vera and does not change `current`.
- */
 export function verifyPackedRelease(
     releaseRoot: string,
     prefix?: string,

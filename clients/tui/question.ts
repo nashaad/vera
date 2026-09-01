@@ -628,7 +628,7 @@ function questionChoiceRow(
         content: new StyledText([fg(TUI_ACCENT)(content.label)]),
         bg: content.active ? TUI_ELEMENT : TUI_PANEL,
         attributes: content.active ? 1 : 0,
-        // The node takes the row's remaining width, which is what gives a long label a boundary to wrap on; shrinking it to its own text instead leaves the wrap nothing to measure against…
+        // The node takes the row's remaining width, which is what gives a long label a boundary to wrap on; shrinking it to its own text instead leaves the wrap nothing to measure.
         flexGrow: content.answerEditor === undefined ? 1 : 0,
         flexShrink: content.answerEditor === undefined ? 1 : 0,
         height: "auto",

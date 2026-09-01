@@ -21,10 +21,6 @@ import {
 } from "./layout.ts";
 import { readStampedRelease } from "./stamp.ts";
 
-/**
- * Point `current` at this release and write the stable launcher. `current` is
- * replaced with rename(2), so readers see the previous target or the new one.
- */
 export function activateRelease(
     releaseRoot: string,
     prefix = defaultInstallPrefix(),
@@ -55,7 +51,6 @@ function writeRelativeReleaseLink(
     try {
         unlinkSync(temporary);
     } catch {
-        // The pid-scoped name should be free; ignore a leftover.
     }
     symlinkSync(join("releases", buildId), temporary);
     renameSync(temporary, path);

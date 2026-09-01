@@ -30,9 +30,7 @@ export interface ProviderDiscoveryDefinition {
     readonly mode: ProviderDiscoveryMode;
     readonly path: string;
     readonly credential: DiscoveryCredential;
-    /** A listing host that differs from the provider's request host. */
     readonly baseUrl?: string;
-    /** Listing path used after the user moves the provider endpoint. */
     readonly endpointOverridePath?: string;
 }
 

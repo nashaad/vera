@@ -1,9 +1,3 @@
-/**
- * All models intelligence cutoff: a WA Score floor, not a second score.
- *
- * Six stops on the Any/Smarter numberline. Floors are documented product
- * constants, not percentiles of the current list.
- */
 
 export const INTELLIGENCE_CUTOFFS = [
     "any",

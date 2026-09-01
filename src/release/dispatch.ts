@@ -13,10 +13,6 @@ import {
 } from "./layout.ts";
 import { thisProcessBuildId } from "./stamp.ts";
 
-/**
- * One-hop guard. Tells the re-execed client that dispatch already happened.
- * Does not carry a path, a home, or a release choice.
- */
 export const RETAINED_DISPATCH_ENV = "VERA_RETAINED_DISPATCH";
 
 export class RetainedReleaseMissingError extends Error {
@@ -48,14 +44,6 @@ export interface DispatchOptions {
     ) => Promise<number>;
 }
 
-/**
- * If a live host is a different build, exec that build's retained client.
- * Returns undefined when this process should continue. Returns an exit
- * code when this process handed off.
- *
- * If the host changes between two inspections, resolution retries once.
- * Not a loop. The guard stops a second hop.
- */
 export async function dispatchToHostRelease(
     options: DispatchOptions = {},
 ): Promise<number | undefined> {

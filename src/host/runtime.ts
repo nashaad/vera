@@ -192,57 +192,37 @@ import {
     type EmittedScheduleRun,
 } from "../scheduler/types.ts";
 
-/** Schedule runs read per index build. The recent window trims them further. */
 const MAX_SCHEDULE_WORK_ROWS = 50;
 
 export interface StartResidentHostOptions {
     readonly config: VeraConfig;
-    /** Profile config path for live settings; defaults to the active profile. */
     readonly configPath?: string;
     readonly createAdapter?: () => ModelAdapter;
     readonly socketPath?: string;
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Stamped build ID this host serves. Defaults to this process's stamp. */
     readonly buildId?: string;
-    /** Optional diagnostic stamped on the lockfile. Not host identity. */
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
-    /** Overrides `~/.vera/preferences.json`, so tests do not read the
-     * developer's real preferences. */
     readonly permissionPreferencesPath?: string;
-    /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
     readonly authStorage?: AuthStorage;
     readonly eventLogDirectory?: string;
-    /** Overrides the profile's model-failure ledger, so tests never write it. */
     readonly modelFailureLedgerPath?: string;
-    /** Overrides `~/.vera/inbox.db`. Unused while the inbox flag is off. */
     readonly inboxPath?: string;
-    /** Overrides the user config path used by an always inbox admission. */
     readonly inboxUserConfigPath?: string;
-    /** Overrides `~/.vera/schedules.db`. Unused while the inbox flag is off. */
     readonly schedulePath?: string;
-    /** Replaces the built-in connector set, so tests never reach a real arc. */
     readonly watchConnectors?: readonly WatchConnector[];
-    /** Overrides arc's per-user config path, so tests never read the real one. */
     readonly arcConfigPath?: string;
-    /** Supplies a watch its bearer token. Definitions never carry one. */
     readonly watchSecret?: WatchSecretResolver;
-    /** Overrides `~/.vera/.../logs/sidecars`, so tests write under a tmp dir. */
     readonly sidecarLogDirectory?: string;
-    /** @deprecated Inbox arrivals no longer cold-spawn sessions. */
     readonly spawnConsentPath?: string;
-    /** @deprecated Inbox arrivals no longer cold-spawn sessions. */
     readonly spawnSession?: SpawnSessionFn;
     readonly onExtensionFailure?: (
         failure: ExtensionRegistryFailure,
     ) => void;
-    /** Receives startup diagnostics. Defaults to the resident host log. */
     readonly startupLog?: HostLog;
-    /** Collects what extension startup found; tests read it back. */
     readonly startupFindings?: StartupFindings;
-    /** Packed annex assets. Defaults to the packed release annex directory. */
     readonly webRoot?: string;
 }
 
@@ -255,7 +235,6 @@ export interface ResidentHost {
     readonly registry: AgentRegistry;
     readonly extensions: ExtensionRegistry;
     readonly server: HostServer;
-    /** Resolves as soon as any caller starts closing this resident host. */
     readonly shutdownRequested: Promise<void>;
     readonly health: HostHealth;
     readonly annexPid?: number;
@@ -292,20 +271,11 @@ export async function startResidentHost(
             throw error;
         }
     };
-    // Before anything reads or writes the pool file: the old keys are only
-    // findable while pool.json is still absent.
     const migration = migrateConfigPool();
     if (migration.notice !== undefined) {
         hostLog({ type: "pool_migrated", message: migration.notice });
     }
-    // The config as it stands on disk, not as it stood when the host came up.
-    // Every setting below is read through this, so changing one in the
-    // settings pane reaches a session already running and nothing has to be
-    // restarted under the user.
-    //
-    // Re-read only when the file has moved on, because some of these are asked
-    // on every subagent spawn. A file that is mid-edit or unreadable keeps the
-    // last good answer: a bad save must not take a session's settings with it.
+    // The config as it stands on disk, not as it stood when the host came up. Every setting below is read through this, so changing one in the settings pane reaches a session.
     const configPath = options.configPath ?? defaultVeraConfigPath();
     const currentConfig = createLiveVeraConfigReader(options.config, {
         path: configPath,
@@ -313,21 +283,13 @@ export async function startResidentHost(
             ? {}
             : { projectRoot: options.projectRoot }),
     });
-    // The pool is what says a model can be used, so assignment bindings are
-    // judged against it rather than against the catalog alone. User scope
-    // only: these bindings are read before any project is known.
     const currentReachability = () => poolReachability(loadPoolFile({}).merged);
     const sessionDirectory = options.sessionDirectory
         ?? defaultSessionDirectory();
-    // Production profiles share the machine tier, so a complete identity is
-    // unique across every profile. Explicit test/session roots remain
-    // self-contained and never write into the developer's real machine tier.
     const sessionIdentityReservationRoot = options.sessionDirectory === undefined
         ? veraMachineDirectory()
         : sessionDirectory;
     const eventLogDirectory = options.eventLogDirectory;
-    // One store for the host, so a sign-in from anywhere is the same fact to
-    // every agent it is running.
     const authStorage = options.authStorage ?? createAuthStorage();
     let models = await timed("model_discovery", () =>
         options.createAdapter === undefined
@@ -335,14 +297,9 @@ export async function startResidentHost(
             : configuredCatalog(options.config)
     );
     let catalogRefreshes: Promise<void> = Promise.resolve();
-    // Opened once per host, not per agent: the file is per-user. A malformed
-    // or missing file reads as no preferences rather than failing startup, so
-    // this cannot block the host from coming up.
     const permissionPreferences = await timed("permission_preferences", () =>
         PermissionPreferenceStore.open(options.permissionPreferencesPath)
     );
-    // Startup runs before any session exists, so what it finds waits here
-    // until a session's first turn can carry it into the agent's context.
     const startupFindings = options.startupFindings ?? new StartupFindings();
     const extensions = await timed(
         "extension_registry",
@@ -416,8 +373,6 @@ export async function startResidentHost(
                     : { captureFailedRequest }),
             });
         });
-    // The experimental gate is checked here and nowhere downstream: with the
-    // flag off there is no inbox, no consumer registry and no delivery path.
     const inbox = options.inboxPath === undefined
         ? openInboxIfEnabled(options.config)
         : openInboxIfEnabled(options.config, options.inboxPath);
@@ -433,16 +388,6 @@ export async function startResidentHost(
                     options.inboxUserConfigPath,
                 ),
         });
-    /**
-     * The index derived for the fan-out currently running, held only until the
-     * event loop turns.
-     *
-     * Every client asks for the index on the same transition and the answer is
-     * the same for all of them, but deriving it stats each session and scans
-     * its stash, so the unshared version cost that once per client. Dropping
-     * it on the next microtask keeps it from outliving the fan-out that built
-     * it, so nothing can read a roster that has since changed.
-     */
     let workIndexThisTurn: WorkIndexSnapshot | undefined;
     const workChangeListeners = new Set<() => void>();
     const notifyWorkChanged = (): void => {
@@ -450,22 +395,14 @@ export async function startResidentHost(
             try {
                 listener();
             } catch {
-                // One client's bookkeeping cannot break the firing that
-                // triggered it, or a schedule would stop running.
             }
         }
     };
     const scheduleStore = inbox === null
         ? null
         : ScheduleStore.open(options.schedulePath);
-    // Watches are started after the extension registry, because their
-    // definitions are extension contributions. The runtime holds the reference
-    // so shutdown stops the connector tasks before the log they write to closes.
     let watches: WatchRuntime | null = null;
     let scheduler: SchedulerRuntime | null = null;
-    // Sidecars are started after the server, because the socket path they
-    // receive is the started server's. They stop first on shutdown, so a
-    // child never outlives the socket it talks to.
     let sidecars: SidecarRuntime | null = null;
     let publishedSocketPath = options.socketPath ?? "";
     const workspaceSidecars = createWorkspaceSidecarSupervisor({
@@ -494,8 +431,6 @@ export async function startResidentHost(
         inboxDelivery?.close();
         inbox?.close();
     };
-    // One reader for the whole runtime: the feed is loaded on the first
-    // verify and every later admission reads the same copy.
     const readFeedRow = createFeedRowReader(
         options.config.model_feed_url === undefined
             ? {}
@@ -508,9 +443,6 @@ export async function startResidentHost(
             provider,
         ),
         createAdapter,
-        // Offered only when this host's adapter is the configured one and
-        // nothing live wraps it. An injected factory and a model-request hook
-        // are both functions, and a function does not cross to a worker.
         ...(options.createAdapter !== undefined || hasModelRequestHooks
             ? {}
             : {
@@ -552,10 +484,6 @@ export async function startResidentHost(
                 .map((provider) => provider.id);
         },
         refreshCatalog: (provider) => {
-            // One at a time. A refresh reads the discovered list, replaces one
-            // provider's rows in it and writes it back, so two overlapping
-            // refreshes would each build on the list the other started from
-            // and whichever finished second would undo the first.
             const refreshed = catalogRefreshes.then(async () => {
                 const config = currentConfig();
                 const webdev = refreshWebDevArena({ maxAgeMs: 0 });
@@ -588,12 +516,6 @@ export async function startResidentHost(
                         );
                         return models;
                     }
-                    // A provider that cannot be reached answers from its snapshot,
-                    // which is the right list to keep and the wrong thing to call
-                    // a refresh: the user pressed the key to find out whether they
-                    // are current. The snapshot's own timestamp is what says a
-                    // request actually landed, so it is read either side of the
-                    // call.
                     const before = readProviderCatalogSnapshot(provider).fetched_at;
                     const standard = descriptor?.behaviorId === "openrouter"
                         ? undefined
@@ -636,15 +558,11 @@ export async function startResidentHost(
                     await webdev.catch(() => undefined);
                 }
             });
-            // The queue carries the turn, not its failure: one refresh that
-            // throws must not leave every later one rejected.
+            // The queue carries the turn, not its failure: one refresh that throws must not leave every later one rejected.
             catalogRefreshes = refreshed.then(() => undefined, () => undefined);
             return refreshed;
         },
         readPool: (projectRoot) => pooledModels(models, scoped(projectRoot)),
-        // Built here because the pool lives in a file the host owns; the
-        // engine receives only the interface. One per agent, because the
-        // project overlay follows that agent's workspace.
         createEffortPool: (projectRoot) =>
             createPoolEffortPool({
                 ...scoped(projectRoot),
@@ -682,8 +600,6 @@ export async function startResidentHost(
             }
             let named = false;
             const refused = refusedPoolWrite(() => {
-                // Names land in the user file like every other write, so an
-                // entry only the project overlay declares cannot take one.
                 const file = namePoolModel(id, name ?? undefined);
                 named = file.models[id] !== undefined
                     && file.models[id]?.name === (name ?? undefined);
@@ -694,31 +610,21 @@ export async function startResidentHost(
             const id = `${entry.provider}/${entry.model}`;
             let held = false;
             const refused = refusedPoolWrite(() => {
-                // Order lives in the user file, so an entry only the project
-                // overlay declares cannot be reordered from here.
                 held = Object.hasOwn(readUserPoolFile().models, id);
                 if (held) movePoolModel(id, delta);
             });
-            // Success is "the pool holds this and the order now reads the way
-            // the move asked for", not "the order changed". A move off either
-            // end clamps, and clamping is the answer, not a failure.
             return refused === undefined && held;
         },
         updateModelDefaults: (settings) => {
             updateVeraConfigDefaults({
                 provider: settings.provider as VeraConfig["provider"],
                 model: settings.model,
-                // Explicitly null rather than omitted: settings that carry no
-                // effort mean the accepted model has none, so a stored default
-                // from an earlier model must not survive into the next session.
+                // Explicitly null rather than omitted: settings that carry no effort mean the accepted model has none, so a stored default from an earlier model must not survive into the next.
                 reasoning_effort: settings.reasoningEffort ?? null,
             });
         },
         contextLimit: () => {
             const config = currentConfig();
-            // The developer value wins outright rather than clamping against
-            // the normal one: it exists to reach windows the normal setting
-            // will not offer, so a minimum taken with it would be it anyway.
             return developerOverrides(config)?.context_limit
                 ?? config.context_limit;
         },
@@ -741,8 +647,6 @@ export async function startResidentHost(
         get subagentModel() {
             return configuredSubagentModel(currentConfig());
         },
-        // Read on every session start rather than captured here, so binding a
-        // reviewer takes effect on the next session and not the next launch.
         get reviewers() {
             return configuredReviewers(currentConfig(), currentReachability());
         },
@@ -970,17 +874,10 @@ export async function startResidentHost(
         },
         ...(inboxDelivery === undefined ? {} : {
             inboxDelivery,
-            // Read per attach, not once at startup, because `arc init` can
-            // mint the node id while the host runs. arc stamps events with
-            // (node id, ARC_SESSION); the attach pairs this actor with the
-            // session's minted identity name, so a session posting under
-            // ARC_SESSION set to its name is not woken by its own posts.
             inboxActorForSession: () => readArcNodeId(options.arcConfigPath),
         }),
         sessionPathForId: (agentId) =>
             join(sessionDirectory, `${agentId}.jsonl`),
-        // Always on, unlike the event log: this is the record that tells
-        // someone their model keeps failing, and it is a few hundred lines.
         modelFailureLedger: new ModelFailureLedger(
             options.modelFailureLedgerPath ?? defaultModelFailureLedgerPath(),
         ),
@@ -1056,9 +953,6 @@ export async function startResidentHost(
             ...(options.watchConnectors === undefined
                 ? {}
                 : { connectors: options.watchConnectors }),
-            // The host holds credentials; a watch definition is committed
-            // data and never carries one. Absent an injected resolver, every
-            // watch authenticates with this machine's arc token.
             secret: options.watchSecret
                 ?? (() => readArcToken(options.arcConfigPath)),
             onAppended: () => {
@@ -1072,9 +966,6 @@ export async function startResidentHost(
                 store: scheduleStore,
                 emit: (key, entry) =>
                     inboxDelivery.appendOnce(SCHEDULER_SOURCE, key, entry),
-                // A firing changes the work inbox without touching the roster,
-                // so without this the run is recorded and no attached client
-                // is ever told about it.
                 onRunEmitted: notifyWorkChanged,
                 onError: (error) => hostLog({
                     type: "scheduler_failed",
@@ -1084,9 +975,6 @@ export async function startResidentHost(
                 }),
                 })
         );
-        // Bounded at the query and best effort: the index is rebuilt on every
-        // roster change, and a schedule database that cannot be read is no
-        // reason to lose the sessions beside it.
         const recentScheduleRuns = (): readonly EmittedScheduleRun[] => {
             try {
                 return scheduleStore?.recentlyEmitted(MAX_SCHEDULE_WORK_ROWS)
@@ -1135,9 +1023,6 @@ export async function startResidentHost(
                 await storedSessions,
                 registry.list(),
             ),
-            // Facts are read for the page the server sliced, never for the
-            // whole listing: a profile holds thousands of sessions and each
-            // usage fold is a file scan.
             readSessionFacts: (sessions, include) =>
                 enrichSessionsWithFacts(
                     sessions,
@@ -1146,9 +1031,6 @@ export async function startResidentHost(
                         ?? defaultModelFailureLedgerPath(),
                 ),
             listBackgroundAgents: () => registry.list(),
-            // Bounded and best effort: the work index is drawn on every
-            // roster change, and a schedule database that cannot be read is
-            // no reason to lose the sessions beside it.
             readWorkIndex: () => {
                 if (workIndexThisTurn !== undefined) {
                     return workIndexThisTurn;
@@ -1181,9 +1063,6 @@ export async function startResidentHost(
             ...(scheduler === null ? {} : {
                 runScheduleOperation: (operation) => scheduler!.execute(operation),
             }),
-            // Two sources, one subscription: what a client draws changes when
-            // the roster changes and when a schedule fires, and a client that
-            // subscribed to only the first would miss every scheduled run.
             onRosterChanged: (listener) => {
                 const stopRoster = registry.onRosterChanged(listener);
                 workChangeListeners.add(listener);
@@ -1218,9 +1097,6 @@ export async function startResidentHost(
                         sessionRetained: outcome.sessionRetained,
                     };
                 }
-                // Nothing live under that id. Closing something already closed
-                // is the state the caller asked for, so a durable session on
-                // disk is acknowledged; an id nobody has ever seen is not.
                 return await storedSessionExists(
                     targetId,
                     sessionDirectory,
@@ -1323,12 +1199,10 @@ export async function startResidentHost(
         try {
             await closeSidecars();
         } catch {
-            // Preserve the host startup failure.
         }
         try {
             await extensions.close();
         } catch {
-            // Preserve the host startup failure.
         }
         await registry.close();
         await closeInbox();
@@ -1353,10 +1227,6 @@ export async function startResidentHost(
     };
 }
 
-/**
- * The pool overlay a workspace contributes. Absent workspace means user scope
- * only, which is what an embedded host with no checkout gets.
- */
 function scoped(projectRoot?: string): { readonly projectRoot?: string } {
     return projectRoot === undefined ? {} : { projectRoot };
 }
@@ -1370,13 +1240,6 @@ function hostErrorFields(error: unknown): Record<string, unknown> {
     };
 }
 
-/**
- * Turns a refused pool write into a verdict the client can show. The file is
- * left exactly as the user wrote it, so the only thing to report is that the
- * change did not land and why. Its own verdict rather than `unavailable`: the
- * provider was never asked, and telling the user it was sends them to fix the
- * wrong thing.
- */
 function refusedPoolWrite(
     write: () => void,
 ): {
@@ -1395,12 +1258,6 @@ function refusedPoolWrite(
     }
 }
 
-/**
- * How long a discovered model list answers for before its provider is asked
- * again. Starting Vera is not a reason to call a provider: the lists change
- * over weeks, and Vera used to pay a request on every launch, before the host
- * was even discoverable. `vera models refresh` passes `0` to ask now.
- */
 export function catalogMaxAgeMs(config: VeraConfig): number {
     const days = config.model_catalog_max_age_days;
     return days === undefined
@@ -1410,10 +1267,8 @@ export function catalogMaxAgeMs(config: VeraConfig): number {
 
 export interface CatalogRefreshOutcome {
     readonly provider: string;
-    /** Present only when a provider response was saved successfully. */
     readonly models?: number;
     readonly failure?: CatalogRefreshFailure;
-    /** Rows retained from an older snapshot after a failed request. */
     readonly keptModels?: number;
 }
 
@@ -1428,17 +1283,6 @@ export interface CatalogRefreshOptions {
     readonly cacheDir?: string;
 }
 
-/**
- * Asks every discoverable provider now and rewrites its snapshot, which is
- * what `vera models refresh` is for: the TTL means an ordinary start does not
- * do this, so there has to be a way to say "a model came out today".
- *
- * A provider with no credential is reported as skipped rather than as empty,
- * since the two look the same in the picker and only one of them is something
- * the user can act on. Ollama and oMLX have no credential gate, so an
- * unavailable local daemon is reported separately from a reachable daemon
- * with no models.
- */
 export async function refreshProviderCatalogs(
     config: VeraConfig,
     options: CatalogRefreshOptions = {},
@@ -1482,7 +1326,6 @@ export async function refreshProviderCatalogs(
     ];
 }
 
-/** Replace one provider's live list, including the valid empty-list case. */
 export function replaceProviderRows(
     models: readonly SuggestedModel[],
     provider: string,
@@ -1611,15 +1454,6 @@ export function standardProviderDiscoveryEndpoint(
     return providerEndpointUrl(baseUrl, path);
 }
 
-/**
- * Replaces one provider's rows in an already discovered list, leaving every
- * other provider's rows exactly where they were.
- *
- * Rediscovering everything to refresh one provider would let an unrelated
- * provider that happens to be down at that moment drop out of the picker,
- * which is not something the user asked for by pressing refresh on an
- * OpenRouter row.
- */
 export function withProviderRows(
     models: readonly SuggestedModel[],
     provider: string,
@@ -1629,8 +1463,6 @@ export function withProviderRows(
         return models;
     }
     const named = new Set(rows.map((row) => row.model));
-    // The placeholder for a configured model the provider does not list stays:
-    // it is the row the session is running on.
     const others = models.filter((model) =>
         model.provider !== provider
         || (model.description === "configured model" && !named.has(model.model))
@@ -1644,9 +1476,6 @@ async function discoverAvailableModels(
     maxAgeMs = catalogMaxAgeMs(config),
 ): Promise<readonly SuggestedModel[]> {
     const catalog = catalogModels(config);
-    // Asked together rather than one after another: each provider caps its own
-    // wait, and the host is not discoverable until all of them have answered,
-    // so serial waits add up into the client's startup deadline.
     const [ollama, openrouter, standard] = await Promise.all([
         discoveredOllamaModels({
             log: hostLog,
@@ -1663,10 +1492,6 @@ async function discoverAvailableModels(
     catalog.push(...ollama);
     catalog.push(...standard.flatMap((result) => result.models));
     if (openrouter.length > 0) {
-        // The fetched list supersedes the shipped entries, which name the same
-        // models with staler facts. Nothing is dropped when the fetch comes back
-        // empty: no credential, no network and no snapshot leaves the shipped
-        // handful in place rather than an empty picker.
         for (let index = catalog.length - 1; index >= 0; index -= 1) {
             if (catalog[index]!.provider === "openrouter") {
                 catalog.splice(index, 1);
@@ -1709,7 +1534,6 @@ export interface CerebrasDiscoveryOptions {
         init?: RequestInit,
     ) => Promise<Response>;
     readonly cacheDir?: string;
-    /** See `catalogMaxAgeMs`. `0` always asks the provider. */
     readonly maxAgeMs?: number;
 }
 
@@ -1742,9 +1566,6 @@ export async function discoveredCerebrasModels(
     }
     try {
         const fetchImplementation = options.fetch ?? globalThis.fetch;
-        // A moved provider is discovered where it was moved to. Its own
-        // public list lives on a different path from the chat endpoint, so
-        // only the shipped case uses that path.
         const moved = config.provider_endpoints?.cerebras;
         const response = await fetchImplementation(
             moved === undefined
@@ -1758,16 +1579,10 @@ export async function discoveredCerebrasModels(
         rememberCerebrasModels(models, cacheOptions);
         return models;
     } catch {
-        // Discovery enriches the picker; it must never block host startup.
         return staleCerebrasModels(cacheOptions);
     }
 }
 
-/**
- * The last list Cerebras gave, however old. A snapshot too old to skip the
- * fetch is still the better answer when the fetch itself failed, which is the
- * same trade the OpenRouter catalog makes.
- */
 function staleCerebrasModels(
     cacheOptions: { readonly cacheDir?: string },
 ): readonly SuggestedModel[] {
@@ -1785,8 +1600,6 @@ function rememberCerebrasModels(
             schema_version: 2,
             provider: "cerebras",
             fetched_at: new Date().toISOString(),
-            // Cerebras publishes no reasoning levels, so the entries carry
-            // none: the snapshot says what the listing said and nothing more.
             models: models.map((model) => ({
                 id: model.model,
                 label: model.label,
@@ -1800,8 +1613,6 @@ function rememberCerebrasModels(
             })),
         }, cacheOptions);
     } catch {
-        // A snapshot Vera cannot write is not a reason to hide models it just
-        // fetched. The next start tries again.
     }
 }
 
@@ -1859,16 +1670,7 @@ function hasProviderCredential(
     }
 }
 
-/**
- * Codex models, republished from the Codex CLI's own cache. Gated on a stored
- * credential for the same reason the OpenRouter entries are gated on a key:
- * the catalog can describe a model the user has no way to run, and offering it
- * in the picker is offering a dead end. The configured provider passes the
- * gate regardless, so a misconfigured credential shows up as a failed turn
- * rather than as a model that vanished.
- */
 export interface CodexDiscoveryOptions extends CodexCatalogRefreshOptions {
-    /** Overrides `~/.vera/auth.json`, so tests never read real credentials. */
     readonly authStorage?: AuthStorage;
 }
 
@@ -1915,7 +1717,6 @@ export interface OllamaDiscoveryOptions {
 }
 
 export interface OllamaDiscoveryResult {
-    /** Whether `/v1/models` answered successfully, including an empty list. */
     readonly available: boolean;
     readonly models: readonly SuggestedModel[];
 }
@@ -1926,17 +1727,7 @@ const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
     { id: "low", label: "Low" },
 ];
 
-/**
- * `/v1/models` names the installed models and nothing else, so what each one
- * can actually be asked for comes from a per-model `/api/show`. Every call is
- * to a local daemon and every failure is survivable: an Ollama that is not
- * running must not delay startup or empty the picker.
- *
- * A model whose response carries no `capabilities` is left out of the snapshot
- * rather than written with no levels. Empty levels is the claim "this model has
- * no reasoning control"; an old daemon that never makes the claim should keep
- * falling through to the optimistic default instead.
- */
+/** `/v1/models` names the installed models and nothing else, so what each one can actually be asked for comes from a per-model `/api/show`. */
 export async function discoveredOllamaModels(
     options: OllamaDiscoveryOptions = {},
 ): Promise<readonly SuggestedModel[]> {
@@ -2071,8 +1862,7 @@ export async function discoverOllamaModelCatalog(
             models: entries.map((entry) => entry.id),
         });
     } catch (error) {
-        // The snapshot enriches the picker; failing to record it must not
-        // block startup.
+        // The snapshot enriches the picker; failing to record it must not block startup.
         log({
             type: "ollama_catalog_write_failed",
             reason: error instanceof Error ? error.message : String(error),
@@ -2126,7 +1916,6 @@ export interface OmlxDiscoveryOptions {
 }
 
 export interface OmlxDiscoveryResult {
-    /** Whether `/v1/models` answered successfully, including an empty list. */
     readonly available: boolean;
     readonly models: readonly SuggestedModel[];
 }
@@ -2343,15 +2132,6 @@ function hasOpenRouterCredential(config: VeraConfig): boolean {
         || Boolean(process.env.OPENROUTER_API_KEY);
 }
 
-/**
- * OpenRouter's own catalog, which is what "every model I could run" actually
- * means for that provider. It replaces the handful of entries Vera ships rather
- * than joining them: they name the same models, and the fetched list is the one
- * that stays current.
- *
- * Gated on a credential for the same reason the Codex list is: describing a
- * model the user cannot run is offering a dead end.
- */
 export interface OpenRouterDiscoveryOptions
     extends OpenRouterCatalogRefreshOptions {}
 
@@ -2371,9 +2151,6 @@ export async function discoveredOpenRouterModels(
     if (catalog === undefined) {
         return [];
     }
-    // Every row travels, including the ones the picker folds away. The reduction
-    // is a mark on the row so that revealing the rest is a keypress in the
-    // client rather than another request to the host.
     const hidden = reduceModels(catalog.models, {
         now: Math.floor(Date.now() / 1000),
         ...(config.model_picker_collapse_versions === true
@@ -2452,10 +2229,6 @@ async function findOrRestoreAgent(
     return indexed === undefined ? undefined : resume(indexed.session_path);
 }
 
-/**
- * The index is built once at startup, so a session written since then is only
- * visible on disk. Both are checked before an id is called unknown.
- */
 async function storedSessionExists(
     agentId: string,
     sessionDirectory: string,
@@ -2491,8 +2264,6 @@ async function indexStoredSessions(
     try {
         names = await readdir(sessionDirectory);
     } catch (error) {
-        // Resolve with the shared map either way: sessions indexed after
-        // startup land in it, and a fresh map here would hide them.
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
             hostLog({
                 type: "session_index_failed",
@@ -2507,11 +2278,6 @@ async function indexStoredSessions(
     return sessions;
 }
 
-/**
- * Index one session file into the stored-session map. Called for every file
- * at startup, after a run-once turn, and after a live tree close, so the
- * listing keeps covering sessions the registry no longer holds.
- */
 export async function indexStoredSession(
     path: string,
     sessions: Map<string, RegisteredAgentSummary>,
@@ -2552,11 +2318,6 @@ export async function indexStoredSession(
     }
 }
 
-/**
- * Fills one page of listing rows with the facts the caller named. The failure
- * ledger is profile-wide, so it is read once for the page rather than once per
- * row; usage and context need the session file and are read per row.
- */
 async function enrichSessionsWithFacts(
     sessions: readonly RegisteredAgentSummary[],
     include: readonly SessionFactName[],
@@ -2628,11 +2389,6 @@ async function closeServerAndRest(
     }
 }
 
-/**
- * Wires the config's `hooks` entries into a session's hook chain. The paths
- * were bound to the profile's `hooks/` directory when the config was read, so
- * nothing here decides what a hook is allowed to run.
- */
 function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
     for (const spec of config.hooks ?? []) {
         const hook = createCommandHook({
@@ -2651,7 +2407,6 @@ function registerConfiguredHooks(hooks: ToolHooks, config: VeraConfig): void {
     }
 }
 
-/** Imported by the worker, which builds the adapter for itself. */
 const WORKER_ADAPTER_MODULE = fileURLToPath(
     new URL("./worker/adapter.ts", import.meta.url),
 );

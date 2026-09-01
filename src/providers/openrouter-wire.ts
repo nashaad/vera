@@ -68,10 +68,6 @@ export function encodeOpenRouterMessages(
             .filter((block) => block.type === "text")
             .map((block) => block.text)
             .join("");
-        // Reasoning is only replayable to the model that produced it: signed
-        // and encrypted payloads are rejected by any other endpoint, and the
-        // plaintext left behind would reach Anthropic as an unsigned thinking
-        // block, which is rejected in turn.
         const replayable = model === undefined || message.source.model === model;
         const reasoning = replayable
             ? message.content
@@ -104,9 +100,6 @@ export function encodeOpenRouterMessages(
         encoded.push({
             role: "assistant",
             content: text,
-            // OpenRouter accepts plaintext reasoning or the signed detail
-            // sequence, not both. Claude tool continuations require the exact
-            // signed sequence returned by the preceding request.
             ...(reasoning && reasoningDetails.length === 0 ? { reasoning } : {}),
             ...(reasoningDetails.length > 0 ? { reasoningDetails } : {}),
             ...(toolCalls.length > 0 ? { toolCalls } : {}),
@@ -137,12 +130,6 @@ export function normalizeOpenRouterToolCallId(id: string): string {
     return id.replace(/[^a-zA-Z0-9_-]/g, "_");
 }
 
-/**
- * Returns undefined for a word outside the OpenAI vocabulary. The caller then
- * reads the stop reason off the content it received, which is a better answer
- * than failing a request the server considered successful: an unrecognised
- * word is a gap in this table, not a statement that the turn went wrong.
- */
 export function openRouterStopReason(reason: string): ModelStopReason | undefined {
     const reasons: Readonly<Partial<Record<string, ModelStopReason>>> = {
         stop: "stop",
@@ -193,8 +180,6 @@ export function parseOpenRouterToolInput(
     try {
         parsed = JSON.parse(value);
     } catch (cause) {
-        // Malformed arguments are transient model output, not a request the
-        // user can fix, so the failure is retryable.
         throw malformedOpenRouterToolCall(
             `Provider ${provider} returned invalid JSON for tool call at index ${index}`,
             cause,
@@ -220,8 +205,6 @@ export function malformedOpenRouterToolCall(
             kind: "unknown",
             resolution: "retry",
             message,
-            // Tool execution starts only after the complete assistant message
-            // is accepted, and malformed input prevents that acceptance.
             partialOutputReplaceable: true,
         },
         cause,

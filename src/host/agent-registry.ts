@@ -249,213 +249,88 @@ const IMAGE_ATTACHMENT_LIMITS = {
 } as const;
 const CHILD_TOOL_APPROVAL_TIMEOUT_MS = 60_000;
 
-/** How many peer messages may chain before the host stops waking anyone. */
 const MAX_PEER_HOP = 3;
-/** Peer wakes one session may take inside {@link PEER_WAKE_WINDOW_MS}. */
 const MAX_PEER_WAKES_PER_WINDOW = 6;
 const PEER_WAKE_WINDOW_MS = 60_000;
 
 export interface RegisteredAgentSummary {
     readonly id: string;
-    /**
-     * The identity name this session posts under, when an identity extension
-     * minted one. Carried on the listing because a list keyed by uuid is
-     * unreadable; the id stays because it is what every other command takes.
-     */
     readonly name?: string;
     readonly workspace: string;
     readonly session_path: string;
     readonly kind: RegisteredAgentKind;
     readonly status: RegisteredAgentStatus;
-    /**
-     * Whether anything is actually happening in this session right now.
-     *
-     * Separate from `status` because the two answer different questions. The
-     * host holds every session on disk, so `idle` means the session exists,
-     * not that it is running, and a list that showed only `status` would
-     * describe a conversation from last month exactly as it describes the one
-     * being typed into. Derived from what the host already knows about itself
-     * and recomputed on every listing, so nothing durable records it.
-     */
     readonly live: boolean;
-    /** Live process hosting this session's loop, when process mode is active. */
     readonly worker_pid?: number;
-    /** External lease supervisor paired with `worker_pid`, when active. */
     readonly supervisor_pid?: number;
     readonly title?: string;
-    /** Whether the transcript contains a non-internal user message. */
     readonly has_user_content?: boolean;
     readonly updated_at?: string;
-    /** The resident parent that launched this async subagent. */
     readonly parent_id?: string;
-    /**
-     * The session this one was branched from, absent on a session that was
-     * started rather than forked. The id alone rather than the whole header
-     * `origin`: a client threads rows by parentage, and where in the parent the
-     * branch was taken is a fact about the transcript, not about the list.
-     */
     readonly forked_from?: string;
-    /**
-     * Bytes the session transcript occupies on disk, absent when the file
-     * cannot be stat'd. Read fresh on every listing rather than tracked on
-     * append: compaction and trash rewrite the file behind the store, so a
-     * running total would drift with no event to correct it.
-     */
     readonly size_bytes?: number;
-    /** The time the session was started, from its header. */
     readonly created_at?: string;
-    /**
-     * Optional facts, present only for the names the caller passed in
-     * `include`. Absent means "not asked for, or not available"; it never
-     * means zero, so a reader must distinguish the two before summing.
-     */
     readonly facts?: SessionFacts;
 }
 
 export interface AgentRegistryOptions {
-    /**
-     * The workspace is passed alongside the provider because a project pool
-     * can name levels the user pool does not, and an adapter built without it
-     * would send a request the project's own settings do not describe. The
-     * capture sink rides along because its caps are per session, and the
-     * session is known here rather than where the host builds its adapters.
-     */
     readonly createAdapter: (
         provider?: string,
         projectRoot?: string,
         captureFailedRequest?: FailedRequestCapture,
     ) => ModelAdapter;
-    /**
-     * Where a session's failed provider requests are kept. Defaults to the
-     * per-user capture directory; a test points it somewhere it owns.
-     */
     readonly createFailedRequestCapture?: (
         sessionId: string,
     ) => FailedRequestCapture;
-    /**
-     * Tells a running agent that a provider's credentials changed, so it stops
-     * spending the key it started with. Absent in tests that never sign in.
-     */
     readonly credentialFingerprint?: (provider: string) => string | undefined;
-    /**
-     * How a worker builds its own adapter, when a session runs in one.
-     *
-     * Absent means no session runs in a worker, whatever the environment says.
-     * The owner supplies it only when the adapter it would build in process
-     * can be rebuilt from plain JSON, which is what a host with an injected
-     * adapter factory or a live model-request hook cannot promise.
-     */
     readonly workerAdapterSpec?: (context: {
         readonly provider: string;
         readonly projectRoot: string;
         readonly sessionId: string;
     }) => WorkerAdapterSpec;
-    /**
-     * How many sessions may run their loop in a separate process at once.
-     * Defaults to what the machine's memory affords. A session that would
-     * exceed it fails to start rather than running unisolated, because an
-     * unisolated session is the one that cannot be killed.
-     */
     readonly maxConcurrentWorkers?: number;
     readonly provider?: string;
-    /**
-     * Config-declared provider ids accepted alongside Vera's built-ins. Read
-     * on each call, so a provider declared mid-session is usable without a
-     * restart.
-     */
     readonly customProviderIds?: () => readonly string[];
     readonly model: string;
     readonly reasoningEffort?: ModelReasoningEffort;
     readonly approvalMode: ApprovalMode;
     readonly maxConcurrentBackgroundAgents?: number;
     readonly modelFallback?: ModelFallbackPolicy;
-    /**
-     * Reads and writes the declarative model pool. The host owns the file; the
-     * engine only ever sees this interface.
-     *
-     * Built per agent from that agent's workspace, because the pool has a
-     * project scope: one host serves agents in different checkouts, and a
-     * single pool built at startup would apply one project's overlay to all
-     * of them.
-     */
     readonly createEffortPool?: (projectRoot: string) => EffortPool;
-    /** Overrides the model the automatic approval reviewer runs on. */
     readonly reviewer?: ToolReviewerSettings;
-    /**
-     * Reads the current classifier binding. Hosts provide this when config can
-     * change while they run; tests and embedded callers may keep using the
-     * fixed `reviewer` value above.
-     */
     readonly readReviewer?: () => ToolReviewerSettings | undefined;
     readonly reviewers?: Readonly<Record<string, ToolReviewerSettings>>;
     readonly reviewLog?: ReviewLog;
-    /** Persists a reviewer choice. `null` clears it. */
     readonly writeReviewer?: (
         reviewer: ToolReviewerSettings | null,
     ) => void;
     readonly permissionModes?: Readonly<Record<string, PermissionMode>>;
-    /** Agents an extension registered, the lowest-precedence source. */
     readonly registeredAgents?: readonly AgentDefinition[];
-    /**
-     * How a session is named. Absent means the session has no spoken identity
-     * and shells do not get ARC_SESSION. The bundled session-identity
-     * extension supplies the default.
-     */
     readonly sessionIdentity?: SessionIdentityProvider;
-    /** Durably reserves one identity key for one session. */
     readonly reserveSessionIdentity?: (
         sessionId: string,
         key: string,
     ) => Promise<"reserved" | "owned" | "taken">;
-    /** Read live, so a change reaches a compact already in this session. */
     readonly compaction?: ResolvedCompactionProfile;
-    /** Read live, so a change reaches a compact already running in this session. */
     readonly compactionModels?: readonly VeraCatalogModel[];
-    /** Read live with the bound compaction, so a developer override takes effect without a restart. */
     readonly compactionOverrides?: CompactionOverrides;
-    /**
-     * Durable preferences, deliberately one store shared by every agent:
-     * the file is per-user, not per-session, so an allow the user persists
-     * in one agent applies in the next one without a restart.
-     */
     readonly permissionPreferences?: PermissionPreferenceStore;
     readonly availableModels?: readonly SuggestedModel[];
-    /** Rebuilds dynamic provider rows after credentials change in this process. */
     readonly refreshAvailableModels?: () => readonly SuggestedModel[];
-    /** Host-owned discovery capability, including providers with zero rows. */
     readonly refreshableProviders?: () => readonly string[];
-    /**
-     * Asks a provider for its model list now, past whatever age the snapshot
-     * would otherwise be trusted for, and returns the replacement list.
-     * `undefined` means nothing could be asked and the remembered list stands.
-     */
+    /** Asks a provider for its model list now, past whatever age the snapshot would otherwise be trusted for, and returns the replacement list. */
     readonly refreshCatalog?: (
         provider: string,
     ) => Promise<readonly SuggestedModel[] | undefined>;
-    /**
-     * Read per settings snapshot, not once at startup: the pool changes while
-     * the host runs, so a snapshot taken when it came up would freeze the
-     * list for the life of the host.
-     */
     readonly readPool?: (projectRoot?: string) => readonly PooledModel[];
     readonly sessionPathForId?: (agentId: string) => string;
     readonly eventLogPathForId?: (agentId: string, cwd: string) => string;
-    /** Shared by every session: a failing model is a fact about the machine. */
     readonly modelFailureLedger?: ModelFailureLedger;
     readonly updateModelDefaults?: (settings: ModelTurnSettings) => void;
-    /** Read on each snapshot so a TUI change takes effect without restart. */
     readonly contextLimit?: () => number | undefined;
     readonly updateContextLimit?: (limit: number | null) => void;
-    /** Read live, so a change reaches the next snapshot without a restart. */
     readonly developerSettings?: () => DeveloperSettings;
     readonly updateDeveloperSettings?: (patch: DeveloperSettingsPatch) => void;
-    /**
-     * Writes the pool entry for one model, and probes it first when asked.
-     * Separate from `readPool` because the two have different lifetimes:
-     * reads happen on every snapshot, admission only when the user asks.
-     * Only a verifying admission reaches the provider; a plain one is the
-     * catalog copy and never blocks on a call.
-     */
     readonly admitToPool?: (
         entry: { readonly provider: string; readonly model: string },
         onStep: (step: {
@@ -473,16 +348,11 @@ export interface AgentRegistryOptions {
     readonly removeFromPool?: (
         entry: { readonly provider: string; readonly model: string },
     ) => void;
-    /** False when the name was refused, so nothing was written. */
     readonly namePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
         projectRoot: string,
     ) => boolean;
-    /**
-     * Moves a pool entry by `delta` places in the pool's declared order.
-     * False means nothing moved.
-     */
     readonly movePoolEntry?: (
         entry: { readonly provider: string; readonly model: string },
         delta: number,
@@ -491,17 +361,8 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
-    /** First live session in a workspace starts that workspace's sidecars. */
     readonly acquireWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    /** Last closed session in a workspace stops that workspace's sidecars. */
     readonly releaseWorkspaceSidecars?: (workspace: string) => Promise<void>;
-    /**
-     * The extension configs a worker loads for itself, so that an extension
-     * tool runs in the process a kill lands on rather than in this one.
-     *
-     * Only read when `VERA_WORKER_EXTENSIONS=1`, because loading them twice
-     * means an extension that opens a connection opens one per session.
-     */
     readonly workerExtensions?: (
         workspace: string,
     ) => readonly VeraExtensionConfig[];
@@ -511,42 +372,19 @@ export interface AgentRegistryOptions {
         context?: ContextualContributionContext,
     ) => Promise<readonly PromptContribution[]>;
     readonly disabledPromptContributions?: readonly string[];
-    /** Builds each resident agent's tool hooks; absent means none. */
     readonly createToolHooks?: () => ToolHooks;
-    /** Adds extension-owned, namespaced fields before a provider request. */
     readonly prepareModelRequest?: (
         context: { readonly sessionId: string; readonly workspace: string },
     ) => PrepareModelRequest;
-    /** What a spawn with no model override runs on; absent, the parent model. */
     readonly subagentModel?: SpawnModelDefault;
-    /**
-     * Allow/deny, the failsafe list and declared families for the subagent
-     * ladder. Read per spawn for the same reason as `readPool`: the user
-     * edits the pool file while the host runs.
-     */
     readonly readPolicy?: (projectRoot?: string) => SubagentPoolPolicy;
-    /**
-     * Where discovery snapshots are read from when resolving a model's
-     * reasoning levels; absent, the per-user cache directory.
-     */
     readonly cacheDir?: string;
-    /** Absent when the experimental inbox is off; nothing downstream re-checks. */
     readonly inboxDelivery?: InboxDeliveryCoordinator;
-    /**
-     * The actor a session's own turns write into inbox entries. Self-echo
-     * suppression matches the (actor, session) pair, so a session with no
-     * known actor suppresses nothing.
-     */
     readonly inboxActorForSession?: (agentId: string) => string | null;
 }
 
 export interface CloseAgentTreeResult {
     readonly status: "closed" | "not_found";
-    /**
-     * Whether the durable transcript is still on disk afterwards. False for an
-     * ephemeral agent, whose session directory is removed with it, so a client
-     * never offers a resume that cannot work.
-     */
     readonly sessionRetained: boolean;
 }
 
@@ -564,14 +402,9 @@ export interface CreateRegisteredAgentOptions {
     readonly workspace: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
-    /** Keep this session only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
     readonly startupProfile?: StartupProfile;
-    /**
-     * The mode this agent starts in, when it must not be the host default.
-     * It is written to the session like any other approval-mode change, so a
-     * client that resumes the session later reads it back.
-     */
+    /** The mode this agent starts in, when it must not be the host default. It is written to the session like any other approval-mode change, so a client that resumes the session. */
     readonly approvalMode?: ApprovalMode;
 }
 
@@ -587,16 +420,11 @@ export interface BranchRegisteredAgentOptions {
     readonly id?: string;
     readonly sessionPath?: string;
     readonly eventLogPath?: string;
-    /** Keep the branch only for the lifetime of the resident host. */
     readonly ephemeral?: boolean;
-    /** Override the approval mode copied from the source session. */
     readonly approvalMode?: ApprovalMode;
-    /** Model-visible messages appended only to the new branch before it starts. */
     readonly initialMessages?: readonly UserMessage[];
-    /** Keep inherited model context out of the branch's local transcript. */
     readonly hideInheritedMessages?: boolean;
     readonly signal?: AbortSignal;
-    /** Keep the branch out of public lookup until `commitBranch` publishes it. */
     readonly deferPublication?: boolean;
 }
 
@@ -609,11 +437,6 @@ export type RenameSessionOutcome =
     | { readonly status: "renamed"; readonly name: string | null }
     | { readonly status: "invalid" | "busy" | "not_found" | "failed" };
 
-/**
- * The checkout a workspace belongs to, so every worktree of one project reads
- * the same project-scoped state. A directory that is not a repository resolves
- * to itself, which is an ordinary case rather than a failure.
- */
 export function resolveInstructionRoot(workspace: string): InstructionRoot {
     const remembered = instructionRoots.get(workspace);
     if (remembered !== undefined) {
@@ -624,11 +447,6 @@ export function resolveInstructionRoot(workspace: string): InstructionRoot {
     return resolved;
 }
 
-/**
- * One answer per workspace for the life of the host. Resolving spawns git, and
- * restoring the stored sessions asks the same handful of directories hundreds
- * of times: without this, the spawns alone keep the host from listening.
- */
 const instructionRoots = new Map<string, InstructionRoot>();
 
 function readInstructionRoot(workspace: string): InstructionRoot {
@@ -646,7 +464,6 @@ function readInstructionRoot(workspace: string): InstructionRoot {
             };
         }
     } catch {
-        // git is not required to run a session.
     }
     return { path: workspace, source: "workspace" };
 }
@@ -886,7 +703,6 @@ function normalizeSessionName(
         : trimmed;
 }
 
-/** Rename a durable session that has no resident agent in this host. */
 export async function renameStoredSession(
     sessionPath: string,
     name: string | null,
@@ -913,13 +729,6 @@ interface InheritedAgentSettings {
     readonly delegation?: SessionDelegation;
 }
 
-/**
- * Whether two pairs are the same dial setting.
- *
- * Absent effort is its own value rather than a wildcard: a model with no
- * effort dial has exactly one pair, and treating "no effort" as matching any
- * effort would make the override marker wrong on every such model.
- */
 function samePair(
     left: ModelTurnSettings,
     right: ModelTurnSettings,
@@ -929,12 +738,6 @@ function samePair(
         && left.reasoningEffort === right.reasoningEffort;
 }
 
-/**
- * The request id a resume-time wear carries.
- *
- * Nobody asked for it, so there is no request to answer; a fixed id is what
- * lets a client tell the unsolicited update from the reply to its own /agent.
- */
 const RESUME_WEAR_REQUEST_ID = "resume";
 
 interface BoundSessionIdentity extends SessionIdentity {
@@ -947,51 +750,25 @@ interface RegisteredAgentEntry {
     readonly kind: RegisteredAgentKind;
     readonly ephemeral: boolean;
     pendingPublication: boolean;
-    /**
-     * The identity this session posts and is addressed under. Minted once,
-     * persisted, and stable for the session. Changing it mid-session would
-     * break self-echo suppression on the next arc post.
-     */
     readonly identity?: BoundSessionIdentity;
     readonly events: EngineEventBus;
     readonly adapter?: ProviderRoutingAdapter;
     readonly eventLogPath?: string;
     readonly parentId?: string;
     modelSettings: ModelTurnSettings;
-    /**
-     * The level the last settings change asked for when it had to be coerced.
-     * Held beside the settings rather than inside them because it describes
-     * the request, not the choice, and must not reach the session store. It
-     * is cleared by the next change that needs no coercion, which is what
-     * makes the client's note disappear on its own.
-     */
+    /** The level the last settings change asked for when it had to be coerced. Held beside the settings rather than inside them because it describes the request, not the choice, and. */
     requestedReasoningEffort?: ModelReasoningEffort;
     approvalMode: ApprovalMode;
-    /**
-     * The agent this session is wearing, resolved when it went on. Undefined
-     * is the virtual `default`: every tool, every skill, the host's posture.
-     */
     agentWear?: AgentWearSnapshot;
     inbound?: InboundCommandRouter;
-    /** Answers host-owned commands while this session's loop is in a worker. */
     workerOwnerRouter?: InboundCommandRouter;
-    /** The services the loop was built from, re-read to push owner state. */
     loopServices?: RunHeadlessLoopServices;
-    /** Last source entry incorporated after this branch was created. */
     syncedSourceEntryId?: string | null;
     inbox?: InboxDeliverySession;
-    /**
-     * How many peer messages deep the work in this session is. A message sent
-     * while running at hop N arrives at hop N + 1, and a client prompt puts it
-     * back to zero, so two agents cannot keep each other awake forever.
-     */
     peerHop: number;
-    /** Epoch milliseconds of the peer messages that woke this session. */
     peerWakes: number[];
     run: Promise<void>;
-    /** The process running this session's loop, when it runs in one. */
     worker?: WorkerHandle;
-    /** Project extensions loaded for this session's workspace. */
     projectExtensions?: ExtensionRegistry;
     completed: boolean;
     pendingAsyncTurns: number;
@@ -1023,7 +800,6 @@ export class AgentRegistry {
     private readonly agents = new Map<string, RegisteredAgentEntry>();
     private readonly startingIds = new Set<string>();
     private readonly deliveryTasks = new Set<Promise<void>>();
-    /** Kept for the entry's lifetime so overlapping monitors all suppress. */
     private readonly suppressedCompletionDeliveries = new WeakSet<
         RegisteredAgentEntry
     >();
@@ -1032,13 +808,11 @@ export class AgentRegistry {
     private defaultProvider: string;
     private defaultReasoningEffort: ModelReasoningEffort | undefined;
     private defaultApprovalMode: ApprovalMode;
-    /** Fixed classifier route for embedded callers without a live reader. */
     private reviewerSettings: ToolReviewerSettings | undefined;
     private isClosed = false;
     private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
     private readonly maxConcurrentBackgroundAgents: number;
     private readonly startingBackgroundAgents = new Map<string, number>();
-    /** Child id to the ladder notice its spawn produced, if any. */
     private readonly spawnNotices = new Map<string, string>();
     private readonly pendingSubagentConfigurations = new Map<
         string,
@@ -1092,14 +866,6 @@ export class AgentRegistry {
         );
     }
 
-    /**
-     * Stop one agent and forget it, leaving its session on disk.
-     *
-     * Distinct from `abort`, which cancels a turn and leaves the agent
-     * running, and from `trashSession`, which is this plus deleting what the
-     * session wrote. Idempotent: the second call finds nothing to close, which
-     * is what makes "closed exactly once" checkable.
-     */
     async closeAgent(id: string): Promise<"closed" | "not_found"> {
         const entry = this.agents.get(id);
         if (entry === undefined) {
@@ -1112,29 +878,12 @@ export class AgentRegistry {
         return "closed";
     }
 
-    /** Root plus every live descendant whose execution it owns. */
     ownedTreeIds(id: string): readonly string[] {
         return this.agents.has(id) ? [id, ...this.liveDescendantsOf(id)] : [];
     }
 
-    /**
-     * Close one agent and every live agent descended from it.
-     *
-     * Fence first, quiesce second. `agent.close()` is synchronous and shuts
-     * admission, so every member of the subtree is fenced in one pass before
-     * anything is awaited; awaiting a child first would leave the parent live
-     * for the seconds that child takes to exit, long enough to spawn a
-     * subagent nothing is walking any more. Fencing is then repeated to a
-     * fixpoint, because a spawn can still have raced the very first pass.
-     * Roster entries are removed only at the end, so the parent links the
-     * walk follows are still intact while the subtree is being quiesced.
-     * Idempotent for the same reason `closeAgent` is: a second call finds
-     * nothing left to close and says so.
-     */
     async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
         const present = this.agents.has(id);
-        // Read before the walk: an ephemeral entry is gone from the roster by
-        // the time anyone could ask, and its transcript goes with it.
         const sessionRetained = this.agents.get(id)?.ephemeral !== true;
         const quiesced = new Map<string, RegisteredAgentEntry>();
         while (true) {
@@ -1173,7 +922,6 @@ export class AgentRegistry {
         };
     }
 
-    /** Close one live descendant while preserving the caller and its peers. */
     async closeDescendantTree(
         callerId: string,
         targetId: string,
@@ -1215,7 +963,6 @@ export class AgentRegistry {
         }
     }
 
-    /** Release what a quiesced entry still holds and take it off the roster. */
     private async reapClosedAgent(
         id: string,
         entry: RegisteredAgentEntry,
@@ -1230,11 +977,8 @@ export class AgentRegistry {
         }
     }
 
-    /** Every live agent under `id`, deepest first. */
     private liveDescendantsOf(id: string): readonly string[] {
         const ordered: string[] = [];
-        // A corrupt header could name a parent cycle; without this the walk
-        // would never return.
         const seen = new Set<string>([id]);
         const visit = (parentId: string): void => {
             for (const [childId, entry] of this.agents) {
@@ -1519,7 +1263,6 @@ export class AgentRegistry {
                 const store = await SessionStore.open(entry.store.path);
                 await this.start(store, entry.kind, entry.eventLogPath);
             } catch {
-                // A partial trash failure can leave the session unavailable.
             }
             return "failed";
         }
@@ -1587,9 +1330,6 @@ export class AgentRegistry {
         const cursorIndex = cursor === null
             ? -1
             : completed.findIndex((entry) => entry.id === cursor);
-        // A rewind of the primary drops the synced entry from its history, so
-        // the branch can never catch up again. It is a distinct outcome: the
-        // caller drops this branch instead of retrying against a dead cursor.
         if (cursor !== null && cursorIndex < 0) {
             return { status: "stale_cursor", turns: 0 };
         }
@@ -1620,19 +1360,11 @@ export class AgentRegistry {
         return { status: "synced", turns };
     }
 
-    /** The identity name a live session posts under, `undefined` when gone. */
     arcNameOf(id: string): string | undefined {
         const entry = this.agents.get(id);
         return entry?.agent.closed === false ? entry.identity?.name : undefined;
     }
 
-    /**
-     * Resolves an identity `session` value to the live session it names.
-     * Matching uses the identity extension's key when one is loaded, so a
-     * purpose tail does not change addressing; a value that is not a name
-     * still resolves as a raw agent id, because entries recorded before
-     * naming carry ids.
-     */
     agentIdForArcSession(value: string): string | undefined {
         for (const [id, entry] of this.agents) {
             if (entry.agent.closed) {
@@ -1687,9 +1419,6 @@ export class AgentRegistry {
             }
             return materializeSessionIdentity(stored.name, stored.key);
         }
-        // The append-only format forbids records after a terminal failure.
-        // Legacy failed sessions therefore remain unnamed rather than being
-        // made unreadable by an impossible migration.
         if (store.agentFailure() !== undefined) {
             return undefined;
         }
@@ -1733,8 +1462,7 @@ export class AgentRegistry {
         if (this.unavailableIdentityKeys.has(key)) {
             return false;
         }
-        // Reserve locally before awaiting the durable claim. Concurrent
-        // creates in this host must not both offer the same candidate.
+        // Reserve locally before awaiting the durable claim. Concurrent creates in this host must not both offer the same candidate.
         this.identityKeyOwners.set(key, sessionId);
         const reserve = this.options.reserveSessionIdentity;
         if (reserve === undefined) {
@@ -1754,13 +1482,6 @@ export class AgentRegistry {
         }
     }
 
-    /**
-     * The model settings a client sees when it has no session behind it.
-     *
-     * The catalog, the shortlist and the defaults are the host's, not any
-     * conversation's, so they can be read before one exists. The pair reported
-     * is the host default: nobody has dialed anything yet.
-     */
     readHostModelSettings(workspace?: string): ModelTurnSettings {
         return settingsForClient(
             {
@@ -1788,20 +1509,12 @@ export class AgentRegistry {
         return reviewerDefaultOf(this.readReviewer());
     }
 
-    /** The reviewer route agents read at each review, not once at start. */
     readReviewer(): ToolReviewerSettings | undefined {
         return this.options.readReviewer === undefined
             ? this.reviewerSettings
             : this.options.readReviewer();
     }
 
-    /**
-     * Applies a reviewer choice to every running agent and writes it to the
-     * config file, so the session the user is in changes with the file rather
-     * than at the next start. Any model may be a reviewer: nothing here checks
-     * the pool or the catalog, because a reviewer that turns out to be
-     * unreachable falls through to the failsafe on its own.
-     */
     private applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
         if (patch === null) {
             this.reviewerSettings = undefined;
@@ -1825,13 +1538,6 @@ export class AgentRegistry {
         return true;
     }
 
-    /**
-     * Validate a pair patch and answer with the settings it resolves to.
-     *
-     * Shared by the global write and the session-scoped one so a chord and a
-     * picker cannot disagree about which levels a model publishes, or coerce an
-     * unpublished level differently.
-     */
     private resolveModelPatch(
         entry: RegisteredAgentEntry,
         patch: ModelSettingsPatch,
@@ -1864,9 +1570,6 @@ export class AgentRegistry {
         ) {
             return undefined;
         }
-        // Pool membership does not gate this. The pool is the user's curated
-        // shortlist, not the set of models they are allowed to run: choosing a
-        // model from the catalog runs it and adds nothing.
         try {
             entry.adapter?.prepareProvider(provider);
         } catch {
@@ -1877,9 +1580,6 @@ export class AgentRegistry {
             : patch.reasoningEffort === null
                 ? undefined
                 : patch.reasoningEffort;
-        // Checked against exactly what the picker was served, through the
-        // same reader: a level published for this model is always acceptable
-        // here, whichever layer published it.
         const scope = {
             ...this.catalog,
             projectRoot: entry.store.header.cwd,
@@ -1899,19 +1599,6 @@ export class AgentRegistry {
                 scope,
             ),
         };
-        // A level the model does not publish is coerced rather than promoted:
-        // the model's own default, else a middle level, never the top. Same
-        // rule as request-time resolution, so a switch and a turn place an
-        // unknown level identically. The coerced level comes back in the
-        // returned settings, which is how the client learns of the
-        // substitution.
-        //
-        // A model that publishes no levels at all is the one case an
-        // effort-only patch still refuses: there is no dial to move, and
-        // there the level is the whole request.
-        // The level asked for, kept so the client can say what it asked for
-        // beside what it got. Undefined again the moment a change validates
-        // as published, which is how the note clears.
         let requestedReasoningEffort: ModelReasoningEffort | undefined;
         if (
             reasoningEffort !== undefined
@@ -2031,8 +1718,6 @@ export class AgentRegistry {
                 && patch.model === undefined
                 && patch.reasoningEffort === undefined
             ) {
-                // A reviewer-only patch changes no running model, so the reply
-                // is the current settings carrying the new reviewer.
                 return settingsForClient(
                     entry.modelSettings,
                     entry.modelSettings.provider ?? this.defaultProvider,
@@ -2080,13 +1765,6 @@ export class AgentRegistry {
         );
     }
 
-    /**
-     * The pair a session falls back to when nobody has dialed it.
-     *
-     * Today that is the host default. Once an agent can carry a `default_pair`
-     * the worn agent's answer comes first, and everything that compares against
-     * "the default" goes through here so there is one answer to compare with.
-     */
     private effectiveDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings {
@@ -2100,14 +1778,6 @@ export class AgentRegistry {
         };
     }
 
-    /**
-     * Derived at write time on every path, never carried forward.
-     *
-     * Reclassifying here is what makes dialing back to the default clear the
-     * override: a stale `user` origin sitting on a pair that equals the default
-     * would show a marker the user could not get rid of by any means except
-     * knowing about the record.
-     */
     private originFor(
         entry: RegisteredAgentEntry,
         settings: ModelTurnSettings,
@@ -2117,10 +1787,6 @@ export class AgentRegistry {
             : "user";
     }
 
-    /**
-     * Dial one session. The host's defaults, and every session that is not this
-     * one, are left exactly as they were.
-     */
     async updateSessionModelSettings(
         id: string,
         patch: ModelSettingsPatch,
@@ -2183,7 +1849,6 @@ export class AgentRegistry {
         }));
     }
 
-    /** The posture for this session alone, leaving the host default alone. */
     async updateSessionPermissionMode(
         id: string,
         mode: ApprovalMode,
@@ -2219,14 +1884,6 @@ export class AgentRegistry {
         return entry.approvalMode;
     }
 
-    /**
-     * An explicit permission choice wins over an incompatible agent.
-     *
-     * The host owns this transition so `/permissions`, the HUD, and other
-     * clients cannot disagree. The agent update is deliberately loud and
-     * durable: the client receives a sticky transcript notice explaining why
-     * the session returned to default.
-     */
     private async leaveAgentThatForbidsAccess(
         entry: RegisteredAgentEntry,
         id: string,
@@ -2247,13 +1904,6 @@ export class AgentRegistry {
         });
     }
 
-    /**
-     * The worn agent's default pair, resolved against the pool as it stands.
-     *
-     * Undefined when the agent names none, or names one the pool no longer
-     * has: in both cases the effective default is the host's own, which is
-     * what row 7 and row 9 of the origin table say.
-     */
     private wornAgentDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings | undefined {
@@ -2270,11 +1920,6 @@ export class AgentRegistry {
         } as ModelTurnSettings;
     }
 
-    /**
-     * The worn agent's posture. Omitted on the agent means the host's current
-     * default, resolved now rather than frozen at wear: editing the default
-     * has to reach the sessions that never named one.
-     */
     private wornAgentPosture(
         entry: RegisteredAgentEntry,
     ): ApprovalMode | undefined {
@@ -2284,7 +1929,6 @@ export class AgentRegistry {
             : this.defaultApprovalMode;
     }
 
-    /** Every agent this session could wear, with the one in force named. */
     async listAgentsFor(id: string): Promise<{
         readonly worn: string;
         readonly agents: readonly {
@@ -2384,11 +2028,6 @@ export class AgentRegistry {
         });
     }
 
-    /**
-     * Put an agent on. Records the resolved definition, adopts its default
-     * pair when nobody has dialled this session, and answers with what is now
-     * in force.
-     */
     async wearAgentFor(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
@@ -2455,12 +2094,6 @@ export class AgentRegistry {
         };
     }
 
-    /**
-     * Rows 7 to 9 of the origin table, in one place.
-     *
-     * A session the user has dialled keeps its pair: the override survives an
-     * agent switch, which is the difference between a dial and a default.
-     */
     private async adoptAgentDefaultPair(
         entry: RegisteredAgentEntry,
         definition: AgentDefinition,
@@ -2486,13 +2119,6 @@ export class AgentRegistry {
             : undefined;
     }
 
-    /**
-     * Table 8.2: what a resumed session does about the agent it was wearing.
-     *
-     * Agents are by reference, so a definition that moved is worn as it is
-     * now. The notice is what stops that from being a silent change of what
-     * the session can reach.
-     */
     private async reconcileResumedAgentWear(
         entry: RegisteredAgentEntry,
         events: EngineEventBus,
@@ -2540,12 +2166,9 @@ export class AgentRegistry {
                 });
             }
         } catch {
-            // A catalog that will not load leaves the recorded snapshot in
-            // force, which is the scope the session already had.
         }
     }
 
-    /** The narrow writer: one key, one file, temp-and-rename. */
     async updateAgentDefaultPairFor(
         id: string,
         name: string,
@@ -2564,8 +2187,6 @@ export class AgentRegistry {
         } catch (error) {
             return error instanceof Error ? error.message : String(error);
         }
-        // The pair now IS the default, so the session record is reclassified
-        // in the same operation rather than left showing an override.
         if (entry.agentWear?.name === name) {
             entry.agentWear = {
                 ...entry.agentWear,
@@ -2583,12 +2204,6 @@ export class AgentRegistry {
         return undefined;
     }
 
-    /**
-     * Editing the pool never changes which model runs, so the settings that
-     * come back are unchanged apart from the new pool. It refuses an unknown
-     * agent for the same reason every other command does: the reply is that
-     * agent's snapshot, and there is none to send.
-     */
     async poolAdd(
         id: string,
         entry: { readonly provider: string; readonly model: string },
@@ -2637,12 +2252,6 @@ export class AgentRegistry {
         };
     }
 
-    /**
-     * The `pool_add` tool's effect: the same admission hook the client's
-     * checklist calls, one model at a time, reported back as per-model
-     * verdict lines. Verdicts land in the tool result rather than as
-     * progress updates: the transcript is the surface the agent path owns.
-     */
     private async applyPoolAddEffect(
         effect: { readonly models: readonly string[] },
     ): Promise<ToolOutput> {
@@ -2681,16 +2290,6 @@ export class AgentRegistry {
         return { kind: "output", output: lines.join("\n"), isError: failed };
     }
 
-    /**
-     * The `agent_roster` tool's effect: the host's live session table, cut to
-     * the caller's workspace and to the sessions still running in it.
-     *
-     * Every field is observed. The name was minted when the session
-     * registered, the activity time is the last thing written to that
-     * session's log, and the path is where the log lives. Nothing here is
-     * declared by an agent and nothing is stored, so a host that is gone and
-     * an empty roster mean the same thing.
-     */
     private applyAgentRosterEffect(
         callerId: string,
         details: boolean,
@@ -2703,8 +2302,6 @@ export class AgentRegistry {
                 isError: true,
             });
         }
-        // Keyed rather than path-compared, so a session started under a
-        // symlinked or differently-spelled path lands in the same workspace.
         const here = workspaceKey(caller.agent.workspace);
         const rows = [...this.agents.entries()]
             .filter(([id, entry]) =>
@@ -2838,17 +2435,6 @@ export class AgentRegistry {
         };
     }
 
-    /**
-     * Wakes the recipient for a peer message it just received, when the host
-     * is willing to. Three things can hold it back, and the sender is told
-     * which: a session that does not run tools on its own does not get its
-     * turn taken by another agent either, a chain of messages may only run so
-     * deep, and no session may be woken faster than a person could follow.
-     *
-     * What arrives is a notice, never the message. The text stays in the inbox
-     * until the recipient reads it there, so the read receipt keeps meaning
-     * what it says.
-     */
     private async wakeForPeerMessage(
         caller: RegisteredAgentEntry,
         recipient: RegisteredAgentEntry,
@@ -2964,13 +2550,6 @@ export class AgentRegistry {
         };
     }
 
-    /**
-     * Refetches a provider's list on the user's say-so and answers with the
-     * settings the refreshed list produces, so the pane that asked can redraw
-     * from one reply. A provider that cannot be asked leaves the list alone:
-     * a stale list beats an empty one, which is the same rule discovery
-     * itself follows on a failed fetch.
-     */
     async refreshCatalog(
         id: string,
         provider: string,
@@ -3146,22 +2725,10 @@ export class AgentRegistry {
         return entry.approvalMode;
     }
 
-    /**
-     * The posture a session ran under, for a spawn that has one to inherit.
-     * `undefined` when the id names no session here, which is the cold case.
-     */
     approvalModeOf(agentId: string): ApprovalMode | undefined {
         return this.agents.get(agentId)?.approvalMode;
     }
 
-    /**
-     * Rename a session by id rather than through an attachment.
-     *
-     * An attached session is refused: its client holds the name it is
-     * displaying and learns of a change only by replying to its own
-     * `update_session_name`, so writing the store from here would leave that
-     * client showing a name the session no longer has.
-     */
     async renameSession(
         targetId: string,
         name: string | null,
@@ -3199,14 +2766,6 @@ export class AgentRegistry {
         return entry.store.name() ?? null;
     }
 
-    /**
-     * Watch for anything that would change what `list` answers about who is
-     * registered and what is running: a session registered or forgotten, and
-     * any agent starting or stopping a turn.
-     *
-     * Returns the unsubscribe. Listeners are told that something changed, not
-     * what changed, because the only reader wants a fresh derivation anyway.
-     */
     onRosterChanged(listener: () => void): () => void {
         this.rosterListeners.add(listener);
         return (): void => {
@@ -3229,8 +2788,6 @@ export class AgentRegistry {
             try {
                 return statSync(path).size;
             } catch {
-                // A session whose file is gone still belongs on the list; it
-                // just has no size to report.
                 return undefined;
             }
         };
@@ -3268,17 +2825,6 @@ export class AgentRegistry {
                             : entry.completed && entry.agent.status === "idle"
                                 ? "completed" as const
                                 : entry.agent.status,
-                    // A session someone has open counts as live even between
-                    // turns: it is on screen and one keystroke from running.
-                    // A background child with no client of its own counts only
-                    // while it is working, which is the whole of its life.
-                    //
-                    // Both terms settle on their own, which is what makes this
-                    // safe to show: an attachment ends when its client goes,
-                    // and every turn resolves to idle. State that only clears
-                    // when a particular update arrives was deliberately left
-                    // out, because a turn ending without that update would
-                    // strand a row reading as live with nothing running in it.
                     live: !entry.agent.closed
                         && !entry.agent.failed
                         && entry.failure === undefined
@@ -3303,9 +2849,6 @@ export class AgentRegistry {
                     ...(entry.store.header.origin === undefined
                         ? {}
                         : { forked_from: entry.store.header.origin.sessionId }),
-                    // Parent is a fact about this session even when that
-                    // parent is no longer live. `/parent` and `/subagents`
-                    // read it from the listing, not from the live registry.
                     ...(entry.parentId === undefined
                         ? {}
                         : { parent_id: entry.parentId }),
@@ -3318,14 +2861,6 @@ export class AgentRegistry {
             .sort((left, right) => left.id.localeCompare(right.id));
     }
 
-    /**
-     * The live facts the work index is built from, one entry per listed agent.
-     *
-     * A separate reading rather than more fields on the listing: these are the
-     * facts of a running process (what it is blocked on, what tool is in
-     * flight) and they are meaningless for the sessions that are merely on
-     * disk, which is most of what a listing returns.
-     */
     workFacts(): readonly WorkAgentFacts[] {
         const unreadResults = new Set<string>();
         for (const entry of this.agents.values()) {
@@ -3340,9 +2875,6 @@ export class AgentRegistry {
             if (entry === undefined) return [];
             const failure = entry.store.agentFailure()?.detail;
             const activeTool = entry.agent.activeTool;
-            // Only for a session that has stopped: a session still working is
-            // still changing things, and counting its files mid-flight would
-            // put a number on screen that is wrong the moment it is drawn.
             const changed = summary.status === "working"
                     || summary.status === "waiting"
                 ? 0
@@ -3371,22 +2903,10 @@ export class AgentRegistry {
         });
     }
 
-    /**
-     * Turn emitted schedule runs into work rows, dropping the ones with no
-     * session behind them.
-     *
-     * A schedule addresses a consumer label, and a session's label is its
-     * agent id, so a run that named a session this host holds resolves here.
-     * One that named anything else is left out: a row whose enter key opens
-     * nothing is worse than no row.
-     */
     scheduleWorkFacts(
         runs: readonly EmittedScheduleRun[],
         agents: readonly WorkAgentFacts[],
     ): readonly WorkScheduleFacts[] {
-        // Resolved against the facts the caller already read rather than a
-        // second listing: a listing stats every session on disk, and two of
-        // them per index build could also disagree with each other.
         const listed = new Map(agents.map((agent) => [agent.id, agent]));
         return runs.flatMap((run) => {
             const agent = listed.get(run.address);
@@ -3467,8 +2987,6 @@ export class AgentRegistry {
                 ...(projectExtensions?.tools() ?? []),
             ]
             : [];
-        // Named so the getters below can reach the registry's own options:
-        // inside an object literal `this` is the literal, not the registry.
         const registry = this;
         const disabledPromptContributions = () =>
             disabledContributionsForProfile(
@@ -3546,10 +3064,6 @@ export class AgentRegistry {
                 this.catalog,
             ),
             approvalMode: store.approvalMode() ?? this.defaultApprovalMode,
-            // Resume wears the recorded agent immediately, so the first turn
-            // after a restart runs under the same scope the last one did. The
-            // comparison against the current definition happens below, once
-            // the catalog can be read.
             ...(store.agentWear() === undefined
                 ? {}
                 : { agentWear: store.agentWear()!.snapshot }),
@@ -3605,8 +3119,6 @@ export class AgentRegistry {
                         ...BUILT_IN_PERMISSION_MODE_NAMES,
                         ...Object.keys(this.options.permissionModes ?? {}),
                     ],
-                    // A spawn has no surface for a nudge, and the parser is
-                    // what says so.
                     interactive: false,
                     ...(this.options.registeredAgents === undefined
                         ? {}
@@ -3686,8 +3198,6 @@ export class AgentRegistry {
                 ? {}
                 : { permissionModes: this.options.permissionModes }),
         });
-        // Read at each compact, not copied for the session: an assignment the
-        // user changes has to reach a compact already in this session.
         const boundCompaction = (): ReturnType<typeof bindCompaction> =>
             bindCompaction(
                 this.options.compaction,
@@ -3698,9 +3208,6 @@ export class AgentRegistry {
                         : { provider: entry.modelSettings.provider }),
                     model: entry.modelSettings.model,
                 },
-                // The registry the host assembled. Extension-registered
-                // strategies join this list when activation lands; binding
-                // stays agnostic.
                 BUNDLED_COMPACTION_STRATEGIES,
                 this.options.compactionModels,
                 this.options.compactionOverrides,
@@ -3769,9 +3276,6 @@ export class AgentRegistry {
         const loopData: RunHeadlessLoopData = {
                 eventLogPath,
                 approvalMode: entry.approvalMode,
-                // Every shell this session spawns carries its identity name,
-                // so arc stamps the session's posts with it and self-echo
-                // suppression matches with no manual export.
                 toolEnv: entry.identity?.env ?? {},
                 instructionRoot,
                 enabledToolEffects: kind === "interactive"
@@ -3830,8 +3334,6 @@ export class AgentRegistry {
                         loadContextualContributions:
                             this.options.loadContextualContributions,
                     }),
-                // Read at each use, not copied for the session: a setting the
-                // user changes has to reach a session already running.
                 readPolicy: () => {
                     const reviewer = this.readReviewer();
                     return {
@@ -3922,9 +3424,6 @@ export class AgentRegistry {
                         this.poolMove(agent.id, poolEntry, delta),
                     ...(adapter === undefined ? {} : {
                         oneshot: (request, signal) => {
-                            // One candidate, so the route cannot fall back:
-                            // the caller named a model and gets that model or
-                            // an error.
                             const complete = createRoutedCompletionService(
                                 adapter,
                                 {
@@ -3968,9 +3467,6 @@ export class AgentRegistry {
                             addPermissionPreference: async (when) => {
                                 const added = await this.options
                                     .permissionPreferences!.add(when);
-                                // Preferences are the host's, not the
-                                // session's, so every worker needs the new
-                                // list, not just this one.
                                 this.pushWorkerStateEverywhere();
                                 return added;
                             },
@@ -4014,17 +3510,12 @@ export class AgentRegistry {
             if (!agent.closed) {
                 entry.failure = error;
                 const failureId = randomUUID();
-                // A refused start is a decision with a next action, so it
-                // reaches the client as itself rather than as the generic
-                // outcome used when a running agent stops.
                 const detail = error instanceof WorkerCapReachedError
                     ? error.message
                     : "Resident agent stopped unexpectedly";
                 try {
                     await store.appendAgentFailure(failureId, detail);
                 } catch {
-                    // Live clients still need a terminal outcome when the
-                    // failure record itself cannot be persisted.
                 }
                 agent.fail(failureId, detail);
             }
@@ -4036,9 +3527,6 @@ export class AgentRegistry {
                 label: agent.id,
                 actor: this.options.inboxActorForSession?.(agent.id) ?? null,
                 projectRoot: agent.workspace,
-                // The minted name, not the agent id: arc stamps posts with
-                // the ARC_SESSION the shell carries, which is this name, so
-                // the self-echo pair must hold the same value.
                 session: entry.identity?.name ?? agent.id,
                 notify: (notice) => {
                     if (!agent.closed && !agent.failed) {
@@ -4097,12 +3585,6 @@ export class AgentRegistry {
         return agent;
     }
 
-    /**
-     * How this session's worker would build its adapter, or nothing.
-     *
-     * A spec is the default. Nothing means the turn runs in this process,
-     * which happens when the owner cannot rebuild the adapter from JSON.
-     */
     private workerAdapterSpecFor(
         store: SessionStore,
         entry: RegisteredAgentEntry,
@@ -4117,20 +3599,6 @@ export class AgentRegistry {
         });
     }
 
-    /**
-     * Runs the turn loop in a separate process, and reports how it stopped.
-     *
-     * The client channel is pumped in both directions here rather than by the
-     * loop, and every durable service stays on this side. A `kill -9` on the
-     * worker therefore lands on `handle.outcome` as one typed value, and the
-     * session file it was writing through is already complete on disk.
-     */
-    /**
-     * The extensions a worker should load for itself, or nothing.
-     *
-     * Nothing is the default: the tools stay in this process and the worker
-     * reaches them over the boundary.
-     */
     private workerExtensions(
         workspace: string,
     ): readonly VeraExtensionConfig[] | undefined {
@@ -4142,12 +3610,6 @@ export class AgentRegistry {
         return configured.length === 0 ? undefined : configured;
     }
 
-    /**
-     * Sends this session's worker the owner state as it now stands.
-     *
-     * A no-op for a session whose loop runs in this process, which reads the
-     * same values directly.
-     */
     private pushWorkerState(id: string): void {
         const entry = this.agents.get(id);
         const worker = entry?.worker;
@@ -4155,12 +3617,10 @@ export class AgentRegistry {
         worker.pushState(loopStateOf(entry.loopServices));
     }
 
-    /** Sends every running worker the owner state as it now stands. */
     private pushWorkerStateEverywhere(): void {
         for (const id of this.agents.keys()) this.pushWorkerState(id);
     }
 
-    /** Sessions whose loop currently runs in a separate process. */
     private liveWorkerCount(): number {
         let count = 0;
         for (const entry of this.agents.values()) {
@@ -4208,8 +3668,6 @@ export class AgentRegistry {
                 ? {}
                 : {
                     extensionTools: options.extensionTools,
-                    // An extension tool runs on this side, against a runtime
-                    // built from the same workspace the loop was given.
                     toolRuntime: new ToolRuntime(
                         store.header.cwd,
                         undefined,
@@ -4245,10 +3703,6 @@ export class AgentRegistry {
         options.entry.worker = handle;
         store.watchRecords(handle.server.pushRecord);
         const pumping = new AbortController();
-        // Closing the agent stops its command channel, and a worker with no
-        // channel left has nothing to run. The process is ended the same way
-        // any other worker ends, so the outcome below is expected, not a
-        // failure to report on a session that already stopped.
         let stopping = false;
         const ownerCommands = new AsyncQueue<EngineCommand>();
         options.entry.workerOwnerRouter = new InboundCommandRouter(
@@ -4437,7 +3891,6 @@ export class AgentRegistry {
         return result;
     }
 
-    /** One event-loop turn admits siblings; later arrivals queue behind it. */
     private scheduleSubagentConfigurationBatch(
         batch: PendingSubagentConfigurationBatch,
     ): void {
@@ -4518,9 +3971,6 @@ export class AgentRegistry {
                 return;
             }
 
-            // The settings write and its owner-side refresh precede the response
-            // on one command stream. Push once more before answering a worker so
-            // its next policy read cannot observe the pre-dialog snapshot.
             this.pushWorkerState(entry.agent.id);
             choices = active().map((action) =>
                 this.resolveConfiguredSubagentLaunch(entry, action));
@@ -4608,9 +4058,6 @@ export class AgentRegistry {
             policy,
             action.request.agentDefault,
         );
-        // This one-time substitution is authorized by the confirmation that
-        // follows. A request made while policy already existed never enters
-        // this workflow and remains a loud out-of-policy refusal.
         if (
             !resolution.ok
             && resolution.reason === "not_permitted"
@@ -4802,10 +4249,6 @@ export class AgentRegistry {
             child.close();
             throw new Error(`Async subagent ${child.id} was not registered`);
         }
-        // Tracked here rather than on every queued prompt: a completion
-        // belongs to the parent only for work the parent asked for. A client
-        // attaching to the child and prompting it is a conversation the user
-        // is already reading, not an assignment to report back on.
         try {
             child.sendPrompt(effect.description);
         } catch (error) {
@@ -5040,10 +4483,6 @@ export class AgentRegistry {
                         entry.pendingAsyncTurns - 1,
                     );
                     if (entry.pendingAsyncTurns === 0) {
-                        // Mark the completion write pending at the same boundary
-                        // that ends this assignment. A later prompt becomes a
-                        // new assignment, while parent trash remains blocked
-                        // until this result has been saved.
                         entry.pendingCompletionDeliveries += 1;
                         break;
                     }
@@ -5062,7 +4501,6 @@ export class AgentRegistry {
                 content = summary;
             }
         } catch {
-            // The durable failure delivery below is safer than exposing host internals.
         } finally {
             attachment.detach();
         }
@@ -5074,9 +4512,6 @@ export class AgentRegistry {
             childEntry.pendingCompletionDeliveries = 0;
             return;
         }
-        // A substitution the parent cannot see is a silent success on the
-        // wrong model, so it rides the completion the parent actually reads,
-        // not only the spawn call it made turns ago.
         const substitution = this.spawnNotices.get(childId);
         if (substitution !== undefined) {
             content = `${substitution}\n\n${content}`;
@@ -5137,7 +4572,6 @@ export class AgentRegistry {
         return result?.behavior === "allow" ? "allow_once" : "deny";
     }
 
-    /** Keeps shutdown waiting on a delivery that is mid-flight. */
     private trackDelivery(task: Promise<void>): void {
         this.deliveryTasks.add(task);
         void task.then(() => this.deliveryTasks.delete(task));
@@ -5205,17 +4639,6 @@ async function removePublishedBranchAttachments(
     await rmdir(publication.path).catch(() => {});
 }
 
-/**
- * Drops a reasoning effort the provider cannot be asked for on this model.
- *
- * `updateModelSettings` already refuses an unsupported combination, but config
- * defaults and settings stored by an older build reach an agent without
- * passing through it. Without this the combination would survive to the
- * adapter and fail the first turn, which is a worse answer than starting with
- * the dial off. `reasoningEffortForModel` is deliberately looser than the
- * picker's menu: config is not a menu choice, so it keeps anything the adapter
- * can still resolve.
- */
 function supportedModelSettings(
     settings: ModelTurnSettings,
     catalog: EffectiveCatalogOptions = {},
@@ -5233,11 +4656,6 @@ function supportedModelSettings(
     return supported;
 }
 
-/**
- * The levels are resolved here rather than where the runnable list is built,
- * so every client sees the catalog as it is now, and a client can show the
- * levels of a model the user is only looking at.
- */
 function settingsForClient(
     settings: ModelTurnSettings,
     provider: string,
@@ -5267,16 +4685,7 @@ function settingsForClient(
         pooled,
         catalog,
     );
-    // A running session's stored effort can outlive discovery deciding the
-    // model has no levels at all; serving it anyway shows a dial the model
-    // cannot have. Same emptiness rule as `reasoningEffortForModel`.
     const { reasoningEffort, ...rest } = settings;
-    // The picker and the check a settings change goes through read one
-    // admission rule, so a level cannot be dropped from one and kept by the
-    // other. A pool entry's own list is already narrowed, so this is a no-op
-    // there and only bites the catalog fallback. The stored level rides along
-    // in the same read: it is served when admission has not refused it, which
-    // includes a level config set that was never published.
     const asked = reasoningEffort !== undefined
             && !efforts.includes(reasoningEffort)
         ? [...efforts, reasoningEffort]
@@ -5299,9 +4708,6 @@ function settingsForClient(
     return {
         ...rest,
         ...(served ? { reasoningEffort } : {}),
-        // Only alongside a level that is actually served, and only while the
-        // two still disagree: on its own it would name a level nothing is
-        // running at.
         ...(served
                 && requestedReasoningEffort !== undefined
                 && requestedReasoningEffort !== reasoningEffort
@@ -5339,12 +4745,6 @@ function settingsForClient(
     };
 }
 
-/**
- * The reviewer route as the client sees it. The first entry is the reviewer
- * auto mode oneshots; a second is the failsafe, tried only when the first
- * cannot answer. No configured reviewer means auto mode reviews on the
- * agent's own model, which is `agent` rather than an empty selection.
- */
 function reviewerDefaultOf(
     settings: ToolReviewerSettings | undefined,
 ): ReviewerModelDefault {
@@ -5360,10 +4760,6 @@ function reviewerDefaultOf(
     };
 }
 
-/**
- * A oneshot carries plain text in both directions, so the peer turns it
- * replays are reconstructed rather than taken from a transcript.
- */
 function oneshotModelMessage(message: OneshotMessage): ModelMessage {
     const content = [{ type: "text" as const, text: message.content }];
     if (message.role === "user") {
@@ -5378,7 +4774,6 @@ function oneshotModelMessage(message: OneshotMessage): ModelMessage {
     };
 }
 
-/** Set to `0` to run each session's turn loop in the host process. */
 const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
 function cancelledSubagentConfiguration(): SpawnModelResolution {
@@ -5420,12 +4815,6 @@ function subagentResolutionLabel(
         : `${model} (${resolution.reasoningEffort})`;
 }
 
-/**
- * One reading of everything the owner may change while a turn is running.
- *
- * Taken at spawn and again after every host-side change, because a worker
- * answers each read from its last copy rather than calling back.
- */
 function loopStateOf(services: RunHeadlessLoopServices): LoopState {
     const compaction = loopCompactionState(services.compaction?.diagnostics);
     return {
@@ -5449,7 +4838,6 @@ function loopStateOf(services: RunHeadlessLoopServices): LoopState {
     };
 }
 
-/** A delegated session can narrow with current policy, never widen past birth. */
 function delegatedSubagentPolicy(
     current: SubagentPoolPolicy,
     delegation: SessionDelegation | undefined,
@@ -5461,9 +4849,6 @@ function delegatedSubagentPolicy(
         ...current,
         assigned: (current.assigned ?? []).filter((entry) =>
             boundary.has(`${entry.provider ?? ""}/${entry.model}`)),
-        // The persisted parent pair is already represented in `models`.
-        // Recomputing self from a resumed child's current parent would mint a
-        // new candidate that was never authorized at this child's spawn.
         allowSelf: false,
     };
 }
@@ -5479,19 +4864,6 @@ function delegationAllows(
         && providerKey(allowed.provider) === providerKey(settings.provider));
 }
 
-
-/**
- * Commands the host answers itself while the loop runs in a worker.
- *
- * Each one reads or writes state this process owns outright: the catalog, the
- * pool, the roster, the session header, oneshots, and the dials. The loop keeps
- * no copy it could answer from, and every dial change is pushed into the worker
- * as a new `LoopState` before the next read.
- *
- * Wear is not here on purpose. It is queued FIFO with the prompts, so the loop
- * decides when it takes effect; the worker keeps it and asks the host for the
- * agent over the boundary.
- */
 const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "get_model_settings",
     "get_session_model_settings_history",
@@ -5513,14 +4885,6 @@ const HOST_OWNED_COMMANDS: ReadonlySet<string> = new Set([
     "remove_permission_preference",
 ]);
 
-
-/**
- * Measured on 2026-08-22: a worker is about 280 MB resident and its
- * supervisor about 27 MB, nearly all of it runtime rather than session state.
- * The default cap spends about a quarter of the machine on isolated sessions
- * and is clamped so a small machine keeps a usable number and a large one does
- * not spawn without bound.
- */
 const WORKER_FOOTPRINT_BYTES = 320 * 1024 * 1024;
 const MIN_WORKER_CAP = 2;
 const MAX_WORKER_CAP = 16;
@@ -5546,11 +4910,6 @@ export class WorkerCapReachedError extends Error {
     }
 }
 
-/**
- * The session file as a worker is given it: the header verbatim, then every
- * record after it in file order. The worker folds a projection out of these
- * and never opens the file itself.
- */
 async function readSessionSeed(path: string): Promise<WorkerSessionSeed> {
     const lines = (await Bun.file(path).text())
         .split("\n")

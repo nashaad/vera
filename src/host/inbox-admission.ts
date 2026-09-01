@@ -15,7 +15,6 @@ import {
 import type { InboxEntry } from "../store/inbox.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
-/** Source-family names are the stable, narrow part of an event kind. */
 export const INBOX_SOURCE_FAMILY_PATTERN = /^[a-z][a-z0-9_-]*$/;
 
 export type InboxAdmissionScope = "user" | "project";
@@ -27,11 +26,6 @@ export interface InboxAdmissionPolicyOptions {
     readonly userConfigPath?: string;
 }
 
-/**
- * The durable half of inbox admission. Project entries extend user entries;
- * there is deliberately no remove or wildcard operation here, so a project
- * cannot weaken a user's choice and an event cannot choose its own scope.
- */
 export class InboxAdmissionPolicy {
     private readonly user = new Set<string>();
     private readonly project = new Set<string>();
@@ -83,7 +77,6 @@ export class InboxAdmissionPolicy {
         return [...this.project];
     }
 
-    /** Persists and then activates an always rule. */
     remember(
         sourceFamily: string,
         scope: InboxAdmissionScope,
@@ -152,7 +145,6 @@ function enqueueAdmissionWrite(
     return next;
 }
 
-/** The family carried by a stored event, without reading its payload. */
 export function inboxSourceFamily(entry: Pick<InboxEntry, "source" | "kind">): string {
     const kindSeparator = entry.kind.indexOf(".");
     if (kindSeparator > 0) {

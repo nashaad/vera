@@ -1,22 +1,3 @@
-/**
- * A real bash parser (tree-sitter-bash via web-tree-sitter), used to build a
- * structured view of a command's redirects, pipes, chains, and
- * substitutions, in place of the hand-written tokenizer in
- * `bash-danger.ts`.
- *
- * tree-sitter init is async and the classifier (`decideToolPermission`) is
- * synchronous, so `initBashParser()` must be awaited once before
- * `parseBashScript` can be called. `runTurn` does that await, which keeps
- * the ordering inside the engine instead of asking every client to
- * remember it at boot. Until it resolves, `extractBashActions` reports
- * `unknown` for every bash command rather than guessing.
- *
- * Anything this parser does not specifically model (subshells, `if`/`for`/
- * `case`/`while`, heredocs, and anything the grammar itself cannot parse)
- * becomes a `BashUnknown` node carrying its raw source text, rather than a
- * guess — mirroring the "unknown action" fallback the rest of the
- * permission engine already uses.
- */
 
 import { Language, Parser, type Node as SyntaxNode } from "web-tree-sitter";
 
@@ -33,25 +14,13 @@ export type BashRedirectOperator =
     | "unknown";
 
 export interface BashRedirect {
-    /** e.g. `2` in `2>&1`. Absent when the redirect has no explicit fd. */
     readonly fileDescriptor?: string;
     readonly operator: BashRedirectOperator;
-    /**
-     * The literal redirect target text (e.g. `a.txt`, `&1`, `/dev/null`).
-     * Absent when the target is not a plain word (contains an expansion or
-     * substitution the caller would need to resolve separately).
-     */
     readonly target?: string;
 }
 
 export interface BashCommand {
     readonly kind: "command";
-    /**
-     * Literal words only (the command name and any plain-word arguments).
-     * A non-literal argument (variable expansion, command/process
-     * substitution, quoted string with expansion, etc.) is omitted here and
-     * reflected in `hasNonLiteralWords` instead of being guessed at.
-     */
     readonly words: readonly string[];
     readonly redirects: readonly BashRedirect[];
     readonly hasNonLiteralWords: boolean;
@@ -71,7 +40,6 @@ export interface BashChain {
     readonly right: BashStatement;
 }
 
-/** Something the parser recognized structurally but does not model further. */
 export interface BashUnknown {
     readonly kind: "unknown";
     readonly text: string;
@@ -80,15 +48,8 @@ export interface BashUnknown {
 export type BashStatement = BashCommand | BashPipeline | BashChain | BashUnknown;
 
 export interface ParsedBashScript {
-    /** Top-level statements, in source order. */
     readonly statements: readonly BashStatement[];
-    /** Every simple command found anywhere in the tree, flattened, in order. */
     readonly commands: readonly BashCommand[];
-    /**
-     * Raw source text found inside every `$(...)`, `` `...` ``, or `<(...)`/
-     * `>(...)` in the script, for recursive re-parsing — the tree-sitter
-     * analogue of `nestedShellCommands` in `bash-danger.ts`.
-     */
     readonly substitutions: readonly string[];
 }
 
@@ -109,10 +70,7 @@ const CHAIN_OPERATORS = new Set<string>(["&&", "||", ";", "&"]);
 let parserPromise: Promise<Parser> | undefined;
 let resolvedParser: Parser | undefined;
 
-/**
- * Loads the wasm grammar and constructs a ready `Parser`. Safe to call
- * concurrently or repeatedly; the underlying work only happens once.
- */
+/** Loads the wasm grammar and constructs a ready `Parser`. Safe to call concurrently or repeatedly; the underlying work only happens once. */
 export async function initBashParser(): Promise<void> {
     if (parserPromise === undefined) {
         parserPromise = createBashParser();
@@ -135,12 +93,6 @@ async function createBashParser(): Promise<Parser> {
     return parser;
 }
 
-/**
- * Parses a bash source string into a structured script. Requires
- * `initBashParser()` to have already resolved — kept synchronous so a
- * future caller can use it from a synchronous classification path without
- * making that path async.
- */
 export function parseBashScript(source: string): ParsedBashScript {
     if (resolvedParser === undefined) {
         throw new Error(
@@ -163,12 +115,6 @@ export function parseBashScript(source: string): ParsedBashScript {
     return { statements, commands, substitutions };
 }
 
-/**
- * `web-tree-sitter` types the child arrays as `(Node | null)[]`, because the
- * underlying C API returns null for an index with no node. The arrays are
- * dense in practice, so the null is discharged once in these three helpers
- * rather than guarded at every walk site below.
- */
 function namedChildrenOf(node: SyntaxNode): SyntaxNode[] {
     return node.namedChildren.filter(isNode);
 }
@@ -215,9 +161,6 @@ function convertCommand(node: SyntaxNode): BashCommand {
             continue;
         }
         if (child.type === "variable_assignment") {
-            // Environment assignments prefixing the command (`FOO=1 cmd`)
-            // are neither the command name nor an argument; skip them
-            // rather than misclassifying them as either.
             continue;
         }
         const word = literalWord(child);
@@ -225,9 +168,6 @@ function convertCommand(node: SyntaxNode): BashCommand {
             hasNonLiteralWords = true;
             continue;
         }
-        // An empty quoted word (`rm ""`) contributes no argument. Dropping it
-        // keeps a caller from resolving "" against the working directory and
-        // treating the directory itself as the target.
         if (word.length > 0) {
             words.push(word);
         }
@@ -235,22 +175,11 @@ function convertCommand(node: SyntaxNode): BashCommand {
     return { kind: "command", words, redirects: [], hasNonLiteralWords };
 }
 
-/**
- * The literal text of a word, or `undefined` when the word is not literal.
- *
- * Quoting is not the same as expansion: `rm 'my notes.md'` and `rm "my notes.md"`
- * name one concrete file, while `rm "$DIR"` names whatever the shell decides at
- * run time. Only the second is genuinely unknowable here, so quotes are removed
- * and the content returned, and a word containing any expansion or substitution
- * (including a concatenation with one) returns `undefined`.
- */
 function literalWord(node: SyntaxNode): string | undefined {
     if (node.type === "word" || node.type === "number") {
         return node.text;
     }
     if (node.type === "raw_string") {
-        // Single quotes suppress every expansion, so the content is always
-        // literal. The node text carries the quotes; strip exactly one pair.
         return node.text.slice(1, -1);
     }
     if (node.type !== "string") {
@@ -266,16 +195,6 @@ function literalWord(node: SyntaxNode): string | undefined {
     return text;
 }
 
-/**
- * The grammar hangs the redirect off the whole body, so `cd /tmp && ls > out.txt`
- * arrives as one `redirected_statement` wrapping the entire list, and
- * `foo | bar > out.txt` as one wrapping the entire pipeline. Bash binds the
- * redirect to the last simple command in both cases, so that is where it goes.
- *
- * Returning `unknown` for the whole construct instead, as this used to, discarded
- * every command inside it along with the redirect: `cd /tmp && rm -rf x > log`
- * produced no `rm` at all.
- */
 function convertRedirectedStatement(node: SyntaxNode): BashStatement {
     const body = node.childForFieldName("body");
     const base = body === null
@@ -283,10 +202,6 @@ function convertRedirectedStatement(node: SyntaxNode): BashStatement {
         : convertStatement(body);
     const redirects = fieldChildrenOf(node, "redirect").map(convertRedirect);
     return attachRedirects(base, redirects)
-        // A body with no simple command to own the redirect (a brace group, an
-        // `if`, anything the grammar models but this module does not) stays
-        // unknown, rather than the redirect being reassigned to some other
-        // statement or silently dropped.
         ?? { kind: "unknown", text: node.text };
 }
 
@@ -329,8 +244,6 @@ function convertRedirect(node: SyntaxNode): BashRedirect {
         !child.isNamed && REDIRECT_OPERATORS.has(child.type)
     );
     const operator = (operatorNode?.type ?? "unknown") as BashRedirectOperator;
-    // A quoted target (`> "my notes.txt"`) is as literal as a bare word, so it
-    // goes through the same literal-word reader the arguments use.
     const target = destination === null ? undefined : literalWord(destination);
     return {
         ...(descriptor === null ? {} : { fileDescriptor: descriptor.text }),
@@ -377,7 +290,6 @@ function collectCommands(statement: BashStatement, into: BashCommand[]): void {
         collectCommands(statement.left, into);
         collectCommands(statement.right, into);
     }
-    // `unknown`: nothing to flatten.
 }
 
 function collectSubstitutions(root: SyntaxNode): string[] {

@@ -98,16 +98,9 @@ const CLIENT_COMPOSE_WRITE_CAPABILITY = "client.compose.write";
 const CLIENT_AGENTS_CAPABILITY = "client.agents";
 const CLIENT_EXPERIMENTAL_TUI_CAPABILITY = "client.experimental_tui";
 
-/** What an extension tip waits, in client launches, when it names no cooldown. */
 const DEFAULT_TIP_COOLDOWN_LAUNCHES = 10;
 
 const DEFAULT_STATUS_LINE_BUDGET_MS = 50;
-/**
- * A renderer that throws, stalls, or answers with garbage is taken off the
- * status line after this many strikes and the client's own rendering stands
- * in for good. Retrying forever would spend part of every repaint on an
- * extension that has already shown it cannot answer.
- */
 const STATUS_LINE_FAILURE_LIMIT = 3;
 
 export interface ClientExtensionConfig {
@@ -123,7 +116,6 @@ export interface ClientExtensionCommandDescriptor {
     readonly source: string;
     readonly arguments?: ExtensionCommandArgumentKind;
     readonly acceptsImages?: boolean;
-    /** Safe to call while rendering; failures make the command unavailable. */
     readonly isAvailable?: () => boolean;
     readonly palette?: {
         readonly label: string;
@@ -133,19 +125,11 @@ export interface ClientExtensionCommandDescriptor {
     };
 }
 
-/**
- * A tip an extension offered, already namespaced by the extension that owns
- * it so its id cannot collide with the client's own.
- */
 export interface ClientExtensionTipDescriptor {
     readonly id: string;
     readonly text: string;
     readonly cooldownLaunches: number;
     readonly source: string;
-    /**
-     * Safe to call during a repaint: a `when` that throws or answers with a
-     * non-boolean is read as "not now".
-     */
     isRelevant(context: VeraClientTipContext): boolean;
 }
 
@@ -154,9 +138,7 @@ export interface ClientExtensionComposeSuggesterDescriptor {
     readonly agent: string;
     readonly hint: string;
     readonly source: string;
-    /** Undefined means the offer may appear while any agent is worn. */
     readonly fromAgents?: readonly string[];
-    /** Safe to call on a keystroke: a predicate that throws reads as "no". */
     matches(text: string): boolean;
 }
 
@@ -165,11 +147,8 @@ export interface ClientExtensionKeybindingDescriptor {
     readonly description: string;
     readonly keys: readonly string[];
     readonly source: string;
-    /** Declared scope, when the extension named one. */
     readonly scope?: string;
-    /** Whether the user may move the chord. Absent reads as no. */
     readonly remappable?: boolean;
-    /** Footer text for the chord, when the extension wrote one. */
     readonly hint?: string;
 }
 
@@ -231,7 +210,6 @@ export interface ClientExtensionContextAdapter {
     current(): VeraClientContextSnapshot;
 }
 
-/** Client-owned composer access, bound to one command/keybinding invocation. */
 export interface ClientExtensionComposeAdapter {
     capture(extensionId: string): object | undefined;
     insert(
@@ -246,30 +224,20 @@ export interface ClientExtensionComposeAdapter {
 }
 
 export interface ClientExtensionSidebarAdapter {
-    /** Throws when another extension already holds the sidebar. */
     open(extensionId: string): void;
     append(extensionId: string, block: VeraClientTranscriptBlock): void;
     clear(extensionId: string): void;
     close(extensionId: string): void;
 }
 
-/**
- * Names the composer offers after an `@`. The extension owns the list because
- * only it knows what it named; the client owns the typing.
- */
 export interface ClientExtensionMentionsAdapter {
     set(extensionId: string, names: readonly string[]): void;
 }
 
-/**
- * Who the next message goes to, when it is not the agent. A name to show, or
- * nothing to go back to the usual recipient.
- */
 export interface ClientExtensionAddressingAdapter {
     set(extensionId: string, name: string | undefined): void;
 }
 
-/** The user-and-agent conversation as the client shows it, oldest first. */
 export interface ClientExtensionThreadAdapter {
     read(extensionId: string): readonly VeraClientThreadTurn[];
 }
@@ -360,22 +328,16 @@ export interface StartClientExtensionRegistryOptions {
     readonly activationTimeoutMs?: number;
     readonly handlerTimeoutMs?: number;
     readonly disposeTimeoutMs?: number;
-    /** How long one status line render may take before it counts as a strike. */
     readonly statusLineBudgetMs?: number;
     readonly signal?: AbortSignal;
     readonly onFailure?: (failure: ClientExtensionRegistryFailure) => void;
 }
 
 export interface ClientExtensionRegistry {
-    /** IDs that completed activation in this client generation. */
     loadedExtensionIds(): readonly string[];
     commands(): readonly ClientExtensionCommandDescriptor[];
     keybindings(): readonly ClientExtensionKeybindingDescriptor[];
     tips(): readonly ClientExtensionTipDescriptor[];
-    /**
-     * In registration order. The client shows at most one at a time, and the
-     * first registered wins, so a second extension cannot talk over the first.
-     */
     composeSuggesters(): readonly ClientExtensionComposeSuggesterDescriptor[];
     invokeCommand(
         name: string,
@@ -390,42 +352,16 @@ export interface ClientExtensionRegistry {
         workspace: string,
         signal?: AbortSignal,
     ): Promise<void>;
-    /**
-     * Whether any loaded extension intercepts messages. Lets a client skip the
-     * async hop on every submit when nothing is listening.
-     */
     hasMessageInterceptors(): boolean;
-    /**
-     * Offer a submitted message to each interceptor in load order and return
-     * the first decision that is not `pass`. An interceptor that fails is
-     * treated as `pass`, so a broken extension cannot stop the user talking to
-     * the agent.
-     */
     interceptMessage(
         message: OutgoingClientMessage,
         signal?: AbortSignal,
     ): Promise<VeraClientMessageDecision>;
-    /**
-     * Tell every extension the client is showing a different conversation, so
-     * it can drop what belonged to the last one. A listener that throws is
-     * reported and skipped: one extension holding on cannot stop the others
-     * letting go.
-     */
     conversationChanged(): void;
-    /** The extension that owns the status line, absent while nobody does. */
     statusLineOwner(): string | undefined;
-    /**
-     * Synchronous by contract: this is called inside a repaint, so it never
-     * awaits and never throws. Undefined means the client renders the status
-     * line itself, which is also what a failing renderer resolves to.
-     */
     renderStatusLine(
         snapshot: StatusLineSnapshot,
     ): readonly StatusLineSegment[] | undefined;
-    /**
-     * Experimental plain-data addressing owned by one loaded extension.
-     * Undefined is the explicit compatibility path for older extensions.
-     */
     experimentalHostedAgentAddressing(
         extensionId: string | undefined,
     ): VeraClientExperimentalHostedAgentAddressing | undefined;
@@ -500,7 +436,6 @@ interface StatusLineOwner {
     failures: number;
 }
 
-/** A mention is one word: the composer completes a token, not a phrase. */
 function validateMentionNames(names: readonly string[]): readonly string[] {
     if (!Array.isArray(names)) {
         throw new Error("Mention names must be an array");
@@ -881,7 +816,6 @@ export async function startClientExtensionRegistry(
         },
     };
 
-    /** Never rethrows: a repaint cannot be the place an extension fault lands. */
     function failStatusLine(owner: StatusLineOwner, message: string): undefined {
         owner.failures += 1;
         const retired = owner.failures >= STATUS_LINE_FAILURE_LIMIT;
@@ -1582,8 +1516,6 @@ async function activateClientExtension(
                 const when = spec.when;
                 tips.push({
                     descriptor: {
-                        // Namespaced on the way in, so an extension cannot
-                        // take over a client tip's cooldown by reusing its id.
                         id: `${options.id}:${spec.id}`,
                         text: spec.text.trim(),
                         cooldownLaunches: spec.cooldownLaunches
@@ -1855,8 +1787,6 @@ function validateOwnership(
     reservedCommands: ReadonlySet<string>,
     reservedKeybindings: ReadonlySet<string>,
 ): void {
-    // One owner for the whole segment list, so the status line never becomes a
-    // race between two extensions writing over each other.
     if (extension.statusLine !== undefined && statusLine !== undefined) {
         throw new Error(
             `Client extension status line from ${extension.id} collides with ${statusLine.extension.id}`,
@@ -2168,13 +2098,6 @@ function parseClientExtensionModule(
     };
 }
 
-/**
- * Bun caches dynamic imports for the life of the TUI, even when a query is
- * added to the file URL. A one-file in-memory bundle gives each client
- * generation a fresh module graph without writing build artifacts beside the
- * user's extension. OpenTUI stays external so raw renderables share the host's
- * Node identity; bundling it makes the host reject otherwise valid children.
- */
 async function importFreshClientExtension(
     entrypointPath: string,
 ): Promise<unknown> {
@@ -2246,10 +2169,6 @@ function copySettingsUpdate(
     return structuredClone(result);
 }
 
-// A model missing from `availableModels` (unrecognised, or reached through
-// an escape hatch such as `/model <name>`) reads the same as a model with an
-// empty `levels` array: no facts about it have reached the client, so there
-// is nothing to cycle either way.
 function currentModelLevels(
     settings: VeraClientModelSettingsSnapshot | undefined,
 ): readonly VeraClientReasoningLevel[] {
@@ -2257,10 +2176,6 @@ function currentModelLevels(
     return current === undefined ? [] : structuredClone(current.levels);
 }
 
-// Placement runs through `inferReasoningSelection` rather than a local match
-// so an extension sees exactly the level the turn will run at, and so this
-// rule stays stated in one place. `providerEffort` is absent only when the
-// model has no usable level, which is the same case as an empty level list.
 function currentModelLevel(
     settings: VeraClientModelSettingsSnapshot | undefined,
 ): string | undefined {
@@ -2275,11 +2190,6 @@ function currentModelLevel(
     ).providerEffort;
 }
 
-/**
- * A model is runnable when a connected provider offers it, which is the same
- * test the picker's All models tab applies to a row. A pooled entry that cannot
- * run keeps its row there and is not runnable here.
- */
 function modelAvailability(
     settings: VeraClientModelSettingsSnapshot | undefined,
     model: { readonly provider?: string; readonly model: string },
@@ -2610,7 +2520,6 @@ function safelyReportFailure(
     try {
         report?.(failure);
     } catch {
-        // Optional reporting cannot affect extension lifecycle.
     }
 }
 
@@ -2618,10 +2527,7 @@ function errorMessage(error: unknown): string {
     return error instanceof Error ? error.message : String(error);
 }
 
-/**
- * An absent decision is `pass`: an interceptor that only wanted to look at the
- * message returns nothing, and that must not swallow it.
- */
+/** An absent decision is `pass`: an interceptor that only wanted to look at the message returns nothing, and that must not swallow it. */
 function parseMessageDecision(
     value: unknown,
 ): VeraClientMessageDecision | undefined {
@@ -2646,8 +2552,6 @@ function parseMessageDecision(
     if (injectedPrefix === undefined) {
         return { kind: "replace", text };
     }
-    // A prefix that covers the whole message leaves nothing to show, which is
-    // an interceptor claiming the user said nothing.
     return typeof injectedPrefix === "number"
             && Number.isInteger(injectedPrefix)
             && injectedPrefix > 0

@@ -7,10 +7,6 @@ import {
 } from "./host/process-identity.ts";
 import { veraMachineDirectory, veraRuntimeDirectory } from "./profile-paths.ts";
 
-/**
- * What a Vera-owned process calls itself in `ps` and on the live board.
- * Tools never get these names: only the processes Vera itself starts.
- */
 export const LIVE_PROCESS_ARGV0 = {
     host: "vera-host",
     tui: "vera-tui",
@@ -31,7 +27,6 @@ export interface LiveProcessRecord {
 
 export const LIVE_PROCESS_SCHEMA_VERSION = 1 as const;
 
-/** One file per live pid, under this Vera home's machine tier. */
 export function liveProcessDirectory(home?: string): string {
     return join(veraMachineDirectory(home), "live");
 }
@@ -40,10 +35,6 @@ export function liveProcessPath(pid: number, home?: string): string {
     return join(liveProcessDirectory(home), `${pid}.json`);
 }
 
-/**
- * Posts this process onto the board. Call from host, TUI, worker, supervisor,
- * and watchdog mains only — never from a tool the worker spawned.
- */
 export function postLiveProcess(
     kind: LiveProcessKind,
     options: {
@@ -57,9 +48,6 @@ export function postLiveProcess(
         schema_version: LIVE_PROCESS_SCHEMA_VERSION,
         pid: options.pid ?? process.pid,
         kind,
-        // Same clock as host.json: OS start, not post time. A host can take
-        // longer than the pid-reuse window to become ready; posting "now"
-        // would make prune treat the live pid as a stranger and drop it.
         started_at: options.startedAt
             ?? new Date(Date.now() - process.uptime() * 1_000).toISOString(),
         runtime_dir: options.runtimeDir ?? veraRuntimeDirectory(),
@@ -82,10 +70,6 @@ export function dropLiveProcess(pid = process.pid, home?: string): void {
     }
 }
 
-/**
- * Sets the process title, posts, and unlinks on exit. Returns a disposer for
- * tests and for prune after a kill.
- */
 export function installLiveProcess(kind: LiveProcessKind): () => void {
     process.title = LIVE_PROCESS_ARGV0[kind];
     postLiveProcess(kind);
@@ -99,10 +83,6 @@ export function installLiveProcess(kind: LiveProcessKind): () => void {
     };
 }
 
-/**
- * Live posts whose pid is still the process that wrote them. Dead rows are
- * unlinked. This is what `vera prune` lists.
- */
 export function listLiveProcesses(home?: string): LiveProcessRecord[] {
     let names: string[];
     try {
@@ -164,13 +144,11 @@ export function stopLivePid(pid: number): boolean {
         process.kill(-pid, "SIGKILL");
         signaled = true;
     } catch {
-        // Not a group leader, or already gone.
     }
     try {
         process.kill(pid, "SIGKILL");
         signaled = true;
     } catch {
-        // Already gone.
     }
     dropLiveProcess(pid);
     return signaled;

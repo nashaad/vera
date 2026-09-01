@@ -6,11 +6,6 @@ import type { AssistantMessage } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
 import { readRegularFileTextSync } from "./regular-file.ts";
 
-/**
- * What went wrong, at the grain a user can act on. A provider serving a model
- * badly repeats one of these; the exact error text varies run to run and is
- * kept as a sample rather than as the identity of the failure.
- */
 export type ModelFailureKind =
     | "no_visible_response"
     | "unavailable_tool_call"
@@ -23,24 +18,16 @@ export interface ModelFailureRecord {
     readonly provider: string;
     readonly model: string;
     readonly kind: ModelFailureKind;
-    /** Sanitised failure text, kept as a sample of this signature. */
     readonly detail: string;
     readonly sessionId: string;
     readonly providerErrorType?: string;
     readonly providerName?: string;
     readonly statusCode?: number;
-    /** Engine estimate for the refused request; this is not billed usage. */
     readonly requestTokens?: number;
     readonly requestTokensEstimated?: boolean;
-    /** Provider-reported allowance at the instant the request was refused. */
     readonly allowance?: ProviderFailure["allowance"];
 }
 
-/**
- * The repeat unit. Provider and model both belong in it: the same model served
- * by two providers fails independently, and that difference is the one a user
- * can do something about.
- */
 export function modelFailureSignature(
     record: Pick<ModelFailureRecord, "provider" | "model" | "kind">,
 ): string {
@@ -62,7 +49,6 @@ export function modelFailureKind(
     return "other";
 }
 
-/** Records past this many are dropped oldest-first on the next append. */
 const MAX_RECORDS = 500;
 
 const MAX_DETAIL_LENGTH = 400;
@@ -73,11 +59,6 @@ export function defaultModelFailureLedgerPath(
     return join(root, "failures", "ledger.jsonl");
 }
 
-/**
- * Append-only record of every model failure this machine has seen, across
- * sessions and restarts. Writes are synchronous so a client reading the ledger
- * to decide whether a failure is a repeat sees the failure that just happened.
- */
 export class ModelFailureLedger {
     readonly path: string;
     private prepared = false;
@@ -124,9 +105,7 @@ export interface ModelFailureSignatureSummary {
     readonly firstSeenAt: string;
     readonly lastSeenAt: string;
     readonly lastDetail: string;
-    /** Distinct sessions this signature has appeared in. */
     readonly sessions: number;
-    /** Latest refused request estimate; never presented as billed usage. */
     readonly lastRequestTokens?: number;
     readonly lastRequestTokensEstimated?: boolean;
     readonly lastAllowance?: ProviderFailure["allowance"];
@@ -153,7 +132,6 @@ export function readModelFailures(
     });
 }
 
-/** Signatures most repeated first, so the worst offender reads first. */
 export function summariseModelFailures(
     records: readonly ModelFailureRecord[],
 ): ModelFailureSummary {
@@ -226,7 +204,6 @@ export function countModelFailureSignature(
         .length;
 }
 
-/** Below this a failure is noise; at it, a pattern is worth naming once. */
 export const MODEL_FAILURE_NUDGE_THRESHOLD = 2;
 
 const LATEST_FAILURE_WINDOW_MS = 30_000;
@@ -236,14 +213,6 @@ export interface ModelFailureNudge {
     readonly text: string;
 }
 
-/**
- * The line to show after a failure that has now happened more than once.
- * Names what repeated and where to look, and stops there: which model to run
- * instead is not Vera's call to make for someone.
- *
- * Returns nothing for a first occurrence, or for a signature already raised,
- * so a persistently broken model is mentioned once rather than every turn.
- */
 export function modelFailureNudge(
     records: readonly ModelFailureRecord[],
     raised: ReadonlySet<string>,
@@ -251,9 +220,6 @@ export function modelFailureNudge(
 ): ModelFailureNudge | undefined {
     const latest = records.at(-1);
     if (latest === undefined) return undefined;
-    // The failure on screen has to be the one the ledger just recorded. An
-    // older entry means this failure was not a model's fault and was never
-    // recorded, so the pattern being reported is not the one being seen.
     const age = now.getTime() - new Date(latest.at).getTime();
     if (!Number.isFinite(age) || age < 0 || age > LATEST_FAILURE_WINDOW_MS) {
         return undefined;

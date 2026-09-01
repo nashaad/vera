@@ -32,11 +32,6 @@ export interface McpToolResult {
     readonly isError: boolean;
 }
 
-/**
- * One configured MCP server. `connect` performs the initialize handshake and
- * loads the tool and prompt lists; after that, calls go through the live
- * transport, with one silent reconnect if the server died in between.
- */
 export class McpServerClient {
     readonly config: McpServerConfig;
     tools: readonly McpToolDefinition[] = [];
@@ -138,8 +133,6 @@ export class McpServerClient {
         if (this.transport !== undefined && this.transport.alive) {
             return this.transport;
         }
-        // One reconnect per call: a crashed stdio server gets one fresh
-        // spawn, and a second failure surfaces to the caller as an error.
         this.transport = undefined;
         await this.connect(signal);
         return this.transport!;
@@ -229,8 +222,6 @@ async function listAllPrompts(
                 : undefined;
         } while (cursor !== undefined);
     } catch (error) {
-        // Prompts are an optional server capability; a server without them
-        // answers method-not-found and simply contributes no commands.
         if (error instanceof McpRpcError && error.code === METHOD_NOT_FOUND) {
             return [];
         }
@@ -239,7 +230,6 @@ async function listAllPrompts(
     return prompts;
 }
 
-/** Flattens MCP content items into the plain text a tool result carries. */
 export function contentText(content: readonly unknown[]): string {
     const parts: string[] = [];
     for (const item of content) {

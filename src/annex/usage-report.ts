@@ -12,10 +12,6 @@ import {
     type SessionHeader,
 } from "../store/session-store.ts";
 
-/**
- * One dated fold of this runtime's session files. Clients render it; they do
- * not re-scan JSONL for cost.
- */
 export type UsageWindowId = "today" | "7d" | "30d" | "all";
 
 export type UsageCostKind = "reported" | "estimated" | "mixed" | "unpriced";
@@ -178,10 +174,6 @@ interface PricedCall {
     readonly tools: readonly string[];
 }
 
-/**
- * Streams matching session JSONL and returns one report for the window.
- * Default 7 days so most old files never open.
- */
 export async function foldUsageReport(
     options: FoldUsageReportOptions,
 ): Promise<UsageReport> {
@@ -255,10 +247,6 @@ export async function foldUsageReport(
     };
 }
 
-/**
- * Same window fold, scoped to one session and its descendants. Own calls
- * are the call list; descendants contribute combined models and children.
- */
 export async function foldUsageSessionDetail(
     options: FoldUsageReportOptions & { readonly sessionId: string },
 ): Promise<UsageSessionDetail | undefined> {
@@ -633,11 +621,6 @@ function priceCall(
     return { ...base, kind: "unpriced", cost: 0 };
 }
 
-/**
- * Uncached input at the input rate, cached input at the cache rate (or input
- * when the listing has no cache rate), output at the output rate. Prompt
- * tokens already include the cached portion, so cached is not added twice.
- */
 export function estimateUsd(
     usage: ModelUsage,
     pricing: ModelPricing,

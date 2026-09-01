@@ -2,27 +2,10 @@ import type { Inbox, InboxEntryInput } from "../store/inbox.ts";
 import type { WatchFloodPolicy } from "../extensions/contributions.ts";
 import { SOURCE_GAP_KIND, type SourceEvent } from "./source.ts";
 
-/**
- * The one path from a source into the inbox. A declarative connector and a
- * subprocess source both go through here, so neither can negotiate past a cap.
- *
- * The ordering that makes the guarantee at-least-once rather than at-most-once:
- * entries are appended first, and only then does the cursor move. A crash
- * between the two re-delivers, which consumers already tolerate.
- */
-
 export const DEFAULT_MAX_PAYLOAD_BYTES = 32 * 1024;
 export const DEFAULT_MAX_EVENTS_PER_SEC = 50;
 export const DEFAULT_BURST_EVENTS = 500;
-/**
- * How many event ids are remembered for dedup. arc numbers events from a
- * per-server sequence; a server-side log reset restarts that sequence, so a
- * reused seq inside this window reads as a duplicate and its event is dropped.
- * Accepted: a reset is an operator action, and the alternative is a dedup key
- * the source does not have.
- */
 export const DEFAULT_DEDUP_WINDOW = 1_000;
-/** How long a shedding source stays shut out once its bucket empties. */
 export const FLOOD_WINDOW_MS = 1_000;
 
 export interface AdmissionLimits {
@@ -40,7 +23,6 @@ export interface AdmissionCounters {
     droppedFlood: number;
 }
 
-/** Raised when a watch registered `flood: quarantine` breaches its rate cap. */
 export class WatchFloodError extends Error {
     readonly dropped: number;
 
@@ -58,7 +40,6 @@ export interface WatchAdmissionOptions {
     readonly flood: WatchFloodPolicy;
     readonly limits?: Partial<AdmissionLimits>;
     readonly now?: () => number;
-    /** Called after a batch reaches the log, so delivery can pump. */
     readonly onAppended?: () => void;
 }
 
@@ -76,7 +57,6 @@ export class WatchAdmission {
     private tokens: number;
     private lastRefillMs: number;
     private shedUntilMs = 0;
-    /** The shed episode the last flood gap was written for. */
     private gapForShedUntilMs = 0;
     private readonly counters: AdmissionCounters = {
         admitted: 0,
@@ -113,16 +93,10 @@ export class WatchAdmission {
         return this.inbox.watchCursor(this.watchId);
     }
 
-    /** Advances the cursor with nothing appended. */
     checkpoint(cursor: string): void {
         this.inbox.setWatchCursor(this.watchId, cursor);
     }
 
-    /**
-     * A hole in the stream, written as an entry so the loss is visible in the
-     * log. Status only: it carries the watch as its own actor and no session,
-     * and nothing about it asks a consumer to be woken.
-     */
     recordGap(reason: string, detail: Record<string, string | number>): void {
         this.appendEntries([
             {
@@ -150,9 +124,6 @@ export class WatchAdmission {
                 malformedInBatch += 1;
                 continue;
             }
-            // The pending ids count too: they are not remembered until their
-            // append succeeds, so within one batch this list is the only
-            // record that the id already has an entry coming.
             if (this.seenIds.has(event.id) || admittedIds.includes(event.id)) {
                 this.counters.droppedDuplicate += 1;
                 if (event.cursor !== undefined) {
@@ -189,21 +160,14 @@ export class WatchAdmission {
         if (entries.length > 0) {
             this.appendEntries(entries);
             this.counters.admitted += entries.length;
-            // Dedup is remembered only once the entries are durable. Remembering
-            // first would make a failed append permanent: the redelivery that
-            // repairs it would read as an already-seen event and be dropped.
             for (const id of admittedIds) {
                 this.remember(id);
             }
         }
-        // Cursor after append, never before: the persisted position may only
-        // name events the log already holds.
         if (cursor !== null) {
             this.inbox.setWatchCursor(this.watchId, cursor);
         }
         if (malformedInBatch > 0 || oversizeInBatch > 0) {
-            // The cursor may already have moved past these, so the only record
-            // of the loss is this entry. One per admit call, not per event.
             this.recordGap("dropped", {
                 watch: this.watchId,
                 malformed: malformedInBatch,
@@ -214,9 +178,6 @@ export class WatchAdmission {
             });
         }
         if (shedInBatch > 0) {
-            // Latched to the shed episode: a source held under the cap calls
-            // admit once per event, and one gap per event would be the flood
-            // written a second time into the log it is protecting.
             if (this.shedUntilMs !== this.gapForShedUntilMs) {
                 this.gapForShedUntilMs = this.shedUntilMs;
                 this.recordGap("flood", {

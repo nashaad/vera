@@ -27,11 +27,9 @@ export interface StandingNudge {
   readonly enabled: boolean;
   readonly text: string;
   readonly trigger: StandingNudgeTrigger;
-  /** 0 means every matching turn; otherwise only 2 through 10 are valid. */
   readonly turnsApart: number;
 }
 
-/** Mutable session-local cadence state, kept outside the persisted profile. */
 export interface StandingNudgeCadence {
   readonly matchingTurns: Map<string, number>;
 }
@@ -91,8 +89,6 @@ export function saveStandingNudges(
   nudges: readonly StandingNudge[],
 ): readonly StandingNudge[] {
   const path = standingNudgesPath(profileDirectory);
-  // Refuse to erase hand-edited data this parser cannot understand. The
-  // caller can fix the named file and retry without losing its only copy.
   loadStandingNudges(profileDirectory);
   const file = parseStandingNudgesFile(path, {
     schema_version: STANDING_NUDGES_SCHEMA_VERSION,
@@ -131,7 +127,6 @@ export function standingNudgeContribution(
   };
 }
 
-/** Enabled rules whose trigger applies to a conversation, before cadence. */
 export function standingNudgeMatches(
   nudges: readonly StandingNudge[],
   match: StandingNudgeMatch,
@@ -141,7 +136,6 @@ export function standingNudgeMatches(
     .sort(compareById);
 }
 
-/** Number of rules shown by a conversation's ambient nudge indicator. */
 export function standingNudgeMatchCount(
   nudges: readonly StandingNudge[],
   match: StandingNudgeMatch,

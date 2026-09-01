@@ -114,7 +114,6 @@ const STREAM_FAILURES: Readonly<Partial<Record<
     unprocessable: { kind: "invalid_request", resolution: "user_action" },
 };
 
-/** Classifies an error delivered inside an otherwise valid OpenRouter stream. */
 export function classifyOpenRouterStreamError(
     error: ChatStreamChunkError,
 ): ProviderFailure {
@@ -243,11 +242,6 @@ function openRouterEnvelopeMessage(error: OpenRouterError): string | undefined {
     return stringField(recordField(parseRecord(error.body), "error"), "message");
 }
 
-/**
- * OpenRouter may put an upstream provider error inside metadata.raw. Parse only
- * the diagnostic fields we understand; retaining the arbitrary body could log
- * echoed request content, credentials, or encoded attachments.
- */
 function openRouterDiagnostics(error: OpenRouterError): OpenRouterDiagnostics {
     const body = parseRecord(error.body);
     const envelope = recordField(body, "error");

@@ -1,27 +1,3 @@
-/**
- * Which model a subagent runs on, decided at spawn time.
- *
- * A subagent is async: nobody is watching it, so every path has to land
- * somewhere that runs. The rungs, in order:
- *
- *   1. the suggestion (user or parent agent), then its family siblings
- *      inside the same provider and the same declared family
- *   2. the configured subagent default
- *   3. self, the session model on the session provider, at a configured
- *      relative effort
- *   4. the most similar verified model from the user's pool, the only rung
- *      allowed to cross a provider boundary, because the pool is a list the
- *      user curated by hand
- *   5. nothing: fail, and say so
- *
- * Two invariants hold at every rung, not just the first:
- * deny wins over allow over everything, and no rung except the pool
- * failsafe may leave the provider the candidate came from.
- *
- * Effort is degraded in place: a candidate whose supported levels do not
- * include the asked-for one is not a failed candidate, it is the same
- * candidate at its nearest supported level.
- */
 
 import {
     EFFORT_LADDER,
@@ -36,67 +12,35 @@ import {
 
 export type { RelativeEffort };
 
-/** `provider/model`, or the bare model when no provider is configured. */
 export function modelRef(provider: string, model: string): string {
     return provider === "" ? model : `${provider}/${model}`;
 }
 
-/**
- * SEAM: the pool file's shape reaches this module through these two types
- * only. The loader that reads and validates the file owns `family`,
- * `allow`, `deny`, the failsafe list and the effort map; this module never opens a
- * file and never learns the on-disk encoding.
- */
 export interface LadderCandidate {
     readonly provider: string;
     readonly model: string;
-    /** Declared label bounding sibling search. Never crosses a provider. */
     readonly family?: string;
-    /** False when the model cannot run right now. */
     readonly available: boolean;
-    /**
-     * Supported levels, most capable first, matching the catalog contract.
-     * Empty means the model has no reasoning control at all, which is a
-     * fact rather than a gap: the child runs with no effort parameter.
-     * Absent means nothing knows this model's ladder, which is not the same
-     * fact: the asked-for level is sent unchanged and nothing is substituted.
-     */
     readonly levels?: readonly string[];
     readonly defaultLevel?: string;
-    /**
-     * Whether the model calls tools, absent when nothing knows. Only the
-     * failsafe rung gates on it, and absent never passes that gate.
-     */
     readonly tools?: boolean;
 }
 
 export interface LadderPool {
     readonly models: readonly LadderCandidate[];
-    /** Absent or empty means everything is allowed. */
     readonly allow?: readonly string[];
     readonly deny?: readonly string[];
-    /**
-     * The failsafe list: verified pool entries, in the order the pool file
-     * declares them.
-     */
     readonly failsafe?: readonly string[];
 }
 
 export interface SubagentModelRequest {
-    /**
-     * What the user or the parent agent asked for. A suggestion, never a
-     * contract: a suggestion that cannot run falls through the ladder.
-     */
     readonly suggested?: string;
     readonly suggestedEffort?: string;
-    /** The session the spawn came from. */
     readonly sessionProvider: string;
     readonly sessionModel: string;
     readonly sessionEffort?: string;
-    /** The configured `defaults.subagent`, absent or "self" meaning self. */
     readonly configuredDefault?: string;
     readonly configuredDefaultEffort?: string;
-    /** The configured `defaults.subagentEffort` applied to the self rung. */
     readonly selfEffort?: RelativeEffort;
 }
 
@@ -115,10 +59,8 @@ export interface AssignedSubagentModel {
 }
 
 export interface AssignedSubagentRequest {
-    /** Explicit tool argument. A model outside the assignment is refused. */
     readonly requested?: string;
     readonly requestedEffort?: string;
-    /** Agent or legacy default. It is only a preference when assigned. */
     readonly preferred?: string;
     readonly preferredEffort?: string;
     readonly assigned: readonly AssignedSubagentModel[];
@@ -129,10 +71,6 @@ export interface AssignedSubagentRequest {
     readonly selfEffort?: RelativeEffort;
 }
 
-/**
- * The same typed row a session-model substitution rides on, so a spawn that
- * fell through the ladder reaches a client as data and not only as prose.
- */
 export type Substitution = ModelSubstitution;
 
 export interface SubagentModelChoice {
@@ -141,9 +79,7 @@ export interface SubagentModelChoice {
     readonly model: string;
     readonly effort?: string;
     readonly rung: LadderRung;
-    /** Empty when the subagent got exactly what was asked for. */
     readonly substitutions: readonly Substitution[];
-    /** Non-blocking transcript text, absent when nothing was substituted. */
     readonly notice?: string;
 }
 
@@ -156,12 +92,6 @@ export interface SubagentModelFailure {
 
 export type SubagentModelOutcome = SubagentModelChoice | SubagentModelFailure;
 
-/**
- * Resolves the authorization-first subagent ladder.
- *
- * Unlike the generic assignment binder, this never inherits an intent or the
- * session model. The exact parent pair is appended only by `allowSelf`.
- */
 export function resolveAssignedSubagentModel(
     request: AssignedSubagentRequest,
     pool: LadderPool,
@@ -303,9 +233,7 @@ interface Attempt {
     readonly rung: LadderRung;
     readonly ref: string;
     readonly effort?: string;
-    /** Set when this attempt is a stand-in for something else. */
     readonly forRef?: string;
-    /** Why this rung was reached, joined to the concrete rejection. */
     readonly because?: string;
 }
 
@@ -373,7 +301,6 @@ export function resolveSubagentModel(
     };
 }
 
-/** The rungs, in order, expanded into concrete candidates. */
 function* ladderAttempts(
     request: SubagentModelRequest,
     pool: LadderPool,
@@ -461,9 +388,6 @@ function tryCandidate(
     pool: LadderPool,
     rejections: string[],
 ): ResolvedCandidate | undefined {
-    // Deny is checked before anything else and at every rung: a denied model
-    // is denied as a suggestion, as a sibling, as a default, as self and as
-    // the failsafe. There is no path that reaches a denied model.
     if (isDenied(candidate.ref, pool)) {
         rejections.push(`${candidate.ref} is denied`);
         return undefined;
@@ -481,10 +405,6 @@ function tryCandidate(
         rejections.push(`${candidate.ref} is not available right now`);
         return undefined;
     }
-    // The failsafe is the last rung, so its candidate has to run the agent
-    // loop, not merely answer. A model that cannot call tools does not fail
-    // cleanly: it replies in prose and the loop stalls with nobody watching.
-    // Unknown tool support is not good enough here, only a known yes.
     if (candidate.rung === "pool" && entry.tools !== true) {
         rejections.push(
             `${candidate.ref} is not known to support tool calling`,
@@ -501,12 +421,6 @@ function tryCandidate(
     };
 }
 
-/**
- * Siblings are bounded twice, by provider and by declared family, and the
- * two bounds are not interchangeable: `family` is a label for grouping
- * inside one provider, never a licence to hop to the "same" model hosted
- * somewhere else. Declared pool order is the preference order.
- */
 function familySiblings(ref: string, pool: LadderPool): readonly string[] {
     const entry = findCandidate(ref, pool);
     if (entry === undefined || entry.family === undefined) {
@@ -520,11 +434,6 @@ function familySiblings(ref: string, pool: LadderPool): readonly string[] {
         .map((candidate) => modelRef(candidate.provider, candidate.model));
 }
 
-/**
- * The only rung that may cross a provider boundary, and only to a verified
- * model the user pooled by hand. Ranking prefers the same provider, then the
- * same declared family, then the order the pool file declares.
- */
 function failsafeBySimilarity(
     selfRef: string,
     pool: LadderPool,
@@ -557,9 +466,6 @@ function findCandidate(
     if (exact !== undefined) {
         return exact;
     }
-    // A bare model name resolves only when one provider offers it: guessing
-    // between two providers is exactly the cross-provider hop the ladder
-    // forbids everywhere but the pool failsafe.
     const bare = pool.models.filter((candidate) => candidate.model === ref);
     return bare.length === 1 ? bare[0] : undefined;
 }
@@ -574,7 +480,6 @@ function isAllowed(ref: string, pool: LadderPool): boolean {
         || allow.some((pattern) => matchesPattern(ref, pattern));
 }
 
-/** `*` matches any run of characters; everything else is literal. */
 function matchesPattern(ref: string, pattern: string): boolean {
     const escaped = pattern
         .split("*")
@@ -583,13 +488,6 @@ function matchesPattern(ref: string, pattern: string): boolean {
     return new RegExp(`^${escaped}$`).test(ref);
 }
 
-/**
- * The asked-for level if the candidate supports it, otherwise its nearest
- * supported neighbour on the fixed ladder, up or down, ties going down.
- * A candidate with no ladder-named levels cannot be measured against the
- * ladder, so it falls to its declared default and then to its least capable
- * level. An empty level list yields no effort at all.
- */
 function nearestEffort(
     asked: string | undefined,
     entry: LadderCandidate,
@@ -628,11 +526,6 @@ function nearestEffort(
     return best;
 }
 
-/**
- * "lowest" is the least capable level the candidate offers, "equal" is the
- * session's own level, and an explicit level is taken as asked. All three
- * still pass through nearest-neighbour degradation afterwards.
- */
 function resolveRelativeEffort(
     relative: RelativeEffort,
     sessionEffort: string | undefined,
@@ -651,10 +544,6 @@ function resolveRelativeEffort(
     return relative;
 }
 
-/**
- * The rejection line already recorded for `ref`, which names what actually
- * went wrong instead of restating that something did.
- */
 function rejectionFor(
     ref: string,
     rejections: readonly string[],

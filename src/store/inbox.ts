@@ -5,23 +5,8 @@ import { dirname, join } from "node:path";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import { backupSqliteDatabase } from "./sqlite-backup.ts";
 
-/**
- * One durable inbox per Vera host: an append-only log of entries plus one
- * offset per consumer. The host owns every offset; no agent is ever handed a
- * cursor to keep.
- *
- * Addressing is a filter hint, not exclusivity. An addressed entry stays
- * visible to any consumer that asks for it, so there are no private channels.
- *
- * Payloads are inert data. Nothing here interpolates or evaluates a payload;
- * it is stored and returned as an opaque JSON string.
- */
-
 export const INBOX_SCHEMA_VERSION = 3;
 
-/** A consumer is identified by (nodeId, label) everywhere; the bare label is
- * display sugar. Offsets are durable per pair, so a returning consumer resumes
- * where it stopped instead of jumping to the tail. */
 export interface ConsumerId {
     readonly nodeId: string;
     readonly label: string;
@@ -30,14 +15,10 @@ export interface ConsumerId {
 export interface InboxEntryInput {
     readonly source: string;
     readonly kind: string;
-    /** Copied from the source event so self-echo filtering is a query. */
     readonly actor?: string | null;
     readonly session?: string | null;
-    /** Filter hint, never exclusivity. */
     readonly address?: string | null;
-    /** Opaque JSON text. */
     readonly payload: string;
-    /** ISO-8601. Defaults to now. */
     readonly ts?: string;
 }
 
@@ -54,18 +35,11 @@ export interface InboxEntry {
 
 export interface InboxReadOptions {
     readonly limit: number;
-    /**
-     * Keeps unaddressed entries and entries addressed to one of these values.
-     * Absent means no address filtering at all.
-     */
     readonly addresses?: readonly string[];
-    /** Drops entries whose (actor, session) match, so a turn is not woken by
-     * the events that turn caused. */
     readonly excludeOrigin?: {
         readonly actor: string | null;
         readonly session: string | null;
     };
-    /** Entry kinds omitted from bookkeeping such as unread notices. */
     readonly excludeKinds?: readonly string[];
 }
 
@@ -101,14 +75,10 @@ export class Inbox {
         migrate(this.database);
     }
 
-    /** `path` may be `:memory:`. Parent directories are created. */
     static open(path: string): Inbox {
         if (path !== ":memory:") {
             mkdirSync(dirname(path), { recursive: true });
         }
-        // Native peer messages have no upstream source to replay. Opening is
-        // therefore fail-closed: silently replacing a damaged database would
-        // turn a recoverable startup failure into permanent message loss.
         return new Inbox(new Database(path, { create: true }));
     }
 
@@ -120,10 +90,6 @@ export class Inbox {
         backupSqliteDatabase(this.database, destinationPath);
     }
 
-    /**
-     * Appends one entry and returns it with its assigned seq. Never blocks on
-     * a consumer: appending and advancing an offset are separate operations.
-     */
     append(entry: InboxEntryInput): InboxEntry {
         const ts = entry.ts ?? new Date().toISOString();
         const row = this.database
@@ -147,7 +113,6 @@ export class Inbox {
         return row;
     }
 
-    /** Commits a producer occurrence and its source-scoped retry key together. */
     appendOnce(
         source: string,
         key: string,
@@ -178,7 +143,6 @@ export class Inbox {
         })();
     }
 
-    /** Appends several entries in one transaction, in the given order. */
     appendAll(entries: readonly InboxEntryInput[]): InboxEntry[] {
         const run = this.database.transaction((batch: readonly InboxEntryInput[]) =>
             batch.map((entry) => this.append(entry)),
@@ -186,7 +150,6 @@ export class Inbox {
         return run(entries);
     }
 
-    /** One entry by its stable local message id. */
     entry(seq: number): InboxEntry | undefined {
         return this.database
             .query<EntryRow, [number]>(
@@ -196,7 +159,6 @@ export class Inbox {
             .get(seq) ?? undefined;
     }
 
-    /** The seq of the newest entry, or 0 when the log is empty. */
     tail(): number {
         const row = this.database
             .query<{ seq: number | null }, []>("SELECT MAX(seq) AS seq FROM entries")
@@ -204,11 +166,6 @@ export class Inbox {
         return row?.seq ?? 0;
     }
 
-    /**
-     * Records a consumer if it is unknown, starting it at the current tail so
-     * a brand new consumer does not replay history. A consumer that already
-     * has an offset keeps it; this is safe to call on every hello.
-     */
     registerConsumer(consumer: ConsumerId): number {
         const start = this.tail();
         this.database
@@ -221,7 +178,6 @@ export class Inbox {
         return this.offsetOf(consumer) ?? start;
     }
 
-    /** `null` when the consumer has never been registered. */
     offsetOf(consumer: ConsumerId): number | null {
         const row = this.database
             .query<{ seq: number }, [string, string]>(
@@ -244,10 +200,6 @@ export class Inbox {
             }));
     }
 
-    /**
-     * Entries strictly after the consumer's offset, in seq order, capped by
-     * `limit`. Reading does not move the offset.
-     */
     read(consumer: ConsumerId, options: InboxReadOptions): InboxEntry[] {
         const after = this.offsetOf(consumer);
         if (after === null) {
@@ -258,7 +210,6 @@ export class Inbox {
         return this.readAfter(after, options);
     }
 
-    /** The same query without a consumer, for callers that hold a seq already. */
     readAfter(after: number, options: InboxReadOptions): InboxEntry[] {
         const { clauses, parameters } = readPredicate(after, options);
         parameters.push(Math.max(0, options.limit));
@@ -273,7 +224,6 @@ export class Inbox {
             .all(...parameters);
     }
 
-    /** Counts unread entries without returning their foreign payloads. */
     unreadStats(consumer: ConsumerId, options: InboxReadOptions): InboxUnreadStats {
         const after = this.offsetOf(consumer);
         if (after === null) {
@@ -295,12 +245,6 @@ export class Inbox {
         };
     }
 
-    /**
-     * The resume token last persisted for a watch, or `null` for a watch that
-     * has never admitted anything. Keyed by canonical watch id, which belongs
-     * to the host, so a cursor outlives the extension that declared the watch.
-     * The value is opaque: it is stored and returned, never parsed.
-     */
     watchCursor(watchId: string): string | null {
         const row = this.database
             .query<{ cursor: string }, [string]>(
@@ -310,7 +254,6 @@ export class Inbox {
         return row?.cursor ?? null;
     }
 
-    /** Called only after the corresponding entries are durably appended. */
     setWatchCursor(watchId: string, cursor: string): void {
         this.database
             .query<null, [string, string, string]>(
@@ -335,10 +278,6 @@ export class Inbox {
             }));
     }
 
-    /**
-     * Moves a consumer forward to `seq`. Offsets never move backwards, so a
-     * replayed delivery cannot rewind the log.
-     */
     advance(consumer: ConsumerId, seq: number): number {
         if (this.offsetOf(consumer) === null) {
             throw new Error(
@@ -355,11 +294,6 @@ export class Inbox {
         return this.offsetOf(consumer) ?? seq;
     }
 
-    /**
-     * Advances after a durable tool result and optionally records its complete
-     * retrieval receipt in the same transaction. Replayed callbacks are a
-     * no-op, which makes receipt creation exactly-once per offset crossing.
-     */
     acknowledge(
         consumer: ConsumerId,
         throughSeq: number,
@@ -441,11 +375,6 @@ export function inboxEnabled(config: InboxFeatureConfig): boolean {
     return config.experimental?.inbox === true;
 }
 
-/**
- * The one gate for the subsystem. `null` means the feature is off, and nothing
- * downstream runs: no file, no tables, no offsets. Callers hold the `Inbox`
- * or nothing, so the flag is never re-checked inside the log.
- */
 export function openInboxIfEnabled(
     config: InboxFeatureConfig,
     path: string = defaultInboxPath(),
@@ -457,12 +386,6 @@ export interface InboxFeatureConfig {
     readonly experimental?: { readonly inbox?: boolean };
 }
 
-/**
- * Steps run only when the stored `user_version` is behind them, and the version
- * is stamped per step. Re-running every statement on every open worked only
- * because each one was idempotent; the first step that is not would have run
- * against an already-migrated file.
- */
 function migrate(database: Database): void {
     let version = storedVersion(database);
     for (const [index, step] of MIGRATIONS.entries()) {

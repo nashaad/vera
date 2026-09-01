@@ -7,15 +7,6 @@ export interface SessionListingPage {
     readonly total: number;
 }
 
-/**
- * Orders and slices a session listing.
- *
- * The cursor is the id of the last row served, not an offset: rows appear and
- * disappear between pages, and an offset would silently skip or repeat a
- * session when the roster changes mid-walk. An id that is no longer in the
- * listing restarts from the top rather than failing, because a caller paging
- * through a live roster cannot be asked to handle a vanished cursor.
- */
 export function pageSessionListing(
     agents: readonly RegisteredAgentSummary[],
     request: Pick<ListAgentsRequest, "limit" | "cursor" | "order">,
@@ -39,7 +30,6 @@ export function pageSessionListing(
     };
 }
 
-/** Newest first. Id breaks ties so the order is total and paging is stable. */
 function byRecencyThenId(
     left: RegisteredAgentSummary,
     right: RegisteredAgentSummary,

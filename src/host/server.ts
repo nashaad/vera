@@ -81,24 +81,14 @@ import {
     type InteractiveAttachmentLease,
 } from "./interactive-attachments.ts";
 
-// Both directions share one ceiling: a client that may send a frame this
-// large must not meet a server that silently drops it at a smaller one.
+// Both directions share one ceiling: a client that may send a frame this large must not meet a server that silently drops it at a smaller one.
 const MAX_REQUEST_BYTES = MAX_FRAME_BYTES;
 const MAX_PENDING_EXTENSION_REQUESTS = 16;
-// Idle time, not elapsed time: a frame carrying a large transcript or an
-// attachment streams for longer than this and must not be mistaken for a
-// stalled client. The ceiling below still bounds a client that dribbles bytes
-// slowly enough to stay under the idle timer forever.
+// Idle time, not elapsed time: a frame carrying a large transcript or an attachment streams for longer than this and must not be mistaken for a stalled client.
 const REQUEST_TIMEOUT_MS = 1_000;
 const REQUEST_CEILING_MS = 60_000;
 const INTERACTIVE_DISCONNECT_GRACE_MS = 6_000;
 
-/**
- * What the host made of a close request.
- *
- * `sessionRetained` is only meaningful when the close succeeded, and is absent
- * for a close that never reached an agent.
- */
 export interface CloseAgentOutcome {
     readonly status: "closed" | "not_found" | "not_owned" | "failed";
     readonly sessionRetained?: boolean;
@@ -109,16 +99,10 @@ export interface StartHostServerOptions {
     readonly lockPath?: string;
     readonly pid?: number;
     readonly startedAt?: string;
-    /** Stamped build ID this host serves. Defaults to this process's stamp. */
     readonly buildId?: string;
-    /** Optional diagnostic stamped on the lockfile. Not host identity. */
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
     readonly capabilities?: readonly string[];
-    /**
-     * Frame ceiling and request timers. Present so tests can drive the
-     * refusal paths without moving tens of megabytes or waiting a minute.
-     */
     readonly limits?: {
         readonly maxRequestBytes?: number;
         readonly requestIdleMs?: number;
@@ -128,19 +112,13 @@ export interface StartHostServerOptions {
     readonly findAgent?: (
         agentId: string,
     ) => ResidentAgent | undefined | Promise<ResidentAgent | undefined>;
-    /** Root plus every live owned descendant, used by stop-if-last. */
     readonly readAgentTree?: (rootAgentId: string) => readonly string[];
     readonly listAgents?: () =>
         | readonly RegisteredAgentSummary[]
         | Promise<readonly RegisteredAgentSummary[]>;
-    /** Catalog, shortlist and defaults for a client with no session. */
     readonly readModelSettings?: (
         workspace?: string,
     ) => ModelTurnSettings | undefined;
-    /**
-     * Annex base URL. Absent means this host has no annex. `unavailable` means
-     * it was supposed to be up and is not.
-     */
     readonly readAnnex?: () =>
         | { readonly url: string }
         | { readonly unavailable: string }
@@ -151,43 +129,19 @@ export interface StartHostServerOptions {
         readonly takenAt: string;
         readonly databases: readonly string[];
     }>;
-    /**
-     * Fills in the optional facts named by `include`, for one page of rows.
-     * Injected rather than computed here: the server knows how to page a
-     * listing, not how to read a session file or resolve a context window.
-     */
     readonly readSessionFacts?: (
         sessions: readonly RegisteredAgentSummary[],
         include: readonly SessionFactName[],
     ) => Promise<readonly RegisteredAgentSummary[]>;
     readonly listBackgroundAgents?: () => readonly RegisteredAgentSummary[];
-    /**
-     * The machine-wide work inbox as it stands now.
-     *
-     * Read on attach and again whenever the roster changes, never stored: the
-     * index is a projection of live host state, so the only correct copy is
-     * the one taken at the moment a client is told.
-     */
     readonly readWorkIndex?: () => WorkIndexSnapshot;
-    /**
-     * Scan the transcripts on disk. Absent when the host has no session
-     * directory, which answers `unavailable` rather than an empty result: a
-     * client must not tell someone their past holds nothing when it was never
-     * looked at.
-     */
+    /** Scan the transcripts on disk. Absent when the host has no session directory, which answers `unavailable` rather than an empty result: a client must not tell someone their past. */
     readonly searchSessions?: (
         query: SessionSearchQuery,
     ) => Promise<SessionSearchResults>;
     readonly runScheduleOperation?: (
         operation: ScheduleOperation,
     ) => Promise<Record<string, unknown>>;
-    /**
-     * Subscribe to registry changes, returning the unsubscribe.
-     *
-     * Attached clients are told about background work when it changes. Without
-     * this every client would have to ask on a timer, which is what it used to
-     * do, and the answer would be up to a tick stale on every screen.
-     */
     readonly onRosterChanged?: (listener: () => void) => () => void;
     readonly createAgent?: (
         options: Pick<
@@ -360,8 +314,6 @@ export async function startHostServer(
                 reason: "identity_mismatch",
             };
         }
-        // Same-protocol `/reconnect` must be able to ask this host to step
-        // aside. An older requester still cannot replace a newer host.
         if (requested.requester_protocol_version < HOST_PROTOCOL_VERSION) {
             return {
                 type: "shutdown_for_replacement_refused",
@@ -490,7 +442,6 @@ export async function startHostServer(
         try {
             await startupClaim.release();
         } catch {
-            // Preserve the startup error after making a best-effort release.
         }
         throw error;
     }
@@ -587,9 +538,6 @@ function receiveConnection(
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
-    // Armed while a request is still arriving. The idle timer restarts on
-    // every chunk so a large frame streams freely; the ceiling is what a
-    // client dribbling bytes under the idle timer eventually hits.
     let idleTimer: ReturnType<typeof setTimeout> | undefined;
     let ceilingTimer: ReturnType<typeof setTimeout> | undefined;
     function armDeadline(): void {
@@ -690,10 +638,6 @@ function receiveConnection(
     function receiveLines(): void {
         while (!finished && !initialRequestPending) {
             const newlineAt = buffered.indexOf(0x0a);
-            // An overlong frame is dropped as its bytes arrive and answered
-            // once its newline does. Destroying the socket instead would take
-            // the whole session down over one unreadable message, and give the
-            // client nothing to report but a vanished connection.
             if (discardingOversized) {
                 if (newlineAt === -1) {
                     buffered = buffered.subarray(buffered.length);
@@ -854,8 +798,6 @@ function receiveConnection(
                 }).then(() => socket.end(), () => socket.destroy());
                 return;
             }
-            // `closeAgent` fences synchronously before its first await, so no
-            // attach can slip between the zero count and whole-tree close.
             void Promise.all(rootsToStop.map((rootId) => closeAgent(rootId))).then(
                 (results) => results.every((result) => result.status === "closed")
                     ? send({
@@ -1383,8 +1325,6 @@ function receiveConnection(
         if (request?.type === "close_agent") {
             clearDeadline();
             finished = true;
-            // The acknowledgement is a quiescence boundary, so it is only sent
-            // after the close has reached its terminal state, never before.
             void closeAgent(
                 request.target_agent_id,
             ).then(
@@ -1524,9 +1464,6 @@ function receiveConnection(
                 request.client_id!,
             );
         }
-        // A client that never asked for the work index is never sent one, so
-        // an older client sees the attachment it has always seen rather than a
-        // message it would have to reject.
         const wantsWorkIndex = negotiated.includes(HOST_CAPABILITY_WORK_INDEX);
         stopWatchingRoster = onRosterChanged(() => {
             sendBackgroundAgents(attachedId);
@@ -1541,10 +1478,6 @@ function receiveConnection(
             capabilities: negotiated,
         }).then(
             () => {
-                // Directly behind the attach reply, so a client has an inbox
-                // to draw from its first frame rather than from its first
-                // change. Ordered by the same write queue, so it can never
-                // overtake the reply that announced the capability.
                 if (wantsWorkIndex) sendWorkIndex();
                 return forwardAgentUpdates(agent, attached);
             },
@@ -1590,13 +1523,6 @@ function receiveConnection(
         }
     }
 
-    /**
-     * Send the background-agent facts, unless the client already has them.
-     *
-     * The registry reports that something changed, not what: most changes it
-     * reports say nothing about background work, and re-sending an identical
-     * snapshot would make every client repaint for nothing.
-     */
     function sendBackgroundAgents(attachedAgentId: string): void {
         if (finished || attachment === undefined) {
             return;
@@ -1615,13 +1541,6 @@ function receiveConnection(
             .catch(() => socket.destroy());
     }
 
-    /**
-     * Send the work index, unless the client already has it.
-     *
-     * The roster reports that something changed, not what, and most changes it
-     * reports leave every row identical, so the comparison is what keeps a
-     * client from repainting its inbox on every keystroke elsewhere.
-     */
     function sendWorkIndex(): void {
         if (finished || attachment === undefined) {
             return;
@@ -1656,14 +1575,11 @@ function receiveConnection(
                     try {
                         onAgentStartFailure(operation, error);
                     } catch {
-                        // Diagnostics cannot replace the startup outcome.
                     }
                 }
                 return send({
                     type: "agent_start_failed",
                     operation,
-                    // Only messages explicitly written for a person cross the
-                    // socket. Internal detail stays in the host diagnostic log.
                     ...reasonOf(error),
                 }).then(
                     () => socket.end(),
@@ -1700,9 +1616,6 @@ function receiveConnection(
                 await send(update);
             }
         } catch {
-            // A failed resident has no more agent updates, but the attachment
-            // still owns host-level requests and a clean detach. Keep that
-            // control channel alive while its terminal transcript is viewed.
             if (attachment === attached && !agent.failed) {
                 socket.destroy();
             }
@@ -1822,9 +1735,6 @@ async function listenAfterRemovingStaleSocket(
     socketPath: string,
     lockPath: string,
 ): Promise<void> {
-    // Ownership is settled before binding rather than after a failed bind:
-    // binding an occupied unix socket path does not reliably report
-    // EADDRINUSE, and a silent rebind steals a live host's socket.
     await clearSocketPathOrRefuse(socketPath, lockPath);
     try {
         await listen(server, socketPath);
@@ -1838,12 +1748,6 @@ async function listenAfterRemovingStaleSocket(
     await listen(server, socketPath);
 }
 
-/**
- * Removes the socket path when nothing owns it, and throws when something
- * does. Silence is not proof the socket is abandoned: a wedged host holds its
- * socket open and answers nothing, which looks identical from here, so the
- * lockfile decides. Only a socket no live recorded host owns is stale.
- */
 async function clearSocketPathOrRefuse(
     socketPath: string,
     lockPath: string,
@@ -1861,9 +1765,6 @@ async function clearSocketPathOrRefuse(
         }
     }
     const owner = await readHostLockRecordFile(lockPath);
-    // A record naming this very process describes an earlier incarnation of
-    // the host inside it, which is gone; only another process can hold a
-    // socket against us.
     if (
         owner !== undefined
         && owner.socket_path === socketPath

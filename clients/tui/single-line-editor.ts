@@ -30,7 +30,7 @@ export interface TuiSingleLineTextareaOptions {
     readonly marginTop?: number;
 }
 
-/** Vera's ordinary one-line fields use OpenTUI's editor directly. Keeping the renderable native is what gives every field the composer's cursor, selection, word movement, deletion,… */
+/** Vera's ordinary one-line fields use OpenTUI's editor directly. Keeping the renderable native is what gives every field the composer's cursor, selection, word movement. */
 export function createTuiSingleLineTextarea(
     renderer: RenderContext,
     options: TuiSingleLineTextareaOptions,

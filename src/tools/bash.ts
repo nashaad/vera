@@ -42,7 +42,6 @@ export const bashTool: RegisteredTool = {
 
 export interface RunBashOptions {
     readonly processes?: ManagedProcessScope;
-    /** Undefined preserves the old wait-until-exit behavior for direct callers. */
     readonly yieldAfterMs?: number;
 }
 

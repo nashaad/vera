@@ -49,32 +49,13 @@ export class AgentCommandQueueFullError extends Error {
 
 export interface ResidentAgentOptions {
     readonly maxPendingCommands?: number;
-    /**
-     * Why an attached client may not prompt this agent, when it may not.
-     *
-     * A bounded run's turn belongs to whoever started it. Clients still
-     * attach and read everything; the refusal is what keeps watching from
-     * becoming steering.
-     */
     readonly clientPromptRefusal?: string;
-    /**
-     * Called when an attached client prompts this session. The host uses it to
-     * forget how deep a chain of peer messages had reached: a person typing is
-     * a new starting point, not another hop.
-     */
     readonly onClientPrompt?: () => void;
     readonly createAttachmentId?: () => string;
     readonly attachImage?: (
         path: string,
         signal: AbortSignal,
     ) => Promise<ImageAttachedUpdate["attachment"]>;
-    /**
-     * Called when this agent starts or stops running, and when it closes.
-     *
-     * The host reports background work to attached clients, and `status` is
-     * the only thing that decides whether a background session counts as
-     * running. Without this the answer would have to be polled.
-     */
     readonly onRunStateChanged?: () => void;
 }
 
@@ -108,10 +89,6 @@ export class ResidentAgent {
     private lastContext: ContextMeasurement | undefined;
     private updatesAfterCheckpoint: AgentUpdate[] = [];
     private currentStatus: AgentStatus = "idle";
-    // What this agent is blocked on and what it is doing, kept because the
-    // buffered updates that carry those facts are addressed to attachments and
-    // an unattended session has none. Both are recomputed from the same
-    // updates every client sees, so nothing here can outlive the fact.
     private openRequests = new Map<string, UiRequest>();
     private readonly outOfBandRequests = new Set<string>();
     private currentTool: string | undefined;
@@ -119,15 +96,8 @@ export class ResidentAgent {
     private terminalFailure: AgentUpdate | undefined;
     private isClosed = false;
     private pendingCommandCount = 0;
-    // Turns the engine has taken off the inbound queue but has not been seen
-    // starting yet. Counted, not flagged: the router drains the queue eagerly,
-    // so several prompts can be accepted before the first one starts, and a
-    // flag would let one prompt clear another's pending state.
     private unstartedPrompts = 0;
     private deliveryTurnStarting = false;
-    // True between a turn's start update and its turn_finished. A
-    // turn_finished with no started turn is a turn that died before starting
-    // (a failed attachment hydration), so it retires an unstarted prompt.
     private startedTurnActive = false;
     private deliveryTurnQueued = false;
     private readonly maxPendingCommands: number;
@@ -192,10 +162,6 @@ export class ResidentAgent {
         this.attachments.set(attachmentId, outgoing);
         this.notifyAttachmentChanged(true);
         if (afterSequence === undefined || afterSequence < this.checkpoint.seq) {
-            // A checkpoint clears the buffer behind it, including the update
-            // that said the agent started working. The status rides along so a
-            // replay tells an attachment what it is joining rather than
-            // leaving a running turn to read as ready.
             const replayed = clone(this.checkpoint);
             outgoing.push(this.currentStatus === "idle"
                 ? replayed
@@ -371,7 +337,6 @@ export class ResidentAgent {
         }
     }
 
-    /** Called when the engine consumed a queued wake without starting a turn. */
     deliveryTurnDiscarded(): void {
         if (this.deliveryTurnStarting) {
             this.deliveryTurnStarting = false;
@@ -469,8 +434,6 @@ export class ResidentAgent {
         if (this.isClosed) {
             return;
         }
-        // Wake an active turn before failing the engine's next receive. An
-        // idle engine ignores abort, while an active one cancels its work.
         if (this.terminalFailure === undefined) {
             this.inbound.push({
                 command: { type: "abort" },
@@ -535,8 +498,6 @@ export class ResidentAgent {
         if (snapshot.type === "status") {
             this.currentStatus = snapshot.state;
             if (snapshot.state === "working") {
-                // The only status update the engine sends is the one that
-                // opens a delivery turn.
                 this.deliveryTurnStarting = false;
                 this.startedTurnActive = true;
             }
@@ -569,10 +530,7 @@ export class ResidentAgent {
         } else if (snapshot.type === "turn_finished") {
             this.currentStatus = "idle";
             this.currentTool = undefined;
-            // A finished turn cannot still be waiting on an answer. Cleared
-            // here as well as on `ui_request_closed` because a turn that ends
-            // without closing its request would otherwise leave the session
-            // reading as needing someone for the rest of the host's life.
+            // A finished turn cannot still be waiting on an answer. Cleared here as well as on `ui_request_closed` because a turn that ends without closing its request would otherwise leave.
             this.openRequests.clear();
             this.outOfBandRequests.clear();
             if (this.startedTurnActive) {
@@ -580,11 +538,6 @@ export class ResidentAgent {
             } else if (this.unstartedPrompts > 0) {
                 this.unstartedPrompts -= 1;
             }
-            // A wake taken off the queue before this boundary either opens the
-            // next delivery turn, which sends its own status update, or is
-            // discarded because this turn already drained the delivery. The
-            // discard is silent, so the turn boundary is the only place the
-            // host can retire it.
             this.deliveryTurnStarting = false;
         } else if (snapshot.type === "agent_failed") {
             this.currentStatus = "idle";
@@ -638,17 +591,10 @@ export class ResidentAgent {
         return this.currentStatus;
     }
 
-    /**
-     * The requests this agent is blocked on, oldest first.
-     *
-     * Read-only and a copy: a caller asks what is open so it can say so, and
-     * answering a request stays the attachment's job.
-     */
     get pendingRequests(): readonly UiRequest[] {
         return [...this.openRequests.values()];
     }
 
-    /** The tool in flight right now, absent when none is. */
     get activeTool(): string | undefined {
         return this.currentTool;
     }
@@ -692,10 +638,6 @@ function clone<T>(value: T): T {
     return structuredClone(value);
 }
 
-/**
- * Occupancy survives in a reconnect history; the last request recipe may
- * not. Put the named files back so `/context` after attach is not empty.
- */
 function withLastContextRecipe(
     history: HistoryUpdate,
     lastContext: ContextMeasurement | undefined,

@@ -21,7 +21,6 @@ export type ExtensionManagerCommand =
     }
     | { readonly operation: "reload" };
 
-/** Shell-like tokenization for slash commands, without invoking a shell. */
 export function tokenizeExtensionManagerArguments(
     text: string,
 ): { readonly words: readonly string[] } | { readonly error: string } {

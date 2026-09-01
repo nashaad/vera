@@ -1,14 +1,3 @@
-/**
- * The host's side of the worker pipe.
- *
- * Answers what the worker asks against the real services, and pushes what the
- * worker cannot ask for synchronously. The session file is written here and
- * nowhere else: an append arrives as a request, the host writes it, and the
- * reply names the line it landed on.
- *
- * Everything this file touches survives the worker dying. That is the point of
- * which side it is on.
- */
 
 import type { EngineEvent } from "../../engine/events.ts";
 import type { LoopState } from "../../engine/host-protocol.ts";
@@ -25,13 +14,10 @@ import { CompletionUnavailableError } from "../../engine/completion-service.ts";
 
 export interface WorkerBoundaryServerOptions {
     readonly pipe: JsonPipe;
-    /** The real store. This process is its only writer. */
     readonly store: SessionStore;
     readonly services: RunHeadlessLoopServices;
-    /** Extension tools by name, resolved host-side. */
     readonly extensionTools?: readonly RegisteredTool[];
     readonly toolRuntime?: ToolRuntime;
-    /** Client updates the worker produced. */
     readonly onClientUpdate?: (update: AgentUpdate, ownerId?: string) => void;
     readonly onWorkerFinished?: (error?: string) => void;
     readonly onProcessStarted?: (pid: number) => void;
@@ -39,15 +25,12 @@ export interface WorkerBoundaryServerOptions {
 }
 
 export interface WorkerBoundaryServer {
-    /** Feeds one frame body the worker sent. Requests get a reply. */
     handleRequest(body: unknown): Promise<unknown>;
     handleNotification(body: unknown): void;
-    /** A record the host wrote on its own initiative. */
     pushRecord(lineNumber: number, record: Record<string, unknown>): void;
     pushState(state: LoopState): void;
     injectEvent(event: EngineEvent): void;
     sendCommand(command: EngineCommand): void;
-    /** The line the last host-performed append landed on. */
     readonly lastLineNumber: number;
 }
 
@@ -59,12 +42,8 @@ export function createWorkerBoundaryServer(
     const toolsByName = new Map(
         (options.extensionTools ?? []).map((tool) => [tool.definition.name, tool]),
     );
-    // The store's own writes and the worker's share one sequence, and the host
-    // is the only writer, so this counter is the file's line count.
     let lineNumber = options.store.appendedLineCount?.() ?? 0;
-    // One bus, two processes. An event arriving from the worker is emitted
-    // here for the host's own subscribers, and must not be sent straight back
-    // to the worker that produced it.
+    // One bus, two processes. An event arriving from the worker is emitted here for the host's own subscribers, and must not be sent straight back to the worker that produced it.
     let ingesting = false;
     services.eventBus?.subscribe((event: EngineEvent) => {
         if (ingesting) {

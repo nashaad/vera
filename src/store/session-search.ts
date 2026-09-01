@@ -1,14 +1,6 @@
 import { readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 
-/**
- * Full-text search across the transcripts already on disk.
- *
- * A streaming scan and nothing else: no index, no new file, no derived store.
- * The transcripts are the only copy, so a query can never disagree with what a
- * session actually says, and there is nothing to rebuild when one is trashed.
- */
-
 export type SessionSearchKind =
     | "user_message"
     | "agent_message"
@@ -19,22 +11,14 @@ export type SessionSearchFilter = "messages" | "tools" | "files";
 
 export interface SessionSearchQuery {
     readonly query: string;
-    /** Omitted searches every kind. */
     readonly kind?: SessionSearchFilter;
-    /** Directory path. Omitted searches every workspace. */
     readonly workspace?: string;
-    /** One session, by id. Omitted searches every session. */
     readonly session_id?: string;
 }
 
 export interface SessionSearchHit {
     readonly kind: SessionSearchKind;
     readonly snippet: string;
-    /**
-     * The transcript entry id, which is the same reference resume and rewind
-     * take. Null on a hit that no message entry carries an id for, so a client
-     * opens the session rather than a position that does not exist.
-     */
     readonly entry_id: string | null;
 }
 
@@ -49,19 +33,11 @@ export interface SessionSearchResult {
 
 export interface SessionSearchResults {
     readonly results: readonly SessionSearchResult[];
-    /** True when the bound stopped the scan before every session was read. */
     readonly truncated: boolean;
 }
 
 export const MAX_SEARCH_RESULTS = 20;
 export const MAX_HITS_PER_SESSION = 3;
-/**
- * The cap when the query names one session.
- *
- * Three hits keeps a list of twenty sessions readable, because the session is
- * what is being chosen there. A search of one session is the list, so every
- * match is a row worth having and the pane scrolls them.
- */
 export const MAX_HITS_IN_ONE_SESSION = 50;
 export const MAX_SNIPPET_LENGTH = 96;
 const MAX_LINE_BYTES = 512 * 1_024;
@@ -75,16 +51,9 @@ export const NO_SEARCH_RESULTS: SessionSearchResults = Object.freeze({
 export interface SessionSearchOptions {
     readonly maxResults?: number;
     readonly maxHitsPerSession?: number;
-    /** Authoritative transcript path when the query names one session. */
     readonly sessionPath?: string;
 }
 
-/**
- * Search every transcript in a directory, newest file first.
- *
- * Newest first is what makes the bound honest: stopping early drops the oldest
- * sessions rather than whichever the filesystem happened to list last.
- */
 export async function searchSessions(
     sessionDirectory: string,
     query: SessionSearchQuery,
@@ -110,9 +79,6 @@ export async function searchSessions(
         }
     }
 
-    // The runtime resolves named sessions through its index because a
-    // resumed transcript may not be named after its id. The conventional
-    // filename remains the fallback for direct store callers.
     const paths = sessionPath === undefined
         ? names
             .filter((name) => name.endsWith(".jsonl"))
@@ -150,7 +116,6 @@ export async function searchSessions(
     return { results, truncated };
 }
 
-/** One transcript, read a line at a time so a large session is never held whole. */
 export async function searchSessionFile(
     path: string,
     updatedAt: string,
@@ -173,9 +138,6 @@ export async function searchSessionFile(
         try {
             record = JSON.parse(line) as Record<string, unknown>;
         } catch {
-            // A half-written last line is normal on a session being appended
-            // to right now, and a corrupt one in the middle is still no reason
-            // to lose the rest of the transcript.
             return;
         }
         if (record.type === "session") {
@@ -315,13 +277,6 @@ function joinText(content: readonly unknown[]): string {
         .trim();
 }
 
-/**
- * The window of text around the match, with an ellipsis on each cut side.
- *
- * Centred on the match rather than taken from the front, because a query that
- * matched a thousand words in is otherwise shown a snippet that does not
- * contain what was searched for.
- */
 export function snippetAround(
     text: string,
     needle: string,

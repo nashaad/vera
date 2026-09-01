@@ -139,7 +139,7 @@ export function createTuiCommandPaletteView(
     const search = createDialogSearchNode(renderer, "command-palette-search");
     const box = new BoxRenderable(renderer, {
         id: "command-palette",
-        // No borderColor here. OpenTUI's BoxRenderable constructor reads any border styling option as "this box wants a border" and overrides an explicit `border: false`, so passing a col…
+        // No borderColor here. OpenTUI's BoxRenderable constructor reads any border styling option as "this box wants a border" and overrides an explicit `border: false`, so passing a.
         border: false,
         backgroundColor: TUI_PANEL,
         width: "90%",

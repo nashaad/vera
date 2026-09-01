@@ -1,20 +1,5 @@
 import { createHostLogger, type HostLog } from "../../src/host/host-log.ts";
 
-/**
- * Keeps one bad code path from taking down every resident session. Installed
- * only after startup completes: a host that cannot even boot must still exit
- * loudly, or a broken build would sit half-alive holding the lockfile.
- *
- * Each session's run loop already contains its own failures; what lands here
- * is a throw from host bookkeeping outside any session's promise chain, which
- * previously killed the whole process. The entry carries the stack so the
- * culprit is attributable from the host log alone.
- */
-/**
- * How many faults the guard absorbs before it stops pretending the host is
- * healthy. A host throwing this often is not surviving one bad path, it is
- * failing continuously, and staying up hides that behind a growing log.
- */
 const FAULT_LIMIT = 50;
 
 export function installHostCrashGuard(

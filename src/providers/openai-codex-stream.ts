@@ -202,11 +202,6 @@ export class OpenAICodexStreamDecoder {
         this.output.push({ type: "thinking_delta", contentIndex, text });
     }
 
-    /**
-     * A new summary part starts where the previous one ended, and the blank line
-     * between them is never streamed: the non-streaming path joins the parts with
-     * one, so the streaming path writes it here.
-     */
     private separateThinking(outputIndex: number): void {
         const contentIndex = this.thinkingBlocks.get(outputIndex);
         if (contentIndex === undefined) {

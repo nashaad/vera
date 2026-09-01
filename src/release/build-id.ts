@@ -63,12 +63,6 @@ function dirtyTreeDigest(cwd: string, status: string): string {
     return hash.digest("hex").slice(0, DIRTY_DIGEST_LENGTH);
 }
 
-/**
- * Exact build identity for this tree, computed at pack time. A clean commit
- * is `vera-<shortsha>`. A dirty tree adds a content digest so two dirty
- * states of the same commit cannot share an id. Running processes read the
- * packed stamp instead of calling this.
- */
 export function releaseSourceIdentity(
     cwd: string = DEFAULT_CWD,
 ): ReleaseSourceIdentity {

@@ -12,11 +12,6 @@ export interface BranchedAgent extends ReadyAgent {
 }
 
 export class AgentStartError extends Error {
-    /**
-     * `reason` is the host's own words when the failure was written for a user,
-     * and it becomes the message, because "Resident agent create failed" tells
-     * nobody that a provider needs connecting.
-     */
     constructor(
         readonly operation: "create" | "resume",
         readonly reason?: string,

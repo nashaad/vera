@@ -1,13 +1,3 @@
-/**
- * The worker: one OS process that runs one turn loop and owns nothing durable.
- *
- * It holds no session file, no event log, no roster, no permission store. Its
- * whole state is the projection it folded out of records the host sent and the
- * conversation in flight. `kill -9` at any instant therefore loses exactly what
- * it is supposed to lose and nothing else.
- *
- * Speaks NDJSON on fd 0 and fd 1. fd 2 is left alone so a crash is readable.
- */
 
 import { createInProcessChannel } from "../../engine/message-channel.ts";
 import { runHeadlessLoop } from "../../engine/run-turn.ts";
@@ -32,8 +22,6 @@ export async function runWorker(
     let acceptHostNotification = (body: unknown): void => {
         pendingHost.push(body);
     };
-    // Commands can arrive before the loop exists, so they wait rather than
-    // being dropped.
     const pending: EngineCommand[] = [];
     let deliverCommand = (command: EngineCommand): void => {
         pending.push(command);
@@ -64,8 +52,6 @@ export async function runWorker(
         ? undefined
         : await startExtensionRegistry({
             extensions: options.extensions,
-            // A failure here costs this session its extension tools and
-            // nothing else. The host recorded the same load once already.
             onFailure: () => {},
         });
     let failure: string | undefined;
@@ -94,8 +80,6 @@ export async function runWorker(
             acceptHostNotification(body);
         }
 
-        // The client endpoint has not moved host-side yet, so it lives here
-        // and its two directions ride the same pipe. See `start.ts`.
         const channel = createInProcessChannel();
         const client = channel.client as unknown as {
             send(message: EngineCommand): void;
@@ -127,8 +111,6 @@ export async function runWorker(
         method: "worker.finished",
         ...(failure === undefined ? {} : { error: failure }),
     });
-    // Flushed by the exit, and the host reads EOF as the process being gone
-    // whether or not this line arrived.
 }
 
 function forwardUpdates(
@@ -160,7 +142,6 @@ async function loadAdapter(spec: WorkerAdapterSpec): Promise<ModelAdapter> {
 if (import.meta.main) {
     installLiveProcess("worker");
     await runWorker(process.stdin, process.stdout);
-    // The last write has to reach the reader before the process goes.
     await new Promise<void>((resolve) => {
         process.stdout.write("", () => resolve());
     });

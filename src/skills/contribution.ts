@@ -9,10 +9,6 @@ const MAX_CATALOG_CHARACTERS = 8_000;
 
 export async function loadSkillContribution(
     instructionRoot: InstructionRoot,
-    /**
-     * The skills the worn agent may see. Absent means all of them, which is
-     * what an agent that names no skill list gets.
-     */
     allowedSkills?: readonly string[],
 ): Promise<readonly PromptContribution[]> {
     const loaded = await loadSkillCatalog({ projectRoot: instructionRoot.path });

@@ -8,13 +8,8 @@ import {
     veraRuntimeDirectory,
 } from "../profile-paths.ts";
 
-/**
- * Set on a host launchd started, which is what tells that host to wait out a
- * lost startup race rather than exit and be restarted into the same race.
- */
 export const SUPERVISED_HOST_ENV = "VERA_SUPERVISED";
 
-/** How long launchd waits before starting the host again after it dies. */
 const THROTTLE_SECONDS = 10;
 
 export class SupervisionUnsupportedError extends Error {
@@ -65,7 +60,6 @@ export interface SupervisionPlistInput {
     readonly entrypoint: string;
     readonly logDirectory: string;
     readonly workingDirectory: string;
-    /** Carried so a supervised host reads the same home the installer did. */
     readonly veraHome?: string;
     readonly path?: string;
 }
@@ -77,8 +71,6 @@ export function renderSupervisionPlist(input: SupervisionPlistInput): string {
     if (input.veraHome !== undefined) {
         environment[VERA_HOME_ENV] = input.veraHome;
     }
-    // launchd hands a job a minimal PATH, and the host shells out to whatever
-    // the user's tools are, so the installing shell's PATH is carried along.
     if (input.path !== undefined) environment.PATH = input.path;
     return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -142,7 +134,6 @@ function assertSupported(platform: string): void {
 }
 
 export interface SupervisionInstall extends SupervisionPaths {
-    /** True when an already-installed agent was replaced rather than added. */
     readonly replaced: boolean;
 }
 
@@ -171,19 +162,15 @@ export function installHostSupervision(
         }),
         { encoding: "utf8", mode: 0o644 },
     );
-    // A replaced plist is not read until the old job is gone, so an install
-    // over an existing one is a bootout followed by a bootstrap.
     try {
         run(["bootout", `${domainTarget()}/${paths.label}`]);
     } catch {
-        // Nothing loaded is the state bootstrap wants.
     }
     run(["bootstrap", domainTarget(), paths.plistPath]);
     return { ...paths, replaced };
 }
 
 export interface SupervisionRemoval extends SupervisionPaths {
-    /** False when nothing was installed, which is not an error. */
     readonly removed: boolean;
 }
 
@@ -197,7 +184,6 @@ export function removeHostSupervision(
     try {
         run(["bootout", `${domainTarget()}/${paths.label}`]);
     } catch {
-        // An agent that is not loaded still leaves its plist to remove.
     }
     if (!existsSync(paths.plistPath)) return { ...paths, removed: false };
     unlinkSync(paths.plistPath);
@@ -207,7 +193,6 @@ export function removeHostSupervision(
 export interface SupervisionStatus extends SupervisionPaths {
     readonly installed: boolean;
     readonly loaded: boolean;
-    /** The supervised host's PID, when launchd is currently running one. */
     readonly pid?: number;
 }
 

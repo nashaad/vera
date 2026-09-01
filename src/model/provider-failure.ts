@@ -17,28 +17,17 @@ export interface ProviderFailure {
     readonly kind: ProviderFailureKind;
     readonly resolution: ProviderFailureResolution;
     readonly message: string;
-    /**
-     * The failed response cannot have caused a side effect, so recovery may
-     * replace its live output before retrying. Absent keeps partial output and
-     * ends the request instead.
-     */
     readonly partialOutputReplaceable?: boolean;
     readonly statusCode?: number;
-    /** Provider-neutral error category returned by a routing service. */
     readonly providerErrorType?: string;
-    /** Upstream provider's own error code, when the router exposes it. */
     readonly providerCode?: string;
-    /** Upstream provider name, when a routing service exposes it. */
     readonly providerName?: string;
-    /** Upstream provider's parsed error message, never its raw response body. */
     readonly providerMessage?: string;
-    /** Provider-reported request allowance at the time this call was refused. */
     readonly allowance?: {
         readonly kind: "prompt_tokens" | "max_tokens";
         readonly requested: number;
         readonly available: number;
     };
-    /** Concrete next action suitable for a client to present verbatim. */
     readonly userAction?: string;
 }
 

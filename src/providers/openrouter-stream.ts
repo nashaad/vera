@@ -112,13 +112,6 @@ export class OpenRouterStreamDecoder {
         return this.message(stopReason);
     }
 
-    /**
-     * The stop reason for a stream that ended without naming one. Some
-     * OpenAI-compatible servers, local runtimes among them, close the stream
-     * instead of sending a final `finish_reason`. Tool calls mean the turn
-     * stopped to run them; anything else reads as a normal stop. Guessing
-     * "error" here would teach the pool that a working model is broken.
-     */
     private inferredStopReason(): ModelStopReason {
         return this.toolCalls.size > 0 ? "tool_use" : "stop";
     }

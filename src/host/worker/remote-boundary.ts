@@ -1,24 +1,3 @@
-/**
- * The worker's `HostBoundary`, carried over a pipe.
- *
- * Behaviourally indistinguishable from `createLocalHostBoundary` as far as the
- * loop is concerned: the loop calls the same members and observes the same
- * presence and absence. What changes is where the work happens.
- *
- * Two members are deliberately absent rather than remote:
- *
- * - `applyToolEffect`, so the loop builds its own applier. That is what keeps a
- *   subagent a child of this worker's process. A host-side applier would run
- *   model loops in the host and would leave a subagent alive after this process
- *   is killed, which is the case the split exists for. `applyHostToolEffect`
- *   carries only the effects whose state the host holds.
- * - Tool processes remain worker-owned. Their group lifetimes are reported to
- *   the supervisor so an external worker kill cannot orphan them.
- *
- * The session store holds no file descriptor. Reads answer from a projection
- * folded out of the record stream; writes go out as `session.append` and the
- * host performs them. See `session.ts`.
- */
 
 import { EngineEventBus, type EngineEvent } from "../../engine/events.ts";
 import { ToolHooks } from "../../engine/hooks.ts";
@@ -69,7 +48,6 @@ export interface RemoteHostBoundaryOptions {
     readonly offers: HostBoundaryOffers;
     readonly capabilities: WorkerHostCapabilities;
     readonly state: LoopState;
-    /** Present when this process loaded the extensions itself. */
     readonly localExtensionTools?: readonly RegisteredTool[];
     readonly extensionToolDefinitions?: readonly RegisteredToolDefinition[];
     readonly compaction?: CompactionWireSpec;
@@ -77,7 +55,6 @@ export interface RemoteHostBoundaryOptions {
 
 export interface RemoteHostBoundary {
     readonly boundary: HostBoundary;
-    /** Handles one host-to-worker notification. Unknown methods are ignored. */
     acceptNotification(body: unknown): void;
 }
 
@@ -127,8 +104,7 @@ export function createRemoteHostBoundary(
         }
         : undefined;
 
-    // Tools the worker loaded itself replace the proxies whole: a tool that
-    // runs here must not also be reachable by name over the boundary.
+    // Tools the worker loaded itself replace the proxies whole: a tool that runs here must not also be reachable by name over the boundary.
     const extensionTools = options.localExtensionTools
         ?? (options.extensionToolDefinitions ?? []).map(
         (registered): RegisteredTool => ({
@@ -406,10 +382,6 @@ export function createRemoteHostBoundary(
     };
 }
 
-/**
- * Hooks are registered on the owner's side, so every call is relayed whole,
- * options included: the owner runs them and its answer is the outcome.
- */
 function remoteHooks(pipe: JsonPipe): ToolHooks {
     const hooks = new ToolHooks();
     hooks.runPreToolUse = async (payload, options) => {

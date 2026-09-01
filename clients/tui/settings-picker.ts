@@ -745,7 +745,7 @@ export function syncTuiModelPicker(
         ...onTab,
         options,
         query: state.query,
-        // The pane it was opened from survives a snapshot. A rebuild is the host answering an edit made inside this pane, not a fresh way in, so adding a model must not turn escape into "…
+        // The pane it was opened from survives a snapshot. A rebuild is the host answering an edit made inside this pane, not a fresh way in, so adding a model must not turn escape into "
         ...(state.parent === undefined ? {} : { parent: state.parent }),
         ...(state.canUndoPoolChange === true
             ? { canUndoPoolChange: true }
@@ -2670,7 +2670,7 @@ export function createTuiSettingsPickerView(
     const search = createDialogSearchNode(renderer, "settings-picker-search");
     const box = new BoxRenderable(renderer, {
         id: "settings-picker",
-        // No borderColor here. OpenTUI's BoxRenderable constructor reads any border styling option as "this box wants a border" and overrides an explicit `border: false`, so passing a col…
+        // No borderColor here. OpenTUI's BoxRenderable constructor reads any border styling option as "this box wants a border" and overrides an explicit `border: false`, so passing a.
         border: false,
         backgroundColor: TUI_PANEL,
         position: "absolute",

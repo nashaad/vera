@@ -193,11 +193,6 @@ export async function defaultEnsureHost(releaseRoot: string): Promise<void> {
     );
 }
 
-/**
- * After a crash, start the host that matches the activated `current`.
- * Pack and verify do not write this journal, so a crash there leaves the
- * previous release active with no extra work.
- */
 export async function recoverInterruptedUpgrade(
     options: {
         readonly prefix?: string;
@@ -236,11 +231,6 @@ async function restorePreviousRelease(
     await clearUpgradeJournal(prefix);
 }
 
-/**
- * Verify, drain, activate, and restart as one transaction. `pack` must already
- * be able to write `releases/<build-id>` without touching `current`. A failure
- * after `current` moves restores the previous target. Does not migrate ~/.vera.
- */
 export async function upgradeLocalInstall(
     options: UpgradeLocalOptions,
 ): Promise<UpgradedLocal> {

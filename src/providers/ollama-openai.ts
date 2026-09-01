@@ -79,12 +79,6 @@ export function createOllamaAdapter(
     );
 }
 
-/**
- * A model whose declared capabilities omit `thinking` rejects the request with
- * HTTP 400 rather than ignoring the field, and it rejects `"none"` too, so the
- * whole field goes rather than its value. Only a positive "capabilities listed,
- * thinking absent" answer gates; anything else sends the request as asked.
- */
 async function resolveThinkingSupport(
     cache: Map<string, boolean>,
     fetchImplementation: (
@@ -118,8 +112,6 @@ async function resolveThinkingSupport(
         }
         const body = await response.json() as { capabilities?: unknown };
         if (!Array.isArray(body.capabilities)) {
-            // The daemon answered and named no capabilities: a stable fact
-            // about this model, unlike a daemon that was not reachable.
             cache.set(model, true);
             log({
                 type: "ollama_thinking_probe",
@@ -260,9 +252,7 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
             };
         })
         : [];
-    // Pulled off the rest rather than overwritten: a provider that sends
-    // `"usage": null` would otherwise keep that null through the spread, and
-    // every reader downstream would have to guard the field itself.
+    // Pulled off the rest rather than overwritten: a provider that sends `"usage": null` would otherwise keep that null through the spread, and every reader downstream would have to.
     const { usage: rawUsage, ...rest } = chunk;
     const usage = rawUsage as Record<string, unknown> | null | undefined;
     return {
@@ -280,15 +270,6 @@ function normalizeChunk(value: unknown, provider: string): ChatStreamChunk {
     } as unknown as ChatStreamChunk;
 }
 
-/**
- * A host, from whatever the config or the environment carries.
- *
- * The daemon is addressed by host and every path is added by the caller, so a
- * value that already carries the OpenAI path, a query, or a fragment is cut
- * back to the host: the alternative is a request for `/v1/v1` or a query
- * stranded in the middle of a URL. Trimming here rather than at each caller
- * means chat, discovery, and the doctor all read the same value the same way.
- */
 export function normalizeOllamaHost(value: string): string {
     const withScheme = /^https?:\/\//.test(value) ? value : `http://${value}`;
     try {
@@ -309,9 +290,6 @@ function normalizeHost(value: string): string {
 }
 
 function ollamaReasoningEffort(effort: ModelReasoningEffort): string {
-    // `none` is this endpoint's wire word for `off`, the same level under
-    // another name. Every other level goes out verbatim: a level the endpoint
-    // refuses is coarsened on the refusal, never folded before the request.
     return effort === "off" ? "none" : effort;
 }
 

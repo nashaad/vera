@@ -115,7 +115,7 @@ function chordLabel(chord: string): string {
         .join("+");
 }
 
-/** Whether a terminal can be relied on to deliver the chord at all. Shift on a ctrl+letter chord is only reported under the kitty keyboard protocol; elsewhere the unshifted Ctrl-D/… */
+/** Whether a terminal can be relied on to deliver the chord at all. Shift on a ctrl+letter chord is only reported under the kitty keyboard protocol; elsewhere the unshifted. */
 function needsKittyKeyboard(chord: string): boolean {
     const parts = chord.split("+");
     return parts.includes("ctrl") && parts.includes("shift")

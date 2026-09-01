@@ -40,11 +40,6 @@ function lostPercent(before: string, after: string): number {
     return Math.round(((beforeBytes - afterBytes) / beforeBytes) * 100);
 }
 
-/**
- * Summarizes how much a change added, removed, and left of the original
- * file. An oversized diff drops its detail, never its magnitude: the
- * summary is what tells a reader that a change was destructive.
- */
 function diffMagnitude(patch: string, before: string, after: string): string {
     let added = 0;
     let removed = 0;

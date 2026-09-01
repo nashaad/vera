@@ -8,7 +8,7 @@ import type {
     SessionSearchResults,
 } from "../../src/store/session-search.ts";
 
-/** The search overlay's presentation model, with no OpenTUI in it. Same division as the Work tab: what is on screen, what the keys do, and what enter opens are all decidable as dat… */
+/** The search overlay's presentation model, with no OpenTUI in it. Same division as the Work tab: what is on screen, what the keys do, and what enter opens are all decidable as. */
 
 export const SEARCH_NARROW_WIDTH = 64;
 

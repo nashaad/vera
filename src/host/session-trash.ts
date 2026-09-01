@@ -45,8 +45,6 @@ export async function trashSessionArtifacts(
             [trashBundle],
         );
 
-        // The recoverable trash copy exists before originals are removed.
-        // Keep the primary JSONL last so any earlier failure remains resumable.
         for (const artifact of existing.toReversed()) {
             await (options.removeOriginal
                 ?? ((path) => rm(path, { recursive: true })))(artifact.path);
@@ -63,7 +61,6 @@ export async function trashSessionArtifacts(
                         { recursive: true, force: false },
                     );
                 } catch {
-                    // The trash bundle remains the recovery source if restore fails.
                 }
             }
         }

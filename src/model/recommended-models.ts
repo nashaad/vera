@@ -3,16 +3,6 @@ import { fileURLToPath } from "node:url";
 
 import type { ModelReasoningEffort } from "./types.ts";
 
-/**
- * One curated recommendation: a model Vera suggests, and the reasoning setting
- * it is suggested at. Shipped as recommendation, never permission: absence from
- * this file gates nothing, and the flag it produces is a note on the catalog
- * entry rather than a row of its own.
- *
- * At most one recommendation per provider and model. A model recommended twice
- * would put the same catalog entry on the list under two settings, which is the
- * duplicate-row shape this file exists to avoid.
- */
 export interface RecommendedModel {
     readonly provider: string;
     readonly model: string;

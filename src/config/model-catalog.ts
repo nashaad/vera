@@ -11,7 +11,6 @@ export interface VeraCatalogModel {
 }
 
 export interface VeraReviewerProfileConfig {
-    /** Absent means the profile takes whatever the reviewer slot holds. */
     readonly model_route?: string;
     readonly policy: string;
     readonly timeout_ms?: number;
@@ -99,12 +98,6 @@ export function parseModelCatalogConfig(
     };
 }
 
-/**
- * A named route resolved to catalog entries, in preference order. Anything
- * that binds a model for internal work goes through here rather than reading
- * `model_routes` itself, so a route that names a model the catalog dropped
- * fails the same way everywhere instead of resolving to a short list.
- */
 export function resolveModelRoute(
     config: VeraModelCatalogConfig,
     routeName: string,
@@ -120,12 +113,6 @@ export function resolveModelRoute(
     return models.length === route.length ? models : undefined;
 }
 
-/**
- * A profile's policy and timeout are its own. Only its routing may come from
- * elsewhere, which is why `slotModels` is passed in rather than the profile
- * being replaced by a slot: permission modes name profiles, and those names
- * have to keep meaning what they meant.
- */
 export function resolveReviewerProfile(
     config: VeraModelCatalogConfig,
     name: string,
@@ -152,37 +139,19 @@ export function resolveReviewerProfile(
     };
 }
 
-/**
- * Which strategy compacts this session, and which route answers each model
- * slot the strategy declares. Slots are named by the strategy, so config maps
- * names to routes without either side knowing the other's catalog.
- */
 export interface VeraCompactionConfig {
     readonly strategy: string;
     readonly models: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
-    /** Share of a known window at which compaction fires. */
     readonly trigger_fraction?: number;
-    /**
-     * Absolute token count at which compaction fires, whichever comes first.
-     * The only bound that applies when the model's window is unknown.
-     */
     readonly trigger_tokens?: number;
-    /** Token target for a session whose window is unknown. */
     readonly target_tokens?: number;
-    /**
-     * Complete user turns kept verbatim after the boundary, when they fit.
-     * A preference, not a floor: a turn too large for the target is cut into
-     * rather than compaction declining to run.
-     */
     readonly retained_user_turns?: number;
 }
 
 export interface ResolvedCompactionProfile {
     readonly strategy: string;
-    /** Slot name to the route's models, in preference order. */
     readonly slots: Readonly<Record<string, readonly VeraCatalogModel[]>>;
-    /** Slot name to the route it came from. Diagnostic only. */
     readonly routes: Readonly<Record<string, string>>;
     readonly timeout_ms?: number;
     readonly trigger_fraction?: number;
@@ -397,7 +366,6 @@ function isConfigName(value: string): boolean {
     return /^[a-z0-9][a-z0-9_-]*$/.test(value);
 }
 
-/** `<publisher>/<local-id>`, the same shape extension contributions carry. */
 function isStrategyId(value: string): boolean {
     const [publisher, local, ...rest] = value.split("/");
     return rest.length === 0

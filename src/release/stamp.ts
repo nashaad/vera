@@ -6,10 +6,6 @@ import {
     type ReleaseManifest,
 } from "./manifest.ts";
 
-/**
- * The identity of this running process. One file, no fallback: the manifest
- * the packer wrote into this process's release directory.
- */
 export function readStampedRelease(
     releaseRoot = thisProcessReleaseRoot(),
 ): ReleaseManifest {

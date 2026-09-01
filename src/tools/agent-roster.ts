@@ -1,11 +1,5 @@
 import type { RegisteredTool } from "./types.ts";
 
-/**
- * A live read of the other sessions the host is holding for this workspace.
- * Nothing here is declared by an agent and nothing is written down, so the
- * roster empties when the host does. Ordinary calls stay compact; diagnostic
- * callers can explicitly request the full observed host and repository facts.
- */
 export const agentRosterTool: RegisteredTool = {
     parallel: true,
     effectType: "agent_roster",

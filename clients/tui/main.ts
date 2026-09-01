@@ -2110,7 +2110,7 @@ export async function startTui(
             renderState(rt);
         },
         activate: (rowId) => {
-            // A question or approval owns this session pane. The rail stays visible for context, but its dimmed controls must not queue a hidden picker or start a session transition behind th…
+            // A question or approval owns this session pane. The rail stays visible for context, but its dimmed controls must not queue a hidden picker or start a session transition behind.
             if (focusedUiRequest(rt) !== undefined) return;
             if (rt.workspaceSidebar === undefined) return;
             const headerAction = workspaceHeaderAction(rowId);

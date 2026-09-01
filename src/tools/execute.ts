@@ -51,8 +51,6 @@ const ordinaryTools: readonly RegisteredTool[] = [
     webFetchTool,
     webDownloadTool,
     catalogSearchTool,
-    // Offered only while memory is read: a store nothing loads is a place to
-    // write things nobody comes back for.
     ...(MEMORY_ENABLED ? [memoryWriteTool] : []),
 ];
 const registeredTools: readonly RegisteredTool[] = [
@@ -88,11 +86,6 @@ function toolFor(
         ?? extensionTools.find((tool) => tool.definition.name === name);
 }
 
-/**
- * The path/URL inputs a registered tool declared for permission gating, or
- * `undefined` for a tool that declared none (its call becomes an `unknown`
- * action, same as an unrecognized bash command).
- */
 export function toolPermissionInputs(
     name: string,
     extensionTools: readonly RegisteredTool[] = [],
@@ -176,16 +169,9 @@ export async function executeToolCall(
 
 export interface BoundToolResult {
     readonly result: ToolResultMessage;
-    /** Absent when the result was under the ceiling. */
     readonly truncation?: ToolResultTruncation;
 }
 
-/**
- * The one place a tool's output becomes a message the model will carry.
- * Everything a tool returns passes here, extension tools included, which is
- * what makes the ceiling a property of the engine rather than of the tools
- * that remembered to have one.
- */
 export async function boundToolResult(
     toolCall: ToolCallContent,
     output: ToolOutput,
@@ -203,9 +189,6 @@ export async function boundToolResult(
         && spill !== undefined
         && limited.truncation === undefined
     ) {
-        // The ceiling writes a spill before it cuts. Results between the
-        // floor and the ceiling need the same durable source so a later
-        // assembly-time overlay can remain recoverable.
         spillPath = await spill.write(toolCall.name, output.output);
     }
     const source: ToolResultSource | undefined =
@@ -240,9 +223,6 @@ export async function executeToolHandler(
             `The ${toolCall.name} tool is available only to top-level sessions.`,
         );
     }
-    // Defence in depth, not a second policy gate: the worn agent's scope is
-    // enforced on the name before the hooks run, and a hook cannot rename a
-    // call. If that ever stops being true, this is what catches it.
     if (
         runtime.allowedTools !== undefined
         && !runtime.allowedTools.includes(toolCall.name)

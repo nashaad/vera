@@ -14,7 +14,6 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 const TOPIC_FILENAME = /^[A-Za-z0-9][A-Za-z0-9._-]*\.md$/;
 
-/** Suffix of the single previous version kept beside every rewritten file. */
 const BACKUP_SUFFIX = ".bak";
 
 type MemoryScope = "user" | "project";
@@ -128,8 +127,6 @@ async function writeTopic(
     const indexPath = join(directory, MEMORY_INDEX_FILENAME);
     const currentIndex = await readIfPresent(indexPath);
     const nextIndex = withIndexLine(currentIndex, file, title, hook);
-    // The index is checked before the topic lands so a refusal leaves neither
-    // file changed.
     assertUnder(nextIndex, MEMORY_INDEX_MAX_BYTES, MEMORY_INDEX_FILENAME);
 
     const path = join(directory, file);
@@ -158,11 +155,6 @@ async function writeTopic(
     };
 }
 
-/**
- * Rewrites are whole-file, so the version being replaced is copied aside first
- * and can be restored with a rename. One generation only: the point is undoing
- * the write that just happened, not keeping a history.
- */
 async function backup(context: ToolRuntime, path: string): Promise<void> {
     const previous = Bun.file(path);
     if (!(await previous.exists())) {
@@ -173,10 +165,6 @@ async function backup(context: ToolRuntime, path: string): Promise<void> {
     await context.stashPreimage(path, content);
 }
 
-/**
- * Replaces the line pointing at `file`, or appends one. Everything else in the
- * index survives untouched, including lines this tool did not write.
- */
 function withIndexLine(
     index: string,
     file: string,
@@ -245,11 +233,6 @@ function readScope(value: unknown): MemoryScope {
     return value;
 }
 
-/**
- * A bare filename inside the scope directory. Separators, `..`, and absolute
- * paths are rejected by shape rather than resolved, so no input can name a
- * file outside the directory the scope chose.
- */
 function readFilename(value: unknown): string {
     const file = readString(value, "file");
     if (!TOPIC_FILENAME.test(file) || file.includes("..")) {

@@ -1,6 +1,5 @@
 export type ContextAssemblyMode = "default" | "bare" | "prompt_only";
 
-/** @deprecated Use ContextAssemblyMode. */
 export type StartupProfile = ContextAssemblyMode;
 
 export function isContextAssemblyMode(
@@ -9,7 +8,6 @@ export function isContextAssemblyMode(
     return value === "default" || value === "bare" || value === "prompt_only";
 }
 
-/** @deprecated Use isContextAssemblyMode. */
 export const isStartupProfile = isContextAssemblyMode;
 
 export function storedContextAssemblyMode(
@@ -18,7 +16,6 @@ export function storedContextAssemblyMode(
     return mode === "default" ? undefined : mode;
 }
 
-/** @deprecated Use storedContextAssemblyMode. */
 export const storedStartupProfile = storedContextAssemblyMode;
 
 const BARE_DISABLED_CONTRIBUTIONS = [
@@ -51,5 +48,4 @@ export function disabledContributionsForMode(
     return [...new Set([...configured, ...modeDisabled])];
 }
 
-/** @deprecated Use disabledContributionsForMode. */
 export const disabledContributionsForProfile = disabledContributionsForMode;

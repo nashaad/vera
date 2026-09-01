@@ -6,7 +6,6 @@ export const VERA_HOME_ENV = "VERA_HOME";
 
 export const DEFAULT_PROFILE_NAME = "default";
 
-/** Everything Vera owns on this machine. `VERA_HOME` relocates the tree. */
 export function veraHomeDirectory(home?: string): string {
     if (home !== undefined) return join(home, ".vera");
     const override = process.env[VERA_HOME_ENV]?.trim();
@@ -14,42 +13,25 @@ export function veraHomeDirectory(home?: string): string {
     return join(homedir(), ".vera");
 }
 
-/**
- * State that is one picture per machine: credentials and the live process
- * board. Sits beside config and runtime, not under a profile name.
- */
 export function veraMachineDirectory(home?: string): string {
     return join(veraHomeDirectory(home), "machine");
 }
 
-/**
- * Config, extensions, skills, and memory. One home: this is the home
- * directory itself.
- */
 export function veraProfileDirectory(_env = process.env, home?: string): string {
     return veraHomeDirectory(home);
 }
 
-/**
- * Sessions, socket, lock, logs. Always the runtime/ child of the home.
- * A private home is a `VERA_HOME` of its own, not a second runtime island.
- */
 export function veraRuntimeDirectory(_env = process.env, home?: string): string {
     return join(veraHomeDirectory(home), "runtime");
 }
 
 export class VeraProfileError extends Error {}
 
-/** The old profiles/ tree. A home that still has it has not been migrated. */
 export function legacyProfileLayoutEntries(home?: string): readonly string[] {
     const root = veraHomeDirectory(home);
     return existsSync(join(root, "profiles")) ? ["profiles"] : [];
 }
 
-/**
- * Refuses an unmigrated profiles/ home rather than reading the new paths and
- * finding nothing.
- */
 export function assertProfileLayout(home?: string): void {
     const root = veraHomeDirectory(home);
     if (existsSync(join(root, "user"))) {
@@ -67,7 +49,6 @@ export function assertProfileLayout(home?: string): void {
     );
 }
 
-/** Names the single-home layout owns at the root. */
 export const HOME_OWNED_ROOT_ENTRIES = [
     "machine",
     "runtime",
@@ -92,7 +73,6 @@ export function unrecognisedHomeEntries(home?: string): readonly string[] {
         .sort();
 }
 
-/** @deprecated Use legacyProfileLayoutEntries. Kept while callers migrate. */
 export function legacyLayoutEntries(home?: string): readonly string[] {
     return legacyProfileLayoutEntries(home);
 }

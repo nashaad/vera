@@ -112,7 +112,7 @@ export function tuiThemeSwatch(name: TuiThemeName): readonly string[] | undefine
     return [theme.accent, theme.notice, theme.success, theme.text];
 }
 
-// Dark-mode role colors adapted from OpenCode's MIT-licensed themes. Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025 opencode): ask OpenTUI for the termin…
+// Dark-mode role colors adapted from OpenCode's MIT-licensed themes. Palette detection follows OpenCode's system-theme mechanism (MIT, © 2025 opencode): ask OpenTUI for the.
 export async function resolveTuiTheme(
     renderer: Pick<CliRenderer, "getPalette">,
     name: TuiThemeName = "default",
@@ -181,7 +181,7 @@ export function tuiHandleActiveColor(theme: TuiTheme): string {
     return mixHex(theme.background, theme.text, 0.30);
 }
 
-/** Quiet semantic grounds for unified diff rows. Keep these derived from the active background so they stay subordinate to syntax highlighting across Vera's dark themes instead of… */
+/** Quiet semantic grounds for unified diff rows. Keep these derived from the active background so they stay subordinate to syntax highlighting across Vera's dark themes instead. */
 export function tuiDiffBackgroundColors(
     background: string,
     added: string,

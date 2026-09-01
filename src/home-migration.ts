@@ -49,11 +49,6 @@ export interface HomeMigrationResult {
     readonly unknownEntries: readonly string[];
 }
 
-/**
- * Journal kept beside the home, not inside it, so a crash between the two
- * directory renames can still find staging and backup. Daily Vera never
- * reads this file.
- */
 export function homeMigrationReceiptPath(home: string): string {
     return `${home}.migration-receipt.json`;
 }
@@ -77,12 +72,6 @@ export function readHomeMigrationReceipt(
     return value;
 }
 
-/**
- * Lift `profiles/default` to the home root. The previous home directory
- * becomes one timestamped sibling backup. Other profiles stay in that
- * backup unmerged. Resume from the receipt if a previous attempt stopped
- * mid-flight.
- */
 export function migrateHome(
     home: string,
     options: {
@@ -319,10 +308,6 @@ function newHomeLooksActive(home: string): boolean {
     return existsSync(home) && !existsSync(join(home, "profiles"));
 }
 
-/**
- * Absolute paths written while the home still had profiles/default now
- * point at a directory that will not exist after the lift.
- */
 function rewriteLiftedHomePaths(staging: string, home: string): void {
     const prefix = join(home, "profiles", DEFAULT_PROFILE_NAME);
     const path = join(staging, "config.json");

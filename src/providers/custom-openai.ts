@@ -16,7 +16,6 @@ export interface CustomOpenAIAdapterOptions {
     readonly apiKey?: string;
     readonly supportsImageInput?: boolean;
     readonly imageSupport?: ImageSupportLookup;
-    /** Named, data-selected request compatibility operations. */
     readonly requestLayers?: readonly string[];
     readonly fetch?: (
         input: string | URL | Request,
@@ -25,7 +24,6 @@ export interface CustomOpenAIAdapterOptions {
     readonly captureFailedRequest?: FailedRequestCapture;
 }
 
-/** A named endpoint speaking the OpenAI chat-completions protocol. */
 export function createCustomOpenAIAdapter(
     options: CustomOpenAIAdapterOptions,
 ): ModelAdapter {

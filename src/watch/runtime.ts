@@ -6,22 +6,10 @@ import { createFilesystemConnector } from "./filesystem-connector.ts";
 import { SupervisedWatch, type WatchStatus } from "./supervisor.ts";
 import type { WatchConnector } from "./source.ts";
 
-/**
- * The watch runtime: one supervised connector task per contributed watch
- * definition.
- *
- * Ownership is the point. The extension contributed inert data; the host owns
- * the connector, the task, the retries, and the cursor. A watch whose
- * contributing extension is later disabled loses its task but not its cursor,
- * because the cursor is keyed by canonical watch id in host storage.
- */
-
 export interface WatchRuntimeOptions {
     readonly inbox: Inbox;
     readonly watches: readonly OwnedWatchContribution[];
-    /** Defaults to the built-in connectors. */
     readonly connectors?: readonly WatchConnector[];
-    /** Called after a batch reaches the log, so delivery can pump. */
     readonly onAppended?: () => void;
     readonly secret?: WatchSecretResolver;
     readonly limits?: Partial<AdmissionLimits>;
@@ -100,10 +88,6 @@ export function startWatchRuntime(options: WatchRuntimeOptions): WatchRuntime {
     };
 }
 
-/**
- * `null` when the inbox is off. The experimental gate is checked where the
- * inbox is opened, so nothing downstream re-checks a flag.
- */
 export function startWatchRuntimeIfEnabled(
     inbox: Inbox | null,
     options: Omit<WatchRuntimeOptions, "inbox">,

@@ -51,14 +51,11 @@ export interface SessionHeader {
     readonly timestamp: string;
     readonly cwd: string;
     readonly origin?: SessionOrigin;
-    /** Session ID of the agent that spawned this one as a subagent. */
     readonly parentId?: string;
-    /** Durable execution provenance and model boundary for delegated work. */
     readonly delegation?: SessionDelegation;
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
 }
 
-/** Legacy and current delegated sessions share the same durable provenance. */
 export function sessionIsSubagent(header: SessionHeader): boolean {
     return header.parentId !== undefined || header.delegation !== undefined;
 }
@@ -66,7 +63,6 @@ export function sessionIsSubagent(header: SessionHeader): boolean {
 export interface SessionDelegation {
     readonly kind: "subagent";
     readonly parentId: string;
-    /** Exact provider/model pairs this child may use, including on resume. */
     readonly models: readonly ModelTurnSettings[];
 }
 
@@ -103,15 +99,6 @@ export interface SessionDeliveryReceiptEntry {
     readonly timestamp: string;
 }
 
-/**
- * Where a session-scoped setting came from.
- *
- * `agent-default` means nobody dialed it: the setting is whatever the worn
- * agent's default was at the time, and it follows the next agent you wear.
- * `user` means it was chosen deliberately and survives an agent switch. A
- * record written before origins existed reads as `user`, because a legacy
- * session's setting was always the user's own.
- */
 export type SessionSettingOrigin = "agent-default" | "user";
 
 export interface SessionModelSettingsEntry {
@@ -121,13 +108,6 @@ export interface SessionModelSettingsEntry {
     readonly origin?: SessionSettingOrigin;
 }
 
-/**
- * The agent worn from this point on, with the definition as it resolved then.
- *
- * Append-only, and the latest wins. The header is written once at creation, so
- * a field there could record the agent a session started under and nothing
- * after it — and switching agents mid-session is the ordinary case.
- */
 export interface SessionAgentWearEntry {
     readonly type: "agent_wear";
     readonly timestamp: string;
@@ -156,10 +136,6 @@ export interface SessionNameEntry {
     readonly name: string | null;
 }
 
-/**
- * Opaque session identity minted by an extension. Distinct from
- * `session_name`, which is the optional human `/rename` label.
- */
 export interface SessionIdentityEntry {
     readonly type: "session_identity";
     readonly timestamp: string;
@@ -174,13 +150,6 @@ export interface SessionPermissionGrantsEntry {
     readonly grants: readonly PermissionGrant[];
 }
 
-/**
- * Revoking a session grant, which the log records by appending rather than by
- * editing. The session file is append-only, so a revocation has to be its own
- * entry that `permissionGrants()` subtracts. Keeping revocations in memory
- * instead would resurrect a revoked grant on resume, which is the one direction
- * a permission surface must never move on its own.
- */
 export interface SessionPermissionGrantRevocationEntry {
     readonly type: "permission_grant_revocation";
     readonly timestamp: string;
@@ -218,19 +187,11 @@ export interface SessionRewindEntry {
     readonly headId: string | null;
 }
 
-/**
- * A compaction never rewrites or removes a message. It appends the context the
- * model should be sent instead, anchored to the messages it stands for, so the
- * original transcript stays readable and a session that outlives whatever
- * produced the projection can still be resumed from the file alone.
- */
 export interface SessionCompactionEntry {
     readonly type: "compaction";
     readonly id: string;
     readonly timestamp: string;
-    /** Compacted through, inclusive. */
     readonly boundaryMessageId: string;
-    /** Inclusive start of the suffix kept verbatim, or null for none. */
     readonly firstRetainedMessageId: string | null;
     readonly projection: readonly ModelMessage[];
     readonly measured: SessionCompactionMeasurement;
@@ -240,9 +201,7 @@ export interface SessionCompactionEntry {
 
 export interface SessionCompactionMeasurement {
     readonly inputTokens: number;
-    /** Absent when the model's window was never discovered. */
     readonly contextWindow?: number;
-    /** The model whose request was measured, absent in older session files. */
     readonly model?: string;
     readonly estimated: boolean;
 }
@@ -255,15 +214,9 @@ export interface SessionCompactionDiagnostics {
     readonly model?: string;
 }
 
-/**
- * The last request recipe, so `/context` after resume can still name the
- * files. Occupancy is rebuilt from provider usage; this record is the
- * attribution that usage does not carry.
- */
 export interface SessionContextMeasurementEntry {
     readonly type: "context_measurement";
     readonly timestamp: string;
-    /** Active leaf when this request was measured. */
     readonly afterMessageId: string | null;
     readonly measurement: ContextMeasurement;
 }
@@ -292,7 +245,6 @@ export interface CreateSessionStoreOptions {
     readonly contextAssemblyMode?: Exclude<ContextAssemblyMode, "default">;
     readonly now?: () => Date;
     readonly createId?: () => string;
-    /** See `OpenSessionStoreOptions`. */
     readonly onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
@@ -308,19 +260,12 @@ export interface SessionCreationMetadata {
 export interface OpenSessionStoreOptions {
     readonly now?: () => Date;
     readonly createId?: () => string;
-    /**
-     * Called after each record this store wrote, with the line it landed on.
-     * A process holding a projection of this file rather than the file itself
-     * advances on this stream. Records written through `appendForeignRecord`
-     * do not appear here, because their author already folded them in.
-     */
     readonly onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
     ) => void;
 }
 
-/** The stored identity and retained snapshot reported by an append. */
 export interface StoredMessage {
     readonly id: string;
     readonly message: ModelMessage;
@@ -350,11 +295,9 @@ export interface SessionDeliveryInbox {
     ): Promise<SessionMessageEntry>;
 }
 
-/** A parsed session file: the header, plus the fold of every record after it. */
 interface ParsedSessionFile {
     readonly header: SessionHeader;
     readonly state: SessionProjectionState;
-    /** The file's line count, header included. */
     readonly lineCount: number;
 }
 
@@ -365,18 +308,12 @@ export class SessionStore {
     private readonly now: () => Date;
     private readonly createId: () => string;
     private pendingAppend: Promise<void> = Promise.resolve();
-    /** The file's line count, header included. Line 1 is the header. */
     private lineCount: number;
     private onRecordAppended?: (
         lineNumber: number,
         record: Record<string, unknown>,
     ) => void;
 
-    /**
-     * The same accumulated state a parse folds records into. The store reads
-     * from it and its commits push into it, so one description of a session's
-     * shape serves both a file being parsed and a store answering questions.
-     */
     protected readonly projection: SessionProjectionState;
 
     protected constructor(
@@ -430,10 +367,6 @@ export class SessionStore {
             try {
                 await file.chmod(0o600);
                 await file.writeFile(jsonLine(header), "utf8");
-                // An empty session has no user work to make crash-durable yet.
-                // The first append fsyncs this header together with the first
-                // record; forcing a disk barrier here made /clear wait seconds
-                // on some filesystems for a chat Resume intentionally hides.
             } finally {
                 await file.close();
             }
@@ -489,7 +422,6 @@ export class SessionStore {
         return this.activeEntries().map((entry) => entry.message);
     }
 
-    /** Pairs each durable conversation message with its stored ID. */
     activeMessageIds(): ReadonlyMap<ModelMessage, string> {
         const ids = new Map<ModelMessage, string>();
         for (const entry of this.activeEntries()) {
@@ -547,26 +479,11 @@ export class SessionStore {
         return settings === undefined ? undefined : { ...settings };
     }
 
-    /**
-     * Where the model settings in force came from, or nothing when the session
-     * has never written any.
-     *
-     * No record at all is not the same as a `user` record: a session nobody
-     * dialed follows the worn agent's default, and the status line says so by
-     * leaving the override marker off.
-     */
     modelSettingsOrigin(): SessionSettingOrigin | undefined {
         const entry = this.projection.modelSettingsEntries.at(-1);
         return entry === undefined ? undefined : entry.origin ?? "user";
     }
 
-    /**
-     * Every model setting this session has held, oldest first.
-     *
-     * Read-only, and the reason the dial strip has no store of its own:
-     * recents are derived from what the session did rather than remembered
-     * beside it, so they cannot drift from it.
-     */
     modelSettingsHistory(): readonly SessionModelSettingsEntry[] {
         return this.projection.modelSettingsEntries.map((entry) => ({
             ...entry,
@@ -575,7 +492,6 @@ export class SessionStore {
         }));
     }
 
-    /** The agent in force, or nothing when this session has never worn one. */
     agentWear(): SessionAgentWearEntry | undefined {
         const entry = this.projection.agentWearEntries.at(-1);
         return entry === undefined ? undefined : structuredClone(entry);
@@ -775,11 +691,6 @@ export class SessionStore {
         return result;
     }
 
-    /**
-     * Revokes one live session grant, reporting whether it was live. An ID that
-     * is unknown or already revoked writes nothing, so a client cannot grow the
-     * log by retrying a stale ID.
-     */
     revokePermissionGrant(id: string): Promise<boolean> {
         const result = this.pendingAppend.then(() => {
             this.requireActive();
@@ -824,8 +735,6 @@ export class SessionStore {
     appendCompaction(
         request: AppendCompactionRequest,
     ): Promise<SessionCompactionEntry> {
-        // Copied on the way in, not at commit: the request waits behind
-        // whatever is already queued, and the caller still holds the arrays.
         const snapshot = structuredClone(request) as AppendCompactionRequest;
         const result = this.pendingAppend.then(() => {
             this.requireActive();
@@ -838,12 +747,6 @@ export class SessionStore {
         return result;
     }
 
-    /**
-     * The compaction that currently applies, or undefined when none does. A
-     * rewind past the boundary leaves the record in the file but unresolvable
-     * on the active branch, which is how a compaction is undone: by the
-     * history moving out from under it, never by deleting what was written.
-     */
     latestCompaction(): SessionCompactionEntry | undefined {
         const active = this.activeEntries();
         return this.projection.compactionEntries.findLast(
@@ -865,10 +768,6 @@ export class SessionStore {
         return result;
     }
 
-    /**
-     * The last request recipe still on the active branch. Occupancy after
-     * resume comes from provider usage; this is the file list `/context` shows.
-     */
     latestContextMeasurement(): ContextMeasurement | undefined {
         const active = new Set(this.activeEntries().map((entry) => entry.id));
         return this.projection.contextMeasurementEntries.findLast((entry) =>
@@ -877,25 +776,10 @@ export class SessionStore {
         )?.measurement;
     }
 
-    /**
-     * The durable model context before the disposable tool-result projection
-     * is applied. This is useful for diagnostics; compaction triggers from
-     * the model-facing projection so disposable history cannot cause a loop.
-     */
     unprojectedModelContext(): readonly ModelMessage[] {
         return this.modelContextEntries().map((entry) => entry.message);
     }
 
-    /**
-     * What the model should be sent: the accepted projection followed by the
-     * messages kept verbatim after it. Distinct from `messages()`, whose
-     * conversation portion stays original so clients show what was said.
-     *
-     * The suffix is everything past the boundary as the branch stands now, not
-     * a span fixed when the record was written. A record is a statement about
-     * its prefix only; the turns that follow it, including ones appended after
-     * it was accepted, are still owed to the model.
-     */
     modelContext(
         aging: ToolResultAgingPolicy = {},
     ): readonly ModelMessage[] {
@@ -1347,10 +1231,6 @@ export class SessionStore {
         );
     }
 
-    /**
-     * Sets the listener a store opened without one, for a reader that arrives
-     * later. See `onRecordAppended` on `OpenSessionStoreOptions`.
-     */
     watchRecords(
         listener: (
             lineNumber: number,
@@ -1360,23 +1240,13 @@ export class SessionStore {
         this.onRecordAppended = listener;
     }
 
-    /** The file's line count, header included. */
     appendedLineCount(): number {
         return this.lineCount;
     }
 
-    /**
-     * Writes a record another process produced, and folds it in here.
-     *
-     * The author already holds it, so it is not reported back through
-     * `onRecordAppended`. Validation is the parse's own, so a record this
-     * store would reject on a later open is rejected before it reaches disk.
-     */
     appendForeignRecord(
         record: Record<string, unknown>,
     ): Promise<number> {
-        // Queued behind this store's own appends, so one sequence of line
-        // numbers describes the file whichever process produced the record.
         const result = this.pendingAppend.then(async () => {
             if (this.projection.agentFailure !== undefined) {
                 throw new Error(
@@ -1595,13 +1465,6 @@ function completeSessionSource(path: string, source: string): string {
     return source.slice(0, finalNewline + 1);
 }
 
-/**
- * Accumulated projection state for one session file, less the header.
- *
- * Every cross-record check in `ingestSessionRecord` reads from here rather than
- * from a closure, so the same function can fold a whole file or absorb one
- * record at a time.
- */
 export interface SessionProjectionState {
     readonly messageEntries: SessionMessageEntry[];
     readonly deliveryEntries: SessionDeliveryEntry[];
@@ -1651,13 +1514,6 @@ export function createSessionProjectionState(): SessionProjectionState {
     };
 }
 
-/**
- * Folds one already-parsed JSON record into `state`.
- *
- * `path` and `lineNumber` only name the record in rejection messages; a record
- * that does not belong in the file throws rather than being skipped, so a
- * caller that survives the call has a state matching every record so far.
- */
 export function ingestSessionRecord(
     path: string,
     lineNumber: number,
@@ -2311,10 +2167,6 @@ function parseModelSettingsEntry(
             ? { origin: value.origin }
             : {}),
         settings: {
-            // Entries written before providers were persisted have no
-            // provider. They stay absent here so the resume path can tell
-            // "unrecorded" from "recorded" and fall back to the default only
-            // for the former.
             ...(settings.provider === undefined
                 ? {}
                 : { provider: settings.provider.trim() }),
@@ -2400,7 +2252,6 @@ function parsePermissionsEntry(
     };
 }
 
-/** A written origin, refused rather than guessed when it is anything else. */
 function isSessionSettingOrigin(
     value: unknown,
 ): value is SessionSettingOrigin {
@@ -2498,9 +2349,6 @@ function parsePermissionGrantsEntry(
             `line ${lineNumber} is not a valid permission grants entry`,
         );
     }
-    // Grants written before the permission model was simplified are migrated
-    // when the rename preserves meaning, and dropped otherwise. Dropping a
-    // grant only means the user is asked again, so it is the safe direction.
     const grants: PermissionGrant[] = [];
     for (const grant of value.grants) {
         const migrated = isPermissionGrant(grant)
@@ -2535,10 +2383,6 @@ function parsePermissionGrantRevocationEntry(
             `line ${lineNumber} is not a valid permission grant revocation entry`,
         );
     }
-    // Revoked IDs are not checked against the grants seen so far. A revocation
-    // naming a grant that was dropped by migration is harmless, and rejecting it
-    // would make an old session unloadable over a permission the user already
-    // gave up.
     return {
         type: "permission_grant_revocation",
         timestamp: value.timestamp,
@@ -2564,13 +2408,6 @@ function copyPermissionGrant(grant: PermissionGrant): PermissionGrant {
     };
 }
 
-/**
- * A record is only worth writing if the context it describes can be sent. The
- * anchors have to resolve on the branch that is live now, and the seam between
- * the projection and the retained suffix cannot split a tool call from its
- * result: a provider rejects an unmatched pair outright, and it would do so on
- * every later turn of a session whose original history is still intact.
- */
 function validateCompaction(
     request: AppendCompactionRequest,
     active: readonly SessionMessageEntry[],
@@ -2604,8 +2441,6 @@ function validateCompaction(
     const retained = request.firstRetainedMessageId;
     const successor = active[boundaryIndex + 1];
     if (retained !== (successor?.id ?? null)) {
-        // Anything other than the message directly after the boundary would
-        // drop the messages in between without the record saying so.
         throw new Error(
             "Compaction must retain the message following its boundary",
         );
@@ -2654,12 +2489,6 @@ function validateCompactionMeasurement(
     };
 }
 
-/**
- * Whether a stored record still describes the branch that is live. Checked on
- * every read rather than trusted from the file: the record was written against
- * one branch, and a rewind or a fork can leave it describing history that is
- * no longer reachable.
- */
 function compactionApplies(
     entry: SessionCompactionEntry,
     active: readonly SessionMessageEntry[],
@@ -2779,11 +2608,6 @@ function activeBranchEntries(
     return branch.reverse();
 }
 
-/**
- * File checkpoints were briefly written by Vera 2 before file undo was
- * removed. Validate and ignore those records so the surrounding conversation
- * remains readable without retaining any checkpoint behavior or API.
- */
 function parseRemovedFileCheckpointEntry(
     path: string,
     lineNumber: number,
@@ -2923,8 +2747,6 @@ function isModelUsage(value: unknown): boolean {
     if (!isRecord(value)) {
         return false;
     }
-    // Finite is part of the shape: NaN and Infinity survive as numbers in
-    // memory but serialize to null, which the loader then rejects.
     return Number.isFinite(value.inputTokens)
         && Number.isFinite(value.outputTokens)
         && Number.isFinite(value.cachedInputTokens)

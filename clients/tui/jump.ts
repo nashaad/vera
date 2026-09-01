@@ -1,7 +1,7 @@
 import type { WorkRow } from "../../src/host/work-index.ts";
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 
-/** The jump menu's presentation model, with no OpenTUI in it. The menu lists only the places there are to go from the current session: the session the user jumped here from, sessio… */
+/** The jump menu's presentation model, with no OpenTUI in it. The menu lists only the places there are to go from the current session: the session the user jumped here from. */
 
 export interface JumpOrigin {
     readonly sessionId: string;

@@ -22,9 +22,6 @@ export class ReleaseInUseError extends Error {
     }
 }
 
-/**
- * Delete one release directory. Refuses when any reference still names it.
- */
 export function removeRelease(
     buildId: string,
     prefix = defaultInstallPrefix(),
@@ -39,10 +36,6 @@ export function removeRelease(
     rmSync(path, { recursive: true, force: false });
 }
 
-/**
- * Remove every packed release that no reference names. Referenced builds
- * stay. Returns the build ids that were deleted.
- */
 export function gcReleases(
     prefix = defaultInstallPrefix(),
 ): readonly string[] {

@@ -1,15 +1,5 @@
 import { randomBytes } from "node:crypto";
 
-/**
- * Session identity names: `slug:hex4` with an optional `:purpose` tail, e.g.
- * `frosty-frost:9f3a:UAT-tester`. Matching and addressing use `slug:hex4`
- * only; purpose is display decoration. Colons are the separator and are
- * banned inside fields; they mangle to `-` only at filename boundaries.
- *
- * The complete `slug:hex4` key is durably reserved to one session and never
- * recycled. The optional purpose never participates in identity or matching.
- */
-
 const ADJECTIVES = [
     "amber", "bold", "brisk", "calm", "civil", "clear", "crisp", "deft",
     "dusky", "eager", "fleet", "frosty", "gentle", "glad", "grand", "hardy",
@@ -29,7 +19,6 @@ const NOUNS = [
 export interface ParsedAgentName {
     readonly slug: string;
     readonly hex4: string;
-    /** Absent when the name carries no display decoration. */
     readonly purpose?: string;
 }
 
@@ -37,11 +26,6 @@ const SLUG_PATTERN = /^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$/;
 const HEX4_PATTERN = /^[0-9a-f]{4}$/;
 const PURPOSE_PATTERN = /^[^:\s/]+$/;
 
-/**
- * Splits a name into its fields, or `null` when the text is not a name. A
- * fourth colon-separated field is a malformed name, not extra decoration,
- * because purpose is one field and colons are banned inside fields.
- */
 export function parseAgentName(value: string): ParsedAgentName | null {
     const parts = value.split(":");
     if (parts.length < 2 || parts.length > 3) {
@@ -61,25 +45,15 @@ export function parseAgentName(value: string): ParsedAgentName | null {
     };
 }
 
-/**
- * The `slug:hex4` half a name matches and addresses by, or `null` when the
- * text is not a name at all. Purpose never participates in matching.
- */
 export function agentNameKey(value: string): string | null {
     const parsed = parseAgentName(value);
     return parsed === null ? null : `${parsed.slug}:${parsed.hex4}`;
 }
 
-/** Colons mangle to hyphens at filename boundaries and nowhere else. */
 export function agentNameForFilename(name: string): string {
     return name.replaceAll(":", "-");
 }
 
-/**
- * Mints a fresh `slug:hex4` name whose key is not already reserved. The host
- * persists the reservation, including after close or trash, so another
- * session can never receive the same complete key.
- */
 export function mintAgentName(
     isTaken: (key: string) => boolean,
     random: (bytes: number) => Buffer = randomBytes,

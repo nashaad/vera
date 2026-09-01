@@ -7,13 +7,6 @@ import type { SessionModelUsage, SessionModelUsageRow } from "../engine/protocol
 import type { ModelUsage } from "../model/types.ts";
 import type { ModelFailureRecord } from "./model-failures.ts";
 
-/**
- * The optional facts a session listing can carry. Each name is a separate
- * cost: `usage` and `context` read the session file, `failure` reads the
- * profile-wide ledger once for the whole page. Nothing is computed for a name
- * the caller did not ask for, and an absent field means "not requested or not
- * available", never zero.
- */
 export type SessionFactName = "usage" | "context" | "failure" | "model";
 
 export interface SessionModelSelection {
@@ -24,18 +17,12 @@ export interface SessionModelSelection {
 
 export interface SessionFacts {
     readonly usage?: SessionModelUsage;
-    /**
-     * The provider's own count for the most recent request, which is the only
-     * honest answer to "how big is this session's context". Never a transcript
-     * size and never a message-only estimate.
-     */
     readonly context?: ContextMeasurement;
     readonly contextMeasuredAt?: string;
     readonly model?: SessionModelSelection;
     readonly failure?: ModelFailureRecord;
 }
 
-/** Resolves a model's context window, or undefined for one Vera has no entry for. */
 export type ContextCapacityResolver = (
     provider: string,
     model: string,
@@ -46,13 +33,6 @@ export interface ReadSessionFactsOptions {
     readonly capacity?: ContextCapacityResolver;
 }
 
-/**
- * Folds one session file into the facts a listing can show.
- *
- * Streams rather than reading whole: a long session is tens of megabytes and
- * the caller is drawing a page of them. Only assistant records are parsed;
- * tool results are the bulk of a transcript and carry nothing needed here.
- */
 export async function readSessionFacts(
     path: string,
     options: ReadSessionFactsOptions,
@@ -73,9 +53,6 @@ export async function readSessionFacts(
             crlfDelay: Infinity,
         });
         for await (const line of lines) {
-            // Cheap reject before the parse: assistant records are a minority
-            // of the file and JSON.parse over every tool result is the cost
-            // this scan exists to avoid.
             if (!line.includes('"assistant"')) continue;
             let record: Record<string, unknown>;
             try {
@@ -111,9 +88,6 @@ export async function readSessionFacts(
             }
         }
     } catch {
-        // A session that cannot be read contributes no facts. It still lists:
-        // dropping the row would make an unreadable file look like a deleted
-        // session.
         return {};
     }
 
@@ -134,11 +108,6 @@ export async function readSessionFacts(
     };
 }
 
-/**
- * Adds one call to the per-provider/model totals. Mirrors the engine's own
- * session usage fold; the engine folds live messages, this folds the same
- * records back off disk.
- */
 function addUsageRow(
     rows: readonly SessionModelUsageRow[],
     provider: string,
@@ -178,10 +147,6 @@ function numeric(value: number | undefined): number {
     return typeof value === "number" && Number.isFinite(value) ? value : 0;
 }
 
-/**
- * The most recent failure per session, from the profile-wide ledger. One read
- * serves a whole page, so this never scales with the number of rows drawn.
- */
 export function latestFailureBySession(
     records: readonly ModelFailureRecord[],
 ): ReadonlyMap<string, ModelFailureRecord> {

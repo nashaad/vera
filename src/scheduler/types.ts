@@ -11,7 +11,6 @@ export interface ScheduleDefinition {
     readonly cron: string;
     readonly timezone: string;
     readonly address: string;
-    /** Opaque JSON text, parsed only when constructing a trigger envelope. */
     readonly payload: string;
     readonly nextRunAt: string;
     readonly enabled: boolean;
@@ -28,11 +27,9 @@ export interface ScheduleRun {
     readonly emittedAt: string | null;
 }
 
-/** A run the scheduler already delivered, with the address it was sent to. */
 export interface EmittedScheduleRun extends ScheduleRun {
     readonly status: "emitted";
     readonly emittedAt: string;
-    /** The consumer label, which for a session is that session's agent id. */
     readonly address: string;
 }
 

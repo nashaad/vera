@@ -22,8 +22,6 @@ const PREDICATE_FIELDS = new Set([
     "path_glob",
     "scope",
     "executable",
-    // Legacy claim-shaped fields, accepted only when they can be migrated
-    // without changing what the rule matches. See permission-compat.ts.
     "capability",
     "path_scope",
 ]);

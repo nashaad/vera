@@ -224,7 +224,7 @@ export const TUI_KEYMAP: readonly TuiBinding[] = [
         scope: "conversation",
         description: "Scroll the transcript down one line",
     },
-    // Ctrl-D/U are the familiar half-page transcript movement keys. The shifted letter aliases remain for terminals using the kitty keyboard protocol, while the arrow bindings work ev…
+    // Ctrl-D/U are the familiar half-page transcript movement keys. The shifted letter aliases remain for terminals using the kitty keyboard protocol, while the arrow bindings work.
     {
         id: "scroll_half_page_up",
         keys: ["ctrl+shift+up", "ctrl+shift+u", "ctrl+u"],

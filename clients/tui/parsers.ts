@@ -9,7 +9,7 @@ interface TuiParserSource {
 
 const NVIM = "https://raw.githubusercontent.com/nvim-treesitter/nvim-treesitter/refs/heads/master/queries";
 
-/** Extra parsers registered through OpenTUI's Tree-sitter integration. Its JavaScript, TypeScript, Markdown, and Zig parsers remain built in; OpenTUI fetches and caches these addit… */
+/** Extra parsers registered through OpenTUI's Tree-sitter integration. Its JavaScript, TypeScript, Markdown, and Zig parsers remain built in; OpenTUI fetches and caches these. */
 export const TUI_PARSER_SOURCES: readonly TuiParserSource[] = [
     parser("python", "tree-sitter/tree-sitter-python", "v0.23.6", "tree-sitter-python.wasm",
         ["https://github.com/tree-sitter/tree-sitter-python/raw/refs/heads/master/queries/highlights.scm"]),

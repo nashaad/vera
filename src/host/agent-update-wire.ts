@@ -573,9 +573,6 @@ function migrateLegacyInspection(value: unknown): PermissionInspection | undefin
                 ? { reviewerProfile: selected.reviewerProfile }
                 : {}),
         },
-        // Read under the legacy name, emitted under the current one: this
-        // function exists precisely to decode inspections sent before the
-        // profile-to-mode rename.
         availableModes: source.availableProfiles as string[],
         activeGrants: activeGrants as PermissionInspection["activeGrants"],
     };
@@ -672,7 +669,6 @@ function hasExactKeys(
         && expected.every((key) => Object.hasOwn(value, key));
 }
 
-/** Every required key present, and nothing beyond the optional ones. */
 function hasKeys(
     value: Record<string, unknown>,
     required: readonly string[],
@@ -901,12 +897,6 @@ function isOptionalAttachments(value: unknown): boolean {
     );
 }
 
-/**
- * `levels` is required, and an entry without it is rejected rather than read
- * as empty: empty already means "no reasoning control at all", so normalising
- * absent to empty would hide a producer that forgot the field. See the same
- * note in `src/engine/model-settings.ts`.
- */
 function isAvailableModel(value: unknown): boolean {
     const model = asRecord(value);
     return typeof model?.provider === "string"

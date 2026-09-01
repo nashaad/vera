@@ -2,9 +2,6 @@ import { McpServerClient } from "./client.ts";
 import { parseMcpConfig, type McpServerConfig } from "./config.ts";
 import { freshAccessToken, loginServer, TokenStore } from "./oauth.ts";
 
-// The registry gives the whole activation 5 seconds by default, so each
-// server gets a slightly smaller budget and they all connect in parallel.
-// A server that cannot answer in time is skipped, not fatal.
 const CONNECT_TIMEOUT_MS = 3_500;
 
 interface VeraExtensionApiShape {
@@ -76,12 +73,6 @@ export async function activate(vera: VeraExtensionApiShape): Promise<void> {
     registerResourceTool(vera, connected);
 }
 
-/**
- * OAuth servers connect with the stored bearer token merged into their
- * headers; a server whose token is missing (and not refreshable) resolves to
- * undefined so activation skips it with a login hint. Non-OAuth servers pass
- * through untouched.
- */
 async function withStoredToken(
     config: McpServerConfig,
     store: TokenStore,
@@ -99,12 +90,6 @@ async function withStoredToken(
     };
 }
 
-/**
- * The browser round-trip outlives any command handler budget, so the handler
- * opens the browser and returns immediately; the loopback callback finishes
- * the exchange in the background and writes the token, which the next host
- * start picks up.
- */
 function registerLoginCommand(
     vera: VeraExtensionApiShape,
     oauthServers: readonly McpServerConfig[],
@@ -268,29 +253,16 @@ function registerResourceTool(
     });
 }
 
-/**
- * `mcp_<server>_<remote name>`, with characters no provider accepts in a
- * tool name flattened to underscores and the whole name capped at 64.
- */
 export function bridgedName(server: string, remoteName: string): string {
     const safe = remoteName.replaceAll(/[^a-zA-Z0-9_]+/g, "_");
     return `mcp_${server.replaceAll("-", "_")}_${safe}`.slice(0, 64);
 }
 
-/**
- * Command names allow only lowercase letters, digits, and hyphens, so prompt
- * commands take the hyphen spelling of the same `mcp` prefix convention.
- */
 export function bridgedCommandName(server: string, remoteName: string): string {
     const safe = remoteName.toLowerCase().replaceAll(/[^a-z0-9-]+/g, "-");
     return `mcp-${server.replaceAll("_", "-")}-${safe}`.slice(0, 64);
 }
 
-/**
- * Positional mapping of the command's argument text onto the prompt's
- * declared arguments; the final argument absorbs the rest of the line so a
- * free-text last parameter needs no quoting.
- */
 export function promptArguments(
     names: readonly string[],
     argumentsText: string,

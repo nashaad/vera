@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-// This is the installed command dispatcher; the interactive client lives in ../tui.
-
 import { join } from "node:path";
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
@@ -154,26 +152,15 @@ import {
 } from "../../src/extensions/manager-command.ts";
 const PROVIDER_CHECK_FLAG = "--check-providers";
 
-/**
- * Provider diagnosis over the real config and the real credential store.
- * Offline unless `--check-providers` asked for a request.
- */
 async function defaultProviderDoctor(
     options: ProviderDoctorOptions,
 ): Promise<ProviderDoctorReport> {
-    // A machine that has never run Vera is diagnosed against what a first
-    // start would give it, rather than being refused for having no file yet.
-    // Doctor reports; it does not write one.
     return diagnoseProviders(loadOptionalVeraConfig() ?? startingVeraConfig(), {
         ...options,
         authStorage: createAuthStorage(),
     });
 }
 
-/**
- * The manual half of the catalog TTL: an ordinary start answers from the
- * snapshot, so this is how a user asks the providers right now.
- */
 async function refreshDiscoveredCatalogs(): Promise<
     readonly CatalogRefreshOutcome[]
 > {
@@ -510,9 +497,6 @@ export async function runCli(
     ) {
         const all = args.length === 2;
         const agents = await (dependencies.listAgents ?? listLiveAgents)();
-        // Scoped by workspace key rather than by path equality, so a session
-        // started under a symlinked or differently-spelled path still lands in
-        // the workspace the user is standing in.
         const here = workspaceKey(process.cwd());
         output.write(renderAgentList(
             all
@@ -724,8 +708,6 @@ export async function runCli(
                     })\n`,
             );
         }
-        // A refresh that reached nothing is not a success, and the exit code
-        // is what a script reads.
         return outcomes.some((outcome) => outcome.failure === undefined)
             ? 0
             : 1;
@@ -894,7 +876,6 @@ interface PrintRequest {
     };
 }
 
-/** The flags `-p` accepts, and the request field each one fills. */
 const PRINT_FLAGS: Readonly<Record<string, "approvalMode" | "model" | "effort" | "sessionPath">> = {
     "--permission-mode": "approvalMode",
     "--model": "model",
@@ -1075,19 +1056,13 @@ export function renderAgentList(
     }
 
     const now = options.now ?? new Date();
-    // The workspace column only earns its width when rows can differ in it.
     const headings = options.all === true
         ? ["KIND", "STATUS", "AGENT", "TITLE", "ACTIVE", "WORKSPACE"]
         : ["KIND", "STATUS", "AGENT", "TITLE", "ACTIVE"];
     const rows = agents.map((agent) => {
         const row = [
             agent.kind,
-            // `idle` here would mean "the host is holding this session", which
-            // is true of every session ever started and tells the reader
-            // nothing.
             agent.status === "idle" && !agent.live ? "stopped" : agent.status,
-            // The id is still what every other command takes, so it stands in
-            // when a session predates naming.
             agent.name ?? agent.id,
             truncate(agent.title ?? "", 48),
             relativeTime(agent.updated_at, now, "-"),
@@ -1106,11 +1081,9 @@ export function renderAgentList(
         .join("\n") + "\n";
 }
 
-/** A title is a whole first prompt, which is too wide to sit in a column. */
 function truncate(value: string, limit: number): string {
     return value.length <= limit ? value : `${value.slice(0, limit - 1)}\u2026`;
 }
-
 
 async function listLiveAgents(): Promise<readonly RegisteredAgentSummary[]> {
     const host = await readPairedLiveHost();
@@ -1179,9 +1152,6 @@ async function addPoolRef(
             reason: "expected provider/model",
         };
     }
-    // Config and stored credentials are what verification builds its adapter
-    // from, and the config is also where a declared provider's name lives, so
-    // both paths read it before deciding the name is unknown.
     const config = loadOptionalVeraConfig() ?? startingVeraConfig();
     const declared = Object.keys(config.providers ?? {});
     if (
@@ -1254,15 +1224,6 @@ async function runConfiguredTui(
     await startConfiguredTui(target, options);
 }
 
-/**
- * `vera login` is reserved for a Vera platform account, which does not exist
- * yet. It says so and does nothing.
- *
- * It is deliberately not a provider command. It used to run the Codex flow,
- * which made a bare `login` mean whichever provider happened to be built first.
- * Connecting a provider now lives in the model pane (ctrl+e), where the list of
- * them and the marks for what is already connected are visible at once.
- */
 function runLogin(output: CliOutput): number {
     output.write(
         "Vera accounts are not available yet.\n"
@@ -1499,10 +1460,7 @@ async function confirmStopStrayVeraProcesses(
     }
 }
 
-/**
- * Tests that inject a fake process doctor must not hit the real tmux
- * socket directory. The real CLI (no `doctor` override) diagnoses both.
- */
+/** Tests that inject a fake process doctor must not hit the real tmux socket directory. */
 async function diagnoseDoctorTmuxSockets(
     dependencies: CliDependencies,
 ): Promise<TmuxSocketReport> {
@@ -1528,7 +1486,6 @@ function renderTmuxSocketSweep(result: TmuxSocketSweepResult): string {
     return `${parts.join("; ")}.\n`;
 }
 
-/** Commands that must work before a profiles/ home has been lifted. */
 export function cliRequiresMigratedHome(args: readonly string[]): boolean {
     const first = args[0] === "--yes" || args[0] === "-y" ? args[1] : args[0];
     return first !== "migrate-home"

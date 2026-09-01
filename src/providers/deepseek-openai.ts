@@ -110,9 +110,6 @@ function encodeDeepSeekMessage(message: ChatMessages): Record<string, unknown> {
 function deepSeekReasoningEffort(
     effort: ModelReasoningEffort,
 ): string | undefined {
-    // DeepSeek's native API has two thinking states and currently accepts high
-    // or max effort. Keep Vera's off switch explicit, and map lower Vera
-    // levels to the provider's nearest available setting.
     if (effort === "off") return "disabled";
     if (effort === "xhigh" || effort === "max") return "max";
     if (effort === "minimal" || effort === "low" || effort === "medium") {

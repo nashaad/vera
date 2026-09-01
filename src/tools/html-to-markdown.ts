@@ -56,12 +56,6 @@ const SKIPPED = new Set([
     "template",
 ]);
 
-/**
- * Turns an HTML page into markdown so a later character budget applies to the
- * readable document, not the tags and scripts that made the response large.
- * Relative links resolve against `baseUrl`. Inline `data:` images are dropped
- * because they spend the whole output budget on one asset.
- */
 export function htmlToMarkdown(html: string, baseUrl?: string): HtmlMarkdown {
     let title = "";
     let out = "";

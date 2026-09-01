@@ -3,7 +3,6 @@ import type { SessionFactName } from "../store/session-facts.ts";
 import { connectHost } from "./connection.ts";
 
 export interface ListAgentsOptions {
-    /** Optional facts to compute. Each name costs the host a read. */
     readonly include?: readonly SessionFactName[];
     readonly limit?: number;
     readonly cursor?: string;
@@ -12,9 +11,7 @@ export interface ListAgentsOptions {
 
 export interface ListedAgentsPage {
     readonly agents: readonly RegisteredAgentSummary[];
-    /** Absent once the listing is exhausted. */
     readonly nextCursor?: string;
-    /** Rows in the whole listing, not in this page. */
     readonly total?: number;
 }
 
@@ -121,8 +118,7 @@ function isAgentSummary(value: unknown): value is RegisteredAgentSummary {
         )
         && isOptionalTimestamp(agent.created_at)
         && isOptionalTimestamp(agent.updated_at)
-        // Facts are opaque to the listing contract: an older client that never
-        // asked for them must not reject a row that carries them.
+        // Facts are opaque to the listing contract: an older client that never asked for them must not reject a row that carries them.
         && (agent.facts === undefined || asRecord(agent.facts) !== undefined);
 }
 

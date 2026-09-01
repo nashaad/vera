@@ -1,14 +1,3 @@
-/**
- * Reading the pool: what a model is allowed to be, and what it can do.
- *
- * Two questions, one precedence rule. Selection asks whether a model id passes
- * allow/deny, which every candidate anywhere passes first and where deny
- * always wins. Capability asks what a field's value is, answered by
- * declared > learned > catalog, field by field rather than record by record: a
- * declared context window does not suppress a learned effort rejection.
- *
- * Nothing here reaches a provider or writes the pool file.
- */
 
 import type { CatalogModel } from "./catalog-shape.ts";
 import { EFFORT_LADDER, type EffortLevel } from "./effort-ladder.ts";
@@ -23,18 +12,14 @@ export type CapabilitySource = "declared" | "learned" | "catalog";
 
 export interface SelectionDecision {
     readonly allowed: boolean;
-    /** The pattern that decided it, absent when nothing matched. */
     readonly pattern?: string;
     readonly rule?: "allow" | "deny";
 }
 
-/** How a level may be requested, and on whose word. */
 export type EffortResolutionStatus =
-    /** Send `wire` verbatim. */
     | "supported"
     /** The level must not be requested; coarsen to a neighbour. */
     | "forbidden"
-    /** Nothing is known: send the request with no level named. */
     | "provider_default";
 
 export interface EffortResolution {
@@ -42,7 +27,6 @@ export interface EffortResolution {
     readonly status: EffortResolutionStatus;
     readonly wire?: string;
     readonly source?: CapabilitySource;
-    /** Present when a learned fact contradicts the declared value. */
     readonly contradiction?: string;
 }
 
@@ -56,11 +40,6 @@ export interface PoolLookup {
     readonly catalogModel?: CatalogModel;
 }
 
-/**
- * Deny wins over allow, whatever the order or specificity of the patterns. An
- * absent allow list means everything is allowed; an empty one means nothing
- * is, which is the only way to write "deny by default" in the file.
- */
 export function decideSelection(
     modelId: string,
     file: PoolFile,
@@ -83,11 +62,6 @@ export function isSelectable(modelId: string, file: PoolFile): boolean {
     return decideSelection(modelId, file).allowed;
 }
 
-/**
- * Glob matching over model ids. `*` matches any run of characters including
- * the provider separator, `?` matches one character, and everything else is
- * literal. That is what makes `openrouter/*:free` a usable rule.
- */
 export function matchesPattern(modelId: string, pattern: string): boolean {
     return globToRegExp(pattern).test(modelId);
 }
@@ -122,15 +96,6 @@ export function resolveContext(
         : { value: catalog, source: "catalog" };
 }
 
-/**
- * Resolves one effort level for one model.
- *
- * A declared level wins, and a learned rejection of a declared level does not
- * overrule it: the contradiction rides along on the result so a caller can say
- * so instead of quietly editing the user's intent. A learned rejection with no
- * declaration behind it does forbid the level, since nothing else claims
- * otherwise.
- */
 export function resolveEffort(
     level: EffortLevel,
     lookup: PoolLookup,
@@ -194,7 +159,6 @@ export function resolveEffort(
     return { level, status: "provider_default" };
 }
 
-/** Every ladder level this model may be asked for, weakest first. */
 export function supportedEfforts(
     lookup: PoolLookup,
 ): readonly EffortResolution[] {
@@ -203,9 +167,6 @@ export function supportedEfforts(
         .filter((resolution) => resolution.status === "supported");
 }
 
-/**
- * The pool entry and catalog record for one id, ready to resolve fields from.
- */
 export function lookupModel(
     modelId: string,
     file: PoolFile,
@@ -219,11 +180,6 @@ export function lookupModel(
     };
 }
 
-/**
- * Declared fallback targets for a model, filtered to what selection allows.
- * Cross-provider references were already dropped at parse time; the provider
- * check here holds for entries built in memory rather than read from disk.
- */
 export function resolveFallback(
     modelId: string,
     file: PoolFile,

@@ -1,9 +1,3 @@
-/**
- * Vera's WA Score × listed-output front. Y is WA Score (higher is better).
- * X is OpenRouter listed output USD per million (lower is better).
- *
- * This is not Arena's Pareto page and not a blended dollar figure.
- */
 
 export interface ParetoCandidate {
     readonly key: string;
@@ -14,10 +8,6 @@ export interface ParetoCandidate {
 const NEAR_POINTS = 25;
 const LOG_FLOOR = 0.001;
 
-/**
- * Keys that are on the strict front or within 25 Arena points of the
- * piecewise-linear front in log-price vs score.
- */
 export function paretoKeys(
     candidates: readonly ParetoCandidate[],
 ): ReadonlySet<string> {
@@ -54,10 +44,6 @@ function strictFront(
     );
 }
 
-/**
- * A dominates B when A is at least as good on both axes and strictly better
- * on at least one: higher score, lower or equal output.
- */
 function dominates(left: ParetoCandidate, right: ParetoCandidate): boolean {
     return left.score >= right.score
         && left.output <= right.output

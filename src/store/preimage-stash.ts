@@ -17,12 +17,6 @@ interface PreimageSidecar {
     readonly bytes: number;
 }
 
-/**
- * Session-scoped store of file contents captured before the first mutation
- * of each file. Write-only during normal operation; recovery is a manual
- * read of the stash directory. The first capture for a path wins: later
- * mutations of the same file in the same session never replace it.
- */
 export class PreimageStash {
     readonly directory: string;
     private readonly sessionId: string;
@@ -81,23 +75,10 @@ export interface StashSummary {
     readonly preimages: number;
     readonly bytes: number;
     readonly oldestCapturedAt: string | undefined;
-    /** Newest captures first. */
     readonly entries: readonly StashEntry[];
 }
 
-/**
- * The files one session changed, oldest capture first.
- *
- * Read from the stash rather than from git, so it holds in a workspace that is
- * not a repository and says what this session did rather than what the working
- * tree currently looks like. It is the paths a session was the first to touch,
- * which is the honest answer to "what did this one change" and nothing more:
- * it does not know whether an edit was later undone, and it never implies the
- * change is good, finished or ready to land.
- *
- * Synchronous, like the summary beside it: one session's stash is a handful of
- * files, and this is read while building a listing that must not await.
- */
+/** The files one session changed, oldest capture first. Read from the stash rather than from git, so it holds in a workspace that is not a repository and says what this session. */
 export function sessionChangedFiles(
     sessionId: string,
     root: string = defaultStashRoot(),
@@ -107,7 +88,6 @@ export function sessionChangedFiles(
     try {
         files = readdirSync(directory);
     } catch {
-        // A session that changed nothing has no directory at all.
         return [];
     }
     const captured: StashEntry[] = [];
@@ -121,7 +101,6 @@ export function sessionChangedFiles(
         .map((entry) => entry.path);
 }
 
-/** Sizes up the stash for diagnostics. Synchronous: the stash stays small. */
 export function summarizeStash(
     root: string = defaultStashRoot(),
 ): StashSummary | undefined {
@@ -201,7 +180,6 @@ function readSidecar(path: string): StashEntry | undefined {
     }
 }
 
-/** Removes session stash directories whose newest entry is older than the cap. */
 export async function sweepStaleStashes(
     root: string = defaultStashRoot(),
     maxAgeDays: number = MAX_AGE_DAYS,

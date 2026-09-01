@@ -19,13 +19,6 @@ interface SessionIdentityReservation {
     readonly key: string;
 }
 
-/**
- * Claims an identity key permanently inside one session directory.
- *
- * The completed temporary file is hard-linked into place, so another host
- * sees either the whole reservation or no reservation. A session retains its
- * claim after it closes or is trashed; durable identities are never recycled.
- */
 export async function reserveSessionIdentity(
     sessionDirectory: string,
     sessionId: string,

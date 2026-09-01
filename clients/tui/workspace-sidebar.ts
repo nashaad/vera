@@ -238,7 +238,7 @@ export function applyWorkspaceWorkIndex(
     return {
         ...state,
         sessions: state.sessions.map((session) => {
-            // The roster owns terminal lifecycle. The work index calls a non-actionable failure a completed item because its job is to organize attention; that must not repaint a failed sessi…
+            // The roster owns terminal lifecycle. The work index calls a non-actionable failure a completed item because its job is to organize attention; that must not repaint a failed.
             const status = session.status === "failed"
                     || session.status === "closed"
                 ? session.status

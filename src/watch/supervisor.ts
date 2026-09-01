@@ -8,20 +8,8 @@ import {
     type WatchRuntimeContext,
 } from "./source.ts";
 
-/**
- * One supervised async task per contributed watch. Supervision is per watch:
- * a connector that crashes, hangs on a dead upstream, or floods never reaches
- * another watch, the inbox, or delivery.
- *
- * Restart versus quarantine is the distinction that matters. Anything a retry
- * could fix backs off and retries; anything a retry cannot fix stops and waits
- * for the user, because a restart loop against a permanent failure only hides
- * a broken integration.
- */
-
 export const BASE_BACKOFF_MS = 1_000;
 export const MAX_BACKOFF_MS = 60_000;
-/** How long a run must last before the backoff ladder resets. */
 export const HEALTHY_RUN_MS = 60_000;
 export const FAILURE_WINDOW_MS = 5 * 60_000;
 export const FAILURES_BEFORE_QUARANTINE = 5;
@@ -98,25 +86,18 @@ export class SupervisedWatch {
         this.loop = this.supervise(this.controller.signal);
     }
 
-    /** Stops the task and waits for the connector to unwind. */
     async stop(): Promise<void> {
         this.controller?.abort();
         const loop = this.loop;
         this.loop = null;
         this.controller = null;
         if (loop !== null) {
-            // The loop already records its own crash as a quarantine; closing
-            // must not raise it a second time at the caller.
+            // The loop already records its own crash as a quarantine; closing must not raise it a second time at the caller.
             await loop.catch(() => undefined);
         }
         this.enter("stopped");
     }
 
-    /**
-     * Wrapped whole. An unhandled rejection here would kill the task while
-     * `status()` still reported the last state it reached, so a watch that
-     * silently stopped would read as running.
-     */
     private async supervise(signal: AbortSignal): Promise<void> {
         try {
             await this.superviseLoop(signal);
@@ -136,8 +117,6 @@ export class SupervisedWatch {
                 if (signal.aborted) {
                     return;
                 }
-                // A clean return from a standing watch is still a stop that
-                // wants restarting; only an abort ends the loop.
                 this.noteFailure("connector returned before it was stopped");
             } catch (error) {
                 if (signal.aborted) {
@@ -152,9 +131,6 @@ export class SupervisedWatch {
             }
 
             if (this.ranLongEnough(startedAt)) {
-                // A run that lasted forgets the window as well as the ladder.
-                // Pruning only the ladder let five long healthy runs, each
-                // ending in one failure, still reach the quarantine threshold.
                 this.resetFailureLadder(1);
             }
             if (this.shouldQuarantine()) {
@@ -208,7 +184,6 @@ export class SupervisedWatch {
         );
     }
 
-    /** The one place both healthy paths clear the window and the ladder. */
     private resetFailureLadder(consecutive: number): void {
         this.consecutiveFailures = consecutive;
         this.failureTimes = [];
@@ -222,7 +197,6 @@ export class SupervisedWatch {
         return this.failureTimes.length >= FAILURES_BEFORE_QUARANTINE;
     }
 
-    /** Exponential with full jitter, so restarts of many watches do not align. */
     private backoffMs(): number {
         const step = Math.min(
             MAX_BACKOFF_MS,
@@ -238,14 +212,11 @@ export class SupervisedWatch {
         this.enterUnconditionally(state);
     }
 
-    /** The state is recorded before the listener runs, so a listener that
-     * throws cannot leave `status()` describing a state the watch has left. */
     private enterUnconditionally(state: WatchState): void {
         this.state = state;
         try {
             this.onStateChange(this.status());
         } catch {
-            // A status listener is a diagnostic, never part of supervision.
         }
     }
 }

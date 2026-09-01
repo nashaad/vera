@@ -1,14 +1,3 @@
-/**
- * Starts a worker and the supervisor that can kill it.
- *
- * The host is the worker's parent, which is what closes the pid-reuse window:
- * a pid cannot be reused before its parent reaps it, and the supervisor is
- * handed the pid rather than spawning the worker itself, so the worker holds no
- * channel on which to ask for an extension.
- *
- * The deadline is the caller's. Nothing here invents one, renews one, or lets
- * the worker influence one.
- */
 
 import { spawn, type ChildProcess } from "node:child_process";
 import { existsSync } from "node:fs";
@@ -46,25 +35,13 @@ import type {
 } from "./start.ts";
 import { compactionWireSpec } from "../../engine/compaction-binding.ts";
 
-/**
- * How a worker stopped, always exactly one of these.
- *
- * A worker that vanishes without a word still lands on one of them, which is
- * the difference between a kill that is observable and an agent that silently
- * disappears.
- */
 export type WorkerOutcome =
-    /** The loop returned. */
     | { readonly kind: "finished" }
-    /** The loop threw. */
     | { readonly kind: "failed"; readonly error: string }
-    /** The process died on a signal, ours or anyone's. */
     | { readonly kind: "killed"; readonly signal: string }
-    /** The process exited without saying why. */
     | { readonly kind: "exited"; readonly code: number };
 
 export interface StartWorkerOptions {
-    /** The real store. This process stays its only writer. */
     readonly store: SessionStore;
     readonly session: WorkerSessionSeed;
     readonly model: string;
@@ -77,12 +54,6 @@ export interface StartWorkerOptions {
     readonly extensionTools?: readonly RegisteredTool[];
     readonly extensions?: readonly VeraExtensionConfig[];
     readonly toolRuntime?: ToolRuntime;
-    /**
-     * Absolute wall-clock milliseconds. The supervisor SIGKILLs the worker at
-     * this instant whatever the worker is doing. Defaults to NO_DEADLINE, so
-     * the timer never fires while the host-gone and worker-exited switches
-     * stay armed.
-     */
     readonly deadlineMs?: number;
     readonly onUpdate?: (update: AgentUpdate, ownerId?: string) => void;
     readonly command?: readonly string[];
@@ -97,25 +68,14 @@ export interface WorkerHandle {
     send(command: EngineCommand): void;
     injectEvent(event: EngineEvent): void;
     pushState(state: LoopState): void;
-    /** Resolves once, with the one terminal outcome. */
     readonly outcome: Promise<WorkerOutcome>;
-    /** SIGKILL, through the supervisor when there is one. */
     kill(): void;
 }
 
-/**
- * The worker file a checkout pack starts. A packed install has `worker` next
- * to the stamp; a checkout pack is stamp plus annex only.
- */
 export function residentWorkerEntrypoint(): string {
     return fileURLToPath(new URL("./entry.ts", import.meta.url));
 }
 
-/**
- * A packed install has `worker` next to the stamp. A checkout pack is stamp
- * plus annex only, so the worker is this process's bun and the TypeScript
- * entry.
- */
 export function residentWorkerSpawnCommand(
     releaseRoot?: string,
 ): readonly string[] {
@@ -134,8 +94,6 @@ export async function startWorker(
     const child: ChildProcess = spawn(executable as string, args, {
         argv0: "vera-worker",
         stdio: ["pipe", "pipe", "inherit"],
-        // The worker leads its own process group so a kill can contain tools
-        // and other descendants it started, not only the JavaScript loop.
         detached: true,
         ...(options.cwd === undefined ? {} : { cwd: options.cwd }),
         ...(options.env === undefined
@@ -183,8 +141,6 @@ export async function startWorker(
         onProcessSettled: (pid) => supervisor?.forgetProcessGroup(pid),
     });
 
-    // `close` rather than `exit`: the last stdout data can still be in flight
-    // when the process is already gone, and it carries `worker.finished`.
     child.once("close", (code: number | null, signal: string | null) => {
         if (signal !== null) {
             resolveOutcome({ kind: "killed", signal });
@@ -259,7 +215,6 @@ export async function startWorker(
                 try {
                     process.kill(pid, "SIGKILL");
                 } catch {
-                    // Already gone, which is the state the caller wanted.
                 }
             }
         },

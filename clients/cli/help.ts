@@ -41,10 +41,6 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera stdio --resume <session-id|path>", description: "Resume and bridge a session as NDJSON" },
 ] as const;
 
-/**
- * Top-level CLI help has one renderer. `vera help`, `vera -h`, and
- * `vera --help` must stay aliases; topic lookup only narrows this corpus.
- */
 export function renderCliHelp(corpus: HelpCorpus): string {
     const width = Math.max(...CLI_COMMANDS.map((command) => command.usage.length));
     const commands = CLI_COMMANDS.map((command) =>

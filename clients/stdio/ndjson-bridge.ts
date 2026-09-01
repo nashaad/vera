@@ -29,11 +29,6 @@ export class NdjsonInputEndedError extends Error {
     }
 }
 
-/**
- * Keeps the low-level line framing useful to library callers. The resident
- * host client below owns attachment lifecycle and accepts the full attached
- * client message union.
- */
 export function createNdjsonEngineEndpoint(
     input: NodeJS.ReadableStream,
     output: NdjsonOutput,
@@ -74,11 +69,6 @@ export interface RunAttachedStdioBridgeOptions {
     readonly signal?: AbortSignal;
 }
 
-/**
- * Bridges one attached host client to newline-delimited JSON. The bridge does
- * not interpret agent updates or UI requests, so callers can render them and
- * answer them with the same protocol the TUI uses.
- */
 export async function runAttachedStdioBridge(
     input: NodeJS.ReadableStream,
     output: NdjsonOutput,

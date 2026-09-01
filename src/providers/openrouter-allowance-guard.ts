@@ -27,12 +27,6 @@ export interface OpenRouterAllowanceRequest {
     readonly maxTokens?: number;
 }
 
-/**
- * Short-lived evidence shared by every adapter in one resident host. OpenRouter
- * reports a key allowance only after refusing a request, so this prevents the
- * sibling-session stampede after that first refusal without pretending the
- * allowance is stable across a top-up or key change.
- */
 export class OpenRouterAllowanceGuard {
     private readonly entries = new Map<string, AllowanceEntry>();
 

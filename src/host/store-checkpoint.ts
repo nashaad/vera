@@ -12,13 +12,6 @@ interface BackupTarget {
     backupTo(destinationPath: string): void;
 }
 
-/**
- * Ask the open SQLite stores to write consistent copies into `destination`.
- *
- * Copies the live connections through SQLite backup, never the main files.
- * A failure removes any files this call created so a clone cannot start from
- * a half-written database.
- */
 export function checkpointOpenStores(options: {
     readonly destination: string;
     readonly inbox: BackupTarget | null;
@@ -47,7 +40,6 @@ export function checkpointOpenStores(options: {
             try {
                 unlinkSync(join(options.destination, name));
             } catch {
-                // Best-effort cleanup of the files this call created.
             }
         }
         throw error;

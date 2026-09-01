@@ -4,12 +4,6 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 
 const MAX_RESULTS = 20;
 
-/**
- * Read-only discovery lookup. Returning results does not make anything
- * selectable: nothing here can be launched or set as a default, and the ids
- * are only addressable by `pool_add`. Searching the cached snapshots rather
- * than live provider listings keeps this side-effect free.
- */
 export const catalogSearchTool: RegisteredTool = {
     parallel: true,
     definition: {

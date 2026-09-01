@@ -2,11 +2,6 @@ import { unlinkSync } from "node:fs";
 import { readdir, unlink } from "node:fs/promises";
 import { basename, join } from "node:path";
 
-/**
- * tmux's socket directory is `$TMUX_TMPDIR/tmux-<uid>`, falling back to
- * `/tmp/tmux-<uid>`. That is not `os.tmpdir()`: on macOS that is under
- * `/var/folders`, and tmux does not put sockets there.
- */
 export function tmuxSocketDirectory(): string {
     const uid = process.getuid?.();
     const root = process.env.TMUX_TMPDIR?.trim() || "/tmp";
@@ -17,11 +12,6 @@ export function tmuxSocketPath(name: string): string {
     return join(tmuxSocketDirectory(), name);
 }
 
-/**
- * `tmux kill-server` does not unlink the socket file on this platform.
- * Teardown has to remove it, or every unique `-L` name becomes a leftover.
- * Never unlinks `default`.
- */
 export function unlinkTmuxSocketFile(name: string): void {
     if (name === PROTECTED_TMUX_SOCKET_NAME || name.length === 0) return;
     try {
@@ -31,17 +21,8 @@ export function unlinkTmuxSocketFile(name: string): void {
     }
 }
 
-/**
- * The user's ordinary tmux server. Never unlink this socket and never
- * `kill-server` it, even if the file is leftover.
- */
 export const PROTECTED_TMUX_SOCKET_NAME = "default";
 
-/**
- * Short `-L` names from Vera UAT and worktree verification that do not
- * start with `vera-`. Identity is this set plus the `vera-` prefix, not
- * a match on the word `tmux`. Live servers outside both stay.
- */
 const VERA_UAT_SOCKET_NAMES: ReadonlySet<string> = new Set([
     "apprcolor",
     "drive120",
@@ -99,11 +80,6 @@ export function veraOwnsTmuxSocketName(name: string): boolean {
     return name.startsWith("vera-") || VERA_UAT_SOCKET_NAMES.has(name);
 }
 
-/**
- * Pull the `-L` / `-S` socket name from a process command line that is
- * actually tmux. Shell wrappers that mention `-L` in a script body must
- * not count; the binary has to be tmux.
- */
 export function liveTmuxSocketName(command: string): string | undefined {
     const trimmed = command.trim();
     if (!/^(?:\S*\/)?tmux(?:\s|$)/.test(trimmed)) return undefined;
@@ -175,11 +151,6 @@ export function renderTmuxSocketDoctor(report: TmuxSocketReport): string {
     return `${lines.join("\n")}\n`;
 }
 
-/**
- * Unlink leftover Vera socket files after their servers are already gone.
- * A live Vera UAT or worktree tmux server is owned by whoever started it;
- * doctor does not kill-server a runtime it does not own.
- */
 export async function sweepStaleTmuxSockets(
     reportOrOptions: TmuxSocketReport | TmuxSocketDoctorOptions = {},
 ): Promise<TmuxSocketSweepResult> {

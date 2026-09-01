@@ -1,12 +1,3 @@
-/**
- * Projects the declarative pool file into the policy fields the subagent
- * ladder reads: what may be selected at all, which pool entries the failsafe
- * rung may reach, which family each model belongs to, and what effort the self
- * rung asks for.
- *
- * Read per spawn rather than cached, for the same reason the pool itself is:
- * the file is a document the user edits while the host runs.
- */
 
 import type { SubagentPoolPolicy } from "../engine/subagent.ts";
 import {
@@ -35,7 +26,6 @@ import {
 
 export interface SubagentPolicyOptions
     extends LoadPoolFileOptions, EffectiveCatalogOptions {
-    /** Overrides the user config; useful for isolated profiles and tests. */
     readonly configPath?: string;
 }
 
@@ -50,8 +40,6 @@ export function subagentPoolPolicy(
         }
     }
     const selfEffort = file.defaults.subagentEffort;
-    // A default may be written as a pool name, which is the same identity as
-    // the id it stands for; the ladder only knows ids.
     const subagentDefault = file.defaults.subagent === undefined
             || file.defaults.subagent === "self"
         ? file.defaults.subagent
@@ -102,19 +90,11 @@ export function subagentPoolPolicy(
             : { deny: file.defaults.deny }),
         ...(failsafe.length === 0 ? {} : { failsafe }),
         ...(Object.keys(families).length === 0 ? {} : { families }),
-        // An unrecognised word is dropped rather than passed through: the self
-        // rung would otherwise ask for a level no ladder step can match, and
-        // the subagent nobody is watching would run at the wrong effort.
+        // An unrecognised word is dropped rather than passed through: the self rung would otherwise ask for a level no ladder step can match, and the subagent nobody is watching would.
         ...(isRelativeEffort(selfEffort) ? { selfEffort } : {}),
     };
 }
 
-/**
- * The last rung's candidates: pool entries the user curated and a probe has
- * confirmed, in the order the file declares them. An unverified entry is left
- * out because the rung nobody is watching is the wrong place to find out that a
- * model does not work.
- */
 function failsafeCandidates(file: PoolFile): readonly string[] {
     return Object.entries(file.models)
         .filter(([, entry]) =>
@@ -122,12 +102,6 @@ function failsafeCandidates(file: PoolFile): readonly string[] {
         .map(([id]) => id);
 }
 
-/**
- * Resolved only for the failsafe candidates, because that rung is the one that
- * gates on tool calling. Resolution follows the pool's own precedence, so a
- * declared `tools` beats a learned probe result beats the catalog, and a model
- * nothing knows about is simply left out.
- */
 function failsafeToolSupport(
     failsafe: readonly string[],
     file: PoolFile,

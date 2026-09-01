@@ -1,9 +1,5 @@
 import { createConnection, type Socket } from "node:net";
 
-// Frames carry whole transcripts, extension catalogues, and attachment
-// payloads. A full 1M-token thread encodes to roughly 10MB once JSON escaping
-// and the envelope are counted, so the ceiling only bounds memory rather than
-// shaping traffic.
 export const MAX_FRAME_BYTES = 64 * 1_024 * 1_024;
 const DEFAULT_MAX_LINE_BYTES = MAX_FRAME_BYTES;
 const DEFAULT_MAX_PENDING_VALUES = 1_024;
@@ -18,12 +14,6 @@ export interface HostConnectionOptions {
     readonly signal?: AbortSignal;
 }
 
-/**
- * Peer closed the socket. `expected` is true only when the caller marked this
- * as a one-shot helper and no receive was still waiting for a frame. That
- * close is the helper finishing. A close while receive() still has no frame
- * is a loss, even on a helper.
- */
 export class HostConnectionClosedError extends Error {
     constructor(readonly expected: boolean) {
         super("host connection closed");
@@ -35,23 +25,10 @@ export function isExpectedHostClose(error: unknown): boolean {
     return error instanceof HostConnectionClosedError && error.expected;
 }
 
-/**
- * A persistent NDJSON connection over a Unix socket: send JSON values as
- * newline-delimited frames and receive parsed JSON values in order. The
- * connection attempt has a fixed deadline; an established connection remains
- * open until a peer closes it. Parsed values that arrive faster than
- * `receive()` drains them are bounded by `maxPendingValues`; past that limit
- * the socket is paused until the caller catches up.
- */
 export interface HostConnection {
     send(value: unknown): Promise<void>;
     receive(): Promise<unknown>;
     closedReason(): Promise<Error>;
-    /**
-     * Mark this connection as a one-shot helper. A peer close after the reply
-     * is completion. A close while receive() still has no frame is still a
-     * loss.
-     */
     expectPeerClose(): void;
     close(): void;
     readonly closed: boolean;
@@ -107,11 +84,6 @@ export function connectHost(
     });
 }
 
-/**
- * An oversized inbound frame is unreadable but not fatal: it is queued in
- * arrival order so the one `receive()` that would have taken it rejects,
- * leaving the connection and every later frame intact.
- */
 class OversizedFrame {
     constructor(readonly byteLength: number) {}
 }
@@ -206,9 +178,6 @@ function createConnection_(
                 return;
             }
             const newlineAt = buffered.indexOf(NEWLINE_BYTE);
-            // Once a frame is known to be oversized its bytes are dropped as
-            // they arrive rather than accumulated, so a peer that sends one
-            // cannot exhaust memory here while the rest of the stream survives.
             if (discardingBytes > 0) {
                 if (newlineAt === -1) {
                     discardingBytes += buffered.length;
@@ -306,9 +275,6 @@ function createConnection_(
                     new Error("host connection cannot send this value"),
                 );
             }
-            // Refusing here fails the one call that overflowed. Writing it
-            // instead would make the peer discard a frame it cannot read while
-            // this side believed the send succeeded.
             const encodedBytes = Buffer.byteLength(encoded);
             if (encodedBytes > maxLineBytes) {
                 return Promise.reject(new Error(

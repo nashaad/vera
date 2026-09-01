@@ -2,18 +2,8 @@ import type { RegisteredTool, ToolOutput } from "./types.ts";
 import { resolveReadPath } from "./files.ts";
 
 const DEFAULT_MAX_RESULTS = 250;
-/**
- * Byte limits, both of them safety invariants rather than settings. The count
- * cap alone bounds neither memory nor context: 250 lines of minified
- * JavaScript is as unbounded as no cap at all.
- */
 const MAX_LINE_BYTES = 2 * 1024;
 const MAX_TOTAL_BYTES = 256 * 1024;
-/**
- * How far past the window the scan will go to learn the true match count.
- * Lines beyond the window are counted and dropped, so this bounds time, not
- * memory; the search is abandoned once even counting stops being worth it.
- */
 const MAX_SCANNED_LINES = 20_000;
 const MAX_RESULTS_CAP = 1000;
 const MAX_CONTEXT_LINES = 50;
@@ -102,7 +92,6 @@ export const grepTool: RegisteredTool = {
             args.push("--count");
         } else {
             args.push("--line-number");
-            // Context lines only mean anything when matched lines are shown.
             pushContextArgs(args, input);
         }
         args.push("--", pattern, targetPath);
@@ -145,8 +134,6 @@ async function runRipgrep(
     maxResults: number,
     offset: number,
 ): Promise<ToolOutput> {
-    // Bun.spawn resolves argv[0] against its own cached PATH rather than the
-    // `env` passed to the child, so check for the binary explicitly first.
     if (Bun.which("rg", { PATH: process.env.PATH ?? "" }) === null) {
         return { kind: "output", output: RIPGREP_NOT_FOUND_MESSAGE, isError: true };
     }
@@ -164,9 +151,6 @@ async function runRipgrep(
         subprocess.exited,
     ]);
 
-    // rg exits 1 for "no matches", which is a normal, successful result. A run
-    // Vera stopped early reports whatever the kill produced, and its lines are
-    // the answer, so its code is not a failure either.
     if (exitCode > 1 && !collected.stopped) {
         return {
             kind: "output",
@@ -184,22 +168,11 @@ async function runRipgrep(
 
 interface CollectedLines {
     readonly lines: readonly string[];
-    /** Matches seen, which is more than were kept once the window is full. */
     readonly total: number;
-    /** True when rg was still producing when Vera stopped reading. */
     readonly stopped: boolean;
     readonly longLines: number;
 }
 
-/**
- * Reads rg's output line by line, retaining only the window the caller asked
- * for and counting the rest.
- *
- * Buffering the whole run and slicing afterwards makes the caps a formatting
- * decision, which is too late: the bytes are already held. Counting past the
- * window keeps the reported total exact, which is what makes `offset` paging
- * mean anything, and costs one integer.
- */
 async function collectLines(
     stream: ReadableStream<Uint8Array>,
     wanted: number,
@@ -214,7 +187,6 @@ async function collectLines(
     const decoder = new TextDecoder("utf-8");
     const reader = stream.getReader();
 
-    // Returns false once nothing further is worth reading.
     const take = (line: string): boolean => {
         if (line.length === 0) {
             return true;
@@ -264,19 +236,12 @@ async function collectLines(
     return { lines, total, stopped, longLines };
 }
 
-/** Cuts on a byte boundary and drops the decoder's mark at the cut. */
 function truncateBytes(line: string, limit: number): string {
     return new TextDecoder("utf-8")
         .decode(Buffer.from(line, "utf8").subarray(0, limit))
         .replace(/\uFFFD+$/, "");
 }
 
-/**
- * `Bun.spawn` is called inside this helper rather than assigned to a
- * pre-declared `ReturnType<typeof Bun.spawn>`, because that widens the piped
- * streams back to `number | ReadableStream | undefined` and `new Response(...)`
- * rejects the union. Inferring the return type here keeps them streams.
- */
 function spawnRipgrep(args: string[]) {
     try {
         return Bun.spawn(args, { stdout: "pipe", stderr: "pipe" });
@@ -288,18 +253,12 @@ function spawnRipgrep(args: string[]) {
     }
 }
 
-/**
- * Windows the result lines and says so, so the model can page with `offset`
- * rather than falling back to Bash when a search overflows the cap.
- */
 function formatResults(
     collected: CollectedLines,
     maxResults: number,
     offset: number,
 ): string {
     const lines = collected.lines;
-    // A scan Vera abandoned knows how many matches it saw, not how many exist,
-    // so its count is marked as a floor rather than reported as the truth.
     const total = collected.stopped
         ? `${collected.total}+`
         : `${collected.total}`;
@@ -353,7 +312,6 @@ function parseMaxResults(value: unknown): number {
     return Math.min(value, MAX_RESULTS_CAP);
 }
 
-/** Shared parser for the optional non-negative integer inputs. */
 function parseCount(
     value: unknown,
     field: string,

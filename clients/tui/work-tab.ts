@@ -6,7 +6,7 @@ import type {
     WorkSection,
 } from "../../src/host/work-index.ts";
 
-/** The Work tab's presentation model, with no OpenTUI in it. Every fact the tab shows is a string here, so the layout, the selection, and what enter does are all decidable without… */
+/** The Work tab's presentation model, with no OpenTUI in it. Every fact the tab shows is a string here, so the layout, the selection, and what enter does are all decidable. */
 
 export const WORK_TAB_NARROW_WIDTH = 64;
 

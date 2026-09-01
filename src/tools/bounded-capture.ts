@@ -1,34 +1,13 @@
-/**
- * Reading a child's output without letting it become the process's problem.
- *
- * The engine ceiling bounds what the model sees, but it applies to a string
- * that already exists: by the time a 2 GiB `cat` has been buffered, the memory
- * is spent and the process may be gone. This bounds the buffer instead, at the
- * point the bytes arrive.
- *
- * Draining continues after the limit is reached. Stopping the reads leaves the
- * child's pipe to fill, and a child blocked writing to a full pipe never
- * exits, so the tool call that was merely too big becomes a hang.
- */
 
 export const BASH_CAPTURE_LIMIT_BYTES = 1024 * 1024;
 
 export interface BoundedCapture {
-    /** The retained text: the head, then a marker, then the tail. */
     readonly text: string;
-    /** Everything the child wrote, including what was dropped. */
     readonly totalBytes: number;
     readonly retainedBytes: number;
     readonly truncated: boolean;
 }
 
-/**
- * Reads a stream to its end, keeping the first and last `limitBytes / 2`.
- *
- * Head and tail rather than either alone: the head has the command's own
- * echo and the first error, the tail has the summary and the exit path, and a
- * middle of a million lines is where the least is happening.
- */
 export async function captureBounded(
     stream: ReadableStream<Uint8Array>,
     limitBytes: number,
@@ -82,8 +61,6 @@ export async function captureBounded(
         };
     }
 
-    // The oldest retained chunk may still overshoot the tail budget, so the
-    // final trim is by bytes rather than by whole chunks.
     const tailBuffer = concat(tail);
     const trimmedTail = tailBuffer.subarray(Math.max(0, tailBuffer.length - half));
     const headText = decode(concat(head));
@@ -99,10 +76,6 @@ export async function captureBounded(
     };
 }
 
-/**
- * Says what was dropped in the same words the engine ceiling uses, so a result
- * that passed two limits does not read as two unrelated problems.
- */
 export function captureMarker(
     label: string,
     totalBytes: number,
@@ -125,7 +98,6 @@ function concat(chunks: readonly Uint8Array[]): Uint8Array {
     return buffer;
 }
 
-/** A byte cut lands mid-character; the decoder's marks go with the cut. */
 function decode(bytes: Uint8Array): string {
     return new TextDecoder("utf-8")
         .decode(bytes)

@@ -218,14 +218,6 @@ export class ScheduleStore {
         ).all(scheduleId, limit).map(runFromRow);
     }
 
-    /**
-     * Runs already emitted, newest first, across every schedule.
-     *
-     * Joined to the definition because a run on its own names no address, and
-     * the address is the only thing that says which session the run reached.
-     * Bounded at the query, not by the caller: this reads a table that grows
-     * with every firing forever.
-     */
     recentlyEmitted(limit: number): readonly EmittedScheduleRun[] {
         if (!Number.isInteger(limit) || limit <= 0) {
             throw new Error("emitted schedule run limit must be a positive integer");
@@ -240,9 +232,6 @@ export class ScheduleStore {
              LIMIT ?`,
         ).all(limit).flatMap((row) => {
             const run = runFromRow(row);
-            // The query already filters both, so a row failing either is a
-            // schema surprise rather than an ordinary case, and dropping it
-            // keeps the caller from having to re-check what it was promised.
             return run.status !== "emitted" || run.emittedAt === null
                 ? []
                 : [{
