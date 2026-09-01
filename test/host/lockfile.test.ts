@@ -19,7 +19,6 @@ import {
 } from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
-    VERA_RUNTIME_DIR_ENV,
 } from "../../src/profile-paths.ts";
 import {
     HOST_MIN_COMPATIBLE_PROTOCOL_VERSION,
@@ -156,21 +155,17 @@ test("a record for another socket is not accepted", async () => {
 
 test("the daily socket is the home runtime socket, including a long home", () => {
     const previousHome = process.env[VERA_HOME_ENV];
-    const previousRuntime = process.env[VERA_RUNTIME_DIR_ENV];
     const home = join(
         "/tmp",
         "vera-fixed-endpoint-home-with-a-very-long-directory-name-that-used-to-relocate-the-socket",
     );
     process.env[VERA_HOME_ENV] = home;
-    delete process.env[VERA_RUNTIME_DIR_ENV];
     try {
         expect(defaultHostSocketPath()).toBe(join(home, "runtime", "host.sock"));
         expect(defaultHostLockPath()).toBe(join(home, "runtime", "host.json"));
     } finally {
         if (previousHome === undefined) delete process.env[VERA_HOME_ENV];
         else process.env[VERA_HOME_ENV] = previousHome;
-        if (previousRuntime === undefined) delete process.env[VERA_RUNTIME_DIR_ENV];
-        else process.env[VERA_RUNTIME_DIR_ENV] = previousRuntime;
     }
 });
 

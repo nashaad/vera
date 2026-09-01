@@ -20,7 +20,6 @@ import {
 } from "../../src/host/lockfile.ts";
 import {
     VERA_HOME_ENV,
-    VERA_RUNTIME_DIR_ENV,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
@@ -64,17 +63,13 @@ export function residentHostEntrypoint(): string {
  * resident host instead, so the worktree's code never runs and the change
  * under test looks like it did not take.
  *
- * Silent whenever the runtime was chosen deliberately: an explicit runtime or
- * home is an answer to this question, not a mistake.
+ * Silent whenever a private home was chosen deliberately.
  */
 export function worktreeRuntimeNotice(
     cwd: string = process.cwd(),
     environment: Record<string, string | undefined> = process.env,
 ): string | undefined {
-    const chosen = [
-        VERA_RUNTIME_DIR_ENV,
-        VERA_HOME_ENV,
-    ].some((name) => (environment[name] ?? "").trim().length > 0);
+    const chosen = (environment[VERA_HOME_ENV] ?? "").trim().length > 0;
     if (chosen || !insideLinkedWorktree(cwd)) return undefined;
     return "started inside a Git worktree with no instance of its own, so this"
         + " session is attached to the daily host and does not run"

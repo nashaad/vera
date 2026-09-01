@@ -7,7 +7,6 @@ import {
     assertProfileLayout,
     legacyLayoutEntries,
     unrecognisedHomeEntries,
-    VERA_RUNTIME_DIR_ENV,
     VeraProfileError,
     veraProfileDirectory,
     veraRuntimeDirectory,
@@ -27,10 +26,9 @@ test("credentials sit in the machine tier beside config", () => {
     expect(veraMachineDirectory(home)).toBe(join(home, ".vera", "machine"));
 });
 
-test("VERA_RUNTIME_DIR is the explicit instance root", () => {
-    const env = { [VERA_RUNTIME_DIR_ENV]: "/tmp/run" };
-    expect(veraRuntimeDirectory(env, home)).toBe("/tmp/run");
-    expect(veraProfileDirectory(env, home)).toBe(join(home, ".vera"));
+test("runtime is always the home child, not a second island", () => {
+    expect(veraRuntimeDirectory({ VERA_HOME: "/tmp/other" }, home))
+        .toBe(join(home, ".vera", "runtime"));
 });
 
 test("an unmigrated profiles/ home is refused", () => {

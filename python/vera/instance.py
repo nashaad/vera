@@ -67,7 +67,7 @@ class Vera:
 
         child_path = Path(__file__).with_name("_child.ts")
         child_env = os.environ | {
-            "VERA_RUNTIME_DIR": str(self._runtime_dir),
+            "VERA_HOME": str(self._runtime_dir),
         }
         try:
             completed = subprocess.run(

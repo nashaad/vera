@@ -3,7 +3,6 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const VERA_HOME_ENV = "VERA_HOME";
-export const VERA_RUNTIME_DIR_ENV = "VERA_RUNTIME_DIR";
 
 export const DEFAULT_PROFILE_NAME = "default";
 
@@ -32,12 +31,10 @@ export function veraProfileDirectory(_env = process.env, home?: string): string 
 }
 
 /**
- * Sessions, socket, lock, logs. `VERA_RUNTIME_DIR` is the explicit instance
- * root for tests and worktree trials, not a second daily home.
+ * Sessions, socket, lock, logs. Always the runtime/ child of the home.
+ * A private home is a `VERA_HOME` of its own, not a second runtime island.
  */
-export function veraRuntimeDirectory(env = process.env, home?: string): string {
-    const override = env[VERA_RUNTIME_DIR_ENV]?.trim();
-    if (override !== undefined && override.length > 0) return override;
+export function veraRuntimeDirectory(_env = process.env, home?: string): string {
     return join(veraHomeDirectory(home), "runtime");
 }
 

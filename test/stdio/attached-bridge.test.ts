@@ -586,7 +586,7 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
             cwd: process.cwd(),
             env: {
                 ...process.env,
-                VERA_RUNTIME_DIR: runtime,
+                VERA_HOME: root,
             },
             stdin: "pipe",
             stdout: "pipe",

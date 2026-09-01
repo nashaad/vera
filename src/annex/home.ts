@@ -2,8 +2,7 @@ import { join } from "node:path";
 
 /**
  * Paths the annex reads from a Vera home. `--home` is VERA_HOME: the `.vera`
- * directory, not the OS home. The annex does not follow VERA_RUNTIME_DIR; the
- * home argument is the selector.
+ * directory, not the OS home.
  */
 export function annexPathsFromHome(veraHome: string): {
     readonly sessionDirectory: string;

@@ -185,7 +185,6 @@ test("a deliberate runtime silences the worktree warning", async () => {
     try {
         for (
             const environment of [
-                { VERA_RUNTIME_DIR: "/tmp/vera-worktrees/x" },
                 { VERA_HOME: "/tmp/vera-home" },
             ]
         ) {

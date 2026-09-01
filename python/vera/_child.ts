@@ -49,12 +49,12 @@ class RecordedAdapter implements ModelAdapter {
 }
 
 async function main(): Promise<void> {
-    const runtimeDir = process.env.VERA_RUNTIME_DIR;
-    if (runtimeDir === undefined || runtimeDir.length === 0) {
-        throw new Error("VERA_RUNTIME_DIR is required for the Python child");
+    const home = process.env.VERA_HOME;
+    if (home === undefined || home.length === 0) {
+        throw new Error("VERA_HOME is required for the Python child");
     }
-    if (!statSync(runtimeDir).isDirectory()) {
-        throw new Error("VERA_RUNTIME_DIR must name a directory");
+    if (!statSync(home).isDirectory()) {
+        throw new Error("VERA_HOME must name a directory");
     }
 
     const input = childInput(readFileSync(0, "utf8"));

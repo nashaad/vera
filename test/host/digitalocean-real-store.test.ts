@@ -14,9 +14,7 @@ import { shippedProviderDefinitions } from "../../src/providers/definitions.ts";
 test("disposable VERA_HOME loads DigitalOcean data and reads back a real catalog snapshot", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-digitalocean-store-"));
     const previousHome = process.env.VERA_HOME;
-    const previousRuntime = process.env.VERA_RUNTIME_DIR;
     process.env.VERA_HOME = home;
-    process.env.VERA_RUNTIME_DIR = join(home, "runtime");
     const profile = join(home);
     const configPath = join(profile, "config.json");
     const cacheDir = join(home, "runtime", "cache");
@@ -66,8 +64,6 @@ test("disposable VERA_HOME loads DigitalOcean data and reads back a real catalog
     } finally {
         if (previousHome === undefined) delete process.env.VERA_HOME;
         else process.env.VERA_HOME = previousHome;
-        if (previousRuntime === undefined) delete process.env.VERA_RUNTIME_DIR;
-        else process.env.VERA_RUNTIME_DIR = previousRuntime;
         rmSync(home, { recursive: true, force: true });
     }
 });

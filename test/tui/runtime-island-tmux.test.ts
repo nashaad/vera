@@ -22,8 +22,8 @@ import {
 import { killTmuxServer } from "../support/kill-tmux-server.ts";
 
 /**
- * Two real CLI TUIs, two runtime islands, one machine. Starting the second
- * must not SIGKILL the first, and each doctor must refuse the other island.
+ * Two real CLI TUIs, two private homes, one machine. Starting the second
+ * must not SIGKILL the first, and each doctor must refuse the other home.
  */
 const tmuxAvailable = canRunTmux();
 
@@ -32,20 +32,21 @@ test.skipIf(!tmuxAvailable)(
     async () => {
         const socket = `vera-island-${process.pid}-${randomUUID()}`;
         const home = mkdtempSync(join(tmpdir(), "vera-island-home-"));
-        const worktreeRuntime = mkdtempSync(join(tmpdir(), "vera-island-tree-"));
+        const worktreeHome = mkdtempSync(join(tmpdir(), "vera-island-tree-"));
         const dailyRuntime = join(home, ".vera", "runtime");
+        const treeRuntime = join(worktreeHome, "runtime");
         mkdirSync(join(home, ".vera"), { recursive: true });
-        writeFileSync(
-            join(home, ".vera", "config.json"),
-            `${JSON.stringify({
-                schema_version: 1,
-                provider: "openrouter",
-                model: "faux/test",
-                approval_mode: "auto",
-            })}\n`,
-        );
+        mkdirSync(treeRuntime, { recursive: true });
+        const config = `${JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+        })}\n`;
+        writeFileSync(join(home, ".vera", "config.json"), config);
+        writeFileSync(join(worktreeHome, "config.json"), config);
         ownVeraHostLock(join(dailyRuntime, "host.json"));
-        ownVeraHostLock(join(worktreeRuntime, "host.json"));
+        ownVeraHostLock(join(treeRuntime, "host.json"));
 
         let dailyPane = "";
         let treePane = "";
@@ -60,14 +61,14 @@ test.skipIf(!tmuxAvailable)(
             expect(processIsAlive(dailyHostPid)).toBe(true);
 
             startCliTui(socket, "tree", home, {
-                VERA_RUNTIME_DIR: worktreeRuntime,
+                VERA_HOME: worktreeHome,
             });
             treePane = await waitForVisiblePane(
                 socket,
                 "tree",
                 "New conversation",
             );
-            const treeHostPid = await waitForLiveHostPid(worktreeRuntime);
+            const treeHostPid = await waitForLiveHostPid(treeRuntime);
             expect(treeHostPid).not.toBe(dailyHostPid);
             expect(processIsAlive(dailyHostPid)).toBe(true);
             expect(processIsAlive(treeHostPid)).toBe(true);
@@ -85,7 +86,7 @@ test.skipIf(!tmuxAvailable)(
                 doctorPid: process.pid,
             });
             const treeDoctor = await diagnoseVeraProcesses({
-                runtimeIsland: worktreeRuntime,
+                runtimeIsland: treeRuntime,
                 sampleIntervalMs: 0,
                 doctorPid: process.pid,
             });
@@ -113,8 +114,7 @@ test.skipIf(!tmuxAvailable)(
                 env: {
                     ...process.env,
                     HOME: home,
-                    VERA_HOME: join(home, ".vera"),
-                    VERA_RUNTIME_DIR: worktreeRuntime,
+                    VERA_HOME: worktreeHome,
                 },
                 stdout: "pipe",
                 stderr: "pipe",
@@ -132,9 +132,9 @@ test.skipIf(!tmuxAvailable)(
         } finally {
             killTmuxServer(socket);
             await stopHost(dailyRuntime);
-            await stopHost(worktreeRuntime);
+            await stopHost(treeRuntime);
             rmSync(home, { recursive: true, force: true });
-            rmSync(worktreeRuntime, { recursive: true, force: true });
+            rmSync(worktreeHome, { recursive: true, force: true });
         }
     },
     45_000,

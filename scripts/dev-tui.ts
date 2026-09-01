@@ -22,7 +22,6 @@ import {
 import { forceStopResidentHost } from "../src/host/force-stop.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import {
-    VERA_RUNTIME_DIR_ENV,
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
@@ -275,7 +274,7 @@ export function candidateLaunchEnv(
     base: NodeJS.ProcessEnv = process.env,
 ): NodeJS.ProcessEnv {
     const env = { ...base };
-    delete env[VERA_RUNTIME_DIR_ENV];
+    delete env.VERA_RUNTIME_DIR;
     delete env.VERA_WORKTREE_RUNTIME;
     env.VERA_HOME = destinationHome;
     env.VERA_DEV_INSTANCE = `${basename(worktreeRoot)} ${buildId}`;

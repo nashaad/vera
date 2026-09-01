@@ -12,8 +12,6 @@ import {
 test("the sdk resolves the same directories the engine reads", () => {
     const home = veraHomeDirectory();
     expect(veraMachineDirectory()).toBe(join(home, "machine"));
-    expect(veraProfileDirectory({ VERA_PROFILE: "dogfood" }))
-        .toBe(home);
-    expect(veraRuntimeDirectory({ VERA_PROFILE: "dogfood" }))
-        .toBe(join(home, "runtime"));
+    expect(veraProfileDirectory()).toBe(home);
+    expect(veraRuntimeDirectory()).toBe(join(home, "runtime"));
 });

@@ -467,12 +467,12 @@ test("doctor leaves a launcher-owned worktree runtime to its own island", async 
     );
 });
 
-test("process environment identifies an isolated runtime directory", () => {
+test("process environment identifies a private home", () => {
     expect(veraRuntimeFromPsLine(
-        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol",
+        "bun clients/host/main.ts VERA_HOME=/tmp/aspol",
     )).toEqual({
         isolated: true,
-        runtimeDir: "/tmp/aspol",
+        runtimeDir: "/tmp/aspol/runtime",
         worktreeRuntime: false,
     });
 });

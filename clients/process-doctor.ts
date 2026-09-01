@@ -10,10 +10,7 @@ import {
     recordMatchesRunningProcess,
 } from "../src/host/process-identity.ts";
 import {
-    DEFAULT_PROFILE_NAME,
     VERA_HOME_ENV,
-    VERA_RUNTIME_DIR_ENV,
-    veraHomeDirectory,
     veraRuntimeDirectory,
 } from "../src/profile-paths.ts";
 import { sweepStaleTmuxSockets } from "./tmux-socket-doctor.ts";
@@ -40,9 +37,8 @@ export interface VeraProcessSample {
     readonly command: string;
     readonly kind: VeraProcessKind;
     /**
-     * Set when this process overrode the profile runtime (`VERA_RUNTIME_DIR`
-     * or `VERA_HOME`). Tests and UAT use that override. A launcher-owned
-     * worktree runtime carries its separate marker and is not a leftover.
+     * Set when this process named a private `VERA_HOME`. Tests and UAT use
+     * that override.
      */
     readonly isolated?: boolean;
     readonly runtimeDir?: string;
@@ -392,7 +388,7 @@ interface HostStrayInput {
  * A process belongs here when its env names this runtime, or when it is the
  * lockfile host (or in that host's bun tree) and has no runtime env at all.
  * Missing env must not mean "this island": that would let a worktree doctor
- * SIGKILL a default-profile host that never set VERA_RUNTIME_DIR.
+ * SIGKILL a daily host that never set VERA_HOME.
  */
 function belongsToRuntimeIsland(
     sample: {
@@ -521,13 +517,11 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
     readonly runtimeDir?: string;
     readonly worktreeRuntime: boolean;
 } {
-    const runtimeOverride = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
-    const isolated = runtimeOverride !== undefined || home !== undefined;
-    const runtimeDir = runtimeOverride
-        ?? (home !== undefined
-            ? join(home, "runtime")
-            : undefined);
+    const isolated = home !== undefined;
+    const runtimeDir = home !== undefined
+        ? join(home, "runtime")
+        : undefined;
     return {
         isolated,
         worktreeRuntime: false,

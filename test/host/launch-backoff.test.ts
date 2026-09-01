@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -12,16 +12,16 @@ import {
     recentBootFailures,
 } from "../../clients/host/launch.ts";
 import type { HostLockRecord } from "../../src/host/lockfile.ts";
-import { VERA_RUNTIME_DIR_ENV } from "../../src/profile-paths.ts";
+import { VERA_HOME_ENV } from "../../src/profile-paths.ts";
 
-const previousRuntimeDir = process.env[VERA_RUNTIME_DIR_ENV];
+const previousHome = process.env[VERA_HOME_ENV];
 const roots: string[] = [];
 
 afterEach(() => {
-    if (previousRuntimeDir === undefined) {
-        delete process.env[VERA_RUNTIME_DIR_ENV];
+    if (previousHome === undefined) {
+        delete process.env[VERA_HOME_ENV];
     } else {
-        process.env[VERA_RUNTIME_DIR_ENV] = previousRuntimeDir;
+        process.env[VERA_HOME_ENV] = previousHome;
     }
     for (const root of roots.splice(0)) {
         rmSync(root, { recursive: true, force: true });
@@ -29,10 +29,12 @@ afterEach(() => {
 });
 
 function useTemporaryRuntime(): string {
-    const root = mkdtempSync(join(tmpdir(), "vera-backoff-"));
-    roots.push(root);
-    process.env[VERA_RUNTIME_DIR_ENV] = root;
-    return root;
+    const home = mkdtempSync(join(tmpdir(), "vera-backoff-"));
+    roots.push(home);
+    process.env[VERA_HOME_ENV] = home;
+    const runtime = join(home, "runtime");
+    mkdirSync(runtime, { recursive: true });
+    return runtime;
 }
 
 const noHostLockfile = {
