@@ -32,7 +32,7 @@ export async function loadSkillContribution(
 
 export function renderSkillCatalog(catalog: SkillCatalog): string {
     const header = [
-        "Reusable workflows available to this agent are listed below.",
+        "Reusable skills available to this agent are listed below.",
         "When the user names a skill with `$name`, or the task clearly matches its description, read that skill's SKILL.md with the read tool before following it.",
         "Resolve referenced files from the skill directory. Supporting files are not separate skills. Run a referenced script only through skill_script.",
         "",
