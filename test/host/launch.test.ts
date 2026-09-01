@@ -174,7 +174,7 @@ test("a worktree started without its own runtime is warned about", async () => {
     const root = await linkedWorktree();
     try {
         expect(worktreeRuntimeNotice(join(root, "clients"), {}))
-            .toContain("bun run tui:worktree");
+            .toContain("bun run dev:tui");
     } finally {
         await rm(root, { recursive: true, force: true });
     }
@@ -185,7 +185,6 @@ test("a deliberate runtime silences the worktree warning", async () => {
     try {
         for (
             const environment of [
-                { VERA_WORKTREE_RUNTIME: "/tmp/vera-worktrees/x" },
                 { VERA_RUNTIME_DIR: "/tmp/vera-worktrees/x" },
                 { VERA_HOME: "/tmp/vera-home" },
             ]

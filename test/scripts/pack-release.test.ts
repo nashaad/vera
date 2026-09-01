@@ -111,8 +111,6 @@ test("dev scripts pack the release before tui and host", () => {
     );
     expect(pkg.scripts.host?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
-    expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:release &&"))
-        .toBe(true);
     expect(pkg.scripts["dev:tui"]?.startsWith("bun run pack:release &&"))
         .toBe(true);
 });

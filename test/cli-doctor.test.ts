@@ -467,13 +467,13 @@ test("doctor leaves a launcher-owned worktree runtime to its own island", async 
     );
 });
 
-test("process environment identifies a deliberate worktree runtime", () => {
+test("process environment identifies an isolated runtime directory", () => {
     expect(veraRuntimeFromPsLine(
-        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol VERA_WORKTREE_RUNTIME=/tmp/aspol",
+        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/aspol",
     )).toEqual({
         isolated: true,
         runtimeDir: "/tmp/aspol",
-        worktreeRuntime: true,
+        worktreeRuntime: false,
     });
 });
 
@@ -486,15 +486,6 @@ test("a profile env does not name a second host runtime", () => {
     });
 });
 
-test("an inherited worktree marker does not own a nested runtime", () => {
-    expect(veraRuntimeFromPsLine(
-        "bun clients/host/main.ts VERA_RUNTIME_DIR=/tmp/nested VERA_WORKTREE_RUNTIME=/tmp/aspol",
-    )).toEqual({
-        isolated: true,
-        runtimeDir: "/tmp/nested",
-        worktreeRuntime: false,
-    });
-});
 
 test("a worktree checkout path is not leftover of this island", async () => {
     const sample = [

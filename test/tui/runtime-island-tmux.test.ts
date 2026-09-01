@@ -64,7 +64,6 @@ test.skipIf(!tmuxAvailable)(
             startCliTui(socket, "tree", home, {
                 VERA_PROFILE: "dev",
                 VERA_RUNTIME_DIR: worktreeRuntime,
-                VERA_WORKTREE_RUNTIME: worktreeRuntime,
             });
             treePane = await waitForVisiblePane(
                 socket,
@@ -120,7 +119,6 @@ test.skipIf(!tmuxAvailable)(
                     VERA_HOME: join(home, ".vera"),
                     VERA_PROFILE: "dev",
                     VERA_RUNTIME_DIR: worktreeRuntime,
-                    VERA_WORKTREE_RUNTIME: worktreeRuntime,
                 },
                 stdout: "pipe",
                 stderr: "pipe",

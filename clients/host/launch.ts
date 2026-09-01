@@ -21,7 +21,6 @@ import {
 import {
     VERA_HOME_ENV,
     VERA_RUNTIME_DIR_ENV,
-    VERA_WORKTREE_RUNTIME_ENV,
     veraRuntimeDirectory,
 } from "../../src/profile-paths.ts";
 import { dispatchToHostRelease } from "../../src/release/dispatch.ts";
@@ -73,15 +72,14 @@ export function worktreeRuntimeNotice(
     environment: Record<string, string | undefined> = process.env,
 ): string | undefined {
     const chosen = [
-        VERA_WORKTREE_RUNTIME_ENV,
         VERA_RUNTIME_DIR_ENV,
         VERA_HOME_ENV,
     ].some((name) => (environment[name] ?? "").trim().length > 0);
     if (chosen || !insideLinkedWorktree(cwd)) return undefined;
-    return "started inside a Git worktree with no runtime of its own, so this"
-        + " session is attached to the main checkout's host and does not run"
+    return "started inside a Git worktree with no instance of its own, so this"
+        + " session is attached to the daily host and does not run"
         + " this worktree's code. Quit and start it with"
-        + " 'bun run tui:worktree'.";
+        + " 'bun run dev:tui'.";
 }
 
 /** A linked worktree records `.git` as a file; the main checkout as a directory. */

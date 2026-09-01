@@ -14,7 +14,6 @@ import {
     VERA_HOME_ENV,
     VERA_PROFILE_ENV,
     VERA_RUNTIME_DIR_ENV,
-    VERA_WORKTREE_RUNTIME_ENV,
     veraHomeDirectory,
     veraRuntimeDirectory,
 } from "../src/profile-paths.ts";
@@ -526,24 +525,13 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
     const runtimeOverride = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
     const isolated = runtimeOverride !== undefined || home !== undefined;
-    const worktreeRuntimeDirectory = firstEnvValue(
-        commandAndEnv,
-        VERA_WORKTREE_RUNTIME_ENV,
-    );
-    // The launcher marker is inherited by workers and their tools. It owns
-    // only the runtime it names: a nested Vera that overrides
-    // VERA_RUNTIME_DIR must remain eligible for cleanup inside that nested
-    // island, not from a doctor invoked against a different one.
-    const worktreeRuntime = runtimeOverride !== undefined
-        && worktreeRuntimeDirectory === runtimeOverride;
     const runtimeDir = runtimeOverride
-        ?? worktreeRuntimeDirectory
         ?? (home !== undefined
             ? join(home, "runtime")
             : undefined);
     return {
         isolated,
-        worktreeRuntime,
+        worktreeRuntime: false,
         ...(runtimeDir === undefined ? {} : { runtimeDir }),
     };
 }
