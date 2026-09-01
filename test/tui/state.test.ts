@@ -290,6 +290,46 @@ test("a history rebuild keeps the last request recipe when occupancy arrives wit
     expect(state.context?.projection).toEqual(projection);
 });
 
+test("a rewind history with its own recipe replaces the dropped turn", () => {
+    const dropped = {
+        estimatedTokens: 32_761,
+        components: [{
+            kind: "message" as const,
+            id: "message:7",
+            owner: "session",
+            source: "tool_result",
+            displayName: "read In flight.md",
+            count: 1,
+            estimatedTokens: 32_761,
+        }],
+    };
+    const kept = {
+        estimatedTokens: 16_099,
+        components: [{
+            kind: "message" as const,
+            id: "message:1",
+            owner: "session",
+            source: "user",
+            displayName: "user message",
+            count: 1,
+            estimatedTokens: 16_099,
+        }],
+    };
+    let state = applyAgentUpdate(createTuiState(), {
+        type: "context",
+        measurement: { tokens: 32_761, estimated: true, projection: dropped },
+        seq: 1,
+    });
+    state = applyAgentUpdate(state, {
+        type: "history",
+        entries: [],
+        context: { tokens: 16_099, estimated: true, projection: kept },
+        seq: 1,
+    });
+    expect(state.context?.tokens).toBe(16_099);
+    expect(state.context?.projection).toEqual(kept);
+});
+
 test("the thought summary folds the reasoning it collected", () => {
     let state = applyAgentUpdate(createTuiState(), {
         type: "assistant_thinking",

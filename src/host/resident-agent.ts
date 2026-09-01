@@ -596,6 +596,9 @@ export class ResidentAgent {
             this.startedTurnActive = false;
         }
         if (snapshot.type === "history") {
+            if (snapshot.context?.projection !== undefined) {
+                this.lastContext = snapshot.context;
+            }
             this.checkpoint = withLastContextRecipe(snapshot, this.lastContext);
             this.updatesAfterCheckpoint = [];
         } else {

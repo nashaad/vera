@@ -12,7 +12,9 @@ import {
 import { FauxAdapter } from "./faux-adapter.ts";
 import { installTestProcessGuard } from "./self-terminate-guard.ts";
 
-export function createTuiRewindDependencies(): TuiDependencies {
+export function createTuiRewindDependencies(
+    options: { readonly contextWindow?: number } = {},
+): TuiDependencies {
     const channel = createInProcessChannel();
     void runHeadlessLoop(
         channel.engine,
@@ -29,6 +31,9 @@ export function createTuiRewindDependencies(): TuiDependencies {
             readModelSettings: () => ({
                 model: "test",
                 reasoningEffort: "high",
+                ...(options.contextWindow === undefined
+                    ? {}
+                    : { contextWindow: options.contextWindow }),
             }),
             readApprovalMode: () => "auto",
             updateApprovalMode: async () => undefined,

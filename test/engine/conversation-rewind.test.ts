@@ -9,6 +9,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { rewindConversationBefore } from "../../src/engine/conversation-rewind.ts";
+import type { ContextMeasurement } from "../../src/engine/context-measurement.ts";
 import {
     createProtocolEncoder,
     projectTranscript,
@@ -93,6 +94,64 @@ test("conversation rewind publishes active history without changing files", asyn
     ]);
 });
 
+test("conversation rewind publishes the on-branch context, not the dropped turn", async () => {
+    const directory = temporaryDirectory();
+    const sessionPath = join(directory, "session.jsonl");
+    const store = await SessionStore.create(sessionPath, {
+        sessionId: "session-1",
+        cwd: directory,
+        createId: values(
+            "message-1",
+            "message-2",
+            "message-3",
+            "message-4",
+        ),
+    });
+    const firstUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "hi" }],
+    };
+    const firstAssistant = assistantMessage("hello");
+    const secondUser: ModelMessage = {
+        role: "user",
+        content: [{ type: "text", text: "read the doc" }],
+    };
+    await store.appendMessage(firstUser);
+    await store.appendContextMeasurement(measurement(16_099, "user message"));
+    await store.appendMessage(firstAssistant);
+    const secondBoundary = await store.appendMessage(secondUser);
+    await store.appendContextMeasurement(measurement(32_761, "tool_result message"));
+    await store.appendMessage(assistantMessage("too long"));
+    const state = {
+        messages: [...store.messages()],
+        store,
+    };
+    const updates: AgentUpdate[] = [];
+    const protocol = createProtocolEncoder({
+        send(update): void {
+            updates.push(update);
+        },
+    });
+    protocol({
+        type: "context_measured",
+        model: "test",
+        measurement: measurement(32_761, "tool_result message"),
+    });
+
+    await rewindConversationBefore(state, protocol, secondBoundary.id);
+
+    const history = updates.find((update) => update.type === "history");
+    expect(history?.type === "history" ? history.context?.tokens : undefined)
+        .toBe(16_099);
+    expect(
+        history?.type === "history"
+            ? history.context?.projection?.components.map((component) =>
+                component.displayName
+            )
+            : undefined,
+    ).toEqual(["user message"]);
+});
+
 function assistantMessage(text: string): ModelMessage {
     return {
         role: "assistant",
@@ -100,6 +159,27 @@ function assistantMessage(text: string): ModelMessage {
         source: { provider: "faux", api: "scripted", model: "test" },
         usage: emptyUsage(),
         stopReason: "stop",
+    };
+}
+
+function measurement(tokens: number, displayName: string): ContextMeasurement {
+    return {
+        tokens,
+        estimated: true,
+        projection: {
+            estimatedTokens: tokens,
+            components: [{
+                kind: "message",
+                id: "message:1",
+                owner: "session",
+                source: displayName === "tool_result message"
+                    ? "tool_result"
+                    : "user",
+                displayName,
+                count: 1,
+                estimatedTokens: tokens,
+            }],
+        },
     };
 }
 

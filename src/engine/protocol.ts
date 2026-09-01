@@ -1103,6 +1103,11 @@ export interface ProtocolEncoder extends EngineEventSubscriber {
         context?: ContextMeasurement,
         recipe?: ContextMeasurement,
     ): void;
+    /**
+     * Replace the encoder's last-request occupancy. Rewind uses this so a
+     * dropped turn's measurement cannot floor the next checkpoint.
+     */
+    restoreContext(measurement?: ContextMeasurement): void;
 }
 
 export function parseClientCommand(value: unknown): ClientCommand | undefined {
@@ -2193,9 +2198,12 @@ export function createProtocolEncoder(
             const context = coherentContextMeasurement(
                 keepLastRequestRecipe(
                     headline,
-                    measuredContext ?? floor ?? recipe,
+                    recipe ?? measuredContext ?? floor,
                 ),
             );
+            if (recipe !== undefined) {
+                measuredContext = context;
+            }
             sessionUsage = summarizeSessionModelUsage(messages);
             sender.send({
                 type: "history",
@@ -2212,6 +2220,10 @@ export function createProtocolEncoder(
                     : { promptQueue: structuredClone(promptQueue) }),
                 seq,
             });
+        },
+        restoreContext(measurement?: ContextMeasurement): void {
+            measuredContext = measurement;
+            pendingCheckpointFloor = undefined;
         },
     });
 }

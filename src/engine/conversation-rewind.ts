@@ -22,6 +22,13 @@ export async function rewindConversationBefore(
     const rewind = await state.store.rewindBefore(userMessageId);
     const activeMessages = state.store.messages();
     state.messages.splice(0, state.messages.length, ...activeMessages);
-    protocol.checkpoint(state.messages, state.store.activeMessageIds());
+    const onBranch = state.store.latestContextMeasurement();
+    protocol.restoreContext(onBranch);
+    protocol.checkpoint(
+        state.messages,
+        state.store.activeMessageIds(),
+        onBranch,
+        onBranch,
+    );
     return rewind;
 }
