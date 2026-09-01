@@ -62,6 +62,12 @@ import {
 } from "../../src/release/dispatch.ts";
 import { defaultInstallPrefix } from "../../src/release/layout.ts";
 import { rollbackLocalInstall } from "../../src/release/rollback.ts";
+import {
+    HomeMigrationError,
+    migrateHome,
+    rollbackHomeMigration,
+    type HomeMigrationResult,
+} from "../../src/home-migration.ts";
 import { formatVeraVersion, readStampedRelease } from "../../src/release/stamp.ts";
 import {
     exportSession,
@@ -277,6 +283,8 @@ export interface CliDependencies {
         readonly fromBuildId: string | undefined;
         readonly toBuildId: string;
     };
+    readonly migrateHome?: (home: string) => HomeMigrationResult;
+    readonly rollbackHomeMigration?: (home: string) => HomeMigrationResult;
 }
 
 export async function runCli(
@@ -349,6 +357,10 @@ export async function runCli(
 
     if (args[0] === "rollback") {
         return runRollbackCommand(args.slice(1), output, errorOutput, dependencies);
+    }
+
+    if (args[0] === "migrate-home") {
+        return runMigrateHomeCommand(args.slice(1), output, errorOutput, dependencies);
     }
 
     const dispatched = await (dependencies.dispatchToHostRelease
@@ -1398,6 +1410,60 @@ function runHostSupervision(
             }\n`,
     );
     return 0;
+}
+
+function runMigrateHomeCommand(
+    flags: readonly string[],
+    output: CliOutput,
+    errorOutput: CliOutput,
+    dependencies: CliDependencies,
+): number {
+    let rollback = false;
+    for (const flag of flags) {
+        if (flag === "--rollback") {
+            rollback = true;
+            continue;
+        }
+        if (flag.startsWith("-")) {
+            errorOutput.write(`vera migrate-home: unknown flag: ${flag}\n`);
+            return 1;
+        }
+        errorOutput.write("vera migrate-home: usage: vera migrate-home [--rollback]\n");
+        return 1;
+    }
+    const home = veraHomeDirectory();
+    try {
+        const result = rollback
+            ? (dependencies.rollbackHomeMigration ?? rollbackHomeMigration)(home)
+            : (dependencies.migrateHome ?? migrateHome)(home);
+        output.write(renderHomeMigration(result));
+        return 0;
+    } catch (error) {
+        errorOutput.write(
+            `vera migrate-home: ${error instanceof HomeMigrationError || error instanceof Error
+                ? error.message
+                : String(error)}\n`,
+        );
+        return 1;
+    }
+}
+
+function renderHomeMigration(result: HomeMigrationResult): string {
+    if (result.status === "already_flat") {
+        return `${result.home} is already a single home.\n`;
+    }
+    if (result.status === "rolled_back") {
+        return `Restored ${result.home} from the pre-migration backup.\n`;
+    }
+    const extra = result.otherProfiles.length === 0
+        ? ""
+        : ` Other profiles kept in backup: ${result.otherProfiles.join(", ")}.`;
+    const unknown = result.unknownEntries.length === 0
+        ? ""
+        : ` Unknown files kept in backup: ${result.unknownEntries.join(", ")}.`;
+    const backup = result.backup === undefined ? "" : ` Backup: ${result.backup}.`;
+    const resumed = result.status === "resumed" ? " Resumed an interrupted migration." : "";
+    return `Migrated ${result.home}.${backup}${extra}${unknown}${resumed}\n`;
 }
 
 function runRollbackCommand(

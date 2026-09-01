@@ -1139,6 +1139,45 @@ test("vera reports a missing retained release without a runtime stack trace", as
     expect(errorOutput).not.toContain("RetainedReleaseMissingError:");
 });
 
+test("vera migrate-home does not dispatch to a retained host client", async () => {
+    let output = "";
+    let hops = 0;
+    const exitCode = await runCli(["migrate-home"], {
+        dispatchToHostRelease: async () => {
+            hops += 1;
+            return 0;
+        },
+        migrateHome: () => ({
+            status: "migrated" as const,
+            home: "/tmp/vera-home",
+            backup: "/tmp/vera-home.bak",
+            otherProfiles: ["dev"],
+            unknownEntries: [],
+        }),
+        stdout: { write: (text: string) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(hops).toBe(0);
+    expect(output).toContain("Migrated /tmp/vera-home");
+    expect(output).toContain("dev");
+});
+
+test("vera migrate-home --rollback restores the previous home", async () => {
+    let output = "";
+    const exitCode = await runCli(["migrate-home", "--rollback"], {
+        dispatchToHostRelease: async () => 0,
+        rollbackHomeMigration: () => ({
+            status: "rolled_back" as const,
+            home: "/tmp/vera-home",
+            otherProfiles: [],
+            unknownEntries: [],
+        }),
+        stdout: { write: (text: string) => output += text },
+    });
+    expect(exitCode).toBe(0);
+    expect(output).toContain("Restored /tmp/vera-home");
+});
+
 test("vera rollback does not dispatch to a retained host client", async () => {
     let output = "";
     let hops = 0;
