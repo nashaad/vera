@@ -102,7 +102,6 @@ import {
     createTuiQuestionView,
 } from "./question.ts";
 import { createTuiSidebar } from "./sidebar.ts";
-import { tuiTranscriptAtBottom } from "./transcript-scroll.ts";
 import { createTuiExperimentalHost } from "./experimental-tui-host.ts";
 import { createTuiHostedAgentSurface } from "./hosted-agent-surface.ts";
 import {
@@ -178,7 +177,6 @@ import { createTuiSessionTrashConfirmView } from "./session-trash-confirm.ts";
 import { createTuiSessionCloseConfirmView } from "./session-close-confirm.ts";
 import { createTuiProviderForgetConfirmView } from "./provider-forget-confirm.ts";
 import { createTuiAdmissionDialogView } from "./admission-dialog.ts";
-import { renderTuiHeldAddress } from "./addressing.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
 import { createTuiLinesView } from "./lines-view.ts";
@@ -225,7 +223,7 @@ import {
     type TuiStatusChunk,
 } from "./status.ts";
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
-import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, verificationConsoleLines, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView, handleTuiProviderFormPaste } from "./settings-picker.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, switchedModelTab, moveTuiSettingsPickerPointer, sessionPickerLists, type TuiSettingsPickerState, createTuiProviderFormView, handleTuiProviderFormPaste } from "./settings-picker.ts";
 import { createTuiRequestOptionsEditorView } from "./request-options-editor.ts";
 import { createTuiSecretPromptView, handleTuiSecretPromptPaste } from "./secret-prompt.ts";
 import { createTuiNamePromptView } from "./name-prompt.ts";
@@ -301,6 +299,8 @@ import { applySettingsPickerTransition, closeSettingsPickerSurface } from "./mai
 import { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission } from "./main/session-ops.ts";
 import { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview } from "./main/pool-admission.ts";
 import { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy } from "./main/suggestions.ts";
+import { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText } from "./main/notices.ts";
+export { showStatusNotice, showModeToast, showVerificationConsole, verificationConsoleRows, hideVerificationConsole, dropSettledVerificationConsole, liveVerificationConsole, renderJumpToBottom, renderSidebarJump, renderPendingQuote, renderHeldAddress, paneHeaderText };
 export { pooledModelNames, activeCompletion, renderCommandSuggestions, activeComposeSuggester, overlaysClearOfSuggestions, finishStreamingAssistant, copyTranscriptSelection, announceCopy };
 export { requestCatalogRefresh, requestPoolAdmission, dialogAdmission, keptModels, openCatalogRefreshScopePicker, startCatalogRefreshSweep, advanceCatalogRefreshSweep, catalogRefreshSweepResult, catalogRefreshSummary, openPoolVerifyScopePicker, startPoolVerifySweep, advancePoolVerifySweep, poolVerifySweepResult, verifyModelInPicker, closeAdmissionDialog, requestPermissionsChange, applySelectedTheme, scheduleThemePreview };
 export { switchToClient, destinationIsLive, openSwitchDestination, requestCloseSession, beginParkToJsonl, runHomeAction, returnToHome, refreshHomeSessions, resumeJsonlView, beginCreateSession, beginSessionResume, currentDraft, beginSessionTrash, performSessionTrash, requestModelSettingsChange, formatContextLimit, retryPoolAdmission };
@@ -391,8 +391,8 @@ function shortConnectionFailure(message: string): string {
 // The question overlay owns the choose/cancel hint now, so the status line only
 // carries the waiting phase and the global interrupt.
 const QUESTION_HINT = `question waiting · ${tuiKeyHint("interrupt")}`;
-const COPY_NOTICE_DURATION_MS = 1_500;
-const MODE_TOAST_DURATION_MS = 2_500;
+export const COPY_NOTICE_DURATION_MS = 1_500;
+export const MODE_TOAST_DURATION_MS = 2_500;
 const STATUS_REFRESH_INTERVAL_MS = 100;
 export const DIRECT_EXTENSION_COMMAND_TIMEOUT_MS = 2_000;
 const SYMMETRIC_WAVE_FRAME_INTERVAL_MS = 360;
@@ -4485,187 +4485,17 @@ export function defaultModelChangeNotice(
 
 
 
-export function showStatusNotice(rt: TuiRuntime, message: string): void {
-    rt.statusNotice = message;
-    rt.statusNoticeVersion += 1;
-    const version = rt.statusNoticeVersion;
-    renderStatus(rt);
 
-    setTimeout(() => {
-        if (rt.statusNoticeVersion !== version) {
-            return;
-        }
-        rt.statusNotice = undefined;
-        renderStatus(rt);
-    }, COPY_NOTICE_DURATION_MS);
-}
 
-export function showModeToast(rt: TuiRuntime, message: string): void {
-    rt.modeToastVersion += 1;
-    const version = rt.modeToastVersion;
-    rt.modeToastText.content = message;
-    rt.modeToast.width = message.length + 4;
-    // Above the overlay when one is open, so the toast is not painted
-    // behind the card that prompted it.
-    rt.modeToast.visible = true;
-    setTimeout(() => {
-        if (rt.modeToastVersion !== version) return;
-        rt.modeToast.visible = false;
-    }, MODE_TOAST_DURATION_MS);
-}
 
-export function showVerificationConsole(rt: TuiRuntime, 
-    requestId: string,
-    subject: string,
-): void {
-    rt.verificationConsole = { requestId, subject };
-}
 
-export function verificationConsoleRows(rt: TuiRuntime): number {
-    if (rt.settingsPicker?.kind !== "model") return 0;
-    const shown = liveVerificationConsole(rt);
-    return shown === undefined ? 0 : verificationConsoleLines(shown);
-}
 
-export function hideVerificationConsole(rt: TuiRuntime, requestId: string): void {
-    if (rt.verificationConsole?.requestId !== requestId) return;
-    rt.verificationConsole = undefined;
-}
 
-export function dropSettledVerificationConsole(rt: TuiRuntime): void {
-    if (rt.verificationConsole === undefined) return;
-    const admission = rt.state.admission;
-    if (
-        admission?.requestId === rt.verificationConsole.requestId
-        && admission.settled === true
-    ) {
-        rt.verificationConsole = undefined;
-    }
-}
 
-export function liveVerificationConsole(rt: TuiRuntime) {
-    const shown = rt.verificationConsole;
-    if (shown === undefined) return undefined;
-    const admission = rt.state.admission?.requestId === shown.requestId
-        ? rt.state.admission
-        : undefined;
-    if (admission?.settled === true) return undefined;
-    return {
-        subject: shown.subject,
-        steps: (admission?.steps ?? []).map((step) => ({
-            label: step.label,
-            status: step.status,
-        })),
-    };
-}
 
-export function renderJumpToBottom(rt: TuiRuntime, resumeFollow = true): void {
-    const following = tuiTranscriptAtBottom(
-        rt.transcript.scrollTop,
-        rt.transcript.scrollHeight,
-        rt.transcript.viewport.height,
-    );
-    // OpenTUI's wheel handler marks every wheel event as manual after it
-    // updates scrollTop, including the event that reaches the bottom. If
-    // streaming grows the transcript before the next layout pass, that
-    // stale manual flag prevents sticky scroll from following the new
-    // content. Crossing from the visible pill back to the bottom is an
-    // explicit request to resume following, so reapply the bottom here.
-    // A keyboard scroll moves by an exact number of rows and passes false,
-    // because snapping back would undo the row it just moved.
-    if (following && resumeFollow) {
-        rt.transcript.scrollTo(rt.transcript.scrollHeight);
-    }
-    const visible = !following && !anyOverlayOpen(rt);
-    rt.jumpToBottom.visible = visible;
-    if (!visible) {
-        return;
-    }
-    rt.jumpToBottom.top = rt.commandSuggestionsBox.visible
-        ? Math.min(
-            rt.transcript.y + rt.transcript.height - 1,
-            rt.commandSuggestionsBox.y - 1,
-        )
-        : rt.transcript.y + rt.transcript.height - 1;
-    rt.jumpToBottom.left = Math.max(
-        0,
-        rt.transcript.x + rt.transcript.width - rt.JUMP_TO_BOTTOM_LABEL.length - 2,
-    );
-}
 
-export function renderSidebarJump(rt: TuiRuntime): void {
-    const visible = rt.sidebar.isShown() && !rt.sidebar.isFollowing()
-        && !anyOverlayOpen(rt);
-    rt.sidebarJump.visible = visible;
-    if (!visible) {
-        return;
-    }
-    const region = rt.sidebar.bounds();
-    rt.sidebarJump.top = region.y + region.height - 1;
-    rt.sidebarJump.left = Math.max(
-        0,
-        region.x + region.width - rt.SIDEBAR_JUMP_LABEL.length - 1,
-    );
-}
 
-export function renderPendingQuote(rt: TuiRuntime): void {
-    const quote = rt.pendingQuote;
-    rt.quoteText.visible = quote !== undefined && !anyOverlayOpen(rt);
-    setComposerMargin(rt, rt.quoteText.visible ? 3 : 2);
-    if (quote === undefined) {
-        rt.quoteText.content = "";
-        return;
-    }
-    const { facts, keys } = renderTuiQuote(quote);
-    // Indented by hand: the line is one row in a column that does not pad
-    // its children, and it has to start where the composer's text starts.
-    rt.quoteText.content = new StyledText([
-        fg(TUI_ACCENT)(`${tuiQuoteMarker(Date.now())} `),
-        fg(TUI_MUTED)(`${facts} · `),
-        fg(TUI_ACCENT)(keys),
-    ]);
-}
 
-export function renderHeldAddress(rt: TuiRuntime): void {
-    const { facts, keys } = renderTuiHeldAddress(rt.extensionAddressee);
-    rt.heldAddressText.visible = facts.length > 0 && !anyOverlayOpen(rt);
-    if (facts.length === 0) {
-        rt.heldAddressText.content = "";
-        return;
-    }
-    // Indented by hand: the row sits in a column that does not pad its
-    // children, and it has to start where the composer's text starts.
-    rt.heldAddressText.content = new StyledText([
-        fg(TUI_MUTED)(
-            `${" ".repeat(rt.appearance.composerMarginHorizontal)}${facts} · `,
-        ),
-        fg(TUI_ACCENT)(keys),
-    ]);
-}
-
-export function paneHeaderText(rt: TuiRuntime, 
-    name: string,
-    approvalMode: string | undefined,
-    settings: TuiState["modelSettings"],
-    width: number,
-): string {
-    const left = `${name} · ${approvalMode ?? "loading"}`;
-    const model = settings?.model;
-    const right = model === undefined
-        ? "model loading"
-        : settings?.provider === undefined
-        ? model
-        : `${settings.provider}/${model}`;
-    const contentWidth = Math.max(1, width - rt.composerHorizontalInset);
-    const indent = " ".repeat(rt.composerContentIndent);
-    if (left.length + right.length + 3 <= contentWidth) {
-        return `${indent}${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
-    }
-    const rightRoom = Math.max(0, contentWidth - left.length - 3);
-    return rightRoom < 4
-        ? `${indent}${left.slice(0, contentWidth)}`
-        : `${indent}${left} · ${right.slice(0, rightRoom)}`;
-}
 
 export function renderStatus(rt: TuiRuntime): void {
     if (rt.shuttingDown) {
