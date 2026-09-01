@@ -52,7 +52,6 @@ test.skipIf(!tmuxAvailable)(
         try {
             startCliTui(socket, "daily", home, {
                 VERA_PROFILE: "dev",
-                VERA_WORKER: "0",
             });
             dailyPane = await waitForVisiblePane(
                 socket,

@@ -74,8 +74,6 @@ test("a running worker process reads edits from the serialized config path", asy
     const configPath = join(root, "config.json");
     const recordPath = join(root, "requests.jsonl");
     writeFileSync(configPath, JSON.stringify(config("first")));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: (context) => ({
@@ -123,11 +121,6 @@ test("a running worker process reads edits from the serialized config path", asy
             ]);
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
     }
 });
 

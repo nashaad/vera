@@ -89,8 +89,6 @@ async function waitForProcessExit(pid: number): Promise<void> {
 
 test("the registry contains a killed worker and keeps its sibling usable", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-registry-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const scripts = new Map<string, readonly AssistantMessage[]>([
         ["victim", [
             toolCall("hold", "sleep 60"),
@@ -179,11 +177,6 @@ test("the registry contains a killed worker and keeps its sibling usable", async
         });
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
@@ -197,8 +190,6 @@ test("a parent close effect kills a child worker process tree", async () => {
         cwd: root,
         parentId: "parent",
     });
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const scripts = new Map<string, readonly AssistantMessage[]>([
         ["parent", [
             {
@@ -298,19 +289,12 @@ test("a parent close effect kills a child worker process tree", async () => {
         expect(await Bun.file(childPath).exists()).toBe(true);
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
 
 test("a worker returns timeline replies only to their attachment", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-timeline-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: () => ({
@@ -360,11 +344,6 @@ test("a worker returns timeline replies only to their attachment", async () => {
         expect(peerSawReply).toBe(false);
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
@@ -378,8 +357,6 @@ test("the default worker cap scales with memory and stays inside its bounds", ()
 
 test("a session past the worker cap fails with the way to free a slot", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-cap-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -432,19 +409,12 @@ test("a session past the worker cap fails with the way to free a slot", async ()
         ).toBeUndefined();
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
 
 test("owner commands still answer while the loop runs in a worker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-owner-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -487,19 +457,12 @@ test("owner commands still answer while the loop runs in a worker", async () => 
         });
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
 
 test("dialling a session reaches the loop already running in a worker", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-dial-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -549,11 +512,6 @@ test("dialling a session reaches the loop already running in a worker", async ()
         expect(permissions).toMatchObject({ mode: "ask" });
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
@@ -590,9 +548,7 @@ test("an extension tool runs inside the worker when the host hands it over", asy
         }`,
     );
 
-    const previousWorkerMode = process.env.VERA_WORKER;
     const previousWorkerExtensions = process.env.VERA_WORKER_EXTENSIONS;
-    process.env.VERA_WORKER = "1";
     process.env.VERA_WORKER_EXTENSIONS = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
@@ -646,11 +602,6 @@ test("an extension tool runs inside the worker when the host hands it over", asy
         });
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         if (previousWorkerExtensions === undefined) {
             delete process.env.VERA_WORKER_EXTENSIONS;
         } else {
@@ -662,8 +613,6 @@ test("an extension tool runs inside the worker when the host hands it over", asy
 
 test("wear queued in a worker is answered by the host over the boundary", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-wear-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -704,11 +653,6 @@ test("wear queued in a worker is answered by the host over the boundary", async 
         });
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
@@ -726,8 +670,6 @@ test("skill commands list and run through a worker", async () => {
         "Deploy it.",
         "",
     ].join("\n"));
-    const previousWorkerMode = process.env.VERA_WORKER;
-    process.env.VERA_WORKER = "1";
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([]),
         workerAdapterSpec: ({ sessionId }) => ({
@@ -793,29 +735,30 @@ test("skill commands list and run through a worker", async () => {
             ]);
     } finally {
         await registry.close();
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
 
-test("a session runs in a worker with nothing set, and in the host at 0", async () => {
+test("a session runs in a worker when a spec is offered, and in the host when it is not", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-worker-default-"));
-    const previousWorkerMode = process.env.VERA_WORKER;
 
-    async function workerPidFor(id: string): Promise<number | null> {
+    async function workerPidFor(
+        id: string,
+        withSpec: boolean,
+    ): Promise<number | null> {
         const registry = new AgentRegistry({
             createAdapter: () => new FauxAdapter([toolCall("hold", "sleep 60")]),
-            workerAdapterSpec: () => ({
-                module: ADAPTER,
-                options: {
-                    script: [toolCall("hold", "sleep 60")],
-                    pidPath: join(root, `${id}.pid`),
-                },
-            }),
+            ...(withSpec
+                ? {
+                    workerAdapterSpec: () => ({
+                        module: ADAPTER,
+                        options: {
+                            script: [toolCall("hold", "sleep 60")],
+                            pidPath: join(root, `${id}.pid`),
+                        },
+                    }),
+                }
+                : {}),
             model: "faux/test",
             approvalMode: "full_access",
         });
@@ -840,17 +783,9 @@ test("a session runs in a worker with nothing set, and in the host at 0", async 
     }
 
     try {
-        delete process.env.VERA_WORKER;
-        expect(await workerPidFor("unset")).toEqual(expect.any(Number));
-
-        process.env.VERA_WORKER = "0";
-        expect(await workerPidFor("optout")).toBeNull();
+        expect(await workerPidFor("with-spec", true)).toEqual(expect.any(Number));
+        expect(await workerPidFor("no-spec", false)).toBeNull();
     } finally {
-        if (previousWorkerMode === undefined) {
-            delete process.env.VERA_WORKER;
-        } else {
-            process.env.VERA_WORKER = previousWorkerMode;
-        }
         await rm(root, { recursive: true, force: true });
     }
 }, 60_000);
