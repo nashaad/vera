@@ -113,7 +113,7 @@ export interface StartHostServerOptions {
     readonly startedAt?: string;
     /** Stamped build ID this host serves. Defaults to this process's stamp. */
     readonly buildId?: string;
-    /** Project whose project-scoped extensions this host loaded. */
+    /** Optional diagnostic stamped on the lockfile. Not host identity. */
     readonly projectRoot?: string;
     readonly startupClaimPath?: string;
     readonly capabilities?: readonly string[];

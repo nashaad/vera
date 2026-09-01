@@ -1265,8 +1265,8 @@ export async function startConfiguredTui(
             reconnectSession: async (currentAgentId, options) => {
                 // No readline here: the renderer owns the screen. Typed
                 // `/reconnect` is the confirm for a wedge; auto-restart after
-                // a drop is not. A busy answering host, including one bound
-                // to another project, must refuse rather than be killed.
+                // a drop is not. A busy answering host must refuse rather
+                // than be killed. Directory is not host identity.
                 const replaceExisting = options?.replaceExisting === true;
                 host = await findOrStartResidentHost({
                     confirmBusyUpgrade: replaceExisting

@@ -331,7 +331,7 @@ test("the record carries the host build id", async () => {
     expect(await createTestLockfile(path).read()).toEqual(record);
 });
 
-test("the record carries the project identity used for project extensions", async () => {
+test("the record can carry a boot cwd as a diagnostic", async () => {
     const path = temporaryLockPath();
     const lockfile = createTestLockfile(path, {
         projectRoot: "/checkouts/project-a",

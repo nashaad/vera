@@ -29,7 +29,7 @@ export interface HostLockRecord {
     readonly socket_path: string;
     /** Stamped build ID of the running host. Absent on a pre-pairing record. */
     readonly build_id?: string;
-    /** Project whose project-scoped extensions the host loaded at startup. */
+    /** Optional diagnostic of a boot cwd. Never used for host replacement. */
     readonly project_root?: string;
 }
 

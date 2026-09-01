@@ -25,6 +25,17 @@ export function defaultVeraExtensionDirectory(): string {
     return join(veraProfileDirectory(), "extensions");
 }
 
+/** Project `.vera/extensions` discovered for this workspace, including managed. */
+export function discoverProjectExtensionConfigs(
+    projectRoot: string,
+): readonly VeraExtensionConfig[] {
+    const directory = projectVeraExtensionDirectory(projectRoot);
+    return mergeExtensionConfigs(
+        discoverExtensionConfigs(directory),
+        discoverManagedExtensionConfigs(directory),
+    );
+}
+
 export function projectVeraExtensionDirectory(projectRoot: string): string {
     let root: string;
     try {
