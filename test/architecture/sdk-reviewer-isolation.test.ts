@@ -10,6 +10,8 @@ test("the SDK reviewer remains a direct CLI-only example", async () => {
     const cliHelp = await source("clients/cli/help.ts");
 
     expect(workflow).toContain('from "../../index.ts"');
+    expect(workflow).toContain("Vera.run");
+    expect(workflow).not.toContain("Vera.create");
     expect(executable).toContain("runAdversarialWorkflow");
     expect(hostRuntime).not.toContain("adversarial-review");
     expect(hostRuntime).not.toContain("bundledHostExtensionConfigs");

@@ -261,10 +261,32 @@ async function createRuntime(
     options: CreateReviewRuntimeOptions,
 ): Promise<ReviewRuntime> {
     options.signal?.throwIfAborted();
-    return Vera.create({
-        workspace: options.workspace,
-        posture: "readonly",
-    });
+    return {
+        agent(definition) {
+            return {
+                run(prompt, runOptions = {}) {
+                    return Vera.run({
+                        prompt,
+                        agent: definition,
+                        workspace: options.workspace,
+                        posture: "readonly",
+                        ...(runOptions.signal === undefined
+                                && options.signal === undefined
+                            ? {}
+                            : {
+                                signal: runOptions.signal ?? options.signal,
+                            }),
+                        ...(runOptions.output === undefined
+                            ? {}
+                            : { output: runOptions.output }),
+                        ...(runOptions.sessionPath === undefined
+                            ? {}
+                            : { sessionPath: runOptions.sessionPath }),
+                    });
+                },
+            };
+        },
+    };
 }
 
 function resultError(
