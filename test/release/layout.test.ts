@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join, sep } from "node:path";
 
 import {
@@ -55,4 +57,31 @@ test("release layout names annex assets and the manifest", () => {
 
 test("currentReleaseBuildId reads the symlink text and nothing else", () => {
     expect(currentReleaseBuildId("/tmp/vera-no-such-prefix")).toBeUndefined();
+});
+
+test("a development instance uses this checkout pack when current is missing", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-pack-"));
+    const cwd = process.cwd();
+    const previous = process.env.VERA_DEV_INSTANCE;
+    const prefix = join(root, "prefix");
+    const checkoutPack = join(root, "dist", "release");
+    mkdirSync(checkoutPack, { recursive: true });
+    writeFileSync(join(checkoutPack, "manifest.json"), "{}\n");
+    try {
+        process.chdir(root);
+        process.env.VERA_DEV_INSTANCE = "ovu30 vera-test";
+        expect(thisProcessReleaseRoot(prefix)).toBe(realpathSync(checkoutPack));
+        delete process.env.VERA_DEV_INSTANCE;
+        expect(thisProcessReleaseRoot(prefix)).toBe(
+            join(prefix, "share", "vera", "current"),
+        );
+    } finally {
+        process.chdir(cwd);
+        if (previous === undefined) {
+            delete process.env.VERA_DEV_INSTANCE;
+        } else {
+            process.env.VERA_DEV_INSTANCE = previous;
+        }
+        rmSync(root, { recursive: true, force: true });
+    }
 });

@@ -127,8 +127,9 @@ export function releaseBinaryPath(
 
 /**
  * The release this process belongs to. A packed bun sits next to
- * `manifest.json`. Anything else (source `bun test`, a checkout CLI) uses
- * the activated `current`.
+ * `manifest.json`. A `dev:tui` process uses this checkout's `dist/release`.
+ * Anything else (source `bun test`, a checkout CLI) uses the activated
+ * `current`.
  */
 export function thisProcessReleaseRoot(
     prefix = defaultInstallPrefix(),
@@ -136,6 +137,13 @@ export function thisProcessReleaseRoot(
     const candidate = dirname(process.execPath);
     if (existsSync(releaseManifestPath(candidate))) {
         return candidate;
+    }
+    const checkoutPack = join(process.cwd(), "dist", "release");
+    if (
+        process.env.VERA_DEV_INSTANCE
+        && existsSync(releaseManifestPath(checkoutPack))
+    ) {
+        return checkoutPack;
     }
     return packedReleaseRoot(prefix);
 }
