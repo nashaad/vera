@@ -14,7 +14,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("the model inspector saves and clears request options through the real profile store", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-request-options-"));
-    const profile = join(home, ".vera", "profiles", "default");
+    const profile = join(home, ".vera");
     const configPath = join(profile, "config.json");
     mkdirSync(profile, { recursive: true });
     writeFileSync(configPath, JSON.stringify({

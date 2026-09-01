@@ -535,7 +535,6 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
 } {
     const runtimeOverride = firstEnvValue(commandAndEnv, VERA_RUNTIME_DIR_ENV);
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
-    const profile = firstEnvValue(commandAndEnv, VERA_PROFILE_ENV);
     const isolated = runtimeOverride !== undefined || home !== undefined;
     const worktreeRuntimeDirectory = firstEnvValue(
         commandAndEnv,
@@ -549,13 +548,8 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
         && worktreeRuntimeDirectory === runtimeOverride;
     const runtimeDir = runtimeOverride
         ?? worktreeRuntimeDirectory
-        ?? ((home !== undefined || profile !== undefined)
-            ? join(
-                home ?? veraHomeDirectory(),
-                "profiles",
-                profile ?? DEFAULT_PROFILE_NAME,
-                "runtime",
-            )
+        ?? (home !== undefined
+            ? join(home, "runtime")
             : undefined);
     return {
         isolated,

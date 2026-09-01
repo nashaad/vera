@@ -20,7 +20,7 @@ interface DetachedHostResult {
     "the first client starts a detached host that survives and accepts attach",
     async () => {
         const home = await mkdtemp(join(tmpdir(), "vera-detached-host-"));
-        const veraDirectory = join(home, ".vera", "profiles", "default");
+        const veraDirectory = join(home, ".vera");
         let hostPid: number | undefined;
         await mkdir(veraDirectory, { recursive: true });
         seedTestRelease(home);

@@ -33,10 +33,10 @@ test.skipIf(!tmuxAvailable)(
         const socket = `vera-island-${process.pid}-${randomUUID()}`;
         const home = mkdtempSync(join(tmpdir(), "vera-island-home-"));
         const worktreeRuntime = mkdtempSync(join(tmpdir(), "vera-island-tree-"));
-        const dailyRuntime = join(home, ".vera", "profiles", "dev", "runtime");
-        mkdirSync(join(home, ".vera", "profiles", "dev"), { recursive: true });
+        const dailyRuntime = join(home, ".vera", "runtime");
+        mkdirSync(join(home, ".vera"), { recursive: true });
         writeFileSync(
-            join(home, ".vera", "profiles", "dev", "config.json"),
+            join(home, ".vera", "config.json"),
             `${JSON.stringify({
                 schema_version: 1,
                 provider: "openrouter",

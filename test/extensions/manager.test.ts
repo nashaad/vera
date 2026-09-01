@@ -151,9 +151,9 @@ test("config loading uses managed enabled state for profile and project scopes",
     const { root, source } = temporaryExtension("config-extension");
     const home = join(root, "home");
     const projectRoot = join(root, "project");
-    const configPath = join(home, ".vera", "profiles", "default", "config.json");
+    const configPath = join(home, ".vera", "config.json");
     try {
-        mkdirSync(join(home, ".vera", "profiles", "default"), { recursive: true });
+        mkdirSync(join(home, ".vera"), { recursive: true });
         writeFileSync(configPath, JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
@@ -228,9 +228,9 @@ test("managed disabled state wins over an explicit config entry for the same pat
     const { root, source } = temporaryExtension("explicit-extension");
     const home = join(root, "home");
     const target = { scope: "profile" as const };
-    const configPath = join(home, ".vera", "profiles", "default", "config.json");
+    const configPath = join(home, ".vera", "config.json");
     try {
-        mkdirSync(join(home, ".vera", "profiles", "default"), { recursive: true });
+        mkdirSync(join(home, ".vera"), { recursive: true });
         installExtension(source, target, { home });
         writeFileSync(configPath, JSON.stringify({
             schema_version: 1,
@@ -298,7 +298,7 @@ test("extension mutations refuse a live registry lock and reclaim a dead one", (
     const target = { scope: "profile" as const };
     const lockPath = `${extensionRegistryPathFor(target, { home })}.lock`;
     try {
-        mkdirSync(join(home, ".vera", "profiles", "default"), { recursive: true });
+        mkdirSync(join(home, ".vera"), { recursive: true });
         writeFileSync(lockPath, JSON.stringify({ pid: process.pid }));
         expect(() => installExtension(source, target, { home }))
             .toThrow("Another extension operation");

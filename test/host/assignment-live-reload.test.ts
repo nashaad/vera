@@ -34,7 +34,7 @@ function config(assigned: string, extra: Record<string, unknown> = {}) {
 // session with nothing to restart.
 test("an assignment written after the host started needs no restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-assignment-live-"));
-    const configPath = join(root, "profiles", "default", "config.json");
+    const configPath = join(root, "config.json");
     const poolPath = join(root, "pool.json");
     const previousHome = process.env.VERA_HOME;
     const previousPool = process.env.VERA_POOL_FILE;
@@ -46,7 +46,7 @@ test("an assignment written after the host started needs no restart", async () =
         }),
     );
     process.env.VERA_HOME = root;
-    await mkdir(join(root, "profiles", "default"), { recursive: true });
+    await mkdir(join(root), { recursive: true });
     await writeFile(configPath, JSON.stringify(config("one")));
     const host = await startResidentHost({
         config: config("one") as never,
@@ -91,10 +91,10 @@ test("an assignment written after the host started needs no restart", async () =
 // rather than a fix applied one setting at a time.
 test("a setting changed on disk reaches the registry with no restart", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-settings-live-"));
-    const configPath = join(root, "profiles", "default", "config.json");
+    const configPath = join(root, "config.json");
     const previousHome = process.env.VERA_HOME;
     process.env.VERA_HOME = root;
-    await mkdir(join(root, "profiles", "default"), { recursive: true });
+    await mkdir(join(root), { recursive: true });
     await writeFile(configPath, JSON.stringify(config("one")));
     const host = await startResidentHost({
         config: config("one") as never,
@@ -152,13 +152,13 @@ function assistant(text: string): AssistantMessage {
 
 test("a running session's next compact uses the assignment written now", async () => {
     const root = await mkdtemp(join(tmpdir(), "vera-assignment-compact-"));
-    const configPath = join(root, "profiles", "default", "config.json");
+    const configPath = join(root, "config.json");
     const poolPath = join(root, "pool.json");
     const previousHome = process.env.VERA_HOME;
     const previousPool = process.env.VERA_POOL_FILE;
     process.env.VERA_POOL_FILE = poolPath;
     process.env.VERA_HOME = root;
-    await mkdir(join(root, "profiles", "default"), { recursive: true });
+    await mkdir(join(root), { recursive: true });
     await writeFile(
         poolPath,
         JSON.stringify({

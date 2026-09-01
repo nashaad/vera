@@ -991,7 +991,7 @@ test("theme preview and cancel repaint an attached sidebar transcript", async ()
             sidebarAgentId: "theme-sidebar-id",
             owner: "vera.btw",
         },
-        join(home, ".vera", "profiles", "default", "tui.json"),
+        join(home, ".vera", "tui.json"),
     );
     const sidebarClient = createSettingsAnsweringClient({
         agentId: "theme-sidebar-id",

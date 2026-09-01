@@ -151,7 +151,7 @@ describe("composer geometry", () => {
         const veraHome = mkdtempSync(join(tmpdir(), "vera-nudge-indicator-"));
         const oldHome = process.env.VERA_HOME;
         process.env.VERA_HOME = veraHome;
-        saveStandingNudges(join(veraHome, "profiles", "default"), [
+        saveStandingNudges(join(veraHome), [
             {
                 id: "active-here",
                 enabled: true,

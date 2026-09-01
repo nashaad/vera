@@ -119,7 +119,7 @@ test("help is browse-only and ctrl+p opens the functional palette", async () => 
 
 test("a keybinding Vera cannot use is named at startup", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-keymap-notice-"));
-    const profileDirectory = join(home, ".vera", "profiles", "default");
+    const profileDirectory = join(home, ".vera");
     mkdirSync(profileDirectory, { recursive: true });
     writeFileSync(
         join(profileDirectory, "tui.json"),

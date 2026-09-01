@@ -26,7 +26,7 @@ test("missing subagent settings are configured and confirmed through the real TU
     const home = mkdtempSync(join(tmpdir(), "vera-tui-subagent-config-"));
     const workspace = join(home, "workspace");
     const sessionDirectory = join(home, "sessions");
-    const poolPath = join(home, ".vera", "profiles", "default", "pool.json");
+    const poolPath = join(home, ".vera", "pool.json");
     const previousPoolPath = process.env.VERA_POOL_FILE;
     process.env.VERA_POOL_FILE = poolPath;
     const availableModels: readonly SuggestedModel[] = [

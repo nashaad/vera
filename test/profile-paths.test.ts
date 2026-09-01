@@ -15,64 +15,48 @@ import {
     veraProfileName,
     veraRuntimeDirectory,
     veraMachineDirectory,
+    veraHomeDirectory,
 } from "../src/profile-paths.ts";
 
 const home = "/home/nash";
 
-test("an unset profile selects default", () => {
-    expect(veraProfileName({})).toBe(DEFAULT_PROFILE_NAME);
-    expect(veraProfileName({ [VERA_PROFILE_ENV]: "  " })).toBe(DEFAULT_PROFILE_NAME);
-    expect(veraProfileDirectory({}, home))
-        .toBe(join(home, ".vera", "profiles", "default"));
+test("the home is one directory, not a profile child", () => {
+    expect(veraHomeDirectory(home)).toBe(join(home, ".vera"));
+    expect(veraProfileDirectory({}, home)).toBe(join(home, ".vera"));
+    expect(veraRuntimeDirectory({}, home)).toBe(join(home, ".vera", "runtime"));
+    expect(veraProfileDirectory({ [VERA_PROFILE_ENV]: "dogfood" }, home))
+        .toBe(join(home, ".vera"));
 });
 
-test("one selector resolves both the profile root and its runtime", () => {
-    const env = { [VERA_PROFILE_ENV]: "dogfood" };
-    expect(veraProfileDirectory(env, home))
-        .toBe(join(home, ".vera", "profiles", "dogfood"));
-    expect(veraRuntimeDirectory(env, home))
-        .toBe(join(home, ".vera", "profiles", "dogfood", "runtime"));
-});
-
-test("credentials sit outside every profile", () => {
+test("credentials sit in the machine tier beside config", () => {
     expect(veraMachineDirectory(home)).toBe(join(home, ".vera", "machine"));
-    expect(veraMachineDirectory(home))
-        .not.toContain(veraProfileDirectory({}, home));
 });
 
-test("a profile name may not escape the profiles directory", () => {
+test("a profile name may not escape a profiles directory", () => {
     for (const name of ["../other", "a/b", ".", "-x", "~"]) {
         expect(() => veraProfileName({ [VERA_PROFILE_ENV]: name }))
             .toThrow(VeraProfileError);
     }
+    expect(veraProfileName({})).toBe(DEFAULT_PROFILE_NAME);
 });
 
-test("VERA_RUNTIME_DIR stays the lower-level override", () => {
-    const env = { [VERA_PROFILE_ENV]: "dogfood", [VERA_RUNTIME_DIR_ENV]: "/tmp/run" };
+test("VERA_RUNTIME_DIR is the explicit instance root", () => {
+    const env = { [VERA_RUNTIME_DIR_ENV]: "/tmp/run" };
     expect(veraRuntimeDirectory(env, home)).toBe("/tmp/run");
-    expect(veraProfileDirectory(env, home))
-        .toBe(join(home, ".vera", "profiles", "dogfood"));
+    expect(veraProfileDirectory(env, home)).toBe(join(home, ".vera"));
 });
 
-test("the old flat layout is refused rather than read as empty", () => {
+test("an unmigrated profiles/ home is refused", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
-    mkdirSync(join(root, ".vera"), { recursive: true });
-    writeFileSync(join(root, ".vera", "auth.json"), "{}");
-    mkdirSync(join(root, ".vera", "sessions"));
+    mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
 
-    expect(legacyLayoutEntries(root)).toEqual(["auth.json", "sessions"]);
+    expect(legacyLayoutEntries(root)).toEqual(["profiles"]);
     expect(() => assertProfileLayout(root)).toThrow(VeraProfileError);
     try {
         assertProfileLayout(root);
     } catch (error) {
-        expect((error as Error).message).toBe(
-            `${join(root, ".vera")} uses the old flat layout and Vera no longer reads it.\n`
-            + "Found old entries: auth.json, sessions\n"
-            + "Run these commands, then start Vera again:\n"
-            + `  mkdir -p ${veraMachineDirectory(root)} ${join(root, ".vera", "profiles", "default")}\n`
-            + `  mv ${join(root, ".vera", "auth.json")} ${veraMachineDirectory(root)}/\n`
-            + `  mv ${join(root, ".vera", "sessions")} ${join(root, ".vera", "profiles", "default")}/`,
-        );
+        expect((error as Error).message).toContain("profiles/");
+        expect((error as Error).message).toContain("vera migrate-home");
     }
 });
 
@@ -87,18 +71,19 @@ test("the old machine-tier name is refused with the rename to run", () => {
     }
 });
 
-test("a tiered home is accepted", () => {
+test("a single-home layout is accepted", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "machine"), { recursive: true });
-    mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
+    mkdirSync(join(root, ".vera", "runtime"), { recursive: true });
+    writeFileSync(join(root, ".vera", "config.json"), "{}");
     expect(legacyLayoutEntries(root)).toEqual([]);
     expect(() => assertProfileLayout(root)).not.toThrow();
 });
 
-test("state written outside the tiers is named", () => {
+test("state written outside the known root names is named", () => {
     const root = mkdtempSync(join(tmpdir(), "vera-home-"));
     mkdirSync(join(root, ".vera", "machine"), { recursive: true });
-    mkdirSync(join(root, ".vera", "profiles", "default"), { recursive: true });
+    mkdirSync(join(root, ".vera", "runtime"), { recursive: true });
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 
     mkdirSync(join(root, ".vera", "chrome"));

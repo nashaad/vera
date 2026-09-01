@@ -86,7 +86,7 @@ async function startDetachedHost(): Promise<{
 }> {
     const home = await mkdtemp(join(tmpdir(), "vera-reconnect-host-"));
     const veraHome = join(home, ".vera");
-    const profile = join(veraHome, "profiles", "default");
+    const profile = join(veraHome);
     await mkdir(profile, { recursive: true });
     seedTestRelease(home);
     await writeFile(join(profile, "config.json"), `${JSON.stringify({

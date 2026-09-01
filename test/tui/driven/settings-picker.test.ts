@@ -9,7 +9,7 @@ import {
 import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 function profileDirectory(home: string): string {
-    return join(home, ".vera", "profiles", "default");
+    return join(home, ".vera");
 }
 
 test("settings picker restores the composer and the next Enter submits", async () => {

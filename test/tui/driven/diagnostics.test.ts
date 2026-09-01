@@ -340,9 +340,9 @@ test("inspect health stays idle until v and reports red with no selected model",
 
 test("inspect health is green when a shortlist rung answers", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-health-green-"));
-    mkdirSync(join(home, ".vera/profiles/default"), { recursive: true });
+    mkdirSync(join(home, ".vera"), { recursive: true });
     writeFileSync(
-        join(home, ".vera/profiles/default/config.json"),
+        join(home, ".vera/config.json"),
         JSON.stringify({
             schema_version: 1,
             provider: "openrouter",
@@ -393,9 +393,9 @@ test("inspect health is green when a shortlist rung answers", async () => {
 
 test("inspect health is green when a local ollama rung answers", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-health-ollama-"));
-    mkdirSync(join(home, ".vera/profiles/default"), { recursive: true });
+    mkdirSync(join(home, ".vera"), { recursive: true });
     writeFileSync(
-        join(home, ".vera/profiles/default/config.json"),
+        join(home, ".vera/config.json"),
         JSON.stringify({
             schema_version: 1,
             provider: "ollama",

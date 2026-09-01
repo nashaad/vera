@@ -11,7 +11,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("persisted TUI appearance config controls transcript and composer layout", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-appearance-"));
-    const configDirectory = join(home, ".vera", "profiles", "default");
+    const configDirectory = join(home, ".vera");
     mkdirSync(configDirectory, { recursive: true });
     writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
         schema_version: 1,

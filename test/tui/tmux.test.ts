@@ -28,7 +28,7 @@ import {
 import { killTmuxServer } from "../support/kill-tmux-server.ts";
 
 function profileDirectory(home: string): string {
-    return join(home, ".vera", "profiles", "default");
+    return join(home, ".vera");
 }
 
 function runtimeDirectory(home: string): string {

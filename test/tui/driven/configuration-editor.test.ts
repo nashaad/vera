@@ -53,7 +53,7 @@ test("configure chooses the profile config and reports when its editor closes", 
         session.sendKey("Enter");
         await session.settle(100);
         expect(editorOpenings).toBe(1);
-        expect(openedPath?.endsWith("/profiles/default/config.json")).toBe(true);
+        expect(openedPath?.endsWith("/config.json")).toBe(true);
         expect(session.captureVisiblePane()).not.toContain(
             "Profile config editor closed:",
         );
@@ -71,7 +71,7 @@ test("configure chooses the profile config and reports when its editor closes", 
 
 test("configure lists existing optional files and refuses one removed before Enter", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-config-files-"));
-    const profile = join(home, ".vera", "profiles", "default");
+    const profile = join(home, ".vera");
     const tuiPreferences = join(profile, "tui.json");
     const workspace = join(home, "workspace");
     const projectConfig = join(workspace, ".vera", "config.json");

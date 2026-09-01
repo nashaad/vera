@@ -13,7 +13,7 @@ test("the sdk resolves the same directories the engine reads", () => {
     const home = veraHomeDirectory();
     expect(veraMachineDirectory()).toBe(join(home, "machine"));
     expect(veraProfileDirectory({ VERA_PROFILE: "dogfood" }))
-        .toBe(join(home, "profiles", "dogfood"));
+        .toBe(home);
     expect(veraRuntimeDirectory({ VERA_PROFILE: "dogfood" }))
-        .toBe(join(home, "profiles", "dogfood", "runtime"));
+        .toBe(join(home, "runtime"));
 });

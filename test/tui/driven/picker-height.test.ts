@@ -10,7 +10,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("the model inspector stays inside a 100x40 terminal", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-picker-height-"));
-    const configDirectory = join(home, ".vera", "profiles", "default");
+    const configDirectory = join(home, ".vera");
     mkdirSync(configDirectory, { recursive: true });
     writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
         schema_version: 1,

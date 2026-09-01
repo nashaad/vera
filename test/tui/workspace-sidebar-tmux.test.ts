@@ -443,7 +443,7 @@ test.skipIf(!tmuxAvailable)("the divider drag resizes and persists the dock", as
         );
         await Bun.sleep(100);
         const preferences = JSON.parse(readFileSync(
-            join(tui.home, ".vera", "profiles", "default", "tui.json"),
+            join(tui.home, ".vera", "tui.json"),
             "utf8",
         )) as { workspace_sidebar_width?: number };
         return { after, width: preferences.workspace_sidebar_width };

@@ -154,7 +154,7 @@ test("the inspect dialog renders markdown and wraps an overflowing value", async
             "| Field | Value |",
             "| --- | --- |",
             "| Identity | misty-knoll:3574 |",
-            "| File | `/Users/nash/.vera/profiles/default/runtime/sessions/session.jsonl` |",
+            "| File | `/Users/nash/.vera/runtime/sessions/session.jsonl` |",
             "",
             "## Usage",
             "| Metric | Value |",

@@ -10,7 +10,7 @@ import { startTuiTestSession } from "../../support/tui-harness.ts";
 
 test("the defaults tab names the auto-approval job classifier", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-defaults-jobs-"));
-    const configDirectory = join(home, ".vera", "profiles", "default");
+    const configDirectory = join(home, ".vera");
     mkdirSync(configDirectory, { recursive: true });
     writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
         schema_version: 1,
@@ -43,7 +43,7 @@ test("the defaults tab names the auto-approval job classifier", async () => {
 
 test("the palette opens Shortlist with a visible current-model action", async () => {
     const home = mkdtempSync(join(tmpdir(), "vera-tui-shortlist-action-"));
-    const configDirectory = join(home, ".vera", "profiles", "default");
+    const configDirectory = join(home, ".vera");
     mkdirSync(configDirectory, { recursive: true });
     writeFileSync(join(configDirectory, "config.json"), JSON.stringify({
         schema_version: 1,
