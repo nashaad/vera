@@ -96,6 +96,24 @@ test("two worktrees get different complete homes and sockets", () => {
     expect(firstHome).toMatch(/\/vera-dev\/[a-f0-9]{12}\/\.vera$/);
 });
 
+function unmigratedDailyHome(root: string): string {
+    const home = join(root, "daily");
+    mkdirSync(join(home, "machine"), { recursive: true });
+    mkdirSync(join(home, "profiles", "default", "memory"), { recursive: true });
+    mkdirSync(join(home, "profiles", "other"), { recursive: true });
+    writeFileSync(join(home, "machine", "auth.json"), "{\"token\":\"secret\"}\n");
+    writeFileSync(
+        join(home, "profiles", "default", "config.json"),
+        JSON.stringify({
+            schema_version: 1,
+            experimental: { inbox: true },
+        }, null, 2) + "\n",
+    );
+    writeFileSync(join(home, "profiles", "default", "memory", "note.md"), "keep\n");
+    writeFileSync(join(home, "profiles", "other", "config.json"), "other-config\n");
+    return home;
+}
+
 test("the first launch clones the daily home with outbound consumers off", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
     const worktree = linkedWorktree("ovu-a");
@@ -122,6 +140,34 @@ test("the first launch clones the daily home with outbound consumers off", async
         expect(launches[0]?.env.VERA_RUNTIME_DIR).toBeUndefined();
         expect(launches[0]?.env.VERA_DEV_INSTANCE).toMatch(/^ovu-a /);
         expect(existsSync(join(dest!, "runtime", "host.sock"))).toBe(false);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("a profiles/ daily home is lifted in the clone only", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-lift");
+    const sourceHome = unmigratedDailyHome(root);
+    try {
+        const code = await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot: join(root, "instances"),
+            spawnTui: async (_args, env) => {
+                const dest = env.VERA_HOME!;
+                expect(existsSync(join(dest, "profiles"))).toBe(false);
+                expect(readFileSync(join(dest, "memory", "note.md"), "utf8")).toBe("keep\n");
+                expect(existsSync(join(dest, "memory", "secret.md"))).toBe(false);
+                const cloned = JSON.parse(readFileSync(join(dest, "config.json"), "utf8"));
+                expect(cloned.experimental.inbox).toBe(false);
+                return 0;
+            },
+        });
+        expect(code).toBe(0);
+        expect(existsSync(join(sourceHome, "profiles", "default"))).toBe(true);
+        expect(existsSync(join(sourceHome, "profiles", "other"))).toBe(true);
+        expect(existsSync(join(sourceHome, "config.json"))).toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });

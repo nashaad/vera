@@ -21,6 +21,7 @@ import {
 } from "../src/host/home-clone.ts";
 import { forceStopResidentHost } from "../src/host/force-stop.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
+import { migrateHome } from "../src/home-migration.ts";
 import {
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
@@ -217,7 +218,8 @@ export async function runDevTui(
         rmSync(destinationHome, { recursive: true, force: true });
     }
 
-    if (!existsSync(destinationHome)) {
+    const existed = existsSync(destinationHome);
+    if (!existed) {
         mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
         try {
             await cloneVeraHome({
@@ -231,7 +233,12 @@ export async function runDevTui(
                 }`,
             );
         }
+    }
+    const lifted = liftCloneHome(destinationHome);
+    if (!existed || lifted) {
         disableOutboundConsumers(destinationHome);
+    }
+    if (!existed) {
         const dailySocket = join(sourceHome, "runtime", "host.sock");
         if (dailyHostAppearsRunning(sourceHome) && existsSync(dailySocket)) {
             try {
@@ -254,8 +261,16 @@ export async function runDevTui(
             sourceHome,
             snapshotAt: new Date().toISOString(),
         });
-        assertDistinctSockets(destinationHome, sourceHome);
     }
+    if (lifted && existed) {
+        writeInstanceMeta(destinationHome, {
+            worktree: worktreeRoot,
+            buildId: candidateBuildId(worktreeRoot),
+            sourceHome,
+            snapshotAt: new Date().toISOString(),
+        });
+    }
+    assertDistinctSockets(destinationHome, sourceHome);
 
     const buildId = readInstanceMeta(destinationHome)?.buildId
         ?? candidateBuildId(worktreeRoot);
@@ -265,6 +280,13 @@ export async function runDevTui(
         candidateLaunchEnv(destinationHome, worktreeRoot, buildId),
         worktreeRoot,
     );
+}
+
+/** Lift a cloned profiles/ tree in place. Never touches the daily home. */
+export function liftCloneHome(home: string): boolean {
+    if (!existsSync(join(home, "profiles"))) return false;
+    migrateHome(home);
+    return true;
 }
 
 export function candidateLaunchEnv(
