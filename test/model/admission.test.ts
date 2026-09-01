@@ -5,7 +5,6 @@ import {
     type AdmissionStep,
 } from "../../src/model/admission.ts";
 import type { CatalogModel } from "../../src/model/catalog-shape.ts";
-import { EFFORT_LADDER } from "../../src/model/effort-ladder.ts";
 import {
     ProviderFailureError,
     type ProviderFailure,
@@ -295,10 +294,9 @@ test("one retry-shaped failure is retried and the admission still succeeds", asy
         .toEqual(["high", "high", "low", "high", "high"]);
 });
 
-test("a model the catalog has never seen is swept across the whole ladder", async () => {
-    const sweep = EFFORT_LADDER.filter((level) => level !== "off");
+test("a model the catalog has never seen is not given a fabricated effort map", async () => {
     const { adapter, requests } = scriptedAdapter([
-        ...sweep.map(() => ({ kind: "text", text: SENTINEL } as const)),
+        { kind: "text", text: SENTINEL },
         { kind: "tool_call", name: "admission_probe" },
         { kind: "text", text: "ok" },
     ]);
@@ -312,13 +310,15 @@ test("a model the catalog has never seen is swept across the whole ladder", asyn
     expect(verdict).toMatchObject({ status: "added" });
     if (verdict.status !== "added") throw new Error("expected added");
     expect(requests.map((request) => request.reasoningEffort))
-        .toEqual([...sweep, sweep[0], sweep[0]]);
+        .toEqual([undefined, undefined, undefined]);
     expect(Object.keys(verdict.learned).sort()).toEqual([
-        ...sweep.map((level) => `efforts.${level}`).sort(),
         "images",
         "probe",
         "tools",
-    ].sort());
+    ]);
+    expect(
+        Object.keys(verdict.learned).some((key) => key.startsWith("efforts.")),
+    ).toBe(false);
 });
 
 test("a model the catalog knows is probed only at its own levels", async () => {

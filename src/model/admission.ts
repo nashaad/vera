@@ -16,7 +16,6 @@
 
 import type { CatalogModel } from "./catalog-shape.ts";
 import {
-    EFFORT_LADDER,
     isEffortLevel,
     type EffortLevel,
 } from "./effort-ladder.ts";
@@ -489,32 +488,26 @@ interface ProbeCandidate {
  *
  * Where the catalog names levels, those are the only ones probed: a catalog
  * word that maps to no rung is skipped, because sending it earns a 400 that
- * says nothing about the model.
+ * says nothing about the model. A 2xx on a named catalog level verifies that
+ * metadata against this key; it does not invent a ladder.
  *
  * Where the catalog names none, whether the model is missing entirely or
- * listed without levels, the whole ladder is probed. Probes fill gaps, and an
- * empty level list is a gap rather than a claim that the model has no ladder.
- * The rejections are worth as much as the passes: each one is a learned fact
- * that stops a level being sent again.
+ * listed without levels, nothing is probed as a graded effort. An endpoint
+ * that ignores unknown fields will 2xx every ladder word, and recording those
+ * as supported fabricates a six-rung map nobody proved. The response probe
+ * already covers "the model answers with no level named."
  *
- * `off` is never probed either way; it means sending no level at all, which
- * the response probe already covers.
+ * `off` is never probed either way; it means sending no level at all.
  */
 function probeCandidates(
     catalogModel: CatalogModel | undefined,
 ): readonly ProbeCandidate[] {
-    const declared = (catalogModel?.levels ?? []).flatMap((level) => {
+    return (catalogModel?.levels ?? []).flatMap((level) => {
         const rung = ladderLevelForWire(level.id);
         return rung === undefined || rung === "off"
             ? []
             : [{ level: rung, wire: level.id }];
     });
-    if (declared.length > 0) {
-        return declared;
-    }
-    return EFFORT_LADDER
-        .filter((level) => level !== "off")
-        .map((level) => ({ level, wire: level }));
 }
 
 /**

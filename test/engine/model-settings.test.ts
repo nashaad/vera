@@ -103,6 +103,40 @@ test("providers that can infer an effort keep the optimistic list", () => {
         .toEqual(EVERY_EFFORT);
 });
 
+test("a custom endpoint does not advertise a six-rung dial from silence", () => {
+    const empty = cacheDir();
+    expect(availableReasoningEfforts("unsloth-local", "unsloth/Qwen3.6", empty))
+        .toEqual([]);
+    expect(reasoningEffortForModel(
+        "unsloth-local",
+        "unsloth/Qwen3.6",
+        "max",
+        empty,
+    )).toBeUndefined();
+});
+
+test("explicit catalog levels are the graded map a custom endpoint may offer", () => {
+    const options = cacheDir({
+        "unsloth-local": [{
+            id: "gpt-oss",
+            label: "gpt-oss",
+            levels: [
+                { id: "low", label: "Low" },
+                { id: "medium", label: "Medium" },
+                { id: "high", label: "High" },
+            ],
+        }],
+    });
+    expect(availableReasoningEfforts("unsloth-local", "gpt-oss", options))
+        .toEqual(["low", "medium", "high"]);
+    expect(reasoningEffortForModel(
+        "unsloth-local",
+        "gpt-oss",
+        "low",
+        options,
+    )).toBe("low");
+});
+
 test("a model the user did not choose keeps any effort it can resolve", () => {
     // The menu a person is shown is narrower than what the adapter can do, and
     // a fallback or a config default is not a menu choice. Only a model that

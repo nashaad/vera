@@ -460,6 +460,31 @@ test("nothing anywhere is an empty list, not a guess", () => {
         .toEqual([]);
 });
 
+test("a verified custom model with no effort metadata keeps the dial off", () => {
+    const pooled = [{
+        provider: "unsloth-local",
+        model: "unsloth/Qwen3.6",
+        label: "Qwen",
+        available: true,
+        verified: true,
+        levels: [],
+    }];
+    expect(
+        levelsForModel(
+            "unsloth-local",
+            "unsloth/Qwen3.6",
+            pooled,
+            [{
+                provider: "unsloth-local",
+                model: "unsloth/Qwen3.6",
+                label: "Qwen",
+                description: "",
+                levels: [],
+            }],
+        ).levels,
+    ).toEqual([]);
+});
+
 // The catalog answers for a model the pool never admitted, and it still knows
 // which levels this key was refused: the provider answered 400 for one of them.
 test("a level the provider refused is not offered by the catalog projection", () => {
