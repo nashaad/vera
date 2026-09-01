@@ -3,6 +3,7 @@ import {
     existsSync,
     mkdirSync,
     mkdtempSync,
+    readFileSync,
     rmSync,
     writeFileSync,
 } from "node:fs";
@@ -529,6 +530,82 @@ test("Agent.run prepareTurn can block a turn before any model call", async () =>
             message: "pre_turn hook blocked this turn: policy",
         },
     });
+});
+
+test("Vera.run completes a bounded turn without a host socket", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-run-home-"));
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    mkdirSync(join(home, "machine"), { recursive: true });
+    writeFileSync(join(home, "config.json"), `${JSON.stringify({
+        schema_version: 1,
+        provider: "faux",
+        model: "reviewer",
+        approval_mode: "readonly",
+    })}\n`);
+    const requests: ModelRequest[] = [];
+    try {
+        const result = await Vera.run({
+            prompt: "Review this patch",
+            agent: defineAgent({
+                name: "review-run",
+                instructions: "Inspect the change.",
+                tools: [],
+            }),
+            config: baseConfig(),
+            createAdapter: () => capture(
+                new FauxAdapter([answer("hostless")], { chunkSize: 3 }),
+                requests,
+            ),
+        });
+        expect(result.outcome).toBe("completed");
+        expect(result.text).toBe("hostless");
+        expect(existsSync(join(home, "runtime", "host.sock"))).toBe(false);
+        expect(existsSync(join(home, "runtime", "host.json"))).toBe(false);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(home, { recursive: true, force: true });
+    }
+});
+
+test("Vera.run leaves auth.json untouched when the credential is unusable", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-run-auth-"));
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    mkdirSync(join(home, "machine"), { recursive: true });
+    const authPath = join(home, "machine", "auth.json");
+    const authBody = `${JSON.stringify({
+        schema_version: 2,
+        credentials: {
+            faux: { type: "api_key", key: "expired-key" },
+        },
+    })}\n`;
+    writeFileSync(authPath, authBody);
+    try {
+        const result = await Vera.run({
+            prompt: "Review this patch",
+            agent: defineAgent({
+                name: "review-auth",
+                instructions: "Inspect the change.",
+                tools: [],
+            }),
+            config: baseConfig(),
+            createAdapter: () => ({
+                stream() {
+                    throw new Error("oauth token expired");
+                },
+            }),
+        });
+        expect(result.outcome).toBe("failed");
+        expect(result.error?.message).toContain("faux credential is not usable");
+        expect(result.error?.message).toContain("vera login");
+        expect(readFileSync(authPath, "utf8")).toBe(authBody);
+    } finally {
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(home, { recursive: true, force: true });
+    }
 });
 
 interface FindingOutput {

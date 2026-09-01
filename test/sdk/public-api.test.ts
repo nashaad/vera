@@ -17,4 +17,5 @@ test("the package root exports embedded definitions and runtime", () => {
     expect(definition.name).toBe("reviewer");
     expect(definition.tools).toEqual(["read", "grep"]);
     expect(typeof Vera.create).toBe("function");
+    expect(typeof Vera.run).toBe("function");
 });

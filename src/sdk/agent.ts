@@ -5,6 +5,7 @@ import { join } from "node:path";
 
 import {
     defineAgent,
+    DEFAULT_AGENT,
     type AgentDefinition,
 } from "../agents/definition.ts";
 import {
@@ -41,7 +42,7 @@ import {
     VERA_PROFILE_ENV,
     veraProfileDirectory,
 } from "../profile-paths.ts";
-import { createAuthStorage } from "../providers/auth-storage.ts";
+import { createAuthStorage, type AuthStorage } from "../providers/auth-storage.ts";
 import { createConfiguredModelAdapter } from "../providers/configured.ts";
 import {
     applyModelRequestOptions,
@@ -58,6 +59,28 @@ export interface VeraCreateOptions {
     /** An already parsed config, primarily for embedding and tests. */
     readonly config?: VeraConfig;
     /** Adapter construction seam for custom runtimes and deterministic tests. */
+    readonly createAdapter?: (
+        config: VeraConfig,
+        workspace: string,
+    ) => ModelAdapter;
+}
+
+/**
+ * One hostless bounded turn against the daily home. Config and credentials
+ * are read; the only write is this run's temporary session directory.
+ */
+export interface VeraRunOptions<Output = never> {
+    readonly prompt: string;
+    readonly agent?: AgentDefinition | string;
+    readonly workspace?: string;
+    readonly provider?: string;
+    readonly model?: string;
+    readonly effort?: ModelReasoningEffort;
+    readonly posture?: string;
+    readonly tools?: readonly string[];
+    readonly signal?: AbortSignal;
+    readonly output?: AgentOutputSchema<Output>;
+    readonly config?: VeraConfig;
     readonly createAdapter?: (
         config: VeraConfig,
         workspace: string,
@@ -181,6 +204,51 @@ export class Vera {
             options.createAdapter ?? defaultAdapterFactory(),
             readRequestOptionsConfig,
         );
+    }
+
+    /**
+     * One bounded turn with no resident host and no socket. Reads the daily
+     * home. Does not call `create()`.
+     */
+    static async run<Output = never>(
+        options: VeraRunOptions<Output>,
+    ): Promise<AgentRunResult<Output>> {
+        if (options.prompt.trim().length === 0) {
+            throw new Error("Agent prompt must not be empty");
+        }
+        const workspace = options.workspace ?? process.cwd();
+        const profileDirectory = veraProfileDirectory();
+        const config = options.config ?? loadVeraConfig({
+            path: join(profileDirectory, "config.json"),
+            projectRoot: workspace,
+        });
+        const runtimePosture = options.posture ?? config.approval_mode;
+        requirePermissionMode(runtimePosture, config);
+        const vera = new Vera(
+            config,
+            workspace,
+            profileDirectory,
+            runtimePosture,
+            options.createAdapter ?? defaultRunAdapterFactory(),
+            () => config,
+        );
+        const definition = options.agent ?? (
+            options.tools === undefined
+                ? DEFAULT_AGENT
+                : { ...DEFAULT_AGENT, tools: options.tools }
+        );
+        const result = await vera.agent(definition, {
+            workspace,
+            ...(options.provider === undefined ? {} : { provider: options.provider }),
+            ...(options.model === undefined ? {} : { model: options.model }),
+            ...(options.effort === undefined
+                ? {}
+                : { reasoningEffort: options.effort }),
+        }).run(options.prompt, {
+            ...(options.signal === undefined ? {} : { signal: options.signal }),
+            ...(options.output === undefined ? {} : { output: options.output }),
+        });
+        return mapCredentialFailure(result, config.provider);
     }
 
     agent(
@@ -577,4 +645,54 @@ function defaultAdapterFactory(): NonNullable<VeraCreateOptions["createAdapter"]
             authStorage,
             projectRoot: selectedWorkspace,
         });
+}
+
+function defaultRunAdapterFactory(): NonNullable<VeraRunOptions["createAdapter"]> {
+    const authStorage = readOnlyAuthStorage(createAuthStorage());
+    return (selected, selectedWorkspace) =>
+        createConfiguredModelAdapter(selected, {
+            authStorage,
+            projectRoot: selectedWorkspace,
+        });
+}
+
+function readOnlyAuthStorage(inner: AuthStorage): AuthStorage {
+    return {
+        getCredential: (provider) => inner.getCredential(provider),
+        setCredential() {
+            throw new Error(
+                "This bounded run cannot write auth.json. Refresh the credential with vera login, then retry.",
+            );
+        },
+        deleteCredential() {
+            throw new Error(
+                "This bounded run cannot write auth.json. Refresh the credential with vera login, then retry.",
+            );
+        },
+    };
+}
+
+function mapCredentialFailure<Output>(
+    result: AgentRunResult<Output>,
+    provider: string,
+): AgentRunResult<Output> {
+    if (result.error === undefined || !isUnusableCredential(result.error.message)) {
+        return result;
+    }
+    return {
+        ...result,
+        error: {
+            ...result.error,
+            message: `${provider} credential is not usable. Refresh it with vera login, then retry.`,
+        },
+    };
+}
+
+function isUnusableCredential(message: string): boolean {
+    const lowered = message.toLowerCase();
+    return lowered.includes("expired")
+        || lowered.includes("unauthorized")
+        || lowered.includes("auth.json")
+        || lowered.includes("credential")
+        || lowered.includes("401");
 }
