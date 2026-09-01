@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
 import {
+    existsSync,
     mkdirSync,
     readFileSync,
     renameSync,
@@ -55,6 +56,23 @@ export async function findOrStartResidentHost(
  */
 export function residentHostEntrypoint(): string {
     return fileURLToPath(new URL("./main.ts", import.meta.url));
+}
+
+/**
+ * A packed install has `host` next to the stamp. A checkout pack is stamp
+ * plus annex only, so the host is this process's bun and the TypeScript
+ * entry.
+ */
+export function residentHostSpawnSpec(
+    releaseRoot?: string,
+): { readonly command: string; readonly args: readonly string[] } {
+    const packed = releaseRoot === undefined
+        ? releaseBinaryPath(RELEASE_HOST_NAME)
+        : releaseBinaryPath(RELEASE_HOST_NAME, releaseRoot);
+    if (existsSync(packed)) {
+        return { command: packed, args: [] };
+    }
+    return { command: process.execPath, args: [residentHostEntrypoint()] };
 }
 
 /**
@@ -182,7 +200,8 @@ function spawnDetachedResidentHost(): Promise<void> {
         return Promise.reject(new HostBootLoopError(failures.length));
     }
     const spawnedAt = Date.now();
-    const child = spawn(releaseBinaryPath(RELEASE_HOST_NAME), [], {
+    const spec = residentHostSpawnSpec();
+    const child = spawn(spec.command, [...spec.args], {
         argv0: "vera-host",
         detached: true,
         stdio: "ignore",

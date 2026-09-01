@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import {
+    residentHostEntrypoint,
+    residentHostSpawnSpec,
     worktreeRuntimeNotice,
 } from "../../clients/host/launch.ts";
 import { attachAgent } from "../../src/host/attached-client.ts";
@@ -200,6 +202,24 @@ test("the main checkout is not warned about", async () => {
     try {
         await mkdir(join(root, ".git"), { recursive: true });
         expect(worktreeRuntimeNotice(root, {})).toBeUndefined();
+    } finally {
+        await rm(root, { recursive: true, force: true });
+    }
+});
+
+test("a checkout pack without a host wrapper uses bun and the source entry", async () => {
+    const root = await mkdtemp(join(tmpdir(), "vera-host-spec-"));
+    try {
+        expect(residentHostSpawnSpec(root)).toEqual({
+            command: process.execPath,
+            args: [residentHostEntrypoint()],
+        });
+        const packed = join(root, "host");
+        await writeFile(packed, "#!/bin/sh\n");
+        expect(residentHostSpawnSpec(root)).toEqual({
+            command: packed,
+            args: [],
+        });
     } finally {
         await rm(root, { recursive: true, force: true });
     }
