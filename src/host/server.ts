@@ -145,6 +145,12 @@ export interface StartHostServerOptions {
         | { readonly url: string }
         | { readonly unavailable: string }
         | undefined;
+    readonly checkpointStores?: (
+        destination: string,
+    ) => Promise<{
+        readonly takenAt: string;
+        readonly databases: readonly string[];
+    }>;
     /**
      * Fills in the optional facts named by `include`, for one page of rows.
      * Injected rather than computed here: the server knows how to page a
@@ -441,6 +447,7 @@ export async function startHostServer(
             options.readAgentTree ?? ((agentId) => [agentId]),
             options.readModelSettings ?? (() => undefined),
             options.readAnnex,
+            options.checkpointStores,
             resolveHostLimits(options.limits),
         );
     });
@@ -571,6 +578,12 @@ function receiveConnection(
         | { readonly url: string }
         | { readonly unavailable: string }
         | undefined) | undefined,
+    checkpointStores: ((
+        destination: string,
+    ) => Promise<{
+        readonly takenAt: string;
+        readonly databases: readonly string[];
+    }>) | undefined,
     limits: HostLimits,
 ): void {
     const decoder = new TextDecoder("utf-8", { fatal: true });
@@ -1103,6 +1116,29 @@ function receiveConnection(
                     : "url" in annex
                         ? { type: "annex_url", url: annex.url }
                         : { type: "annex_unavailable", reason: annex.unavailable },
+            ).then(() => socket.end(), () => socket.destroy());
+            return;
+        }
+        if (request?.type === "checkpoint_stores") {
+            clearDeadline();
+            finished = true;
+            if (checkpointStores === undefined) {
+                void send({
+                    type: "protocol_error",
+                    reason: "unsupported_or_invalid_command",
+                }).then(() => socket.end(), () => socket.destroy());
+                return;
+            }
+            void checkpointStores(request.destination).then(
+                (result) => send({
+                    type: "checkpoint_stores_finished",
+                    taken_at: result.takenAt,
+                    databases: result.databases,
+                }),
+                (error: unknown) => send({
+                    type: "checkpoint_stores_failed",
+                    ...reasonOf(error),
+                }),
             ).then(() => socket.end(), () => socket.destroy());
             return;
         }

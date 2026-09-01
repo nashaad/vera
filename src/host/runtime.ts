@@ -70,6 +70,7 @@ import { createReviewLogger } from "../engine/review-log.ts";
 import {
     HOST_CAPABILITIES,
 } from "./capabilities.ts";
+import { checkpointOpenStores } from "./store-checkpoint.ts";
 import { readStampedRelease } from "../release/stamp.ts";
 
 const hostLog = createHostLogger();
@@ -1251,6 +1252,11 @@ export async function startResidentHost(
                 workspace,
                 signal,
             ),
+            checkpointStores: async (destination) => checkpointOpenStores({
+                destination,
+                inbox,
+                schedules: scheduleStore,
+            }),
             canShutdown: () => registry.idleForShutdown(),
             canReplace: () => registry.idleForReplacement(),
             onShutdownAccepted: closeHost,

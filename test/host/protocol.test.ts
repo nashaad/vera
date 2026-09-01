@@ -22,6 +22,17 @@ test("host protocol parses identity requests and encodes responses", () => {
         type: "annex_url",
     });
     expect(parseHostRequest(JSON.stringify({
+        type: "checkpoint_stores",
+        destination: "/tmp/vera-dev/one/runtime",
+    }))).toEqual({
+        type: "checkpoint_stores",
+        destination: "/tmp/vera-dev/one/runtime",
+    });
+    expect(parseHostRequest(JSON.stringify({
+        type: "checkpoint_stores",
+        destination: "relative/runtime",
+    }))).toBeUndefined();
+    expect(parseHostRequest(JSON.stringify({
         type: "schedule_operation",
         operation: {
             action: "add",

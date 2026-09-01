@@ -1,4 +1,5 @@
 import { createConnection, type Socket } from "node:net";
+import { isAbsolute } from "node:path";
 
 import {
     parseClientCommand,
@@ -86,6 +87,22 @@ export interface AnnexUrlResponse {
 
 export interface AnnexUnavailableResponse {
     readonly type: "annex_unavailable";
+    readonly reason: string;
+}
+
+export interface CheckpointStoresRequest {
+    readonly type: "checkpoint_stores";
+    readonly destination: string;
+}
+
+export interface CheckpointStoresFinishedResponse {
+    readonly type: "checkpoint_stores_finished";
+    readonly taken_at: string;
+    readonly databases: readonly string[];
+}
+
+export interface CheckpointStoresFailedResponse {
+    readonly type: "checkpoint_stores_failed";
     readonly reason: string;
 }
 
@@ -500,6 +517,7 @@ export type HostRequest =
     | CloseAgentRequest
     | RenameSessionRequest
     | AnnexUrlRequest
+    | CheckpointStoresRequest
     | AttachRequest;
 export type AttachedClientMessage =
     | ClientCommand
@@ -539,6 +557,8 @@ export type HostResponse =
     | ExtensionCommandHostResponse
     | AnnexUrlResponse
     | AnnexUnavailableResponse
+    | CheckpointStoresFinishedResponse
+    | CheckpointStoresFailedResponse
     | ProtocolErrorResponse;
 
 const SESSION_FACT_NAMES: readonly SessionFactName[] = [
@@ -576,6 +596,18 @@ export function parseHostRequest(source: string): HostRequest | undefined {
     }
     if (value?.type === "annex_url") {
         return { type: "annex_url" };
+    }
+    if (
+        value?.type === "checkpoint_stores"
+        && typeof value.destination === "string"
+        && value.destination.length > 0
+        && !value.destination.includes("\0")
+        && isAbsolute(value.destination)
+    ) {
+        return {
+            type: "checkpoint_stores",
+            destination: value.destination,
+        };
     }
     if (value?.type === "list_agents") {
         const include = parseSessionFactNames(value.include);

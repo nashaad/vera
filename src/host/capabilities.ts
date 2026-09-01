@@ -29,6 +29,8 @@ export const HOST_CAPABILITY_SKILL_COMMANDS = "skills.commands.v1";
 export const HOST_CAPABILITY_WORK_INDEX = "work.index.v1";
 /** Loopback annex spawned by this host. */
 export const HOST_CAPABILITY_ANNEX = "annex.v1";
+/** Bounded SQLite checkpoint for a full-home snapshot. */
+export const HOST_CAPABILITY_HOME_SNAPSHOT = "home.snapshot.v1";
 
 export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_AGENT_BRANCH_OPTIONS,
@@ -43,6 +45,7 @@ export const HOST_CAPABILITIES = [
     HOST_CAPABILITY_SKILL_COMMANDS,
     HOST_CAPABILITY_WORK_INDEX,
     HOST_CAPABILITY_ANNEX,
+    HOST_CAPABILITY_HOME_SNAPSHOT,
 ] as const;
 
 export function parseHostCapabilities(
