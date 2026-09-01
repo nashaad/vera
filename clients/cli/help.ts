@@ -65,7 +65,7 @@ export function renderCliHelp(corpus: HelpCorpus): string {
         + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"
         + "  --permission-mode <mode>  Run under a named permission mode\n"
         + "  --model <name|id>         Run on one shortlisted model, by name or provider/model\n"
-        + "  --effort <level>          Run at one reasoning effort\n"
+        + "  --session <file>          Write a durable session at this path; vera resume FILE continues it\n"
         + `\nHelp topics:\n${topics}\n\n`
         + "Use 'vera help <topic>' for one topic, or 'vera help --llms' for the compact help corpus.\n";
 }

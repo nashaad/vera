@@ -20,6 +20,7 @@ import {
     Vera,
     type AgentOutputSchema,
 } from "../../src/sdk/agent.ts";
+import { SessionStore } from "../../src/store/session-store.ts";
 import {
     emptyUsage,
     type AssistantMessage,
@@ -605,6 +606,37 @@ test("Vera.run leaves auth.json untouched when the credential is unusable", asyn
         if (previousHome === undefined) delete process.env.VERA_HOME;
         else process.env.VERA_HOME = previousHome;
         rmSync(home, { recursive: true, force: true });
+    }
+});
+
+test("Vera.run --session writes a durable SessionStore at the named path", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-run-session-"));
+    const sessionPath = join(root, "kept.jsonl");
+    const requests: ModelRequest[] = [];
+    try {
+        const result = await Vera.run({
+            prompt: "Remember this",
+            agent: defineAgent({
+                name: "review-session",
+                instructions: "Inspect the change.",
+                tools: [],
+            }),
+            config: baseConfig(),
+            sessionPath,
+            createAdapter: () => capture(
+                new FauxAdapter([answer("stored")], { chunkSize: 3 }),
+                requests,
+            ),
+        });
+        expect(result.outcome).toBe("completed");
+        expect(existsSync(sessionPath)).toBe(true);
+        const store = await SessionStore.open(sessionPath);
+        expect(store.header.cwd).toBe(process.cwd());
+        expect(store.messages().some((message) =>
+            JSON.stringify(message).includes("Remember this")
+        )).toBe(true);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
     }
 });
 

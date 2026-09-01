@@ -1435,6 +1435,31 @@ test("vera -p prints the final reply and exits zero", async () => {
     expect(errors).toBe("");
 });
 
+test("vera -p --session names a durable session file", async () => {
+    const requests: Array<Record<string, unknown>> = [];
+    expect(await runCli(
+        ["-p", "keep this", "--session", "/tmp/kept.jsonl"],
+        {
+            runOnce: async (request) => {
+                requests.push({ ...request });
+                return {
+                    agentId: "run",
+                    sessionPath: "/tmp/kept.jsonl",
+                    text: "kept",
+                    outcome: "completed" as const,
+                    notes: [],
+                };
+            },
+            stdout: { write: () => {} },
+            stderr: { write: () => {} },
+        },
+    )).toBe(0);
+    expect(requests).toMatchObject([{
+        prompt: "keep this",
+        sessionPath: "/tmp/kept.jsonl",
+    }]);
+});
+
 test("vera -p passes an approval mode through and fails on a turn error", async () => {
     const requests: Array<Record<string, unknown>> = [];
     let output = "";

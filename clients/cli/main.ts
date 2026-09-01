@@ -237,6 +237,7 @@ export interface CliDependencies {
         readonly model?: string;
         readonly effort?: string;
         readonly startupProfile?: StartupProfile;
+        readonly sessionPath?: string;
     }) => Promise<RunOnceOutcome>;
     readonly runTui?: (
         target: TuiStartTarget,
@@ -897,14 +898,16 @@ interface PrintRequest {
         readonly model?: string;
         readonly effort?: string;
         readonly startupProfile?: StartupProfile;
+        readonly sessionPath?: string;
     };
 }
 
 /** The flags `-p` accepts, and the request field each one fills. */
-const PRINT_FLAGS: Readonly<Record<string, "approvalMode" | "model" | "effort">> = {
+const PRINT_FLAGS: Readonly<Record<string, "approvalMode" | "model" | "effort" | "sessionPath">> = {
     "--permission-mode": "approvalMode",
     "--model": "model",
     "--effort": "effort",
+    "--session": "sessionPath",
 };
 
 function parsePrintRequest(
@@ -946,6 +949,7 @@ async function runHostlessPrint(request: {
     readonly model?: string;
     readonly effort?: string;
     readonly startupProfile?: StartupProfile;
+    readonly sessionPath?: string;
 }): Promise<RunOnceOutcome> {
     const result = await Vera.run({
         prompt: request.prompt,
@@ -958,6 +962,9 @@ async function runHostlessPrint(request: {
             ? {}
             : { effort: request.effort as ModelReasoningEffort }),
         ...(request.startupProfile === "prompt_only" ? { tools: [] } : {}),
+        ...(request.sessionPath === undefined
+            ? {}
+            : { sessionPath: request.sessionPath }),
     });
     const outcome = result.outcome === "completed"
         ? "completed"

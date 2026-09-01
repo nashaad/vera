@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdir, mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 
 import {
     defineAgent,
@@ -85,6 +85,7 @@ export interface VeraRunOptions<Output = never> {
         config: VeraConfig,
         workspace: string,
     ) => ModelAdapter;
+    readonly sessionPath?: string;
 }
 
 /** Runtime overrides applied while binding one shared agent definition. */
@@ -109,6 +110,8 @@ export interface AgentRunOptions<Output = never> {
      * block the turn. It cannot rewrite messages or the system prompt.
      */
     readonly prepareTurn?: PreTurnHook;
+    /** Durable SessionStore path. Omitted means a temporary file that is deleted. */
+    readonly sessionPath?: string;
 }
 
 export type AgentRunOutcome = "completed" | "failed" | "aborted";
@@ -247,6 +250,9 @@ export class Vera {
         }).run(options.prompt, {
             ...(options.signal === undefined ? {} : { signal: options.signal }),
             ...(options.output === undefined ? {} : { output: options.output }),
+            ...(options.sessionPath === undefined
+                ? {}
+                : { sessionPath: options.sessionPath }),
         });
         return mapCredentialFailure(result, config.provider);
     }
@@ -287,8 +293,16 @@ export class Agent {
         options.signal?.throwIfAborted();
 
         const resolved = await resolveAgentOptions(this.options);
-        const temporaryDirectory = await mkdtemp(join(tmpdir(), "vera-sdk-"));
         const id = randomUUID();
+        const durableSessionPath = options.sessionPath;
+        const temporaryDirectory = durableSessionPath === undefined
+            ? await mkdtemp(join(tmpdir(), "vera-sdk-"))
+            : undefined;
+        const sessionPath = durableSessionPath
+            ?? join(temporaryDirectory!, `${id}.jsonl`);
+        if (durableSessionPath !== undefined) {
+            await mkdir(dirname(durableSessionPath), { recursive: true, mode: 0o700 });
+        }
         const resident = new ResidentAgent(id, resolved.workspace);
         const attachment = resident.attach();
         let text = "";
@@ -332,7 +346,7 @@ export class Agent {
                 resolved.model,
                 resolved.reasoningEffort,
                 {
-                    sessionPath: join(temporaryDirectory, `${id}.jsonl`),
+                    sessionPath,
                     approvalMode: resolved.posture,
                     offerTools: resolved.definition.tools?.length !== 0,
                     loadOptionalContext: false,
@@ -423,7 +437,9 @@ export class Agent {
                     throw loopFailure;
                 }
             } finally {
-                await rm(temporaryDirectory, { recursive: true, force: true });
+                if (temporaryDirectory !== undefined) {
+                    await rm(temporaryDirectory, { recursive: true, force: true });
+                }
             }
         }
 
