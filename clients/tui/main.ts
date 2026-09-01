@@ -1007,12 +1007,6 @@ export async function startTui(
     rt.requestedPermissionChanges = new Map<string, string>();
     rt.abortRequested = false;
 
-
-
-
-
-
-
     rt.queuedUiRequests = [];
     rt.queuedConfigurationRequests = [];
     rt.followTranscriptAfterUiRequest = false;
@@ -1047,7 +1041,6 @@ export async function startTui(
     rt.messageInterceptPending = false;
     rt.standingNudgesProfileDirectory = veraProfileDirectory();
     rt.standingNudgeRules = readStandingNudgeRules(rt);
-
 
     /** The picker pane the preferences list was opened over, restored on close. */
     /**
@@ -1514,8 +1507,6 @@ export async function startTui(
      * again after an extension reload, since the chords on offer changed.
      */
 
-
-
     /** Actions a closed session file can run without starting its worker. */
 
     rt.markdownStyle = createMarkdownStyle(rt, rt.theme);
@@ -1673,7 +1664,6 @@ export async function startTui(
     rt.sidebarEntryNodes = [];
     rt.sidebarEntryNodeKinds = [];
     rt.sidebarEntryGeneration = 0;
-
 
     /** Close the attached peer without ending its durable session. */
 
@@ -2100,15 +2090,12 @@ export async function startTui(
      */
     rt.jsonlCommandMode = false;
 
-
     /**
      * Hold every full-height surface off whatever the foot of the screen holds.
      *
      * Home has no composer, so a card that reserved one anyway would stop a
      * third of the way up a screen with nothing under it.
      */
-
-
 
     rt.modeToastText = new TextRenderable(rt.renderer, {
         id: "mode-toast-text",
@@ -2312,10 +2299,6 @@ export async function startTui(
         },
     });
 
-
-
-
-
     /** The settings owned by the agent that opened an application picker. */
 
     /**
@@ -2332,7 +2315,6 @@ export async function startTui(
      * catalog the host already sends. Facts only: these never become rows.
      */
 
-
     /**
      * Show the strip. Nothing is sent, nothing changes: the strip proposes.
      *
@@ -2348,12 +2330,7 @@ export async function startTui(
      * write into an agent a wire command can do.
      */
 
-
     /** Enqueued, never applied here: the host decides where in the queue it lands. */
-
-
-
-
 
     /**
      * A ui_request from the agent (approval, question) owns the session pane.
@@ -2364,26 +2341,10 @@ export async function startTui(
 
     /** The pair as the next request will carry it. Nothing reaches the API now. */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
     /**
      * One rendered transcript block: the entry's own renderable, wrapped in
      * the marker column unless it draws its own chrome edge to edge.
      */
-
-
 
     rt.upper.add(rt.transcript);
     rt.upper.add(rt.experimentalTuiHost.transcriptBottom);
@@ -3081,7 +3042,6 @@ export async function startTui(
     rt.renderer.keyInput.on("keypress", ((key: KeyEvent) => handleKeypress(rt, key)));
     rt.lastInputRecordAt = 0;
 
-
     /**
      * Every key the TUI acts on arrives here, overlays included. Pointer input
      * is routed back through it (see `pressKey`) rather than growing a second
@@ -3115,14 +3075,11 @@ export async function startTui(
     rt.settingsSnapshotRetries = new WeakMap<TuiAgentClient, number>();
     rt.MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
-
     /**
      * History, context, and turn-end do not carry the model snapshot. The
      * first ask can miss if the host was not ready, so a later fact that the
      * session is live is what asks again.
      */
-
-
 
     void receiveAgentUpdates(rt);
     if (rt.client.failed !== true && rt.client.viewOnly !== true) {
@@ -3139,16 +3096,11 @@ export async function startTui(
         openWorkspaceSidebar(rt, { focus: false, persist: false });
     }
 
-
     /**
      * `interceptedText` carries the text an extension asked to send instead of
      * what the user typed. Its presence is also what stops a second trip
      * through the interceptors.
      */
-
-
-
-
 
     /**
      * A model failing the same way again is worth one line saying so, because
@@ -3163,13 +3115,7 @@ export async function startTui(
      * point, and the model most likely to be asked is the one that failed.
      */
 
-
-
-
     /** Only the commands an idle conversation can run are offered here. */
-
-
-
 
     /**
      * A handled message still enters submit history and clears the composer:
@@ -3183,27 +3129,11 @@ export async function startTui(
      * whichever prompt the user sends next.
      */
 
-
-
-
-
-
-
-
-
     /**
      * The user's own name for a pooled model, swapped for the id the provider
      * knows. An extension is handed whatever was typed, and a pool name is the
      * client's data to resolve.
      */
-
-
-
-
-
-
-
-
 
     /**
      * How to focus the overlay in front, or nothing when the composer is it.
@@ -3213,10 +3143,6 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
 
-
-
-
-
     /**
      * Give every session switch a deadline.
      *
@@ -3225,7 +3151,6 @@ export async function startTui(
      * timeout the caller's rejection path runs, the old session stays attached,
      * and a late answer is discarded rather than swapped in behind the user.
      */
-
 
     /** Drop a session the client asked for but can no longer use. */
 
@@ -3240,15 +3165,12 @@ export async function startTui(
 
     /** A newly-created target is ours to stop if the switch cannot commit. */
 
-
     /**
      * After attach-only retry has already failed, start a replacement host
      * the same way `/reconnect` does. `switchToClient` runs only after attach
      * succeeds. Typed `/reconnect` sets `replaceExisting`; auto-restart does
      * not.
      */
-
-
 
     /**
      * What the pool looks like right now, which is what every relevance
@@ -3267,10 +3189,6 @@ export async function startTui(
      * when nothing is eligible, or when the pool is exhausted for this launch.
      */
 
-
-
-
-
     /**
      * Records what every materialized entry currently occupies.
      *
@@ -3280,15 +3198,7 @@ export async function startTui(
      * to entries that have never been on screen.
      */
 
-
-
-
-
-
-
     /** Children run [top spacer, materialized entries…, bottom spacer]. */
-
-
 
     /** The first materialized entry with any row inside the viewport. */
 
@@ -3299,8 +3209,6 @@ export async function startTui(
      * carries no estimate of its own.
      */
 
-
-
     /**
      * Releases nodes for entries that no longer exist.
      *
@@ -3308,10 +3216,6 @@ export async function startTui(
      * dropped. A node past the end of the list is outside every index the
      * update pass walks, so nothing else would ever destroy it.
      */
-
-
-
-
 
     /**
      * Releases entries that have moved far enough outside the viewport.
@@ -3322,7 +3226,6 @@ export async function startTui(
      * it, so releasing moves nothing the reader can see.
      */
 
-
     /**
      * Rebuilds the window as the tail, for a reader who jumped to the bottom.
      *
@@ -3330,13 +3233,6 @@ export async function startTui(
      * from the top of a long session, and every batch would move the bottom
      * the reader asked to land on.
      */
-
-
-
-
-
-
-
 
     /**
      * Put the row a search matched on screen, once the session it lives in has
@@ -3395,23 +3291,15 @@ export async function startTui(
      * empty, which is the flash this avoids.
      */
 
-
     // The surface openers below are shared by three callers: a slash command, a
     // palette row, and a /settings menu entry. Keeping them here means the three
     // routes cannot drift into opening the same picker with different arguments.
-
-
 
     /**
      * The primary is required, so clearing it means the fallback has nothing to
      * sit behind: the whole reviewer is cleared instead. Clearing the failsafe
      * alone keeps the primary and sends `null` for the second slot.
      */
-
-
-
-
-
 
     /** The connected providers whose model list can be fetched again. */
 
@@ -3423,16 +3311,11 @@ export async function startTui(
      * the surface that claims to show what they say.
      */
 
-
     /**
      * Writes the chosen model onto the assignment, or unbinds it. The write is
      * to the config file because an assignment is a setting. The host rereads
      * that file, so a compact in this session uses it without a restart.
      */
-
-
-
-
 
     /**
      * The level facts for one model, looked up off the wire rather than a
@@ -3445,12 +3328,6 @@ export async function startTui(
      * hatch) is treated the same as a model with an empty `levels` array: no
      * facts about it have reached the client.
      */
-
-
-
-
-
-
 
     /**
      * The store this client reads and writes credentials through, opened once.
@@ -3497,7 +3374,6 @@ export async function startTui(
      * blank field reading as "no key" and silently dropping one.
      */
 
-
     /**
      * Connect one provider, by whatever it is that provider wants.
      *
@@ -3523,7 +3399,6 @@ export async function startTui(
      * ago, and a second read would only disagree with what the card promised.
      */
 
-
     /**
      * The declaration form, finished or abandoned.
      *
@@ -3539,10 +3414,6 @@ export async function startTui(
      * provider somewhere else, so the host is theirs to set.
      */
 
-
-
-
-
     /**
      * The name a picker row was given.
      *
@@ -3552,7 +3423,6 @@ export async function startTui(
      * host.
      */
 
-
     /**
      * The session pane, rebuilt from the host.
      *
@@ -3561,19 +3431,11 @@ export async function startTui(
      * for.
      */
 
-
     /**
      * The one place this client turns a semantic setting into TUI state.
      * Callers may carry a picker parent for Escape, but no client position is
      * accepted from the destination itself.
      */
-
-
-
-
-
-
-
 
     /**
      * Palette rows run through the composer so a chosen row lands in history and
@@ -3582,18 +3444,11 @@ export async function startTui(
      * directly instead.
      */
 
-
     /**
      * Return to the conversation this hop started from.
      *
      * `/back` is a view switch. It does not stop the conversation on screen.
      */
-
-
-
-
-
-
 
     /**
      * Open the side bar on the session already on screen.
@@ -3602,7 +3457,6 @@ export async function startTui(
      * index the host pushes on every roster transition, so nothing polls.
      */
     /** Hands the keyboard to a rail that is already on screen. */
-
 
     /**
      * Switch to the next or previous live session from anywhere.
@@ -3632,11 +3486,6 @@ export async function startTui(
      * reason.
      */
 
-
-
-
-
-
     /**
      * Every row opens its session, and answering happens there.
      *
@@ -3645,7 +3494,6 @@ export async function startTui(
      * decision. Answering from the inbox would be a second way to decide, and
      * the one that never showed the request.
      */
-
 
     /**
      * Run one scan at a time, remembering only the newest query asked for.
@@ -3663,10 +3511,6 @@ export async function startTui(
      * opened with no session behind it starts at the workspace instead of at a
      * scope that would search nothing.
      */
-
-
-
-
 
     /**
      * Take the picker card off the screen and give the composer the cursor back.
@@ -3737,7 +3581,6 @@ export async function startTui(
 
     /** Whether home still has a session list worth offering a row for. */
 
-
     /**
      * Start a fresh conversation on this client.
      *
@@ -3755,15 +3598,12 @@ export async function startTui(
 
     /** What is in the composer right now, absent when it is empty. */
 
-
-
     /**
      * Send a model settings edit and toast what was asked for.
      *
      * `toast` is what the status line shows while the change is in flight;
      * `subject` completes "Could not change …" if the engine rejects it.
      */
-
 
     /**
      * What each live `pool_add` asked for, so an unavailable verdict can be
@@ -3799,7 +3639,6 @@ export async function startTui(
      * would otherwise look like a key that did nothing.
      */
 
-
     /** The live admission record for the dialog's own request, if any. */
 
     /**
@@ -3810,9 +3649,7 @@ export async function startTui(
      */
     /** Every model the user keeps, in the order the pane lists them. */
 
-
     /** An empty scope names every provider that keeps a list. */
-
 
     /** True when the reply belonged to the sweep, which then steps on. */
 
@@ -3822,7 +3659,6 @@ export async function startTui(
      * rather than being left out.
      */
 
-
     /**
      * Runs the sweep without a dialog per model. A dialog would ask to be
      * dismissed between every probe, which turns a batch back into the
@@ -3830,10 +3666,7 @@ export async function startTui(
      * line instead, and the rows update as each verdict lands.
      */
 
-
     /** True when the verdict belonged to the sweep, which then steps on. */
-
-
 
     /** Change the persistent host default used by new sessions. */
 
@@ -3980,7 +3813,6 @@ export async function startTui(
         ...rt.providerForgetConfirmView.themeBindings,
     ];
 
-
     /**
      * Theme rows preview live, but rebuilding a long Markdown transcript for
      * every key repeat makes the picker itself lag behind the cursor. Coalesce
@@ -4001,7 +3833,6 @@ export async function startTui(
      * claimed mentions.
      */
 
-
     /**
      * The one suggester that applies right now, if any.
      *
@@ -4009,18 +3840,12 @@ export async function startTui(
      * and a suggester dismissed with escape stays dismissed for the session.
      */
 
-
-
     return rt.finished.promise;
-
 
     /**
      * An overlay covers the status line, so a copy made from inside one has to
      * say so somewhere still on screen.
      */
-
-
-
 
     /**
      * How many rows the console is taking from the list right now.
@@ -4028,7 +3853,6 @@ export async function startTui(
      * Half-page movement is measured against what is on screen, so it has to
      * ask the console rather than assume a size it no longer has.
      */
-
 
     /**
      * A settled run has nothing left to report, so the console goes with it
@@ -4048,15 +3872,12 @@ export async function startTui(
      * anything, which is the whole point.
      */
 
-
     /**
      * The quote line, redrawn on the status tick as well as on state, because
      * the mark blinks and nothing else is changing while it does.
      */
 
     /** The pinned line naming who the composer is holding for. */
-
-
 
     /**
      * Follow one session's background work, from the attach onwards.
@@ -4086,12 +3907,6 @@ export async function startTui(
      * window around it. A write that fails is dropped: a notification is best
      * effort, and the inbox is the guaranteed way to find out either way.
      */
-
-
-
-
-
-
 
 }
 
@@ -4196,306 +4011,3 @@ export function defaultModelChangeNotice(
     };
     return `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use it by default`;
 }
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
