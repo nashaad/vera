@@ -872,7 +872,7 @@ function tuiContextSnapshot(
     const capacity = effectiveContextWindow(
         settings?.contextWindow,
         settings?.contextLimit,
-    ) ?? measurement.capacity;
+    );
     const model = settings?.model === undefined
         ? undefined
         : {

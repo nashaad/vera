@@ -5,11 +5,13 @@ import {
 import { coarsenOneStep } from "../model/effort-ladder.ts";
 import {
     learnedFact,
+    learnedSupportedFact,
     type EffortPool,
     type ModelRef,
 } from "../model/effort-pool.ts";
-import { effortLearnedKey } from "../model/pool-file.ts";
+import { effortLearnedKey, IMAGES_LEARNED_KEY } from "../model/pool-file.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type { ModelInputMessage } from "../model/types.ts";
 
 export interface EffortCoarseningOptions {
     readonly pool: EffortPool;
@@ -149,4 +151,29 @@ export function preflightEffort(
             ?? `the pool records effort "${requested}" as unsupported`
                 + ` for this model`,
     };
+}
+
+/**
+ * A completed image request is evidence the model takes images. Outages are
+ * not: those never reach here. Unknown stays unknown until a request that
+ * actually carried an image succeeds. Declared and already-learned facts are
+ * left alone; the user's word outranks a later observation.
+ */
+export function recordAcceptedImage(
+    pool: EffortPool,
+    ref: ModelRef,
+    messages: readonly ModelInputMessage[],
+    now: Date = new Date(),
+): void {
+    if (pool.resolveImageSupport(ref) !== undefined) {
+        return;
+    }
+    const carried = messages.some((message) =>
+        message.role === "user"
+        && message.content.some((block) => block.type === "image")
+    );
+    if (!carried) {
+        return;
+    }
+    pool.recordLearned(ref, IMAGES_LEARNED_KEY, learnedSupportedFact(now));
 }

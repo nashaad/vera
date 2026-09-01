@@ -9,6 +9,7 @@
 import {
     POOL_NAME_PATTERN,
     isCuratedPoolEntry,
+    splitModelId,
     type PoolFile,
     type PoolFileModel,
 } from "./pool-file.ts";
@@ -59,6 +60,20 @@ export function resolvePoolRef(
             : undefined;
     }
     return poolNames(file).find((entry) => entry.name === ref)?.id;
+}
+
+/**
+ * A pool name or exact shortlisted id, already split for a caller that takes
+ * provider and wire model as separate fields. Nested wire ids stay intact:
+ * the first slash is the only split.
+ */
+export function resolveBoundModelRef(
+    file: PoolFile,
+    ref: string,
+): { readonly provider: string; readonly model: string } | undefined {
+    const id = resolvePoolRef(file, ref);
+    if (id === undefined) return undefined;
+    return splitModelId(id);
 }
 
 /** The name to show for a model id, when it has one. */

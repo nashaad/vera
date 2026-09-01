@@ -19,6 +19,7 @@ import {
     type VeraConfig,
 } from "../config.ts";
 import {
+    adapterCacheFingerprint,
     applyModelRequestOptions,
     createRequestOptionsSnapshotAdapter,
     mergeModelRequestBody,
@@ -399,10 +400,11 @@ export async function startResidentHost(
             provider?: string,
             projectRoot?: string,
             captureFailedRequest?: FailedRequestCapture,
-        ) =>
-            createConfiguredModelAdapter({
-                ...options.config,
-                provider: (provider ?? options.config.provider) as
+        ) => {
+            const config = currentConfig();
+            return createConfiguredModelAdapter({
+                ...config,
+                provider: (provider ?? config.provider) as
                     VeraConfig["provider"],
             }, {
                 authStorage,
@@ -412,7 +414,8 @@ export async function startResidentHost(
                 ...(captureFailedRequest === undefined
                     ? {}
                     : { captureFailedRequest }),
-            }));
+            });
+        });
     // The experimental gate is checked here and nowhere downstream: with the
     // flag off there is no inbox, no consumer registry and no delivery path.
     const inbox = options.inboxPath === undefined
@@ -499,8 +502,11 @@ export async function startResidentHost(
             : { url: options.config.model_feed_url },
     );
     const registry = new AgentRegistry({
-        credentialFingerprint: (provider) =>
+        credentialFingerprint: (provider) => adapterCacheFingerprint(
+            currentConfig(),
             credentialFingerprint(authStorage, provider),
+            provider,
+        ),
         createAdapter,
         // Offered only when this host's adapter is the configured one and
         // nothing live wraps it. An injected factory and a model-request hook

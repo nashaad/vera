@@ -1,5 +1,6 @@
 import type { ModelAdapter } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type { ImageSupportLookup } from "../model/image-support.ts";
 import {
     OpenAICompatibleAdapter,
     type ChatProviderProfile,
@@ -14,6 +15,7 @@ export interface CustomOpenAIAdapterOptions {
     readonly baseUrl: string;
     readonly apiKey?: string;
     readonly supportsImageInput?: boolean;
+    readonly imageSupport?: ImageSupportLookup;
     /** Named, data-selected request compatibility operations. */
     readonly requestLayers?: readonly string[];
     readonly fetch?: (
@@ -32,7 +34,9 @@ export function createCustomOpenAIAdapter(
     const profile: ChatProviderProfile = {
         provider: options.provider,
         api: "openai-chat-completions",
-        supportsImageInput: options.supportsImageInput ?? false,
+        ...(options.supportsImageInput === undefined
+            ? {}
+            : { supportsImageInput: options.supportsImageInput }),
         supportsBodyExtensions: true,
         reasoningEffort: (effort) => effort,
         classifyError: classifyCustomProviderError,
@@ -70,6 +74,7 @@ export function createCustomOpenAIAdapter(
         profile,
         undefined,
         options.captureFailedRequest,
+        options.imageSupport,
     );
 }
 

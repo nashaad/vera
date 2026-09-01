@@ -371,22 +371,22 @@ function muted(text: string): TuiStatusChunk {
 }
 
 /**
+ * The window on the status line is the selected model's, not the last
+ * request's. Used tokens still come from the last measurement. An unknown
+ * model window stays unknown even when the user set a safety ceiling.
+ */
+export function visibleContextCapacity(
+    settings: ModelTurnSettings | undefined,
+    _previous?: ContextMeasurement,
+): number | undefined {
+    return effectiveContextWindow(settings?.contextWindow, settings?.contextLimit);
+}
+
+/**
  * Absent until the engine has measured something. A session that has not sent
  * a request has no honest percentage to show: its prompt and tool definitions
  * already occupy the window, so "0%" would be a number nobody measured.
  */
-/**
- * The window on the status line is the selected model's, not the last
- * request's. Used tokens still come from the last measurement.
- */
-export function visibleContextCapacity(
-    settings: ModelTurnSettings | undefined,
-    context: ContextMeasurement | undefined,
-): number | undefined {
-    return effectiveContextWindow(settings?.contextWindow, settings?.contextLimit)
-        ?? context?.capacity;
-}
-
 function contextChunks(
     context: ContextMeasurement | undefined,
     settings: ModelTurnSettings | undefined,

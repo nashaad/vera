@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 
 import {
+    adapterCacheFingerprint,
     createRequestOptionsSnapshotAdapter,
     ProviderRoutingAdapter,
 } from "../../src/providers/routing.ts";
@@ -52,6 +53,55 @@ test("signing in again mid-session stops the old key from being spent", () => {
     routing.prepareProvider("openrouter");
 
     expect(built).toBe(2);
+});
+
+test("a live rewrite of a custom provider rebuilds the cached client", () => {
+    let fingerprint = "\nfirst-url";
+    let built = 0;
+    const routing = new ProviderRoutingAdapter(
+        () => {
+            built += 1;
+            return stubAdapter();
+        },
+        "openai-codex",
+        () => fingerprint,
+    );
+
+    routing.prepareProvider("live-local");
+    fingerprint = "\nsecond-url";
+    routing.prepareProvider("live-local");
+    fingerprint = undefined;
+    expect(() => routing.prepareProvider("live-local")).not.toThrow();
+    expect(built).toBe(3);
+});
+
+test("adapterCacheFingerprint follows the live declaration, not just the key", () => {
+    const empty = {};
+    expect(adapterCacheFingerprint(empty, undefined, "live-local")).toBeUndefined();
+    expect(adapterCacheFingerprint(empty, "signed-in", "openrouter")).toBe("signed-in\n");
+
+    const first = adapterCacheFingerprint({
+        providers: {
+            "live-local": {
+                protocol: "openai-chat",
+                credential: "none",
+                base_url: "http://127.0.0.1:9/v1",
+            },
+        },
+    }, undefined, "live-local");
+    const moved = adapterCacheFingerprint({
+        providers: {
+            "live-local": {
+                protocol: "openai-chat",
+                credential: "none",
+                base_url: "http://127.0.0.1:8/v1",
+            },
+        },
+    }, undefined, "live-local");
+    expect(first).toBeDefined();
+    expect(moved).not.toBe(first);
+    expect(adapterCacheFingerprint({ providers: {} }, undefined, "live-local"))
+        .toBeUndefined();
 });
 
 test("nothing is built until something asks, including the default provider", () => {

@@ -1504,6 +1504,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
     };
     const registry = new AgentRegistry({
         createAdapter: () => adapter,
+        provider: "openrouter",
         model: "first-model",
         reasoningEffort: "low",
         approvalMode: "auto",
@@ -1577,7 +1578,7 @@ test("a resident agent applies new model settings at the next turn", async () =>
             model: request.model,
             reasoningEffort: request.reasoningEffort,
         }))).toEqual([
-            { provider: "unknown", model: "first-model", reasoningEffort: "low" },
+            { provider: "openrouter", model: "first-model", reasoningEffort: "low" },
             { provider: "ollama", model: "second-model", reasoningEffort: "high" },
         ]);
         const store = await SessionStore.open(join(root, "agent.jsonl"));
@@ -1886,6 +1887,7 @@ test("a registry resumes the same resident agent from its session", async () => 
             },
         }),
         model: "resumed-default",
+        provider: "openrouter",
         reasoningEffort: "medium",
         approvalMode: "auto",
     });
@@ -1953,6 +1955,7 @@ test("a resumed agent restores its latest durable model settings", async () => {
     const firstRegistry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([textResponse("unused")]),
         model: "first-default",
+        provider: "openrouter",
         reasoningEffort: "low",
         approvalMode: "auto",
     });
@@ -2253,6 +2256,7 @@ test("a failed settings append leaves the live selection unchanged", async () =>
     const registry = new AgentRegistry({
         createAdapter: () => new FauxAdapter([textResponse("unused")]),
         model: "stable-model",
+        provider: "openrouter",
         reasoningEffort: "low",
         approvalMode: "auto",
     });

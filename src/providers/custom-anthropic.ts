@@ -5,6 +5,7 @@ import type {
 
 import type { ModelAdapter } from "../model/types.ts";
 import type { ProviderFailure } from "../model/provider-failure.ts";
+import type { ImageSupportLookup } from "../model/image-support.ts";
 import {
     OpenAICompatibleAdapter,
     type ChatProviderProfile,
@@ -18,6 +19,7 @@ export interface CustomAnthropicAdapterOptions {
     readonly baseUrl: string;
     readonly apiKey?: string;
     readonly supportsImageInput?: boolean;
+    readonly imageSupport?: ImageSupportLookup;
     readonly defaultMaxTokens?: number;
     readonly adaptiveThinking?: boolean;
     readonly fetch?: (
@@ -36,7 +38,9 @@ export function createCustomAnthropicAdapter(
     const profile: ChatProviderProfile = {
         provider: options.provider,
         api: "anthropic-messages",
-        supportsImageInput: options.supportsImageInput ?? false,
+        ...(options.supportsImageInput === undefined
+            ? {}
+            : { supportsImageInput: options.supportsImageInput }),
         supportsBodyExtensions: true,
         reasoningEffort: options.adaptiveThinking === true
             ? anthropicAdaptiveEffort
@@ -80,6 +84,7 @@ export function createCustomAnthropicAdapter(
         profile,
         undefined,
         options.captureFailedRequest,
+        options.imageSupport,
     );
 }
 

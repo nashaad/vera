@@ -78,9 +78,41 @@ export function mergeModelRequestBody(
 
 /**
  * How this adapter's cached client can be told apart from one built against
- * different credentials. Absent when the provider has none to speak of.
+ * a different identity. Absent when the provider has none to speak of.
  */
 export type CredentialFingerprint = (provider: string) => string | undefined;
+
+/**
+ * The cache identity for a provider's client: credentials plus the live
+ * declaration. A custom endpoint's URL can change with no credential at all,
+ * and a credential-only key would keep spending the old host.
+ */
+export function adapterCacheFingerprint(
+    config: Pick<VeraConfig, "providers" | "provider_endpoints">,
+    credential: string | undefined,
+    provider: string,
+): string | undefined {
+    const declaration = providerDeclarationFingerprint(config, provider);
+    if (credential === undefined && declaration === undefined) {
+        return undefined;
+    }
+    return `${credential ?? ""}\n${declaration ?? ""}`;
+}
+
+function providerDeclarationFingerprint(
+    config: Pick<VeraConfig, "providers" | "provider_endpoints">,
+    provider: string,
+): string | undefined {
+    const declaration = config.providers?.[provider];
+    const endpoint = config.provider_endpoints?.[provider];
+    if (declaration === undefined && endpoint === undefined) {
+        return undefined;
+    }
+    return JSON.stringify({
+        declaration: declaration ?? null,
+        endpoint: endpoint ?? null,
+    });
+}
 
 interface CachedAdapter {
     readonly fingerprint: string | undefined;
@@ -214,14 +246,14 @@ export class ProviderRoutingAdapter implements ModelAdapter {
     }
 
     /**
-     * The cached client for a provider, rebuilt when its credentials changed.
+     * The cached client for a provider, rebuilt when its identity changed.
      *
-     * A client captures the key it was built with, so signing in again while an
-     * agent is running would otherwise keep spending the old one until the host
-     * restarted, with nothing on screen to explain it. Checking on the way past
-     * makes that impossible rather than making it somebody's job to remember: a
-     * scheme where whoever writes a credential must also announce it is one
-     * missed call away from the same silent staleness.
+     * A client captures the credential and the declaration it was built with,
+     * so signing in again, moving a custom URL, or deleting the provider while
+     * an agent is running would otherwise keep spending the old client until
+     * the host restarted, with nothing on screen to explain it. Checking on
+     * the way past makes that impossible rather than making it somebody's job
+     * to remember.
      */
     private adapter(provider: string): ModelAdapter {
         const fingerprint = this.fingerprint?.(provider);

@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
 import {
+    existsSync,
     mkdtempSync,
     readFileSync,
     rmSync,
@@ -59,6 +60,20 @@ test("pack-release writes a manifest with annex and the host protocol version", 
         expect(readFileSync(join(packedAnnexRoot(output), "build-id"), "utf8").trim())
             .toBe(manifest.build_id);
         expect(manifest.asset_digest.startsWith("sha256:")).toBe(true);
+        expect(existsSync(join(output, "worker"))).toBe(true);
+        expect(existsSync(join(output, "vera-annex"))).toBe(true);
+        expect(existsSync(join(output, "vera-supervisor"))).toBe(true);
+        expect(existsSync(join(output, "host"))).toBe(false);
+        expect(readFileSync(join(output, "worker"), "utf8"))
+            .toContain("src/host/worker/entry.ts");
+        const spawned = Bun.spawn([join(output, "worker")], {
+            stdin: "pipe",
+            stdout: "pipe",
+            stderr: "pipe",
+        });
+        expect(spawned.pid).toBeGreaterThan(0);
+        spawned.kill();
+        await spawned.exited;
     } finally {
         rmSync(output, { recursive: true, force: true });
     }

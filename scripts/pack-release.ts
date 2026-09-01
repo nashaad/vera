@@ -25,6 +25,10 @@ import {
 } from "../src/release/manifest.ts";
 import { readStampedRelease } from "../src/release/stamp.ts";
 import { digestPackedAnnex } from "../src/release/verify.ts";
+import {
+    releaseSourceEntries,
+    writeCheckoutPackWrappers,
+} from "../src/release/wrappers.ts";
 import { packWebAssets } from "./pack-web.ts";
 
 const REPO_ROOT = fileURLToPath(new URL("..", import.meta.url));
@@ -79,6 +83,11 @@ export async function packRelease(
     await Bun.write(
         releaseManifestPath(target),
         serializeReleaseManifest(manifest),
+    );
+    writeCheckoutPackWrappers(
+        target,
+        process.execPath,
+        releaseSourceEntries(cwd),
     );
     return {
         outputDirectory: target,

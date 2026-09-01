@@ -116,7 +116,7 @@ import {
 import {
     availableModels,
     contextWindowForModel,
-    effectiveContextWindow,
+    budgetContextWindow,
 } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import {
@@ -169,7 +169,7 @@ import {
     type WaitForModelRetry,
 } from "./recovery.ts";
 import type { EffortPool } from "../model/effort-pool.ts";
-import { preflightEffort } from "./effort-coarsening.ts";
+import { preflightEffort, recordAcceptedImage } from "./effort-coarsening.ts";
 import {
     defaultSessionPath,
     sessionIsSubagent,
@@ -412,7 +412,7 @@ function compactionContextForSettings(
             model,
             settings.availableModels,
         );
-    const capacity = effectiveContextWindow(declared, settings.contextLimit);
+    const capacity = budgetContextWindow(declared, settings.contextLimit);
     return {
         model,
         ...(capacity === undefined ? {} : { capacity }),
@@ -614,7 +614,7 @@ export async function runHeadlessLoop(
                     && settings.model === replayModel
                 ? settings.contextWindow
                 : contextWindowForModel(provider, replayModel);
-            return effectiveContextWindow(declared, settings?.contextLimit);
+            return budgetContextWindow(declared, settings?.contextLimit);
         },
     );
     // Before the wire encoder: the ledger writes synchronously, so a client
@@ -1587,7 +1587,7 @@ export async function runTurn(
                 modelSettings.availableModels,
                 catalogModels,
             );
-            return effectiveContextWindow(declared, modelSettings.contextLimit);
+            return budgetContextWindow(declared, modelSettings.contextLimit);
         };
 
         while (true) {
@@ -1977,6 +1977,21 @@ export async function runTurn(
                 ...assistantMessage,
                 durationMs: performance.now() - modelRequestStarted,
             };
+            if (
+                state.effortPool !== undefined
+                && modelSettings.provider !== undefined
+                && assistantMessage.stopReason !== "error"
+                && assistantMessage.stopReason !== "aborted"
+            ) {
+                recordAcceptedImage(
+                    state.effortPool,
+                    {
+                        provider: modelSettings.provider,
+                        model: activeModel,
+                    },
+                    modelRequest.messages,
+                );
+            }
             assistantMessage = sanitizedErrorMessage(assistantMessage);
             assistantMessage = requireVisibleTerminalResponse(assistantMessage);
             if (

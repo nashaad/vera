@@ -871,6 +871,52 @@ test("an unsupported image prompt remains durable for a model switch", async () 
     });
 });
 
+test("an unknown image capability still reaches the provider", async () => {
+    let providerCalls = 0;
+    const channel = createInProcessChannel();
+    const events = createTestEvents(channel.engine);
+    const reply: AssistantMessage = {
+        role: "assistant",
+        content: [{ type: "text", text: "I see it" }],
+        source: { provider: "unsloth-local", api: "openai-chat-completions", model: "qwen" },
+        usage: emptyUsage(),
+        stopReason: "stop",
+    };
+    const state: RunTurnState = {
+        messages: [],
+        store: new InMemorySessionStore(),
+        toolRuntime: new ToolRuntime(process.cwd()),
+        inbound: new InboundCommandRouter(channel.engine, events),
+        events,
+        hooks: new ToolHooks(),
+        approvalMode: "auto",
+        readImageContent: async () => ({
+            type: "image",
+            mediaType: "image/png",
+            data: Uint8Array.from([137, 80, 78, 71]),
+        }),
+    };
+    const adapter: ModelAdapter = {
+        stream() {
+            providerCalls += 1;
+            return new FauxAdapter([reply]).stream({
+                model: "qwen",
+                messages: [],
+            });
+        },
+    };
+
+    channel.client.send({
+        type: "prompt",
+        content: "inspect this image",
+        attachmentIds: ["image-1.png"],
+    });
+    const result = await runTurn(adapter, "qwen", state);
+
+    expect(providerCalls).toBe(1);
+    expect(result).toMatchObject({ stopReason: "stop" });
+});
+
 test("model settings are snapshotted once when each turn starts", async () => {
     const responses: AssistantMessage[] = [
         {

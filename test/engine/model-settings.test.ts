@@ -7,15 +7,19 @@ import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     availableReasoningEfforts,
     effectiveContextWindow,
+    budgetContextWindow,
     isModelTurnSettings,
     reasoningEffortForModel,
 } from "../../src/engine/model-settings.ts";
 
-test("a global context limit caps declared windows and bounds unknown ones", () => {
+test("a global context limit caps declared windows and leaves unknown ones unknown", () => {
     expect(effectiveContextWindow(1_048_576, 204_800)).toBe(204_800);
     expect(effectiveContextWindow(131_072, 204_800)).toBe(131_072);
     expect(effectiveContextWindow(1_048_576, undefined)).toBe(1_048_576);
-    expect(effectiveContextWindow(undefined, 204_800)).toBe(204_800);
+    expect(effectiveContextWindow(undefined, 204_800)).toBeUndefined();
+    expect(budgetContextWindow(undefined, 204_800)).toBe(204_800);
+    expect(budgetContextWindow(32_768, 204_800)).toBe(32_768);
+    expect(budgetContextWindow(32_768, 8_192)).toBe(8_192);
 });
 
 const EVERY_EFFORT: readonly ModelReasoningEffort[] = [
@@ -97,6 +101,40 @@ test("providers that can infer an effort keep the optimistic list", () => {
         .toEqual(EVERY_EFFORT);
     expect(availableReasoningEfforts("ollama", "gemma3", empty))
         .toEqual(EVERY_EFFORT);
+});
+
+test("a custom endpoint does not advertise a six-rung dial from silence", () => {
+    const empty = cacheDir();
+    expect(availableReasoningEfforts("unsloth-local", "unsloth/Qwen3.6", empty))
+        .toEqual([]);
+    expect(reasoningEffortForModel(
+        "unsloth-local",
+        "unsloth/Qwen3.6",
+        "max",
+        empty,
+    )).toBeUndefined();
+});
+
+test("explicit catalog levels are the graded map a custom endpoint may offer", () => {
+    const options = cacheDir({
+        "unsloth-local": [{
+            id: "gpt-oss",
+            label: "gpt-oss",
+            levels: [
+                { id: "low", label: "Low" },
+                { id: "medium", label: "Medium" },
+                { id: "high", label: "High" },
+            ],
+        }],
+    });
+    expect(availableReasoningEfforts("unsloth-local", "gpt-oss", options))
+        .toEqual(["low", "medium", "high"]);
+    expect(reasoningEffortForModel(
+        "unsloth-local",
+        "gpt-oss",
+        "low",
+        options,
+    )).toBe("low");
 });
 
 test("a model the user did not choose keeps any effort it can resolve", () => {

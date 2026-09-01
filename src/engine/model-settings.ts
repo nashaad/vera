@@ -277,9 +277,9 @@ const EVERY_REASONING_EFFORT: readonly ModelReasoningEffort[] = [
  *
  * The optimistic fallback below is only safe where the adapter can cope with an
  * effort it has no mapping for. OpenRouter can: it looks the model up and
- * infers a level. `openai-codex` cannot, so a codex model that neither source
- * describes still has no efforts to offer: naming one would fail the turn
- * rather than degrade it.
+ * infers a level. Ollama maps every effort itself. A custom OpenAI endpoint
+ * and `openai-codex` cannot: they either pass the word through or reject it,
+ * and advertising a six-rung dial from that is a claim nobody proved.
  */
 export function availableReasoningEfforts(
     provider: string,
@@ -297,10 +297,14 @@ export function availableReasoningEfforts(
     if (discovered !== undefined) {
         return discovered;
     }
-    if (provider === "openai-codex") {
+    if (!providerInfersReasoningEffort(provider)) {
         return [];
     }
     return EVERY_REASONING_EFFORT;
+}
+
+function providerInfersReasoningEffort(provider: string): boolean {
+    return provider === "openrouter" || provider === "ollama";
 }
 
 /**
@@ -428,13 +432,24 @@ export function contextWindowForModel(
     return undefined;
 }
 
-/** The capacity Vera budgets against after applying the user's global cap. */
+/** The known model capacity after the user's global cap. Unknown stays unknown. */
 export function effectiveContextWindow(
     declared: number | undefined,
     limit: number | undefined,
 ): number | undefined {
-    if (declared === undefined) return limit;
+    if (declared === undefined) return undefined;
     return limit === undefined ? declared : Math.min(declared, limit);
+}
+
+/**
+ * An upper bound for turn budgeting. The user ceiling may cap a request when
+ * the model window is unknown; that cap is not a capacity fact.
+ */
+export function budgetContextWindow(
+    declared: number | undefined,
+    limit: number | undefined,
+): number | undefined {
+    return effectiveContextWindow(declared, limit) ?? limit;
 }
 
 /**

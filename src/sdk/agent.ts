@@ -39,6 +39,7 @@ import {
     type AgentAttachment,
 } from "../host/resident-agent.ts";
 import { loadPoolFile } from "../model/pool-file-loader.ts";
+import { splitModelId } from "../model/pool-file.ts";
 import { resolvePoolRef } from "../model/pool-names.ts";
 import type {
     ModelAdapter,
@@ -568,11 +569,11 @@ function defaultPair(
     }).merged;
     const id = resolvePoolRef(pool, definition.defaultPair.name);
     if (id === undefined) return undefined;
-    const separator = id.indexOf("/");
-    if (separator < 1 || separator === id.length - 1) return undefined;
+    const bound = splitModelId(id);
+    if (bound === undefined) return undefined;
     return {
-        provider: id.slice(0, separator),
-        model: id.slice(separator + 1),
+        provider: bound.provider,
+        model: bound.model,
         ...(definition.defaultPair.effort === undefined
             ? {}
             : { reasoningEffort: definition.defaultPair.effort }),

@@ -80,7 +80,7 @@ const OPENROUTER_PROFILE: ChatProviderProfile = {
 };
 
 export class OpenRouterAdapter implements ModelAdapter {
-    readonly supportsImageInput: boolean;
+    readonly supportsImageInput?: boolean;
     constructor(
         private readonly sendChat: SendOpenRouterChat,
         private readonly reasoningMappings?: ReadonlyMap<
@@ -94,7 +94,7 @@ export class OpenRouterAdapter implements ModelAdapter {
         private readonly allowanceGuard?: OpenRouterAllowanceGuard,
         private readonly allowanceScope?: string,
     ) {
-        this.supportsImageInput = profile.supportsImageInput ?? false;
+        this.supportsImageInput = profile.supportsImageInput;
     }
 
     imageInputSupport(model: string): boolean | undefined {

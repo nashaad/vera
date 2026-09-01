@@ -288,6 +288,15 @@ export function providerOf(modelId: string): string | undefined {
     return modelId.slice(0, separator);
 }
 
+/** The wire-model half of a pool id: everything after the first slash. */
+export function splitModelId(
+    modelId: string,
+): { readonly provider: string; readonly model: string } | undefined {
+    const provider = providerOf(modelId);
+    if (provider === undefined) return undefined;
+    return { provider, model: modelId.slice(provider.length + 1) };
+}
+
 function parseDefaults(
     value: unknown,
     issues: PoolFileIssue[],
