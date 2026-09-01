@@ -30,7 +30,6 @@ import {
 import type { RegisteredAgentSummary } from "../../src/host/agent-registry.ts";
 import { listAgentsThroughHost } from "../../src/host/agent-list-client.ts";
 import {
-    runOnceThroughHost,
     type RunOnceOutcome,
 } from "../../src/host/run-once-client.ts";
 import {
@@ -121,6 +120,8 @@ import { runScheduleCli } from "./schedule.ts";
 import type { ScheduleOperation } from "../../src/scheduler/types.ts";
 import { runScheduleOperationThroughHost } from "../../src/host/schedule-client.ts";
 import type { StartupProfile } from "../../src/startup-profile.ts";
+import { Vera } from "../../src/sdk/agent.ts";
+import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import {
     diagnoseVeraProcesses,
@@ -363,6 +364,30 @@ export async function runCli(
         return runMigrateHomeCommand(args.slice(1), output, errorOutput, dependencies);
     }
 
+    if (args[0] === "-p") {
+        const printRequest = parsePrintRequest(args);
+        if (printRequest === undefined) {
+            errorOutput.write(renderCliUsage());
+            return 1;
+        }
+        const result = await (dependencies.runOnce ?? runHostlessPrint)({
+            workspace: process.cwd(),
+            prompt: printRequest.prompt,
+            ...printRequest.options,
+        });
+        if (result.text.length > 0) {
+            output.write(`${result.text}\n`);
+        }
+        for (const note of result.notes) {
+            errorOutput.write(`${note}\n`);
+        }
+        if (result.outcome === "completed") {
+            return 0;
+        }
+        errorOutput.write(`${result.error ?? `Turn ${result.outcome}`}\n`);
+        return 1;
+    }
+
     const dispatched = await (dependencies.dispatchToHostRelease
         ?? ((argv: readonly string[]) => dispatchToHostRelease({ argv })))(originalArgs);
     if (dispatched !== undefined) {
@@ -484,30 +509,6 @@ export async function runCli(
             errorOutput.write(`Extension operation failed: ${renderCliFailure(error)}\n`);
             return 1;
         }
-    }
-
-    if (args[0] === "-p") {
-        const printRequest = parsePrintRequest(args);
-        if (printRequest === undefined) {
-            errorOutput.write(renderCliUsage());
-            return 1;
-        }
-        const result = await (dependencies.runOnce ?? runOnceOnResidentHost)({
-            workspace: process.cwd(),
-            prompt: printRequest.prompt,
-            ...printRequest.options,
-        });
-        if (result.text.length > 0) {
-            output.write(`${result.text}\n`);
-        }
-        for (const note of result.notes) {
-            errorOutput.write(`${note}\n`);
-        }
-        if (result.outcome === "completed") {
-            return 0;
-        }
-        errorOutput.write(`${result.error ?? `Turn ${result.outcome}`}\n`);
-        return 1;
     }
 
     if (
@@ -938,7 +939,7 @@ function parsePrintRequest(
     return { prompt, options };
 }
 
-async function runOnceOnResidentHost(request: {
+async function runHostlessPrint(request: {
     readonly workspace: string;
     readonly prompt: string;
     readonly approvalMode?: string;
@@ -946,9 +947,35 @@ async function runOnceOnResidentHost(request: {
     readonly effort?: string;
     readonly startupProfile?: StartupProfile;
 }): Promise<RunOnceOutcome> {
-    const { findOrStartResidentHost } = await import("../host/launch.ts");
-    const host = await findOrStartResidentHost();
-    return runOnceThroughHost(host.socket_path, request);
+    const result = await Vera.run({
+        prompt: request.prompt,
+        workspace: request.workspace,
+        ...(request.approvalMode === undefined
+            ? {}
+            : { posture: request.approvalMode }),
+        ...(request.model === undefined ? {} : { model: request.model }),
+        ...(request.effort === undefined
+            ? {}
+            : { effort: request.effort as ModelReasoningEffort }),
+        ...(request.startupProfile === "prompt_only" ? { tools: [] } : {}),
+    });
+    const outcome = result.outcome === "completed"
+        ? "completed"
+        : result.outcome === "aborted"
+            ? "aborted"
+            : "error";
+    return {
+        agentId: "run",
+        sessionPath: "",
+        text: result.text,
+        outcome,
+        ...(result.error === undefined ? {} : { error: result.error.message }),
+        notes: result.substitutions.map((substitution) =>
+            substitution.scope === "model"
+                ? `model ${substitution.requested} -> ${substitution.using ?? substitution.model}`
+                : `effort ${substitution.requested} -> ${substitution.using ?? "default"}`
+        ),
+    };
 }
 
 async function scheduleOperationOnResidentHost(

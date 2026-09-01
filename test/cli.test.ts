@@ -1139,6 +1139,27 @@ test("vera reports a missing retained release without a runtime stack trace", as
     expect(errorOutput).not.toContain("RetainedReleaseMissingError:");
 });
 
+test("vera -p does not dispatch to a retained host client", async () => {
+    let hops = 0;
+    const exitCode = await runCli(["-p", "hello"], {
+        dispatchToHostRelease: async () => {
+            hops += 1;
+            return 0;
+        },
+        runOnce: async () => ({
+            agentId: "run",
+            sessionPath: "",
+            text: "ok",
+            outcome: "completed" as const,
+            notes: [],
+        }),
+        stdout: { write: () => {} },
+        stderr: { write: () => {} },
+    });
+    expect(exitCode).toBe(0);
+    expect(hops).toBe(0);
+});
+
 test("vera migrate-home does not dispatch to a retained host client", async () => {
     let output = "";
     let hops = 0;
