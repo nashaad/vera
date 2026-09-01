@@ -8,9 +8,9 @@
  *
  * The split of what each side holds:
  *
- * - The config crosses. It is the picture the host loaded at start, so a worker
- *   runs the settings the host is running rather than re-reading a file that
- *   may have changed underneath it.
+ * - The config snapshot crosses as a starting picture. The worker also
+ *   receives the config path and rereads it, so a provider declared after
+ *   spawn is usable without replacing the worker.
  * - The credential does not cross. The worker opens the machine tier's auth
  *   store itself, from the `VERA_HOME` it inherits, so no
  *   API key is ever written to a pipe or an argument list.
@@ -26,6 +26,7 @@ import { createConfiguredModelAdapter } from "../../providers/configured.ts";
 import { OpenRouterAllowanceGuard } from
     "../../providers/openrouter-allowance-guard.ts";
 import {
+    adapterCacheFingerprint,
     applyModelRequestOptions,
     ProviderRoutingAdapter,
     type PrepareModelRequest,
@@ -62,21 +63,30 @@ export function createWorkerAdapter(
     const captureFailedRequest = createFailedRequestCapture({
         sessionId: options.sessionId,
     });
-    const prepareRequest = createWorkerRequestPreparer(options);
+    const currentConfig = createLiveVeraConfigReader(options.config, {
+        ...(options.configPath === undefined ? {} : { path: options.configPath }),
+    });
     return new ProviderRoutingAdapter(
-        (provider: string) =>
-            createConfiguredModelAdapter({
-                ...options.config,
+        (provider: string) => {
+            const config = currentConfig();
+            return createConfiguredModelAdapter({
+                ...config,
                 provider: provider as VeraConfig["provider"],
             }, {
                 authStorage,
                 openRouterAllowanceGuard: allowanceGuard,
                 projectRoot: options.projectRoot,
                 captureFailedRequest,
-            }),
+            });
+        },
         options.provider,
-        (provider: string) => credentialFingerprint(authStorage, provider),
-        prepareRequest,
+        (provider: string) => adapterCacheFingerprint(
+            currentConfig(),
+            credentialFingerprint(authStorage, provider),
+            provider,
+        ),
+        (request, provider) =>
+            applyModelRequestOptions(request, currentConfig(), provider),
     );
 }
 
