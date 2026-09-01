@@ -298,7 +298,7 @@ from it runs with a missing credential. The rest of the extensions load
 normally. The reason is written to the profile's `host.jsonl`:
 
 ```sh
-grep host_startup_extension_failed ~/.vera/profiles/default/runtime/logs/host.jsonl
+grep host_startup_extension_failed ~/.vera/runtime/logs/host.jsonl
 ```
 
 The entry, with its timestamp left off here:
