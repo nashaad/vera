@@ -1508,25 +1508,41 @@ function renderTmuxSocketSweep(result: TmuxSocketSweepResult): string {
     return `${parts.join("; ")}.\n`;
 }
 
+/** Commands that must work before a profiles/ home has been lifted. */
+export function cliRequiresMigratedHome(args: readonly string[]): boolean {
+    const first = args[0] === "--yes" || args[0] === "-y" ? args[1] : args[0];
+    return first !== "migrate-home"
+        && first !== "help"
+        && first !== "--help"
+        && first !== "-h"
+        && first !== "--version"
+        && first !== "-v";
+}
+
 if (import.meta.main) {
+    const args = process.argv.slice(2);
     let layoutError: unknown;
-    try {
-        assertProfileLayout();
-    } catch (error) {
-        layoutError = error;
+    if (cliRequiresMigratedHome(args)) {
+        try {
+            assertProfileLayout();
+        } catch (error) {
+            layoutError = error;
+        }
     }
     if (layoutError !== undefined) {
         stderr.write(`${renderCliFailure(layoutError)}\n`);
         process.exitCode = 1;
     } else {
-        const strays = unrecognisedHomeEntries();
-        if (strays.length > 0) {
-            stderr.write(
-                `${veraHomeDirectory()} holds entries the home does not own: ${strays.join(", ")}.\n`
-                + "Whatever wrote them joined the home directly;"
-                + " move them or remove them.\n",
-            );
+        if (cliRequiresMigratedHome(args)) {
+            const strays = unrecognisedHomeEntries();
+            if (strays.length > 0) {
+                stderr.write(
+                    `${veraHomeDirectory()} holds entries the home does not own: ${strays.join(", ")}.\n`
+                    + "Whatever wrote them joined the home directly;"
+                    + " move them or remove them.\n",
+                );
+            }
         }
-        process.exitCode = await runCliMain(process.argv.slice(2));
+        process.exitCode = await runCliMain(args);
     }
 }
