@@ -20,6 +20,7 @@ const PRODUCT_GLOBS = [
 
 const ALLOWED = new Set([
     "scripts/dev-tui.ts",
+    "scripts/one-home-container-uat.sh",
 ]);
 
 async function productHits(): Promise<string[]> {
