@@ -7,8 +7,8 @@ const fs = require("node:fs");
 const ts = require("/Users/nash/Projects/vera/node_modules/typescript/lib/typescript.js");
 
 const SRC = "src/host/agent-registry.ts";
-const SUPPORT = "src/host/agent-registry-support.ts";
-const HELPERS = "src/host/agent-registry-helpers.ts";
+const SUPPORT = "src/host/agent-registry/support.ts";
+const HELPERS = "src/host/agent-registry/helpers.ts";
 
 function fail(m) {
     console.error(m);

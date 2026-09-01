@@ -14,32 +14,32 @@ import {
 import { tmpdir, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { AsyncQueue } from "../engine/async-queue.ts";
-import { EngineEventBus } from "../engine/events.ts";
-import type { SessionFacts } from "../store/session-facts.ts";
-import type { InstructionRoot } from "../engine/memory.ts";
-import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
+import { AsyncQueue } from "../../engine/async-queue.ts";
+import { EngineEventBus } from "../../engine/events.ts";
+import type { SessionFacts } from "../../store/session-facts.ts";
+import type { InstructionRoot } from "../../engine/memory.ts";
+import type { WorkAgentFacts, WorkScheduleFacts } from "../work-index.ts";
 import type {
     ContextualContributionContext,
     PromptContribution,
-} from "../engine/prompt-contributions.ts";
-import type { PoolAdmissionVerdict } from "../engine/events.ts";
-import type { ModelFailureLedger } from "../store/model-failures.ts";
+} from "../../engine/prompt-contributions.ts";
+import type { PoolAdmissionVerdict } from "../../engine/events.ts";
+import type { ModelFailureLedger } from "../../store/model-failures.ts";
 import {
     BUILT_IN_PERMISSION_MODE_NAMES,
     builtInPermissionMode,
     isApprovalMode,
     type ApprovalMode,
     type PermissionMode,
-} from "../engine/permissions.ts";
-import type { ToolHooks } from "../engine/hooks.ts";
+} from "../../engine/permissions.ts";
+import type { ToolHooks } from "../../engine/hooks.ts";
 import {
     ProviderUnavailableError,
     UserFacingError,
-} from "../user-facing-error.ts";
-import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
-import type { ModelFallbackPolicy } from "../engine/recovery.ts";
-import type { EffortPool } from "../model/effort-pool.ts";
+} from "../../user-facing-error.ts";
+import type { PermissionPreferenceStore } from "../../engine/permission-preferences.ts";
+import type { ModelFallbackPolicy } from "../../engine/recovery.ts";
+import type { EffortPool } from "../../model/effort-pool.ts";
 import {
     availableModels,
     contextWindowForModel,
@@ -51,24 +51,24 @@ import {
     type DeveloperSettingsPatch,
     type ModelSettingsPatch,
     type ModelTurnSettings,
-} from "../engine/model-settings.ts";
-import { inferReasoningSelection } from "../model/reasoning-effort.ts";
-import type { EffectiveCatalogOptions } from "../model/catalog.ts";
+} from "../../engine/model-settings.ts";
+import { inferReasoningSelection } from "../../model/reasoning-effort.ts";
+import type { EffectiveCatalogOptions } from "../../model/catalog.ts";
 import type {
     RunHeadlessLoopData,
     RunHeadlessLoopServices,
-} from "../engine/loop-services.ts";
-import { createRoutedCompletionService } from "../engine/completion-service.ts";
+} from "../../engine/loop-services.ts";
+import { createRoutedCompletionService } from "../../engine/completion-service.ts";
 import {
     BUNDLED_COMPACTION_STRATEGIES,
     bindCompaction,
     type CompactionOverrides,
-} from "../engine/compaction-binding.ts";
+} from "../../engine/compaction-binding.ts";
 import type {
     ResolvedCompactionProfile,
     VeraCatalogModel,
-} from "../config/model-catalog.ts";
-import { isVeraProviderId } from "../config.ts";
+} from "../../config/model-catalog.ts";
+import { isVeraProviderId } from "../../config.ts";
 import {
     createSubagentEffectApplier,
     resolveSpawnModelChoice,
@@ -77,40 +77,40 @@ import {
     type SpawnModelDefault,
     type SpawnModelResolution,
     type SubagentPoolPolicy,
-} from "../engine/subagent.ts";
-import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
+} from "../../engine/subagent.ts";
+import { InboundCommandRouter } from "../../engine/inbound-command-router.ts";
 import {
     isOneshotReplyUpdate,
     isSessionNameReplyUpdate,
     isTimelineReplyUpdate,
     isToolApprovalUiRequestUpdate,
     type ToolApprovalUiRequestUpdate,
-} from "../engine/protocol.ts";
+} from "../../engine/protocol.ts";
 import {
     DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
     validChildAgentLimit,
-} from "../engine/agent-limits.ts";
-import type { ReviewLog } from "../engine/review-log.ts";
-import type { ToolReviewerSettings } from "../engine/reviewer.ts";
+} from "../../engine/agent-limits.ts";
+import type { ReviewLog } from "../../engine/review-log.ts";
+import type { ToolReviewerSettings } from "../../engine/reviewer.ts";
 import type {
     ReviewerModelDefault,
     ReviewerSettingsPatch,
-} from "../engine/model-settings.ts";
+} from "../../engine/model-settings.ts";
 import type {
     ModelAdapter,
     ModelMessage,
     ModelReasoningEffort,
-} from "../model/types.ts";
-import { emptyUsage } from "../model/types.ts";
-import type { SuggestedModel } from "../model/supported-models.ts";
+} from "../../model/types.ts";
+import { emptyUsage } from "../../model/types.ts";
+import type { SuggestedModel } from "../../model/supported-models.ts";
 import {
     admittedEffortIds,
     availableModelsWithLevels,
     type PooledModel,
-} from "../model/catalog-view.ts";
-import { withListedFacts } from "../model/listed-facts.ts";
-import { readWebDevArenaSnapshot } from "../model/webdev-arena.ts";
-import { projectTranscript } from "../engine/protocol.ts";
+} from "../../model/catalog-view.ts";
+import { withListedFacts } from "../../model/listed-facts.ts";
+import { readWebDevArenaSnapshot } from "../../model/webdev-arena.ts";
+import { projectTranscript } from "../../engine/protocol.ts";
 import type {
     AgentInboxEffect,
     AgentSendEffect,
@@ -126,99 +126,99 @@ import type {
     SpawnAsyncSubagentEffect,
     ToolEffectContext,
     ToolOutput,
-} from "../tools/types.ts";
-import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
-import { ToolRuntime } from "../tools/runtime.ts";
+} from "../../tools/types.ts";
+import { ManagedProcessRegistry } from "../../tools/process-runtime.ts";
+import { ToolRuntime } from "../../tools/runtime.ts";
 import {
     defaultSessionPath,
     sessionIsSubagent,
     SessionStore,
     type SessionDelegation,
     type SessionSettingOrigin,
-} from "../store/session-store.ts";
+} from "../../store/session-store.ts";
 import {
     findCatalogAgent,
     loadAgentCatalog,
     type AgentCatalog,
-} from "../agents/catalog.ts";
+} from "../../agents/catalog.ts";
 import {
     DEFAULT_AGENT,
     type AgentDefinition,
-} from "../agents/definition.ts";
+} from "../../agents/definition.ts";
 import {
     agentSnapshotDrift,
     resolveAgentSnapshot,
     type AgentWearSnapshot,
-} from "../agents/wear.ts";
-import { writeAgentDefaultPair } from "../agents/writer.ts";
-import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
-import { sessionChangedFiles } from "../store/preimage-stash.ts";
-import type { EmittedScheduleRun } from "../scheduler/types.ts";
+} from "../../agents/wear.ts";
+import { writeAgentDefaultPair } from "../../agents/writer.ts";
+import type { InboxEntry, InboxEntryInput } from "../../store/inbox.ts";
+import { sessionChangedFiles } from "../../store/preimage-stash.ts";
+import type { EmittedScheduleRun } from "../../scheduler/types.ts";
 import {
     copySessionMessageAttachments,
     createSessionBranch,
-} from "../store/session-branch.ts";
+} from "../../store/session-branch.ts";
 import {
     disabledContributionsForProfile,
     storedStartupProfile,
     type StartupProfile,
-} from "../startup-profile.ts";
-import type { UserMessage } from "../model/types.ts";
-import type { OneshotMessage } from "../engine/protocol.ts";
-import type { EngineCommand } from "../engine/timeline-control.ts";
-import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
-import type { VeraExtensionConfig } from "../config.ts";
-import { discoverProjectExtensionConfigs } from "../extensions/discovery.ts";
+} from "../../startup-profile.ts";
+import type { UserMessage } from "../../model/types.ts";
+import type { OneshotMessage } from "../../engine/protocol.ts";
+import type { EngineCommand } from "../../engine/timeline-control.ts";
+import { loopCompactionState, type LoopState } from "../../engine/host-protocol.ts";
+import type { VeraExtensionConfig } from "../../config.ts";
+import { discoverProjectExtensionConfigs } from "../../extensions/discovery.ts";
 import {
     startExtensionRegistry,
     type ExtensionRegistry,
-} from "../extensions/registry.ts";
+} from "../../extensions/registry.ts";
 import type {
     SessionIdentity,
     SessionIdentityProvider,
-} from "../sdk/extensions.ts";
-import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
-import { workspaceKey } from "../workspace-key.ts";
+} from "../../sdk/extensions.ts";
+import { recordDeliveryAndNotify } from "../delivery-notifier.ts";
+import { workspaceKey } from "../../workspace-key.ts";
 import type {
     InboxDeliveryCoordinator,
     InboxDeliverySession,
     InboxAdmissionCandidate,
     InboxAdmissionDecision,
-} from "./inbox-delivery.ts";
+} from "../inbox-delivery.ts";
 import {
     ImageAttachmentService,
     sessionAttachmentName,
-} from "../attachments/service.ts";
-import { ProviderRoutingAdapter } from "../providers/routing.ts";
+} from "../../attachments/service.ts";
+import { ProviderRoutingAdapter } from "../../providers/routing.ts";
 import {
     decideSkillInvocation,
     loadSkillCommandCatalog,
     type SkillCommandCatalog,
     type SkillInvocationDecision,
-} from "../skills/commands.ts";
+} from "../../skills/commands.ts";
 import {
     startWorker,
     type WorkerHandle,
     type WorkerOutcome,
-} from "./worker/handle.ts";
+} from "../worker/handle.ts";
 import type {
     WorkerAdapterSpec,
     WorkerSessionSeed,
-} from "./worker/start.ts";
-import type { PrepareModelRequest } from "../providers/routing.ts";
+} from "../worker/start.ts";
+import type { PrepareModelRequest } from "../../providers/routing.ts";
 import {
     createFailedRequestCapture,
     type FailedRequestCapture,
-} from "../providers/failed-request-capture.ts";
+} from "../../providers/failed-request-capture.ts";
 import {
     type AgentAttachment,
     ResidentAgent,
-} from "./resident-agent.ts";
+} from "../resident-agent.ts";
 import {
     trashSessionArtifacts,
     type SessionArtifacts,
-} from "./session-trash.ts";
-import { SOURCE_GAP_KIND } from "../watch/source.ts";
+} from "../session-trash.ts";
+import { SOURCE_GAP_KIND } from "../../watch/source.ts";
 import {
     PEER_MESSAGE_KIND,
     PEER_READ_KIND,
@@ -226,12 +226,12 @@ import {
     parsePeerMessage,
     parsePeerRead,
     type PeerMessagePayload,
-} from "./local-participation.ts";
+} from "../local-participation.ts";
 
 import type {
     AgentRegistryOptions,
     BoundSessionIdentity,
-} from "./agent-registry-support.ts";
+} from "./support.ts";
 
 export interface PublishedBranchAttachments {
     readonly path: string;

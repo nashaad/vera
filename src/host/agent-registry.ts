@@ -1,349 +1,100 @@
-import { spawnSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { statSync } from "node:fs";
-import {
-    link,
-    mkdir,
-    mkdtemp,
-    readdir,
-    realpath,
-    rm,
-    rmdir,
-    unlink,
-} from "node:fs/promises";
+import { link, mkdir, mkdtemp, readdir, realpath, rm, rmdir, unlink } from "node:fs/promises";
 import { tmpdir, totalmem } from "node:os";
 import { basename, dirname, join, resolve } from "node:path";
 
-import { AsyncQueue } from "../engine/async-queue.ts";
 import { EngineEventBus } from "../engine/events.ts";
-import type { SessionFacts } from "../store/session-facts.ts";
-import type { InstructionRoot } from "../engine/memory.ts";
 import type { WorkAgentFacts, WorkScheduleFacts } from "./work-index.ts";
-import type {
-    ContextualContributionContext,
-    PromptContribution,
-} from "../engine/prompt-contributions.ts";
+import type { ContextualContributionContext, PromptContribution } from "../engine/prompt-contributions.ts";
 import type { PoolAdmissionVerdict } from "../engine/events.ts";
-import type { ModelFailureLedger } from "../store/model-failures.ts";
-import {
-    BUILT_IN_PERMISSION_MODE_NAMES,
-    builtInPermissionMode,
-    isApprovalMode,
-    type ApprovalMode,
-    type PermissionMode,
-} from "../engine/permissions.ts";
-import type { ToolHooks } from "../engine/hooks.ts";
-import {
-    ProviderUnavailableError,
-    UserFacingError,
-} from "../user-facing-error.ts";
-import type { PermissionPreferenceStore } from "../engine/permission-preferences.ts";
-import type { ModelFallbackPolicy } from "../engine/recovery.ts";
-import type { EffortPool } from "../model/effort-pool.ts";
-import {
-    availableModels,
-    contextWindowForModel,
-    effectiveContextWindow,
-    isModelReasoningEffort,
-    publishedReasoningLevels,
-    reasoningEffortForModel,
-    type DeveloperSettings,
-    type DeveloperSettingsPatch,
-    type ModelSettingsPatch,
-    type ModelTurnSettings,
-} from "../engine/model-settings.ts";
-import { inferReasoningSelection } from "../model/reasoning-effort.ts";
+import { BUILT_IN_PERMISSION_MODE_NAMES, type ApprovalMode } from "../engine/permissions.ts";
+import { ProviderUnavailableError, UserFacingError } from "../user-facing-error.ts";
+import { isModelReasoningEffort, type ModelSettingsPatch, type ModelTurnSettings } from "../engine/model-settings.ts";
 import type { EffectiveCatalogOptions } from "../model/catalog.ts";
-import {
-    runHeadlessLoop,
-    sessionScratchDir,
-} from "../engine/run-turn.ts";
-import type {
-    RunHeadlessLoopData,
-    RunHeadlessLoopServices,
-} from "../engine/loop-services.ts";
+import { runHeadlessLoop, sessionScratchDir } from "../engine/run-turn.ts";
+import type { RunHeadlessLoopData, RunHeadlessLoopServices } from "../engine/loop-services.ts";
 import { createRoutedCompletionService } from "../engine/completion-service.ts";
-import {
-    BUNDLED_COMPACTION_STRATEGIES,
-    bindCompaction,
-    type CompactionOverrides,
-} from "../engine/compaction-binding.ts";
-import type {
-    ResolvedCompactionProfile,
-    VeraCatalogModel,
-} from "../config/model-catalog.ts";
-import { isVeraProviderId } from "../config.ts";
-import {
-    createSubagentEffectApplier,
-    resolveSpawnModelChoice,
-    subagentModelBoundary,
-    type MissingSubagentConfigurationRequest,
-    type SpawnModelDefault,
-    type SpawnModelResolution,
-    type SubagentPoolPolicy,
-} from "../engine/subagent.ts";
-import { InboundCommandRouter } from "../engine/inbound-command-router.ts";
-import {
-    isOneshotReplyUpdate,
-    isSessionNameReplyUpdate,
-    isTimelineReplyUpdate,
-    isToolApprovalUiRequestUpdate,
-    type ToolApprovalUiRequestUpdate,
-} from "../engine/protocol.ts";
-import {
-    DEFAULT_MAX_CONCURRENT_CHILD_AGENTS,
-    validChildAgentLimit,
-} from "../engine/agent-limits.ts";
-import type { ReviewLog } from "../engine/review-log.ts";
+import { BUNDLED_COMPACTION_STRATEGIES, bindCompaction } from "../engine/compaction-binding.ts";
+import type { ResolvedCompactionProfile, VeraCatalogModel } from "../config/model-catalog.ts";
+import { createSubagentEffectApplier, type MissingSubagentConfigurationRequest, type SpawnModelResolution } from "../engine/subagent.ts";
+import { type ToolApprovalUiRequestUpdate } from "../engine/protocol.ts";
+import { DEFAULT_MAX_CONCURRENT_CHILD_AGENTS, validChildAgentLimit } from "../engine/agent-limits.ts";
 import type { ToolReviewerSettings } from "../engine/reviewer.ts";
-import type {
-    ReviewerModelDefault,
-    ReviewerSettingsPatch,
-} from "../engine/model-settings.ts";
-import type {
-    ModelAdapter,
-    ModelMessage,
-    ModelReasoningEffort,
-} from "../model/types.ts";
-import { emptyUsage } from "../model/types.ts";
+import type { ReviewerModelDefault, ReviewerSettingsPatch } from "../engine/model-settings.ts";
+import type { ModelReasoningEffort } from "../model/types.ts";
 import type { SuggestedModel } from "../model/supported-models.ts";
-import {
-    admittedEffortIds,
-    availableModelsWithLevels,
-    type PooledModel,
-} from "../model/catalog-view.ts";
-import { withListedFacts } from "../model/listed-facts.ts";
-import { readWebDevArenaSnapshot } from "../model/webdev-arena.ts";
+import { admittedEffortIds, availableModelsWithLevels, type PooledModel } from "../model/catalog-view.ts";
 import { projectTranscript } from "../engine/protocol.ts";
-import type {
-    AgentInboxEffect,
-    AgentSendEffect,
-    AppliedToolEffectOutput,
-    ApplyCommittedToolEffect,
-    ApplyToolEffect,
-    CloseSubagentEffect,
-    CloseSubagentResult,
-    CommitEffect,
-    MessageSubagentEffect,
-    NotifyParentEffect,
-    RegisteredTool,
-    SpawnAsyncSubagentEffect,
-    ToolEffectContext,
-    ToolOutput,
-} from "../tools/types.ts";
+import type { AgentInboxEffect, AgentSendEffect, AppliedToolEffectOutput, ApplyCommittedToolEffect, ApplyToolEffect, CloseSubagentEffect, MessageSubagentEffect, NotifyParentEffect, RegisteredTool, SpawnAsyncSubagentEffect, ToolEffectContext, ToolOutput } from "../tools/types.ts";
 import { ManagedProcessRegistry } from "../tools/process-runtime.ts";
-import { ToolRuntime } from "../tools/runtime.ts";
-import {
-    defaultSessionPath,
-    sessionIsSubagent,
-    SessionStore,
-    type SessionDelegation,
-    type SessionSettingOrigin,
-} from "../store/session-store.ts";
-import {
-    findCatalogAgent,
-    loadAgentCatalog,
-    type AgentCatalog,
-} from "../agents/catalog.ts";
-import {
-    DEFAULT_AGENT,
-    type AgentDefinition,
-} from "../agents/definition.ts";
-import {
-    agentSnapshotDrift,
-    resolveAgentSnapshot,
-    type AgentWearSnapshot,
-} from "../agents/wear.ts";
-import { writeAgentDefaultPair } from "../agents/writer.ts";
+import { SessionStore, type SessionSettingOrigin } from "../store/session-store.ts";
+import { findCatalogAgent, loadAgentCatalog, type AgentCatalog } from "../agents/catalog.ts";
+import { type AgentDefinition } from "../agents/definition.ts";
+import { agentSnapshotDrift, resolveAgentSnapshot, type AgentWearSnapshot } from "../agents/wear.ts";
 import type { InboxEntry, InboxEntryInput } from "../store/inbox.ts";
-import { sessionChangedFiles } from "../store/preimage-stash.ts";
 import type { EmittedScheduleRun } from "../scheduler/types.ts";
-import {
-    copySessionMessageAttachments,
-    createSessionBranch,
-} from "../store/session-branch.ts";
-import {
-    disabledContributionsForProfile,
-    storedStartupProfile,
-    type StartupProfile,
-} from "../startup-profile.ts";
-import type { UserMessage } from "../model/types.ts";
-import type { OneshotMessage } from "../engine/protocol.ts";
-import type { EngineCommand } from "../engine/timeline-control.ts";
+import { copySessionMessageAttachments, createSessionBranch } from "../store/session-branch.ts";
+import { disabledContributionsForProfile } from "../startup-profile.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
 import { discoverProjectExtensionConfigs } from "../extensions/discovery.ts";
-import {
-    startExtensionRegistry,
-    type ExtensionRegistry,
-} from "../extensions/registry.ts";
-import type {
-    SessionIdentity,
-    SessionIdentityProvider,
-} from "../sdk/extensions.ts";
-import { recordDeliveryAndNotify } from "./delivery-notifier.ts";
-import { workspaceKey } from "../workspace-key.ts";
-import type {
-    InboxDeliveryCoordinator,
-    InboxDeliverySession,
-    InboxAdmissionCandidate,
-    InboxAdmissionDecision,
-} from "./inbox-delivery.ts";
-import {
-    ImageAttachmentService,
-    sessionAttachmentName,
-} from "../attachments/service.ts";
+import { startExtensionRegistry } from "../extensions/registry.ts";
+import type { SessionIdentity, SessionIdentityProvider } from "../sdk/extensions.ts";
+import type { InboxAdmissionCandidate, InboxAdmissionDecision } from "./inbox-delivery.ts";
+import { ImageAttachmentService, sessionAttachmentName } from "../attachments/service.ts";
 import { ProviderRoutingAdapter } from "../providers/routing.ts";
-import {
-    decideSkillInvocation,
-    loadSkillCommandCatalog,
-    type SkillCommandCatalog,
-    type SkillInvocationDecision,
-} from "../skills/commands.ts";
-import {
-    startWorker,
-    type WorkerHandle,
-    type WorkerOutcome,
-} from "./worker/handle.ts";
-import type {
-    WorkerAdapterSpec,
-    WorkerSessionSeed,
-} from "./worker/start.ts";
-import type { PrepareModelRequest } from "../providers/routing.ts";
-import {
-    createFailedRequestCapture,
-    type FailedRequestCapture,
-} from "../providers/failed-request-capture.ts";
-import {
-    type AgentAttachment,
-    ResidentAgent,
-} from "./resident-agent.ts";
-import {
-    trashSessionArtifacts,
-    type SessionArtifacts,
-} from "./session-trash.ts";
-import { SOURCE_GAP_KIND } from "../watch/source.ts";
-import {
-    PEER_MESSAGE_KIND,
-    PEER_READ_KIND,
-    VERA_INBOX_SOURCE,
-    parsePeerMessage,
-    parsePeerRead,
-    type PeerMessagePayload,
-} from "./local-participation.ts";
+import { type SkillCommandCatalog, type SkillInvocationDecision } from "../skills/commands.ts";
+import { startWorker, type WorkerHandle, type WorkerOutcome } from "./worker/handle.ts";
+import type { WorkerAdapterSpec } from "./worker/start.ts";
+import { createFailedRequestCapture } from "../providers/failed-request-capture.ts";
+import { type AgentAttachment, ResidentAgent } from "./resident-agent.ts";
+import { trashSessionArtifacts, type SessionArtifacts } from "./session-trash.ts";
+import { PEER_MESSAGE_KIND, PEER_READ_KIND, VERA_INBOX_SOURCE, parsePeerMessage, parsePeerRead, type PeerMessagePayload } from "./local-participation.ts";
 
-import {
-    IMAGE_ATTACHMENT_LIMITS,
-    CHILD_TOOL_APPROVAL_TIMEOUT_MS,
-    MAX_PEER_HOP,
-    MAX_PEER_WAKES_PER_WINDOW,
-    PEER_WAKE_WINDOW_MS,
-    resolveInstructionRoot,
-    instructionRoots,
-    readInstructionRoot,
-    sameWorkspace,
-    entryStatus,
-    entryIsLive,
-    entryUpdatedAt,
-    MAX_ROSTER_CHANGED_FILES,
-    gitRosterFacts,
-    gitOutput,
-    nulList,
-    toolError,
-    closeSubagentOutput,
-    errorMessage,
-    resolveAgentWorkspace,
-    peerReadReceipt,
-    acknowledgeAfterCommit,
-    genericInboxResult,
-    boundedUtf8,
-    encodedStringBytes,
-    normalizeSessionName,
-    renameStoredSession,
-    samePair,
-    RESUME_WEAR_REQUEST_ID,
-    type RegisteredAgentStatus,
-    type RegisteredAgentKind,
-    type RegisteredAgentSummary,
-    type AgentRegistryOptions,
-    type CloseAgentTreeResult,
-    type CloseDescendantNotOwnedResult,
-    type CloseDescendantTreeResult,
-    type CreateRegisteredAgentOptions,
-    type ResumeRegisteredAgentOptions,
-    type BranchRegisteredAgentOptions,
-    type BranchedRegisteredAgent,
-    type RenameSessionOutcome,
-    type GitRosterFacts,
-    type InheritedAgentSettings,
-    type BoundSessionIdentity,
-    type RegisteredAgentEntry,
-    type PendingSubagentLaunch,
-    type PendingSubagentConfigurationBatch,
-} from "./agent-registry-support.ts";
-import {
-    publishBranchAttachments,
-    removePublishedBranchAttachments,
-    supportedModelSettings,
-    settingsForClient,
-    reviewerDefaultOf,
-    oneshotModelMessage,
-    WORKER_EXTENSIONS_ENV,
-    cancelledSubagentConfiguration,
-    unavailableSubagentConfiguration,
-    requestedSubagentLabel,
-    subagentResolutionLabel,
-    loopStateOf,
-    delegatedSubagentPolicy,
-    delegationAllows,
-    HOST_OWNED_COMMANDS,
-    WORKER_FOOTPRINT_BYTES,
-    MIN_WORKER_CAP,
-    MAX_WORKER_CAP,
-    defaultConcurrentWorkerCap,
-    WorkerCapReachedError,
-    readSessionSeed,
-    workerOutcomeDetail,
-    isSessionIdentity,
-    isValidSessionIdentityField,
-    materializeSessionIdentity,
-    type PublishedBranchAttachments,
-} from "./agent-registry-helpers.ts";
+import { IMAGE_ATTACHMENT_LIMITS, resolveInstructionRoot, peerReadReceipt, type RegisteredAgentKind, type RegisteredAgentSummary, type AgentRegistryOptions, type CloseAgentTreeResult, type CloseDescendantTreeResult, type CreateRegisteredAgentOptions, type ResumeRegisteredAgentOptions, type BranchRegisteredAgentOptions, type BranchedRegisteredAgent, type RenameSessionOutcome, type InheritedAgentSettings, type BoundSessionIdentity, type RegisteredAgentEntry, type PendingSubagentLaunch, type PendingSubagentConfigurationBatch } from "./agent-registry/support.ts";
+import { supportedModelSettings, settingsForClient, oneshotModelMessage, delegatedSubagentPolicy, WorkerCapReachedError } from "./agent-registry/helpers.ts";
+import * as registryLifecycle from "./agent-registry/lifecycle.ts";
+import * as registrySettings from "./agent-registry/settings.ts";
+import * as registryWear from "./agent-registry/wear.ts";
+import * as registryRoster from "./agent-registry/roster.ts";
+import * as registrySubagent from "./agent-registry/subagent.ts";
 
-export * from "./agent-registry-support.ts";
-export * from "./agent-registry-helpers.ts";
+export * from "./agent-registry/support.ts";
+export * from "./agent-registry/helpers.ts";
 
 export class AgentRegistry {
-    private readonly agents = new Map<string, RegisteredAgentEntry>();
-    private readonly startingIds = new Set<string>();
-    private readonly deliveryTasks = new Set<Promise<void>>();
+    readonly agents = new Map<string, RegisteredAgentEntry>();
+    readonly startingIds = new Set<string>();
+    readonly deliveryTasks = new Set<Promise<void>>();
     /** Kept for the entry's lifetime so overlapping monitors all suppress. */
-    private readonly suppressedCompletionDeliveries = new WeakSet<
+    readonly suppressedCompletionDeliveries = new WeakSet<
         RegisteredAgentEntry
     >();
-    private readonly closingCompletionRecipients = new WeakSet<SessionStore>();
-    private defaultModel: string;
-    private defaultProvider: string;
-    private defaultReasoningEffort: ModelReasoningEffort | undefined;
-    private defaultApprovalMode: ApprovalMode;
+    readonly closingCompletionRecipients = new WeakSet<SessionStore>();
+    defaultModel: string;
+    defaultProvider: string;
+    defaultReasoningEffort: ModelReasoningEffort | undefined;
+    defaultApprovalMode: ApprovalMode;
     /** Fixed classifier route for embedded callers without a live reader. */
-    private reviewerSettings: ToolReviewerSettings | undefined;
-    private isClosed = false;
-    private readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
-    private readonly maxConcurrentBackgroundAgents: number;
-    private readonly startingBackgroundAgents = new Map<string, number>();
+    reviewerSettings: ToolReviewerSettings | undefined;
+    isClosed = false;
+    readonly trashArtifacts: (artifacts: SessionArtifacts) => Promise<void>;
+    readonly maxConcurrentBackgroundAgents: number;
+    readonly startingBackgroundAgents = new Map<string, number>();
     /** Child id to the ladder notice its spawn produced, if any. */
-    private readonly spawnNotices = new Map<string, string>();
-    private readonly pendingSubagentConfigurations = new Map<
+    readonly spawnNotices = new Map<string, string>();
+    readonly pendingSubagentConfigurations = new Map<
         string,
         PendingSubagentConfigurationBatch[]
     >();
-    private readonly catalog: EffectiveCatalogOptions;
-    private availableModels: readonly SuggestedModel[];
-    private readonly rosterListeners = new Set<() => void>();
-    private readonly processRegistry = new ManagedProcessRegistry();
+    readonly catalog: EffectiveCatalogOptions;
+    availableModels: readonly SuggestedModel[];
+    readonly rosterListeners = new Set<() => void>();
+    readonly processRegistry = new ManagedProcessRegistry();
+    readonly options: AgentRegistryOptions;
 
-    constructor(private readonly options: AgentRegistryOptions) {
+    constructor(options: AgentRegistryOptions) {
+        this.options = options;
         this.reviewerSettings = options.reviewer;
         this.defaultModel = options.model;
         this.defaultProvider = options.provider ?? "unknown";
@@ -361,29 +112,18 @@ export class AgentRegistry {
             : { cacheDir: options.cacheDir };
     }
 
-    private modelsForClient(): readonly SuggestedModel[] {
-        const refreshed = this.options.refreshAvailableModels?.();
-        if (refreshed !== undefined) {
-            this.availableModels = refreshed;
-        }
-        return this.availableModels;
+    modelsForClient(): readonly SuggestedModel[] {
+        return registrySettings.modelsForClient(this);
     }
 
-    private isKnownProvider(provider: string): boolean {
-        return isVeraProviderId(provider)
-            || this.options.customProviderIds?.().includes(provider) === true;
+    isKnownProvider(provider: string): boolean {
+        return registrySettings.isKnownProvider(this, provider);
     }
 
     async create(
         options: CreateRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
-        return this.createWithKind(
-            options,
-            "interactive",
-            options.approvalMode === undefined
-                ? undefined
-                : { approvalMode: options.approvalMode },
-        );
+        return registryLifecycle.create(this, options);
     }
 
     /**
@@ -395,20 +135,12 @@ export class AgentRegistry {
      * is what makes "closed exactly once" checkable.
      */
     async closeAgent(id: string): Promise<"closed" | "not_found"> {
-        const entry = this.agents.get(id);
-        if (entry === undefined) {
-            return "not_found";
-        }
-        entry.agent.close();
-        await entry.run;
-        await this.reapClosedAgent(id, entry);
-        this.notifyRosterChanged();
-        return "closed";
+        return registryLifecycle.closeAgent(this, id);
     }
 
     /** Root plus every live descendant whose execution it owns. */
     ownedTreeIds(id: string): readonly string[] {
-        return this.agents.has(id) ? [id, ...this.liveDescendantsOf(id)] : [];
+        return registryLifecycle.ownedTreeIds(this, id);
     }
 
     /**
@@ -426,45 +158,7 @@ export class AgentRegistry {
      * nothing left to close and says so.
      */
     async closeAgentTree(id: string): Promise<CloseAgentTreeResult> {
-        const present = this.agents.has(id);
-        // Read before the walk: an ephemeral entry is gone from the roster by
-        // the time anyone could ask, and its transcript goes with it.
-        const sessionRetained = this.agents.get(id)?.ephemeral !== true;
-        const quiesced = new Map<string, RegisteredAgentEntry>();
-        while (true) {
-            const members = [id, ...this.liveDescendantsOf(id)]
-                .filter((memberId) =>
-                    this.agents.has(memberId) && !quiesced.has(memberId)
-                );
-            if (members.length === 0) {
-                break;
-            }
-            for (const memberId of members) {
-                const entry = this.agents.get(memberId);
-                if (entry !== undefined) {
-                    this.closingCompletionRecipients.add(entry.store);
-                    entry.agent.close();
-                }
-            }
-            for (const memberId of members) {
-                const entry = this.agents.get(memberId);
-                if (entry === undefined) {
-                    continue;
-                }
-                await entry.run;
-                quiesced.set(memberId, entry);
-            }
-        }
-        for (const [memberId, entry] of quiesced) {
-            await this.reapClosedAgent(memberId, entry);
-        }
-        if (quiesced.size > 0) {
-            this.notifyRosterChanged();
-        }
-        return {
-            status: present || quiesced.size > 0 ? "closed" : "not_found",
-            sessionRetained,
-        };
+        return registryLifecycle.closeAgentTree(this, id);
     }
 
     /** Close one live descendant while preserving the caller and its peers. */
@@ -472,369 +166,55 @@ export class AgentRegistry {
         callerId: string,
         targetId: string,
     ): Promise<CloseDescendantTreeResult> {
-        const target = this.agents.get(targetId);
-        if (
-            target === undefined
-            || target.agent.closed
-            || target.agent.failed
-            || target.failure !== undefined
-        ) {
-            return { status: "not_found", sessionRetained: true };
-        }
-        const caller = this.agents.get(callerId);
-        if (
-            caller === undefined
-            || caller.agent.closed
-            || caller.agent.failed
-            || caller.failure !== undefined
-            || !this.liveDescendantsOf(callerId).includes(targetId)
-        ) {
-            return { status: "not_owned", sessionRetained: true };
-        }
-
-        if (
-            target.parentId === callerId
-            && (
-                target.pendingAsyncTurns > 0
-                || target.pendingCompletionDeliveries > 0
-            )
-        ) {
-            this.suppressedCompletionDeliveries.add(target);
-        }
-        try {
-            return await this.closeAgentTree(targetId);
-        } catch (error) {
-            this.suppressedCompletionDeliveries.delete(target);
-            throw error;
-        }
+        return registryLifecycle.closeDescendantTree(this, callerId, targetId);
     }
 
     /** Release what a quiesced entry still holds and take it off the roster. */
-    private async reapClosedAgent(
+    async reapClosedAgent(
         id: string,
         entry: RegisteredAgentEntry,
     ): Promise<void> {
-        entry.inbox?.release();
-        await entry.projectExtensions?.close();
-        await this.options.releaseWorkspaceSidecars?.(entry.store.header.cwd);
-        this.agents.delete(id);
-        this.spawnNotices.delete(id);
-        if (entry.ephemeral) {
-            await rm(dirname(entry.store.path), { recursive: true, force: true });
-        }
+        return registryLifecycle.reapClosedAgent(this, id, entry);
     }
 
     /** Every live agent under `id`, deepest first. */
-    private liveDescendantsOf(id: string): readonly string[] {
-        const ordered: string[] = [];
-        // A corrupt header could name a parent cycle; without this the walk
-        // would never return.
-        const seen = new Set<string>([id]);
-        const visit = (parentId: string): void => {
-            for (const [childId, entry] of this.agents) {
-                if (entry.parentId !== parentId || seen.has(childId)) {
-                    continue;
-                }
-                seen.add(childId);
-                visit(childId);
-                ordered.push(childId);
-            }
-        };
-        visit(id);
-        return ordered;
+    liveDescendantsOf(id: string): readonly string[] {
+        return registryLifecycle.liveDescendantsOf(this, id);
     }
 
-    private async createWithKind(
+    async createWithKind(
         options: CreateRegisteredAgentOptions,
         kind: RegisteredAgentKind,
         inherited?: InheritedAgentSettings,
         clientPromptRefusal?: string,
     ): Promise<ResidentAgent> {
-        const id = options.id ?? randomUUID();
-        this.reserveId(id);
-        let createdPath: string | undefined;
-        let ephemeralDirectory: string | undefined;
-        try {
-            const workspace = await resolveAgentWorkspace(options.workspace);
-            const startupProfile = storedStartupProfile(
-                options.startupProfile ?? "default",
-            );
-            ephemeralDirectory = options.ephemeral === true
-                ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
-                : undefined;
-            const store = await SessionStore.create(
-                options.sessionPath
-                    ?? (ephemeralDirectory === undefined
-                        ? undefined
-                        : join(ephemeralDirectory, `${id}.jsonl`))
-                    ?? this.options.sessionPathForId?.(id)
-                    ?? defaultSessionPath(id),
-                {
-                    sessionId: id,
-                    cwd: workspace,
-                    ...(startupProfile === undefined
-                        ? {}
-                        : { contextAssemblyMode: startupProfile }),
-                    ...(inherited?.parentId === undefined
-                        ? {}
-                        : { parentId: inherited.parentId }),
-                    ...(inherited?.delegation === undefined
-                        ? {}
-                        : { delegation: inherited.delegation }),
-                },
-            );
-            createdPath = store.path;
-            if (inherited !== undefined) {
-                await store.appendApprovalMode(inherited.approvalMode);
-                if (inherited.modelSettings !== undefined) {
-                    await store.appendModelSettings(inherited.modelSettings);
-                }
-            }
-            this.requireOpen();
-            return await this.start(
-                store,
-                kind,
-                options.eventLogPath,
-                inherited?.parentId,
-                clientPromptRefusal,
-                options.ephemeral === true,
-            );
-        } catch (error) {
-            await this.closeAgent(id).catch(() => {});
-            if (ephemeralDirectory !== undefined) {
-                await rm(ephemeralDirectory, { recursive: true, force: true })
-                    .catch(() => {});
-            } else if (createdPath !== undefined) {
-                await rm(createdPath, { force: true }).catch(() => {});
-            }
-            throw error;
-        } finally {
-            this.startingIds.delete(id);
-        }
+        return registryLifecycle.createWithKind(this, options, kind, inherited, clientPromptRefusal);
     }
 
     async resume(
         options: ResumeRegisteredAgentOptions,
     ): Promise<ResidentAgent> {
-        const sessionPath = await realpath(options.sessionPath);
-        const store = await SessionStore.open(sessionPath);
-        const storedProvider = store.modelSettings()?.provider;
-        if (
-            store.header.delegation !== undefined
-            && store.modelSettings() !== undefined
-            && !delegationAllows(
-                store.header.delegation,
-                store.modelSettings()!,
-            )
-        ) {
-            throw new UserFacingError(
-                "This delegated session's stored model is outside its persisted boundary.",
-            );
-        }
-        if (
-            store.agentFailure() === undefined
-            && storedProvider !== undefined
-            && !(storedProvider === "unknown" && this.defaultProvider === "unknown")
-            && !this.isKnownProvider(storedProvider)
-        ) {
-            throw new ProviderUnavailableError(storedProvider);
-        }
-        this.reserveId(store.header.id);
-        try {
-            this.requireOpen();
-            const parentId = store.header.delegation?.parentId
-                ?? store.header.parentId;
-            return parentId === undefined
-                ? await this.start(store, "interactive", options.eventLogPath)
-                : await this.start(
-                    store,
-                    "background",
-                    options.eventLogPath,
-                    parentId,
-                );
-        } finally {
-            this.startingIds.delete(store.header.id);
-        }
+        return registryLifecycle.resume(this, options);
     }
 
     async branch(
         options: BranchRegisteredAgentOptions,
     ): Promise<BranchedRegisteredAgent | undefined> {
-        if (options.ephemeral === true && options.sessionPath !== undefined) {
-            throw new Error("An ephemeral branch cannot use a session path");
-        }
-        options.signal?.throwIfAborted();
-        const ephemeralDirectory = options.ephemeral === true
-            ? await mkdtemp(join(tmpdir(), "vera-ephemeral-agent-"))
-            : undefined;
-        const source = this.agents.get(options.sourceId);
-        if (
-            source === undefined
-            || source.agent.closed
-            || source.agent.failed
-            || source.agent.status !== "idle"
-        ) {
-            if (ephemeralDirectory !== undefined) {
-                await rm(ephemeralDirectory, { recursive: true, force: true });
-            }
-            return undefined;
-        }
-        const id = options.id ?? randomUUID();
-        let createdPath: string | undefined;
-        let stagingPath: string | undefined;
-        let publishedAttachments: PublishedBranchAttachments | undefined;
-        const approvalMode = options.approvalMode ?? source.approvalMode;
-        try {
-            this.reserveId(id);
-            const destinationPath = options.sessionPath
-                ?? (ephemeralDirectory === undefined
-                    ? undefined
-                    : join(ephemeralDirectory, `${id}.jsonl`))
-                ?? this.options.sessionPathForId?.(id)
-                ?? defaultSessionPath(id);
-            stagingPath = options.ephemeral === true
-                ? destinationPath
-                : join(
-                    dirname(destinationPath),
-                    `.${basename(destinationPath)}.${randomUUID()}.branch`,
-                );
-            const created = await createSessionBranch({
-                source: source.store,
-                destinationPath: stagingPath,
-                sessionId: id,
-                position: options.position,
-                ...(options.entryId === undefined
-                    ? {}
-                    : { entryId: options.entryId }),
-                ...(options.hideInheritedMessages === true
-                    ? { hideInheritedMessages: true }
-                    : {}),
-            });
-            options.signal?.throwIfAborted();
-            await created.store.appendApprovalMode(approvalMode);
-            for (const message of options.initialMessages ?? []) {
-                options.signal?.throwIfAborted();
-                await created.store.appendMessage(message);
-            }
-            options.signal?.throwIfAborted();
-            let store = created.store;
-            if (options.ephemeral !== true) {
-                publishedAttachments = await publishBranchAttachments(
-                    stagingPath,
-                    destinationPath,
-                    options.signal,
-                );
-                options.signal?.throwIfAborted();
-                await link(stagingPath, destinationPath);
-                createdPath = destinationPath;
-                await rm(stagingPath, { force: true });
-                stagingPath = undefined;
-                store = await SessionStore.open(destinationPath);
-            } else {
-                createdPath = stagingPath;
-            }
-            this.requireOpen();
-            return {
-                agent: await this.start(
-                    store,
-                    "interactive",
-                    options.eventLogPath,
-                    undefined,
-                    undefined,
-                    options.ephemeral === true,
-                    options.deferPublication === true,
-                ),
-                ...(created.prompt === undefined
-                    ? {}
-                    : { prompt: created.prompt }),
-            };
-        } catch (error) {
-            if (ephemeralDirectory !== undefined) {
-                await rm(ephemeralDirectory, { recursive: true, force: true })
-                    .catch(() => {});
-            } else if (createdPath !== undefined) {
-                await rm(createdPath, { force: true }).catch(() => {});
-                await rm(`${createdPath}.attachments`, {
-                    recursive: true,
-                    force: true,
-                }).catch(() => {});
-            }
-            if (stagingPath !== undefined) {
-                await rm(stagingPath, { force: true }).catch(() => {});
-                await rm(`${stagingPath}.attachments`, {
-                    recursive: true,
-                    force: true,
-                }).catch(() => {});
-            }
-            if (publishedAttachments !== undefined) {
-                await removePublishedBranchAttachments(publishedAttachments);
-            }
-            throw error;
-        } finally {
-            this.startingIds.delete(id);
-        }
+        return registryLifecycle.branch(this, options);
     }
 
     async trashSession(
         targetId: string,
     ): Promise<"trashed" | "busy" | "not_found" | "failed"> {
-        const entry = this.agents.get(targetId);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return "not_found";
-        }
-        if (
-            entry.kind !== "interactive"
-            || !entry.agent.idleForShutdown()
-            || [...this.agents.values()].some(
-                (candidate) =>
-                    candidate.parentId === targetId
-                    && candidate.failure === undefined
-                    && !candidate.agent.failed
-                    && !candidate.agent.closed
-                    && (
-                        !candidate.completed
-                        || candidate.pendingCompletionDeliveries > 0
-                    ),
-            )
-        ) {
-            return "busy";
-        }
-
-        await this.closeAgent(targetId);
-        try {
-            await this.trashArtifacts({
-                sessionPath: entry.store.path,
-                attachmentsPath: `${entry.store.path}.attachments`,
-                eventLogPath: entry.eventLogPath,
-            });
-            return "trashed";
-        } catch {
-            try {
-                const store = await SessionStore.open(entry.store.path);
-                await this.start(store, entry.kind, entry.eventLogPath);
-            } catch {
-                // A partial trash failure can leave the session unavailable.
-            }
-            return "failed";
-        }
+        return registryLifecycle.trashSession(this, targetId);
     }
 
     find(id: string): ResidentAgent | undefined {
-        const entry = this.agents.get(id);
-        const agent = entry?.pendingPublication === true
-            ? undefined
-            : entry?.agent;
-        return agent?.closed === false ? agent : undefined;
+        return registryLifecycle.find(this, id);
     }
 
     commitBranch(id: string): boolean {
-        const entry = this.agents.get(id);
-        if (entry === undefined || !entry.pendingPublication) {
-            return false;
-        }
-        entry.pendingPublication = false;
-        this.notifyRosterChanged();
-        return true;
+        return registryLifecycle.commitBranch(this, id);
     }
 
     async syncBranchContext(
@@ -848,76 +228,12 @@ export class AgentRegistry {
             | "not_found";
         readonly turns: number;
     }> {
-        const target = this.agents.get(targetId);
-        const sourceId = target?.store.header.origin?.sessionId;
-        const source = sourceId === undefined
-            ? undefined
-            : this.agents.get(sourceId);
-        if (target === undefined || source === undefined) {
-            return { status: "not_found", turns: 0 };
-        }
-        if (
-            target.agent.closed
-            || target.agent.failed
-            || source.agent.closed
-            || source.agent.failed
-            || target.agent.status !== "idle"
-            || source.agent.status !== "idle"
-            || target.inbound === undefined
-        ) {
-            return { status: "busy", turns: 0 };
-        }
-        const active = source.store.activeEntries();
-        const lastCompletedIndex = active.findLastIndex((entry) =>
-            entry.message.role === "assistant"
-        );
-        if (lastCompletedIndex < 0) {
-            return { status: "unchanged", turns: 0 };
-        }
-        const completed = active.slice(0, lastCompletedIndex + 1);
-        const cursor = target.syncedSourceEntryId
-            ?? target.store.header.origin?.entryId
-            ?? null;
-        const cursorIndex = cursor === null
-            ? -1
-            : completed.findIndex((entry) => entry.id === cursor);
-        // A rewind of the primary drops the synced entry from its history, so
-        // the branch can never catch up again. It is a distinct outcome: the
-        // caller drops this branch instead of retrying against a dead cursor.
-        if (cursor !== null && cursorIndex < 0) {
-            return { status: "stale_cursor", turns: 0 };
-        }
-        const additions = completed.slice(cursorIndex + 1);
-        const turns = additions.filter((entry) =>
-            entry.message.role === "user"
-            && entry.message.internal !== true
-        ).length;
-        if (additions.length === 0 || turns === 0) {
-            return { status: "unchanged", turns: 0 };
-        }
-        await copySessionMessageAttachments(
-            source.store,
-            target.store,
-            additions.map((entry) => entry.message),
-        );
-        const appended = await target.inbound.appendContext(
-            additions.map((entry) => entry.message),
-            {
-                text: `Caught up with ${turns} new ${turns === 1 ? "turn" : "turns"} from the primary conversation.`,
-                tone: "soft",
-            },
-        );
-        if (!appended) {
-            return { status: "busy", turns: 0 };
-        }
-        target.syncedSourceEntryId = additions.at(-1)!.id;
-        return { status: "synced", turns };
+        return registryLifecycle.syncBranchContext(this, targetId);
     }
 
     /** The identity name a live session posts under, `undefined` when gone. */
     arcNameOf(id: string): string | undefined {
-        const entry = this.agents.get(id);
-        return entry?.agent.closed === false ? entry.identity?.name : undefined;
+        return registryLifecycle.arcNameOf(this, id);
     }
 
     /**
@@ -928,124 +244,27 @@ export class AgentRegistry {
      * naming carry ids.
      */
     agentIdForArcSession(value: string): string | undefined {
-        for (const [id, entry] of this.agents) {
-            if (entry.agent.closed) {
-                continue;
-            }
-            const identity = entry.identity;
-            if (identity === undefined) {
-                continue;
-            }
-            if (value === identity.name || value === identity.key) {
-                return id;
-            }
-            const incoming = this.options.sessionIdentity?.keyOf?.(value);
-            if (incoming != null && incoming === identity.key) {
-                return id;
-            }
-        }
-        return this.find(value)?.id;
+        return registryLifecycle.agentIdForArcSession(this, value);
     }
 
-    private readonly identityKeyOwners = new Map<string, string>();
-    private readonly unavailableIdentityKeys = new Set<string>();
+    readonly identityKeyOwners = new Map<string, string>();
+    readonly unavailableIdentityKeys = new Set<string>();
 
-    private identityKeyTaken(key: string): boolean {
-        if (
-            this.identityKeyOwners.has(key)
-            || this.unavailableIdentityKeys.has(key)
-        ) {
-            return true;
-        }
-        for (const entry of this.agents.values()) {
-            if (entry.identity?.key === key) {
-                return true;
-            }
-        }
-        return false;
+    identityKeyTaken(key: string): boolean {
+        return registryLifecycle.identityKeyTaken(this, key);
     }
 
-    private async bindSessionIdentity(
+    async bindSessionIdentity(
         store: SessionStore,
     ): Promise<BoundSessionIdentity | undefined> {
-        const stored = store.identity();
-        if (stored !== undefined) {
-            const claimed = await this.claimSessionIdentityKey(
-                store.header.id,
-                stored.key,
-            );
-            if (!claimed) {
-                throw new Error(
-                    `Session identity ${stored.name} is already owned by another session`,
-                );
-            }
-            return materializeSessionIdentity(stored.name, stored.key);
-        }
-        // The append-only format forbids records after a terminal failure.
-        // Legacy failed sessions therefore remain unnamed rather than being
-        // made unreadable by an impossible migration.
-        if (store.agentFailure() !== undefined) {
-            return undefined;
-        }
-        const provider = this.options.sessionIdentity;
-        if (provider === undefined) {
-            return undefined;
-        }
-        let minted: SessionIdentity | undefined;
-        for (let attempt = 0; attempt < 1_024; attempt += 1) {
-            minted = provider.mint({
-                taken: (key) => this.identityKeyTaken(key),
-            });
-            if (!isSessionIdentity(minted)) {
-                throw new Error(
-                    "Session identity provider returned an invalid identity",
-                );
-            }
-            if (await this.claimSessionIdentityKey(store.header.id, minted.key)) {
-                break;
-            }
-            minted = undefined;
-        }
-        if (minted === undefined) {
-            throw new Error("Session identity provider exhausted its name space");
-        }
-        await store.appendIdentity({
-            name: minted.name,
-            key: minted.key,
-        });
-        return materializeSessionIdentity(minted.name, minted.key);
+        return registryLifecycle.bindSessionIdentity(this, store);
     }
 
-    private async claimSessionIdentityKey(
+    async claimSessionIdentityKey(
         sessionId: string,
         key: string,
     ): Promise<boolean> {
-        const owner = this.identityKeyOwners.get(key);
-        if (owner !== undefined) {
-            return owner === sessionId;
-        }
-        if (this.unavailableIdentityKeys.has(key)) {
-            return false;
-        }
-        // Reserve locally before awaiting the durable claim. Concurrent
-        // creates in this host must not both offer the same candidate.
-        this.identityKeyOwners.set(key, sessionId);
-        const reserve = this.options.reserveSessionIdentity;
-        if (reserve === undefined) {
-            return true;
-        }
-        try {
-            const outcome = await reserve(sessionId, key);
-            if (outcome === "reserved" || outcome === "owned") {
-                return true;
-            }
-            this.identityKeyOwners.delete(key);
-            this.unavailableIdentityKeys.add(key);
-            return false;
-        } catch (error) {
-            this.identityKeyOwners.delete(key);
-            throw error;
-        }
+        return registryLifecycle.claimSessionIdentityKey(this, sessionId, key);
     }
 
     /**
@@ -1056,37 +275,16 @@ export class AgentRegistry {
      * is the host default: nobody has dialed anything yet.
      */
     readHostModelSettings(workspace?: string): ModelTurnSettings {
-        return settingsForClient(
-            {
-                provider: this.defaultProvider,
-                model: this.defaultModel,
-                ...(this.defaultReasoningEffort === undefined
-                    ? {}
-                    : { reasoningEffort: this.defaultReasoningEffort }),
-            },
-            this.defaultProvider,
-            this.catalog,
-            this.modelsForClient(),
-            this.options.readPool?.(workspace),
-            this.options.subagentModel,
-            undefined,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            workspace,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.readHostModelSettings(this, workspace);
     }
 
-    private reviewerDefault(): ReviewerModelDefault {
-        return reviewerDefaultOf(this.readReviewer());
+    reviewerDefault(): ReviewerModelDefault {
+        return registrySettings.reviewerDefault(this);
     }
 
     /** The reviewer route agents read at each review, not once at start. */
     readReviewer(): ToolReviewerSettings | undefined {
-        return this.options.readReviewer === undefined
-            ? this.reviewerSettings
-            : this.options.readReviewer();
+        return registrySettings.readReviewer(this);
     }
 
     /**
@@ -1096,27 +294,8 @@ export class AgentRegistry {
      * the pool or the catalog, because a reviewer that turns out to be
      * unreachable falls through to the failsafe on its own.
      */
-    private applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
-        if (patch === null) {
-            this.reviewerSettings = undefined;
-            this.options.writeReviewer?.(null);
-            return true;
-        }
-        const carried = this.readReviewer();
-        const fallback = patch.fallback === undefined
-            ? carried?.models[1]
-            : patch.fallback === null
-                ? undefined
-                : patch.fallback;
-        this.reviewerSettings = {
-            ...carried,
-            models: [
-                { ...patch.primary },
-                ...(fallback === undefined ? [] : [{ ...fallback }]),
-            ],
-        };
-        this.options.writeReviewer?.(this.reviewerSettings);
-        return true;
+    applyReviewerPatch(patch: ReviewerSettingsPatch | null): boolean {
+        return registrySettings.applyReviewerPatch(this, patch);
     }
 
     /**
@@ -1126,252 +305,28 @@ export class AgentRegistry {
      * picker cannot disagree about which levels a model publishes, or coerce an
      * unpublished level differently.
      */
-    private resolveModelPatch(
+    resolveModelPatch(
         entry: RegisteredAgentEntry,
         patch: ModelSettingsPatch,
     ): {
         readonly settings: ModelTurnSettings;
         readonly requestedReasoningEffort?: ModelReasoningEffort;
     } | undefined {
-        if (
-            (patch.provider === undefined && patch.model === undefined && patch.reasoningEffort === undefined)
-            || (patch.provider !== undefined && patch.provider.trim().length === 0)
-            || (patch.provider !== undefined
-                && !this.isKnownProvider(patch.provider.trim()))
-            || (patch.model !== undefined && patch.model.trim().length === 0)
-            || (patch.reasoningEffort !== undefined
-                && patch.reasoningEffort !== null
-                && !isModelReasoningEffort(patch.reasoningEffort))
-        ) {
-            return undefined;
-        }
-        const provider = patch.provider?.trim()
-            ?? entry.modelSettings.provider
-            ?? this.defaultProvider;
-        const model = patch.model?.trim() ?? entry.modelSettings.model;
-        if (
-            entry.store.header.delegation !== undefined
-            && !delegationAllows(entry.store.header.delegation, {
-                provider,
-                model,
-            })
-        ) {
-            return undefined;
-        }
-        // Pool membership does not gate this. The pool is the user's curated
-        // shortlist, not the set of models they are allowed to run: choosing a
-        // model from the catalog runs it and adds nothing.
-        try {
-            entry.adapter?.prepareProvider(provider);
-        } catch {
-            return undefined;
-        }
-        let reasoningEffort = patch.reasoningEffort === undefined
-            ? entry.modelSettings.reasoningEffort
-            : patch.reasoningEffort === null
-                ? undefined
-                : patch.reasoningEffort;
-        // Checked against exactly what the picker was served, through the
-        // same reader: a level published for this model is always acceptable
-        // here, whichever layer published it.
-        const scope = {
-            ...this.catalog,
-            projectRoot: entry.store.header.cwd,
-        };
-        const unnarrowed = publishedReasoningLevels(
-            provider,
-            model,
-            this.options.readPool?.(entry.store.header.cwd),
-            this.catalog,
-        );
-        const published = {
-            ...unnarrowed,
-            efforts: admittedEffortIds(
-                provider,
-                model,
-                unnarrowed.efforts,
-                scope,
-            ),
-        };
-        // A level the model does not publish is coerced rather than promoted:
-        // the model's own default, else a middle level, never the top. Same
-        // rule as request-time resolution, so a switch and a turn place an
-        // unknown level identically. The coerced level comes back in the
-        // returned settings, which is how the client learns of the
-        // substitution.
-        //
-        // A model that publishes no levels at all is the one case an
-        // effort-only patch still refuses: there is no dial to move, and
-        // there the level is the whole request.
-        // The level asked for, kept so the client can say what it asked for
-        // beside what it got. Undefined again the moment a change validates
-        // as published, which is how the note clears.
-        let requestedReasoningEffort: ModelReasoningEffort | undefined;
-        if (
-            reasoningEffort !== undefined
-            && !published.efforts.includes(reasoningEffort)
-        ) {
-            if (
-                published.efforts.length === 0
-                && patch.model === undefined
-                && patch.provider === undefined
-            ) {
-                return undefined;
-            }
-            const requested = reasoningEffort;
-            reasoningEffort = inferReasoningSelection(
-                requested,
-                published.efforts,
-                published.defaultLevel,
-            ).providerEffort;
-            if (reasoningEffort !== undefined && reasoningEffort !== requested) {
-                requestedReasoningEffort = requested;
-            }
-        }
-        const settings: ModelTurnSettings = {
-            provider,
-            model,
-            ...(reasoningEffort === undefined
-                ? {}
-                : { reasoningEffort }),
-        };
-        return {
-            settings,
-            ...(requestedReasoningEffort === undefined
-                ? {}
-                : { requestedReasoningEffort }),
-        };
+        return registrySettings.resolveModelPatch(this, entry, patch);
     }
 
     async updateModelSettings(
         id: string,
         patch: ModelSettingsPatch,
     ): Promise<ModelTurnSettings | undefined> {
-        const result = await this.applyModelSettings(id, patch);
-        this.pushWorkerState(id);
-        return result;
+        return registrySettings.updateModelSettings(this, id, patch);
     }
 
-    private async applyModelSettings(
+    async applyModelSettings(
         id: string,
         patch: ModelSettingsPatch,
     ): Promise<ModelTurnSettings | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        if (patch.developer !== undefined) {
-            if (this.options.updateDeveloperSettings === undefined) {
-                return undefined;
-            }
-            this.options.updateDeveloperSettings(
-                patch.developer === null ? { enabled: false } : patch.developer,
-            );
-        }
-        if (
-            patch.developer !== undefined
-            && patch.contextLimit === undefined
-            && patch.provider === undefined
-            && patch.model === undefined
-            && patch.reasoningEffort === undefined
-            && patch.reviewer === undefined
-        ) {
-            return settingsForClient(
-                entry.modelSettings,
-                entry.modelSettings.provider ?? this.defaultProvider,
-                this.catalog,
-                this.modelsForClient(),
-                this.options.readPool?.(entry.store.header.cwd),
-                this.options.subagentModel,
-                entry.requestedReasoningEffort,
-                this.reviewerDefault(),
-                this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
-                entry.store.header.cwd,
-                this.options.refreshableProviders?.(),
-            );
-        }
-        if (patch.contextLimit !== undefined) {
-            if (this.options.updateContextLimit === undefined) return undefined;
-            this.options.updateContextLimit(patch.contextLimit);
-            if (
-                patch.provider === undefined
-                && patch.model === undefined
-                && patch.reasoningEffort === undefined
-                && patch.reviewer === undefined
-            ) {
-                return settingsForClient(
-                    entry.modelSettings,
-                    entry.modelSettings.provider ?? this.defaultProvider,
-                    this.catalog,
-                    this.modelsForClient(),
-                    this.options.readPool?.(entry.store.header.cwd),
-                    this.options.subagentModel,
-                    entry.requestedReasoningEffort,
-                    this.reviewerDefault(),
-                    this.options.contextLimit?.(),
-                    this.options.developerSettings?.(),
-                    entry.store.header.cwd,
-                    this.options.refreshableProviders?.(),
-                );
-            }
-        }
-        if (patch.reviewer !== undefined) {
-            if (!this.applyReviewerPatch(patch.reviewer)) {
-                return undefined;
-            }
-            if (
-                patch.provider === undefined
-                && patch.model === undefined
-                && patch.reasoningEffort === undefined
-            ) {
-                // A reviewer-only patch changes no running model, so the reply
-                // is the current settings carrying the new reviewer.
-                return settingsForClient(
-                    entry.modelSettings,
-                    entry.modelSettings.provider ?? this.defaultProvider,
-                    this.catalog,
-                    this.modelsForClient(),
-                    this.options.readPool?.(entry.store.header.cwd),
-                    this.options.subagentModel,
-                    entry.requestedReasoningEffort,
-                    this.reviewerDefault(),
-                    this.options.contextLimit?.(),
-                    this.options.developerSettings?.(),
-                    entry.store.header.cwd,
-                    this.options.refreshableProviders?.(),
-                );
-            }
-        }
-        const resolved = this.resolveModelPatch(entry, patch);
-        if (resolved === undefined) {
-            return undefined;
-        }
-        const settings = resolved.settings;
-        await entry.store.appendModelSettings(
-            settings,
-            this.originFor(entry, settings),
-        );
-        this.options.updateModelDefaults?.(settings);
-        this.defaultModel = settings.model;
-        this.defaultProvider = settings.provider ?? this.defaultProvider;
-        this.defaultReasoningEffort = settings.reasoningEffort;
-        entry.modelSettings = settings;
-        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
-        return settingsForClient(
-            entry.modelSettings,
-            entry.modelSettings.provider ?? this.defaultProvider,
-            this.catalog,
-            this.modelsForClient(),
-            this.options.readPool?.(entry.store.header.cwd),
-            this.options.subagentModel,
-            entry.requestedReasoningEffort,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            entry.store.header.cwd,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.applyModelSettings(this, id, patch);
     }
 
     /**
@@ -1381,17 +336,10 @@ export class AgentRegistry {
      * the worn agent's answer comes first, and everything that compares against
      * "the default" goes through here so there is one answer to compare with.
      */
-    private effectiveDefaultPair(
+    effectiveDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings {
-        const agentPair = this.wornAgentDefaultPair?.(entry);
-        return agentPair ?? {
-            provider: this.defaultProvider,
-            model: this.defaultModel,
-            ...(this.defaultReasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: this.defaultReasoningEffort }),
-        };
+        return registrySettings.effectiveDefaultPair(this, entry);
     }
 
     /**
@@ -1402,13 +350,11 @@ export class AgentRegistry {
      * would show a marker the user could not get rid of by any means except
      * knowing about the record.
      */
-    private originFor(
+    originFor(
         entry: RegisteredAgentEntry,
         settings: ModelTurnSettings,
     ): SessionSettingOrigin {
-        return samePair(settings, this.effectiveDefaultPair(entry))
-            ? "agent-default"
-            : "user";
+        return registrySettings.originFor(this, entry, settings);
     }
 
     /**
@@ -1421,46 +367,16 @@ export class AgentRegistry {
     ): Promise<
         { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
     > {
-        const result = await this.applySessionModelSettings(id, patch);
-        this.pushWorkerState(id);
-        return result;
+        return registrySettings.updateSessionModelSettings(this, id, patch);
     }
 
-    private async applySessionModelSettings(
+    async applySessionModelSettings(
         id: string,
         patch: ModelSettingsPatch,
     ): Promise<
         { settings: ModelTurnSettings; origin: SessionSettingOrigin } | undefined
     > {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        const resolved = this.resolveModelPatch(entry, patch);
-        if (resolved === undefined) {
-            return undefined;
-        }
-        const origin = this.originFor(entry, resolved.settings);
-        await entry.store.appendModelSettings(resolved.settings, origin);
-        entry.modelSettings = resolved.settings;
-        entry.requestedReasoningEffort = resolved.requestedReasoningEffort;
-        return {
-            settings: settingsForClient(
-                entry.modelSettings,
-                entry.modelSettings.provider ?? this.defaultProvider,
-                this.catalog,
-                this.modelsForClient(),
-                this.options.readPool?.(entry.store.header.cwd),
-                this.options.subagentModel,
-                entry.requestedReasoningEffort,
-                this.reviewerDefault(),
-                this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
-                entry.store.header.cwd,
-                this.options.refreshableProviders?.(),
-            ),
-            origin,
-        };
+        return registrySettings.applySessionModelSettings(this, id, patch);
     }
 
     sessionModelSettingsHistory(id: string): readonly {
@@ -1468,13 +384,7 @@ export class AgentRegistry {
         readonly origin: SessionSettingOrigin;
         readonly timestamp: string;
     }[] {
-        const entry = this.agents.get(id);
-        if (entry === undefined) return [];
-        return entry.store.modelSettingsHistory().map((record) => ({
-            settings: record.settings,
-            origin: record.origin ?? "user",
-            timestamp: record.timestamp,
-        }));
+        return registrySettings.sessionModelSettingsHistory(this, id);
     }
 
     /** The posture for this session alone, leaving the host default alone. */
@@ -1482,35 +392,14 @@ export class AgentRegistry {
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        const result = await this.applySessionPermissionMode(id, mode);
-        this.pushWorkerState(id);
-        return result;
+        return registryWear.updateSessionPermissionMode(this, id, mode);
     }
 
-    private async applySessionPermissionMode(
+    async applySessionPermissionMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        const entry = this.agents.get(id);
-        if (
-            entry === undefined
-            || entry.agent.closed
-            || entry.agent.failed
-            || !isApprovalMode(mode)
-            || (
-                builtInPermissionMode(mode) === undefined
-                && this.options.permissionModes?.[mode] === undefined
-            )
-        ) {
-            return undefined;
-        }
-        await this.leaveAgentThatForbidsAccess(entry, id, mode);
-        await entry.store.appendApprovalMode(
-            mode,
-            mode === this.wornAgentPosture(entry) ? "agent-default" : "user",
-        );
-        entry.approvalMode = mode;
-        return entry.approvalMode;
+        return registryWear.applySessionPermissionMode(this, id, mode);
     }
 
     /**
@@ -1521,24 +410,12 @@ export class AgentRegistry {
      * durable: the client receives a sticky transcript notice explaining why
      * the session returned to default.
      */
-    private async leaveAgentThatForbidsAccess(
+    async leaveAgentThatForbidsAccess(
         entry: RegisteredAgentEntry,
         id: string,
         mode: ApprovalMode,
     ): Promise<void> {
-        const active = entry.agentWear;
-        if (active?.forbiddenAccess?.includes(mode) !== true) return;
-        const switched = await this.wearAgentFor(id, DEFAULT_AGENT.name);
-        if (switched === undefined) return;
-        entry.events.emit({
-            type: "agent_worn",
-            update: {
-                requestId: `permissions-${mode}`,
-                ...switched,
-                notice:
-                    `Switched to default because ${active.name} does not allow ${mode.replaceAll("_", " ")} access.`,
-            },
-        });
+        return registryWear.leaveAgentThatForbidsAccess(this, entry, id, mode);
     }
 
     /**
@@ -1548,20 +425,10 @@ export class AgentRegistry {
      * has: in both cases the effective default is the host's own, which is
      * what row 7 and row 9 of the origin table say.
      */
-    private wornAgentDefaultPair(
+    wornAgentDefaultPair(
         entry: RegisteredAgentEntry,
     ): ModelTurnSettings | undefined {
-        const pair = entry.agentWear?.defaultPair;
-        if (pair === undefined) return undefined;
-        const pooled = this.options.readPool?.(entry.store.header.cwd) ?? [];
-        const pooledEntry = pooled.find((candidate) =>
-            candidate.poolName === pair.name
-        );
-        return pooledEntry === undefined ? undefined : {
-            provider: pooledEntry.provider,
-            model: pooledEntry.model,
-            ...(pair.effort === undefined ? {} : { reasoningEffort: pair.effort }),
-        } as ModelTurnSettings;
+        return registryWear.wornAgentDefaultPair(this, entry);
     }
 
     /**
@@ -1569,13 +436,10 @@ export class AgentRegistry {
      * default, resolved now rather than frozen at wear: editing the default
      * has to reach the sessions that never named one.
      */
-    private wornAgentPosture(
+    wornAgentPosture(
         entry: RegisteredAgentEntry,
     ): ApprovalMode | undefined {
-        const named = entry.agentWear?.posture;
-        return named !== undefined && isApprovalMode(named)
-            ? named
-            : this.defaultApprovalMode;
+        return registryWear.wornAgentPosture(this, entry);
     }
 
     /** Every agent this session could wear, with the one in force named. */
@@ -1597,85 +461,24 @@ export class AgentRegistry {
         }[];
         readonly notices: readonly string[];
     }> {
-        const entry = this.agents.get(id);
-        if (entry === undefined) {
-            return { worn: DEFAULT_AGENT.name, agents: [], notices: [] };
-        }
-        const catalog = await this.agentCatalogFor(entry);
-        return {
-            worn: entry.agentWear?.name ?? DEFAULT_AGENT.name,
-            agents: catalog.agents.map((agent) => ({
-                name: agent.definition.name,
-                ...(agent.definition.description === undefined
-                    ? {}
-                    : { description: agent.definition.description }),
-                scope: agent.scope,
-                writable: agent.writable,
-                ...(agent.definition.tools === undefined
-                    ? {}
-                    : { tools: agent.definition.tools }),
-                ...(agent.definition.skills === undefined
-                    ? {}
-                    : { skills: agent.definition.skills }),
-                ...(agent.definition.posture === undefined
-                    ? {}
-                    : { posture: agent.definition.posture }),
-                ...(agent.definition.forbiddenAccess === undefined
-                    ? {}
-                    : { forbiddenAccess: agent.definition.forbiddenAccess }),
-                ...(agent.definition.defaultPair === undefined
-                    ? {}
-                    : { defaultPair: agent.definition.defaultPair }),
-            })),
-            notices: catalog.notices,
-        };
+        return registryWear.listAgentsFor(this, id);
     }
 
     async listSkillsFor(id: string): Promise<SkillCommandCatalog> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return { skills: [], warnings: ["Skill commands are unavailable."] };
-        }
-        return loadSkillCommandCatalog({
-            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
-            ...(entry.agentWear?.skills === undefined
-                ? {}
-                : { allowedSkills: entry.agentWear.skills }),
-        });
+        return registryWear.listSkillsFor(this, id);
     }
 
     async decideSkillInvocationFor(
         id: string,
         name: string,
     ): Promise<SkillInvocationDecision> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return { allowed: false, reason: `/${name} is unavailable.` };
-        }
-        return decideSkillInvocation({
-            projectRoot: resolveInstructionRoot(entry.store.header.cwd).path,
-            name,
-            ...(entry.agentWear?.skills === undefined
-                ? {}
-                : { allowedSkills: entry.agentWear.skills }),
-            isSubagent: sessionIsSubagent(entry.store.header),
-        });
+        return registryWear.decideSkillInvocationFor(this, id, name);
     }
 
-    private async agentCatalogFor(
+    async agentCatalogFor(
         entry: RegisteredAgentEntry,
     ): Promise<AgentCatalog> {
-        return loadAgentCatalog({
-            projectRoot: entry.store.header.cwd,
-            permissionModes: [
-                ...BUILT_IN_PERMISSION_MODE_NAMES,
-                ...Object.keys(this.options.permissionModes ?? {}),
-            ],
-            interactive: true,
-            ...(this.options.registeredAgents === undefined
-                ? {}
-                : { registered: this.options.registeredAgents }),
-        });
+        return registryWear.agentCatalogFor(this, entry);
     }
 
     /**
@@ -1692,12 +495,10 @@ export class AgentRegistry {
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        const result = await this.applyAgentWear(id, name);
-        this.pushWorkerState(id);
-        return result;
+        return registryWear.wearAgentFor(this, id, name);
     }
 
-    private async applyAgentWear(id: string, name: string): Promise<{
+    async applyAgentWear(id: string, name: string): Promise<{
         readonly name: string;
         readonly tools?: readonly string[];
         readonly skills?: readonly string[];
@@ -1706,47 +507,7 @@ export class AgentRegistry {
         readonly notice?: string;
         readonly permissionChanged?: boolean;
     } | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        const catalog = await this.agentCatalogFor(entry);
-        const found = findCatalogAgent(catalog, name);
-        if (found === undefined) return undefined;
-        const snapshot = resolveAgentSnapshot(found.definition);
-        await entry.store.appendAgentWear(snapshot.name, snapshot);
-        entry.agentWear = snapshot;
-        let permissionChanged = false;
-        if (snapshot.forbiddenAccess?.includes(entry.approvalMode) === true) {
-            const fallback = snapshot.posture !== undefined
-                    && !snapshot.forbiddenAccess!.includes(snapshot.posture)
-                ? snapshot.posture
-                : [
-                    ...BUILT_IN_PERMISSION_MODE_NAMES,
-                    ...Object.keys(this.options.permissionModes ?? {}),
-                ].find((mode) => !snapshot.forbiddenAccess!.includes(mode));
-            if (fallback !== undefined && isApprovalMode(fallback)) {
-                await entry.store.appendApprovalMode(fallback, "agent-default");
-                entry.approvalMode = fallback;
-                permissionChanged = true;
-            }
-        }
-        const notice = await this.adoptAgentDefaultPair(entry, found.definition);
-        return {
-            name: snapshot.name,
-            ...(snapshot.tools === undefined ? {} : { tools: snapshot.tools }),
-            ...(snapshot.skills === undefined
-                ? {}
-                : { skills: snapshot.skills }),
-            ...(snapshot.posture === undefined
-                ? {}
-                : { posture: snapshot.posture }),
-            ...(snapshot.forbiddenAccess === undefined
-                ? {}
-                : { forbiddenAccess: snapshot.forbiddenAccess }),
-            ...(permissionChanged ? { permissionChanged: true } : {}),
-            ...(notice === undefined ? {} : { notice }),
-        };
+        return registryWear.applyAgentWear(this, id, name);
     }
 
     /**
@@ -1755,29 +516,11 @@ export class AgentRegistry {
      * A session the user has dialled keeps its pair: the override survives an
      * agent switch, which is the difference between a dial and a default.
      */
-    private async adoptAgentDefaultPair(
+    async adoptAgentDefaultPair(
         entry: RegisteredAgentEntry,
         definition: AgentDefinition,
     ): Promise<string | undefined> {
-        const origin = entry.store.modelSettingsOrigin();
-        if (origin === "user") return undefined;
-        const unresolvable = definition.defaultPair !== undefined
-            && this.wornAgentDefaultPair(entry) === undefined;
-        const target = this.effectiveDefaultPair(entry);
-        if (
-            entry.store.header.delegation !== undefined
-            && !delegationAllows(entry.store.header.delegation, target)
-        ) {
-            return `${definition.name}'s default model is outside this delegated session's persisted boundary.`;
-        }
-        if (!samePair(target, entry.modelSettings)) {
-            await entry.store.appendModelSettings(target, "agent-default");
-            entry.modelSettings = target;
-            entry.requestedReasoningEffort = undefined;
-        }
-        return unresolvable
-            ? `${definition.name} names the pair ${definition.defaultPair!.name}, which is not in your pool. The session kept the host default.`
-            : undefined;
+        return registryWear.adoptAgentDefaultPair(this, entry, definition);
     }
 
     /**
@@ -1787,56 +530,11 @@ export class AgentRegistry {
      * now. The notice is what stops that from being a silent change of what
      * the session can reach.
      */
-    private async reconcileResumedAgentWear(
+    async reconcileResumedAgentWear(
         entry: RegisteredAgentEntry,
         events: EngineEventBus,
     ): Promise<void> {
-        const recorded = entry.agentWear;
-        if (recorded === undefined) return;
-        try {
-            const catalog = await this.agentCatalogFor(entry);
-            const found = findCatalogAgent(catalog, recorded.name);
-            if (found === undefined) {
-                entry.agentWear = undefined;
-                events.emit({
-                    type: "agent_worn",
-                    update: {
-                        requestId: RESUME_WEAR_REQUEST_ID,
-                        name: DEFAULT_AGENT.name,
-                        notice:
-                            `The agent ${recorded.name} is gone, so this session switched to default.`,
-                    },
-                });
-                return;
-            }
-            const current = resolveAgentSnapshot(found.definition);
-            entry.agentWear = current;
-            const drift = agentSnapshotDrift(recorded, current);
-            if (drift.length > 0) {
-                events.emit({
-                    type: "agent_worn",
-                    update: {
-                        requestId: RESUME_WEAR_REQUEST_ID,
-                        name: current.name,
-                        ...(current.tools === undefined
-                            ? {}
-                            : { tools: current.tools }),
-                        ...(current.skills === undefined
-                            ? {}
-                            : { skills: current.skills }),
-                        ...(current.posture === undefined
-                            ? {}
-                            : { posture: current.posture }),
-                        notice: `${recorded.name} changed since it was selected: ${
-                            drift.join(", ")
-                        }.`,
-                    },
-                });
-            }
-        } catch {
-            // A catalog that will not load leaves the recorded snapshot in
-            // force, which is the scope the session already had.
-        }
+        return registryWear.reconcileResumedAgentWear(this, entry, events);
     }
 
     /** The narrow writer: one key, one file, temp-and-rename. */
@@ -1845,36 +543,7 @@ export class AgentRegistry {
         name: string,
         pair: { readonly name: string; readonly effort?: string } | null,
     ): Promise<string | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined) return "No such session";
-        const catalog = await this.agentCatalogFor(entry);
-        const found = findCatalogAgent(catalog, name);
-        if (found === undefined) return `No agent named ${name}`;
-        if (!found.writable || found.path === undefined) {
-            return `${name} is registered by an extension, so its file cannot be written`;
-        }
-        try {
-            await writeAgentDefaultPair(found.path, pair);
-        } catch (error) {
-            return error instanceof Error ? error.message : String(error);
-        }
-        // The pair now IS the default, so the session record is reclassified
-        // in the same operation rather than left showing an override.
-        if (entry.agentWear?.name === name) {
-            entry.agentWear = {
-                ...entry.agentWear,
-                ...(pair === null ? {} : { defaultPair: pair }),
-            };
-            if (pair === null) {
-                const { defaultPair: _cleared, ...rest } = entry.agentWear;
-                entry.agentWear = rest;
-            }
-            await entry.store.appendModelSettings(
-                entry.modelSettings,
-                this.originFor(entry, entry.modelSettings),
-            );
-        }
-        return undefined;
+        return registryWear.updateAgentDefaultPairFor(this, id, name, pair);
     }
 
     /**
@@ -1896,39 +565,7 @@ export class AgentRegistry {
         statusCode?: number;
         settings?: ModelTurnSettings;
     }> {
-        const agentEntry = this.agents.get(id);
-        if (
-            agentEntry === undefined
-            || agentEntry.agent.closed
-            || agentEntry.agent.failed
-            || this.options.admitToPool === undefined
-        ) {
-            return { verdict: "unavailable", reason: "admission unavailable" };
-        }
-        const outcome = await this.options.admitToPool({
-            provider: entry.provider.trim(),
-            model: entry.model.trim(),
-        }, onStep, options);
-        if (outcome.verdict !== "added") {
-            return outcome;
-        }
-        return {
-            ...outcome,
-            settings: settingsForClient(
-                agentEntry.modelSettings,
-                agentEntry.modelSettings.provider ?? this.defaultProvider,
-                this.catalog,
-                this.modelsForClient(),
-                this.options.readPool?.(agentEntry.store.header.cwd),
-                this.options.subagentModel,
-                agentEntry.requestedReasoningEffort,
-                this.reviewerDefault(),
-                this.options.contextLimit?.(),
-                this.options.developerSettings?.(),
-                agentEntry.store.header.cwd,
-                this.options.refreshableProviders?.(),
-            ),
-        };
+        return registrySettings.poolAdd(this, id, entry, onStep, options);
     }
 
     /**
@@ -1937,42 +574,10 @@ export class AgentRegistry {
      * verdict lines. Verdicts land in the tool result rather than as
      * progress updates: the transcript is the surface the agent path owns.
      */
-    private async applyPoolAddEffect(
+    async applyPoolAddEffect(
         effect: { readonly models: readonly string[] },
     ): Promise<ToolOutput> {
-        if (this.options.admitToPool === undefined) {
-            return {
-                kind: "output",
-                output: "Pool admission is not available in this host.",
-                isError: true,
-            };
-        }
-        const lines: string[] = [];
-        let failed = false;
-        for (const identifier of effect.models) {
-            const separator = identifier.indexOf("/");
-            if (separator <= 0 || separator === identifier.length - 1) {
-                lines.push(`${identifier}: not a provider/model identifier`);
-                failed = true;
-                continue;
-            }
-            const outcome = await this.options.admitToPool({
-                provider: identifier.slice(0, separator),
-                model: identifier.slice(separator + 1),
-            }, () => {});
-            if (outcome.verdict === "added") {
-                lines.push(`${identifier}: added to the pool`);
-            } else if (outcome.verdict === "incompatible") {
-                lines.push(`${identifier}: incompatible (${
-                    outcome.reason ?? "no reason recorded"
-                }); it stays out of the pool`);
-            } else {
-                lines.push(`${identifier}: unavailable (${
-                    outcome.reason ?? "provider did not answer"
-                }); nothing recorded, retry later`);
-            }
-        }
-        return { kind: "output", output: lines.join("\n"), isError: failed };
+        return registrySettings.applyPoolAddEffect(this, effect);
     }
 
     /**
@@ -1985,151 +590,18 @@ export class AgentRegistry {
      * declared by an agent and nothing is stored, so a host that is gone and
      * an empty roster mean the same thing.
      */
-    private applyAgentRosterEffect(
+    applyAgentRosterEffect(
         callerId: string,
         details: boolean,
     ): Promise<ToolOutput> {
-        const caller = this.agents.get(callerId);
-        if (caller === undefined) {
-            return Promise.resolve({
-                kind: "output",
-                output: "This session is no longer registered with the host.",
-                isError: true,
-            });
-        }
-        // Keyed rather than path-compared, so a session started under a
-        // symlinked or differently-spelled path lands in the same workspace.
-        const here = workspaceKey(caller.agent.workspace);
-        const rows = [...this.agents.entries()]
-            .filter(([id, entry]) =>
-                id !== callerId
-                && workspaceKey(entry.agent.workspace) === here
-                && entryStatus(entry) !== "closed"
-                && entryStatus(entry) !== "failed"
-                && entryStatus(entry) !== "completed"
-                && (details || entryIsLive(entry))
-            )
-            .sort(([left], [right]) => left.localeCompare(right))
-            .map(([id, entry]) => {
-                const unread = entry.inbox?.consumer.unreadStatus({
-                    limit: 99,
-                    addresses: [id],
-                    excludeKinds: [SOURCE_GAP_KIND],
-                }) ?? { count: 0, oldestAgeMs: null };
-                const compact = {
-                    participant_id: id,
-                    name: entry.identity?.name,
-                    status: entryStatus(entry),
-                    live: entryIsLive(entry),
-                };
-                if (!details) return compact;
-                return {
-                    ...compact,
-                    workspace: entry.agent.workspace,
-                    workspace_key: workspaceKey(entry.agent.workspace),
-                    ...gitRosterFacts(entry.agent.workspace),
-                    kind: entry.kind,
-                    last_activity: entryUpdatedAt(entry),
-                    notice: entry.inbox !== undefined && entry.agent.attached
-                        ? "ui"
-                        : "none",
-                    unread_count: unread.count,
-                    oldest_unread_age_ms: unread.oldestAgeMs,
-                    session_path: entry.store.path,
-                };
-            });
-        return Promise.resolve({
-            kind: "output",
-            output: JSON.stringify({
-                self_participant_id: callerId,
-                participants: rows,
-            }),
-            isError: false,
-        });
+        return registryRoster.applyAgentRosterEffect(this, callerId, details);
     }
 
-    private async applyAgentSendEffect(
+    async applyAgentSendEffect(
         callerId: string,
         effect: AgentSendEffect,
     ): Promise<ToolOutput> {
-        const caller = this.agents.get(callerId);
-        const recipient = this.agents.get(effect.to);
-        const inbox = this.options.inboxDelivery;
-        if (caller === undefined || caller.inbox === undefined || inbox === undefined) {
-            return toolError("Native inbox participation is unavailable in this session.");
-        }
-        if (effect.to === callerId) {
-            return toolError("agent_send cannot send a message to its own session.");
-        }
-        if (
-            recipient === undefined
-            || recipient.kind !== "interactive"
-            || recipient.inbox === undefined
-            || recipient.agent.closed
-            || recipient.agent.failed
-        ) {
-            return toolError(`No native Vera participant ${effect.to}.`);
-        }
-        if (!sameWorkspace(caller, recipient)) {
-            return toolError("agent_send recipients must be in the same workspace.");
-        }
-        let replyTo: number | undefined;
-        if (effect.replyTo !== undefined) {
-            const replied = inbox.entry(effect.replyTo);
-            const message = replied === undefined ? undefined : parsePeerMessage(replied);
-            const readThrough = caller.inbox.consumer.offset();
-            if (!(
-                message === undefined
-                || message.from !== effect.to
-                || message.to !== callerId
-                || readThrough < effect.replyTo
-            )) {
-                replyTo = effect.replyTo;
-            }
-        }
-        const payload: PeerMessagePayload = {
-            version: 1,
-            from: callerId,
-            to: effect.to,
-            text: effect.text,
-            ...(replyTo === undefined ? {} : { reply_to: replyTo }),
-        };
-        const recipientLive = entryIsLive(recipient);
-        const notice = recipient.agent.attached ? "ui" as const : "none" as const;
-        const stored = await inbox.append({
-            source: VERA_INBOX_SOURCE,
-            kind: PEER_MESSAGE_KIND,
-            actor: callerId,
-            session: callerId,
-            address: effect.to,
-            payload: JSON.stringify(payload),
-        });
-        const delivery = inbox.hasAdmissionPath()
-            ? recipient.agent.attached
-                && recipient.inbox.isAdmittedSource("peer")
-                ? { delivered: true as const }
-                : {
-                    delivered: false as const,
-                    reason: "admission" as const,
-                }
-            : await this.wakeForPeerMessage(caller, recipient, stored.seq);
-        return {
-            kind: "output",
-            output: JSON.stringify({
-                message_id: stored.seq,
-                stored: true,
-                recipient_live: recipientLive,
-                notice,
-                delivered: delivery.delivered,
-                ...(delivery.delivered
-                    ? {}
-                    : { not_delivered_because: delivery.reason }),
-                ...(effect.replyTo === undefined
-                    ? {}
-                    : { reply_to_applied: replyTo !== undefined }),
-            }),
-            isError: false,
-        };
+        return registryRoster.applyAgentSendEffect(this, callerId, effect);
     }
 
     /**
@@ -2143,7 +615,7 @@ export class AgentRegistry {
      * until the recipient reads it there, so the read receipt keeps meaning
      * what it says.
      */
-    private async wakeForPeerMessage(
+    async wakeForPeerMessage(
         caller: RegisteredAgentEntry,
         recipient: RegisteredAgentEntry,
         seq: number,
@@ -2156,106 +628,14 @@ export class AgentRegistry {
             | "unavailable"
             | "admission";
     }> {
-        if (
-            recipient.approvalMode !== "auto"
-            && recipient.approvalMode !== "full_access"
-        ) {
-            return { delivered: false, reason: "approval_mode" };
-        }
-        const hop = caller.peerHop + 1;
-        if (hop > MAX_PEER_HOP) {
-            return { delivered: false, reason: "hop_limit" };
-        }
-        const now = Date.now();
-        const wakes = recipient.peerWakes.filter(
-            (at) => now - at < PEER_WAKE_WINDOW_MS,
-        );
-        if (wakes.length >= MAX_PEER_WAKES_PER_WINDOW) {
-            recipient.peerWakes = wakes;
-            return { delivered: false, reason: "rate_limit" };
-        }
-        try {
-            await recordDeliveryAndNotify(recipient.store, recipient.events, {
-                id: `peer:${caller.store.header.id}:${seq}`,
-                sourceAgentId: caller.store.header.id,
-                content: `Peer ${caller.store.header.id} sent message ${seq}. `
-                    + "Read it with agent_inbox.",
-                kind: "peer",
-            });
-            recipient.agent.triggerDeliveryTurn();
-        } catch {
-            return { delivered: false, reason: "unavailable" };
-        }
-        recipient.peerWakes = [...wakes, now];
-        recipient.peerHop = hop;
-        return { delivered: true };
+        return registryRoster.wakeForPeerMessage(this, caller, recipient, seq);
     }
 
-    private async applyAgentInboxEffect(
+    async applyAgentInboxEffect(
         callerId: string,
         effect: AgentInboxEffect,
     ): Promise<AppliedToolEffectOutput> {
-        const caller = this.agents.get(callerId);
-        const coordinator = this.options.inboxDelivery;
-        if (caller === undefined || caller.inbox === undefined || coordinator === undefined) {
-            return toolError("Native inbox participation is unavailable in this session.");
-        }
-        const entry = caller.inbox.consumer.read({
-            limit: 1,
-            addresses: [callerId],
-        })[0];
-        if (entry === undefined) {
-            return {
-                kind: "output",
-                output: JSON.stringify({ unread: false }),
-                isError: false,
-            };
-        }
-        if (effect.messageId !== undefined && effect.messageId !== entry.seq) {
-            return toolError(
-                `Message ${effect.messageId} is not next; read message ${entry.seq} first.`,
-            );
-        }
-        const message = parsePeerMessage(entry);
-        if (message === undefined) {
-            const read = parsePeerRead(entry);
-            const output = read === undefined
-                ? genericInboxResult(entry)
-                : {
-                    message_id: entry.seq,
-                    kind: PEER_READ_KIND,
-                    from: entry.actor,
-                    to: entry.address,
-                    read_message_id: read.message_id,
-                    complete: true,
-                };
-            return {
-                kind: "output",
-                output: JSON.stringify(output),
-                isError: false,
-                afterCommit: acknowledgeAfterCommit(entry.seq),
-            };
-        }
-
-        const envelope = {
-            message_id: entry.seq,
-            kind: PEER_MESSAGE_KIND,
-            from: message.from,
-            to: message.to,
-            text: message.text,
-            ...(message.reply_to === undefined
-                ? {}
-                : { reply_to: message.reply_to }),
-        };
-        return {
-            kind: "output",
-            output: JSON.stringify({ ...envelope, complete: true }),
-            isError: false,
-            afterCommit: acknowledgeAfterCommit(
-                entry.seq,
-                message.from,
-            ),
-        };
+        return registryRoster.applyAgentInboxEffect(this, callerId, effect);
     }
 
     /**
@@ -2269,67 +649,14 @@ export class AgentRegistry {
         id: string,
         provider: string,
     ): Promise<ModelTurnSettings | undefined> {
-        const agentEntry = this.agents.get(id);
-        if (
-            agentEntry === undefined
-            || agentEntry.agent.closed
-            || agentEntry.agent.failed
-            || this.options.refreshCatalog === undefined
-        ) {
-            return undefined;
-        }
-        const refreshed = await this.options.refreshCatalog(provider);
-        if (refreshed === undefined) {
-            return undefined;
-        }
-        this.availableModels = refreshed;
-        return settingsForClient(
-            agentEntry.modelSettings,
-            agentEntry.modelSettings.provider ?? this.defaultProvider,
-            this.catalog,
-            this.availableModels,
-            this.options.readPool?.(agentEntry.store.header.cwd),
-            this.options.subagentModel,
-            agentEntry.requestedReasoningEffort,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            agentEntry.store.header.cwd,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.refreshCatalog(this, id, provider);
     }
 
     async poolRemove(
         id: string,
         entry: { readonly provider: string; readonly model: string },
     ): Promise<ModelTurnSettings | undefined> {
-        const agentEntry = this.agents.get(id);
-        if (
-            agentEntry === undefined
-            || agentEntry.agent.closed
-            || agentEntry.agent.failed
-            || this.options.removeFromPool === undefined
-        ) {
-            return undefined;
-        }
-        this.options.removeFromPool({
-            provider: entry.provider.trim(),
-            model: entry.model.trim(),
-        });
-        return settingsForClient(
-            agentEntry.modelSettings,
-            agentEntry.modelSettings.provider ?? this.defaultProvider,
-            this.catalog,
-            this.modelsForClient(),
-            this.options.readPool?.(agentEntry.store.header.cwd),
-            this.options.subagentModel,
-            agentEntry.requestedReasoningEffort,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            agentEntry.store.header.cwd,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.poolRemove(this, id, entry);
     }
 
     async poolName(
@@ -2337,36 +664,7 @@ export class AgentRegistry {
         entry: { readonly provider: string; readonly model: string },
         name: string | null,
     ): Promise<ModelTurnSettings | undefined> {
-        const agentEntry = this.agents.get(id);
-        if (
-            agentEntry === undefined
-            || agentEntry.agent.closed
-            || agentEntry.agent.failed
-            || this.options.namePoolEntry === undefined
-        ) {
-            return undefined;
-        }
-        const named = this.options.namePoolEntry({
-            provider: entry.provider.trim(),
-            model: entry.model.trim(),
-        }, name === null ? null : name.trim(), agentEntry.store.header.cwd);
-        if (!named) {
-            return undefined;
-        }
-        return settingsForClient(
-            agentEntry.modelSettings,
-            agentEntry.modelSettings.provider ?? this.defaultProvider,
-            this.catalog,
-            this.modelsForClient(),
-            this.options.readPool?.(agentEntry.store.header.cwd),
-            this.options.subagentModel,
-            agentEntry.requestedReasoningEffort,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            agentEntry.store.header.cwd,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.poolName(this, id, entry, name);
     }
 
     async poolMove(
@@ -2374,70 +672,21 @@ export class AgentRegistry {
         entry: { readonly provider: string; readonly model: string },
         delta: number,
     ): Promise<ModelTurnSettings | undefined> {
-        const agentEntry = this.agents.get(id);
-        if (
-            agentEntry === undefined
-            || agentEntry.agent.closed
-            || agentEntry.agent.failed
-            || this.options.movePoolEntry === undefined
-        ) {
-            return undefined;
-        }
-        const moved = this.options.movePoolEntry({
-            provider: entry.provider.trim(),
-            model: entry.model.trim(),
-        }, delta, agentEntry.store.header.cwd);
-        if (!moved) {
-            return undefined;
-        }
-        return settingsForClient(
-            agentEntry.modelSettings,
-            agentEntry.modelSettings.provider ?? this.defaultProvider,
-            this.catalog,
-            this.modelsForClient(),
-            this.options.readPool?.(agentEntry.store.header.cwd),
-            this.options.subagentModel,
-            agentEntry.requestedReasoningEffort,
-            this.reviewerDefault(),
-            this.options.contextLimit?.(),
-            this.options.developerSettings?.(),
-            agentEntry.store.header.cwd,
-            this.options.refreshableProviders?.(),
-        );
+        return registrySettings.poolMove(this, id, entry, delta);
     }
 
     async updateApprovalMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        const result = await this.applyApprovalMode(id, mode);
-        this.pushWorkerState(id);
-        return result;
+        return registryWear.updateApprovalMode(this, id, mode);
     }
 
-    private async applyApprovalMode(
+    async applyApprovalMode(
         id: string,
         mode: ApprovalMode,
     ): Promise<ApprovalMode | undefined> {
-        const entry = this.agents.get(id);
-        if (
-            entry === undefined
-            || entry.agent.closed
-            || entry.agent.failed
-            || !isApprovalMode(mode)
-            || (
-                builtInPermissionMode(mode) === undefined
-                && this.options.permissionModes?.[mode] === undefined
-            )
-        ) {
-            return undefined;
-        }
-        await this.leaveAgentThatForbidsAccess(entry, id, mode);
-        await entry.store.appendApprovalMode(mode);
-        this.options.updateApprovalDefault?.(mode);
-        this.defaultApprovalMode = mode;
-        entry.approvalMode = mode;
-        return entry.approvalMode;
+        return registryWear.applyApprovalMode(this, id, mode);
     }
 
     /**
@@ -2445,7 +694,7 @@ export class AgentRegistry {
      * `undefined` when the id names no session here, which is the cold case.
      */
     approvalModeOf(agentId: string): ApprovalMode | undefined {
-        return this.agents.get(agentId)?.approvalMode;
+        return registryWear.approvalModeOf(this, agentId);
     }
 
     /**
@@ -2460,37 +709,14 @@ export class AgentRegistry {
         targetId: string,
         name: string | null,
     ): Promise<RenameSessionOutcome> {
-        const requested = normalizeSessionName(name);
-        if (requested === undefined) {
-            return { status: "invalid" };
-        }
-        const entry = this.agents.get(targetId);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return { status: "not_found" };
-        }
-        if (entry.agent.attached) {
-            return { status: "busy" };
-        }
-        try {
-            const result = await this.updateSessionName(targetId, requested);
-            return result === undefined
-                ? { status: "not_found" }
-                : { status: "renamed", name: result };
-        } catch {
-            return { status: "failed" };
-        }
+        return registryRoster.renameSession(this, targetId, name);
     }
 
     async updateSessionName(
         id: string,
         name: string | null,
     ): Promise<string | null | undefined> {
-        const entry = this.agents.get(id);
-        if (entry === undefined || entry.agent.closed || entry.agent.failed) {
-            return undefined;
-        }
-        await entry.store.appendName(name);
-        return entry.store.name() ?? null;
+        return registryRoster.updateSessionName(this, id, name);
     }
 
     /**
@@ -2502,114 +728,15 @@ export class AgentRegistry {
      * what changed, because the only reader wants a fresh derivation anyway.
      */
     onRosterChanged(listener: () => void): () => void {
-        this.rosterListeners.add(listener);
-        return (): void => {
-            this.rosterListeners.delete(listener);
-        };
+        return registryRoster.onRosterChanged(this, listener);
     }
 
-    private notifyRosterChanged(): void {
-        for (const listener of [...this.rosterListeners]) {
-            try {
-                listener();
-            } catch {
-                // One client's failure must not stop the others being told.
-            }
-        }
+    notifyRosterChanged(): void {
+        return registryRoster.notifyRosterChanged(this);
     }
 
     list(): RegisteredAgentSummary[] {
-        const sizeOnDisk = (path: string): number | undefined => {
-            try {
-                return statSync(path).size;
-            } catch {
-                // A session whose file is gone still belongs on the list; it
-                // just has no size to report.
-                return undefined;
-            }
-        };
-
-        return [...this.agents.values()]
-            .filter((entry) => !entry.ephemeral && !entry.pendingPublication)
-            .map((entry) => {
-                const activeEntries = entry.store.activeEntries();
-                const firstUserEntry = activeEntries.find(
-                    (candidate) => candidate.message.role === "user"
-                        && candidate.message.internal !== true,
-                );
-                const firstUserMessage = firstUserEntry?.message;
-                const fallbackTitle = firstUserMessage?.role === "user"
-                    ? firstUserMessage.content
-                        .flatMap((content) => content.type === "text"
-                            ? [content.text]
-                            : [])
-                        .join(" ")
-                        .replaceAll(/\s+/g, " ")
-                        .trim()
-                    : undefined;
-                const title = entry.store.name() ?? fallbackTitle;
-                const size = sizeOnDisk(entry.store.path);
-                return {
-                    id: entry.agent.id,
-                    name: entry.identity?.name,
-                    workspace: entry.agent.workspace,
-                    session_path: entry.store.path,
-                    kind: entry.kind,
-                    status: entry.failure !== undefined
-                        ? "failed" as const
-                        : entry.agent.closed
-                            ? "closed" as const
-                            : entry.completed && entry.agent.status === "idle"
-                                ? "completed" as const
-                                : entry.agent.status,
-                    // A session someone has open counts as live even between
-                    // turns: it is on screen and one keystroke from running.
-                    // A background child with no client of its own counts only
-                    // while it is working, which is the whole of its life.
-                    //
-                    // Both terms settle on their own, which is what makes this
-                    // safe to show: an attachment ends when its client goes,
-                    // and every turn resolves to idle. State that only clears
-                    // when a particular update arrives was deliberately left
-                    // out, because a turn ending without that update would
-                    // strand a row reading as live with nothing running in it.
-                    live: !entry.agent.closed
-                        && !entry.agent.failed
-                        && entry.failure === undefined
-                        && (
-                            entry.agent.attached
-                            || entry.agent.status === "working"
-                            || entry.agent.status === "waiting"
-                        ),
-                    ...(entry.worker === undefined
-                        ? {}
-                        : {
-                            worker_pid: entry.worker.pid,
-                            ...(entry.worker.supervisor?.pid === null
-                                    || entry.worker.supervisor?.pid === undefined
-                                ? {}
-                                : { supervisor_pid: entry.worker.supervisor.pid }),
-                        }),
-                    ...(title === undefined || title.length === 0
-                        ? {}
-                        : { title: title.slice(0, 80) }),
-                    has_user_content: firstUserEntry !== undefined,
-                    ...(entry.store.header.origin === undefined
-                        ? {}
-                        : { forked_from: entry.store.header.origin.sessionId }),
-                    // Parent is a fact about this session even when that
-                    // parent is no longer live. `/parent` and `/subagents`
-                    // read it from the listing, not from the live registry.
-                    ...(entry.parentId === undefined
-                        ? {}
-                        : { parent_id: entry.parentId }),
-                    updated_at: entry.store.agentFailure()?.timestamp
-                        ?? activeEntries.at(-1)?.timestamp
-                        ?? entry.store.header.timestamp,
-                    ...(size === undefined ? {} : { size_bytes: size }),
-                };
-            })
-            .sort((left, right) => left.id.localeCompare(right.id));
+        return registryRoster.list(this);
     }
 
     /**
@@ -2621,48 +748,7 @@ export class AgentRegistry {
      * disk, which is most of what a listing returns.
      */
     workFacts(): readonly WorkAgentFacts[] {
-        const unreadResults = new Set<string>();
-        for (const entry of this.agents.values()) {
-            for (const delivery of entry.store.pendingDeliveries()) {
-                if (delivery.kind !== "attention") {
-                    unreadResults.add(delivery.sourceAgentId);
-                }
-            }
-        }
-        return this.list().flatMap((summary) => {
-            const entry = this.agents.get(summary.id);
-            if (entry === undefined) return [];
-            const failure = entry.store.agentFailure()?.detail;
-            const activeTool = entry.agent.activeTool;
-            // Only for a session that has stopped: a session still working is
-            // still changing things, and counting its files mid-flight would
-            // put a number on screen that is wrong the moment it is drawn.
-            const changed = summary.status === "working"
-                    || summary.status === "waiting"
-                ? 0
-                : sessionChangedFiles(summary.id).length;
-            return [{
-                id: summary.id,
-                session_path: summary.session_path,
-                title: summary.title ?? summary.name ?? summary.id,
-                workspace: summary.workspace,
-                kind: summary.kind,
-                status: summary.status,
-                live: summary.live,
-                updated_at: summary.updated_at
-                    ?? entry.store.header.timestamp,
-                ...(summary.parent_id === undefined
-                    ? {}
-                    : { parent_id: summary.parent_id }),
-                ...(entry.agent.pendingRequests[0] === undefined
-                    ? {}
-                    : { pending_request: entry.agent.pendingRequests[0] }),
-                ...(activeTool === undefined ? {} : { active_tool: activeTool }),
-                ...(unreadResults.has(summary.id) ? { unread_result: true } : {}),
-                ...(changed === 0 ? {} : { changed_files: changed }),
-                ...(failure === undefined ? {} : { failure }),
-            }];
-        });
+        return registryRoster.workFacts(this);
     }
 
     /**
@@ -2678,62 +764,22 @@ export class AgentRegistry {
         runs: readonly EmittedScheduleRun[],
         agents: readonly WorkAgentFacts[],
     ): readonly WorkScheduleFacts[] {
-        // Resolved against the facts the caller already read rather than a
-        // second listing: a listing stats every session on disk, and two of
-        // them per index build could also disagree with each other.
-        const listed = new Map(agents.map((agent) => [agent.id, agent]));
-        return runs.flatMap((run) => {
-            const agent = listed.get(run.address);
-            return agent === undefined ? [] : [{
-                schedule_id: run.scheduleId,
-                session_id: agent.id,
-                session_path: agent.session_path,
-                title: agent.title,
-                workspace: agent.workspace,
-                completed_at: run.emittedAt,
-            }];
-        });
+        return registryRoster.scheduleWorkFacts(this, runs, agents);
     }
 
     idleForShutdown(): boolean {
-        return this.startingIds.size === 0
-            && this.deliveryTasks.size === 0
-            && !this.processRegistry.hasLiveProcesses()
-            && [...this.agents.values()].every(
-                (entry) => entry.agent.idleForShutdown(),
-            );
+        return registryLifecycle.idleForShutdown(this);
     }
 
     idleForReplacement(): boolean {
-        return this.startingIds.size === 0
-            && this.deliveryTasks.size === 0
-            && !this.processRegistry.hasLiveProcesses()
-            && [...this.agents.values()].every(
-                (entry) => entry.agent.idleForReplacement(),
-            );
+        return registryLifecycle.idleForReplacement(this);
     }
 
     async close(): Promise<void> {
-        this.isClosed = true;
-        const entries = [...this.agents.values()];
-        for (const entry of entries) {
-            entry.inbox?.release();
-            entry.agent.close();
-        }
-        await Promise.all([
-            this.processRegistry.close(),
-            ...entries.map((entry) => entry.run),
-        ]);
-        await Promise.all([...this.deliveryTasks]);
-        await Promise.all(entries
-            .filter((entry) => entry.ephemeral)
-            .map((entry) => rm(dirname(entry.store.path), {
-                recursive: true,
-                force: true,
-            })));
+        return registryLifecycle.close(this);
     }
 
-    private async start(
+    async start(
         store: SessionStore,
         kind: RegisteredAgentKind,
         eventLogPath = this.options.eventLogPathForId?.(
@@ -3397,18 +1443,11 @@ export class AgentRegistry {
      * A spec is the default. Nothing means the turn runs in this process,
      * which happens when the owner cannot rebuild the adapter from JSON.
      */
-    private workerAdapterSpecFor(
+    workerAdapterSpecFor(
         store: SessionStore,
         entry: RegisteredAgentEntry,
     ): WorkerAdapterSpec | undefined {
-        if (this.options.workerAdapterSpec === undefined) {
-            return undefined;
-        }
-        return this.options.workerAdapterSpec({
-            provider: entry.modelSettings.provider ?? this.defaultProvider,
-            projectRoot: store.header.cwd,
-            sessionId: store.header.id,
-        });
+        return registrySubagent.workerAdapterSpecFor(this, store, entry);
     }
 
     /**
@@ -3425,15 +1464,10 @@ export class AgentRegistry {
      * Nothing is the default: the tools stay in this process and the worker
      * reaches them over the boundary.
      */
-    private workerExtensions(
+    workerExtensions(
         workspace: string,
     ): readonly VeraExtensionConfig[] | undefined {
-        if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
-            return undefined;
-        }
-        const configured = this.options.workerExtensions?.(workspace)
-            ?? discoverProjectExtensionConfigs(workspace);
-        return configured.length === 0 ? undefined : configured;
+        return registrySubagent.workerExtensions(this, workspace);
     }
 
     /**
@@ -3442,28 +1476,21 @@ export class AgentRegistry {
      * A no-op for a session whose loop runs in this process, which reads the
      * same values directly.
      */
-    private pushWorkerState(id: string): void {
-        const entry = this.agents.get(id);
-        const worker = entry?.worker;
-        if (worker === undefined || entry?.loopServices === undefined) return;
-        worker.pushState(loopStateOf(entry.loopServices));
+    pushWorkerState(id: string): void {
+        return registrySubagent.pushWorkerState(this, id);
     }
 
     /** Sends every running worker the owner state as it now stands. */
-    private pushWorkerStateEverywhere(): void {
-        for (const id of this.agents.keys()) this.pushWorkerState(id);
+    pushWorkerStateEverywhere(): void {
+        return registrySubagent.pushWorkerStateEverywhere(this);
     }
 
     /** Sessions whose loop currently runs in a separate process. */
-    private liveWorkerCount(): number {
-        let count = 0;
-        for (const entry of this.agents.values()) {
-            if (entry.worker !== undefined) count += 1;
-        }
-        return count;
+    liveWorkerCount(): number {
+        return registrySubagent.liveWorkerCount(this);
     }
 
-    private async runInWorker(options: {
+    async runInWorker(options: {
         readonly agent: ResidentAgent;
         readonly store: SessionStore;
         readonly entry: RegisteredAgentEntry;
@@ -3472,982 +1499,151 @@ export class AgentRegistry {
         readonly services: RunHeadlessLoopServices;
         readonly extensionTools?: readonly RegisteredTool[];
     }): Promise<void> {
-        const { agent, store, services } = options;
-        const cap = this.options.maxConcurrentWorkers
-            ?? defaultConcurrentWorkerCap();
-        if (this.liveWorkerCount() >= cap) {
-            throw new WorkerCapReachedError(cap);
-        }
-        const workerExtensions = this.workerExtensions(store.header.cwd);
-        const handle = await startWorker({
-            store,
-            session: await readSessionSeed(store.path),
-            model: this.defaultModel,
-            ...(this.defaultReasoningEffort === undefined
-                ? {}
-                : { reasoningEffort: this.defaultReasoningEffort }),
-            adapter: options.adapter,
-            data: options.data,
-            services,
-            offers: {
-                approvalModeRead: services.readApprovalMode !== undefined,
-                modelSettings: services.readModelSettings !== undefined,
-                agentWear: services.readAgentWear !== undefined,
-            },
-            state: loopStateOf(services),
-            ...(workerExtensions === undefined
-                ? {}
-                : { extensions: workerExtensions }),
-            ...(options.extensionTools === undefined
-                ? {}
-                : {
-                    extensionTools: options.extensionTools,
-                    // An extension tool runs on this side, against a runtime
-                    // built from the same workspace the loop was given.
-                    toolRuntime: new ToolRuntime(
-                        store.header.cwd,
-                        undefined,
-                        undefined,
-                        options.data.toolEnv,
-                        options.data.instructionRoot?.path,
-                        undefined,
-                        store.header.parentId !== undefined,
-                    ),
-                }),
-            onUpdate: (update, ownerId) => {
-                if (ownerId === undefined) {
-                    agent.engine.send(update);
-                    return;
-                }
-                if (isTimelineReplyUpdate(update)) {
-                    agent.sendTimelineReply(ownerId, update);
-                    return;
-                }
-                if (isSessionNameReplyUpdate(update)) {
-                    agent.sendSessionNameReply(ownerId, update);
-                    return;
-                }
-                if (isOneshotReplyUpdate(update)) {
-                    agent.sendOneshotReply(ownerId, update);
-                    return;
-                }
-                throw new Error(
-                    `Worker sent an unowned private update: ${update.type}`,
-                );
-            },
-        });
-        options.entry.worker = handle;
-        store.watchRecords(handle.server.pushRecord);
-        const pumping = new AbortController();
-        // Closing the agent stops its command channel, and a worker with no
-        // channel left has nothing to run. The process is ended the same way
-        // any other worker ends, so the outcome below is expected, not a
-        // failure to report on a session that already stopped.
-        let stopping = false;
-        const ownerCommands = new AsyncQueue<EngineCommand>();
-        options.entry.workerOwnerRouter = new InboundCommandRouter(
-            {
-                send: (update) => agent.engine.send(update),
-                receive: (signal) => ownerCommands.receive(signal),
-            },
-            options.entry.events,
-            {
-                ...(services.readModelSettings === undefined
-                    ? {}
-                    : {
-                        readModelSettings: () => {
-                            this.pushWorkerState(agent.id);
-                            return services.readModelSettings!();
-                        },
-                    }),
-                ...(services.router ?? {}),
-                sendSessionNameReply: services.router?.sendSessionNameReply
-                    ?? ((_ownerId, reply) => agent.engine.send(reply)),
-                hasPendingDeliveryTurn: () => false,
-            },
-        );
-        void (async () => {
-            for (;;) {
-                const command = await agent.engine.receive(pumping.signal);
-                if (
-                    HOST_OWNED_COMMANDS.has(command.type)
-                    || (
-                        command.type === "ui_response"
-                        && options.entry.workerOwnerRouter?.ownsUiRequest(
-                            command.requestId,
-                        ) === true
-                    )
-                ) {
-                    ownerCommands.push(command);
-                    continue;
-                }
-                handle.send(command);
-            }
-        })().catch(() => {
-            if (agent.closed && !pumping.signal.aborted) {
-                stopping = true;
-                handle.kill();
-            }
-        });
-        try {
-            const outcome = await handle.outcome;
-            if (stopping || outcome.kind === "finished") {
-                return;
-            }
-            throw new Error(workerOutcomeDetail(outcome));
-        } finally {
-            pumping.abort();
-            ownerCommands.fail(new Error("The worker owner channel closed"));
-            options.entry.workerOwnerRouter = undefined;
-            if (options.entry.worker === handle) {
-                options.entry.worker = undefined;
-            }
-        }
+        return registrySubagent.runInWorker(this, options);
     }
 
-    private async requestInboxAdmission(
+    async requestInboxAdmission(
         entry: RegisteredAgentEntry,
         candidate: InboxAdmissionCandidate,
         signal: AbortSignal,
     ): Promise<InboxAdmissionDecision | undefined> {
-        const inbound = entry.inbound;
-        if (inbound === undefined || !entry.agent.attached) return undefined;
-
-        const result = await inbound.requestUserQuestion({
-            question:
-                `Inbox source ${candidate.sourceFamily}: ${candidate.kind} `
-                + `from ${candidate.source} (${candidate.ts})\n`
-                + "Admit this source?",
-            choices: [
-                {
-                    id: "once",
-                    label: "Once",
-                    description: "Admit this entry and hold future entries.",
-                },
-                {
-                    id: "session",
-                    label: "This session",
-                    description: "Admit this source family until disconnect.",
-                },
-                {
-                    id: "always",
-                    label: "Always",
-                    description: "Remember this source family after choosing a scope.",
-                },
-            ],
-        }, { signal, outOfBand: true });
-        if (result.outcome !== "selected") return undefined;
-        if (result.choice.id === "once") return { mode: "once" };
-        if (result.choice.id === "session") return { mode: "session" };
-        if (result.choice.id !== "always") return undefined;
-
-        const scopeResult = await inbound.requestUserQuestion({
-            question: `Where should ${candidate.sourceFamily} be admitted?`,
-            choices: [
-                {
-                    id: "user",
-                    label: "User",
-                    description: "Apply this admission across your Vera sessions.",
-                },
-                {
-                    id: "project",
-                    label: "Project",
-                    description: "Apply this admission in this workspace.",
-                },
-            ],
-        }, { signal, outOfBand: true });
-        if (scopeResult.outcome !== "selected") return undefined;
-        if (scopeResult.choice.id === "user") {
-            return { mode: "always", scope: "user" };
-        }
-        if (
-            scopeResult.choice.id === "project"
-        ) {
-            return { mode: "always", scope: "project" };
-        }
-        return undefined;
+        return registryRoster.requestInboxAdmission(this, entry, candidate, signal);
     }
 
-    private requestMissingSubagentConfiguration(
+    requestMissingSubagentConfiguration(
         entry: RegisteredAgentEntry,
         request: MissingSubagentConfigurationRequest,
         context: ToolEffectContext,
         signal: AbortSignal,
     ): Promise<SpawnModelResolution> {
-        if (entry.store.header.delegation !== undefined) {
-            return Promise.resolve({
-                ok: false,
-                reason: "unavailable",
-                error: "A delegated session cannot widen its persisted subagent model boundary.",
-            });
-        }
-        if (signal.aborted) {
-            return Promise.resolve(cancelledSubagentConfiguration());
-        }
-
-        let queue = this.pendingSubagentConfigurations.get(entry.agent.id);
-        if (queue === undefined) {
-            queue = [];
-            this.pendingSubagentConfigurations.set(entry.agent.id, queue);
-        }
-        let batch = queue.at(-1);
-        if (batch === undefined || batch.processing) {
-            batch = {
-                id: randomUUID(),
-                entryId: entry.agent.id,
-                actions: [],
-                abort: new AbortController(),
-                scheduled: false,
-                processing: false,
-            };
-            queue.push(batch);
-        }
-        const target = batch;
-        const result = new Promise<SpawnModelResolution>((resolve) => {
-            const action: PendingSubagentLaunch = {
-                id: randomUUID(),
-                request: structuredClone(request),
-                context: structuredClone(context),
-                signal,
-                resolve,
-                settled: false,
-            };
-            action.onAbort = () => {
-                this.settlePendingSubagentLaunch(
-                    action,
-                    cancelledSubagentConfiguration(),
-                );
-                if (target.actions.every((candidate) => candidate.settled)) {
-                    target.abort.abort();
-                    if (!target.processing) {
-                        this.completeSubagentConfigurationBatch(target);
-                    }
-                }
-            };
-            target.actions.push(action);
-            signal.addEventListener("abort", action.onAbort, { once: true });
-        });
-        this.scheduleSubagentConfigurationBatch(target);
-        return result;
+        return registrySubagent.requestMissingSubagentConfiguration(this, entry, request, context, signal);
     }
 
     /** One event-loop turn admits siblings; later arrivals queue behind it. */
-    private scheduleSubagentConfigurationBatch(
+    scheduleSubagentConfigurationBatch(
         batch: PendingSubagentConfigurationBatch,
     ): void {
-        const queue = this.pendingSubagentConfigurations.get(batch.entryId);
-        if (
-            queue?.[0] !== batch
-            || batch.scheduled
-            || batch.processing
-        ) return;
-        batch.scheduled = true;
-        setTimeout(() => {
-            batch.scheduled = false;
-            batch.processing = true;
-            void this.processMissingSubagentConfiguration(batch).catch(
-                () => this.finishSubagentConfigurationBatch(
-                    batch,
-                    unavailableSubagentConfiguration(),
-                ),
-            );
-        }, 0);
+        return registrySubagent.scheduleSubagentConfigurationBatch(this, batch);
     }
 
-    private async processMissingSubagentConfiguration(
+    async processMissingSubagentConfiguration(
         batch: PendingSubagentConfigurationBatch,
     ): Promise<void> {
-        const entry = this.agents.get(batch.entryId);
-        const router = entry === undefined
-            ? undefined
-            : entry.workerOwnerRouter ?? entry.inbound;
-        const active = (): PendingSubagentLaunch[] =>
-            batch.actions.filter((action) => !action.settled);
-        if (
-            entry === undefined
-            || entry.agent.closed
-            || !entry.agent.attached
-            || router === undefined
-            || active().length === 0
-        ) {
-            this.finishSubagentConfigurationBatch(
-                batch,
-                unavailableSubagentConfiguration(),
-            );
-            return;
-        }
-
-        let choices = active().map((action) =>
-            this.resolveConfiguredSubagentLaunch(entry, action));
-        const needsConfiguration = choices.some((choice) =>
-            !choice.resolution.ok
-            && choice.resolution.reason === "configuration_required");
-        if (needsConfiguration) {
-            let outcome: "configured" | "cancelled" | "unavailable";
-            try {
-                outcome = await router.requestConfigurationRequired({
-                    destination: {
-                        kind: "model_assignment",
-                        assignment: "subagents",
-                    },
-                    reason: active().length === 1
-                        ? "A subagent launch is waiting, but no subagent models are configured."
-                        : `${active().length} subagent launches are waiting, but no subagent models are configured.`,
-                    pendingAction: {
-                        id: batch.id,
-                        kind: "subagent_launch",
-                        count: active().length,
-                    },
-                }, { signal: batch.abort.signal });
-            } catch {
-                outcome = "unavailable";
-            }
-            if (outcome !== "configured") {
-                this.finishSubagentConfigurationBatch(
-                    batch,
-                    outcome === "cancelled"
-                        ? cancelledSubagentConfiguration()
-                        : unavailableSubagentConfiguration(),
-                );
-                return;
-            }
-
-            // The settings write and its owner-side refresh precede the response
-            // on one command stream. Push once more before answering a worker so
-            // its next policy read cannot observe the pre-dialog snapshot.
-            this.pushWorkerState(entry.agent.id);
-            choices = active().map((action) =>
-                this.resolveConfiguredSubagentLaunch(entry, action));
-        }
-        const failed = choices.find((choice) => !choice.resolution.ok);
-        if (failed !== undefined) {
-            for (const choice of choices) {
-                this.settlePendingSubagentLaunch(
-                    choice.action,
-                    choice.resolution.ok ? failed.resolution : choice.resolution,
-                );
-            }
-            this.completeSubagentConfigurationBatch(batch);
-            return;
-        }
-
-        const replacements = choices.map((choice) => {
-            const resolution = choice.resolution;
-            if (!resolution.ok) return "";
-            const requested = requestedSubagentLabel(choice.action.request);
-            const replacement = subagentResolutionLabel(resolution);
-            return `${requested}→${replacement}`;
-        });
-        const confirmationRouter = entry.workerOwnerRouter ?? entry.inbound;
-        if (confirmationRouter === undefined || entry.agent.closed) {
-            this.finishSubagentChoices(
-                choices,
-                unavailableSubagentConfiguration(),
-            );
-            this.completeSubagentConfigurationBatch(batch);
-            return;
-        }
-        const confirmation = await confirmationRouter.requestUserQuestion({
-            question: `Continue ${choices.length} waiting subagent launch${
-                choices.length === 1 ? "" : "es"
-            }?\n${replacements.join(" · ")}`,
-            choices: [
-                {
-                    id: "continue",
-                    label: "Continue",
-                    description: "Start these waiting launches once with the configured replacements.",
-                },
-                {
-                    id: "cancel",
-                    label: "Cancel",
-                    description: "Start none of the waiting launches.",
-                },
-            ],
-        }, { signal: batch.abort.signal });
-        if (
-            confirmation.outcome !== "selected"
-            || confirmation.choice.id !== "continue"
-        ) {
-            this.finishSubagentChoices(
-                choices,
-                cancelledSubagentConfiguration(),
-            );
-            this.completeSubagentConfigurationBatch(batch);
-            return;
-        }
-        for (const choice of choices) {
-            this.settlePendingSubagentLaunch(choice.action, choice.resolution);
-        }
-        this.completeSubagentConfigurationBatch(batch);
+        return registrySubagent.processMissingSubagentConfiguration(this, batch);
     }
 
-    private resolveConfiguredSubagentLaunch(
+    resolveConfiguredSubagentLaunch(
         entry: RegisteredAgentEntry,
         action: PendingSubagentLaunch,
     ): {
         readonly action: PendingSubagentLaunch;
         readonly resolution: SpawnModelResolution;
     } {
-        const policy = this.options.readPolicy === undefined
-            ? { allowSelf: true }
-            : this.options.readPolicy(entry.store.header.cwd);
-        const pool = this.options.readPool === undefined
-            ? undefined
-            : () => this.options.readPool?.(entry.store.header.cwd) ?? [];
-        let resolution = resolveSpawnModelChoice(
-            action.request,
-            action.context,
-            pool,
-            this.options.subagentModel,
-            policy,
-            action.request.agentDefault,
-        );
-        // This one-time substitution is authorized by the confirmation that
-        // follows. A request made while policy already existed never enters
-        // this workflow and remains a loud out-of-policy refusal.
-        if (
-            !resolution.ok
-            && resolution.reason === "not_permitted"
-            && action.request.model !== undefined
-        ) {
-            resolution = resolveSpawnModelChoice(
-                {},
-                action.context,
-                pool,
-                this.options.subagentModel,
-                policy,
-                action.request.agentDefault,
-            );
-        }
-        return { action, resolution };
+        return registrySubagent.resolveConfiguredSubagentLaunch(this, entry, action);
     }
 
-    private finishSubagentConfigurationBatch(
+    finishSubagentConfigurationBatch(
         batch: PendingSubagentConfigurationBatch,
         resolution: SpawnModelResolution,
     ): void {
-        for (const action of batch.actions) {
-            this.settlePendingSubagentLaunch(action, resolution);
-        }
-        this.completeSubagentConfigurationBatch(batch);
+        return registrySubagent.finishSubagentConfigurationBatch(this, batch, resolution);
     }
 
-    private completeSubagentConfigurationBatch(
+    completeSubagentConfigurationBatch(
         batch: PendingSubagentConfigurationBatch,
     ): void {
-        const queue = this.pendingSubagentConfigurations.get(batch.entryId);
-        if (queue === undefined) return;
-        const index = queue.indexOf(batch);
-        if (index === -1) return;
-        queue.splice(index, 1);
-        if (queue.length === 0) {
-            this.pendingSubagentConfigurations.delete(batch.entryId);
-            return;
-        }
-        this.scheduleSubagentConfigurationBatch(queue[0]!);
+        return registrySubagent.completeSubagentConfigurationBatch(this, batch);
     }
 
-    private finishSubagentChoices(
+    finishSubagentChoices(
         choices: readonly {
             readonly action: PendingSubagentLaunch;
             readonly resolution: SpawnModelResolution;
         }[],
         resolution: SpawnModelResolution,
     ): void {
-        for (const choice of choices) {
-            this.settlePendingSubagentLaunch(choice.action, resolution);
-        }
+        return registrySubagent.finishSubagentChoices(this, choices, resolution);
     }
 
-    private settlePendingSubagentLaunch(
+    settlePendingSubagentLaunch(
         action: PendingSubagentLaunch,
         resolution: SpawnModelResolution,
     ): void {
-        if (action.settled) return;
-        action.settled = true;
-        if (action.onAbort !== undefined) {
-            action.signal.removeEventListener("abort", action.onAbort);
-        }
-        action.resolve(resolution);
+        return registrySubagent.settlePendingSubagentLaunch(this, action, resolution);
     }
 
-    private async spawnAsyncSubagent(
+    async spawnAsyncSubagent(
         parentStore: SessionStore,
         effect: SpawnAsyncSubagentEffect,
         context: Parameters<ApplyToolEffect>[2],
         signal: AbortSignal,
     ): Promise<ToolOutput> {
-        const running = [...this.agents.values()].filter(
-            (entry) =>
-                entry.kind === "background"
-                && entry.parentId === parentStore.header.id
-                && entry.failure === undefined
-                && !entry.agent.failed
-                && !entry.agent.closed
-                && entry.pendingAsyncTurns > 0,
-        ).length
-            + (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0);
-        if (running >= this.maxConcurrentBackgroundAgents) {
-            return {
-                kind: "output",
-                output: `Async subagent limit reached `
-                    + `(${this.maxConcurrentBackgroundAgents} running).`,
-                isError: true,
-            };
-        }
-        this.startingBackgroundAgents.set(
-            parentStore.header.id,
-            (this.startingBackgroundAgents.get(parentStore.header.id) ?? 0) + 1,
-        );
-        let policy: SubagentPoolPolicy;
-        let resolved: SpawnModelResolution;
-        let child: ResidentAgent;
-        try {
-            policy = this.options.readPolicy === undefined
-                ? { allowSelf: true }
-                : this.options.readPolicy(parentStore.header.cwd);
-            resolved = resolveSpawnModelChoice(
-                effect,
-                context,
-                this.options.readPool === undefined
-                    ? undefined
-                    : () => this.options.readPool?.(parentStore.header.cwd) ?? [],
-                this.options.subagentModel,
-                policy,
-            );
-            if (!resolved.ok && resolved.reason === "configuration_required") {
-                const entry = this.agents.get(parentStore.header.id);
-                if (entry !== undefined) {
-                    resolved = await this.requestMissingSubagentConfiguration(
-                        entry,
-                        {
-                            description: effect.description,
-                            ...(effect.model === undefined
-                                ? {}
-                                : { model: effect.model }),
-                            ...(effect.reasoningEffort === undefined ? {} : {
-                                reasoningEffort: effect.reasoningEffort,
-                            }),
-                        },
-                        context,
-                        signal,
-                    );
-                    policy = this.options.readPolicy === undefined
-                        ? { allowSelf: true }
-                        : this.options.readPolicy(parentStore.header.cwd);
-                }
-            }
-            if (!resolved.ok) {
-                return { kind: "output", output: resolved.error, isError: true };
-            }
-            if (signal.aborted) {
-                const cancelled = cancelledSubagentConfiguration();
-                return {
-                    kind: "output",
-                    output: cancelled.ok
-                        ? "The waiting subagent launch was cancelled; no child started."
-                        : cancelled.error,
-                    isError: true,
-                };
-            }
-            child = await this.createWithKind(
-                {
-                    workspace: parentStore.header.cwd,
-                    ...(parentStore.header.contextAssemblyMode === undefined
-                        ? {}
-                        : {
-                            startupProfile:
-                                parentStore.header.contextAssemblyMode,
-                        }),
-                },
-                "background",
-                {
-                    approvalMode: context.approvalMode,
-                    parentId: parentStore.header.id,
-                    delegation: {
-                        kind: "subagent",
-                        parentId: parentStore.header.id,
-                        models: subagentModelBoundary(policy, context),
-                    },
-                    modelSettings: {
-                        provider: resolved.provider ?? this.defaultProvider,
-                        model: resolved.model,
-                        ...(resolved.reasoningEffort === undefined
-                            ? {}
-                            : { reasoningEffort: resolved.reasoningEffort }),
-                    },
-                },
-            );
-        } finally {
-            const remaining =
-                (this.startingBackgroundAgents.get(parentStore.header.id) ?? 1)
-                - 1;
-            if (remaining === 0) {
-                this.startingBackgroundAgents.delete(parentStore.header.id);
-            } else {
-                this.startingBackgroundAgents.set(
-                    parentStore.header.id,
-                    remaining,
-                );
-            }
-        }
-        const childEntry = this.agents.get(child.id);
-        if (childEntry === undefined) {
-            child.close();
-            throw new Error(`Async subagent ${child.id} was not registered`);
-        }
-        // Tracked here rather than on every queued prompt: a completion
-        // belongs to the parent only for work the parent asked for. A client
-        // attaching to the child and prompting it is a conversation the user
-        // is already reading, not an assignment to report back on.
-        try {
-            child.sendPrompt(effect.description);
-        } catch (error) {
-            child.close();
-            throw error;
-        }
-        this.trackAsyncSubagentTurn(child.id);
-        if (resolved.notice !== undefined) {
-            this.spawnNotices.set(child.id, resolved.notice);
-        }
-        const started =
-            `Async subagent ${child.id} started. Its final summary will arrive as a task notification.`;
-        return {
-            kind: "output",
-            output: resolved.notice === undefined
-                ? started
-                : `${resolved.notice}\n\n${started}`,
-            isError: false,
-            ...(resolved.substitutions === undefined
-                    || resolved.substitutions.length === 0
-                ? {}
-                : { substitutions: resolved.substitutions }),
-        };
+        return registrySubagent.spawnAsyncSubagent(this, parentStore, effect, context, signal);
     }
 
-    private async messageSubagent(
+    async messageSubagent(
         parentStore: SessionStore,
         effect: MessageSubagentEffect,
     ): Promise<ToolOutput> {
-        const child = this.agents.get(effect.subagentId);
-        if (
-            child === undefined
-            || child.kind !== "background"
-            || child.parentId !== parentStore.header.id
-        ) {
-            return {
-                kind: "output",
-                output: `Async subagent ${effect.subagentId} is not a child of this agent.`,
-                isError: true,
-            };
-        }
-        if (child.failure !== undefined || child.agent.closed) {
-            return {
-                kind: "output",
-                output: `Async subagent ${effect.subagentId} is no longer running.`,
-                isError: true,
-            };
-        }
-
-        child.agent.sendPrompt(effect.message);
-        this.trackAsyncSubagentTurn(effect.subagentId);
-        return {
-            kind: "output",
-            output: `Message queued for async subagent ${effect.subagentId}.`,
-            isError: false,
-        };
+        return registrySubagent.messageSubagent(this, parentStore, effect);
     }
 
-    private async closeSubagent(
+    async closeSubagent(
         callerId: string,
         effect: CloseSubagentEffect,
     ): Promise<ToolOutput> {
-        try {
-            const result = await this.closeDescendantTree(
-                callerId,
-                effect.subagentId,
-            );
-            return closeSubagentOutput({
-                requested_subagent_id: effect.subagentId,
-                closed: result.status === "closed",
-                reason: result.status,
-                ...(result.status === "closed"
-                    ? { session_retained: result.sessionRetained }
-                    : {}),
-            });
-        } catch {
-            return closeSubagentOutput({
-                requested_subagent_id: effect.subagentId,
-                closed: false,
-                reason: "failed",
-            });
-        }
+        return registrySubagent.closeSubagent(this, callerId, effect);
     }
 
-    private trackAsyncSubagentTurn(childId: string): void {
-        const child = this.agents.get(childId);
-        const parent = child?.parentId === undefined
-            ? undefined
-            : this.agents.get(child.parentId);
-        if (child?.kind !== "background" || parent === undefined) {
-            return;
-        }
-        if (child.pendingAsyncTurns > 0) {
-            child.pendingAsyncTurns += 1;
-            return;
-        }
-
-        const attachment = child.agent.attach();
-        child.completed = false;
-        child.pendingAsyncTurns = 1;
-        child.completionSequence += 1;
-        this.monitorAsyncSubagent(
-            parent.store,
-            child,
-            attachment,
-            child.completionSequence,
-        );
+    trackAsyncSubagentTurn(childId: string): void {
+        return registrySubagent.trackAsyncSubagentTurn(this, childId);
     }
 
-    private monitorAsyncSubagent(
+    monitorAsyncSubagent(
         parentStore: SessionStore,
         childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): void {
-        const childId = childEntry.agent.id;
-        const deliveryTask = this.deliverBackgroundResult(
-            parentStore,
-            childEntry,
-            attachment,
-            completionSequence,
-        ).catch((error: unknown) => {
-            const entry = this.agents.get(childId);
-            if (entry !== undefined) {
-                entry.pendingCompletionDeliveries = Math.max(
-                    0,
-                    entry.pendingCompletionDeliveries - 1,
-                );
-                entry.failure = error;
-                entry.agent.close();
-            }
-            const parent = this.agents.get(parentStore.header.id);
-            if (parent !== undefined && !parent.agent.closed) {
-                parent.events.emit({
-                    type: "task_notification",
-                    deliveryId: `completion-failed:${childId}:${completionSequence}`,
-                    sourceAgentId: childId,
-                    content: `Async subagent result could not be saved: ${
-                        error instanceof Error ? error.message : String(error)
-                    }`,
-                    kind: "completion",
-                });
-            }
-        });
-        this.deliveryTasks.add(deliveryTask);
-        void deliveryTask.then(() => this.deliveryTasks.delete(deliveryTask));
+        return registrySubagent.monitorAsyncSubagent(this, parentStore, childEntry, attachment, completionSequence);
     }
 
-    private async notifyParent(
+    async notifyParent(
         childStore: SessionStore,
         effect: NotifyParentEffect,
     ): Promise<ToolOutput> {
-        const child = this.agents.get(childStore.header.id);
-        const parentId = child?.parentId;
-        if (child?.kind !== "background" || parentId === undefined) {
-            return {
-                kind: "output",
-                output: "This agent has no parent to notify.",
-                isError: true,
-            };
-        }
-
-        const parent = this.agents.get(parentId);
-        if (parent === undefined || parent.agent.closed || parent.agent.failed) {
-            return {
-                kind: "output",
-                output: "The parent agent is unavailable.",
-                isError: true,
-            };
-        }
-        const delivery = {
-            id: `attention:${childStore.header.id}:${randomUUID()}`,
-            sourceAgentId: childStore.header.id,
-            content: effect.message,
-            kind: "attention" as const,
-        };
-        await recordDeliveryAndNotify(parent.store, parent.events, delivery);
-        parent.agent.triggerDeliveryTurn();
-        return {
-            kind: "output",
-            output: "Parent agent notified.",
-            isError: false,
-        };
+        return registrySubagent.notifyParent(this, childStore, effect);
     }
 
-    private async deliverBackgroundResult(
+    async deliverBackgroundResult(
         parentStore: SessionStore,
         childEntry: RegisteredAgentEntry,
         attachment: AgentAttachment,
         completionSequence: number,
     ): Promise<void> {
-        const childId = childEntry.agent.id;
-        let content = "Async subagent failed before producing a summary.";
-        try {
-            while (true) {
-                const update = await attachment.receive();
-                if (
-                    update.type === "ui_request"
-                    && isToolApprovalUiRequestUpdate(update)
-                ) {
-                    const parent = this.agents.get(parentStore.header.id);
-                    const child = this.agents.get(childId);
-                    const decision = parent === undefined
-                        ? "deny"
-                        : await this.relayChildToolApproval(
-                            parent,
-                            update,
-                            childId,
-                            child?.store.messages()
-                                .find((message) => message.role === "user")
-                                ?.content
-                                .filter((block) => block.type === "text")
-                                .map((block) => block.text)
-                                .join("\n") ?? "Background task",
-                        );
-                    attachment.send({
-                        type: "ui_response",
-                        requestId: update.requestId,
-                        response: {
-                            type: "tool_approval",
-                            decision,
-                        },
-                    });
-                }
-                if (update.type === "turn_finished") {
-                    const entry = this.agents.get(childId);
-                    if (entry === undefined) {
-                        break;
-                    }
-                    entry.pendingAsyncTurns = Math.max(
-                        0,
-                        entry.pendingAsyncTurns - 1,
-                    );
-                    if (entry.pendingAsyncTurns === 0) {
-                        // Mark the completion write pending at the same boundary
-                        // that ends this assignment. A later prompt becomes a
-                        // new assignment, while parent trash remains blocked
-                        // until this result has been saved.
-                        entry.pendingCompletionDeliveries += 1;
-                        break;
-                    }
-                }
-            }
-            const childStore = this.agents.get(childId)?.store;
-            const finalMessage = childStore?.messages().findLast(
-                (message) => message.role === "assistant",
-            );
-            const summary = finalMessage?.content
-                .filter((block) => block.type === "text")
-                .map((block) => block.text)
-                .join("\n")
-                .trim();
-            if (summary !== undefined && summary.length > 0) {
-                content = summary;
-            }
-        } catch {
-            // The durable failure delivery below is safer than exposing host internals.
-        } finally {
-            attachment.detach();
-        }
-        if (
-            this.suppressedCompletionDeliveries.has(childEntry)
-            || this.closingCompletionRecipients.has(parentStore)
-        ) {
-            childEntry.pendingAsyncTurns = 0;
-            childEntry.pendingCompletionDeliveries = 0;
-            return;
-        }
-        // A substitution the parent cannot see is a silent success on the
-        // wrong model, so it rides the completion the parent actually reads,
-        // not only the spawn call it made turns ago.
-        const substitution = this.spawnNotices.get(childId);
-        if (substitution !== undefined) {
-            content = `${substitution}\n\n${content}`;
-        }
-        const delivery = {
-            id: completionSequence === 1
-                ? `completion:${childId}`
-                : `completion:${childId}:${completionSequence}`,
-            sourceAgentId: childId,
-            content,
-            kind: "completion" as const,
-        };
-        const parentEvents = this.agents.get(parentStore.header.id)?.events;
-        const recorded = parentEvents === undefined
-            ? await parentStore.recordDelivery(delivery)
-            : await recordDeliveryAndNotify(parentStore, parentEvents, delivery);
-        const entry = this.agents.get(childId);
-        if (entry !== undefined) {
-            entry.pendingCompletionDeliveries = Math.max(
-                0,
-                entry.pendingCompletionDeliveries - 1,
-            );
-            if (
-                entry.failure === undefined
-                && entry.pendingAsyncTurns === 0
-                && entry.pendingCompletionDeliveries === 0
-                && entry.completionSequence === completionSequence
-            ) {
-                entry.completed = true;
-            }
-        }
-        if (!recorded) {
-            return;
-        }
-        const parent = this.agents.get(parentStore.header.id)?.agent;
-        if (parent !== undefined && !parent.closed && !parent.failed) {
-            parent.triggerDeliveryTurn();
-        }
+        return registrySubagent.deliverBackgroundResult(this, parentStore, childEntry, attachment, completionSequence);
     }
 
-    private async relayChildToolApproval(
+    async relayChildToolApproval(
         parent: RegisteredAgentEntry,
         update: ToolApprovalUiRequestUpdate,
         sourceAgentId: string,
         sourceTask: string,
         signal?: AbortSignal,
     ): Promise<"allow_once" | "deny"> {
-        const result = await parent.inbound?.requestToolApproval(
-            update.request.toolCall,
-            update.request.reason,
-            {
-                timeoutMs: CHILD_TOOL_APPROVAL_TIMEOUT_MS,
-                sourceAgentId,
-                sourceTask,
-                ...(signal === undefined ? {} : { signal }),
-            },
-        );
-        return result?.behavior === "allow" ? "allow_once" : "deny";
+        return registrySubagent.relayChildToolApproval(this, parent, update, sourceAgentId, sourceTask, signal);
     }
 
     /** Keeps shutdown waiting on a delivery that is mid-flight. */
-    private trackDelivery(task: Promise<void>): void {
-        this.deliveryTasks.add(task);
-        void task.then(() => this.deliveryTasks.delete(task));
+    trackDelivery(task: Promise<void>): void {
+        return registrySubagent.trackDelivery(this, task);
     }
 
-    private reserveId(id: string): void {
-        this.requireOpen();
-        if (this.agents.has(id) || this.startingIds.has(id)) {
-            throw new Error(`Resident agent ${id} already exists`);
-        }
-        this.startingIds.add(id);
+    reserveId(id: string): void {
+        return registryLifecycle.reserveId(this, id);
     }
 
-    private requireOpen(): void {
-        if (this.isClosed) {
-            throw new Error("Agent registry is closed");
-        }
+    requireOpen(): void {
+        return registryLifecycle.requireOpen(this);
     }
 }
