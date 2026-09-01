@@ -202,7 +202,10 @@ for (const name of names) {
             }
             const other = moduleFnSymbols.get(symbol);
             if (other) {
-                if (!nameSet.has(other)) addNamed(valueBySpec, "../main.ts", other);
+                if (!nameSet.has(other)) {
+                    addNamed(valueBySpec, "../main.ts", other);
+                    needExport.add(other);
+                }
                 ts.forEachChild(node, collect);
                 return;
             }
