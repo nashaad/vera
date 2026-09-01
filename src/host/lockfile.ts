@@ -1,4 +1,4 @@
-import { createHash, randomUUID } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import {
     chmod,
     mkdir,
@@ -7,7 +7,6 @@ import {
     rename,
     unlink,
 } from "node:fs/promises";
-import { homedir, tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 
 import {
@@ -128,15 +127,8 @@ export function defaultHostLockPath(): string {
     return join(veraRuntimeDirectory(), "host.json");
 }
 
-/** A unix socket path is capped near 104 bytes on macOS and 108 on Linux. */
-const SOCKET_PATH_LIMIT = 100;
-
 export function defaultHostSocketPath(): string {
-    const runtime = veraRuntimeDirectory();
-    const preferred = join(runtime, "host.sock");
-    if (Buffer.byteLength(preferred) <= SOCKET_PATH_LIMIT) return preferred;
-    const digest = createHash("sha256").update(runtime).digest("hex").slice(0, 16);
-    return join(tmpdir(), `vera-${digest}`, "host.sock");
+    return join(veraRuntimeDirectory(), "host.sock");
 }
 
 export function createHostLockfile(
@@ -210,6 +202,8 @@ export function createHostLockfile(
             return {};
         }
         const record = parseHostLock(serialized);
+        // Connect only to this runtime's socket. A recorded path that does
+        // not match is ignored, never followed.
         if (record === undefined || record.socket_path !== socketPath) {
             return {};
         }

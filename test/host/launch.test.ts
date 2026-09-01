@@ -81,6 +81,68 @@ interface DetachedHostResult {
     10_000,
 );
 
+(process.env.CODEX_SANDBOX_NETWORK_DISABLED === "1" ? test.skip : test)(
+    "ten simultaneous first clients from ten directories share one host",
+    async () => {
+        const home = await mkdtemp(join(tmpdir(), "vera-ten-host-"));
+        const veraDirectory = join(home, ".vera");
+        let hostPid: number | undefined;
+        await mkdir(veraDirectory, { recursive: true });
+        seedTestRelease(home);
+        await writeFile(join(veraDirectory, "config.json"), `${JSON.stringify({
+            schema_version: 1,
+            provider: "openrouter",
+            model: "faux/test",
+            approval_mode: "auto",
+        })}\n`);
+        const expectedSocket = join(veraDirectory, "runtime", "host.sock");
+        const projects = await Promise.all(
+            Array.from({ length: 10 }, (_, index) =>
+                mkdtemp(join(home, `proj-${index}-`))),
+        );
+
+        try {
+            const script = join(process.cwd(), "test/support/detached-host-child.ts");
+            const children = await Promise.all(projects.map(async (cwd) => {
+                const child = Bun.spawn([
+                    process.execPath,
+                    script,
+                ], {
+                    cwd,
+                    env: {
+                        ...process.env,
+                        HOME: home,
+                        VERA_HOME: veraDirectory,
+                        OPENROUTER_API_KEY: "test-only-key",
+                    },
+                    stdout: "pipe",
+                    stderr: "pipe",
+                });
+                const [exitCode, output, errorOutput] = await Promise.all([
+                    child.exited,
+                    new Response(child.stdout).text(),
+                    new Response(child.stderr).text(),
+                ]);
+                expect(exitCode, `${cwd}: ${errorOutput}`).toBe(0);
+                return JSON.parse(output) as DetachedHostResult;
+            }));
+            const pids = new Set(children.map((result) => result.host.pid));
+            const sockets = new Set(children.map((result) => result.host.socket_path));
+            expect(pids.size).toBe(1);
+            expect(sockets).toEqual(new Set([expectedSocket]));
+            hostPid = children[0]!.host.pid;
+            expect(processIsAlive(hostPid)).toBe(true);
+        } finally {
+            if (hostPid !== undefined && processIsAlive(hostPid)) {
+                process.kill(hostPid, "SIGTERM");
+                await waitForProcessExit(hostPid);
+            }
+            await rm(home, { recursive: true, force: true });
+        }
+    },
+    30_000,
+);
+
 function processIsAlive(pid: number): boolean {
     try {
         process.kill(pid, 0);
