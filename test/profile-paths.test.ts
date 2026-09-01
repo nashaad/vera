@@ -72,6 +72,7 @@ test("state written outside the known root names is named", () => {
     expect(unrecognisedHomeEntries(root)).toEqual([]);
 
     mkdirSync(join(root, ".vera", "chrome"));
+    writeFileSync(join(root, ".vera", "tui.json"), "{}");
     writeFileSync(join(root, ".vera", ".DS_Store"), "");
     expect(unrecognisedHomeEntries(root)).toEqual(["chrome"]);
 });

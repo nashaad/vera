@@ -4,7 +4,9 @@ import {
     existsSync,
     mkdirSync,
     readFileSync,
+    readdirSync,
     realpathSync,
+    renameSync,
     rmSync,
     statSync,
     writeFileSync,
@@ -23,6 +25,7 @@ import { forceStopResidentHost } from "../src/host/force-stop.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
 import { migrateHome } from "../src/home-migration.ts";
 import {
+    HOME_OWNED_ROOT_ENTRIES,
     veraHomeDirectory,
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
@@ -235,6 +238,7 @@ export async function runDevTui(
         }
     }
     const lifted = liftCloneHome(destinationHome);
+    quarantineUnknownHomeEntries(destinationHome);
     if (!existed || lifted) {
         disableOutboundConsumers(destinationHome);
     }
@@ -287,6 +291,19 @@ export function liftCloneHome(home: string): boolean {
     if (!existsSync(join(home, "profiles"))) return false;
     migrateHome(home);
     return true;
+}
+
+/** Move leftover root files into machine/leftover so the clone can start. */
+export function quarantineUnknownHomeEntries(home: string): void {
+    if (!existsSync(home)) return;
+    const leftover = join(home, "machine", "leftover");
+    const owned = new Set<string>(HOME_OWNED_ROOT_ENTRIES);
+    for (const entry of readdirSync(home)) {
+        if (entry.startsWith(".")) continue;
+        if (owned.has(entry)) continue;
+        mkdirSync(leftover, { recursive: true, mode: 0o700 });
+        renameSync(join(home, entry), join(leftover, entry));
+    }
 }
 
 export function candidateLaunchEnv(

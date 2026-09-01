@@ -17,6 +17,7 @@ import {
     disableOutboundConsumers,
     formatDevInstanceMarker,
     parseDevTuiArgs,
+    quarantineUnknownHomeEntries,
     runDevTui,
 } from "../../scripts/dev-tui.ts";
 
@@ -174,6 +175,30 @@ test("a profiles/ daily home is lifted in the clone only", async () => {
     }
 });
 
+test("leftover root files on a clone move into machine/leftover", () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-leftover-"));
+    const home = join(root, ".vera");
+    mkdirSync(join(home, "machine"), { recursive: true });
+    mkdirSync(join(home, "runtime"), { recursive: true });
+    writeFileSync(join(home, "tui.json"), "{}\n");
+    writeFileSync(join(home, "whisker"), "stay-out\n");
+    writeFileSync(join(home, "extensions.json"), "[]\n");
+    try {
+        quarantineUnknownHomeEntries(home);
+        expect(existsSync(join(home, "tui.json"))).toBe(true);
+        expect(existsSync(join(home, "whisker"))).toBe(false);
+        expect(existsSync(join(home, "extensions.json"))).toBe(false);
+        expect(readFileSync(join(home, "machine", "leftover", "whisker"), "utf8"))
+            .toBe("stay-out\n");
+        expect(readFileSync(
+            join(home, "machine", "leftover", "extensions.json"),
+            "utf8",
+        )).toBe("[]\n");
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+    }
+});
+
 test("reusing a worktree preserves its sessions and never writes the daily home", async () => {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
     const worktree = linkedWorktree("ovu-reuse");
@@ -183,7 +208,8 @@ test("reusing a worktree preserves its sessions and never writes the daily home"
         temporaryRoot: join(root, "instances"),
         spawnTui: async (_args: readonly string[], env: NodeJS.ProcessEnv) => {
             writeFileSync(join(env.VERA_HOME!, "runtime", "session.jsonl"), "candidate\n");
-            writeFileSync(join(env.VERA_HOME!, "candidate-only"), "mine\n");
+            mkdirSync(join(env.VERA_HOME!, "memory"), { recursive: true });
+            writeFileSync(join(env.VERA_HOME!, "memory", "candidate-only"), "mine\n");
             return 0;
         },
     };
@@ -195,14 +221,14 @@ test("reusing a worktree preserves its sessions and never writes the daily home"
             spawnTui: async (_args, env) => {
                 expect(readFileSync(join(env.VERA_HOME!, "runtime", "session.jsonl"), "utf8"))
                     .toBe("candidate\n");
-                expect(readFileSync(join(env.VERA_HOME!, "candidate-only"), "utf8"))
+                expect(readFileSync(join(env.VERA_HOME!, "memory", "candidate-only"), "utf8"))
                     .toBe("mine\n");
                 return 0;
             },
         });
         expect(readFileSync(join(sourceHome, "runtime", "session.jsonl"), "utf8"))
             .toBe(dailyBefore);
-        expect(existsSync(join(sourceHome, "candidate-only"))).toBe(false);
+        expect(existsSync(join(sourceHome, "memory", "candidate-only"))).toBe(false);
     } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });

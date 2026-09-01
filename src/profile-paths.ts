@@ -68,24 +68,27 @@ export function assertProfileLayout(home?: string): void {
 }
 
 /** Names the single-home layout owns at the root. */
-const KNOWN_ENTRIES = [
+export const HOME_OWNED_ROOT_ENTRIES = [
     "machine",
     "runtime",
     "config.json",
     "pool.json",
     "preferences.json",
+    "tui.json",
     "extensions",
     "skills",
     "memory",
     "agents",
-];
+] as const;
 
 export function unrecognisedHomeEntries(home?: string): readonly string[] {
     const root = veraHomeDirectory(home);
     if (!existsSync(root)) return [];
     return readdirSync(root)
         .filter((entry) => !entry.startsWith("."))
-        .filter((entry) => !KNOWN_ENTRIES.includes(entry))
+        .filter((entry) =>
+            !(HOME_OWNED_ROOT_ENTRIES as readonly string[]).includes(entry)
+        )
         .sort();
 }
 
