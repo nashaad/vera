@@ -5503,3 +5503,42 @@ test("an explicit forbidden permission switches the session back to default", as
         await rm(root, { recursive: true, force: true });
     }
 });
+
+test("a session loads project extension tools from its own workspace", async () => {
+    const root = await realpath(await mkdtemp(join(tmpdir(), "vera-project-tools-")));
+    const workspace = join(root, "app");
+    const extension = join(workspace, ".vera", "extensions", "acme.ping");
+    await mkdir(extension, { recursive: true });
+    await writeFile(join(extension, "vera.extension.json"), JSON.stringify({
+        id: "acme.ping",
+        version: "1.0.0",
+        sdk: "1",
+        entrypoint: "extension.ts",
+        capabilities: ["slash_commands"],
+    }));
+    const loaded = join(root, "loaded.txt");
+    await writeFile(join(extension, "extension.ts"), `
+        import { writeFileSync } from "node:fs";
+        export function activate() {
+            writeFileSync(${JSON.stringify(loaded)}, "loaded");
+        }
+    `);
+    const registry = new AgentRegistry({
+        createAdapter: () => new FauxAdapter([]),
+        model: "faux/test",
+        approvalMode: "auto",
+        extensionTools: [],
+    });
+    try {
+        await registry.create({
+            id: "project-tools",
+            workspace,
+            sessionPath: join(root, "session.jsonl"),
+            eventLogPath: join(root, "events.jsonl"),
+        });
+        expect(await readFile(loaded, "utf8")).toBe("loaded");
+    } finally {
+        await registry.close();
+        await rm(root, { recursive: true, force: true });
+    }
+});

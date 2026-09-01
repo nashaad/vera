@@ -179,6 +179,11 @@ import type { OneshotMessage } from "../engine/protocol.ts";
 import type { EngineCommand } from "../engine/timeline-control.ts";
 import { loopCompactionState, type LoopState } from "../engine/host-protocol.ts";
 import type { VeraExtensionConfig } from "../config.ts";
+import { discoverProjectExtensionConfigs } from "../extensions/discovery.ts";
+import {
+    startExtensionRegistry,
+    type ExtensionRegistry,
+} from "../extensions/registry.ts";
 import type {
     SessionIdentity,
     SessionIdentityProvider,
@@ -493,6 +498,10 @@ export interface AgentRegistryOptions {
     readonly updateApprovalDefault?: (mode: ApprovalMode) => void;
     readonly trashSessionArtifacts?: (artifacts: SessionArtifacts) => Promise<void>;
     readonly extensionTools?: readonly RegisteredTool[];
+    /** First live session in a workspace starts that workspace's sidecars. */
+    readonly acquireWorkspaceSidecars?: (workspace: string) => Promise<void>;
+    /** Last closed session in a workspace stops that workspace's sidecars. */
+    readonly releaseWorkspaceSidecars?: (workspace: string) => Promise<void>;
     /**
      * The extension configs a worker loads for itself, so that an extension
      * tool runs in the process a kill lands on rather than in this one.
@@ -500,7 +509,9 @@ export interface AgentRegistryOptions {
      * Only read when `VERA_WORKER_EXTENSIONS=1`, because loading them twice
      * means an extension that opens a connection opens one per session.
      */
-    readonly workerExtensions?: () => readonly VeraExtensionConfig[];
+    readonly workerExtensions?: (
+        workspace: string,
+    ) => readonly VeraExtensionConfig[];
     readonly loadContextualContributions?: (
         instructionRoot: InstructionRoot,
         allowedSkills?: readonly string[],
@@ -1125,6 +1136,8 @@ interface RegisteredAgentEntry {
     run: Promise<void>;
     /** The process running this session's loop, when it runs in one. */
     worker?: WorkerHandle;
+    /** Project extensions loaded for this session's workspace. */
+    projectExtensions?: ExtensionRegistry;
     completed: boolean;
     pendingAsyncTurns: number;
     pendingCompletionDeliveries: number;
@@ -1426,6 +1439,8 @@ export class AgentRegistry {
         entry: RegisteredAgentEntry,
     ): Promise<void> {
         entry.inbox?.release();
+        await entry.projectExtensions?.close();
+        await this.options.releaseWorkspaceSidecars?.(entry.store.header.cwd);
         this.agents.delete(id);
         this.spawnNotices.delete(id);
         if (entry.ephemeral) {
@@ -3702,8 +3717,19 @@ export class AgentRegistry {
     ): Promise<ResidentAgent> {
         const identity = await this.bindSessionIdentity(store);
         const startupProfile = store.header.startupProfile ?? "default";
+        const projectExtensionConfigs = startupProfile === "default"
+            ? discoverProjectExtensionConfigs(store.header.cwd)
+            : [];
+        const projectExtensions = projectExtensionConfigs.length === 0
+            ? undefined
+            : await startExtensionRegistry({
+                extensions: projectExtensionConfigs,
+            });
         const extensionTools = startupProfile === "default"
-            ? this.options.extensionTools
+            ? [
+                ...(this.options.extensionTools ?? []),
+                ...(projectExtensions?.tools() ?? []),
+            ]
             : [];
         // Named so the getters below can reach the registry's own options:
         // inside an object literal `this` is the literal, not the registry.
@@ -3792,6 +3818,9 @@ export class AgentRegistry {
                 ? {}
                 : { agentWear: store.agentWear()!.snapshot }),
             run: Promise.resolve(),
+            ...(projectExtensions === undefined
+                ? {}
+                : { projectExtensions }),
             completed: false,
             peerHop: 0,
             peerWakes: [],
@@ -3806,6 +3835,13 @@ export class AgentRegistry {
                 : { failure: new Error(storedFailure.detail) }),
         };
         this.agents.set(agent.id, entry);
+        try {
+            await this.options.acquireWorkspaceSidecars?.(store.header.cwd);
+        } catch (error) {
+            this.agents.delete(agent.id);
+            await projectExtensions?.close();
+            throw error;
+        }
         this.notifyRosterChanged();
         void this.reconcileResumedAgentWear(entry, events);
         if (storedFailure !== undefined) {
@@ -4363,14 +4399,15 @@ export class AgentRegistry {
      * Nothing is the default: the tools stay in this process and the worker
      * reaches them over the boundary.
      */
-    private workerExtensions(): readonly VeraExtensionConfig[] | undefined {
+    private workerExtensions(
+        workspace: string,
+    ): readonly VeraExtensionConfig[] | undefined {
         if ((process.env[WORKER_EXTENSIONS_ENV] ?? "") !== "1") {
             return undefined;
         }
-        const configured = this.options.workerExtensions?.();
-        return configured === undefined || configured.length === 0
-            ? undefined
-            : configured;
+        const configured = this.options.workerExtensions?.(workspace)
+            ?? discoverProjectExtensionConfigs(workspace);
+        return configured.length === 0 ? undefined : configured;
     }
 
     /**
@@ -4415,7 +4452,7 @@ export class AgentRegistry {
         if (this.liveWorkerCount() >= cap) {
             throw new WorkerCapReachedError(cap);
         }
-        const workerExtensions = this.workerExtensions();
+        const workerExtensions = this.workerExtensions(store.header.cwd);
         const handle = await startWorker({
             store,
             session: await readSessionSeed(store.path),
