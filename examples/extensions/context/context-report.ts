@@ -150,6 +150,13 @@ export function buildContextReport(
         (sum, component) => sum + component.estimatedTokens,
         0,
     );
+    const warnings = [
+        ...fileWarnings(instructionFiles),
+        ...messageWarnings(
+            snapshot.projection?.components ?? [],
+            usedTotal,
+        ),
+    ];
     return {
         snapshot,
         headline,
@@ -167,7 +174,7 @@ export function buildContextReport(
                         ? ""
                         : ` · ${Math.round(instructionTokens / usedTotal * 100)}% of used`),
             }),
-        fileWarnings: fileWarnings(instructionFiles),
+        fileWarnings: warnings,
         detail: detail
             ? [...(snapshot.projection?.components ?? [])]
                 .sort((left, right) => right.estimatedTokens - left.estimatedTokens)
@@ -239,9 +246,12 @@ export function contextReportLines(
         )) {
             lines.push(row);
         }
-        for (const warning of report.fileWarnings) {
-            lines.push(clip(`> !  ${warning}`, inner));
-        }
+        lines.push("");
+    }
+    for (const warning of report.fileWarnings) {
+        lines.push(clip(`> !  ${warning}`, inner));
+    }
+    if (report.fileWarnings.length > 0) {
         lines.push("");
     }
 
@@ -367,6 +377,28 @@ function fileWarnings(files: readonly ContextInstructionRow[]): readonly string[
         .map((file) =>
             `${file.displayName} is ${formatKilobytes(file.bytes)} and rides every turn.`
         );
+}
+
+const LARGE_MESSAGE_TOKENS = RIDES_EVERY_TURN_BYTES / 4;
+
+function messageWarnings(
+    components: readonly VeraClientContextComponent[],
+    usedTotal: number,
+): readonly string[] {
+    return components
+        .filter((component) =>
+            component.kind === "message"
+            && component.estimatedTokens >= LARGE_MESSAGE_TOKENS
+        )
+        .sort((left, right) => right.estimatedTokens - left.estimatedTokens)
+        .map((component) => {
+            const share = usedTotal === 0
+                ? ""
+                : ` (${Math.round(component.estimatedTokens / usedTotal * 100)}% of used)`;
+            return `${component.displayName} is ${
+                formatTokens(component.estimatedTokens)
+            }${share}.`;
+        });
 }
 
 function formatBreakdownTable(

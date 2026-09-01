@@ -57,6 +57,84 @@ test("context reports group instruction files and align the occupancy bar", () =
     expect(report.headline).toContain("700 / 1.0k");
 });
 
+test("a large tool result is named on the compact context report", () => {
+    const snapshot: VeraClientContextSnapshot = {
+        availability: "available",
+        model: { model: "local", capacity: 32_768 },
+        headline: { tokens: 28_761, estimated: true },
+        projection: {
+            estimatedTokens: 28_761,
+            components: [
+                {
+                    kind: "prompt_contribution",
+                    id: "core.project-instructions",
+                    owner: "core",
+                    source: "contextual",
+                    displayName: "Project instructions",
+                    count: 1,
+                    estimatedTokens: 12_000,
+                    parts: [{
+                        id: "agents-local",
+                        displayName: "AGENTS.local.md",
+                        scope: "project",
+                        bytes: 45_035,
+                        estimatedTokens: 12_000,
+                    }],
+                },
+                {
+                    kind: "message",
+                    id: "message:7",
+                    owner: "session",
+                    source: "tool_result",
+                    displayName: "read Vera 2 - In flight.md",
+                    count: 1,
+                    estimatedTokens: 16_510,
+                },
+                {
+                    kind: "message",
+                    id: "message:1",
+                    owner: "session",
+                    source: "user",
+                    displayName: "user message",
+                    count: 1,
+                    estimatedTokens: 251,
+                },
+            ],
+        },
+    };
+    const report = buildContextReport(snapshot, false, 120);
+    expect(report.fileWarnings.some((warning) =>
+        warning.includes("read Vera 2 - In flight.md")
+        && warning.includes("17k")
+        && warning.includes("57% of used")
+    )).toBe(true);
+    const markdown = contextReportMarkdown(snapshot, false, 72);
+    expect(markdown).toContain("read Vera 2 - In flight.md is 17k (57% of used).");
+});
+
+test("a large tool result is named even without an instructions section", () => {
+    const snapshot: VeraClientContextSnapshot = {
+        availability: "available",
+        model: { model: "local", capacity: 32_768 },
+        headline: { tokens: 16_510, estimated: true },
+        projection: {
+            estimatedTokens: 16_510,
+            components: [{
+                kind: "message",
+                id: "message:7",
+                owner: "session",
+                source: "tool_result",
+                displayName: "read Vera 2 - In flight.md",
+                count: 1,
+                estimatedTokens: 16_510,
+            }],
+        },
+    };
+    const markdown = contextReportMarkdown(snapshot, false, 72);
+    expect(markdown).toContain("read Vera 2 - In flight.md is 17k (100% of used).");
+    expect(markdown).not.toContain("## INSTRUCTIONS");
+});
+
 test("agent instructions are Instructions, not Custom agents", () => {
     const snapshot = availableSnapshot();
     snapshot.projection?.components.push({

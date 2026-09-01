@@ -92,7 +92,7 @@ test("/context after resume still names the stored request recipe", async () => 
         await session.waitForVisiblePane("test · HIGH");
         session.sendText("/context");
         session.sendKey("Enter");
-        const pane = await session.waitForVisiblePane("## BREAKDOWN");
+        const pane = await session.waitForVisiblePane("BREAKDOWN");
         expect(pane).toContain("AGENTS.local.md");
         expect(pane).toContain("Instructions");
         expect(pane).not.toContain("No category split in this snapshot.");
