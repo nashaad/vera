@@ -4365,17 +4365,13 @@ export class AgentRegistry {
      * How this session's worker would build its adapter, or nothing.
      *
      * A spec is the default. Nothing means the turn runs in this process,
-     * which happens when the owner cannot rebuild the adapter from JSON or
-     * when the environment has asked for the in-process loop.
+     * which happens when the owner cannot rebuild the adapter from JSON.
      */
     private workerAdapterSpecFor(
         store: SessionStore,
         entry: RegisteredAgentEntry,
     ): WorkerAdapterSpec | undefined {
         if (this.options.workerAdapterSpec === undefined) {
-            return undefined;
-        }
-        if ((process.env[WORKER_ENV] ?? "") === "0") {
             return undefined;
         }
         return this.options.workerAdapterSpec({
@@ -5647,7 +5643,6 @@ function oneshotModelMessage(message: OneshotMessage): ModelMessage {
 }
 
 /** Set to `0` to run each session's turn loop in the host process. */
-const WORKER_ENV = "VERA_WORKER";
 const WORKER_EXTENSIONS_ENV = "VERA_WORKER_EXTENSIONS";
 
 function cancelledSubagentConfiguration(): SpawnModelResolution {
