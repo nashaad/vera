@@ -228,6 +228,39 @@ test("contribution parts name files without putting their bodies on the wire", (
     expect(JSON.stringify(measurement)).not.toContain("secret body");
 });
 
+test("a tool result names the tool and the path it read", () => {
+    const measurement = measureProjectedRequest(request({
+        messages: [
+            userMessage("check in flight"),
+            {
+                role: "assistant",
+                content: [{
+                    type: "tool_call",
+                    id: "call-1",
+                    name: "read",
+                    input: {
+                        path: "/Users/nash/Projects/Obsidian/Private/PROJECTS/Vera Agent/Vera 2 - In flight.md",
+                    },
+                }],
+                source: { provider: "faux", api: "scripted", model: "test" },
+                usage: emptyUsage(),
+                stopReason: "tool_use",
+            },
+            {
+                role: "tool_result",
+                toolCallId: "call-1",
+                toolName: "read",
+                content: [{ type: "text", text: "x".repeat(8_000) }],
+                isError: false,
+            },
+        ],
+    }), undefined, { promptContributions: [] });
+    const toolResult = measurement.projection?.components.find((component) =>
+        component.source === "tool_result"
+    );
+    expect(toolResult?.displayName).toBe("read Vera 2 - In flight.md");
+});
+
 test("a measurement is rejected unless it says how it was arrived at", () => {
     expect(isContextMeasurement({ tokens: 10, estimated: true })).toBe(true);
     expect(isContextMeasurement({ tokens: 10, capacity: 20, estimated: false }))

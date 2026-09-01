@@ -114,7 +114,7 @@ export function measureProjectedRequest(
             id: `message:${index + 1}`,
             owner: "session",
             source: message.role,
-            displayName: `${message.role} message`,
+            displayName: messageDisplayName(message, request.messages),
             count: 1,
             characters: measureMessage(message),
             fixedTokens: TOKENS_PER_MESSAGE,
@@ -454,6 +454,52 @@ function measureTool(tool: ModelTool): number {
     return tool.name.length
         + tool.description.length
         + JSON.stringify(tool.inputSchema).length;
+}
+
+function messageDisplayName(
+    message: ModelMessage,
+    messages: readonly ModelMessage[],
+): string {
+    if (message.role !== "tool_result") {
+        return `${message.role} message`;
+    }
+    const name = safeToolLabel(message.toolName);
+    const path = toolResultPath(message.toolCallId, messages);
+    return path === undefined ? `${name} result` : `${name} ${path}`;
+}
+
+function toolResultPath(
+    toolCallId: string,
+    messages: readonly ModelMessage[],
+): string | undefined {
+    for (const message of messages) {
+        if (message.role !== "assistant") continue;
+        for (const block of message.content) {
+            if (block.type !== "tool_call" || block.id !== toolCallId) continue;
+            const path = block.input.path;
+            if (typeof path !== "string") return undefined;
+            return safeToolLabel(basename(path));
+        }
+    }
+    return undefined;
+}
+
+function basename(path: string): string {
+    const trimmed = path.trim();
+    const slash = Math.max(trimmed.lastIndexOf("/"), trimmed.lastIndexOf("\\"));
+    return slash === -1 ? trimmed : trimmed.slice(slash + 1);
+}
+
+function safeToolLabel(value: string): string {
+    const label = value.trim();
+    if (
+        label.length === 0
+        || label.length > 80
+        || /[\\/\u0000-\u001f\u007f]/u.test(label)
+    ) {
+        return "tool";
+    }
+    return label;
 }
 
 /**
