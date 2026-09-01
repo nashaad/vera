@@ -104,6 +104,21 @@ test("a one-profile home migrates and rolls back byte for byte", () => {
     expect(readHomeMigrationReceipt(home)).toBeUndefined();
 });
 
+test("absolute paths under profiles/default move to the new home", () => {
+    const home = join(temporaryDirectory(), ".vera");
+    const oldPath = join(home, "profiles", "default", "extensions", "example.context");
+    writeTree(home, {
+        "profiles/default/config.json": JSON.stringify({
+            extensions: [{ path: oldPath, enabled: true }],
+        }),
+        "profiles/default/extensions/example.context/package.json": "{}",
+    });
+    migrateHome(home);
+    const config = JSON.parse(readFileSync(join(home, "config.json"), "utf8"));
+    expect(config.extensions[0].path).toBe(join(home, "extensions", "example.context"));
+    expect(config.extensions[0].path.includes("profiles/default")).toBe(false);
+});
+
 test("a second profile stays in backup and does not reach the live home", () => {
     const home = join(temporaryDirectory(), ".vera");
     writeTree(home, {

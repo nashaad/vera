@@ -229,6 +229,7 @@ function buildStaging(receipt: HomeMigrationReceipt): void {
     if (existsSync(machine)) {
         copyPreservingSymlinks(machine, join(receipt.staging, "machine"));
     }
+    rewriteLiftedHomePaths(receipt.staging, receipt.home);
 }
 
 function completeSwap(
@@ -316,6 +317,19 @@ function assertNewHomeActive(receipt: HomeMigrationReceipt): void {
 
 function newHomeLooksActive(home: string): boolean {
     return existsSync(home) && !existsSync(join(home, "profiles"));
+}
+
+/**
+ * Absolute paths written while the home still had profiles/default now
+ * point at a directory that will not exist after the lift.
+ */
+function rewriteLiftedHomePaths(staging: string, home: string): void {
+    const prefix = join(home, "profiles", DEFAULT_PROFILE_NAME);
+    const path = join(staging, "config.json");
+    if (!existsSync(path)) return;
+    const text = readFileSync(path, "utf8");
+    if (!text.includes(prefix)) return;
+    writeFileSync(path, text.split(prefix).join(home));
 }
 
 function copyPreservingSymlinks(from: string, to: string): void {
