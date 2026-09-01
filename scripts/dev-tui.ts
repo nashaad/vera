@@ -20,6 +20,7 @@ import {
     assertDistinctSockets,
     cloneVeraHome,
     hashedInstanceRoot,
+    scrubLiveIdentity,
 } from "../src/host/home-clone.ts";
 import { forceStopResidentHost } from "../src/host/force-stop.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
@@ -238,6 +239,7 @@ export async function runDevTui(
         }
     }
     const lifted = liftCloneHome(destinationHome);
+    scrubLiveIdentity(destinationHome);
     quarantineUnknownHomeEntries(destinationHome);
     if (!existed || lifted) {
         disableOutboundConsumers(destinationHome);

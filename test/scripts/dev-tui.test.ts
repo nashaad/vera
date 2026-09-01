@@ -112,6 +112,14 @@ function unmigratedDailyHome(root: string): string {
     );
     writeFileSync(join(home, "profiles", "default", "memory", "note.md"), "keep\n");
     writeFileSync(join(home, "profiles", "other", "config.json"), "other-config\n");
+    mkdirSync(join(home, "profiles", "default", "runtime"), { recursive: true });
+    writeFileSync(
+        join(home, "profiles", "default", "runtime", "host.json"),
+        JSON.stringify({
+            pid: 177,
+            socket_path: join(home, "profiles", "default", "runtime", "host.sock"),
+        }),
+    );
     return home;
 }
 
@@ -158,6 +166,7 @@ test("a profiles/ daily home is lifted in the clone only", async () => {
             spawnTui: async (_args, env) => {
                 const dest = env.VERA_HOME!;
                 expect(existsSync(join(dest, "profiles"))).toBe(false);
+                expect(existsSync(join(dest, "runtime", "host.json"))).toBe(false);
                 expect(readFileSync(join(dest, "memory", "note.md"), "utf8")).toBe("keep\n");
                 expect(existsSync(join(dest, "memory", "secret.md"))).toBe(false);
                 const cloned = JSON.parse(readFileSync(join(dest, "config.json"), "utf8"));
@@ -169,6 +178,39 @@ test("a profiles/ daily home is lifted in the clone only", async () => {
         expect(existsSync(join(sourceHome, "profiles", "default"))).toBe(true);
         expect(existsSync(join(sourceHome, "profiles", "other"))).toBe(true);
         expect(existsSync(join(sourceHome, "config.json"))).toBe(false);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
+    }
+});
+
+test("a reused clone drops a lifted daily host lock", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-scrub");
+    const sourceHome = dailyHome(root);
+    try {
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot: join(root, "instances"),
+            spawnTui: async () => 0,
+        });
+        const dest = candidateHomePath(worktree, join(root, "instances"));
+        writeFileSync(
+            join(dest, "runtime", "host.json"),
+            JSON.stringify({
+                pid: 177,
+                socket_path: join(sourceHome, "runtime", "host.sock"),
+            }),
+        );
+        await runDevTui([], worktree, {
+            sourceHome,
+            temporaryRoot: join(root, "instances"),
+            spawnTui: async (_args, env) => {
+                expect(existsSync(join(env.VERA_HOME!, "runtime", "host.json")))
+                    .toBe(false);
+                return 0;
+            },
+        });
     } finally {
         rmSync(root, { recursive: true, force: true });
         rmSync(worktree, { recursive: true, force: true });

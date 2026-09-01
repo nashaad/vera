@@ -113,7 +113,7 @@ function overlaySqliteBackups(
     }).databases;
 }
 
-function scrubLiveIdentity(home: string): void {
+export function scrubLiveIdentity(home: string): void {
     const runtime = join(home, "runtime");
     if (!existsSync(runtime)) return;
     for (const name of LIVE_RUNTIME_NAMES) {
