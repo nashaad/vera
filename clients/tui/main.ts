@@ -761,12 +761,9 @@ const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
 
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 
-export function reconnectBusyMessage(profile = veraProfileName()): string {
-    const stop = profile === DEFAULT_PROFILE_NAME
-        ? "vera host stop --force"
-        : `vera host stop --force --profile ${profile}`;
+export function reconnectBusyMessage(_profile = veraProfileName()): string {
     return "Could not restart the host: other work is still using it. "
-        + `Run ${stop} then /reconnect.`;
+        + "Run vera host stop --force then /reconnect.";
 }
 
 /** Typed `/reconnect` force-stops a wedge. It does not kill a busy answering host. */

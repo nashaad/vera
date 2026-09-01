@@ -840,13 +840,9 @@ export async function runCli(
             return 0;
         }
         if (outcome.endedBy === "survived") {
-            const profile = veraProfileName();
-            const force = profile === DEFAULT_PROFILE_NAME
-                ? "vera host stop --force"
-                : `vera host stop --force --profile ${profile}`;
             output.write(
                 `Resident Vera host PID ${outcome.pid} is still running. `
-                    + `Run '${force}' to kill it.\n`,
+                    + "Run 'vera host stop --force' to kill it.\n",
             );
             return 1;
         }
@@ -1011,10 +1007,9 @@ export function applyProfileFlag(
 /**
  * `vera rescue` is `vera` under the fixed `rescue` profile: its own host,
  * socket, lockfile, sessions, and config, with credentials shared from the
- * machine tier. Nothing else changes, which is the point: when the default
- * profile's host is wedged, this reaches a working Vera while that host stays
- * where it is. Stopping the wedged host is a separate command that names the
- * profile it targets, as in `vera host stop --force --profile default`.
+ * machine tier. When the daily host is wedged, this reaches a working Vera
+ * while that host stays where it is. Stop the wedged host with
+ * `vera host stop --force`.
  * Consumed here for the same reason as `--profile`: every path lookup after
  * dispatch must see one profile.
  *
@@ -1108,9 +1103,7 @@ export function renderCliFailure(error: unknown): string {
     if (error instanceof HostUnresponsiveError) {
         return `${error.message}\n`
             + "Run 'vera host stop --force' to kill it.\n"
-            + "For a working Vera while it stays wedged, run 'vera rescue',"
-            + " then stop this one with"
-            + ` 'vera host stop --force --profile ${veraProfileName()}'.`;
+            + "For a working Vera while it stays wedged, run 'vera rescue'.";
     }
     if (error instanceof HostProtocolMismatchError) {
         return `Vera host upgrade required: ${error.message}\n`

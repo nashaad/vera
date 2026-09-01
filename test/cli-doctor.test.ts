@@ -95,7 +95,7 @@ test("doctor flags extra hosts and only calls CPU sustained across both samples"
         { pid: 202, currentHost: false, sustainedHighCpu: false },
     ]);
     const output = renderVeraDoctor(report);
-    expect(output).toContain("Resident hosts: 2 (1 unrecognized, 0 other profiles)");
+    expect(output).toContain("Resident host: PID 200");
     expect(output).toContain("PID 201");
     expect(output).toContain("sustained high CPU");
     expect(output).toContain("1 stray process can be stopped safely.");
@@ -116,7 +116,7 @@ test("doctor summarizes a large quiet host count", () => {
         highCpuPercent: 50,
     });
 
-    expect(output).toContain("Resident hosts: 12 (12 unrecognized, 0 other profiles)");
+    expect(output).toContain("Resident host: not running");
     expect(output).toContain("... 7 more unrecognized low-CPU host processes");
 });
 
@@ -463,7 +463,7 @@ test("doctor leaves a launcher-owned worktree runtime to its own island", async 
         report.processes.map((process) => [process.pid, process.stray]),
     )).toEqual(new Map([[200, false]]));
     expect(renderVeraDoctor(report)).toContain(
-        "Resident hosts: 1 (0 unrecognized, 0 other profiles)",
+        "Resident host: PID 200",
     );
 });
 
@@ -477,12 +477,11 @@ test("process environment identifies a deliberate worktree runtime", () => {
     });
 });
 
-test("a profile env without a runtime override names that profile's runtime", () => {
+test("a profile env does not name a second host runtime", () => {
     expect(veraRuntimeFromPsLine(
         "bun clients/host/main.ts VERA_PROFILE=dev",
     )).toEqual({
         isolated: false,
-        runtimeDir: `${veraHomeDirectory()}/profiles/dev/runtime`,
         worktreeRuntime: false,
     });
 });

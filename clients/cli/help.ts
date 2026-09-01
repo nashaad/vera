@@ -33,7 +33,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera schedule pause|resume|remove|run ID", description: "Control or trigger a schedule" },
     { usage: "vera rollback [--prefix DIR]", description: "Restore the pinned known-good release; does not pack, use Git, or use the network. --prefix is a test prefix. The daily prefix is $HOME/.local" },
     { usage: "vera migrate-home [--rollback]", description: "Lift the default profile to the Vera home root; other profiles stay in a sibling backup. --rollback restores that backup" },
-    { usage: "vera host stop [-y|--yes] [--force] [--profile NAME]", description: "Stop the resident host and attached clients; --force kills one that is not answering, --profile picks whose host to stop" },
+    { usage: "vera host stop [-y|--yes] [--force]", description: "Stop the resident host and attached clients; --force kills one that is not answering" },
     { usage: "vera host supervise [off|status]", description: "Let launchd restart this profile's resident host when it dies, so schedules keep running with nobody at the keyboard" },
     { usage: "vera rescue", description: "Start Vera under the isolated rescue profile, when the default profile's host is wedged" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },

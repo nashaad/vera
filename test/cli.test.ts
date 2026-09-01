@@ -1334,9 +1334,7 @@ test("vera names the recovery commands for an unresponsive host", async () => {
     expect(errorOutput).toBe(
         "Resident Vera host PID 51639 is running but not responding.\n"
         + "Run 'vera host stop --force' to kill it.\n"
-        + "For a working Vera while it stays wedged, run 'vera rescue', then"
-        + " stop this one with"
-        + " 'vera host stop --force --profile default'.\n",
+        + "For a working Vera while it stays wedged, run 'vera rescue'.\n",
     );
 });
 
@@ -1354,7 +1352,7 @@ test("vera rescue refuses to also take an explicit profile", () => {
     expect(env.VERA_PROFILE).toBeUndefined();
 });
 
-test("host stop under a named profile targets that profile's host", () => {
+test("host stop names the one resident host", () => {
     const env: NodeJS.ProcessEnv = {};
     expect(namedProfileFlag(["host", "stop", "--force", "--profile", "default"]))
         .toBe("default");
@@ -1363,7 +1361,6 @@ test("host stop under a named profile targets that profile's host", () => {
         ["host", "stop", "--force", "--profile", "default"],
         env,
     )).toEqual(["host", "stop", "--force"]);
-    expect(env.VERA_PROFILE).toBe("default");
 });
 
 test("vera reports a damaged config without a runtime stack trace", async () => {

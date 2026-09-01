@@ -211,12 +211,6 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     );
     const strays = report.processes.filter((process) => process.stray);
     const extraHosts = hosts.filter((process) => !process.currentHost);
-    const knownProfileHosts = extraHosts.filter((process) =>
-        process.knownProfileHost
-    );
-    const worktreeHosts = extraHosts.filter((process) =>
-        process.worktreeRuntime === true
-    );
     const unrecognizedHosts = extraHosts.filter((process) =>
         !process.knownProfileHost
         && process.worktreeRuntime !== true
@@ -224,20 +218,14 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     const highCpu = report.processes.filter((process) =>
         process.sustainedHighCpu
     );
-    const worktreeSummary = worktreeHosts.length === 0
-        ? ""
-        : `, ${worktreeHosts.length} worktree${
-            worktreeHosts.length === 1 ? "" : "s"
-        }`;
     const lines = [
         "Vera doctor",
         "",
         "Process summary",
-        `  Resident hosts: ${hosts.length} (${unrecognizedHosts.length} unrecognized, ${knownProfileHosts.length} other profile${knownProfileHosts.length === 1 ? "" : "s"}${worktreeSummary})`,
-        `  Vera clients: ${clients.length}`,
-        `  Current profile host: ${report.currentHostPid === undefined
+        `  Resident host: ${report.currentHostPid === undefined
             ? "not running"
             : `PID ${report.currentHostPid}`}`,
+        `  Vera clients: ${clients.length}`,
     ];
     lines.push(...renderRunningNow(report.processes));
     const unrecognizedHighCpu = unrecognizedHosts.filter((candidate) =>
@@ -255,7 +243,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         lines.push("", "Issues");
         if (report.currentHostMissing) {
             lines.push(
-                `  Current profile host PID ${report.currentHostPid} was not found in the process table.`,
+                `  Resident host PID ${report.currentHostPid} was not found in the process table.`,
             );
         }
         renderProcessRows(lines, shownIssues);
@@ -682,7 +670,7 @@ function renderProcessRows(
         const labels = [
             process.kind === "host" && !process.currentHost
                 ? process.knownProfileHost
-                    ? "other profile host"
+                    ? "other host"
                     : "unrecognized host"
                 : kindLabel(process.kind),
             ...(process.sustainedHighCpu ? ["sustained high CPU"] : []),
