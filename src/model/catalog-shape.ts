@@ -14,15 +14,18 @@
 export type ReasoningLevelId = string;
 
 /**
- * `id` currently means "the string sent as the reasoning parameter". A
- * model controlled by an in-prompt token instead (Qwen3-style `/no_think`)
- * would need a discriminator here saying how the level is applied; no such
- * model exists in Vera today, so that discriminator is not built (nash-52).
+ * `id` is the Vera ladder rung when `wire` is present (settings overlay),
+ * otherwise it is also the string sent as the reasoning parameter. A model
+ * controlled by an in-prompt token instead (Qwen3-style `/no_think`) would
+ * need a discriminator here saying how the level is applied; no such model
+ * exists in Vera today, so that discriminator is not built (nash-52).
  */
 export interface ReasoningLevel {
     readonly id: ReasoningLevelId;
     readonly label: string;
     readonly description?: string;
+    /** Provider string when it differs from `id`. Absent means send `id`. */
+    readonly wire?: string;
 }
 
 /**
@@ -67,6 +70,13 @@ export interface CatalogModel {
      * what the pool learned from a probe.
      */
     readonly image_support?: boolean;
+    /**
+     * Live listing said this model has a thinking control. Used so the
+     * settings overlay can name the vocabulary without inventing presence.
+     * Absent means unknown; discovery that only wrote levels still counts as
+     * presence via a non-empty `levels` list.
+     */
+    readonly thinking_support?: boolean;
     readonly pricing?: ModelPricing;
     readonly default_level?: ReasoningLevelId;
     /**

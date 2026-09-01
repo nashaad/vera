@@ -4,6 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { createConfiguredModelAdapter } from "../../src/providers/configured.ts";
+import { createCustomOpenAIAdapter } from "../../src/providers/custom-openai.ts";
+import { writeProviderCatalogSnapshot } from "../../src/model/catalog-cache.ts";
 
 function withIsolatedHome<T>(run: () => T): T {
     const home = mkdtempSync(join(tmpdir(), "vera-custom-openai-"));
@@ -62,11 +64,13 @@ test("a named OpenAI endpoint streams reasoning and text", async () => {
 
     expect(request?.url).toBe("https://strata.example.com/v1/chat/completions");
     expect(request?.headers.get("authorization")).toBe("Bearer strata-secret");
-    expect(await request?.json()).toMatchObject({
+    const body = await request!.json() as Record<string, unknown>;
+    expect(body).toMatchObject({
         model: "strata",
         stream: true,
-        reasoning_effort: "high",
     });
+    expect(body).not.toHaveProperty("reasoning_effort");
+    expect(body).not.toHaveProperty("chat_template_kwargs");
     expect(result).toMatchObject({
         content: [
             { type: "thinking", text: "[graph] complete\n" },
@@ -218,4 +222,126 @@ test("an explicit custom images declaration is the adapter's blanket answer", ()
         ),
     });
     expect(allowed.supportsImageInput).toBe(true);
+});
+
+function sseOk(): Response {
+    return new Response(
+        'data: {"choices":[{"delta":{"content":"ok"},"finish_reason":"stop"}]}\n\n',
+    );
+}
+
+test("Unsloth Qwen overlay sends enable_thinking kwargs, not reasoning_effort", async () => {
+    let body: Record<string, unknown> | undefined;
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "unsloth-local",
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+        approval_mode: "ask",
+        providers: {
+            "unsloth-local": {
+                protocol: "openai-chat",
+                base_url: "http://127.0.0.1:8888/v1",
+                credential: "none",
+            },
+        },
+    }, {
+        fetch: async (_input, init) => {
+            body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+            return sseOk();
+        },
+    });
+
+    await adapter.stream({
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+        reasoningEffort: "off",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    }).result();
+
+    expect(body).toMatchObject({
+        chat_template_kwargs: { enable_thinking: false },
+    });
+    expect(body).not.toHaveProperty("reasoning_effort");
+
+    await adapter.stream({
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+        reasoningEffort: "high",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    }).result();
+    expect(body).toMatchObject({
+        chat_template_kwargs: { enable_thinking: true },
+    });
+    expect(body).not.toHaveProperty("reasoning_effort");
+});
+
+test("gpt-oss on the same custom URL sends reasoning_effort and not kwargs", async () => {
+    let body: Record<string, unknown> | undefined;
+    const adapter = createConfiguredModelAdapter({
+        schema_version: 1,
+        provider: "unsloth-local",
+        model: "gpt-oss:20b",
+        approval_mode: "ask",
+        providers: {
+            "unsloth-local": {
+                protocol: "openai-chat",
+                base_url: "http://127.0.0.1:8888/v1",
+                credential: "none",
+            },
+        },
+    }, {
+        fetch: async (_input, init) => {
+            body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+            return sseOk();
+        },
+    });
+
+    await adapter.stream({
+        model: "gpt-oss:20b",
+        reasoningEffort: "medium",
+        messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+    }).result();
+
+    expect(body).toMatchObject({ reasoning_effort: "medium" });
+    expect(body).not.toHaveProperty("chat_template_kwargs");
+});
+
+test("catalog levels on an unmatched custom model still send reasoning_effort", async () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-custom-catalog-"));
+    const cacheDir = join(directory, "cache");
+    try {
+        writeProviderCatalogSnapshot({
+            schema_version: 2,
+            provider: "local-gateway",
+            models: [{
+                id: "mystery-reasoner",
+                label: "Mystery",
+                levels: [
+                    { id: "high", label: "High" },
+                    { id: "medium", label: "Medium" },
+                    { id: "low", label: "Low" },
+                ],
+            }],
+        }, { cacheDir });
+
+        let body: Record<string, unknown> | undefined;
+        const adapter = createCustomOpenAIAdapter({
+            provider: "local-gateway",
+            baseUrl: "http://127.0.0.1:8888/v1",
+            cacheDir,
+            fetch: async (_input, init) => {
+                body = JSON.parse(String(init?.body)) as Record<string, unknown>;
+                return sseOk();
+            },
+        });
+
+        await adapter.stream({
+            model: "mystery-reasoner",
+            reasoningEffort: "medium",
+            messages: [{ role: "user", content: [{ type: "text", text: "Hi" }] }],
+        }).result();
+
+        expect(body).toMatchObject({ reasoning_effort: "medium" });
+        expect(body).not.toHaveProperty("chat_template_kwargs");
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
 });

@@ -252,7 +252,8 @@ export function pooledModels(
 /**
  * The levels an entry may actually be asked for, resolved through the
  * pool's own precedence. The catalog supplies each level's presentation where
- * it knows the level; a level only the pool knows shows its wire string.
+ * it knows the Vera id; a level only the pool knows keeps that id and carries
+ * a distinct provider `wire` when one exists. Picker values are Vera ids.
  *
  * Two ladder levels can resolve to one wire string, which is one choice for
  * the user however many ladder rungs reach it, so the first wins and the
@@ -275,9 +276,17 @@ function resolvedLevels(
                 return [];
             }
             seen.add(wire);
+            const fromCatalog = model.levels.find(
+                (level) => level.id === resolution.level,
+            ) ?? model.levels.find(
+                (level) => (level.wire ?? level.id) === wire,
+            );
             return [
-                model.levels.find((level) => level.id === wire)
-                    ?? { id: wire, label: resolution.level },
+                fromCatalog ?? {
+                    id: resolution.level,
+                    label: resolution.level,
+                    ...(wire === resolution.level ? {} : { wire }),
+                },
             ];
         },
     ).reverse();

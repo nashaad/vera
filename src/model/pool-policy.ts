@@ -18,6 +18,7 @@ import {
     effortLearnedKey,
     providerOf,
 } from "./pool-file.ts";
+import type { OverlayModel } from "./settings-overlay.ts";
 
 export type CapabilitySource = "declared" | "learned" | "catalog";
 
@@ -54,6 +55,7 @@ export interface ResolvedCapability<T> {
 export interface PoolLookup {
     readonly entry?: PoolFileModel;
     readonly catalogModel?: CatalogModel;
+    readonly overlay?: OverlayModel;
 }
 
 /**
@@ -179,6 +181,22 @@ export function resolveEffort(
         };
     }
 
+    const overlayEfforts = lookup.overlay?.thinking.efforts;
+    if (overlayEfforts !== undefined && level in overlayEfforts) {
+        const mapped = overlayEfforts[level];
+        if (mapped === null) {
+            return { level, status: "forbidden", source: "catalog" };
+        }
+        if (typeof mapped === "string" && mapped.length > 0) {
+            return {
+                level,
+                status: "supported",
+                wire: mapped,
+                source: "catalog",
+            };
+        }
+    }
+
     const catalogLevel = lookup.catalogModel?.levels.find(
         (candidate) => candidate.id === level,
     );
@@ -186,7 +204,7 @@ export function resolveEffort(
         return {
             level,
             status: "supported",
-            wire: catalogLevel.id,
+            wire: catalogLevel.wire ?? catalogLevel.id,
             source: "catalog",
         };
     }
@@ -210,12 +228,14 @@ export function lookupModel(
     modelId: string,
     file: PoolFile,
     catalog?: ReadonlyMap<string, CatalogModel>,
+    overlay?: OverlayModel,
 ): PoolLookup {
     const entry = file.models[modelId];
     const catalogModel = catalog?.get(modelId);
     return {
         ...(entry === undefined ? {} : { entry }),
         ...(catalogModel === undefined ? {} : { catalogModel }),
+        ...(overlay === undefined ? {} : { overlay }),
     };
 }
 

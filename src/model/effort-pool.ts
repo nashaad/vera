@@ -25,6 +25,7 @@ import {
     type PoolStoreOptions,
 } from "./pool-file-store.ts";
 import { lookupModel, resolveEffort } from "./pool-policy.ts";
+import { joinSettingsOverlay } from "./settings-overlay.ts";
 
 export interface ModelRef {
     readonly provider: string;
@@ -96,10 +97,20 @@ export function createPoolEffortPool(
     return {
         resolveEffort(ref, requested) {
             const id = poolModelId(ref);
+            const catalog = providerCatalog(ref.provider, options);
+            const catalogModel = catalog.get(id);
+            const overlay = joinSettingsOverlay({
+                provider: ref.provider,
+                listingId: ref.model,
+                liveThinking: catalogModel?.thinking_support === true
+                    || (catalogModel?.levels.length ?? 0) > 0,
+                ...(options.overlay === undefined ? {} : { overlay: options.overlay }),
+            });
             const lookup = lookupModel(
                 id,
                 loadPoolFile(options).merged,
-                providerCatalog(ref.provider, options),
+                catalog,
+                overlay,
             );
             const efforts: Record<string, string | null | undefined> = {};
             let reason: string | undefined;

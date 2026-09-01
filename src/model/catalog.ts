@@ -12,6 +12,11 @@ import {
     loadRecommendedModels,
     type RecommendedModel,
 } from "./recommended-models.ts";
+import {
+    joinSettingsOverlay,
+    overlayCatalogLevels,
+    type SettingsOverlay,
+} from "./settings-overlay.ts";
 import { readRegularFileTextSync } from "../store/regular-file.ts";
 
 interface SourceModel {
@@ -23,6 +28,7 @@ interface SourceModel {
     readonly created?: number;
     readonly tool_support?: boolean;
     readonly image_support?: boolean;
+    readonly thinking_support?: boolean;
     readonly pricing?: ModelPricing;
     readonly default_level?: string;
     readonly levels?: readonly ReasoningLevel[];
@@ -42,6 +48,8 @@ export interface EffectiveCatalogOptions {
      * the file Vera ships; passing a list keeps a caller (and a test) off disk.
      */
     readonly recommended?: readonly RecommendedModel[];
+    /** Test seam. Absent reads the shipped overlay file. */
+    readonly overlay?: SettingsOverlay;
 }
 
 export function loadDiscoveryCatalog(
@@ -53,11 +61,9 @@ export function loadDiscoveryCatalog(
 }
 
 /**
- * What Vera knows about a provider's models. Discovery is the only source: a
- * provider is the authority on its own model list, and a list shipped in the
- * repo is out of date the day after it is written. A provider Vera has never
- * discovered yields an empty catalog rather than an error, which is the honest
- * answer to "what does this provider offer" before anyone has asked it.
+ * What Vera knows about a provider's models. Discovery is the listing
+ * authority. The settings overlay may replace a mute or fabricated thinking
+ * map after that, field by field, and never invents a window.
  */
 export function effectiveCatalog(
     provider: string,
@@ -74,8 +80,28 @@ export function effectiveCatalog(
         models: (discovery?.models ?? [])
             .map(toCatalogModel)
             .filter((model): model is CatalogModel => model !== undefined)
+            .map((model) => withSettingsOverlay(provider, model, options.overlay))
             .map((model) => withRecommendation(model, recommended))
             .sort(compareModels),
+    };
+}
+
+function withSettingsOverlay(
+    provider: string,
+    model: CatalogModel,
+    overlay?: SettingsOverlay,
+): CatalogModel {
+    const liveThinking = model.thinking_support === true || model.levels.length > 0;
+    const row = joinSettingsOverlay({
+        provider,
+        listingId: model.id,
+        liveThinking,
+        ...(overlay === undefined ? {} : { overlay }),
+    });
+    if (row === undefined) return model;
+    return {
+        ...model,
+        levels: overlayCatalogLevels(row),
     };
 }
 
@@ -177,6 +203,7 @@ function parseModel(value: unknown): SourceModel | undefined {
         || !optionalType(model.created, "number")
         || !optionalType(model.tool_support, "boolean")
         || !optionalType(model.image_support, "boolean")
+        || !optionalType(model.thinking_support, "boolean")
         || !optionalType(model.default_level, "string")
         || (model.levels !== undefined
             && (!Array.isArray(model.levels)
@@ -224,7 +251,8 @@ function isReasoningLevel(value: unknown): value is ReasoningLevel {
     return level !== undefined
         && typeof level.id === "string"
         && typeof level.label === "string"
-        && optionalType(level.description, "string");
+        && optionalType(level.description, "string")
+        && optionalType(level.wire, "string");
 }
 
 function toProviderCatalog(catalog: SourceCatalog): ProviderCatalog {

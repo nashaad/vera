@@ -107,3 +107,50 @@ test("drops model entries without a usable id", () => {
         },
     );
 });
+
+test("Ollama thinking models get overlay vocabulary, not High/Medium/Low", () => {
+    const directory = mkdtempSync(join(tmpdir(), "vera-catalog-"));
+    const cacheDir = join(directory, "cache");
+    mkdirSync(cacheDir);
+    writeFileSync(join(cacheDir, "ollama.json"), JSON.stringify({
+        schema_version: 2,
+        provider: "ollama",
+        models: [{
+            id: "qwen3:latest",
+            label: "qwen3:latest",
+            thinking_support: true,
+            levels: [],
+        }, {
+            id: "gpt-oss:20b",
+            label: "gpt-oss:20b",
+            thinking_support: true,
+            levels: [
+                { id: "high", label: "High" },
+                { id: "medium", label: "Medium" },
+                { id: "low", label: "Low" },
+            ],
+        }],
+    }));
+    try {
+        const qwen = effectiveCatalog("ollama", { cacheDir }).models
+            .find((model) => model.id === "qwen3:latest");
+        expect(qwen?.levels.map((level) => level.id)).toEqual([
+            "max",
+            "high",
+            "medium",
+            "low",
+            "off",
+        ]);
+        expect(qwen?.levels.find((level) => level.id === "off")?.wire).toBe("none");
+
+        const gptOss = effectiveCatalog("ollama", { cacheDir }).models
+            .find((model) => model.id === "gpt-oss:20b");
+        expect(gptOss?.levels.map((level) => level.id)).toEqual([
+            "high",
+            "medium",
+            "low",
+        ]);
+    } finally {
+        rmSync(directory, { recursive: true, force: true });
+    }
+});

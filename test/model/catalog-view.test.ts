@@ -265,6 +265,36 @@ test("two ladder levels reaching one wire string list that level once", () => {
         ]);
 });
 
+test("overlay wire strings keep Vera ids and Think on labels in the pooled picker", () => {
+    const directory = makeDirectory();
+    const cacheDir = join(directory, "cache");
+    mkdirSync(cacheDir);
+    writeFileSync(join(cacheDir, "unsloth-local.json"), JSON.stringify({
+        schema_version: 2,
+        provider: "unsloth-local",
+        models: [{
+            id: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+            label: "Qwen",
+            thinking_support: true,
+            levels: [],
+        }],
+    }));
+    const options = {
+        userPath: join(directory, "pool.json"),
+        cacheDir,
+    };
+    admit(options, "unsloth-local/unsloth/Qwen3.6-35B-A3B-MTP-GGUF", {
+        "efforts.high": { ok: true, seen: SEEN, wire: "true" },
+    });
+
+    expect(pooledModels([
+        suggested("unsloth-local", "unsloth/Qwen3.6-35B-A3B-MTP-GGUF"),
+    ], options)[0]?.levels).toEqual([
+        { id: "high", label: "Think on", wire: "true" },
+        { id: "off", label: "Think off", wire: "false" },
+    ]);
+});
+
 function admit(
     options: Fixture,
     modelId: string,

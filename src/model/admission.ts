@@ -503,10 +503,13 @@ function probeCandidates(
     catalogModel: CatalogModel | undefined,
 ): readonly ProbeCandidate[] {
     return (catalogModel?.levels ?? []).flatMap((level) => {
-        const rung = ladderLevelForWire(level.id);
+        const rung = isEffortLevel(level.id)
+            ? level.id
+            : ladderLevelForWire(level.id);
+        const wire = level.wire ?? level.id;
         return rung === undefined || rung === "off"
             ? []
-            : [{ level: rung, wire: level.id }];
+            : [{ level: rung, wire }];
     });
 }
 

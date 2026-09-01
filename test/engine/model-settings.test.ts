@@ -118,6 +118,28 @@ test("a custom endpoint does not advertise a six-rung dial from silence", () => 
 test("explicit catalog levels are the graded map a custom endpoint may offer", () => {
     const options = cacheDir({
         "unsloth-local": [{
+            id: "mystery-reasoner",
+            label: "Mystery",
+            levels: [
+                { id: "low", label: "Low" },
+                { id: "medium", label: "Medium" },
+                { id: "high", label: "High" },
+            ],
+        }],
+    });
+    expect(availableReasoningEfforts("unsloth-local", "mystery-reasoner", options))
+        .toEqual(["low", "medium", "high"]);
+    expect(reasoningEffortForModel(
+        "unsloth-local",
+        "mystery-reasoner",
+        "low",
+        options,
+    )).toBe("low");
+});
+
+test("gpt-oss on a custom URL takes overlay vocabulary over a snapshot stamp", () => {
+    const options = cacheDir({
+        "unsloth-local": [{
             id: "gpt-oss",
             label: "gpt-oss",
             levels: [
@@ -128,13 +150,7 @@ test("explicit catalog levels are the graded map a custom endpoint may offer", (
         }],
     });
     expect(availableReasoningEfforts("unsloth-local", "gpt-oss", options))
-        .toEqual(["low", "medium", "high"]);
-    expect(reasoningEffortForModel(
-        "unsloth-local",
-        "gpt-oss",
-        "low",
-        options,
-    )).toBe("low");
+        .toEqual(["high", "medium", "low"]);
 });
 
 test("a model the user did not choose keeps any effort it can resolve", () => {

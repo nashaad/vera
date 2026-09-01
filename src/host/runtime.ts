@@ -57,7 +57,6 @@ import { pooledModels } from "../model/catalog-view.ts";
 import { refreshWebDevArena } from "../model/webdev-arena.ts";
 import type {
     CatalogModel,
-    ReasoningLevel,
 } from "../model/catalog-shape.ts";
 import {
     DEFAULT_CATALOG_MAX_AGE_MS,
@@ -1920,12 +1919,6 @@ export interface OllamaDiscoveryResult {
     readonly models: readonly SuggestedModel[];
 }
 
-const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
-    { id: "high", label: "High" },
-    { id: "medium", label: "Medium" },
-    { id: "low", label: "Low" },
-];
-
 /**
  * `/v1/models` names the installed models and nothing else, so what each one
  * can actually be asked for comes from a per-model `/api/show`. Every call is
@@ -1933,9 +1926,10 @@ const OLLAMA_REASONING_LEVELS: readonly ReasoningLevel[] = [
  * running must not delay startup or empty the picker.
  *
  * A model whose response carries no `capabilities` is left out of the snapshot
- * rather than written with no levels. Empty levels is the claim "this model has
- * no reasoning control"; an old daemon that never makes the claim should keep
- * falling through to the optimistic default instead.
+ * rather than written with no levels. Thinking presence is `thinking_support`;
+ * the effort vocabulary comes from the settings overlay at catalog read, not
+ * a hardcoded High/Medium/Low stamp. An old daemon that never names
+ * capabilities should keep falling through to the optimistic default instead.
  */
 export async function discoveredOllamaModels(
     options: OllamaDiscoveryOptions = {},
@@ -2054,9 +2048,8 @@ export async function discoverOllamaModelCatalog(
                 ? {}
                 : { context_window: contextWindow }),
             ...(capabilities.includes("tools") ? { tool_support: true } : {}),
-            levels: capabilities.includes("thinking")
-                ? OLLAMA_REASONING_LEVELS
-                : [],
+            ...(capabilities.includes("thinking") ? { thinking_support: true } : {}),
+            levels: [],
         });
     }
 

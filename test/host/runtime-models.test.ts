@@ -285,7 +285,7 @@ test("Ollama discovery records declared capabilities as catalog levels", async (
         })).toEqual([]);
         expect([...availableReasoningEfforts("ollama", "qwen4:8b", {
             cacheDir: directory,
-        })].sort()).toEqual(["high", "low", "medium"]);
+        })].sort()).toEqual(["high", "low", "max", "medium", "off"]);
         expect([...availableReasoningEfforts("ollama", "ancient:7b", {
             cacheDir: directory,
         })].sort()).toEqual(["high", "low", "max", "medium"]);
@@ -298,6 +298,8 @@ test("Ollama discovery records declared capabilities as catalog levels", async (
             "qwen4:8b",
         ]);
         expect(snapshot.models[1]?.tool_support).toBe(true);
+        expect(snapshot.models[1]?.thinking_support).toBe(true);
+        expect(snapshot.models[1]?.levels).toEqual([]);
 
         expect(logged.map((entry) => entry.type)).toEqual([
             "ollama_discovery_listed",

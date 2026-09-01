@@ -9,6 +9,13 @@ import type { OpenRouterChatRequest } from "./openrouter-wire.ts";
 import type { FailedRequestCapture } from "./failed-request-capture.ts";
 import { decodeOpenAiSse, encodeOpenAiMessage } from "./ollama-openai.ts";
 import { providerEndpointUrl } from "./endpoint-url.ts";
+import { effectiveCatalog } from "../model/catalog.ts";
+import {
+    enableThinkingFromEffort,
+    joinSettingsOverlay,
+    overlayWireForEffort,
+    type SettingsOverlay,
+} from "../model/settings-overlay.ts";
 
 export interface CustomOpenAIAdapterOptions {
     readonly provider: string;
@@ -18,6 +25,10 @@ export interface CustomOpenAIAdapterOptions {
     readonly imageSupport?: ImageSupportLookup;
     /** Named, data-selected request compatibility operations. */
     readonly requestLayers?: readonly string[];
+    /** Test seam. Absent reads the shipped overlay. */
+    readonly overlay?: SettingsOverlay;
+    /** Test seam. Absent reads the default provider catalog cache. */
+    readonly cacheDir?: string;
     readonly fetch?: (
         input: string | URL | Request,
         init?: RequestInit,
@@ -52,7 +63,13 @@ export function createCustomOpenAIAdapter(
                         ? {}
                         : { authorization: `Bearer ${options.apiKey}` }),
                 },
-                body: JSON.stringify(encodeRequest(request, options.requestLayers ?? [])),
+                body: JSON.stringify(encodeRequest(
+                    request,
+                    options.requestLayers ?? [],
+                    options.provider,
+                    options.overlay,
+                    options.cacheDir,
+                )),
                 signal,
             });
             if (!response.ok) {
@@ -81,6 +98,9 @@ export function createCustomOpenAIAdapter(
 function encodeRequest(
     request: OpenRouterChatRequest,
     layers: readonly string[],
+    provider: string,
+    overlay?: SettingsOverlay,
+    cacheDir?: string,
 ): Record<string, unknown> {
     const reasoning = request.reasoning?.effort;
     const messages = request.messages.map((message) => {
@@ -91,23 +111,23 @@ function encodeRequest(
         const { reasoning: reasoningContent, ...rest } = encoded;
         return { ...rest, reasoning_content: reasoningContent };
     });
-    const providerEffort = mappedProviderEffort(reasoning, layers);
-    const reasoningFields = layers.includes("thinking-object")
-        ? reasoning === undefined
-            ? {}
-            : reasoning === "off"
-                ? { thinking: { type: "disabled" } }
-                : {
-                    thinking: { type: "enabled" },
-                    ...(providerEffort === undefined
-                        ? {}
-                        : { reasoning_effort: providerEffort }),
-                }
-        : layers.includes("cerebras-effort")
-            ? cerebrasEffortFields(reasoning, request.model)
-            : providerEffort === undefined
-                ? {}
-                : { reasoning_effort: providerEffort };
+    const overlayRow = joinSettingsOverlay({
+        provider,
+        listingId: request.model,
+        ...(overlay === undefined ? {} : { overlay }),
+    });
+    const reasoningFields = overlayThinkingFields(reasoning, overlayRow)
+        ?? (layers.includes("thinking-object")
+            ? thinkingObjectFields(reasoning, mappedProviderEffort(reasoning, layers))
+            : layers.includes("cerebras-effort")
+                ? cerebrasEffortFields(reasoning, request.model)
+                : catalogThinkingFields(
+                    provider,
+                    request.model,
+                    reasoning,
+                    overlay,
+                    cacheDir,
+                ));
     return {
         ...(request.bodyExtensions ?? {}),
         model: request.model,
@@ -123,6 +143,52 @@ function encodeRequest(
         ...(request.tools === undefined || request.tools.length === 0
             ? {}
             : { tools: request.tools }),
+    };
+}
+
+function catalogThinkingFields(
+    provider: string,
+    model: string,
+    effort: string | undefined,
+    overlay?: SettingsOverlay,
+    cacheDir?: string,
+): Record<string, unknown> {
+    if (effort === undefined) return {};
+    const level = effectiveCatalog(provider, {
+        ...(overlay === undefined ? {} : { overlay }),
+        ...(cacheDir === undefined ? {} : { cacheDir }),
+    }).models.find((candidate) => candidate.id === model)
+        ?.levels.find((candidate) =>
+            candidate.id === effort || (candidate.wire ?? candidate.id) === effort
+        );
+    if (level === undefined) return {};
+    return { reasoning_effort: level.wire ?? level.id };
+}
+
+function overlayThinkingFields(
+    effort: string | undefined,
+    row: ReturnType<typeof joinSettingsOverlay>,
+): Record<string, unknown> | undefined {
+    if (row === undefined) return undefined;
+    if (row.thinking.request_layer === "enable-thinking-kwargs") {
+        const enabled = enableThinkingFromEffort(effort);
+        if (enabled === undefined) return {};
+        return { chat_template_kwargs: { enable_thinking: enabled } };
+    }
+    const wire = overlayWireForEffort(row, effort);
+    if (wire === undefined) return {};
+    return { reasoning_effort: wire };
+}
+
+function thinkingObjectFields(
+    reasoning: string | undefined,
+    providerEffort: string | undefined,
+): Record<string, unknown> {
+    if (reasoning === undefined) return {};
+    if (reasoning === "off") return { thinking: { type: "disabled" } };
+    return {
+        thinking: { type: "enabled" },
+        ...(providerEffort === undefined ? {} : { reasoning_effort: providerEffort }),
     };
 }
 

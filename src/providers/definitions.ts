@@ -95,6 +95,8 @@ const ALLOWED_LAYERS = new Set([
     "completion-token-field",
     "cerebras-effort",
     "thinking-object",
+    "enable-thinking-kwargs",
+    "openai-reasoning-effort",
     "deepseek-effort",
     "reasoning-content",
     "cerebras-models",
