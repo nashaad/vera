@@ -3,6 +3,7 @@ import { mkdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import { backupSqliteDatabase } from "./sqlite-backup.ts";
 
 /**
  * One durable inbox per Vera host: an append-only log of entries plus one
@@ -113,6 +114,10 @@ export class Inbox {
 
     close(): void {
         this.database.close();
+    }
+
+    backupTo(destinationPath: string): void {
+        backupSqliteDatabase(this.database, destinationPath);
     }
 
     /**

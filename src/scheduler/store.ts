@@ -10,6 +10,7 @@ import type {
     ScheduleRun,
 } from "./types.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
+import { backupSqliteDatabase } from "../store/sqlite-backup.ts";
 
 export const SCHEDULE_SCHEMA_VERSION = 1;
 
@@ -63,6 +64,10 @@ export class ScheduleStore {
 
     close(): void {
         this.database.close();
+    }
+
+    backupTo(destinationPath: string): void {
+        backupSqliteDatabase(this.database, destinationPath);
     }
 
     create(input: {
