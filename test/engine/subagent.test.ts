@@ -210,7 +210,7 @@ test("a child's boundary crossing goes to the auto reviewer, not the relay", asy
             workspace: root,
             approvalMode: "auto",
             sessionPath: join(root, "child.jsonl"),
-            sessionMetadata: { startupProfile: "bare" },
+            sessionMetadata: { contextAssemblyMode: "bare" },
             reviewer: { models: [{ model: "reviewer-model" }] },
             relayToolApproval: async () => {
                 relayed += 1;
@@ -237,7 +237,7 @@ test("a child's boundary crossing goes to the auto reviewer, not the relay", asy
         expect(toolResult).toBeDefined();
         expect(JSON.stringify(toolResult)).toContain("PATH=");
         expect((await SessionStore.open(join(root, "child.jsonl"))).header)
-            .toMatchObject({ startupProfile: "bare" });
+            .toMatchObject({ contextAssemblyMode: "bare" });
     } finally {
         await rm(root, { recursive: true, force: true });
     }
