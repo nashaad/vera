@@ -1,0 +1,4 @@
+{"type":"session","version":1,"id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb","timestamp":"2026-08-31T12:00:00.000Z","cwd":"/tmp/vera-factory"}
+{"type":"session_name","timestamp":"2026-08-31T12:00:00.000Z","name":"Factory tools"}
+{"type":"message","id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb-user","parentId":null,"timestamp":"2026-08-31T12:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"List the files in this workspace."}]}}
+{"type":"message","id":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb-assistant","parentId":"bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb-user","timestamp":"2026-08-31T12:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"This is a saved factory transcript, not a live tool run."}],"source":{"provider":"faux","api":"scripted","model":"test"},"usage":{"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"reasoningTokens":0,"totalTokens":0},"stopReason":"stop"}}

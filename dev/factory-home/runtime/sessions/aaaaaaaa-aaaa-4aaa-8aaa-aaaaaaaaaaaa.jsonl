@@ -1,0 +1,4 @@
+{"type":"session","version":1,"id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa","timestamp":"2026-08-31T12:00:00.000Z","cwd":"/tmp/vera-factory"}
+{"type":"session_name","timestamp":"2026-08-31T12:00:00.000Z","name":"Factory hello"}
+{"type":"message","id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-user","parentId":null,"timestamp":"2026-08-31T12:00:00.000Z","message":{"role":"user","content":[{"type":"text","text":"Say hello from the factory home."}]}}
+{"type":"message","id":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-assistant","parentId":"aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa-user","timestamp":"2026-08-31T12:00:00.000Z","message":{"role":"assistant","content":[{"type":"text","text":"Hello from the factory home."}],"source":{"provider":"faux","api":"scripted","model":"test"},"usage":{"inputTokens":0,"outputTokens":0,"cachedInputTokens":0,"reasoningTokens":0,"totalTokens":0},"stopReason":"stop"}}

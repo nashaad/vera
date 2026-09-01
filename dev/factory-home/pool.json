@@ -1,0 +1,9 @@
+{
+    "defaults": {},
+    "models": {
+        "openrouter/faux/test": {
+            "added": true,
+            "tools": true
+        }
+    }
+}
