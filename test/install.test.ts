@@ -149,7 +149,6 @@ test("version mismatch never replaces the installed package or command", () => {
         const result = Bun.spawnSync(["/bin/sh", installer], {
             env: installEnvironment(home, commands, prefix, {
                 VERA_INSTALL_VERSION: "1.2.3",
-                VERA_RELEASE_VERSION: "9.9.9",
             }),
             stdout: "pipe",
             stderr: "pipe",

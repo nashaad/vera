@@ -203,7 +203,7 @@ jobs:
 
       - name: Run CLI and native dependency smoke tests
         run: |
-          test "$(env VERA_RELEASE_VERSION= vera --version)" = "vera $RELEASE_VERSION"
+          test "$(vera --version)" = "vera $RELEASE_VERSION"
           vera --help | grep -q "Run one bounded turn"
           package_root="$RUNNER_TEMP/vera-install/lib/node_modules/@nashaad/vera"
           bun scripts/release-npm-native-smoke.ts "$package_root"

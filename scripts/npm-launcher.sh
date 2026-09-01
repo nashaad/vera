@@ -41,7 +41,4 @@ if [ "$(uname -s)" = "Linux" ]; then
     esac
 fi
 
-version=$(tr -d '\r\n' < "$root/VERSION")
-export VERA_RELEASE_VERSION=${VERA_RELEASE_VERSION:-$version}
-
 exec bun "$root/clients/cli/main.ts" "$@"

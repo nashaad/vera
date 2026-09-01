@@ -174,7 +174,7 @@ staged_bin=$stage/prefix/bin/vera
 
 installed_version=$(
     HOME="$home" VERA_HOME=${VERA_HOME:-$home/.vera} \
-        VERA_RELEASE_VERSION= "$staged_bin" --version
+        "$staged_bin" --version
 ) || die "staged Vera executable failed its version check"
 case "$version" in
     latest)
@@ -208,7 +208,7 @@ mv -f "$bin_tmp" "$bin_path"
 
 final_version=$(
     HOME="$home" VERA_HOME=${VERA_HOME:-$home/.vera} \
-        VERA_RELEASE_VERSION= "$bin_path" --version
+        "$bin_path" --version
 ) || die "installed Vera executable failed its final version check"
 [ "$final_version" = "$installed_version" ] \
     || die "installed Vera changed version during activation"
