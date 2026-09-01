@@ -5,6 +5,7 @@ import {
     poolNameOf,
     poolNameRefusal,
     poolNames,
+    resolveBoundModelRef,
     resolvePoolRef,
 } from "../../src/model/pool-names.ts";
 
@@ -27,6 +28,27 @@ test("a ref with a slash is an id, and only a pooled id resolves", () => {
     expect(resolvePoolRef(named, "cerebras/warm-1")).toBe("cerebras/warm-1");
     expect(resolvePoolRef(named, "openrouter/never-added")).toBeUndefined();
     expect(resolvePoolRef(named, "nobody")).toBeUndefined();
+});
+
+test("a nested wire id splits once, at the first slash", () => {
+    const nested = pool({
+        "unsloth-local/unsloth/Qwen3.6-35B-A3B-MTP-GGUF": {
+            tools: true,
+            name: "qwen",
+        },
+    });
+    expect(resolveBoundModelRef(
+        nested,
+        "unsloth-local/unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+    )).toEqual({
+        provider: "unsloth-local",
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+    });
+    expect(resolveBoundModelRef(nested, "qwen")).toEqual({
+        provider: "unsloth-local",
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+    });
+    expect(resolveBoundModelRef(nested, "unsloth-local/missing")).toBeUndefined();
 });
 
 test("a learned-only entry carries neither name nor ref", () => {

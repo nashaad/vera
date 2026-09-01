@@ -75,7 +75,7 @@ import { relativeTime } from "../../src/relative-time.ts";import { supportedLeve
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
 import { loadPoolFile } from "../../src/model/pool-file-loader.ts";
 import { readUserPoolFile, removePoolModel } from "../../src/model/pool-file-store.ts";
-import { resolvePoolRef } from "../../src/model/pool-names.ts";
+import { resolveBoundModelRef, resolvePoolRef } from "../../src/model/pool-names.ts";
 import {
     admitToPool,
     type PoolAdmissionOutcome,
@@ -934,7 +934,7 @@ function parsePrintRequest(
     return { prompt, options };
 }
 
-async function runHostlessPrint(request: {
+export async function runHostlessPrint(request: {
     readonly workspace: string;
     readonly prompt: string;
     readonly approvalMode?: string;
@@ -943,13 +943,33 @@ async function runHostlessPrint(request: {
     readonly startupProfile?: StartupProfile;
     readonly sessionPath?: string;
 }): Promise<PrintOutcome> {
+    let provider: string | undefined;
+    let model: string | undefined;
+    if (request.model !== undefined) {
+        const pool = loadPoolFile({ projectRoot: request.workspace }).merged;
+        const bound = resolveBoundModelRef(pool, request.model);
+        if (bound === undefined) {
+            return {
+                agentId: "run",
+                sessionPath: "",
+                text: "",
+                outcome: "error",
+                error: `${request.model} is not a shortlisted model`,
+                notes: [],
+            };
+        }
+        provider = bound.provider;
+        model = bound.model;
+    }
     const result = await Vera.run({
         prompt: request.prompt,
         workspace: request.workspace,
         ...(request.approvalMode === undefined
             ? {}
             : { posture: request.approvalMode }),
-        ...(request.model === undefined ? {} : { model: request.model }),
+        ...(provider === undefined || model === undefined
+            ? {}
+            : { provider, model }),
         ...(request.effort === undefined
             ? {}
             : { effort: request.effort as ModelReasoningEffort }),
