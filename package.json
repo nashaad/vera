@@ -14,6 +14,7 @@
     "host": "bun run pack:release && bun run clients/host/main.ts",
     "tui": "bun run pack:release && bun run clients/tui/main.ts",
     "tui:worktree": "bun run pack:release && bun run scripts/worktree-tui.ts",
+    "dev:tui": "bun run pack:release && bun run scripts/dev-tui.ts",
     "smoke:openrouter": "bun run scripts/openrouter-smoke.ts",
     "models:discover": "bun run scripts/verify-model-catalog.ts --discover",
     "models:verify": "bun run scripts/verify-model-catalog.ts",

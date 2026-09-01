@@ -60,6 +60,8 @@ test("dev scripts pack web assets first", () => {
     expect(pkg.scripts.tui?.startsWith("bun run pack:release &&")).toBe(true);
     expect(pkg.scripts["tui:worktree"]?.startsWith("bun run pack:release &&"))
         .toBe(true);
+    expect(pkg.scripts["dev:tui"]?.startsWith("bun run pack:release &&"))
+        .toBe(true);
 });
 
 test("pack-web skips when the output is newer than its inputs", async () => {

@@ -761,6 +761,13 @@ const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
 
 const READY_HINT = `ready · ${tuiKeyHint("open_palette")}`;
 
+function tuiDevInstancePrefix(): string {
+    const marker = process.env.VERA_DEV_INSTANCE?.trim();
+    return marker === undefined || marker.length === 0
+        ? ""
+        : `[DEV ${marker}]`;
+}
+
 export function reconnectBusyMessage(_profile = veraProfileName()): string {
     return "Could not restart the host: other work is still using it. "
         + "Run vera host stop --force then /reconnect.";
@@ -16375,7 +16382,10 @@ export async function startTui(
         );
         hostedModeText.content = hostedModeStatus;
         hostedModeText.visible = hostedModeStatus.length > 0;
-        const statusLine = statusNotice ?? lifecycleHint;
+        const statusLine = [
+            tuiDevInstancePrefix(),
+            statusNotice ?? lifecycleHint,
+        ].filter((part) => part.length > 0).join(" ");
         statusText.visible = !(approvalView.box.visible
             || questionView.box.visible);
         const quietActivity = statusNotice === undefined
