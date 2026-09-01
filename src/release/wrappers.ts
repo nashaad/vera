@@ -83,6 +83,33 @@ export function writeExternalWrappers(
     );
 }
 
+/**
+ * Checkout `dist/release` helpers. The host stays this bun and
+ * `clients/host/main.ts`; a `host` wrapper here would hide that.
+ */
+export function writeCheckoutPackWrappers(
+    releaseRoot: string,
+    bunPath: string,
+    sources: Pick<ReleaseWrapperSources, "worker" | "annex" | "supervisor">,
+): void {
+    const bun = shellSingleQuote(bunPath);
+    writeWrapper(
+        join(releaseRoot, RELEASE_WORKER_NAME),
+        bun,
+        shellSingleQuote(sources.worker),
+    );
+    writeWrapper(
+        join(releaseRoot, RELEASE_ANNEX_NAME),
+        bun,
+        shellSingleQuote(sources.annex),
+    );
+    writeWrapper(
+        join(releaseRoot, RELEASE_SUPERVISOR_NAME),
+        bun,
+        shellSingleQuote(sources.supervisor),
+    );
+}
+
 function writeWrapper(path: string, bun: string, entry: string): void {
     writeFileSync(
         path,
