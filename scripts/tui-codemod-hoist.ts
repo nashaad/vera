@@ -39,14 +39,16 @@ function outdent(text) {
 
 function wrapperFor(fn) {
     const names = [];
+    const texts = [];
     for (const p of fn.parameters) {
         if (!ts.isIdentifier(p.name)) {
-            return `(...args) => ${fn.name.text}(rt, ...args)`;
+            return `((...args) => ${fn.name.text}(rt, ...args))`;
         }
         names.push(p.name.text);
+        texts.push(p.getText());
     }
-    if (names.length === 0) return `() => ${fn.name.text}(rt)`;
-    return `(${names.join(", ")}) => ${fn.name.text}(rt, ${names.join(", ")})`;
+    if (names.length === 0) return `(() => ${fn.name.text}(rt))`;
+    return `((${texts.join(", ")}) => ${fn.name.text}(rt, ${names.join(", ")}))`;
 }
 
 const source = fs.readFileSync(MAIN, "utf8");
@@ -88,13 +90,17 @@ function visit(node) {
     if (ts.isPropertyAccessExpression(node.parent) && node.parent.name === node) {
         return;
     }
-    const symbol = checker.getSymbolAtLocation(node);
+    const parent = node.parent;
+    const symbol = (
+        ts.isShorthandPropertyAssignment(parent) && parent.name === node
+            ? checker.getShorthandAssignmentValueSymbol(parent)
+            : undefined
+    ) ?? checker.getSymbolAtLocation(node);
     const fn = symbol ? fnSymbols.get(symbol) : undefined;
     if (!fn) {
         ts.forEachChild(node, visit);
         return;
     }
-    const parent = node.parent;
     if (ts.isFunctionDeclaration(parent) && parent.name === node) return;
     if (ts.isCallExpression(parent) && parent.expression === node) {
         const insertAt = parent.arguments.pos;
@@ -102,6 +108,14 @@ function visit(node) {
             start: insertAt,
             end: insertAt,
             text: parent.arguments.length > 0 ? "rt, " : "rt",
+        });
+        return;
+    }
+    if (ts.isShorthandPropertyAssignment(parent) && parent.name === node) {
+        callOrRef.push({
+            start: node.getStart(sf),
+            end: node.getEnd(),
+            text: `${fn.name.text}: ${wrapperFor(fn)}`,
         });
         return;
     }
