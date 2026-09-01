@@ -551,12 +551,6 @@ import type { AgentCatalogUpdate } from "../../src/engine/protocol.ts";
 import { resolveTuiSettingsDestination } from "./settings-destination.ts";
 
 /** The agent list a /agent surface renders, as the host last reported it. */
-type TuiAgentCatalog = {
-    readonly worn: string;
-    readonly agents: AgentCatalogUpdate["agents"];
-    readonly notices: readonly string[];
-};
-type TuiAgentCatalogRow = AgentCatalogUpdate["agents"][number];
 import {
     composeDialStrip,
     DIAL_HUD_CAP,
@@ -743,6 +737,7 @@ import {
     tuiGutterContent,
     tuiGutterWidth,
 } from "./gutter.ts";
+import { type PoolChangeUndo, type TuiAgentCatalog, type TuiAgentCatalogRow, type TuiRuntime } from "./main/runtime.ts";
 
 registerTuiParsers();
 
@@ -1328,6 +1323,8 @@ export async function startConfiguredTui(
 export async function startTui(
     dependencies: TuiDependencies,
 ): Promise<TuiExit> {
+    const rt = { dependencies } as TuiRuntime;
+
     /**
      * The session currently on screen.
      *
@@ -1335,16 +1332,16 @@ export async function startTui(
      * moving to another session is a detach and an attach, and everything that
      * talks to the host reads this binding at the moment it sends.
      */
-    let client = dependencies.client;
-    const homeClientOptions = dependencies.readHostModelSettings === undefined
+    rt.client = rt.dependencies.client;
+    rt.homeClientOptions = rt.dependencies.readHostModelSettings === undefined
         ? {}
-        : { readModelSettings: dependencies.readHostModelSettings };
-    const flightRecorder = dependencies.flightRecorder;
-    flightRecorder?.sessionEntered(client.agentId ?? "unknown");
-    const configuredAppearance = dependencies.appearance
+        : { readModelSettings: rt.dependencies.readHostModelSettings };
+    rt.flightRecorder = rt.dependencies.flightRecorder;
+    rt.flightRecorder?.sessionEntered(rt.client.agentId ?? "unknown");
+    rt.configuredAppearance = rt.dependencies.appearance
         ?? resolveTuiAppearance();
-    setTuiWorkspaceRoot(client.workspace ?? process.cwd());
-    const renderer = await (dependencies.createRenderer?.()
+    setTuiWorkspaceRoot(rt.client.workspace ?? process.cwd());
+    rt.renderer = await (rt.dependencies.createRenderer?.()
         ?? createCliRenderer({
             exitOnCtrlC: false,
             targetFps: 30,
@@ -1352,104 +1349,94 @@ export async function startTui(
     // ctrl+shift chords (model picker, jump, live session cycle) only arrive
     // when the terminal reports them. Ask for the kitty keyboard protocol so
     // a supporting terminal actually sends them.
-    renderer.enableKittyKeyboard();
-    let appearance = fitTuiAppearance(configuredAppearance, renderer.width);
-    let composerContentIndent = tuiComposerContentIndent(appearance);
-    let composerHorizontalInset = composerContentIndent * 2;
-    const entrySpacing = {
-        message: appearance.messageSpacing,
-        toolGroup: appearance.toolGroupSpacing,
+    rt.renderer.enableKittyKeyboard();
+    rt.appearance = fitTuiAppearance(rt.configuredAppearance, rt.renderer.width);
+    rt.composerContentIndent = tuiComposerContentIndent(rt.appearance);
+    rt.composerHorizontalInset = rt.composerContentIndent * 2;
+    rt.entrySpacing = {
+        message: rt.appearance.messageSpacing,
+        toolGroup: rt.appearance.toolGroupSpacing,
     };
-    const copyText = dependencies.copyText
-        ?? ((text: string) => copyTuiText(text, renderer));
-    let sessionTitle: string | undefined;
-    let mainHeaderVisible = true;
-    let sidebarSessionTitle: string | undefined;
-    let sidebarHeaderVisible = true;
+    rt.copyText = rt.dependencies.copyText
+        ?? ((text: string) => copyTuiText(text, rt.renderer));
+    rt.mainHeaderVisible = true;
+    rt.sidebarHeaderVisible = true;
     applyTerminalTitle();
     refreshTerminalTitle();
-    let themeName = loadTuiThemePreference();
-    let activityAnimation = loadTuiActivityAnimationPreference();
-    const activityAnimationInterval =
+    rt.themeName = loadTuiThemePreference();
+    rt.activityAnimation = loadTuiActivityAnimationPreference();
+    rt.activityAnimationInterval =
         loadTuiActivityAnimationIntervalPreference();
-    const activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
-    const sidebarWidth = loadTuiSidebarWidth();
-    const hostedPanePersistence = new TuiHostedPanePersistence();
-    let theme = await resolveTuiTheme(renderer, themeName);
-    applyTuiTheme(theme);
+    rt.activityAnimationWidth = loadTuiActivityAnimationWidthPreference();
+    rt.sidebarWidth = loadTuiSidebarWidth();
+    rt.hostedPanePersistence = new TuiHostedPanePersistence();
+    rt.theme = await resolveTuiTheme(rt.renderer, rt.themeName);
+    applyTuiTheme(rt.theme);
 
-    let state = createTuiState();
-    let appendTranscriptRenderable: (
-        node: Renderable,
-    ) => VeraExtensionDisposer = () => {
+    rt.state = createTuiState();
+    rt.appendTranscriptRenderable = () => {
         throw new Error("Native transcript is not ready");
     };
-    let openInspectDocument: (
-        document: VeraExperimentalTuiDocument,
-    ) => void = () => {};
-    for (const notice of dependencies.startupNotices ?? []) {
-        state = appendTuiNotice(state, notice);
+    rt.openInspectDocument = () => {};
+    for (const notice of rt.dependencies.startupNotices ?? []) {
+        rt.state = appendTuiNotice(rt.state, notice);
     }
-    let shuttingDown = false;
-    let clientSurfaceReady = false;
-    let transcriptSeeded = false;
-    let pendingTranscriptReseed = false;
-    const deferredKeymapNotices: string[] = [];
+    rt.shuttingDown = false;
+    rt.clientSurfaceReady = false;
+    rt.transcriptSeeded = false;
+    rt.pendingTranscriptReseed = false;
+    rt.deferredKeymapNotices = [];
     // The arrival notice lands twice on purpose: once before the history
     // rebuild, which floats it above the transcript, and once after, so it is
     // also the last line the reader reaches.
-    let pendingBackNotice: string | undefined;
-    let pendingSessionSwitchNotice: string | undefined;
-    const experimentalTuiHost = createTuiExperimentalHost({
-        renderer,
-        theme,
-        workspace: () => client.workspace ?? process.cwd(),
-        transcript: () => state.entries.flatMap((entry) =>
+    rt.experimentalTuiHost = createTuiExperimentalHost({
+        renderer: rt.renderer,
+        theme: rt.theme,
+        workspace: () => rt.client.workspace ?? process.cwd(),
+        transcript: () => rt.state.entries.flatMap((entry) =>
             (entry.kind === "user" || entry.kind === "assistant")
                 && entry.text.length > 0
                 ? [{ role: entry.kind, text: entry.text }]
                 : []
         ),
         onFailure: (extensionId, message) => {
-            if (shuttingDown) return;
-            state = appendTuiNotice(
-                state,
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${extensionId}: experimental TUI view failed: ${message}`,
             );
         },
         onRenderRequested: () => {
-            if (clientSurfaceReady) renderState();
+            if (rt.clientSurfaceReady) renderState();
         },
-        appendTranscriptRenderable: (node) => appendTranscriptRenderable(node),
-        openDocument: (document) => openInspectDocument(document),
+        appendTranscriptRenderable: (node) => rt.appendTranscriptRenderable(node),
+        openDocument: (document) => rt.openInspectDocument(document),
     });
-    let connectionFailed = false;
-    let connectionFailure: string | undefined;
+    rt.connectionFailed = false;
     // One automatic host restart per drop. A failed attempt sits disconnected
     // so `/reconnect` stays the next move instead of looping. Cleared only
     // after a reconnected session is actually idle; clearing it at switch
     // time lets a dying worker restart the host forever and freeze the TUI.
-    let hostReconnectAttempted = false;
+    rt.hostReconnectAttempted = false;
     // This attachment already delivered agent_failed. The stream closing
     // after that is not a dropped host.
-    let agentFailedThisAttachment = false;
-    let statusNotice: string | undefined;
-    let statusNoticeVersion = 0;
+    rt.agentFailedThisAttachment = false;
+    rt.statusNoticeVersion = 0;
     // What each in-flight change asked for, so a rejection can name it. The
     // status line reports the effective values once a change lands.
-    const requestedModelChanges = new Map<string, {
+    rt.requestedModelChanges = new Map<string, {
         readonly subject: string;
         readonly patch: ModelSettingsPatch;
         readonly target: TuiAgentClient;
     }>();
-    const requestedPermissionChanges = new Map<string, string>();
-    let abortRequested = false;
+    rt.requestedPermissionChanges = new Map<string, string>();
+    rt.abortRequested = false;
 
     function applyTerminalTitle(): void {
-        renderer.setTerminalTitle(
-            sessionTitle === undefined || sessionTitle.length === 0
+        rt.renderer.setTerminalTitle(
+            rt.sessionTitle === undefined || rt.sessionTitle.length === 0
                 ? "Vera"
-                : `${sessionTitle} · Vera`,
+                : `${rt.sessionTitle} · Vera`,
         );
     }
 
@@ -1462,7 +1449,7 @@ export async function startTui(
         text: string,
         injectedPrefix?: number,
     ): void {
-        if (sessionTitle !== undefined) {
+        if (rt.sessionTitle !== undefined) {
             return;
         }
         // What an extension prepended was sent but never shown, so it does not
@@ -1476,58 +1463,42 @@ export async function startTui(
         if (title === undefined) {
             return;
         }
-        sessionTitle = title;
+        rt.sessionTitle = title;
         applyTerminalTitle();
     }
 
     function refreshTerminalTitle(): void {
-        const agentId = client.agentId;
-        if (agentId === undefined || dependencies.listAgents === undefined) {
+        const agentId = rt.client.agentId;
+        if (agentId === undefined || rt.dependencies.listAgents === undefined) {
             return;
         }
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown || agentId !== client.agentId) {
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown || agentId !== rt.client.agentId) {
                 return;
             }
-            sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
+            rt.sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
             applyTerminalTitle();
-            if (clientSurfaceReady) renderState();
+            if (rt.clientSurfaceReady) renderState();
         }).catch(() => {
             // The title keeps its last value when the host cannot be reached.
         });
     }
 
     function toggleMainHeader(): void {
-        mainHeaderVisible = !mainHeaderVisible;
+        rt.mainHeaderVisible = !rt.mainHeaderVisible;
         renderState();
     }
 
     function toggleSidebarHeader(): void {
-        if (hostedSidebar.pane === undefined) return;
-        sidebarHeaderVisible = !sidebarHeaderVisible;
+        if (rt.hostedSidebar.pane === undefined) return;
+        rt.sidebarHeaderVisible = !rt.sidebarHeaderVisible;
         renderState();
     }
 
-    let pendingUiRequest: UiRequestUpdate | undefined;
-    const queuedUiRequests: UiRequestUpdate[] = [];
-    let activeConfigurationRequest: {
-        readonly requestId: string;
-        readonly target: TuiAgentClient;
-    } | undefined;
-    const queuedConfigurationRequests: Array<{
-        readonly request: UiRequestUpdate;
-        readonly target: TuiAgentClient;
-    }> = [];
-    let followTranscriptAfterUiRequest = false;
-    let timelinePicker: TuiTimelinePickerState | undefined;
-    let settingsPicker: TuiAnySettingsPickerState | undefined;
-    let settingsPickerAgent: TuiAgentClient | undefined;
-    let pendingExtensionPicker: {
-        readonly resolve: (result: VeraClientPickerResult) => void;
-        readonly reject: (error: unknown) => void;
-        readonly removeAbortListener: () => void;
-    } | undefined;
-    const pendingExtensionSettings = new Map<
+    rt.queuedUiRequests = [];
+    rt.queuedConfigurationRequests = [];
+    rt.followTranscriptAfterUiRequest = false;
+    rt.pendingExtensionSettings = new Map<
         string,
         {
             readonly target: TuiAgentClient;
@@ -1538,41 +1509,30 @@ export async function startTui(
             readonly removeAbortListener: () => void;
         }
     >();
-    const extensionSettingsListeners = new Set<
-        (settings: NonNullable<typeof state.modelSettings>) => void
+    rt.extensionSettingsListeners = new Set<
+        (settings: NonNullable<typeof rt.state.modelSettings>) => void
     >();
-    const extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
-    let clientExtensionRegistry: ClientExtensionRegistry | undefined;
-    const keybindingOverlay = loadTuiKeybindingOverlay();
-    const announcedKeymapNotices = new Set<string>();
+    rt.extensionAgentTarget = new AsyncLocalStorage<TuiAgentClient>();
+    rt.keybindingOverlay = loadTuiKeybindingOverlay();
+    rt.announcedKeymapNotices = new Set<string>();
     /** The dial strip, open only while it is on screen. */
-    let dialStrip: DialStripState | undefined;
     /** A decorative flourish shown only inside the HUD when auto is entered. */
-    let autoModeAnimationStartedAt: number | undefined;
-    let autoModeAnimationTimer: ReturnType<typeof setInterval> | undefined;
     /** The last catalog the host sent, which /agent opens against. */
-    let agentCatalog: TuiAgentCatalog | undefined;
     /** Suggesters escape put away, for the rest of this session. */
-    const dismissedComposeSuggesters = new Set<string>();
+    rt.dismissedComposeSuggesters = new Set<string>();
 
-    const pendingAgentCatalogs = new Map<
+    rt.pendingAgentCatalogs = new Map<
         string,
         (catalog: TuiAgentCatalog | undefined) => void
     >();
-    const pendingSkillInvocations = new Map<string, string>();
-    let messageInterceptPending = false;
-    let secretPrompt: TuiSecretPromptState | undefined;
-    let namePrompt: TuiNamePromptState | undefined;
-    let providerForm: TuiProviderFormState | undefined;
-    let requestOptionsEditor: TuiRequestOptionsEditorState | undefined;
-    let preferencesList: TuiPreferencesListState | undefined;
-    let standingNudges: TuiStandingNudgesState | undefined;
-    const standingNudgesProfileDirectory = veraProfileDirectory();
-    let standingNudgeRules: readonly StandingNudge[] = readStandingNudgeRules();
+    rt.pendingSkillInvocations = new Map<string, string>();
+    rt.messageInterceptPending = false;
+    rt.standingNudgesProfileDirectory = veraProfileDirectory();
+    rt.standingNudgeRules = readStandingNudgeRules();
 
     function readStandingNudgeRules(): readonly StandingNudge[] {
         try {
-            return loadStandingNudges(standingNudgesProfileDirectory);
+            return loadStandingNudges(rt.standingNudgesProfileDirectory);
         } catch {
             // The dialog and hosted turn own the actionable file error. The
             // ambient indicator must not turn a corrupt profile into a second
@@ -1584,16 +1544,13 @@ export async function startTui(
     function adoptStandingNudgesState(
         next: TuiStandingNudgesState | undefined,
     ): void {
-        standingNudges = next;
+        rt.standingNudges = next;
         if (next === undefined) return;
-        standingNudgeRules = next.screen === "error"
+        rt.standingNudgeRules = next.screen === "error"
             ? next.back?.nudges ?? []
             : next.nudges;
     }
     /** The picker pane the preferences list was opened over, restored on close. */
-    let preferencesListParent: TuiSettingsPickerState | undefined;
-    let commandPalette: TuiCommandPaletteState | undefined;
-    let workTab: WorkTabState | undefined;
     /**
      * The workspace side bar, mounted or not.
      *
@@ -1601,49 +1558,38 @@ export async function startTui(
      * the composer is active. Only its focused state claims bare keys; chords
      * pass through so ctrl+e can focus or remove the dock.
      */
-    let workspaceSidebar: WorkspaceSidebarState | undefined;
     /** A dock can remain visible while typing; only focused docks claim keys. */
-    let workspaceSidebarFocused = false;
-    let workspaceSidebarDocked = loadTuiWorkspaceSidebarDocked();
-    let workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
+    rt.workspaceSidebarFocused = false;
+    rt.workspaceSidebarDocked = loadTuiWorkspaceSidebarDocked();
+    rt.workspaceRailPreferred = loadTuiWorkspaceSidebarWidth();
     /**
      * The row columns the side bar is currently drawn as a rail in, or nothing
      * while it is closed or drawn as a card. Held so the transcript beside it
      * is only reflowed when the layout actually changes.
      */
-    let workspaceRail: number | undefined;
-    let workspaceRailDragging = false;
+    rt.workspaceRailDragging = false;
     /** The rail width and terminal width the layout below was laid out for. */
-    let workspaceRailLaidOut: number | undefined;
-    let workspaceRailLaidOutColumns: number | undefined;
     /** The last side bar state handed to the view, as drawn. */
-    let workspaceSidebarDrawn: string | undefined;
     /** Client state. A pin orders one person's list and never reaches a host. */
-    let workspacePinnedIds: readonly string[] = loadTuiPinnedSessionIds();
-    let searchOverlay: SearchOverlayState | undefined;
+    rt.workspacePinnedIds = loadTuiPinnedSessionIds();
     /**
      * The last index the host sent, held whether or not the tab is open: the
      * counts and the notifications are facts about the machine, and they do
      * not start existing when someone happens to look.
      */
-    let workIndex: WorkIndexSnapshot | undefined;
-    let jumpMenu: JumpMenuState | undefined;
     // Where the user was before switching anywhere: the single back target,
     // deliberately not a stack, so /back always means "where I started".
     // Only the id is held; the path and title are resolved when used, from
     // the same listing every other session surface reads.
-    let backOriginId: string | undefined;
     // The origin's name at hop time, for the arrival notice. The notice
     // fires once right after the switch, so a later rename is fine to miss.
-    let backOriginTitle: string | undefined;
     /**
      * Assumed focused until the terminal says otherwise. A terminal that does
      * not answer focus reporting would otherwise be treated as never watched,
      * and every approval would ring the bell under the person's nose.
      */
-    let terminalFocused = true;
-    let stopWatchingWorkIndex: (() => void) | undefined;
-    let searchInFlight = false;
+    rt.terminalFocused = true;
+    rt.searchInFlight = false;
     /**
      * The transcript row a search asked to land on, and the session it lives
      * in, until it is on screen.
@@ -1653,10 +1599,6 @@ export async function startTui(
      * named a row would be spent on that paint before the session it belongs
      * to had loaded.
      */
-    let pendingSearchTarget: {
-        readonly sessionId: string;
-        readonly entryId: string;
-    } | undefined;
     /**
      * The block a search last landed on, marked in its gutter so the reader
      * can see which one answered the query.
@@ -1665,17 +1607,13 @@ export async function startTui(
      * moves, and a mark that survived only until the next scroll would be gone
      * by the time the reader looked for it.
      */
-    let searchLanding: {
-        readonly sessionId: string;
-        readonly entryId: string;
-    } | undefined;
 
     /** Whether a rebuilt row is the one the last search landed on. */
     function isSearchLanding(entry: TuiTranscriptEntry): boolean {
-        return searchLanding !== undefined
-            && client.agentId === searchLanding.sessionId
+        return rt.searchLanding !== undefined
+            && rt.client.agentId === rt.searchLanding.sessionId
             && entry.kind !== "diff"
-            && transcriptMessageId(entry.entryId) === searchLanding.entryId;
+            && transcriptMessageId(entry.entryId) === rt.searchLanding.entryId;
     }
 
     /**
@@ -1695,11 +1633,11 @@ export async function startTui(
 
     /** Drops the landing mark and restores the marked row's own marker. */
     function clearSearchLanding(): void {
-        if (searchLanding === undefined) return;
-        const index = state.entries.findIndex(isSearchLanding);
-        searchLanding = undefined;
-        const entry = state.entries[index];
-        const node = entryNodes[index];
+        if (rt.searchLanding === undefined) return;
+        const index = rt.state.entries.findIndex(isSearchLanding);
+        rt.searchLanding = undefined;
+        const entry = rt.state.entries[index];
+        const node = rt.entryNodes[index];
         if (entry === undefined || node === undefined) return;
         if (entry.kind === "user") {
             unmarkTuiUserEntry(node as BoxRenderable);
@@ -1707,183 +1645,109 @@ export async function startTui(
             unmarkTuiGutterEntry(node, entry);
         }
     }
-    let queuedSearch: SessionSearchQuery | undefined;
-    let help: TuiHelpState | undefined;
-    let diagnosticsDialog: TuiDiagnosticsDialogState | undefined;
-    let documentDialog: (TuiDiagnosticsDialogState & {
-        readonly renderMarkdown?: (columns: number) => string;
-    }) | undefined;
-    let diagnosticsScope: TuiDiagnosticsScope = "session";
-    let diagnosticsSessionPath: string | undefined;
-    let diagnosticsSessionIdentity: string | undefined;
-    let diagnosticsWorkerPid: number | undefined;
-    let diagnosticsSupervisorPid: number | undefined;
-    let diagnosticsProcessMemory: ReadonlyMap<number, number> = new Map();
-    let diagnosticsSessionPathResolved = false;
-    let diagnosticsGeneration = 0;
-    let diagnosticsReportWidth: number | undefined;
-    let providerHealth: ProviderHealthStatus = idleProviderHealth();
-    let providerHealthAbort: AbortController | undefined;
-    let providerHealthGeneration = 0;
-    let doctorDialog: TuiDiagnosticsDialogState | undefined;
-    let doctorInspectionGeneration = 0;
-    let extensionsDialog: TuiDiagnosticsDialogState | undefined;
-    let hostExtensionCommands: readonly ExtensionCommandDescriptor[] = [];
-    let disposeHostExtensionCommands = (): void => {};
-    let extensionCommandsGeneration = 0;
-    let disposeSkillCommands = (): void => {};
-    let skillCatalogRequestId: string | undefined;
-    const announcedSkillCommandNotices = new Set<string>();
-    let confirmingFullAccess = false;
-    let confirmingFullAccessAgent: TuiAgentClient | undefined;
+    rt.diagnosticsScope = "session";
+    rt.diagnosticsProcessMemory = new Map();
+    rt.diagnosticsSessionPathResolved = false;
+    rt.diagnosticsGeneration = 0;
+    rt.providerHealth = idleProviderHealth();
+    rt.providerHealthGeneration = 0;
+    rt.doctorInspectionGeneration = 0;
+    rt.hostExtensionCommands = [];
+    rt.disposeHostExtensionCommands = (): void => {};
+    rt.extensionCommandsGeneration = 0;
+    rt.disposeSkillCommands = (): void => {};
+    rt.announcedSkillCommandNotices = new Set<string>();
+    rt.confirmingFullAccess = false;
     /**
      * The pool add whose name prompt is still owed, if any. Naming is offered
      * once, at the moment the entry appears, and skipping it is a plain escape.
      */
-    let pendingPoolName: {
-        readonly requestId: string;
-        readonly provider: string;
-        readonly model: string;
-        readonly label: string;
-    } | undefined;
-    interface PoolChangeUndo {
-        readonly action: "add" | "remove";
-        readonly provider: string;
-        readonly model: string;
-        readonly poolName?: string;
-    }
-    const pendingPoolChanges = new Map<string, PoolChangeUndo>();
-    const pendingPoolUndos = new Map<string, {
+    rt.pendingPoolChanges = new Map<string, PoolChangeUndo>();
+    rt.pendingPoolUndos = new Map<string, {
         readonly undo: PoolChangeUndo;
         readonly completesOnSettings: boolean;
     }>();
-    let poolChangeUndo: PoolChangeUndo | undefined;
-    let admissionDialog: TuiAdmissionDialogState | undefined;
     /**
      * A probe of every model the user keeps, one at a time. Sequential because
      * each entry is a live call to a provider, and a burst of them is the
      * shape rate limits are written against.
      */
     /** In-flight catalog refreshes, by request, so the reply can name one. */
-    const catalogRefreshes = new Map<string, string>();
+    rt.catalogRefreshes = new Map<string, string>();
     /**
      * A refresh of several providers, one at a time. Sequential for the same
      * reason the probe sweep is: each entry is a live call, and what comes
      * back is counted against what was there before so the sweep can say what
      * actually changed.
      */
-    let catalogRefreshSweep: {
-        readonly queue: readonly string[];
-        index: number;
-        readonly results: {
-            provider: string;
-            before: number;
-            after?: number;
-        }[];
-        requestId?: string;
-    } | undefined;
-    let poolVerifySweep: {
-        readonly queue: readonly { readonly provider: string; readonly model: string }[];
-        readonly total: number;
-        index: number;
-        answered: number;
-        requestId?: string;
-    } | undefined;
     /** The model pane the dialog covered, put back when the dialog leaves. */
-    let admissionReturnPicker: TuiSettingsPickerState | undefined;
     /**
      * The settings change each in-flight admission was meant to end in,
      * applied when its "added" verdict lands. Keyed by requestId rather than
      * held on the dialog: hiding the dialog must not lose the switch.
      */
-    let sessionTrashCandidate: {
-        readonly sessionId: string;
-        readonly label: string;
-    } | undefined;
-    let sessionTrashPending = false;
+    rt.sessionTrashPending = false;
     /**
      * In-flight close is waiting on `[1] close`. Idle `/close` and ctrl+w
      * skip this and park immediately.
      */
-    let sessionCloseConfirm = false;
+    rt.sessionCloseConfirm = false;
     /**
      * The credential `delete` asked to forget, waiting on the confirmation.
      *
      * It carries the pane to reopen because the connect list is read off disk:
      * forgetting changes the disk, so the pane is rebuilt rather than patched.
      */
-    let providerForgetCandidate: {
-        readonly providerId: string;
-        readonly label: string;
-        readonly pane: TuiSettingsPickerState | undefined;
-    } | undefined;
-    let commandSuggestionIndex = 0;
+    rt.commandSuggestionIndex = 0;
     /** Whether the highlighted row was chosen rather than merely first. */
-    let commandSuggestionMoved = false;
+    rt.commandSuggestionMoved = false;
     /** The argument values on offer, empty whenever the list is commands. */
-    let argumentSuggestions: readonly string[] = [];
+    rt.argumentSuggestions = [];
     /** Names an extension offers after an `@`, replaced wholesale. */
-    let extensionMentions: readonly string[] = [];
+    rt.extensionMentions = [];
     // Who an extension says the next message is going to. The client only
     // shows the name; it does not know what makes a message go there.
-    let extensionAddressee: string | undefined;
-    let workingSince: number | undefined;
-    let phaseSince: number | undefined;
-    let activity = "thinking";
-    let themeApplicationVersion = 0;
-    let pendingThemePreview: ReturnType<typeof setTimeout> | undefined;
+    rt.activity = "thinking";
+    rt.themeApplicationVersion = 0;
     /**
      * Bumped by every switch, so the update pump reading the session being left
      * can tell that it is stale and stop instead of writing that session's
      * updates into the transcript of the one now on screen.
      */
-    let clientGeneration = 0;
+    rt.clientGeneration = 0;
     /** Bumped whenever keyboard ownership moves between agent composers. */
-    let composeSurfaceGeneration = 0;
-    let resumeListVersion = 0;
-    let promptSubmitting = false;
-    let sessionSwitchPending = false;
-    let sessionSwitchActivity = "starting new session…";
-    let sessionSwitchStartedAt: number | undefined;
-    let sessionSwitchOperation: string | undefined;
-    let sessionSwitchBufferedUpdates: AgentUpdate[] = [];
-    let sessionSwitchClearingMain = false;
-    let extensionCommandPending = false;
-    let clientExtensionReloadPending = false;
-    let clientExtensionReload: TuiClientExtensionReloadSnapshot = {
+    rt.composeSurfaceGeneration = 0;
+    rt.resumeListVersion = 0;
+    rt.promptSubmitting = false;
+    rt.sessionSwitchPending = false;
+    rt.sessionSwitchActivity = "starting new session…";
+    rt.sessionSwitchBufferedUpdates = [];
+    rt.sessionSwitchClearingMain = false;
+    rt.extensionCommandPending = false;
+    rt.clientExtensionReloadPending = false;
+    rt.clientExtensionReload = {
         status: "never",
         loadedExtensionIds: [],
         failures: [],
     };
-    let extensionCommandActivity: string | undefined;
-    let sidebarPromptSubmitting = false;
-    let extensionCommandsLoading =
-        dependencies.client.listExtensionCommands !== undefined
-        && dependencies.client.failed !== true
-        && dependencies.client.viewOnly !== true;
-    let skillCommandsLoading = supportsSkillCommands(dependencies.client);
-    let runningBackgroundAgents = 0;
-    let runningBackgroundAgentNames: readonly string[] = [];
-    let currentAgentHasParent = false;
-    let stopWatchingBackgroundAgents: (() => void) | undefined;
-    let pendingSessionRename: {
-        readonly requestId: string;
-        /** Restored to the composer if the rename never lands, when it came from one. */
-        readonly commandText?: string;
-    } | undefined;
-    let pendingSidebarSessionRename: {
-        readonly requestId: string;
-        readonly commandText?: string;
-    } | undefined;
+    rt.sidebarPromptSubmitting = false;
+    rt.extensionCommandsLoading =
+        rt.dependencies.client.listExtensionCommands !== undefined
+        && rt.dependencies.client.failed !== true
+        && rt.dependencies.client.viewOnly !== true;
+    rt.skillCommandsLoading = supportsSkillCommands(rt.dependencies.client);
+    rt.runningBackgroundAgents = 0;
+    rt.runningBackgroundAgentNames = [];
+    rt.currentAgentHasParent = false;
     /**
      * Oneshots in flight, keyed by request. Several may run at once: an
      * extension with more than one seat asks them all in parallel.
      */
-    const pendingOneshots = new Map<string, {
+    rt.pendingOneshots = new Map<string, {
         readonly resolve: (result: VeraClientOneshotResult) => void;
         readonly reject: (reason: Error) => void;
     }>();
-    const hostedSidebar = new TuiHostedSidebarAgent({
+    rt.hostedSidebar = new TuiHostedSidebarAgent({
         onUpdate(update, current) {
             handleSidebarAgentUpdate(update, current);
             if (update.type === "user_prompt") {
@@ -1898,68 +1762,59 @@ export async function startTui(
             }
         },
         onFailure(error, current) {
-            if (current !== hostedSidebar.pane) return;
+            if (current !== rt.hostedSidebar.pane) return;
             rejectPendingExtensionSettingsFor(current.client, error);
-            sidebar.append("agent", `Connection failed: ${error.message}`);
+            rt.sidebar.append("agent", `Connection failed: ${error.message}`);
             renderState();
         },
     });
-    let pendingSidebarContextNotice: {
-        readonly agentId: string;
-        readonly text: string;
-    } | undefined;
     function appendPendingSidebarContextNotice(
         side: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
-        const notice = pendingSidebarContextNotice;
+        const notice = rt.pendingSidebarContextNotice;
         if (notice?.agentId !== side.agentId) return;
         side.state.state = appendTuiNotice(
             side.state.state,
             notice.text,
             "soft",
         );
-        pendingSidebarContextNotice = undefined;
+        rt.pendingSidebarContextNotice = undefined;
     }
-    let submitAfterImageAttachment = false;
-    let pendingImages: Array<{
-        requestId: string;
-        path?: string;
-        id?: string;
-        name?: string;
-    }> = [];
+    rt.submitAfterImageAttachment = false;
+    rt.pendingImages = [];
     /** Scratch copies of dropped images, held until the host has the bytes. */
-    const droppedImageReleases = new Map<string, () => Promise<void>>();
-    if (dependencies.initialDraft !== undefined) {
-        pendingImages = dependencies.initialDraft.attachmentIds.map((id) => ({
+    rt.droppedImageReleases = new Map<string, () => Promise<void>>();
+    if (rt.dependencies.initialDraft !== undefined) {
+        rt.pendingImages = rt.dependencies.initialDraft.attachmentIds.map((id) => ({
             requestId: randomUUID(),
             id,
         }));
     }
-    const finished = Promise.withResolvers<TuiExit>();
-    let disabledBuiltinExtensions =
-        dependencies.disabledBuiltinExtensions ?? [];
-    const commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
-        disabledBuiltinExtensions,
+    rt.finished = Promise.withResolvers<TuiExit>();
+    rt.disabledBuiltinExtensions =
+        rt.dependencies.disabledBuiltinExtensions ?? [];
+    rt.commandRegistry = createConfiguredBuiltinTuiCommandRegistry(
+        rt.disabledBuiltinExtensions,
     );
-    let configuredClientExtensions = configuredTuiClientExtensions(
-        disabledBuiltinExtensions,
-        dependencies.clientExtensions,
+    rt.configuredClientExtensions = configuredTuiClientExtensions(
+        rt.disabledBuiltinExtensions,
+        rt.dependencies.clientExtensions,
     );
-    const hostedAgentSurface = createTuiHostedAgentSurface({
-        owner: () => hostedSidebar.owner,
-        hasAgent: () => hostedSidebar.pane !== undefined,
-        layout: () => sidebar.layout(),
-        isFocused: () => sidebar.isFocused(),
-        cycleSidebarLayout: () => sidebar.cycleLayout(),
+    rt.hostedAgentSurface = createTuiHostedAgentSurface({
+        owner: () => rt.hostedSidebar.owner,
+        hasAgent: () => rt.hostedSidebar.pane !== undefined,
+        layout: () => rt.sidebar.layout(),
+        isFocused: () => rt.sidebar.isFocused(),
+        cycleSidebarLayout: () => rt.sidebar.cycleLayout(),
         setSidebarFocused,
-        focusComposer: () => composer.focus(),
+        focusComposer: () => rt.composer.focus(),
         renderState,
         renderStatus,
-        requestRender: () => renderer.requestRender(),
+        requestRender: () => rt.renderer.requestRender(),
     });
-    const startConfiguredClientExtensionHost =
+    rt.startConfiguredClientExtensionHost =
         createTuiClientExtensionHostStarter({
-            extensions: () => configuredClientExtensions,
+            extensions: () => rt.configuredClientExtensions,
             currentModelSettings: () => focusedAgentState().modelSettings,
             currentContext: () => tuiContextSnapshot(
                 focusedAgentState().context,
@@ -1967,12 +1822,12 @@ export async function startTui(
             ),
             compose: {
                 capture(): TuiExtensionComposeTarget | undefined {
-                    const target = extensionAgentTarget.getStore();
+                    const target = rt.extensionAgentTarget.getStore();
                     return target === undefined ? undefined
                         : captureTuiExtensionComposeTarget({
                             client: target,
-                            clientGeneration,
-                            surfaceGeneration: composeSurfaceGeneration,
+                            clientGeneration: rt.clientGeneration,
+                            surfaceGeneration: rt.composeSurfaceGeneration,
                         });
                 },
                 insert(_extensionId, opaqueTarget, text) {
@@ -1980,7 +1835,7 @@ export async function startTui(
                     if (!isCurrentExtensionComposeTarget(target)) {
                         return { status: "stale" };
                     }
-                    composer.insertComposerText(text);
+                    rt.composer.insertComposerText(text);
                     renderCommandSuggestions();
                     renderState();
                     return { status: "accepted" };
@@ -1991,16 +1846,16 @@ export async function startTui(
                         return { status: "stale" };
                     }
                     if (
-                        !clientSurfaceReady
-                        || !composerBox.visible
+                        !rt.clientSurfaceReady
+                        || !rt.composerBox.visible
                         || activeOverlayFocus() !== undefined
                     ) {
                         return { status: "ineligible" };
                     }
-                    composer.focus();
-                    flightRecorder?.record({
+                    rt.composer.focus();
+                    rt.flightRecorder?.record({
                         type: "focus_changed",
-                        surface: sidebar.isFocused()
+                        surface: rt.sidebar.isFocused()
                             ? "sidebar_composer"
                             : "main_composer",
                     });
@@ -2009,9 +1864,9 @@ export async function startTui(
             },
             updateModelSettings: requestExtensionModelSettingsUpdate,
             subscribeModelSettings(listener) {
-                extensionSettingsListeners.add(listener);
+                rt.extensionSettingsListeners.add(listener);
                 return () => {
-                    extensionSettingsListeners.delete(listener);
+                    rt.extensionSettingsListeners.delete(listener);
                 };
             },
             requestPicker: (request, signal) =>
@@ -2019,51 +1874,51 @@ export async function startTui(
             requestOneshot: (request, signal) =>
                 requestExtensionOneshot(request, signal),
             openSidebar(extensionId) {
-                hostedSidebar.claim(extensionId);
-                sidebar.setHeader(undefined);
-                sidebarHeaderVisible = true;
-                sidebar.open();
+                rt.hostedSidebar.claim(extensionId);
+                rt.sidebar.setHeader(undefined);
+                rt.sidebarHeaderVisible = true;
+                rt.sidebar.open();
                 renderState();
             },
             appendSidebar(extensionId, block) {
                 requireSidebarOwner(extensionId);
-                sidebar.append(block.label, block.text, block.speaker);
+                rt.sidebar.append(block.label, block.text, block.speaker);
                 renderSidebarJump();
             },
             clearSidebar(extensionId) {
                 requireSidebarOwner(extensionId);
-                sidebar.clear();
+                rt.sidebar.clear();
             },
             closeSidebar(extensionId) {
                 requireSidebarOwner(extensionId);
                 closeSidebarPane(extensionId);
             },
             setMentions(names) {
-                extensionMentions = names;
-                if (clientSurfaceReady) {
+                rt.extensionMentions = names;
+                if (rt.clientSurfaceReady) {
                     renderCommandSuggestions();
                 }
             },
             setAddressing(name) {
-                extensionAddressee = name;
+                rt.extensionAddressee = name;
                 renderState();
             },
             agents: createTuiClientExtensionAgentsAdapter({
-                primary: () => client,
-                sidebar: () => hostedSidebar.pane,
-                sidebarMention: () => hostedSidebar.mention,
-                createAgent: dependencies.createAgent,
-                branchAgent: dependencies.branchAgent,
-            syncAgentContext: dependencies.syncAgentContext,
+                primary: () => rt.client,
+                sidebar: () => rt.hostedSidebar.pane,
+                sidebarMention: () => rt.hostedSidebar.mention,
+                createAgent: rt.dependencies.createAgent,
+                branchAgent: rt.dependencies.branchAgent,
+            syncAgentContext: rt.dependencies.syncAgentContext,
             contextSynchronized(agentId, turns) {
-                const side = hostedSidebar.pane;
+                const side = rt.hostedSidebar.pane;
                 if (side === undefined || side.agentId !== agentId) return;
                 const text = `Caught up with ${turns} new ${
                     turns === 1 ? "turn" : "turns"
                 } from the primary conversation.`;
-                pendingSidebarContextNotice = { agentId, text };
+                rt.pendingSidebarContextNotice = { agentId, text };
             },
-                attachAgent: dependencies.attachAgent,
+                attachAgent: rt.dependencies.attachAgent,
                 adoptAgent: (
                     extensionId,
                     next,
@@ -2086,18 +1941,18 @@ export async function startTui(
                 ),
             }),
             experimentalTui: {
-                ...experimentalTuiHost.adapter,
-                agentSurface: hostedAgentSurface,
+                ...rt.experimentalTuiHost.adapter,
+                agentSurface: rt.hostedAgentSurface,
             },
-            ...(dependencies.listSessionPage === undefined ? {} : {
+            ...(rt.dependencies.listSessionPage === undefined ? {} : {
                 listSessions: (request: VeraClientSessionListRequest) =>
                     listSessionsForExtension(
-                        dependencies.listSessionPage!,
+                        rt.dependencies.listSessionPage!,
                         request,
                     ),
             }),
             readThread() {
-                return state.entries
+                return rt.state.entries
                     .filter((entry) =>
                         (entry.kind === "user" || entry.kind === "assistant")
                         && entry.text.length > 0)
@@ -2107,46 +1962,46 @@ export async function startTui(
                     }));
             },
             appendTranscript(block) {
-                state = appendTuiExtensionBlock(state, block.label, block.text);
+                rt.state = appendTuiExtensionBlock(rt.state, block.label, block.text);
                 renderState();
             },
             postNotice(text, noticeOptions) {
-                state = appendTuiNotice(state, text, noticeOptions?.tone);
+                rt.state = appendTuiNotice(rt.state, text, noticeOptions?.tone);
                 renderState();
                 if (
                     noticeOptions?.replay === true
-                    && client.supportsHostCapability?.(
+                    && rt.client.supportsHostCapability?.(
                         HOST_CAPABILITY_HARNESS_MESSAGES,
                     ) === true
                 ) {
-                    void client.send({
+                    void rt.client.send({
                         type: "append_harness_message",
                         text,
                         tone: noticeOptions.tone ?? "primary",
                     });
                 }
             },
-            commandRegistry,
+            commandRegistry: rt.commandRegistry,
             onFailure(failure, failureSink) {
                 const summary = `${failure.extensionId ?? failure.path}: ${failure.message}`;
                 if (failureSink !== undefined) {
                     failureSink.push(summary);
                 } else {
-                    state = appendTuiNotice(state, summary);
+                    rt.state = appendTuiNotice(rt.state, summary);
                 }
             },
         });
-    const clientExtensionHost = createTuiClientExtensionHostController(
-        startConfiguredClientExtensionHost,
+    rt.clientExtensionHost = createTuiClientExtensionHostController(
+        rt.startConfiguredClientExtensionHost,
         (registry) => {
-            clientExtensionRegistry = registry;
+            rt.clientExtensionRegistry = registry;
             refreshKeymap();
             if (registry === undefined) {
-                extensionMentions = [];
-                extensionAddressee = undefined;
-                commandPalette = undefined;
-                help = undefined;
-                const attached = hostedSidebar.release();
+                rt.extensionMentions = [];
+                rt.extensionAddressee = undefined;
+                rt.commandPalette = undefined;
+                rt.help = undefined;
+                const attached = rt.hostedSidebar.release();
                 if (attached !== undefined) {
                     rejectPendingExtensionSettingsFor(
                         attached.client,
@@ -2159,22 +2014,22 @@ export async function startTui(
                 }
                 void attached?.detach().catch(() => attached.close());
                 clearSidebarEntryNodes();
-                sidebar.clear();
-                sidebarSessionTitle = undefined;
-                sidebar.setHeader(undefined);
-                sidebarHeaderVisible = true;
-                sidebar.close();
+                rt.sidebar.clear();
+                rt.sidebarSessionTitle = undefined;
+                rt.sidebar.setHeader(undefined);
+                rt.sidebarHeaderVisible = true;
+                rt.sidebar.close();
             }
-            if (clientSurfaceReady) {
+            if (rt.clientSurfaceReady) {
                 renderCommandSuggestions();
                 renderState();
             }
         },
     );
-    await clientExtensionHost.reload();
+    await rt.clientExtensionHost.reload();
     refreshKeymap();
-    const directClientExtensions = bundledClientExtensions();
-    for (const extension of directClientExtensions) {
+    rt.directClientExtensions = bundledClientExtensions();
+    for (const extension of rt.directClientExtensions) {
         if (
             extension.commands.some(
                 (command) => command.source !== extension.id,
@@ -2185,7 +2040,7 @@ export async function startTui(
             );
         }
         registerExtensionTuiCommands(
-            commandRegistry,
+            rt.commandRegistry,
             extension.commands,
             "direct",
         );
@@ -2200,7 +2055,7 @@ export async function startTui(
      */
     function refreshKeymap(): void {
         const resolution = resolveTuiKeymap({
-            extensions: (clientExtensionRegistry?.keybindings() ?? []).map(
+            extensions: (rt.clientExtensionRegistry?.keybindings() ?? []).map(
                 (descriptor) => ({
                     id: descriptor.id,
                     keys: descriptor.keys,
@@ -2216,29 +2071,29 @@ export async function startTui(
                         : { hint: descriptor.hint }),
                 }),
             ),
-            overlay: keybindingOverlay,
+            overlay: rt.keybindingOverlay,
         });
         installTuiKeymap(resolution.bindings);
         // Said once per distinct set. A reload that changes nothing about the
         // keys must not repeat the banner it already showed.
         for (const notice of resolution.notices) {
-            if (announcedKeymapNotices.has(notice)) continue;
-            announcedKeymapNotices.add(notice);
+            if (rt.announcedKeymapNotices.has(notice)) continue;
+            rt.announcedKeymapNotices.add(notice);
             // The first history rebuilds the transcript from the session, so a
             // notice settled before it would be painted and then dropped.
-            if (transcriptSeeded) {
-                state = appendTuiNotice(state, notice);
+            if (rt.transcriptSeeded) {
+                rt.state = appendTuiNotice(rt.state, notice);
             } else {
-                deferredKeymapNotices.push(notice);
+                rt.deferredKeymapNotices.push(notice);
             }
         }
     }
 
     function coreHelpCommands(): readonly TuiCommandCatalogEntry[] {
         const hostCommandNames = new Set(
-            hostExtensionCommands.map((command) => command.name),
+            rt.hostExtensionCommands.map((command) => command.name),
         );
-        return commandRegistry.registeredCommands().filter(
+        return rt.commandRegistry.registeredCommands().filter(
             (command) => !hostCommandNames.has(command.name),
         );
     }
@@ -2246,11 +2101,11 @@ export async function startTui(
     function registeredPaletteEntries(): readonly TuiPaletteEntry[] {
         // Every command that belongs in the palette declares its own row, so
         // there is nothing left to synthesize from the slash catalog.
-        const entries = commandRegistry.registeredPaletteActions();
-        if (!isWorkerFreeClient(client)) return entries;
+        const entries = rt.commandRegistry.registeredPaletteActions();
+        if (!isWorkerFreeClient(rt.client)) return entries;
         // A closed file lists only what needs no worker; the rest is absent,
         // not greyed. Home has no file to resume, so it has no such row.
-        const viewingFile = isJsonlViewClient(client);
+        const viewingFile = isJsonlViewClient(rt.client);
         return [
             ...(viewingFile ? [RESUME_VIEWED_PALETTE_ENTRY] : []),
             ...entries.filter((entry) =>
@@ -2275,8 +2130,8 @@ export async function startTui(
             || action?.type === "open_usage";
     }
 
-    let markdownStyle = createMarkdownStyle(theme);
-    function createMarkdownStyle(activeTheme: typeof theme): SyntaxStyle {
+    rt.markdownStyle = createMarkdownStyle(rt.theme);
+    function createMarkdownStyle(activeTheme: typeof rt.theme): SyntaxStyle {
         return SyntaxStyle.fromStyles({
         default: { fg: activeTheme.text },
         "markup.heading": { fg: activeTheme.accent, bold: true },
@@ -2306,7 +2161,7 @@ export async function startTui(
         });
     }
 
-    const transcript = new ScrollBoxRenderable(renderer, {
+    rt.transcript = new ScrollBoxRenderable(rt.renderer, {
         id: "transcript",
         flexGrow: 1,
         width: "100%",
@@ -2314,128 +2169,128 @@ export async function startTui(
         stickyStart: "bottom",
         scrollY: true,
         wrapperOptions: {
-            paddingRight: appearance.transcriptPaddingRight,
+            paddingRight: rt.appearance.transcriptPaddingRight,
         },
         contentOptions: {
             flexDirection: "column",
             gap: 0,
             paddingTop: 0,
             paddingBottom: 1,
-            paddingLeft: appearance.transcriptPaddingLeft,
+            paddingLeft: rt.appearance.transcriptPaddingLeft,
         },
     });
-    appendTranscriptRenderable = (node) => {
-        const container = new BoxRenderable(renderer, {
+    rt.appendTranscriptRenderable = (node) => {
+        const container = new BoxRenderable(rt.renderer, {
             id: `extension-transcript-${randomUUID()}`,
             width: "100%",
         });
         container.add(node);
         let active = true;
-        transcript.add(container);
+        rt.transcript.add(container);
         return async () => {
             if (!active) return;
             active = false;
-            transcript.remove(container.id);
+            rt.transcript.remove(container.id);
             container.remove(node.id);
             container.destroy();
         };
     };
 
-    const JUMP_TO_BOTTOM_LABEL =
+    rt.JUMP_TO_BOTTOM_LABEL =
         ` ↓ Jump to bottom · ${tuiKeyHint("jump_to_bottom")} `;
-    const jumpToBottomText = new TextRenderable(renderer, {
+    rt.jumpToBottomText = new TextRenderable(rt.renderer, {
         id: "jump-to-bottom-text",
-        content: JUMP_TO_BOTTOM_LABEL,
-        fg: theme.background,
-        bg: theme.accent,
+        content: rt.JUMP_TO_BOTTOM_LABEL,
+        fg: rt.theme.background,
+        bg: rt.theme.accent,
         width: "100%",
         height: 1,
     });
-    const jumpToBottom = new BoxRenderable(renderer, {
+    rt.jumpToBottom = new BoxRenderable(rt.renderer, {
         id: "jump-to-bottom",
         position: "absolute",
-        width: JUMP_TO_BOTTOM_LABEL.length,
+        width: rt.JUMP_TO_BOTTOM_LABEL.length,
         height: 1,
-        backgroundColor: theme.accent,
+        backgroundColor: rt.theme.accent,
         zIndex: 4,
         visible: false,
         onMouseDown: () => {
-            transcript.scrollTo(transcript.scrollHeight);
+            rt.transcript.scrollTo(rt.transcript.scrollHeight);
             renderJumpToBottom();
         },
     });
-    jumpToBottom.add(jumpToBottomText);
+    rt.jumpToBottom.add(rt.jumpToBottomText);
 
     // The sidebar gets the same pill, shortened: the column is narrow, and the
     // key jumps the transcript, so there is nothing to name here but the way
     // back down.
-    const SIDEBAR_JUMP_LABEL = " \u2193 Jump to bottom ";
-    const sidebarJumpText = new TextRenderable(renderer, {
+    rt.SIDEBAR_JUMP_LABEL = " \u2193 Jump to bottom ";
+    rt.sidebarJumpText = new TextRenderable(rt.renderer, {
         id: "sidebar-jump-text",
-        content: SIDEBAR_JUMP_LABEL,
-        fg: theme.background,
-        bg: theme.accent,
+        content: rt.SIDEBAR_JUMP_LABEL,
+        fg: rt.theme.background,
+        bg: rt.theme.accent,
         width: "100%",
         height: 1,
     });
-    const sidebarJump = new BoxRenderable(renderer, {
+    rt.sidebarJump = new BoxRenderable(rt.renderer, {
         id: "sidebar-jump",
         position: "absolute",
-        width: SIDEBAR_JUMP_LABEL.length,
+        width: rt.SIDEBAR_JUMP_LABEL.length,
         height: 1,
-        backgroundColor: theme.accent,
+        backgroundColor: rt.theme.accent,
         zIndex: 4,
         visible: false,
         onMouseDown: () => {
-            sidebar.scrollToBottom();
+            rt.sidebar.scrollToBottom();
             renderJumpToBottom();
         },
     });
-    sidebarJump.add(sidebarJumpText);
+    rt.sidebarJump.add(rt.sidebarJumpText);
 
-    const placeholder = new TextRenderable(renderer, {
+    rt.placeholder = new TextRenderable(rt.renderer, {
         id: "placeholder",
         content: "Start a conversation with Vera.",
         fg: TUI_MUTED,
         width: "100%",
-        marginLeft: appearance.activityIndent,
+        marginLeft: rt.appearance.activityIndent,
     });
-    transcript.add(placeholder);
+    rt.transcript.add(rt.placeholder);
 
-    const transcriptEntryWindow = new BoxRenderable(renderer, {
+    rt.transcriptEntryWindow = new BoxRenderable(rt.renderer, {
         id: "transcript-entry-window",
         width: "100%",
         flexDirection: "column",
         flexShrink: 0,
     });
-    const transcriptWindowTopSpacer = new BoxRenderable(renderer, {
+    rt.transcriptWindowTopSpacer = new BoxRenderable(rt.renderer, {
         id: "transcript-window-top-spacer",
         width: "100%",
         height: 0,
         flexShrink: 0,
     });
-    const transcriptWindowBottomSpacer = new BoxRenderable(renderer, {
+    rt.transcriptWindowBottomSpacer = new BoxRenderable(rt.renderer, {
         id: "transcript-window-bottom-spacer",
         width: "100%",
         height: 0,
         visible: false,
         flexShrink: 0,
     });
-    transcriptEntryWindow.add(transcriptWindowTopSpacer);
-    transcriptEntryWindow.add(transcriptWindowBottomSpacer);
-    transcript.add(transcriptEntryWindow);
+    rt.transcriptEntryWindow.add(rt.transcriptWindowTopSpacer);
+    rt.transcriptEntryWindow.add(rt.transcriptWindowBottomSpacer);
+    rt.transcript.add(rt.transcriptEntryWindow);
 
     // Parallel sparse arrays: both use the reduced transcript index as their
     // contract. A missing slot means that entry has not been materialized,
     // while a present node and kind must be assigned or deleted together.
-    const entryNodes: (TextRenderable | MarkdownRenderable | BoxRenderable)[] = [];
-    const entryNodeKinds: TuiTranscriptEntry["kind"][] = [];
-    const entryNodeSources = new WeakMap<
+    rt.entryNodes = [];
+    rt.entryNodeKinds = [];
+    rt.entryNodeSources = new WeakMap<
         TextRenderable | MarkdownRenderable | BoxRenderable,
         TuiTranscriptEntry
     >();
-    let materializedEntryStart = 0;
-    let materializedEntryEnd = 0;
+    rt.materializedEntryStart = 0;
+    rt.materializedEntryEnd = 0;
     /**
      * The rows an entry occupied while it was materialized.
      *
@@ -2445,12 +2300,8 @@ export async function startTui(
      * releasing and rebuilding a batch free of any scroll correction. Width
      * changes what an entry measures, so the whole cache is dropped on resize.
      */
-    const measuredEntryRows: number[] = [];
-    let measuredEntryRowsWidth = 0;
-    let pendingTranscriptScrollRestore: {
-        readonly scrollTop: number;
-        readonly atBottom: boolean;
-    } | undefined;
+    rt.measuredEntryRows = [];
+    rt.measuredEntryRowsWidth = 0;
     /**
      * The entry the reader was reading and where it sat in the viewport, to be
      * put back once the layout it is waiting on has run.
@@ -2460,47 +2311,41 @@ export async function startTui(
      * standing in for. A laid-out node says exactly how far, where the row
      * estimate the spacer was built from only guesses.
      */
-    let pendingTranscriptScrollAnchor: {
-        readonly index: number;
-        readonly offset: number;
-    } | undefined;
-    const sidebarEntryNodes: (
-        TextRenderable | MarkdownRenderable | BoxRenderable
-    )[] = [];
-    const sidebarEntryNodeKinds: TuiTranscriptEntry["kind"][] = [];
-    let sidebarEntryGeneration = 0;
+    rt.sidebarEntryNodes = [];
+    rt.sidebarEntryNodeKinds = [];
+    rt.sidebarEntryGeneration = 0;
 
     function clearSidebarEntryNodes(): void {
-        while (sidebarEntryNodes.length > 0) {
-            sidebarEntryNodes.pop()?.destroyRecursively();
-            sidebarEntryNodeKinds.pop();
+        while (rt.sidebarEntryNodes.length > 0) {
+            rt.sidebarEntryNodes.pop()?.destroyRecursively();
+            rt.sidebarEntryNodeKinds.pop();
         }
     }
 
     /** Close the attached peer without ending its durable session. */
     function closeSidebarPane(extensionId?: string): void {
-        const attached = hostedSidebar.release(extensionId);
+        const attached = rt.hostedSidebar.release(extensionId);
         if (attached !== undefined) {
             rejectPendingExtensionSettingsFor(
                 attached.client,
                 new Error("The sidebar agent closed"),
             );
         }
-        pendingSidebarSessionRename = undefined;
+        rt.pendingSidebarSessionRename = undefined;
         forgetPersistedAgentPane();
-        sidebarSessionTitle = undefined;
+        rt.sidebarSessionTitle = undefined;
         void attached?.detach().catch(() => attached.close());
         clearSidebarEntryNodes();
-        sidebar.clear();
-        sidebar.setHeader(undefined);
-        sidebarHeaderVisible = true;
-        sidebar.close();
+        rt.sidebar.clear();
+        rt.sidebar.setHeader(undefined);
+        rt.sidebarHeaderVisible = true;
+        rt.sidebar.close();
         setSidebarFocused(false);
-        composer.focus();
+        rt.composer.focus();
         renderState();
     }
 
-    const statusText = new TextRenderable(renderer, {
+    rt.statusText = new TextRenderable(rt.renderer, {
         id: "status",
         content: READY_HINT,
         fg: TUI_MUTED,
@@ -2508,7 +2353,7 @@ export async function startTui(
         flexGrow: 1,
         flexShrink: 1,
     });
-    const activityHintText = new TextRenderable(renderer, {
+    rt.activityHintText = new TextRenderable(rt.renderer, {
         id: "activity-hint",
         content: "",
         fg: TUI_MUTED,
@@ -2516,7 +2361,7 @@ export async function startTui(
         flexShrink: 0,
         alignSelf: "flex-end",
     });
-    const dialCardTitle = new TextRenderable(renderer, {
+    rt.dialCardTitle = new TextRenderable(rt.renderer, {
         id: "dial-card-title",
         content: "",
         fg: TUI_TEXT,
@@ -2524,7 +2369,7 @@ export async function startTui(
         height: 3,
         flexShrink: 0,
     });
-    const dialCardHint = new TextRenderable(renderer, {
+    rt.dialCardHint = new TextRenderable(rt.renderer, {
         id: "dial-card-hint",
         content: "",
         fg: TUI_MUTED,
@@ -2532,7 +2377,7 @@ export async function startTui(
         height: 1,
         flexShrink: 0,
     });
-    const dialCard = new BoxRenderable(renderer, {
+    rt.dialCard = new BoxRenderable(rt.renderer, {
         id: "dial-card",
         // No border, and so no border styling option either: OpenTUI's
         // BoxRenderable reads any of them as "this box wants a border" and
@@ -2541,21 +2386,21 @@ export async function startTui(
         border: false,
         backgroundColor: TUI_HUD?.background ?? TUI_PANEL,
         height: 6,
-        marginLeft: appearance.composerMarginHorizontal,
-        marginRight: appearance.composerMarginHorizontal,
+        marginLeft: rt.appearance.composerMarginHorizontal,
+        marginRight: rt.appearance.composerMarginHorizontal,
         marginBottom: 1,
         paddingTop: 1,
         paddingBottom: 1,
-        paddingLeft: appearance.composerPaddingHorizontal + 1,
-        paddingRight: appearance.composerPaddingHorizontal + 1,
+        paddingLeft: rt.appearance.composerPaddingHorizontal + 1,
+        paddingRight: rt.appearance.composerPaddingHorizontal + 1,
         flexDirection: "column",
         zIndex: DIALOG_CARD_Z_INDEX,
         focusable: true,
         visible: false,
     });
-    dialCard.add(dialCardTitle);
-    dialCard.add(dialCardHint);
-    const backgroundStatusText = new TextRenderable(renderer, {
+    rt.dialCard.add(rt.dialCardTitle);
+    rt.dialCard.add(rt.dialCardHint);
+    rt.backgroundStatusText = new TextRenderable(rt.renderer, {
         id: "background-status",
         content: "",
         fg: TUI_MUTED,
@@ -2566,17 +2411,17 @@ export async function startTui(
     // composer: the composer is where the session is typed into, and this is
     // what the session currently is. One border says the two are separate
     // things without a heading having to say it.
-    const statusCard = new BoxRenderable(renderer, {
+    rt.statusCard = new BoxRenderable(rt.renderer, {
         id: "status-card",
         border: false,
         width: "100%",
         height: "auto",
         flexDirection: "column",
     });
-    statusCard.add(backgroundStatusText);
-    const workspaceBranch = watchWorkspaceBranch(
+    rt.statusCard.add(rt.backgroundStatusText);
+    rt.workspaceBranch = watchWorkspaceBranch(
         process.cwd(),
-        () => renderer.requestRender(),
+        () => rt.renderer.requestRender(),
     );
     // A text node paints only the cells its glyphs fill, so the status rows
     // would show the transcript through every gap in the line, and through the
@@ -2585,7 +2430,7 @@ export async function startTui(
     // nothing about whether the rows are drawn, so every surface that hid a
     // status row left the paint behind. Held together, hiding the rows hides
     // the band, and one height serves the composer's margin as well.
-    const statusBand = new BoxRenderable(renderer, {
+    rt.statusBand = new BoxRenderable(rt.renderer, {
         id: "status-band",
         position: "absolute",
         left: 0,
@@ -2597,11 +2442,11 @@ export async function startTui(
         // node laid out as a flex child does not carry its own padding. The
         // indent clears the frame above and its padding, so these rows start
         // in the same column as the text inside it.
-        paddingLeft: composerContentIndent,
-        paddingRight: composerContentIndent,
+        paddingLeft: rt.composerContentIndent,
+        paddingRight: rt.composerContentIndent,
         zIndex: DIALOG_BACKGROUND_Z_INDEX,
     });
-    const hostedModeText = new TextRenderable(renderer, {
+    rt.hostedModeText = new TextRenderable(rt.renderer, {
         id: "hosted-mode-status",
         content: "",
         fg: TUI_MUTED,
@@ -2612,46 +2457,44 @@ export async function startTui(
     });
     // The transient activity gets the row above. This row keeps the place on
     // the left and the hosted mode controls on the right throughout a turn.
-    const placeRow = new BoxRenderable(renderer, {
+    rt.placeRow = new BoxRenderable(rt.renderer, {
         id: "place-row",
         width: "100%",
         height: "auto",
         flexDirection: "row",
     });
-    statusCard.flexGrow = 1;
-    statusCard.flexShrink = 1;
-    placeRow.add(statusCard);
-    placeRow.add(hostedModeText);
-    const activityRow = new BoxRenderable(renderer, {
+    rt.statusCard.flexGrow = 1;
+    rt.statusCard.flexShrink = 1;
+    rt.placeRow.add(rt.statusCard);
+    rt.placeRow.add(rt.hostedModeText);
+    rt.activityRow = new BoxRenderable(rt.renderer, {
         id: "activity-row",
         width: "100%",
         height: 1,
         flexDirection: "row",
     });
-    activityRow.add(statusText);
-    activityRow.add(activityHintText);
-    statusBand.add(activityRow);
-    statusBand.add(placeRow);
+    rt.activityRow.add(rt.statusText);
+    rt.activityRow.add(rt.activityHintText);
+    rt.statusBand.add(rt.activityRow);
+    rt.statusBand.add(rt.placeRow);
 
     // Read here rather than passed in: tips are a client-side display choice,
     // and the host has no say in them.
-    const tipsConfig = loadOptionalVeraConfig();
-    const tipsEnabled = tipsConfig === undefined
-        || configuredTipsEnabled(tipsConfig);
+    rt.tipsConfig = loadOptionalVeraConfig();
+    rt.tipsEnabled = rt.tipsConfig === undefined
+        || configuredTipsEnabled(rt.tipsConfig);
     // Tips read their own launch counter on the way in, so the count advances
     // once per start no matter how many tips the run goes on to show.
-    let tipState: TuiTipState = tipsEnabled
+    rt.tipState = rt.tipsEnabled
         ? beginTuiTipLaunch()
         : { launches: 0, history: {} };
     // The line above the composer, cleared on the next submit. The overlay's
     // own line is chosen separately: an overlay is a place the user went
     // looking for keys, so it is allowed a tip even when the transcript one
     // has already been spent this turn.
-    let composerTip: string | undefined;
-    let workingLastRender = false;
-    let pickerTipKind: string | undefined;
+    rt.workingLastRender = false;
 
-    const composerTipText = new TextRenderable(renderer, {
+    rt.composerTipText = new TextRenderable(rt.renderer, {
         id: "composer-tip",
         content: "",
         fg: TUI_MUTED,
@@ -2664,9 +2507,8 @@ export async function startTui(
     // Text taken from one pane and waiting to ride along with the next
     // message. One at a time: a second selection replaces it, which is what a
     // person who selects again means.
-    let pendingQuote: TuiQuote | undefined;
 
-    const quoteText = new TextRenderable(renderer, {
+    rt.quoteText = new TextRenderable(rt.renderer, {
         id: "pending-quote",
         content: "",
         fg: TUI_MUTED,
@@ -2677,9 +2519,9 @@ export async function startTui(
     // Quote controls are footer state for the shared composer. Keeping them in
     // the status band puts them below the input regardless of which pane the
     // quoted text came from.
-    statusBand.add(quoteText);
+    rt.statusBand.add(rt.quoteText);
 
-    const heldAddressText = new TextRenderable(renderer, {
+    rt.heldAddressText = new TextRenderable(rt.renderer, {
         id: "held-address",
         content: "",
         fg: TUI_MUTED,
@@ -2693,7 +2535,7 @@ export async function startTui(
     // than under it. The rows under the composer are then fixed in height, so
     // the composer holds the same distance off the foot of the screen and
     // these lines take their room from the transcript instead.
-    const agentNoticeText = new TextRenderable(renderer, {
+    rt.agentNoticeText = new TextRenderable(rt.renderer, {
         id: "agent-notice",
         content: "",
         fg: TUI_MUTED,
@@ -2702,7 +2544,7 @@ export async function startTui(
         visible: false,
     });
 
-    const queuedPromptText = new TextRenderable(renderer, {
+    rt.queuedPromptText = new TextRenderable(rt.renderer, {
         id: "queued-prompt",
         content: "",
         fg: TUI_MUTED,
@@ -2711,131 +2553,131 @@ export async function startTui(
         visible: false,
     });
 
-    const composer = createTuiComposer(
-        renderer,
+    rt.composer = createTuiComposer(
+        rt.renderer,
         // Called with the editor's value, which is not what submitPrompt's
         // parameter means.
         () => submitPrompt(),
         attachPastedImage,
     );
-    composer.onCommandDelete = () => {
+    rt.composer.onCommandDelete = () => {
         if (
-            composer.plainText.length === 0
+            rt.composer.plainText.length === 0
             || anyOverlayOpen()
         ) return false;
-        composer.clearComposer();
+        rt.composer.clearComposer();
         renderCommandSuggestions();
         renderState();
         return true;
     };
-    composer.onImageChipRemoved = (requestId) => {
+    rt.composer.onImageChipRemoved = (requestId) => {
         releaseDroppedImage(requestId);
-        pendingImages = pendingImages.filter(
+        rt.pendingImages = rt.pendingImages.filter(
             (image) => image.requestId !== requestId,
         );
-        if (pendingImages.length === 0) {
-            submitAfterImageAttachment = false;
+        if (rt.pendingImages.length === 0) {
+            rt.submitAfterImageAttachment = false;
         }
         renderState();
     };
-    if (dependencies.initialDraft !== undefined) {
-        composer.setComposerText(dependencies.initialDraft.text);
-        for (const image of pendingImages) {
-            composer.attachImageChip(image.requestId);
+    if (rt.dependencies.initialDraft !== undefined) {
+        rt.composer.setComposerText(rt.dependencies.initialDraft.text);
+        for (const image of rt.pendingImages) {
+            rt.composer.attachImageChip(image.requestId);
         }
     }
-    const timelinePickerView = createTuiTimelinePickerView(renderer);
-    const settingsPickerView = createTuiSettingsPickerView(renderer);
-    const secretPromptView = createTuiSecretPromptView(renderer);
-    const namePromptView = createTuiNamePromptView(renderer);
-    const providerFormView = createTuiProviderFormView(renderer);
-    const requestOptionsEditorView = createTuiRequestOptionsEditorView(renderer);
-    const preferencesListView = createTuiPreferencesListView(renderer);
-    const standingNudgesView = createTuiStandingNudgesView(renderer);
-    const commandPaletteView = createTuiCommandPaletteView(renderer);
-    const workTabView = createTuiLinesView(renderer, "work-tab");
-    const workspaceSidebarView = createTuiLinesView(
-        renderer,
+    rt.timelinePickerView = createTuiTimelinePickerView(rt.renderer);
+    rt.settingsPickerView = createTuiSettingsPickerView(rt.renderer);
+    rt.secretPromptView = createTuiSecretPromptView(rt.renderer);
+    rt.namePromptView = createTuiNamePromptView(rt.renderer);
+    rt.providerFormView = createTuiProviderFormView(rt.renderer);
+    rt.requestOptionsEditorView = createTuiRequestOptionsEditorView(rt.renderer);
+    rt.preferencesListView = createTuiPreferencesListView(rt.renderer);
+    rt.standingNudgesView = createTuiStandingNudgesView(rt.renderer);
+    rt.commandPaletteView = createTuiCommandPaletteView(rt.renderer);
+    rt.workTabView = createTuiLinesView(rt.renderer, "work-tab");
+    rt.workspaceSidebarView = createTuiLinesView(
+        rt.renderer,
         "workspace-sidebar",
         { railDivider: true, railPadding: 2 },
     );
     // The search list changes with every keystroke, so its card keeps the
     // height it windows to rather than growing and shrinking under the typing.
-    const searchOverlayView = createTuiLinesView(renderer, "search-overlay", {
+    rt.searchOverlayView = createTuiLinesView(rt.renderer, "search-overlay", {
         fillHeight: true,
     });
-    const helpView = createTuiHelpView(renderer);
-    const diagnosticsDialogView = createTuiDiagnosticsDialogView(renderer, {
+    rt.helpView = createTuiHelpView(rt.renderer);
+    rt.diagnosticsDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
         showScopeTabs: true,
     });
-    const extensionsDialogView = createTuiDiagnosticsDialogView(renderer, {
+    rt.extensionsDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
         id: "extensions-dialog",
         title: "Extensions",
         footerText: "Managed installs stay outside the Vera release.",
         skipFirstLine: false,
     });
-    const doctorDialogView = createTuiDiagnosticsDialogView(renderer, {
+    rt.doctorDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
         id: "doctor-dialog",
         title: "Doctor",
         footerText: "Read-only; no processes are stopped.",
         pendingText: "checking process health…",
         emphasis: "doctor",
     });
-    const documentDialogView = createTuiDiagnosticsDialogView(renderer, {
+    rt.documentDialogView = createTuiDiagnosticsDialogView(rt.renderer, {
         id: "inspect-document-dialog",
         title: "Report",
         footerText: "",
         skipFirstLine: false,
     });
-    const permissionsConfirmView = createTuiPermissionsConfirmView(
-        renderer,
-        theme,
+    rt.permissionsConfirmView = createTuiPermissionsConfirmView(
+        rt.renderer,
+        rt.theme,
     );
-    const admissionDialogView = createTuiAdmissionDialogView(renderer);
-    const sessionTrashConfirmView =
-        createTuiSessionTrashConfirmView(renderer);
-    const sessionCloseConfirmView =
-        createTuiSessionCloseConfirmView(renderer);
-    const providerForgetConfirmView =
-        createTuiProviderForgetConfirmView(renderer);
-    const approvalView = createTuiApprovalView(renderer);
-    const questionView = createTuiQuestionView(renderer);
+    rt.admissionDialogView = createTuiAdmissionDialogView(rt.renderer);
+    rt.sessionTrashConfirmView =
+        createTuiSessionTrashConfirmView(rt.renderer);
+    rt.sessionCloseConfirmView =
+        createTuiSessionCloseConfirmView(rt.renderer);
+    rt.providerForgetConfirmView =
+        createTuiProviderForgetConfirmView(rt.renderer);
+    rt.approvalView = createTuiApprovalView(rt.renderer);
+    rt.questionView = createTuiQuestionView(rt.renderer);
     [
-        timelinePickerView,
-        settingsPickerView,
-        secretPromptView,
-        namePromptView,
-        providerFormView,
-        requestOptionsEditorView,
-        preferencesListView,
-        standingNudgesView,
-        commandPaletteView,
-        helpView,
-        diagnosticsDialogView,
-        extensionsDialogView,
-        doctorDialogView,
-        documentDialogView,
-        permissionsConfirmView,
-        admissionDialogView,
-        sessionTrashConfirmView,
-        sessionCloseConfirmView,
-        providerForgetConfirmView,
-        approvalView,
-        questionView,
+        rt.timelinePickerView,
+        rt.settingsPickerView,
+        rt.secretPromptView,
+        rt.namePromptView,
+        rt.providerFormView,
+        rt.requestOptionsEditorView,
+        rt.preferencesListView,
+        rt.standingNudgesView,
+        rt.commandPaletteView,
+        rt.helpView,
+        rt.diagnosticsDialogView,
+        rt.extensionsDialogView,
+        rt.doctorDialogView,
+        rt.documentDialogView,
+        rt.permissionsConfirmView,
+        rt.admissionDialogView,
+        rt.sessionTrashConfirmView,
+        rt.sessionCloseConfirmView,
+        rt.providerForgetConfirmView,
+        rt.approvalView,
+        rt.questionView,
     ].forEach((view) => registerDialogCard(view.box));
 
-    openInspectDocument = (document) => {
-        diagnosticsGeneration += 1;
+    rt.openInspectDocument = (document) => {
+        rt.diagnosticsGeneration += 1;
         abortProviderHealthCheck();
-        providerHealthGeneration += 1;
-        diagnosticsDialog = undefined;
-        doctorDialog = undefined;
-        extensionsDialog = undefined;
+        rt.providerHealthGeneration += 1;
+        rt.diagnosticsDialog = undefined;
+        rt.doctorDialog = undefined;
+        rt.extensionsDialog = undefined;
         const renderMarkdown = typeof document.markdown === "function"
             ? document.markdown
             : undefined;
-        const columns = documentDialogView.contentWidth();
-        documentDialog = {
+        const columns = rt.documentDialogView.contentWidth();
+        rt.documentDialog = {
             title: document.title,
             text: renderMarkdown === undefined
                 ? document.markdown as string
@@ -2848,7 +2690,7 @@ export async function startTui(
         focusActiveSurface();
     };
 
-    const commandSuggestionsText = new TextRenderable(renderer, {
+    rt.commandSuggestionsText = new TextRenderable(rt.renderer, {
         id: "command-suggestions-text",
         content: "",
         fg: TUI_TEXT,
@@ -2860,22 +2702,22 @@ export async function startTui(
     // surface: a panel shade here reads as a slab wider than the composer it
     // completes. The blank top row separates the strip from a transcript that
     // has filled every available line.
-    const commandSuggestionsBox = new BoxRenderable(renderer, {
+    rt.commandSuggestionsBox = new BoxRenderable(rt.renderer, {
         id: "command-suggestions",
         border: false,
         position: "absolute",
-        ...tuiComposerOverlayInset(appearance),
+        ...tuiComposerOverlayInset(rt.appearance),
         bottom: 7,
         height: 1,
         paddingTop: 1,
-        backgroundColor: theme.background,
+        backgroundColor: rt.theme.background,
         zIndex: 5,
         visible: false,
     });
-    commandSuggestionsBox.add(commandSuggestionsText);
-    composer.onContentChange = renderCommandSuggestions;
+    rt.commandSuggestionsBox.add(rt.commandSuggestionsText);
+    rt.composer.onContentChange = renderCommandSuggestions;
 
-    const jumpMenuText = new TextRenderable(renderer, {
+    rt.jumpMenuText = new TextRenderable(rt.renderer, {
         id: "jump-menu-text",
         content: "",
         fg: TUI_TEXT,
@@ -2885,54 +2727,53 @@ export async function startTui(
     // A quick detour, not a workspace: the menu hangs off the composer at the
     // status row that announces its targets, rather than taking the screen
     // the way the work tab does.
-    const jumpMenuBox = new BoxRenderable(renderer, {
+    rt.jumpMenuBox = new BoxRenderable(rt.renderer, {
         id: "jump-menu",
         border: true,
         borderStyle: "rounded",
-        borderColor: theme.element,
-        focusedBorderColor: theme.element,
+        borderColor: rt.theme.element,
+        focusedBorderColor: rt.theme.element,
         title: " Jump ",
         position: "absolute",
-        left: tuiComposerOverlayInset(appearance).paddingLeft,
+        left: tuiComposerOverlayInset(rt.appearance).paddingLeft,
         width: 40,
         height: 3,
         paddingLeft: 1,
         paddingRight: 1,
-        backgroundColor: theme.panel,
+        backgroundColor: rt.theme.panel,
         zIndex: 5,
         visible: false,
         onMouseDown: (event) => {
-            if (jumpMenu === undefined) return;
-            const lines = jumpMenuLines(jumpMenu, jumpMenuContentWidth());
-            const line = lines[event.y - jumpMenuBox.y - 1];
+            if (rt.jumpMenu === undefined) return;
+            const lines = jumpMenuLines(rt.jumpMenu, jumpMenuContentWidth());
+            const line = lines[event.y - rt.jumpMenuBox.y - 1];
             if (line?.rowIndex === undefined) return;
-            const row = jumpMenu.rows[line.rowIndex];
+            const row = rt.jumpMenu.rows[line.rowIndex];
             if (row !== undefined) runJumpTo(row);
         },
     });
-    jumpMenuBox.add(jumpMenuText);
+    rt.jumpMenuBox.add(rt.jumpMenuText);
 
     /**
      * How many rows the status band takes under the composer. The suggestion
      * strip floats outside the layout flow and has to clear that band, so the
      * margin is kept here rather than read back off the box.
      */
-    let composerMarginRows = 2;
+    rt.composerMarginRows = 2;
     /** Rows the agent notice above the composer is currently drawing. */
-    let agentNoticeRows = 0;
-    let resumeOverlay: ReturnType<typeof createTuiResumeOverlayView>;
+    rt.agentNoticeRows = 0;
     /**
      * A slash typed on a closed session file opens the composer for the few
      * commands that need no worker. Escape puts the notice back.
      */
-    let jsonlCommandMode = false;
+    rt.jsonlCommandMode = false;
 
     function composerSlotHeight(): number {
         // Home holds nothing at the foot of the screen at all.
-        if (isHomeClient(client)) return 0;
-        return isJsonlViewClient(client) && !jsonlCommandMode
-            ? resumeOverlay.surface.height
-            : composerBox.height;
+        if (isHomeClient(rt.client)) return 0;
+        return isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
+            ? rt.resumeOverlay.surface.height
+            : rt.composerBox.height;
     }
 
     /**
@@ -2942,14 +2783,14 @@ export async function startTui(
      * third of the way up a screen with nothing under it.
      */
     function setSurfaceBottomInsets(rows: number): void {
-        workspaceSidebarView.setBottomInset(rows);
-        searchOverlayView.setBottomInset(rows);
+        rt.workspaceSidebarView.setBottomInset(rows);
+        rt.searchOverlayView.setBottomInset(rows);
     }
 
     function setComposerMargin(rows: number): void {
-        composerMarginRows = rows;
-        composerBox.marginBottom = rows;
-        resumeOverlay.surface.marginBottom = rows;
+        rt.composerMarginRows = rows;
+        rt.composerBox.marginBottom = rows;
+        rt.resumeOverlay.surface.marginBottom = rows;
         setSurfaceBottomInsets(composerSlotHeight() + rows);
         positionCommandSuggestions();
     }
@@ -2958,26 +2799,26 @@ export async function startTui(
         // One more than the rows under the strip: `bottom` is where the box's
         // bottom edge sits, so without it the strip's last row lands on the
         // composer's top border instead of the row above it.
-        commandSuggestionsBox.bottom = composerSlotHeight()
-            + composerMarginRows
-            + experimentalTuiHost.bottomInsetRows()
-            + (composerTipText.visible ? 1 : 0)
-            + (quoteText.visible ? 1 : 0)
-            + (heldAddressText.visible ? 1 : 0)
-            + agentNoticeRows
+        rt.commandSuggestionsBox.bottom = composerSlotHeight()
+            + rt.composerMarginRows
+            + rt.experimentalTuiHost.bottomInsetRows()
+            + (rt.composerTipText.visible ? 1 : 0)
+            + (rt.quoteText.visible ? 1 : 0)
+            + (rt.heldAddressText.visible ? 1 : 0)
+            + rt.agentNoticeRows
             + 1;
-        jumpMenuBox.bottom = commandSuggestionsBox.bottom;
+        rt.jumpMenuBox.bottom = rt.commandSuggestionsBox.bottom;
     }
 
-    const modeToastText = new TextRenderable(renderer, {
+    rt.modeToastText = new TextRenderable(rt.renderer, {
         id: "mode-toast-text",
         content: "",
-        fg: theme.text,
-        bg: theme.panel,
+        fg: rt.theme.text,
+        bg: rt.theme.panel,
         width: "100%",
         height: 1,
     });
-    const modeToast = new BoxRenderable(renderer, {
+    rt.modeToast = new BoxRenderable(rt.renderer, {
         id: "mode-toast",
         position: "absolute",
         // Positioned against the shared app, not either pane, with enough
@@ -2990,107 +2831,106 @@ export async function startTui(
         paddingBottom: 1,
         paddingLeft: 2,
         paddingRight: 2,
-        backgroundColor: theme.panel,
+        backgroundColor: rt.theme.panel,
         zIndex: 4,
         visible: false,
     });
-    modeToast.add(modeToastText);
-    let modeToastVersion = 0;
-    let verificationConsole: {
-        readonly requestId: string;
-        readonly subject: string;
-    } | undefined;
+    rt.modeToast.add(rt.modeToastText);
+    rt.modeToastVersion = 0;
 
     const {
         panel: composerBox,
         status: composerStatusText,
         rule: composerRule,
         argumentHint: slashArgumentHint,
-    } = createTuiComposerPanel(renderer, composer, {
-        marginHorizontal: appearance.composerMarginHorizontal,
-        paddingHorizontal: appearance.composerPaddingHorizontal,
-        boundaryColor: appearance.composerBoundaryColor ?? theme.element,
+    } = createTuiComposerPanel(rt.renderer, rt.composer, {
+        marginHorizontal: rt.appearance.composerMarginHorizontal,
+        paddingHorizontal: rt.appearance.composerPaddingHorizontal,
+        boundaryColor: rt.appearance.composerBoundaryColor ?? rt.theme.element,
     });
-    resumeOverlay = createTuiResumeOverlayView(renderer, () => {
+    rt.composerBox = composerBox;
+    rt.composerStatusText = composerStatusText;
+    rt.composerRule = composerRule;
+    rt.slashArgumentHint = slashArgumentHint;
+    rt.resumeOverlay = createTuiResumeOverlayView(rt.renderer, () => {
         resumeJsonlView();
     });
-    let homeState: HomeState = createHomeState(
-        dependencies.homeHasSessions ?? true,
+    rt.homeState = createHomeState(
+        rt.dependencies.homeHasSessions ?? true,
     );
     /**
      * What was typed on home, still growing while the conversation it started
      * is being created. The composer does not exist yet, so nothing else would
      * catch the rest of the sentence.
      */
-    let homeTypedText: string | undefined;
     /**
      * Enter arrived on home before the conversation it started existed. The
      * message is sent as soon as there is a composer holding it.
      */
-    let homeSubmitPending = false;
-    const homeView = createTuiHomeView(renderer, (action) => {
+    rt.homeSubmitPending = false;
+    rt.homeView = createTuiHomeView(rt.renderer, (action) => {
         runHomeAction(action);
     });
-    homeView.applyAppearance({
-        textColor: theme.text,
-        mutedColor: theme.muted,
-        accentColor: theme.accent,
+    rt.homeView.applyAppearance({
+        textColor: rt.theme.text,
+        mutedColor: rt.theme.muted,
+        accentColor: rt.theme.accent,
     });
-    homeView.update(homeState);
-    resumeOverlay.applyAppearance({
-        marginHorizontal: appearance.composerMarginHorizontal,
-        paddingHorizontal: appearance.composerPaddingHorizontal,
-        boundaryColor: appearance.composerBoundaryColor ?? theme.element,
-        backgroundColor: theme.input ?? theme.background,
-        noticeColor: theme.panel,
-        textColor: theme.text,
-        mutedColor: theme.muted,
-        accentColor: theme.accent,
+    rt.homeView.update(rt.homeState);
+    rt.resumeOverlay.applyAppearance({
+        marginHorizontal: rt.appearance.composerMarginHorizontal,
+        paddingHorizontal: rt.appearance.composerPaddingHorizontal,
+        boundaryColor: rt.appearance.composerBoundaryColor ?? rt.theme.element,
+        backgroundColor: rt.theme.input ?? rt.theme.background,
+        noticeColor: rt.theme.panel,
+        textColor: rt.theme.text,
+        mutedColor: rt.theme.muted,
+        accentColor: rt.theme.accent,
     });
-    setSurfaceBottomInsets(composerBox.height + composerMarginRows);
+    setSurfaceBottomInsets(rt.composerBox.height + rt.composerMarginRows);
     // The attention chip at the head of the status row is a click target,
     // and it does what its label says: the hint reads /work, so the click
     // opens the work tab. Width zero means no chip is on screen.
-    let needsYouChipWidth = 0;
-    composerStatusText.onMouseDown = (event) => {
-        if (isWorkerFreeClient(client)) return;
-        if (needsYouChipWidth === 0) return;
-        if (event.x - composerStatusText.x >= needsYouChipWidth) return;
+    rt.needsYouChipWidth = 0;
+    rt.composerStatusText.onMouseDown = (event) => {
+        if (isWorkerFreeClient(rt.client)) return;
+        if (rt.needsYouChipWidth === 0) return;
+        if (event.x - rt.composerStatusText.x >= rt.needsYouChipWidth) return;
         openWorkTab();
     };
-    let composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
-    let requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
+    rt.composerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
+    rt.requestedComposerTextRows = TUI_COMPOSER_MIN_TEXT_ROWS;
     function resizeComposer(requestedRows: number): void {
-        requestedComposerTextRows = requestedRows;
+        rt.requestedComposerTextRows = requestedRows;
         const terminalCap = Math.max(
             TUI_COMPOSER_MIN_TEXT_ROWS,
-            Math.floor(renderer.height / 4),
+            Math.floor(rt.renderer.height / 4),
         );
         const nextRows = Math.min(
             requestedRows,
             TUI_COMPOSER_MAX_TEXT_ROWS,
             terminalCap,
         );
-        if (nextRows === composerTextRows) return;
-        composerTextRows = nextRows;
-        composer.height = nextRows;
-        composerBox.height = tuiComposerPanelRows(nextRows);
-        setSurfaceBottomInsets(composerSlotHeight() + composerMarginRows);
+        if (nextRows === rt.composerTextRows) return;
+        rt.composerTextRows = nextRows;
+        rt.composer.height = nextRows;
+        rt.composerBox.height = tuiComposerPanelRows(nextRows);
+        setSurfaceBottomInsets(composerSlotHeight() + rt.composerMarginRows);
         positionCommandSuggestions();
-        renderer.requestRender();
+        rt.renderer.requestRender();
     }
-    composer.onTypedRowsChange = resizeComposer;
+    rt.composer.onTypedRowsChange = resizeComposer;
 
-    const bodyFocus = new TuiBodyFocusController();
+    rt.bodyFocus = new TuiBodyFocusController();
     // Everything the sidebar sits beside: the conversation and what hangs off
     // it, but not the composer, so the split ends where typing begins.
-    const upper = new BoxRenderable(renderer, {
+    rt.upper = new BoxRenderable(rt.renderer, {
         id: "upper",
         flexGrow: 1,
         flexDirection: "column",
         gap: 1,
     });
-    const app = new BoxRenderable(renderer, {
+    rt.app = new BoxRenderable(rt.renderer, {
         id: "app",
         width: "100%",
         height: "100%",
@@ -3098,49 +2938,49 @@ export async function startTui(
         // The whole screen carries the theme's background. Painting it here
         // rather than under the surfaces that need it is what keeps a strip of
         // a different shade from showing wherever one of them is hidden.
-        backgroundColor: theme.background,
+        backgroundColor: rt.theme.background,
         paddingTop: APP_PADDING_TOP,
         paddingBottom: APP_PADDING_BOTTOM,
         onMouseDrag: (event: MouseEvent) => {
-            bodyFocus.noteDrag();
-            if (!workspaceRailDragging) return;
+            rt.bodyFocus.noteDrag();
+            if (!rt.workspaceRailDragging) return;
             event.preventDefault();
             event.stopPropagation();
             resizeWorkspaceRailAt(event.x);
         },
-        onMouseDragEnd: () => bodyFocus.noteDrag(),
+        onMouseDragEnd: () => rt.bodyFocus.noteDrag(),
         onMouseUp: (event: MouseEvent) => {
-            if (workspaceRailDragging) {
-                workspaceRailDragging = false;
-                workspaceSidebarView.box.borderColor = theme.element;
+            if (rt.workspaceRailDragging) {
+                rt.workspaceRailDragging = false;
+                rt.workspaceSidebarView.box.borderColor = rt.theme.element;
                 event.stopPropagation();
-                if (workspaceRailPreferred !== undefined) {
+                if (rt.workspaceRailPreferred !== undefined) {
                     try {
-                        saveTuiWorkspaceSidebarWidth(workspaceRailPreferred);
+                        saveTuiWorkspaceSidebarWidth(rt.workspaceRailPreferred);
                     } catch {
                         // The rail keeps the width reached in this session.
                     }
                 }
                 return;
             }
-            if (bodyFocus.release(anyOverlayOpen())) {
+            if (rt.bodyFocus.release(anyOverlayOpen())) {
                 // A click in the chat is the keyboard leaving the rail. Without
                 // this the rail keeps its focus mark and its chord block while
                 // the cursor sits in the composer.
-                if (workspaceSidebarFocused) {
-                    workspaceSidebarFocused = false;
+                if (rt.workspaceSidebarFocused) {
+                    rt.workspaceSidebarFocused = false;
                     renderState();
                 }
-                composer.focus();
+                rt.composer.focus();
             }
         },
     });
-    const sidebar = createTuiSidebar({
-        renderer,
-        transcript: upper,
+    rt.sidebar = createTuiSidebar({
+        renderer: rt.renderer,
+        transcript: rt.upper,
         theme: sidebarTheme(),
-        syntaxStyle: markdownStyle,
-        ...(sidebarWidth === undefined ? {} : { initialWidth: sidebarWidth }),
+        syntaxStyle: rt.markdownStyle,
+        ...(rt.sidebarWidth === undefined ? {} : { initialWidth: rt.sidebarWidth }),
         onWidthChanged: (columns) => {
             try {
                 saveTuiSidebarWidth(columns);
@@ -3152,33 +2992,33 @@ export async function startTui(
         onHeaderClick: toggleSidebarHeader,
         onMainHeaderClick: toggleMainHeader,
         onPanelRelease: () => {
-            if (hostedSidebar.pane === undefined || anyOverlayOpen()) return;
+            if (rt.hostedSidebar.pane === undefined || anyOverlayOpen()) return;
             // Pointer input never chooses the addressed agent; Ctrl+G owns
             // that. It does return typing focus after either transcript is
             // clicked or selected, matching the main pane.
-            composer.focus();
+            rt.composer.focus();
             renderState();
         },
         // Clicking the column is how you talk to it: with one seat there is no
         // question who, and typing the name again is the part nobody wants.
         onPanelClick: () => {
-            if (hostedSidebar.pane !== undefined) {
+            if (rt.hostedSidebar.pane !== undefined) {
                 return;
             }
-            const declared = clientExtensionRegistry
-                ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
+            const declared = rt.clientExtensionRegistry
+                ?.experimentalHostedAgentAddressing(rt.hostedSidebar.owner);
             const first = declared?.secondary ?? visibleMentions()[0];
             if (first === undefined) return;
             // Already addressing someone (even with a trailing space): a
             // second click must not stack another mention.
-            if (/(?:^|\s)@\S*\s*$/.test(composer.plainText)) return;
-            composer.setComposerText(
-                composer.plainText.length === 0
+            if (/(?:^|\s)@\S*\s*$/.test(rt.composer.plainText)) return;
+            rt.composer.setComposerText(
+                rt.composer.plainText.length === 0
                     ? `@${first} `
-                    : `${composer.plainText} @${first} `,
+                    : `${rt.composer.plainText} @${first} `,
             );
             setSidebarFocused(true);
-            composer.focus();
+            rt.composer.focus();
             renderCommandSuggestions();
             renderState();
         },
@@ -3207,14 +3047,14 @@ export async function startTui(
             switchToClient(next, undefined, { preserveSidebar: true });
             return;
         }
-        const previousSidebarAgent = hostedSidebar.pane;
+        const previousSidebarAgent = rt.hostedSidebar.pane;
         if (previousSidebarAgent !== undefined) {
             rejectPendingExtensionSettingsFor(
                 previousSidebarAgent.client,
                 new Error("The sidebar agent changed"),
             );
         }
-        await hostedSidebar.adopt({
+        await rt.hostedSidebar.adopt({
             extensionId,
             client: next,
             replaceOwner: replaceSidebarOwner,
@@ -3225,15 +3065,15 @@ export async function startTui(
             signal,
             activate(_attached, previousModeLabel) {
                 rememberOpenPaneGroup();
-                sidebarSessionTitle = undefined;
-                pendingSidebarSessionRename = undefined;
+                rt.sidebarSessionTitle = undefined;
+                rt.pendingSidebarSessionRename = undefined;
                 clearSidebarEntryNodes();
-                sidebar.clear();
-                sidebar.setHeader(undefined);
-                sidebarHeaderVisible = true;
-                sidebar.open();
+                rt.sidebar.clear();
+                rt.sidebar.setHeader(undefined);
+                rt.sidebarHeaderVisible = true;
+                rt.sidebar.open();
                 setSidebarFocused(true);
-                hostedSidebar.start();
+                rt.hostedSidebar.start();
                 requestAgentSettings(next);
                 renderState();
                 if (
@@ -3250,9 +3090,9 @@ export async function startTui(
     }
 
     function focusedAgentClient(): TuiAgentClient {
-        return sidebar.isFocused() && hostedSidebar.pane !== undefined
-            ? hostedSidebar.pane.client
-            : client;
+        return rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined
+            ? rt.hostedSidebar.pane.client
+            : rt.client;
     }
 
     function isCurrentExtensionComposeTarget(
@@ -3260,27 +3100,27 @@ export async function startTui(
     ): boolean {
         return isCurrentTuiExtensionComposeTarget(target, {
             client: focusedAgentClient(),
-            clientGeneration,
-            surfaceGeneration: composeSurfaceGeneration,
-            sessionSwitchPending,
+            clientGeneration: rt.clientGeneration,
+            surfaceGeneration: rt.composeSurfaceGeneration,
+            sessionSwitchPending: rt.sessionSwitchPending,
         });
     }
 
     function focusedAgentState(): TuiState {
-        return sidebar.isFocused() && hostedSidebar.pane !== undefined
-            ? hostedSidebar.pane.state.state
-            : state;
+        return rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined
+            ? rt.hostedSidebar.pane.state.state
+            : rt.state;
     }
 
     /** The settings owned by the agent that opened an application picker. */
     function modelSettingsForAgent(
         target: TuiAgentClient | undefined,
     ): TuiState["modelSettings"] {
-        if (target === undefined || target === client) {
-            return state.modelSettings;
+        if (target === undefined || target === rt.client) {
+            return rt.state.modelSettings;
         }
-        return hostedSidebar.pane?.client === target
-            ? hostedSidebar.pane.state.state.modelSettings
+        return rt.hostedSidebar.pane?.client === target
+            ? rt.hostedSidebar.pane.state.state.modelSettings
             : undefined;
     }
 
@@ -3293,7 +3133,7 @@ export async function startTui(
     function modelSettingsForOpenPicker(
         poolSource?: TuiState["modelSettings"],
     ): TuiState["modelSettings"] {
-        const target = modelSettingsForAgent(settingsPickerAgent);
+        const target = modelSettingsForAgent(rt.settingsPickerAgent);
         return mergeTuiModelPickerSettings(target, poolSource);
     }
 
@@ -3358,14 +3198,14 @@ export async function startTui(
                 HOST_CAPABILITY_SESSION_SCOPED_STATE,
             ) === false
         ) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 "This host does not support session-scoped state, so the dial strip is unavailable.",
             );
             renderState();
             return;
         }
-        const catalog = agentCatalog;
+        const catalog = rt.agentCatalog;
         void target.send({
             type: "get_session_model_settings_history",
             requestId: randomUUID(),
@@ -3392,7 +3232,7 @@ export async function startTui(
             cap: DIAL_HUD_CAP,
             recentCap: DIAL_HUD_RECENT_CAP,
         });
-        dialStrip = openDialStrip(composition, committedDialPair(), {
+        rt.dialStrip = openDialStrip(composition, committedDialPair(), {
             agents: catalog?.agents.map((agent) => agent.name),
             currentAgent: catalog?.worn ?? focusedAgentState().agent?.name,
             agentPostures: Object.fromEntries(
@@ -3416,10 +3256,10 @@ export async function startTui(
         focusActiveSurface();
         if (catalog === undefined) {
             void requestAgentCatalog(target).then((loaded) => {
-                if (dialStrip === undefined || loaded === undefined) return;
+                if (rt.dialStrip === undefined || loaded === undefined) return;
                 const agents = loaded.agents.map((agent) => agent.name);
-                dialStrip = {
-                    ...dialStrip,
+                rt.dialStrip = {
+                    ...rt.dialStrip,
                     agents,
                     agentIndex: Math.max(0, agents.indexOf(loaded.worn)),
                     openedAgent: loaded.worn,
@@ -3452,13 +3292,13 @@ export async function startTui(
      */
     async function openAgentPicker(selectedName?: string): Promise<void> {
         const target = focusedAgentClient();
-        let catalog = agentCatalog;
+        let catalog = rt.agentCatalog;
         if (catalog === undefined) {
             catalog = await requestAgentCatalog(target);
         }
         if (catalog === undefined) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 "This host does not support agents.",
             );
             renderState();
@@ -3468,18 +3308,18 @@ export async function startTui(
             selectedName !== undefined
             && !catalog.agents.some((agent) => agent.name === selectedName)
         ) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `No agent named ${selectedName}; that settings destination is unavailable.`,
             );
             renderState();
             return;
         }
         for (const notice of catalog.notices) {
-            state = appendTuiNotice(state, notice, "soft");
+            rt.state = appendTuiNotice(rt.state, notice, "soft");
         }
         while (true) {
-            const current = agentCatalog ?? catalog;
+            const current = rt.agentCatalog ?? catalog;
             const result = await requestExtensionPicker({
                 title: "Agents",
                 subtitle:
@@ -3513,8 +3353,8 @@ export async function startTui(
                 return;
             }
             if (!agent.writable) {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `${agent.name} is registered by an extension, so its file cannot be written.`,
                 );
                 renderState();
@@ -3531,8 +3371,8 @@ export async function startTui(
                 // The agent file names a pool entry, so a model with no pool
                 // name has nothing to write. Saying so beats writing an id the
                 // format does not carry.
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Name this model in /model before saving it as an agent default.",
                 );
                 renderState();
@@ -3547,8 +3387,8 @@ export async function startTui(
                     ...(pair?.effort === undefined ? {} : { effort: pair.effort }),
                 },
             }).catch(() => undefined);
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${agent.name}: default pair is now ${named}${
                     pair?.effort === undefined ? "" : `·${pair.effort}`
                 }.`,
@@ -3588,15 +3428,15 @@ export async function startTui(
             requestId: randomUUID(),
             name,
         }).catch((error) => {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 error instanceof Error ? error.message : String(error),
             );
             renderState();
         });
         if (focusedAgentState().working) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${name}: queued; applies after the current work.`,
                 "soft",
             );
@@ -3609,40 +3449,40 @@ export async function startTui(
     ): Promise<TuiAgentCatalog | undefined> {
         const requestId = randomUUID();
         return new Promise((resolve) => {
-            pendingAgentCatalogs.set(requestId, resolve);
+            rt.pendingAgentCatalogs.set(requestId, resolve);
             void target.send({ type: "list_agents", requestId }).catch(() => {
-                pendingAgentCatalogs.delete(requestId);
+                rt.pendingAgentCatalogs.delete(requestId);
                 resolve(undefined);
             });
             // A host that answers nothing must not leave /agent hanging.
             setTimeout(() => {
-                if (pendingAgentCatalogs.delete(requestId)) resolve(undefined);
+                if (rt.pendingAgentCatalogs.delete(requestId)) resolve(undefined);
             }, 5_000);
         });
     }
 
     function stopAutoModeAnimation(): void {
-        if (autoModeAnimationTimer !== undefined) {
-            clearInterval(autoModeAnimationTimer);
-            autoModeAnimationTimer = undefined;
+        if (rt.autoModeAnimationTimer !== undefined) {
+            clearInterval(rt.autoModeAnimationTimer);
+            rt.autoModeAnimationTimer = undefined;
         }
-        autoModeAnimationStartedAt = undefined;
+        rt.autoModeAnimationStartedAt = undefined;
     }
 
     function startAutoModeAnimation(): void {
         stopAutoModeAnimation();
-        autoModeAnimationStartedAt = Date.now();
-        autoModeAnimationTimer = setInterval(() => {
+        rt.autoModeAnimationStartedAt = Date.now();
+        rt.autoModeAnimationTimer = setInterval(() => {
             if (
-                shuttingDown
-                || dialStrip === undefined
-                || autoModeAnimationStartedAt === undefined
+                rt.shuttingDown
+                || rt.dialStrip === undefined
+                || rt.autoModeAnimationStartedAt === undefined
             ) {
                 stopAutoModeAnimation();
                 return;
             }
             if (
-                Date.now() - autoModeAnimationStartedAt
+                Date.now() - rt.autoModeAnimationStartedAt
                 >= AUTO_MODE_ANIMATION_DURATION_MS
             ) {
                 stopAutoModeAnimation();
@@ -3653,7 +3493,7 @@ export async function startTui(
 
     function closeDials(): void {
         stopAutoModeAnimation();
-        dialStrip = undefined;
+        rt.dialStrip = undefined;
         renderState();
         focusActiveSurface();
     }
@@ -3666,31 +3506,31 @@ export async function startTui(
      */
     function closeTransientOverlaysForUiRequest(): void {
         stopAutoModeAnimation();
-        dialStrip = undefined;
-        settingsPicker = undefined;
-        standingNudges = undefined;
-        commandPalette = undefined;
-        help = undefined;
-        workTab = undefined;
-        if (workspaceRail === undefined) {
-            workspaceSidebar = undefined;
+        rt.dialStrip = undefined;
+        rt.settingsPicker = undefined;
+        rt.standingNudges = undefined;
+        rt.commandPalette = undefined;
+        rt.help = undefined;
+        rt.workTab = undefined;
+        if (rt.workspaceRail === undefined) {
+            rt.workspaceSidebar = undefined;
         } else {
-            workspaceSidebarFocused = false;
+            rt.workspaceSidebarFocused = false;
         }
-        searchOverlay = undefined;
-        queuedSearch = undefined;
-        workTabView.surface.visible = false;
-        if (workspaceRail === undefined) {
-            workspaceSidebarView.surface.visible = false;
+        rt.searchOverlay = undefined;
+        rt.queuedSearch = undefined;
+        rt.workTabView.surface.visible = false;
+        if (rt.workspaceRail === undefined) {
+            rt.workspaceSidebarView.surface.visible = false;
         }
-        searchOverlayView.surface.visible = false;
-        doctorDialog = undefined;
+        rt.searchOverlayView.surface.visible = false;
+        rt.doctorDialog = undefined;
         abortProviderHealthCheck();
-        diagnosticsDialog = undefined;
-        extensionsDialog = undefined;
-        documentDialog = undefined;
-        jumpMenu = undefined;
-        jumpMenuBox.visible = false;
+        rt.diagnosticsDialog = undefined;
+        rt.extensionsDialog = undefined;
+        rt.documentDialog = undefined;
+        rt.jumpMenu = undefined;
+        rt.jumpMenuBox.visible = false;
     }
 
     /** The pair as the next request will carry it. Nothing reaches the API now. */
@@ -3700,7 +3540,7 @@ export async function startTui(
         permission: string | undefined,
     ): void {
         const target = focusedAgentClient();
-        const opened = dialStrip;
+        const opened = rt.dialStrip;
         closeDials();
         if (opened?.opened === undefined
             || pair.model !== opened.opened.model
@@ -3728,11 +3568,11 @@ export async function startTui(
     }
 
     function setSidebarFocused(focused: boolean): void {
-        if (sidebar.isFocused() !== focused) {
-            composeSurfaceGeneration += 1;
+        if (rt.sidebar.isFocused() !== focused) {
+            rt.composeSurfaceGeneration += 1;
         }
-        sidebar.setFocused(focused);
-        flightRecorder?.record({
+        rt.sidebar.setFocused(focused);
+        rt.flightRecorder?.record({
             type: "focus_changed",
             surface: focused ? "sidebar_composer" : "main_composer",
         });
@@ -3741,15 +3581,15 @@ export async function startTui(
     }
 
     function focusedUiRequest(): UiRequestUpdate | undefined {
-        return sidebar.isFocused() && hostedSidebar.pane !== undefined
-            ? hostedSidebar.pane.state.pendingUiRequest
-            : pendingUiRequest;
+        return rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined
+            ? rt.hostedSidebar.pane.state.pendingUiRequest
+            : rt.pendingUiRequest;
     }
 
     function focusedAbortRequested(): boolean {
-        return sidebar.isFocused() && hostedSidebar.pane !== undefined
-            ? hostedSidebar.pane.state.abortRequested
-            : abortRequested;
+        return rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined
+            ? rt.hostedSidebar.pane.state.abortRequested
+            : rt.abortRequested;
     }
 
     function focusedAgentCanAbort(): boolean {
@@ -3758,23 +3598,23 @@ export async function startTui(
     }
 
     function composerIsAtLeftBoundary(): boolean {
-        const selection = composer.getSelection();
-        return composer.plainText.length === 0 || (
-            composer.cursorOffset === 0
+        const selection = rt.composer.getSelection();
+        return rt.composer.plainText.length === 0 || (
+            rt.composer.cursorOffset === 0
             && (selection === null || selection.start === selection.end)
         );
     }
 
     function abortFocusedAgent(): void {
-        if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
-            hostedSidebar.pane.state.abortRequested = true;
-            hostedSidebar.pane.state.activity = "stopping";
-            void hostedSidebar.pane.client.send({ type: "abort" })
+        if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
+            rt.hostedSidebar.pane.state.abortRequested = true;
+            rt.hostedSidebar.pane.state.activity = "stopping";
+            void rt.hostedSidebar.pane.client.send({ type: "abort" })
                 .catch(reportConnectionError);
             return;
         }
-        abortRequested = true;
-        activity = "stopping";
+        rt.abortRequested = true;
+        rt.activity = "stopping";
         sendCommand({ type: "abort" });
     }
 
@@ -3802,58 +3642,58 @@ export async function startTui(
     }
 
     function visibleMentions(): readonly string[] {
-        const declared = clientExtensionRegistry
-            ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
+        const declared = rt.clientExtensionRegistry
+            ?.experimentalHostedAgentAddressing(rt.hostedSidebar.owner);
         return visibleTuiAgentMentions({
             declared,
-            hasSidebar: hostedSidebar.pane !== undefined,
-            sidebarMention: hostedSidebar.mention,
-            extensionMentions,
+            hasSidebar: rt.hostedSidebar.pane !== undefined,
+            sidebarMention: rt.hostedSidebar.mention,
+            extensionMentions: rt.extensionMentions,
         });
     }
 
     function hostedAgentAddressing(): TuiHostedAgentAddressing {
-        const declared = clientExtensionRegistry
-            ?.experimentalHostedAgentAddressing(hostedSidebar.owner);
+        const declared = rt.clientExtensionRegistry
+            ?.experimentalHostedAgentAddressing(rt.hostedSidebar.owner);
         return resolveTuiHostedAgentAddressing({
             declared,
-            hasSidebar: hostedSidebar.pane !== undefined,
-            sidebarMention: hostedSidebar.mention,
-            sidebarAgentId: hostedSidebar.pane?.agentId,
+            hasSidebar: rt.hostedSidebar.pane !== undefined,
+            sidebarMention: rt.hostedSidebar.mention,
+            sidebarAgentId: rt.hostedSidebar.pane?.agentId,
         });
     }
 
     function sidebarTranscriptWidth(): number {
         return Math.max(
             1,
-            (sidebar.layout() === "sidebar"
-                ? renderer.terminalWidth - 1
-                : sidebar.width()) - 2,
+            (rt.sidebar.layout() === "sidebar"
+                ? rt.renderer.terminalWidth - 1
+                : rt.sidebar.width()) - 2,
         );
     }
 
     function mainTranscriptWidth(): number {
         return Math.max(
             1,
-            renderer.terminalWidth
-                - (sidebar.isShown() ? sidebar.width() + 1 : 0)
+            rt.renderer.terminalWidth
+                - (rt.sidebar.isShown() ? rt.sidebar.width() + 1 : 0)
                 - 4,
         );
     }
 
     function rememberOpenPaneGroup(): void {
-        hostedPanePersistence.remember({
-            mainAgentId: client.agentId,
-            sidebarAgentId: hostedSidebar.pane?.agentId,
-            owner: hostedSidebar.owner,
-            mention: hostedSidebar.mention,
-            statusLabel: hostedSidebar.modeLabel,
-            attachmentLifetime: hostedSidebar.attachmentLifetime,
+        rt.hostedPanePersistence.remember({
+            mainAgentId: rt.client.agentId,
+            sidebarAgentId: rt.hostedSidebar.pane?.agentId,
+            owner: rt.hostedSidebar.owner,
+            mention: rt.hostedSidebar.mention,
+            statusLabel: rt.hostedSidebar.modeLabel,
+            attachmentLifetime: rt.hostedSidebar.attachmentLifetime,
         });
     }
 
-    function forgetPersistedAgentPane(mainAgentId = client.agentId): void {
-        hostedPanePersistence.forget(mainAgentId);
+    function forgetPersistedAgentPane(mainAgentId = rt.client.agentId): void {
+        rt.hostedPanePersistence.forget(mainAgentId);
     }
 
     /**
@@ -3872,10 +3712,10 @@ export async function startTui(
         const markdownNode = entry.kind === "diff"
             ? undefined
             : createTuiMarkdownEntry(
-                renderer,
+                rt.renderer,
                 id,
                 entry,
-                markdownStyle,
+                rt.markdownStyle,
                 // Assistant prose stays readable but yields to the session
                 // chrome and user-authored prompts in the visual hierarchy.
                 entry.kind === "assistant" || entry.kind === "notification"
@@ -3885,23 +3725,23 @@ export async function startTui(
                 streaming,
             );
         const node = entry.kind === "tool"
-            ? createTuiToolRow(renderer, id, entry, inner)
+            ? createTuiToolRow(rt.renderer, id, entry, inner)
             : entry.kind === "tool_header"
-            ? createTuiToolHeader(renderer, id, entry, inner)
+            ? createTuiToolHeader(rt.renderer, id, entry, inner)
             : entry.kind === "user"
-            ? createTuiUserEntry(renderer, id, entry, inner, marked)
+            ? createTuiUserEntry(rt.renderer, id, entry, inner, marked)
             : entry.kind === "diff"
             ? createTuiDiff(
-                renderer,
+                rt.renderer,
                 id,
                 tuiDisplayPath(entry.path),
                 entry.patch,
-                markdownStyle,
+                rt.markdownStyle,
                 inner,
             )
             : entry.kind === "thinking"
-            ? createTuiThinkingWindow(renderer, id, entry, inner)
-            : markdownNode ?? new TextRenderable(renderer, {
+            ? createTuiThinkingWindow(rt.renderer, id, entry, inner)
+            : markdownNode ?? new TextRenderable(rt.renderer, {
                 id,
                 content: renderTuiEntry(entry),
                 width: "100%",
@@ -3914,20 +3754,20 @@ export async function startTui(
         return entry.kind === "user"
             ? node
             : createTuiGutterEntry(
-                renderer,
+                rt.renderer,
                 id,
                 entry,
                 node,
                 marginTop,
                 separated,
                 {
-                    width: tuiGutterWidth(entry, appearance.activityIndent),
-                    separatorVisible: appearance.separatorVisible,
-                    separatorColor: appearance.transcriptSeparatorColor
-                        ?? theme.element,
+                    width: tuiGutterWidth(entry, rt.appearance.activityIndent),
+                    separatorVisible: rt.appearance.separatorVisible,
+                    separatorColor: rt.appearance.transcriptSeparatorColor
+                        ?? rt.theme.element,
                     separatorSpacingBefore:
-                        appearance.separatorSpacingBefore,
-                    separatorSpacingAfter: appearance.separatorSpacingAfter,
+                        rt.appearance.separatorSpacingBefore,
+                    separatorSpacingAfter: rt.appearance.separatorSpacingAfter,
                     ...(marked ? { marked: true } : {}),
                 },
             );
@@ -3938,32 +3778,32 @@ export async function startTui(
         requestPaint = true,
         repaintTheme = false,
     ): void {
-        if (pane !== hostedSidebar.pane) return;
+        if (pane !== rt.hostedSidebar.pane) return;
         const entries = pane.state.state.entries;
         const changedKindAt = entries.findIndex((entry, index) =>
-            sidebarEntryNodes[index] !== undefined
-            && sidebarEntryNodeKinds[index] !== entry.kind
+            rt.sidebarEntryNodes[index] !== undefined
+            && rt.sidebarEntryNodeKinds[index] !== entry.kind
         );
         const retained = changedKindAt === -1
-            ? Math.min(entries.length, sidebarEntryNodes.length)
+            ? Math.min(entries.length, rt.sidebarEntryNodes.length)
             : changedKindAt;
-        const discarded = sidebarEntryNodes.splice(retained);
-        sidebarEntryNodeKinds.splice(retained);
+        const discarded = rt.sidebarEntryNodes.splice(retained);
+        rt.sidebarEntryNodeKinds.splice(retained);
 
         entries.forEach((entry, index) => {
-            const wrapper = sidebarEntryNodes[index];
+            const wrapper = rt.sidebarEntryNodes[index];
             if (wrapper !== undefined) {
                 wrapper.visible = tuiTranscriptEntryIsVisible(entry);
                 if (repaintTheme) {
                     repaintTuiGutterEntry(wrapper, {
-                        separatorColor: appearance.transcriptSeparatorColor
-                            ?? theme.element,
+                        separatorColor: rt.appearance.transcriptSeparatorColor
+                            ?? rt.theme.element,
                     });
                 }
                 const existing = tuiGutterContent(wrapper);
                 if (existing instanceof MarkdownRenderable) {
                     if (repaintTheme) {
-                        existing.syntaxStyle = markdownStyle;
+                        existing.syntaxStyle = rt.markdownStyle;
                         existing.fg = entry.kind === "assistant"
                             || entry.kind === "notification"
                             ? TUI_MUTED
@@ -3981,7 +3821,7 @@ export async function startTui(
                     entry.kind === "diff"
                     && existing instanceof BoxRenderable
                 ) {
-                    if (repaintTheme) repaintTuiDiff(existing, markdownStyle);
+                    if (repaintTheme) repaintTuiDiff(existing, rt.markdownStyle);
                 } else if (
                     entry.kind === "tool"
                     && existing instanceof BoxRenderable
@@ -4003,11 +3843,11 @@ export async function startTui(
                 return;
             }
 
-            const id = `sidebar-entry-${++sidebarEntryGeneration}`;
+            const id = `sidebar-entry-${++rt.sidebarEntryGeneration}`;
             const node = createTuiEntryNode(
                 id,
                 entry,
-                tuiEntryMarginTop(entries, index, entrySpacing),
+                tuiEntryMarginTop(entries, index, rt.entrySpacing),
                 assistantFollowsTools(entries, index),
                 tuiTranscriptEntryStreams(
                     entries,
@@ -4016,10 +3856,10 @@ export async function startTui(
                 ),
             );
             node.visible = entry.kind !== "tool" || entry.hidden !== true;
-            sidebarEntryNodes.push(node);
-            sidebarEntryNodeKinds.push(entry.kind);
+            rt.sidebarEntryNodes.push(node);
+            rt.sidebarEntryNodeKinds.push(entry.kind);
         });
-        sidebar.replaceRendered(sidebarEntryNodes.map((node, index) => ({
+        rt.sidebar.replaceRendered(rt.sidebarEntryNodes.map((node, index) => ({
             node,
             speaker: entries[index]?.kind === "user" ? "you" : "agent",
         })));
@@ -4031,8 +3871,8 @@ export async function startTui(
     }
 
     function repaintSidebarForTheme(): void {
-        sidebar.setTheme(sidebarTheme(), markdownStyle);
-        const pane = hostedSidebar.pane;
+        rt.sidebar.setTheme(sidebarTheme(), rt.markdownStyle);
+        const pane = rt.hostedSidebar.pane;
         if (pane === undefined) return;
         renderSidebarAgent(pane, false, true);
     }
@@ -4041,13 +3881,13 @@ export async function startTui(
         update: AgentUpdate,
         pane: TuiAgentPane<IdentifiedTuiAgentClient>,
     ): void {
-        if (pane !== hostedSidebar.pane) return;
+        if (pane !== rt.hostedSidebar.pane) return;
         if (
             update.type === "ui_request"
             && !(
                 isConfigurationRequiredUiRequestUpdate(update)
-                && activeConfigurationRequest !== undefined
-                && activeConfigurationRequest.requestId !== update.requestId
+                && rt.activeConfigurationRequest !== undefined
+                && rt.activeConfigurationRequest.requestId !== update.requestId
             )
         ) {
             setSidebarFocused(true);
@@ -4064,27 +3904,27 @@ export async function startTui(
         if (
             (update.type === "session_name"
                 || update.type === "session_name_rejected")
-            && update.requestId === pendingSidebarSessionRename?.requestId
+            && update.requestId === rt.pendingSidebarSessionRename?.requestId
         ) {
-            const pending = pendingSidebarSessionRename;
-            pendingSidebarSessionRename = undefined;
+            const pending = rt.pendingSidebarSessionRename;
+            rt.pendingSidebarSessionRename = undefined;
             if (update.type === "session_name") {
-                sidebarSessionTitle = update.name ?? undefined;
+                rt.sidebarSessionTitle = update.name ?? undefined;
                 pane.state.state = appendTuiNotice(
                     pane.state.state,
                     update.name === null
                         ? "session name cleared"
                         : `session renamed: ${update.name}`,
                 );
-                if (workspaceSidebar !== undefined) {
+                if (rt.workspaceSidebar !== undefined) {
                     refreshWorkspaceSidebarRoster();
                 }
             } else {
                 if (
                     pending.commandText !== undefined
-                    && composer.expandedText().length === 0
+                    && rt.composer.expandedText().length === 0
                 ) {
-                    composer.setComposerText(pending.commandText);
+                    rt.composer.setComposerText(pending.commandText);
                 }
                 pane.state.state = appendTuiError(
                     pane.state.state,
@@ -4110,9 +3950,9 @@ export async function startTui(
         }
         if (update.type === "model_settings") {
             settleExtensionModelSettings(update, pane.client);
-            const change = requestedModelChanges.get(update.requestId);
+            const change = rt.requestedModelChanges.get(update.requestId);
             if (change?.target === pane.client) {
-                requestedModelChanges.delete(update.requestId);
+                rt.requestedModelChanges.delete(update.requestId);
             }
             if (
                 change?.target === pane.client
@@ -4128,38 +3968,38 @@ export async function startTui(
                 );
             }
             if (
-                sidebar.isFocused()
+                rt.sidebar.isFocused()
                 && pane.state.state.modelSettings !== undefined
             ) {
                 notifyExtensionSettings(pane.state.state.modelSettings);
             }
             if (
-                settingsPicker?.kind === "model"
-                && settingsPickerAgent === pane.client
+                rt.settingsPicker?.kind === "model"
+                && rt.settingsPickerAgent === pane.client
             ) {
                 const pickerSettings = modelSettingsForOpenPicker(
                     pane.state.state.modelSettings,
                 );
-                settingsPicker = syncTuiModelPicker(settingsPicker, {
+                rt.settingsPicker = syncTuiModelPicker(rt.settingsPicker, {
                     ...(pickerSettings ?? {}),
                     actionOptions: modelPickerActionOptions(pickerSettings),
                 });
             }
         } else if (update.type === "model_settings_rejected") {
             settleExtensionModelSettings(update, pane.client);
-            const change = requestedModelChanges.get(update.requestId);
+            const change = rt.requestedModelChanges.get(update.requestId);
             if (change?.target === pane.client) {
-                requestedModelChanges.delete(update.requestId);
+                rt.requestedModelChanges.delete(update.requestId);
                 pane.state.state = appendTuiError(
                     pane.state.state,
                     rejectionNotice(change.subject, update.reason),
                 );
             }
         } else if (update.type === "permissions") {
-            requestedPermissionChanges.delete(update.requestId);
+            rt.requestedPermissionChanges.delete(update.requestId);
         } else if (update.type === "permissions_rejected") {
-            const subject = requestedPermissionChanges.get(update.requestId);
-            requestedPermissionChanges.delete(update.requestId);
+            const subject = rt.requestedPermissionChanges.get(update.requestId);
+            rt.requestedPermissionChanges.delete(update.requestId);
             if (subject !== undefined) {
                 pane.state.state = appendTuiError(
                     pane.state.state,
@@ -4171,14 +4011,14 @@ export async function startTui(
             retryMissingAgentSettings(pane.client, pane.state.state);
         }
     }
-    upper.add(transcript);
-    upper.add(experimentalTuiHost.transcriptBottom);
-    app.add(experimentalTuiHost.transcriptTop);
-    app.add(sidebar.body);
-    app.add(jumpToBottom);
-    app.add(sidebarJump);
-    app.add(modeToast);
-    const overlayScrim = new BoxRenderable(renderer, {
+    rt.upper.add(rt.transcript);
+    rt.upper.add(rt.experimentalTuiHost.transcriptBottom);
+    rt.app.add(rt.experimentalTuiHost.transcriptTop);
+    rt.app.add(rt.sidebar.body);
+    rt.app.add(rt.jumpToBottom);
+    rt.app.add(rt.sidebarJump);
+    rt.app.add(rt.modeToast);
+    rt.overlayScrim = new BoxRenderable(rt.renderer, {
         id: "overlay-scrim",
         position: "absolute",
         // Stretched from above the app's top padding to below its bottom one.
@@ -4198,14 +4038,14 @@ export async function startTui(
         zIndex: DIALOG_SCRIM_Z_INDEX,
         visible: false,
     });
-    app.add(overlayScrim);
-    app.add(experimentalTuiHost.overlay);
-    upper.add(queuedPromptText);
-    app.add(commandSuggestionsBox);
-    app.add(jumpMenuBox);
-    app.add(approvalView.box);
-    app.add(questionView.box);
-    app.add(timelinePickerView.box);
+    rt.app.add(rt.overlayScrim);
+    rt.app.add(rt.experimentalTuiHost.overlay);
+    rt.upper.add(rt.queuedPromptText);
+    rt.app.add(rt.commandSuggestionsBox);
+    rt.app.add(rt.jumpMenuBox);
+    rt.app.add(rt.approvalView.box);
+    rt.app.add(rt.questionView.box);
+    rt.app.add(rt.timelinePickerView.box);
     // Clicking a row is the pointer's version of ⏎ on it, and hovering is the
     // pointer's version of ↑↓. Each surface only says where its cursor lives;
     // `rowPointer` supplies the behaviour, so the two input paths cannot drift.
@@ -4214,135 +4054,135 @@ export async function startTui(
     // below, and it moves the cursor without activating anything. All three end
     // up at the same cursor, so a change to what a row means has to be made in
     // the surface's key handler, which is the only place all three meet.
-    timelinePickerView.pointer = rowPointer((index) => {
-        if (timelinePicker === undefined) return;
+    rt.timelinePickerView.pointer = rowPointer((index) => {
+        if (rt.timelinePicker === undefined) return;
         // The rewind flow reuses one overlay for two lists. On the action
         // screen the rows are the actions themselves, so there is no cursor to
         // move first; the digit press below carries the choice.
-        if (timelinePicker.screen !== "select") return;
-        timelinePicker = { ...timelinePicker, selectedIndex: index };
+        if (rt.timelinePicker.screen !== "select") return;
+        rt.timelinePicker = { ...rt.timelinePicker, selectedIndex: index };
     });
-    settingsPickerView.pointer = rowPointer((index) => {
-        if (settingsPicker === undefined) return;
-        settingsPicker = moveTuiSettingsPickerPointer(settingsPicker, index);
+    rt.settingsPickerView.pointer = rowPointer((index) => {
+        if (rt.settingsPicker === undefined) return;
+        rt.settingsPicker = moveTuiSettingsPickerPointer(rt.settingsPicker, index);
     });
-    settingsPickerView.onTab = (tab) => {
+    rt.settingsPickerView.onTab = (tab) => {
         // The strip is on screen on the connect pane too, and a chip on it
         // leaves that pane for the collection it names.
-        const pane = settingsPicker?.kind === "provider"
-            ? settingsPicker.parent
-            : settingsPicker;
+        const pane = rt.settingsPicker?.kind === "provider"
+            ? rt.settingsPicker.parent
+            : rt.settingsPicker;
         if (pane === undefined || pane.kind !== "model") {
             return;
         }
-        settingsPicker = switchedModelTab(pane, tab);
+        rt.settingsPicker = switchedModelTab(pane, tab);
         renderState();
     };
-    settingsPickerView.onConfigure = () => {
-        if (settingsPicker?.kind === "provider") return;
-        if (settingsPicker?.kind !== "model") return;
-        openProviderPicker(settingsPicker);
+    rt.settingsPickerView.onConfigure = () => {
+        if (rt.settingsPicker?.kind === "provider") return;
+        if (rt.settingsPicker?.kind !== "model") return;
+        openProviderPicker(rt.settingsPicker);
     };
-    preferencesListView.pointer = rowPointer((index) => {
-        if (preferencesList === undefined) return;
-        preferencesList = { ...preferencesList, selectedIndex: index };
+    rt.preferencesListView.pointer = rowPointer((index) => {
+        if (rt.preferencesList === undefined) return;
+        rt.preferencesList = { ...rt.preferencesList, selectedIndex: index };
     });
-    commandPaletteView.pointer = rowPointer((index) => {
-        if (commandPalette === undefined) return;
-        commandPalette = { ...commandPalette, selectedIndex: index };
+    rt.commandPaletteView.pointer = rowPointer((index) => {
+        if (rt.commandPalette === undefined) return;
+        rt.commandPalette = { ...rt.commandPalette, selectedIndex: index };
     });
-    helpView.pointer = rowPointer((index) => {
-        if (help === undefined) return;
-        help = { ...help, selectedIndex: index };
+    rt.helpView.pointer = rowPointer((index) => {
+        if (rt.help === undefined) return;
+        rt.help = { ...rt.help, selectedIndex: index };
     });
     // The approval and question dialogs are answered by number, not by a
     // moving highlight, so a click sends the row's own digit.
-    approvalView.pointer = rowPointer(() => {}, "digit");
-    questionView.pointer = rowPointer(() => {}, "digit");
+    rt.approvalView.pointer = rowPointer(() => {}, "digit");
+    rt.questionView.pointer = rowPointer(() => {}, "digit");
     // The pane windows itself around the cursor, so the wheel moves the cursor
     // and lets the window follow, the same way ctrl+d and ctrl+u do.
-    settingsPickerView.box.onMouseScroll = (event) => {
+    rt.settingsPickerView.box.onMouseScroll = (event) => {
         const scroll = event.scroll;
-        if (settingsPicker === undefined || scroll === undefined) return;
-        const transition = handleTuiSettingsPickerScroll(settingsPicker, scroll);
+        if (rt.settingsPicker === undefined || scroll === undefined) return;
+        const transition = handleTuiSettingsPickerScroll(rt.settingsPicker, scroll);
         if (!transition.handled) return;
         event.preventDefault();
         event.stopPropagation();
         applySettingsPickerTransition(transition);
     };
-    app.add(settingsPickerView.box);
-    app.add(secretPromptView.box);
-    app.add(namePromptView.surface);
-    app.add(providerFormView.surface);
-    app.add(requestOptionsEditorView.surface);
+    rt.app.add(rt.settingsPickerView.box);
+    rt.app.add(rt.secretPromptView.box);
+    rt.app.add(rt.namePromptView.surface);
+    rt.app.add(rt.providerFormView.surface);
+    rt.app.add(rt.requestOptionsEditorView.surface);
     // Every windowed overlay takes the wheel, not just the one it was built for
     // first. The handlers are the same three lines because the movement itself
     // lives in list-window.ts.
-    preferencesListView.box.onMouseScroll = (event) => {
-        if (preferencesList === undefined || event.scroll === undefined) return;
+    rt.preferencesListView.box.onMouseScroll = (event) => {
+        if (rt.preferencesList === undefined || event.scroll === undefined) return;
         const transition = handleTuiPreferencesListScroll(
-            preferencesList,
+            rt.preferencesList,
             event.scroll,
         );
         if (!transition.handled) return;
         event.preventDefault();
         event.stopPropagation();
-        preferencesList = transition.state;
+        rt.preferencesList = transition.state;
         renderState();
     };
-    standingNudgesView.box.onMouseScroll = (event) => {
-        if (standingNudges === undefined || event.scroll === undefined) return;
-        if (standingNudgesView.scroll(event.scroll)) {
+    rt.standingNudgesView.box.onMouseScroll = (event) => {
+        if (rt.standingNudges === undefined || event.scroll === undefined) return;
+        if (rt.standingNudgesView.scroll(event.scroll)) {
             event.preventDefault();
             event.stopPropagation();
             return;
         }
         const transition = handleTuiStandingNudgesScroll(
-            standingNudges,
+            rt.standingNudges,
             event.scroll,
         );
         if (!transition.handled) return;
         event.preventDefault();
         event.stopPropagation();
-        standingNudges = transition.state;
+        rt.standingNudges = transition.state;
         renderState();
     };
-    commandPaletteView.box.onMouseScroll = (event) => {
-        if (commandPalette === undefined || event.scroll === undefined) return;
+    rt.commandPaletteView.box.onMouseScroll = (event) => {
+        if (rt.commandPalette === undefined || event.scroll === undefined) return;
         const transition = handleTuiCommandPaletteScroll(
-            commandPalette,
+            rt.commandPalette,
             event.scroll,
         );
         if (!transition.handled) return;
         event.preventDefault();
         event.stopPropagation();
-        commandPalette = transition.state;
+        rt.commandPalette = transition.state;
         renderState();
     };
-    helpView.box.onMouseScroll = (event) => {
-        if (help === undefined || event.scroll === undefined) return;
-        const transition = handleTuiHelpScroll(help, event.scroll);
+    rt.helpView.box.onMouseScroll = (event) => {
+        if (rt.help === undefined || event.scroll === undefined) return;
+        const transition = handleTuiHelpScroll(rt.help, event.scroll);
         if (!transition.handled) return;
         event.preventDefault();
         event.stopPropagation();
-        help = transition.state;
+        rt.help = transition.state;
         renderState();
     };
-    app.add(preferencesListView.surface);
-    app.add(standingNudgesView.surface);
-    app.add(commandPaletteView.surface);
+    rt.app.add(rt.preferencesListView.surface);
+    rt.app.add(rt.standingNudgesView.surface);
+    rt.app.add(rt.commandPaletteView.surface);
     // Hover moves the cursor and a click acts on it, the same as every other
     // overlay: a row the arrows can reach is a row the mouse can reach.
-    workTabView.pointer = {
+    rt.workTabView.pointer = {
         hover: (rowId) => {
-            if (workTab === undefined || workTab.selectedId === rowId) return;
-            workTab = { ...workTab, selectedId: rowId };
+            if (rt.workTab === undefined || rt.workTab.selectedId === rowId) return;
+            rt.workTab = { ...rt.workTab, selectedId: rowId };
             renderState();
         },
         activate: (rowId) => {
-            if (workTab === undefined) return;
-            const open = { ...workTab, selectedId: rowId };
-            workTab = open;
+            if (rt.workTab === undefined) return;
+            const open = { ...rt.workTab, selectedId: rowId };
+            rt.workTab = open;
             const action = workTabAction(open.index, rowId);
             if (action !== undefined) runWorkTabAction(open, action);
         },
@@ -4350,12 +4190,12 @@ export async function startTui(
     // Hover moves the cursor and a click activates the row it landed on, the
     // same as every other list: a row the arrows can reach is a row the mouse
     // can reach.
-    workspaceSidebarView.pointer = {
+    rt.workspaceSidebarView.pointer = {
         hover: (rowId) => {
             if (focusedUiRequest() !== undefined) return;
-            if (workspaceSidebar === undefined) return;
-            if (workspaceSidebar.selectedId === rowId) return;
-            workspaceSidebar = { ...workspaceSidebar, selectedId: rowId };
+            if (rt.workspaceSidebar === undefined) return;
+            if (rt.workspaceSidebar.selectedId === rowId) return;
+            rt.workspaceSidebar = { ...rt.workspaceSidebar, selectedId: rowId };
             renderState();
         },
         activate: (rowId) => {
@@ -4363,63 +4203,63 @@ export async function startTui(
             // visible for context, but its dimmed controls must not queue a
             // hidden picker or start a session transition behind the request.
             if (focusedUiRequest() !== undefined) return;
-            if (workspaceSidebar === undefined) return;
+            if (rt.workspaceSidebar === undefined) return;
             const headerAction = workspaceHeaderAction(rowId);
             if (headerAction !== undefined) {
                 runWorkspaceSidebarAction(headerAction);
                 return;
             }
-            const open = { ...workspaceSidebar, selectedId: rowId };
-            workspaceSidebar = open;
+            const open = { ...rt.workspaceSidebar, selectedId: rowId };
+            rt.workspaceSidebar = open;
             const action = openWorkspaceSelection(open, rowId);
             if (action !== undefined) runWorkspaceSidebarAction(action);
         },
     };
-    workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
-        const occupied = workspaceSidebarView.railColumns();
+    rt.workspaceSidebarView.box.onMouseDown = (event: MouseEvent) => {
+        const occupied = rt.workspaceSidebarView.railColumns();
         if (
             occupied === undefined
             || event.x !== occupied - 1
         ) return;
         event.preventDefault();
         event.stopPropagation();
-        workspaceRailDragging = true;
-        workspaceSidebarView.box.borderColor = theme.accent;
+        rt.workspaceRailDragging = true;
+        rt.workspaceSidebarView.box.borderColor = rt.theme.accent;
     };
-    searchOverlayView.pointer = {
+    rt.searchOverlayView.pointer = {
         hover: (rowId) => {
             const selected = searchSelectionOf(rowId);
-            if (searchOverlay === undefined || selected === undefined) return;
-            searchOverlay = { ...searchOverlay, selected };
+            if (rt.searchOverlay === undefined || selected === undefined) return;
+            rt.searchOverlay = { ...rt.searchOverlay, selected };
             renderState();
         },
         activate: (rowId) => {
             const selected = searchSelectionOf(rowId);
-            if (searchOverlay === undefined || selected === undefined) return;
-            searchOverlay = { ...searchOverlay, selected };
-            const action = openSelected(searchOverlay);
+            if (rt.searchOverlay === undefined || selected === undefined) return;
+            rt.searchOverlay = { ...rt.searchOverlay, selected };
+            const action = openSelected(rt.searchOverlay);
             if (action !== undefined) runSearchOverlayAction(action);
         },
     };
     // The card windows itself around the cursor, so a wheel that moved the
     // window on its own would leave enter pointing at a row off screen.
-    workTabView.box.onMouseScroll = (event) => {
-        if (workTab === undefined || event.scroll === undefined) return;
-        const rows = workTab.index.rows;
-        const at = rows.findIndex((row) => row.id === workTab?.selectedId);
+    rt.workTabView.box.onMouseScroll = (event) => {
+        if (rt.workTab === undefined || event.scroll === undefined) return;
+        const rows = rt.workTab.index.rows;
+        const at = rows.findIndex((row) => row.id === rt.workTab?.selectedId);
         const next = wheelCursor(Math.max(0, at), rows.length, event.scroll);
         const selectedId = next === undefined ? undefined : rows[next]?.id;
         if (selectedId === undefined) return;
         event.preventDefault();
         event.stopPropagation();
-        workTab = { ...workTab, selectedId };
+        rt.workTab = { ...rt.workTab, selectedId };
         renderState();
     };
-    workspaceSidebarView.box.onMouseScroll = (event) => {
-        if (workspaceSidebar === undefined || event.scroll === undefined) return;
-        const open = workspaceSidebar;
+    rt.workspaceSidebarView.box.onMouseScroll = (event) => {
+        if (rt.workspaceSidebar === undefined || event.scroll === undefined) return;
+        const open = rt.workspaceSidebar;
         const rows = workspaceSidebarLayout(open, {
-            columns: renderer.width,
+            columns: rt.renderer.width,
             now: new Date(),
         }).selectable;
         const at = rows.indexOf(open.selectedId ?? "");
@@ -4428,15 +4268,15 @@ export async function startTui(
         if (selectedId === undefined) return;
         event.preventDefault();
         event.stopPropagation();
-        workspaceSidebar = { ...open, selectedId };
+        rt.workspaceSidebar = { ...open, selectedId };
         renderState();
     };
-    searchOverlayView.box.onMouseScroll = (event) => {
-        if (searchOverlay === undefined || event.scroll === undefined) return;
-        const selections = searchSelections(searchOverlay);
+    rt.searchOverlayView.box.onMouseScroll = (event) => {
+        if (rt.searchOverlay === undefined || event.scroll === undefined) return;
+        const selections = searchSelections(rt.searchOverlay);
         const at = selections.findIndex((candidate) =>
-            candidate.sessionId === searchOverlay?.selected?.sessionId
-            && candidate.hitIndex === searchOverlay.selected.hitIndex);
+            candidate.sessionId === rt.searchOverlay?.selected?.sessionId
+            && candidate.hitIndex === rt.searchOverlay.selected.hitIndex);
         const next = wheelCursor(
             Math.max(0, at),
             selections.length,
@@ -4446,38 +4286,38 @@ export async function startTui(
         if (selected === undefined) return;
         event.preventDefault();
         event.stopPropagation();
-        searchOverlay = { ...searchOverlay, selected };
+        rt.searchOverlay = { ...rt.searchOverlay, selected };
         renderState();
     };
-    app.add(workTabView.surface);
-    app.add(workspaceSidebarView.surface);
-    app.add(searchOverlayView.surface);
-    app.add(helpView.box);
-    app.add(diagnosticsDialogView.box);
-    app.add(extensionsDialogView.box);
-    app.add(doctorDialogView.box);
-    app.add(documentDialogView.box);
-    app.add(permissionsConfirmView.box);
-    app.add(admissionDialogView.surface);
-    app.add(sessionTrashConfirmView.surface);
-    app.add(sessionCloseConfirmView.surface);
-    app.add(providerForgetConfirmView.surface);
-    app.add(composerTipText);
-    app.add(experimentalTuiHost.footer);
-    app.add(experimentalTuiHost.composerAdornment);
+    rt.app.add(rt.workTabView.surface);
+    rt.app.add(rt.workspaceSidebarView.surface);
+    rt.app.add(rt.searchOverlayView.surface);
+    rt.app.add(rt.helpView.box);
+    rt.app.add(rt.diagnosticsDialogView.box);
+    rt.app.add(rt.extensionsDialogView.box);
+    rt.app.add(rt.doctorDialogView.box);
+    rt.app.add(rt.documentDialogView.box);
+    rt.app.add(rt.permissionsConfirmView.box);
+    rt.app.add(rt.admissionDialogView.surface);
+    rt.app.add(rt.sessionTrashConfirmView.surface);
+    rt.app.add(rt.sessionCloseConfirmView.surface);
+    rt.app.add(rt.providerForgetConfirmView.surface);
+    rt.app.add(rt.composerTipText);
+    rt.app.add(rt.experimentalTuiHost.footer);
+    rt.app.add(rt.experimentalTuiHost.composerAdornment);
     // Pinned beside the composer, not written into the transcript: a mode the
     // transcript announces is a mode that scrolls out of sight.
-    app.add(heldAddressText);
-    app.add(dialCard);
-    app.add(homeView.surface);
-    app.add(agentNoticeText);
-    app.add(composerBox);
-    app.add(resumeOverlay.surface);
-    app.add(statusBand);
-    renderer.root.add(app);
-    clientSurfaceReady = true;
-    composer.focus();
-    flightRecorder?.record({
+    rt.app.add(rt.heldAddressText);
+    rt.app.add(rt.dialCard);
+    rt.app.add(rt.homeView.surface);
+    rt.app.add(rt.agentNoticeText);
+    rt.app.add(rt.composerBox);
+    rt.app.add(rt.resumeOverlay.surface);
+    rt.app.add(rt.statusBand);
+    rt.renderer.root.add(rt.app);
+    rt.clientSurfaceReady = true;
+    rt.composer.focus();
+    rt.flightRecorder?.record({
         type: "focus_changed",
         surface: "main_composer",
     });
@@ -4487,59 +4327,59 @@ export async function startTui(
     // every `data` listener the same chunk, so this observes without
     // consuming, which is the only way to see these: the key parser drops the
     // focus sequences before any keypress handler runs.
-    const watchTerminalFocus = (chunk: Buffer | string): void => {
+    rt.watchTerminalFocus = (chunk: Buffer | string): void => {
         const focus = parseTerminalFocusEvent(
             typeof chunk === "string" ? chunk : chunk.toString("utf8"),
         );
-        if (focus !== undefined) terminalFocused = focus === "focus_in";
+        if (focus !== undefined) rt.terminalFocused = focus === "focus_in";
     };
-    process.stdin.on("data", watchTerminalFocus);
+    process.stdin.on("data", rt.watchTerminalFocus);
 
-    const stopWatchingTerminal = watchTerminalLoss(() => renderer.destroy());
+    rt.stopWatchingTerminal = watchTerminalLoss(() => rt.renderer.destroy());
 
-    renderer.on(CliRenderEvents.DESTROY, () => {
-        stopWatchingTerminal();
-        flightRecorder?.record({ type: "renderer_destroyed" });
-        shuttingDown = true;
+    rt.renderer.on(CliRenderEvents.DESTROY, () => {
+        rt.stopWatchingTerminal();
+        rt.flightRecorder?.record({ type: "renderer_destroyed" });
+        rt.shuttingDown = true;
         stopAutoModeAnimation();
-        renderCoalescer.stop();
-        clearInterval(statusTimer);
-        stopWatchingBackgroundAgents?.();
-        stopWatchingBackgroundAgents = undefined;
-        stopWatchingWorkIndex?.();
-        stopWatchingWorkIndex = undefined;
-        disposeSkillCommands();
-        disposeSkillCommands = () => {};
-        pendingSkillInvocations.clear();
-        process.stdin.off("data", watchTerminalFocus);
+        rt.renderCoalescer.stop();
+        clearInterval(rt.statusTimer);
+        rt.stopWatchingBackgroundAgents?.();
+        rt.stopWatchingBackgroundAgents = undefined;
+        rt.stopWatchingWorkIndex?.();
+        rt.stopWatchingWorkIndex = undefined;
+        rt.disposeSkillCommands();
+        rt.disposeSkillCommands = () => {};
+        rt.pendingSkillInvocations.clear();
+        process.stdin.off("data", rt.watchTerminalFocus);
         writeTerminal(FOCUS_REPORTING_OFF);
-        const picker = pendingExtensionPicker;
-        pendingExtensionPicker = undefined;
+        const picker = rt.pendingExtensionPicker;
+        rt.pendingExtensionPicker = undefined;
         picker?.removeAbortListener();
         picker?.resolve({ outcome: "cancelled" });
-        for (const pending of pendingExtensionSettings.values()) {
+        for (const pending of rt.pendingExtensionSettings.values()) {
             pending.removeAbortListener();
             pending.reject(new Error("TUI is closing"));
         }
-        pendingExtensionSettings.clear();
-        const attachedSidebar = hostedSidebar.release();
-        void clientExtensionHost.close()
+        rt.pendingExtensionSettings.clear();
+        const attachedSidebar = rt.hostedSidebar.release();
+        void rt.clientExtensionHost.close()
             .catch(() => undefined)
-            .then(() => experimentalTuiHost.close())
+            .then(() => rt.experimentalTuiHost.close())
             .then(async () => {
-                await stopClientForShutdown(client);
+                await stopClientForShutdown(rt.client);
                 if (
                     attachedSidebar !== undefined
-                    && attachedSidebar.agentId !== client.agentId
+                    && attachedSidebar.agentId !== rt.client.agentId
                 ) {
                     await stopClientForShutdown(attachedSidebar.client);
                 }
             })
             .then(() => {
-                finished.resolve(
-                    client.agentId === undefined
+                rt.finished.resolve(
+                    rt.client.agentId === undefined
                         ? {}
-                        : { agentId: client.agentId },
+                        : { agentId: rt.client.agentId },
                 );
             });
     });
@@ -4547,18 +4387,18 @@ export async function startTui(
     /** The column's share of whichever theme is current. */
     function sidebarTheme() {
         return {
-            handle: tuiHandleColor(theme),
-            handleActive: tuiHandleActiveColor(theme),
-            muted: theme.muted,
-            text: theme.text,
-            focus: theme.focus,
-            inactive: theme.inactive,
+            handle: tuiHandleColor(rt.theme),
+            handleActive: tuiHandleActiveColor(rt.theme),
+            muted: rt.theme.muted,
+            text: rt.theme.text,
+            focus: rt.theme.focus,
+            inactive: rt.theme.inactive,
         };
     }
 
-    const renderCoalescer = createRenderCoalescer({ render: renderState });
+    rt.renderCoalescer = createRenderCoalescer({ render: renderState });
 
-    renderer.on(CliRenderEvents.FRAME, () => {
+    rt.renderer.on(CliRenderEvents.FRAME, () => {
         settleTranscriptScrollState();
         measureMaterializedTranscriptEntries();
         // Materializing and releasing both write the nodes and the spacers
@@ -4569,89 +4409,89 @@ export async function startTui(
         // Moving it in the same frame would release the row the scroll is
         // about to reach.
         if (
-            pendingSearchTarget === undefined
+            rt.pendingSearchTarget === undefined
             && !maybeSnapTranscriptWindowToTail()
             && !maybeMaterializeEarlierTranscriptEntries()
             && !maybeMaterializeLaterTranscriptEntries()
         ) {
             maybeEvictTranscriptEntries();
         }
-        if (pendingTranscriptScrollAnchor !== undefined) {
+        if (rt.pendingTranscriptScrollAnchor !== undefined) {
             // The rows that just arrived have no position until a layout runs,
             // and the frame about to be painted is the one that would show
             // them in the wrong place.
-            renderer.root.calculateLayout();
+            rt.renderer.root.calculateLayout();
             applyTranscriptScrollAnchor();
         }
         showSearchTarget();
     });
 
-    const statusTimer = setInterval(() => {
+    rt.statusTimer = setInterval(() => {
         renderStatus();
         refreshTimedSurfaces();
-    }, activityAnimation === "shimmer"
-        ? activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
+    }, rt.activityAnimation === "shimmer"
+        ? rt.activityAnimationInterval ?? SHIMMER_FRAME_INTERVAL_MS
         : STATUS_REFRESH_INTERVAL_MS);
-    watchBackgroundAgents(dependencies.client);
-    watchWorkIndex(dependencies.client);
+    watchBackgroundAgents(rt.dependencies.client);
+    watchWorkIndex(rt.dependencies.client);
     // Asked for once, at startup: a terminal that answers reports every change
     // from here on, and one that does not leaves `terminalFocused` true, which
     // is the quiet default.
     writeTerminal(FOCUS_REPORTING_ON);
 
-    renderer.on(CliRenderEvents.RESIZE, () => {
-        overlayScrim.width = renderer.width;
-        appearance = fitTuiAppearance(configuredAppearance, renderer.width);
-        composerContentIndent = tuiComposerContentIndent(appearance);
-        composerHorizontalInset = composerContentIndent * 2;
-        composerBox.marginLeft = appearance.composerMarginHorizontal;
-        composerBox.marginRight = appearance.composerMarginHorizontal;
-        composerBox.paddingLeft = appearance.composerPaddingHorizontal;
-        composerBox.paddingRight = appearance.composerPaddingHorizontal;
-        resumeOverlay.applyAppearance({
-            marginHorizontal: appearance.composerMarginHorizontal,
-            paddingHorizontal: appearance.composerPaddingHorizontal,
-            boundaryColor: appearance.composerBoundaryColor ?? theme.element,
-            backgroundColor: theme.input ?? theme.background,
-            noticeColor: theme.panel,
-            textColor: theme.text,
-            mutedColor: theme.muted,
-            accentColor: theme.accent,
+    rt.renderer.on(CliRenderEvents.RESIZE, () => {
+        rt.overlayScrim.width = rt.renderer.width;
+        rt.appearance = fitTuiAppearance(rt.configuredAppearance, rt.renderer.width);
+        rt.composerContentIndent = tuiComposerContentIndent(rt.appearance);
+        rt.composerHorizontalInset = rt.composerContentIndent * 2;
+        rt.composerBox.marginLeft = rt.appearance.composerMarginHorizontal;
+        rt.composerBox.marginRight = rt.appearance.composerMarginHorizontal;
+        rt.composerBox.paddingLeft = rt.appearance.composerPaddingHorizontal;
+        rt.composerBox.paddingRight = rt.appearance.composerPaddingHorizontal;
+        rt.resumeOverlay.applyAppearance({
+            marginHorizontal: rt.appearance.composerMarginHorizontal,
+            paddingHorizontal: rt.appearance.composerPaddingHorizontal,
+            boundaryColor: rt.appearance.composerBoundaryColor ?? rt.theme.element,
+            backgroundColor: rt.theme.input ?? rt.theme.background,
+            noticeColor: rt.theme.panel,
+            textColor: rt.theme.text,
+            mutedColor: rt.theme.muted,
+            accentColor: rt.theme.accent,
         });
-        dialCard.marginLeft = appearance.composerMarginHorizontal;
-        dialCard.marginRight = appearance.composerMarginHorizontal;
-        dialCard.paddingLeft = appearance.composerPaddingHorizontal + 1;
-        dialCard.paddingRight = appearance.composerPaddingHorizontal + 1;
-        statusBand.paddingLeft = composerContentIndent;
-        statusBand.paddingRight = composerContentIndent;
-        const suggestionInset = tuiComposerOverlayInset(appearance);
-        commandSuggestionsBox.left = suggestionInset.left;
-        commandSuggestionsBox.right = suggestionInset.right;
-        commandSuggestionsBox.paddingLeft = suggestionInset.paddingLeft;
-        commandSuggestionsBox.paddingRight = suggestionInset.paddingRight;
-        transcript.content.paddingLeft = appearance.transcriptPaddingLeft;
-        transcript.wrapper.paddingRight = appearance.transcriptPaddingRight;
-        sidebar.refit();
+        rt.dialCard.marginLeft = rt.appearance.composerMarginHorizontal;
+        rt.dialCard.marginRight = rt.appearance.composerMarginHorizontal;
+        rt.dialCard.paddingLeft = rt.appearance.composerPaddingHorizontal + 1;
+        rt.dialCard.paddingRight = rt.appearance.composerPaddingHorizontal + 1;
+        rt.statusBand.paddingLeft = rt.composerContentIndent;
+        rt.statusBand.paddingRight = rt.composerContentIndent;
+        const suggestionInset = tuiComposerOverlayInset(rt.appearance);
+        rt.commandSuggestionsBox.left = suggestionInset.left;
+        rt.commandSuggestionsBox.right = suggestionInset.right;
+        rt.commandSuggestionsBox.paddingLeft = suggestionInset.paddingLeft;
+        rt.commandSuggestionsBox.paddingRight = suggestionInset.paddingRight;
+        rt.transcript.content.paddingLeft = rt.appearance.transcriptPaddingLeft;
+        rt.transcript.wrapper.paddingRight = rt.appearance.transcriptPaddingRight;
+        rt.sidebar.refit();
         if (transcriptFollowsBottom()) {
-            pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+            rt.pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
         } else {
             captureTranscriptScrollAnchor();
         }
-        resizeComposer(requestedComposerTextRows);
+        resizeComposer(rt.requestedComposerTextRows);
         renderState();
     });
-    renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
+    rt.renderer.on(CliRenderEvents.SELECTION, (selection: Selection) => {
         const uiRequest = focusedUiRequest();
         const copyableNodes = uiRequest !== undefined
                 && isToolApprovalUiRequestUpdate(uiRequest)
-            ? [approvalView.detailsText]
+            ? [rt.approvalView.detailsText]
             : uiRequest !== undefined
                     && isUserQuestionUiRequestUpdate(uiRequest)
-                ? [questionView.detailsText]
-                : entryNodes;
+                ? [rt.questionView.detailsText]
+                : rt.entryNodes;
         const quotable = [
-            ...state.entries.flatMap((entry, index) => {
-                const node = entryNodes[index];
+            ...rt.state.entries.flatMap((entry, index) => {
+                const node = rt.entryNodes[index];
                 return node === undefined ? [] : [{
                     node,
                     // Quoting the user's own words back is a different act
@@ -4660,7 +4500,7 @@ export async function startTui(
                     speaker: entry.kind === "user" ? "you" : "agent",
                 }];
             }),
-            ...sidebar.blocks(),
+            ...rt.sidebar.blocks(),
         ];
         if (
             isTranscriptSelection(selection, [
@@ -4668,19 +4508,19 @@ export async function startTui(
                 // transcript text. The textarea owns the highlight; this
                 // gate only decides whether the selected text may reach the
                 // clipboard.
-                composer,
+                rt.composer,
                 ...copyableNodes,
-                ...sidebar.blocks().map((block) => block.node),
+                ...rt.sidebar.blocks().map((block) => block.node),
                 // An extension view is text on the same screen, so the same
                 // drag has to copy it. The slot is the whole boundary: the
                 // selection walks up to it from whatever line it landed on.
-                experimentalTuiHost.overlay,
-                experimentalTuiHost.transcriptTop,
-                experimentalTuiHost.transcriptBottom,
-                diagnosticsDialogView.box,
-                doctorDialogView.box,
-                extensionsDialogView.box,
-                documentDialogView.box,
+                rt.experimentalTuiHost.overlay,
+                rt.experimentalTuiHost.transcriptTop,
+                rt.experimentalTuiHost.transcriptBottom,
+                rt.diagnosticsDialogView.box,
+                rt.doctorDialogView.box,
+                rt.extensionsDialogView.box,
+                rt.documentDialogView.box,
             ])
         ) {
             void copyTranscriptSelection(selection);
@@ -4695,12 +4535,12 @@ export async function startTui(
             visibleMentions().length > 0 && speaker !== undefined
             && selected.trim().length > 0
         ) {
-            pendingQuote = { source: speaker, text: selected };
+            rt.pendingQuote = { source: speaker, text: selected };
             // A drag leaves the composer unfocused, which is right when the
             // selection was only a copy. It has just become the start of a
             // message, so the next keystroke has to land in the composer.
             if (!anyOverlayOpen()) {
-                composer.focus();
+                rt.composer.focus();
             }
             renderState();
         }
@@ -4716,71 +4556,70 @@ export async function startTui(
      * branch re-arms it. The timestamp is `performance.now()`, which a system
      * clock correction cannot move.
      */
-    let lastIdleEscapeAt: number | undefined;
 
     // The composer takes pastes through its own renderable handler. Dialog
     // fields are plain renderables, so their paste goes to the same editor as
     // their keystrokes before the composer can claim it as draft text.
-    renderer.keyInput.on("paste", (event) => {
+    rt.renderer.keyInput.on("paste", (event) => {
         // A paste is input between the two presses, and a pasted image chip
         // is draft content even though it never lands in `plainText`, so a
         // paste always disarms the pair rather than leaving an armed first
         // escape to pair across it.
-        lastIdleEscapeAt = undefined;
+        rt.lastIdleEscapeAt = undefined;
         const uiRequest = focusedUiRequest();
         const pasted = (): string =>
             stripAnsiSequences(decodePasteBytes(event.bytes));
         if (
             uiRequest !== undefined
             && isUserQuestionUiRequestUpdate(uiRequest)
-            && questionView.box.visible
-            && questionView.handlePaste(pasted())
+            && rt.questionView.box.visible
+            && rt.questionView.handlePaste(pasted())
         ) {
             event.preventDefault();
             event.stopPropagation();
             renderState();
             return;
         }
-        if (timelinePicker !== undefined && timelinePickerView.box.visible) {
-            const transition = timelinePickerView.handleEditorPaste(
-                timelinePicker,
+        if (rt.timelinePicker !== undefined && rt.timelinePickerView.box.visible) {
+            const transition = rt.timelinePickerView.handleEditorPaste(
+                rt.timelinePicker,
                 pasted(),
             );
             if (transition.handled) {
                 event.preventDefault();
                 event.stopPropagation();
-                timelinePicker = transition.state;
+                rt.timelinePicker = transition.state;
                 renderState();
                 return;
             }
         }
         if (
-            settingsPicker !== undefined
-            && settingsPicker.kind !== "extension"
-            && settingsPickerView.box.visible
+            rt.settingsPicker !== undefined
+            && rt.settingsPicker.kind !== "extension"
+            && rt.settingsPickerView.box.visible
         ) {
-            const transition = settingsPickerView.handleEditorPaste(
-                settingsPicker,
+            const transition = rt.settingsPickerView.handleEditorPaste(
+                rt.settingsPicker,
                 pasted(),
             );
             if (transition.handled) {
                 event.preventDefault();
                 event.stopPropagation();
-                settingsPicker = transition.state;
+                rt.settingsPicker = transition.state;
                 renderState();
                 return;
             }
         }
-        if (searchOverlay !== undefined && searchOverlayView.surface.visible) {
-            searchOverlayView.insertInputPaste(pasted());
+        if (rt.searchOverlay !== undefined && rt.searchOverlayView.surface.visible) {
+            rt.searchOverlayView.insertInputPaste(pasted());
             const transition = updateSearchOverlayText(
-                searchOverlay,
-                searchOverlayView.inputText(),
-                searchOverlayView.inputCursor(),
+                rt.searchOverlay,
+                rt.searchOverlayView.inputText(),
+                rt.searchOverlayView.inputCursor(),
             );
             event.preventDefault();
             event.stopPropagation();
-            searchOverlay = transition.state;
+            rt.searchOverlay = transition.state;
             if (transition.action !== undefined) {
                 runSearchOverlayAction(transition.action);
             } else {
@@ -4788,95 +4627,95 @@ export async function startTui(
             }
             return;
         }
-        if (commandPalette !== undefined && commandPaletteView.surface.visible) {
+        if (rt.commandPalette !== undefined && rt.commandPaletteView.surface.visible) {
             event.preventDefault();
             event.stopPropagation();
-            commandPalette = commandPaletteView.handleEditorPaste(
-                commandPalette,
+            rt.commandPalette = rt.commandPaletteView.handleEditorPaste(
+                rt.commandPalette,
                 pasted(),
             );
             renderState();
             return;
         }
-        if (help !== undefined && helpView.box.visible && help.tab !== "general") {
+        if (rt.help !== undefined && rt.helpView.box.visible && rt.help.tab !== "general") {
             event.preventDefault();
             event.stopPropagation();
-            help = helpView.handleEditorPaste(help, pasted());
+            rt.help = rt.helpView.handleEditorPaste(rt.help, pasted());
             renderState();
             return;
         }
         if (
-            standingNudges !== undefined
-            && standingNudgesView.surface.visible
+            rt.standingNudges !== undefined
+            && rt.standingNudgesView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
             const pasted = stripAnsiSequences(decodePasteBytes(event.bytes));
-            const editorTransition = standingNudgesView.handleEditorPaste(
-                standingNudges,
+            const editorTransition = rt.standingNudgesView.handleEditorPaste(
+                rt.standingNudges,
                 pasted,
             );
-            standingNudges = editorTransition.handled
+            rt.standingNudges = editorTransition.handled
                 ? editorTransition.state
-                : handleTuiStandingNudgesPaste(standingNudges, pasted);
+                : handleTuiStandingNudgesPaste(rt.standingNudges, pasted);
             renderState();
             return;
         }
         if (
-            requestOptionsEditor !== undefined
-            && requestOptionsEditorView.surface.visible
+            rt.requestOptionsEditor !== undefined
+            && rt.requestOptionsEditorView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
             const pasted = stripAnsiSequences(decodePasteBytes(event.bytes));
-            const transition = requestOptionsEditorView.handlePaste(
-                requestOptionsEditor,
+            const transition = rt.requestOptionsEditorView.handlePaste(
+                rt.requestOptionsEditor,
                 pasted,
             );
-            requestOptionsEditor = transition.state;
+            rt.requestOptionsEditor = transition.state;
             renderState();
             return;
         }
         if (
-            providerForm !== undefined
-            && providerFormView.surface.visible
+            rt.providerForm !== undefined
+            && rt.providerFormView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
-            providerForm = handleTuiProviderFormPaste(
-                providerForm,
+            rt.providerForm = handleTuiProviderFormPaste(
+                rt.providerForm,
                 stripAnsiSequences(decodePasteBytes(event.bytes)),
             );
             renderState();
             return;
         }
         if (
-            namePrompt !== undefined
-            && namePromptView.surface.visible
+            rt.namePrompt !== undefined
+            && rt.namePromptView.surface.visible
         ) {
             event.preventDefault();
             event.stopPropagation();
-            namePrompt = namePromptView.handlePaste(
-                namePrompt,
+            rt.namePrompt = rt.namePromptView.handlePaste(
+                rt.namePrompt,
                 stripAnsiSequences(decodePasteBytes(event.bytes)),
             );
             renderState();
             return;
         }
-        if (secretPrompt === undefined) {
+        if (rt.secretPrompt === undefined) {
             return;
         }
         event.preventDefault();
         event.stopPropagation();
-        secretPrompt = handleTuiSecretPromptPaste(
-            secretPrompt,
+        rt.secretPrompt = handleTuiSecretPromptPaste(
+            rt.secretPrompt,
             stripAnsiSequences(decodePasteBytes(event.bytes)),
         );
         renderState();
     });
 
-    renderer.keyInput.on("keypress", handleKeypress);
-    let lastInputRecordAt = 0;
+    rt.renderer.keyInput.on("keypress", handleKeypress);
+    rt.lastInputRecordAt = 0;
 
     function applyTranscriptScroll(binding: string | undefined): boolean {
         const scrollLines = binding === "scroll_line_up"
@@ -4884,17 +4723,17 @@ export async function startTui(
             : binding === "scroll_line_down"
             ? 1
             : binding === "scroll_half_page_up"
-            ? -Math.max(1, Math.floor(transcript.viewport.height / 2))
+            ? -Math.max(1, Math.floor(rt.transcript.viewport.height / 2))
             : binding === "scroll_half_page_down"
-            ? Math.max(1, Math.floor(transcript.viewport.height / 2))
+            ? Math.max(1, Math.floor(rt.transcript.viewport.height / 2))
             : undefined;
         if (binding !== "jump_to_bottom" && scrollLines === undefined) {
             return false;
         }
         if (scrollLines === undefined) {
-            transcript.scrollTo(transcript.scrollHeight);
+            rt.transcript.scrollTo(rt.transcript.scrollHeight);
         } else {
-            transcript.scrollBy(scrollLines);
+            rt.transcript.scrollBy(scrollLines);
         }
         renderJumpToBottom(scrollLines === undefined);
         return true;
@@ -4909,9 +4748,9 @@ export async function startTui(
      */
     function handleKeypress(key: KeyEvent): void {
         const inputAt = Date.now();
-        if (inputAt - lastInputRecordAt >= 250) {
-            lastInputRecordAt = inputAt;
-            flightRecorder?.record({
+        if (inputAt - rt.lastInputRecordAt >= 250) {
+            rt.lastInputRecordAt = inputAt;
+            rt.flightRecorder?.record({
                 type: "raw_input_received",
                 surface: activeFlightSurface(),
                 control: key.ctrl || key.meta || key.super || key.hyper,
@@ -4919,10 +4758,10 @@ export async function startTui(
             queueMicrotask(() => {
                 // The key may synchronously destroy the renderer (for example,
                 // ctrl+c while idle), taking the composer's EditBuffer with it.
-                if (shuttingDown) return;
-                flightRecorder?.record({
+                if (rt.shuttingDown) return;
+                rt.flightRecorder?.record({
                     type: "composer_observed",
-                    characters: Array.from(composer.expandedText()).length,
+                    characters: Array.from(rt.composer.expandedText()).length,
                     surface: activeFlightSurface(),
                 });
             });
@@ -4932,11 +4771,11 @@ export async function startTui(
         // between them, not even an escape that closed an overlay or cleared
         // a draft. Captured first so the branch can still see the previous
         // press across the disarm.
-        const previousIdleEscapeAt = lastIdleEscapeAt;
-        lastIdleEscapeAt = undefined;
+        const previousIdleEscapeAt = rt.lastIdleEscapeAt;
+        rt.lastIdleEscapeAt = undefined;
         if (
-            isJsonlViewClient(client)
-            && jsonlCommandMode
+            isJsonlViewClient(rt.client)
+            && rt.jsonlCommandMode
             && key.name === "escape"
             && !key.ctrl
             && !key.shift
@@ -4950,16 +4789,16 @@ export async function startTui(
             return;
         }
         if (
-            isHomeClient(client)
-            && sessionSwitchPending
-            && homeTypedText !== undefined
+            isHomeClient(rt.client)
+            && rt.sessionSwitchPending
+            && rt.homeTypedText !== undefined
             && parseRawInputEvent(key)?.type !== "interrupt"
         ) {
             const typed = homeTypedCharacter(key);
             if (typed !== undefined || key.name === "backspace") {
-                homeTypedText = typed === undefined
-                    ? homeTypedText.slice(0, -1)
-                    : homeTypedText + typed;
+                rt.homeTypedText = typed === undefined
+                    ? rt.homeTypedText.slice(0, -1)
+                    : rt.homeTypedText + typed;
                 key.preventDefault();
                 key.stopPropagation();
                 return;
@@ -4969,28 +4808,28 @@ export async function startTui(
                 && !key.ctrl && !key.meta && !key.shift && !key.super
                 && !key.hyper
             ) {
-                homeSubmitPending = true;
+                rt.homeSubmitPending = true;
                 key.preventDefault();
                 key.stopPropagation();
                 return;
             }
         }
         if (
-            isHomeClient(client)
-            && !sessionSwitchPending
-            && !commandPaletteView.surface.visible
+            isHomeClient(rt.client)
+            && !rt.sessionSwitchPending
+            && !rt.commandPaletteView.surface.visible
             && !anyOverlayOpen()
-            && !(workspaceSidebarFocused && workspaceSidebar !== undefined)
+            && !(rt.workspaceSidebarFocused && rt.workspaceSidebar !== undefined)
             && parseRawInputEvent(key)?.type !== "interrupt"
         ) {
-            const transition = handleHomeKey(homeState, key);
+            const transition = handleHomeKey(rt.homeState, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (transition.state !== undefined) {
-                    homeState = transition.state;
-                    homeView.update(homeState);
-                    renderer.requestRender();
+                    rt.homeState = transition.state;
+                    rt.homeView.update(rt.homeState);
+                    rt.renderer.requestRender();
                 }
                 if (transition.action !== undefined) {
                     runHomeAction(transition.action);
@@ -4999,9 +4838,9 @@ export async function startTui(
             }
         }
         if (
-            isJsonlViewClient(client)
-            && !jsonlCommandMode
-            && !commandPaletteView.surface.visible
+            isJsonlViewClient(rt.client)
+            && !rt.jsonlCommandMode
+            && !rt.commandPaletteView.surface.visible
             // A file view claims every key it is handed, so an overlay drawn
             // over it would get none of them and sit there unable to move.
             && !anyOverlayOpen()
@@ -5011,9 +4850,9 @@ export async function startTui(
                 conversationBinding: tuiBindingId("conversation", key),
                 globalBinding: tuiBindingId("global", key),
                 workspaceBinding: tuiBindingId("workspace", key),
-                sidebarFocused: workspaceSidebarFocused
-                    && workspaceSidebar !== undefined,
-                sidebarVisible: workspaceSidebar !== undefined,
+                sidebarFocused: rt.workspaceSidebarFocused
+                    && rt.workspaceSidebar !== undefined,
+                sidebarVisible: rt.workspaceSidebar !== undefined,
             });
             if (jsonlAction === "scroll") {
                 key.preventDefault();
@@ -5030,7 +4869,7 @@ export async function startTui(
             if (jsonlAction === "resume_picker") {
                 key.preventDefault();
                 key.stopPropagation();
-                workspaceSidebarFocused = false;
+                rt.workspaceSidebarFocused = false;
                 openResumePicker();
                 return;
             }
@@ -5045,7 +4884,7 @@ export async function startTui(
                 // with it already in the composer.
                 key.preventDefault();
                 key.stopPropagation();
-                composer.setComposerText(
+                rt.composer.setComposerText(
                     key.name === "space" ? " " : (key.sequence ?? key.name),
                 );
                 resumeJsonlView();
@@ -5066,9 +4905,9 @@ export async function startTui(
             if (jsonlAction === "command") {
                 key.preventDefault();
                 key.stopPropagation();
-                jsonlCommandMode = true;
-                workspaceSidebarFocused = false;
-                composer.setComposerText("/");
+                rt.jsonlCommandMode = true;
+                rt.workspaceSidebarFocused = false;
+                rt.composer.setComposerText("/");
                 renderCommandSuggestions();
                 renderState();
                 focusActiveSurface();
@@ -5084,21 +4923,21 @@ export async function startTui(
                 // search all live below without starting a worker.
             } else if (
                 jsonlAction === "sidebar"
-                && workspaceSidebar !== undefined
-                && workspaceSidebarFocused
+                && rt.workspaceSidebar !== undefined
+                && rt.workspaceSidebarFocused
             ) {
-                const open = workspaceSidebar;
+                const open = rt.workspaceSidebar;
                 const transition = handleWorkspaceSidebarKey(
                     open,
                     key,
                     new Date(),
-                    renderer.width,
-                    workspaceSidebarView.visibleRows(),
+                    rt.renderer.width,
+                    rt.workspaceSidebarView.visibleRows(),
                 );
                 key.preventDefault();
                 key.stopPropagation();
                 if (transition.handled) {
-                    workspaceSidebar = transition.state ?? open;
+                    rt.workspaceSidebar = transition.state ?? open;
                     if (transition.action !== undefined) {
                         runWorkspaceSidebarAction(transition.action);
                     } else {
@@ -5118,27 +4957,27 @@ export async function startTui(
             key.stopPropagation();
             // A second ctrl+p closes the palette, so the chord toggles rather
             // than reopening a palette that is already in front of you.
-            if (commandPalette !== undefined) {
-                commandPalette = undefined;
-                commandPaletteView.surface.visible = false;
-                composer.focus();
+            if (rt.commandPalette !== undefined) {
+                rt.commandPalette = undefined;
+                rt.commandPaletteView.surface.visible = false;
+                rt.composer.focus();
                 renderState();
                 return;
             }
-            if (!sessionSwitchPending && !anyOverlayOpen()) {
+            if (!rt.sessionSwitchPending && !anyOverlayOpen()) {
                 openCommandPalette();
             }
             return;
         }
         if (
             isTuiComposerClearKey(key)
-            && composer.focused
-            && composer.plainText.length > 0
+            && rt.composer.focused
+            && rt.composer.plainText.length > 0
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
             key.stopPropagation();
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             renderState();
             return;
@@ -5146,16 +4985,16 @@ export async function startTui(
         const wordDeleteDirection = tuiComposerWordDeleteDirection(key);
         if (
             wordDeleteDirection !== undefined
-            && composer.focused
-            && composer.plainText.length > 0
+            && rt.composer.focused
+            && rt.composer.plainText.length > 0
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
             key.stopPropagation();
             if (wordDeleteDirection === "backward") {
-                composer.deleteWordBackward();
+                rt.composer.deleteWordBackward();
             } else {
-                composer.deleteWordForward();
+                rt.composer.deleteWordForward();
             }
             renderCommandSuggestions();
             renderState();
@@ -5167,20 +5006,20 @@ export async function startTui(
             // screen. A pending session switch does not, because the switch
             // has no cancel and swallowing the chord left no way to quit a
             // host that was slow to answer.
-            if (sessionTrashPending) {
+            if (rt.sessionTrashPending) {
                 key.preventDefault();
                 key.stopPropagation();
                 return;
             }
             if (
                 !focusedAgentCanAbort()
-                && composer.focused
-                && composer.plainText.length > 0
+                && rt.composer.focused
+                && rt.composer.plainText.length > 0
                 && !anyOverlayOpen()
             ) {
                 key.preventDefault();
                 key.stopPropagation();
-                composer.clearComposer();
+                rt.composer.clearComposer();
                 renderCommandSuggestions();
                 renderState();
                 return;
@@ -5194,7 +5033,7 @@ export async function startTui(
             key.preventDefault();
             key.stopPropagation();
             if (action === "quit") {
-                renderer.destroy();
+                rt.renderer.destroy();
             } else if (action === "abort") {
                 abortFocusedAgent();
                 renderStatus();
@@ -5204,16 +5043,16 @@ export async function startTui(
 
         // The menu owns the keyboard while it is open: arrows move, enter
         // jumps, escape closes, and everything else is swallowed.
-        if (jumpMenu !== undefined) {
+        if (rt.jumpMenu !== undefined) {
             key.preventDefault();
             key.stopPropagation();
-            const action = handleJumpMenuKey(jumpMenu, key.name);
+            const action = handleJumpMenuKey(rt.jumpMenu, key.name);
             if (action.kind === "cancel") {
                 closeJumpMenu();
             } else if (action.kind === "jump") {
                 runJumpTo(action.row);
             } else {
-                jumpMenu = action.state;
+                rt.jumpMenu = action.state;
                 renderJumpMenu();
             }
             return;
@@ -5222,11 +5061,11 @@ export async function startTui(
         // The strip owns the keyboard while it is open, after the escape
         // hatches above it. Every key here either moves the highlight, commits,
         // cancels, or bounces the keystroke into the composer.
-        if (dialStrip !== undefined) {
+        if (rt.dialStrip !== undefined) {
             key.preventDefault();
             key.stopPropagation();
             const action = handleDialStripKey(
-                dialStrip,
+                rt.dialStrip,
                 key as {
                     name: string;
                     ctrl?: boolean;
@@ -5237,11 +5076,11 @@ export async function startTui(
             );
             if (action.kind === "state") {
                 const previousPermission =
-                    dialStrip.permissionModes[dialStrip.permissionIndex];
+                    rt.dialStrip.permissionModes[rt.dialStrip.permissionIndex];
                 const nextPermission = action.state.permissionModes[
                     action.state.permissionIndex
                 ];
-                dialStrip = action.state;
+                rt.dialStrip = action.state;
                 if (
                     nextPermission === "auto"
                     && previousPermission !== "auto"
@@ -5259,15 +5098,15 @@ export async function startTui(
             return;
         }
 
-        if (sessionCloseConfirm) {
+        if (rt.sessionCloseConfirm) {
             const result = handleTuiSessionCloseConfirmKey(key);
             key.preventDefault();
             key.stopPropagation();
             if (result === "confirm") {
                 beginParkToJsonl();
             } else if (result === "cancel") {
-                sessionCloseConfirm = false;
-                state = appendTuiNotice(state, "conversation kept running");
+                rt.sessionCloseConfirm = false;
+                rt.state = appendTuiNotice(rt.state, "conversation kept running");
                 focusActiveSurface();
                 renderState();
             }
@@ -5281,17 +5120,17 @@ export async function startTui(
         ) {
             // Arrow keys move the highlight (no engine message); numbers, Enter,
             // and Escape resolve the question. Selection stays client-local.
-            const result = questionView.handleKey(uiRequest, key);
+            const result = rt.questionView.handleKey(uiRequest, key);
             if (result.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (result.response !== undefined) {
                     void focusedAgentClient().send(result.response)
                         .catch(reportConnectionError);
-                    if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
-                        hostedSidebar.pane.state.activity = "thinking";
+                    if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
+                        rt.hostedSidebar.pane.state.activity = "thinking";
                     } else {
-                        activity = "thinking";
+                        rt.activity = "thinking";
                     }
                     focusActiveSurface();
                 }
@@ -5304,17 +5143,17 @@ export async function startTui(
         ) {
             // ←/→ move the button highlight (no engine message); digits, Enter,
             // and Escape resolve the approval. Selection stays client-local.
-            const result = approvalView.handleKey(uiRequest, key);
+            const result = rt.approvalView.handleKey(uiRequest, key);
             if (result.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (result.response !== undefined) {
                     void focusedAgentClient().send(result.response)
                         .catch(reportConnectionError);
-                    if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
-                        hostedSidebar.pane.state.activity = "thinking";
+                    if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
+                        rt.hostedSidebar.pane.state.activity = "thinking";
                     } else {
-                        activity = "thinking";
+                        rt.activity = "thinking";
                     }
                     focusActiveSurface();
                 }
@@ -5325,34 +5164,34 @@ export async function startTui(
 
         // Engine-owned prompts outrank every extension surface in key routing,
         // matching their focus and z-order priority.
-        if (uiRequest === undefined && experimentalTuiHost.hasModal()) {
+        if (uiRequest === undefined && rt.experimentalTuiHost.hasModal()) {
             key.preventDefault();
             key.stopPropagation();
-            experimentalTuiHost.handleKey(key);
+            rt.experimentalTuiHost.handleKey(key);
             return;
         }
         if (uiRequest === undefined
-            && experimentalTuiHost.hasFocus()
-            && experimentalTuiHost.handleKey(key)) {
+            && rt.experimentalTuiHost.hasFocus()
+            && rt.experimentalTuiHost.handleKey(key)) {
             key.preventDefault();
             key.stopPropagation();
             return;
         }
 
         if (
-            !composer.focused
+            !rt.composer.focused
             && activeOverlayFocus() === undefined
             && tuiBindingId("unfocused", key) === "focus_composer"
         ) {
             key.preventDefault();
             key.stopPropagation();
-            composer.focus();
+            rt.composer.focus();
             renderState();
             return;
         }
 
-        if (sessionTrashCandidate !== undefined) {
-            if (sessionTrashPending) {
+        if (rt.sessionTrashCandidate !== undefined) {
+            if (rt.sessionTrashPending) {
                 key.preventDefault();
                 key.stopPropagation();
                 return;
@@ -5362,10 +5201,10 @@ export async function startTui(
             key.stopPropagation();
             if (result !== undefined) {
                 if (result === "confirm") {
-                    beginSessionTrash(sessionTrashCandidate);
+                    beginSessionTrash(rt.sessionTrashCandidate);
                 } else {
-                    sessionTrashCandidate = undefined;
-                    state = appendTuiNotice(state, "conversation kept");
+                    rt.sessionTrashCandidate = undefined;
+                    rt.state = appendTuiNotice(rt.state, "conversation kept");
                     focusActiveSurface();
                     renderState();
                 }
@@ -5373,17 +5212,17 @@ export async function startTui(
             return;
         }
 
-        if (providerForgetCandidate !== undefined) {
+        if (rt.providerForgetCandidate !== undefined) {
             const result = handleTuiProviderForgetConfirmKey(key);
             key.preventDefault();
             key.stopPropagation();
             if (result === "confirm") {
-                forgetProviderCredential(providerForgetCandidate);
+                forgetProviderCredential(rt.providerForgetCandidate);
             } else if (result === "cancel") {
-                const kept = providerForgetCandidate;
-                providerForgetCandidate = undefined;
-                state = appendTuiNotice(
-                    state,
+                const kept = rt.providerForgetCandidate;
+                rt.providerForgetCandidate = undefined;
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `kept the stored ${kept.label} credential`,
                 );
                 focusActiveSurface();
@@ -5392,14 +5231,14 @@ export async function startTui(
             return;
         }
 
-        if (timelinePicker !== undefined) {
-            const editorTransition = timelinePickerView.handleEditorKey(
-                timelinePicker,
+        if (rt.timelinePicker !== undefined) {
+            const editorTransition = rt.timelinePickerView.handleEditorKey(
+                rt.timelinePicker,
                 key,
             );
             const transition = editorTransition.handled
                 ? editorTransition
-                : handleTuiTimelineKey(timelinePicker, key, randomUUID);
+                : handleTuiTimelineKey(rt.timelinePicker, key, randomUUID);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
@@ -5408,21 +5247,21 @@ export async function startTui(
             }
         }
 
-        if (confirmingFullAccess) {
+        if (rt.confirmingFullAccess) {
             const result = handleTuiPermissionsConfirmKey(key);
             if (result !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
-                confirmingFullAccess = false;
+                rt.confirmingFullAccess = false;
                 if (result === "confirm") {
                     requestPermissionsChange(
                         "full_access",
-                        confirmingFullAccessAgent,
+                        rt.confirmingFullAccessAgent,
                     );
                 } else {
-                    state = appendTuiNotice(state, "full access unchanged");
+                    rt.state = appendTuiNotice(rt.state, "full access unchanged");
                 }
-                confirmingFullAccessAgent = undefined;
+                rt.confirmingFullAccessAgent = undefined;
                 focusActiveSurface();
                 renderState();
                 return;
@@ -5431,11 +5270,11 @@ export async function startTui(
 
         // Blocking like the trash confirm: every key stops here while the
         // dialog is up, so nothing underneath can act on a stray press.
-        if (admissionDialog !== undefined) {
+        if (rt.admissionDialog !== undefined) {
             key.preventDefault();
             key.stopPropagation();
             const action = handleTuiAdmissionDialogKey(
-                admissionDialog,
+                rt.admissionDialog,
                 dialogAdmission(),
                 key,
             );
@@ -5444,11 +5283,11 @@ export async function startTui(
             }
             if (action === "retry") {
                 const requestId = requestPoolAdmission(
-                    admissionDialog.provider,
-                    admissionDialog.model,
+                    rt.admissionDialog.provider,
+                    rt.admissionDialog.model,
                     true,
                 );
-                admissionDialog = { ...admissionDialog, requestId };
+                rt.admissionDialog = { ...rt.admissionDialog, requestId };
                 renderState();
                 return;
             }
@@ -5466,9 +5305,9 @@ export async function startTui(
 
         // Ahead of the picker: the prompt is drawn over the pane that opened
         // it, so it takes the keys while it is up.
-        if (requestOptionsEditor !== undefined) {
-            const transition = requestOptionsEditorView.handleKey(
-                requestOptionsEditor,
+        if (rt.requestOptionsEditor !== undefined) {
+            const transition = rt.requestOptionsEditorView.handleKey(
+                rt.requestOptionsEditor,
                 key,
             );
             if (transition.handled) {
@@ -5478,45 +5317,45 @@ export async function startTui(
                 return;
             }
         }
-        if (providerForm !== undefined) {
-            const transition = handleTuiProviderFormKey(providerForm, key);
+        if (rt.providerForm !== undefined) {
+            const transition = handleTuiProviderFormKey(rt.providerForm, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                applyProviderFormTransition(providerForm, transition);
+                applyProviderFormTransition(rt.providerForm, transition);
                 return;
             }
         }
 
-        if (namePrompt !== undefined) {
-            const transition = namePromptView.handleKey(
-                namePrompt,
+        if (rt.namePrompt !== undefined) {
+            const transition = rt.namePromptView.handleKey(
+                rt.namePrompt,
                 key,
             );
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 applySessionRenamePromptTransition(
-                    namePrompt,
+                    rt.namePrompt,
                     transition,
                 );
                 return;
             }
         }
 
-        if (secretPrompt !== undefined) {
-            const transition = handleTuiSecretPromptKey(secretPrompt, key);
+        if (rt.secretPrompt !== undefined) {
+            const transition = handleTuiSecretPromptKey(rt.secretPrompt, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                applySecretPromptTransition(secretPrompt, transition);
+                applySecretPromptTransition(rt.secretPrompt, transition);
                 return;
             }
         }
 
-        if (standingNudges !== undefined) {
-            const editorTransition = standingNudgesView.handleEditorKey(
-                standingNudges,
+        if (rt.standingNudges !== undefined) {
+            const editorTransition = rt.standingNudgesView.handleEditorKey(
+                rt.standingNudges,
                 key,
             );
             if (editorTransition.handled) {
@@ -5527,53 +5366,53 @@ export async function startTui(
                 focusActiveSurface();
                 return;
             }
-            if (standingNudgesView.handleViewportKey(key.name)) {
+            if (rt.standingNudgesView.handleViewportKey(key.name)) {
                 key.preventDefault();
                 key.stopPropagation();
                 return;
             }
             const transition = handleTuiStandingNudgesKey(
-                standingNudges,
+                rt.standingNudges,
                 key,
             );
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
                 adoptStandingNudgesState(transition.state);
-                if (standingNudges === undefined) {
-                    standingNudgesView.surface.visible = false;
-                    composer.focus();
+                if (rt.standingNudges === undefined) {
+                    rt.standingNudgesView.surface.visible = false;
+                    rt.composer.focus();
                 }
                 renderState();
-                if (standingNudges !== undefined) focusActiveSurface();
+                if (rt.standingNudges !== undefined) focusActiveSurface();
                 return;
             }
         }
 
-        if (settingsPicker !== undefined) {
+        if (rt.settingsPicker !== undefined) {
             const viewportRows = tuiPickerViewportRows(
-                renderer,
-                settingsPicker,
+                rt.renderer,
+                rt.settingsPicker,
                 verificationConsoleRows(),
             );
             let transition:
                 | TuiSettingsPickerTransition
                 | TuiExtensionPickerTransition;
-            if (settingsPicker.kind === "extension") {
+            if (rt.settingsPicker.kind === "extension") {
                 transition = handleTuiSettingsPickerKey(
-                    settingsPicker,
+                    rt.settingsPicker,
                     key,
                     viewportRows,
                 );
             } else {
-                const edited = settingsPickerView.handleEditorKey(
-                    settingsPicker,
+                const edited = rt.settingsPickerView.handleEditorKey(
+                    rt.settingsPicker,
                     key,
                 );
                 transition = edited.handled
                     ? edited
                     : handleTuiSettingsPickerKey(
-                        settingsPicker,
+                        rt.settingsPicker,
                         key,
                         viewportRows,
                     );
@@ -5586,12 +5425,12 @@ export async function startTui(
             }
         }
 
-        if (preferencesList !== undefined) {
-            const transition = handleTuiPreferencesListKey(preferencesList, key);
+        if (rt.preferencesList !== undefined) {
+            const transition = handleTuiPreferencesListKey(rt.preferencesList, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                preferencesList = transition.state;
+                rt.preferencesList = transition.state;
                 if (transition.remove !== undefined) {
                     // The row's own kind picks the command. The two tiers live in
                     // different stores, so one command covering both would have
@@ -5604,15 +5443,15 @@ export async function startTui(
                         id: transition.remove.id,
                     });
                 }
-                if (preferencesList === undefined) {
-                    preferencesListView.surface.visible = false;
-                    settingsPicker = preferencesListParent;
-                    preferencesListParent = undefined;
-                    if (settingsPicker === undefined) {
-                        composer.focus();
+                if (rt.preferencesList === undefined) {
+                    rt.preferencesListView.surface.visible = false;
+                    rt.settingsPicker = rt.preferencesListParent;
+                    rt.preferencesListParent = undefined;
+                    if (rt.settingsPicker === undefined) {
+                        rt.composer.focus();
                     } else {
-                        settingsPickerView.update(settingsPicker);
-                        settingsPickerView.focus();
+                        rt.settingsPickerView.update(rt.settingsPicker);
+                        rt.settingsPickerView.focus();
                     }
                 }
                 renderState();
@@ -5620,19 +5459,19 @@ export async function startTui(
             }
         }
 
-        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
-            const open = workspaceSidebar;
+        if (rt.workspaceSidebar !== undefined && rt.workspaceSidebarFocused) {
+            const open = rt.workspaceSidebar;
             const transition = handleWorkspaceSidebarKey(
                 open,
                 key,
                 new Date(),
-                renderer.width,
-                workspaceSidebarView.visibleRows(),
+                rt.renderer.width,
+                rt.workspaceSidebarView.visibleRows(),
             );
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                workspaceSidebar = transition.state ?? open;
+                rt.workspaceSidebar = transition.state ?? open;
                 if (transition.action !== undefined) {
                     runWorkspaceSidebarAction(transition.action);
                 } else {
@@ -5643,13 +5482,13 @@ export async function startTui(
             }
         }
 
-        if (workTab !== undefined) {
-            const open = workTab;
+        if (rt.workTab !== undefined) {
+            const open = rt.workTab;
             const transition = handleWorkTabKey(open, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                workTab = transition.state;
+                rt.workTab = transition.state;
                 if (transition.action !== undefined) {
                     // Resolved against the state the key was pressed in. A
                     // transition that acts carries no state, so reading the
@@ -5664,21 +5503,21 @@ export async function startTui(
             }
         }
 
-        if (searchOverlay !== undefined) {
-            const structural = handleSearchOverlayKey(searchOverlay, key);
+        if (rt.searchOverlay !== undefined) {
+            const structural = handleSearchOverlayKey(rt.searchOverlay, key);
             const transition = structural.handled
                 ? structural
-                : searchOverlayView.handleInputKey(key)
+                : rt.searchOverlayView.handleInputKey(key)
                 ? updateSearchOverlayText(
-                    searchOverlay,
-                    searchOverlayView.inputText(),
-                    searchOverlayView.inputCursor(),
+                    rt.searchOverlay,
+                    rt.searchOverlayView.inputText(),
+                    rt.searchOverlayView.inputCursor(),
                 )
                 : structural;
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                searchOverlay = transition.state;
+                rt.searchOverlay = transition.state;
                 if (transition.action !== undefined) {
                     runSearchOverlayAction(transition.action);
                 } else {
@@ -5689,21 +5528,21 @@ export async function startTui(
             }
         }
 
-        if (commandPalette !== undefined) {
-            const editorTransition = commandPaletteView.handleEditorKey(
-                commandPalette,
+        if (rt.commandPalette !== undefined) {
+            const editorTransition = rt.commandPaletteView.handleEditorKey(
+                rt.commandPalette,
                 key,
             );
             const transition = editorTransition.handled
                 ? editorTransition
-                : handleTuiCommandPaletteKey(commandPalette, key);
+                : handleTuiCommandPaletteKey(rt.commandPalette, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                commandPalette = transition.state;
+                rt.commandPalette = transition.state;
                 if (transition.selection !== undefined) {
                     const selected = transition.selection;
-                    commandPalette = undefined;
+                    rt.commandPalette = undefined;
                     runPaletteAction(selected);
                     // The palette closed under the action, and every early
                     // return inside it would otherwise leave nothing focused.
@@ -5718,131 +5557,131 @@ export async function startTui(
             }
         }
 
-        if (help !== undefined) {
-            const editorTransition = helpView.handleEditorKey(help, key);
+        if (rt.help !== undefined) {
+            const editorTransition = rt.helpView.handleEditorKey(rt.help, key);
             const transition = editorTransition.handled
                 ? editorTransition
-                : handleTuiHelpKey(help, key);
+                : handleTuiHelpKey(rt.help, key);
             if (transition.handled) {
                 key.preventDefault();
                 key.stopPropagation();
-                help = transition.state;
+                rt.help = transition.state;
                 renderState();
                 focusActiveSurface();
                 return;
             }
         }
 
-        if (doctorDialog !== undefined) {
+        if (rt.doctorDialog !== undefined) {
             const action = handleTuiDiagnosticsDialogKey(key);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
-                    doctorInspectionGeneration += 1;
-                    doctorDialog = undefined;
+                    rt.doctorInspectionGeneration += 1;
+                    rt.doctorDialog = undefined;
                     focusActiveSurface();
                     renderState();
                     return;
                 }
-                if (doctorDialog.copyReady === false) {
+                if (rt.doctorDialog.copyReady === false) {
                     return;
                 }
-                const text = doctorDialog.text;
-                void copyText(text).then(() => {
-                    if (doctorDialog?.text !== text) return;
-                    doctorDialog = { text, copyStatus: "copied" };
+                const text = rt.doctorDialog.text;
+                void rt.copyText(text).then(() => {
+                    if (rt.doctorDialog?.text !== text) return;
+                    rt.doctorDialog = { text, copyStatus: "copied" };
                     renderState();
                 }).catch(() => {
-                    if (doctorDialog?.text !== text) return;
-                    doctorDialog = { text, copyStatus: "failed" };
+                    if (rt.doctorDialog?.text !== text) return;
+                    rt.doctorDialog = { text, copyStatus: "failed" };
                     renderState();
                 });
                 return;
             }
         }
 
-        if (extensionsDialog !== undefined) {
+        if (rt.extensionsDialog !== undefined) {
             const action = handleTuiDiagnosticsDialogKey(key);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
-                    extensionsDialog = undefined;
+                    rt.extensionsDialog = undefined;
                     focusActiveSurface();
                     renderState();
                     return;
                 }
-                if (extensionsDialog.copyReady === false) return;
-                const text = extensionsDialog.text;
-                void copyText(text).then(() => {
-                    if (extensionsDialog?.text !== text) return;
-                    extensionsDialog = { ...extensionsDialog, copyStatus: "copied" };
+                if (rt.extensionsDialog.copyReady === false) return;
+                const text = rt.extensionsDialog.text;
+                void rt.copyText(text).then(() => {
+                    if (rt.extensionsDialog?.text !== text) return;
+                    rt.extensionsDialog = { ...rt.extensionsDialog, copyStatus: "copied" };
                     renderState();
                 }).catch(() => {
-                    if (extensionsDialog?.text !== text) return;
-                    extensionsDialog = { ...extensionsDialog, copyStatus: "failed" };
+                    if (rt.extensionsDialog?.text !== text) return;
+                    rt.extensionsDialog = { ...rt.extensionsDialog, copyStatus: "failed" };
                     renderState();
                 });
                 return;
             }
         }
 
-        if (documentDialog !== undefined) {
+        if (rt.documentDialog !== undefined) {
             const action = handleTuiDiagnosticsDialogKey(key);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
-                    documentDialog = undefined;
+                    rt.documentDialog = undefined;
                     focusActiveSurface();
                     renderState();
                     return;
                 }
-                if (documentDialog.copyReady === false) return;
-                const text = documentDialog.text;
-                void copyText(text).then(() => {
-                    if (documentDialog?.text !== text) return;
-                    documentDialog = { ...documentDialog, copyStatus: "copied" };
+                if (rt.documentDialog.copyReady === false) return;
+                const text = rt.documentDialog.text;
+                void rt.copyText(text).then(() => {
+                    if (rt.documentDialog?.text !== text) return;
+                    rt.documentDialog = { ...rt.documentDialog, copyStatus: "copied" };
                     renderState();
                 }).catch(() => {
-                    if (documentDialog?.text !== text) return;
-                    documentDialog = { ...documentDialog, copyStatus: "failed" };
+                    if (rt.documentDialog?.text !== text) return;
+                    rt.documentDialog = { ...rt.documentDialog, copyStatus: "failed" };
                     renderState();
                 });
                 return;
             }
         }
 
-        if (diagnosticsDialog !== undefined) {
+        if (rt.diagnosticsDialog !== undefined) {
             const action = handleTuiDiagnosticsDialogKey(key, true, true);
             if (action !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 if (action === "dismiss") {
                     abortProviderHealthCheck();
-                    providerHealthGeneration += 1;
-                    diagnosticsGeneration += 1;
-                    diagnosticsDialog = undefined;
-                    diagnosticsSessionPath = undefined;
-                    diagnosticsSessionIdentity = undefined;
-                    diagnosticsSessionPathResolved = false;
+                    rt.providerHealthGeneration += 1;
+                    rt.diagnosticsGeneration += 1;
+                    rt.diagnosticsDialog = undefined;
+                    rt.diagnosticsSessionPath = undefined;
+                    rt.diagnosticsSessionIdentity = undefined;
+                    rt.diagnosticsSessionPathResolved = false;
                     focusActiveSurface();
                     renderState();
                     return;
                 }
                 if (action === "switch_scope") {
-                    diagnosticsScope = diagnosticsScope === "session"
+                    rt.diagnosticsScope = rt.diagnosticsScope === "session"
                         ? "vera"
                         : "session";
-                    diagnosticsDialog = {
+                    rt.diagnosticsDialog = {
                         text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
-                            sessionPath: diagnosticsSessionPath,
+                            sessionPath: rt.diagnosticsSessionPath,
                         }),
-                        scope: diagnosticsScope,
-                        copyReady: diagnosticsScope === "vera"
-                            || diagnosticsSessionPathResolved,
+                        scope: rt.diagnosticsScope,
+                        copyReady: rt.diagnosticsScope === "vera"
+                            || rt.diagnosticsSessionPathResolved,
                     };
                     renderState();
                     return;
@@ -5851,21 +5690,21 @@ export async function startTui(
                     void startProviderHealthCheck();
                     return;
                 }
-                if (diagnosticsDialog.copyReady === false) {
+                if (rt.diagnosticsDialog.copyReady === false) {
                     return;
                 }
-                const text = diagnosticsDialog.text;
-                void copyText(text).then(() => {
-                    if (diagnosticsDialog?.text !== text) return;
-                    diagnosticsDialog = {
-                        ...diagnosticsDialog,
+                const text = rt.diagnosticsDialog.text;
+                void rt.copyText(text).then(() => {
+                    if (rt.diagnosticsDialog?.text !== text) return;
+                    rt.diagnosticsDialog = {
+                        ...rt.diagnosticsDialog,
                         copyStatus: "copied",
                     };
                     renderState();
                 }).catch(() => {
-                    if (diagnosticsDialog?.text !== text) return;
-                    diagnosticsDialog = {
-                        ...diagnosticsDialog,
+                    if (rt.diagnosticsDialog?.text !== text) return;
+                    rt.diagnosticsDialog = {
+                        ...rt.diagnosticsDialog,
                         copyStatus: "failed",
                     };
                     renderState();
@@ -5875,8 +5714,8 @@ export async function startTui(
         }
 
         if (
-            argumentSuggestions.length > 0
-            && commandSuggestionsBox.visible
+            rt.argumentSuggestions.length > 0
+            && rt.commandSuggestionsBox.visible
             && !key.ctrl
             && !key.meta
             && !key.super
@@ -5886,18 +5725,18 @@ export async function startTui(
             if (key.name === "up" || key.name === "down") {
                 key.preventDefault();
                 key.stopPropagation();
-                commandSuggestionIndex = key.name === "up"
-                    ? Math.max(0, commandSuggestionIndex - 1)
+                rt.commandSuggestionIndex = key.name === "up"
+                    ? Math.max(0, rt.commandSuggestionIndex - 1)
                     : Math.min(
-                        argumentSuggestions.length - 1,
-                        commandSuggestionIndex + 1,
+                        rt.argumentSuggestions.length - 1,
+                        rt.commandSuggestionIndex + 1,
                     );
                 renderCommandSuggestions();
                 return;
             }
             if (key.name === "return" || key.name === "enter") {
                 const typed = activeCompletion()?.prefix;
-                const selected = argumentSuggestions[commandSuggestionIndex];
+                const selected = rt.argumentSuggestions[rt.commandSuggestionIndex];
                 // Already typed whole: there is nothing left to choose, so
                 // Enter sends the command instead of re-inserting the name.
                 if (
@@ -5908,8 +5747,8 @@ export async function startTui(
                     key.stopPropagation();
                     // Chosen, not sent: the rest of the command is still
                     // being typed.
-                    composer.setComposerText(
-                        tuiWithArgument(composer.plainText, selected),
+                    rt.composer.setComposerText(
+                        tuiWithArgument(rt.composer.plainText, selected),
                     );
                     renderCommandSuggestions();
                     return;
@@ -5918,8 +5757,8 @@ export async function startTui(
         }
 
         if (
-            composer.plainText === "/"
-            && commandSuggestionsBox.visible
+            rt.composer.plainText === "/"
+            && rt.commandSuggestionsBox.visible
             && !key.ctrl
             && !key.meta
             && !key.super
@@ -5930,31 +5769,31 @@ export async function startTui(
             if (key.name === "up" || key.name === "k") {
                 key.preventDefault();
                 key.stopPropagation();
-                commandSuggestionIndex = Math.max(0, commandSuggestionIndex - 1);
-                commandSuggestionMoved = true;
+                rt.commandSuggestionIndex = Math.max(0, rt.commandSuggestionIndex - 1);
+                rt.commandSuggestionMoved = true;
                 renderCommandSuggestions();
                 return;
             }
             if (key.name === "down" || key.name === "j") {
                 key.preventDefault();
                 key.stopPropagation();
-                commandSuggestionIndex = Math.min(
+                rt.commandSuggestionIndex = Math.min(
                     suggestions.length - 1,
-                    commandSuggestionIndex + 1,
+                    rt.commandSuggestionIndex + 1,
                 );
-                commandSuggestionMoved = true;
+                rt.commandSuggestionMoved = true;
                 renderCommandSuggestions();
                 return;
             }
             const runs = key.name === "return" || key.name === "enter";
             const completes =
                 tuiBindingId("composer", key) === "complete_command";
-            if (runs || (completes && commandSuggestionMoved)) {
-                const selected = suggestions[commandSuggestionIndex];
+            if (runs || (completes && rt.commandSuggestionMoved)) {
+                const selected = suggestions[rt.commandSuggestionIndex];
                 if (selected !== undefined) {
                     key.preventDefault();
                     key.stopPropagation();
-                    composer.setComposerText(`/${selected.name}`);
+                    rt.composer.setComposerText(`/${selected.name}`);
                     // Completing picks the command and leaves it there, since
                     // one that takes an argument is not finished being typed.
                     if (runs) submitPrompt();
@@ -5973,13 +5812,13 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            dismissedComposeSuggesters.add(
+            rt.dismissedComposeSuggesters.add(
                 composeSuggesterDismissalKey(composeSuggester),
             );
             wearAgent(composeSuggester.agent);
             renderCommandSuggestions();
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
 
@@ -5996,13 +5835,13 @@ export async function startTui(
             key.stopPropagation();
             const suggester = activeComposeSuggester();
             if (suggester !== undefined) {
-                dismissedComposeSuggesters.add(
+                rt.dismissedComposeSuggesters.add(
                     composeSuggesterDismissalKey(suggester),
                 );
             }
             renderCommandSuggestions();
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
 
@@ -6013,13 +5852,13 @@ export async function startTui(
             && !key.ctrl
             && !key.shift
             && !key.meta
-            && pendingQuote !== undefined
+            && rt.pendingQuote !== undefined
         ) {
             key.preventDefault();
             key.stopPropagation();
-            pendingQuote = undefined;
+            rt.pendingQuote = undefined;
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
 
@@ -6028,14 +5867,14 @@ export async function startTui(
             && !key.ctrl
             && !key.shift
             && !key.meta
-            && composer.plainText.length > 0
+            && rt.composer.plainText.length > 0
         ) {
             key.preventDefault();
             key.stopPropagation();
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
 
@@ -6045,8 +5884,8 @@ export async function startTui(
             && !key.shift
             && !key.meta
             && !anyOverlayOpen()
-            && !sessionSwitchPending
-            && pendingImages.length === 0
+            && !rt.sessionSwitchPending
+            && rt.pendingImages.length === 0
             && focusedAgentState().queuedPrompts.length > 0
         ) {
             key.preventDefault();
@@ -6069,9 +5908,9 @@ export async function startTui(
             && !key.meta
             // Home has no conversation to rewind, and a picker that opens on
             // nothing is a dead end.
-            && !isHomeClient(client)
+            && !isHomeClient(rt.client)
             && !anyOverlayOpen()
-            && !sessionSwitchPending
+            && !rt.sessionSwitchPending
             && !focusedAgentState().working
             && focusedAgentState().queuedPrompts.length === 0
         ) {
@@ -6080,10 +5919,10 @@ export async function startTui(
             const now = performance.now();
             const doubled = previousIdleEscapeAt !== undefined
                 && now - previousIdleEscapeAt <= DOUBLE_ESCAPE_REWIND_WINDOW_MS;
-            lastIdleEscapeAt = now;
+            rt.lastIdleEscapeAt = now;
             if (!doubled) return;
-            lastIdleEscapeAt = undefined;
-            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+            rt.lastIdleEscapeAt = undefined;
+            if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
                 // Rewind manages the main conversation only, matching /rewind.
                 showStatusNotice(
                     "Switch to Vera with Ctrl+G to manage its conversation",
@@ -6095,7 +5934,7 @@ export async function startTui(
         }
 
         if (tuiBindingId("composer", key) === "close_session"
-            && composer.focused
+            && rt.composer.focused
             && !anyOverlayOpen()
         ) {
             key.preventDefault();
@@ -6112,13 +5951,13 @@ export async function startTui(
             && !key.super
             && !key.hyper
             && (
-                (composer.focused && composerIsAtLeftBoundary())
-                || (isHomeClient(client) && homeView.box.focused)
+                (rt.composer.focused && composerIsAtLeftBoundary())
+                || (isHomeClient(rt.client) && rt.homeView.box.focused)
             )
-            && workspaceSidebar !== undefined
-            && !workspaceSidebarFocused
+            && rt.workspaceSidebar !== undefined
+            && !rt.workspaceSidebarFocused
             && !anyOverlayOpen()
-            && !commandPaletteView.surface.visible
+            && !rt.commandPaletteView.surface.visible
         ) {
             key.preventDefault();
             key.stopPropagation();
@@ -6134,14 +5973,14 @@ export async function startTui(
                 // A highlighted row is a choice already made with the arrow
                 // keys, so Tab takes it rather than typing the shared prefix
                 // of rows the user has already moved past.
-                const highlighted = argumentSuggestions[commandSuggestionIndex];
+                const highlighted = rt.argumentSuggestions[rt.commandSuggestionIndex];
                 if (
                     highlighted !== undefined
                     && highlighted.toLowerCase()
                         !== completing.prefix.toLowerCase()
                 ) {
-                    composer.setComposerText(
-                        tuiWithArgument(composer.plainText, highlighted),
+                    rt.composer.setComposerText(
+                        tuiWithArgument(rt.composer.plainText, highlighted),
                     );
                     renderCommandSuggestions();
                     return;
@@ -6151,22 +5990,22 @@ export async function startTui(
                     completing.prefix,
                 );
                 if (completed !== undefined) {
-                    composer.setComposerText(
-                        tuiWithArgument(composer.plainText, completed),
+                    rt.composer.setComposerText(
+                        tuiWithArgument(rt.composer.plainText, completed),
                     );
                     renderCommandSuggestions();
                 }
                 return;
             }
-            const completion = availableCommandCompletion(composer.plainText);
+            const completion = availableCommandCompletion(rt.composer.plainText);
             if (completion !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
-                composer.setComposerText(completion);
+                rt.composer.setComposerText(completion);
                 renderCommandSuggestions();
                 return;
             }
-            if (availableCommandSuggestions(composer.plainText).length > 0) {
+            if (availableCommandSuggestions(rt.composer.plainText).length > 0) {
                 // A complete slash command has nothing left to complete. Do
                 // not let the textarea's default Tab behavior move the
                 // cursor or change focus.
@@ -6186,7 +6025,7 @@ export async function startTui(
         // overlay, and the chord that opened it has to reach back through it.
         // It shows or hides and nothing else. Left and right move the focus.
         if (tuiBindingId("global", key) === "toggle_workspace_sidebar") {
-            if (workspaceSidebar !== undefined) {
+            if (rt.workspaceSidebar !== undefined) {
                 key.preventDefault();
                 key.stopPropagation();
                 closeWorkspaceSidebar();
@@ -6218,13 +6057,13 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            const side = sidebar.isFocused() ? hostedSidebar.pane : undefined;
+            const side = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
             const wasFollowing = side === undefined
-                ? transcript.scrollTop
-                    >= transcript.scrollHeight - transcript.viewport.height
-                : sidebar.isFollowing();
+                ? rt.transcript.scrollTop
+                    >= rt.transcript.scrollHeight - rt.transcript.viewport.height
+                : rt.sidebar.isFollowing();
             if (side === undefined) {
-                state = toggleTuiThinking(state);
+                rt.state = toggleTuiThinking(rt.state);
             } else {
                 side.state.state = toggleTuiThinking(side.state.state);
                 renderSidebarAgent(side);
@@ -6234,9 +6073,9 @@ export async function startTui(
             // Expanding a fold is inspection, not new transcript activity.
             if (wasFollowing) {
                 if (side === undefined) {
-                    transcript.scrollTo(transcript.scrollHeight);
+                    rt.transcript.scrollTo(rt.transcript.scrollHeight);
                 } else {
-                    sidebar.scrollToBottom();
+                    rt.sidebar.scrollToBottom();
                 }
             }
             return;
@@ -6248,7 +6087,7 @@ export async function startTui(
         ) {
             key.preventDefault();
             key.stopPropagation();
-            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
+            if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
                 toggleSidebarHeader();
             } else {
                 toggleMainHeader();
@@ -6314,13 +6153,13 @@ export async function startTui(
             key.stopPropagation();
             // Read this before the fold changes the transcript height. Once
             // expanded, the old bottom can look like a manually scrolled view.
-            const side = sidebar.isFocused() ? hostedSidebar.pane : undefined;
+            const side = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
             const wasFollowing = side === undefined
-                ? transcript.scrollTop
-                    >= transcript.scrollHeight - transcript.viewport.height
-                : sidebar.isFollowing();
+                ? rt.transcript.scrollTop
+                    >= rt.transcript.scrollHeight - rt.transcript.viewport.height
+                : rt.sidebar.isFollowing();
             if (side === undefined) {
-                state = toggleTuiToolDetails(state);
+                rt.state = toggleTuiToolDetails(rt.state);
             } else {
                 side.state.state = toggleTuiToolDetails(side.state.state);
                 renderSidebarAgent(side);
@@ -6328,18 +6167,18 @@ export async function startTui(
             renderState();
             if (wasFollowing) {
                 if (side === undefined) {
-                    transcript.scrollTo(transcript.scrollHeight);
+                    rt.transcript.scrollTo(rt.transcript.scrollHeight);
                 } else {
-                    sidebar.scrollToBottom();
+                    rt.sidebar.scrollToBottom();
                 }
             } else {
-                const activeState = side?.state.state ?? state;
+                const activeState = side?.state.state ?? rt.state;
                 const lastToolGroup = activeState.entries.findLastIndex((entry) =>
                     entry.kind === "tool_header"
                     && entry.detailLines !== undefined
                 );
                 if (side === undefined && lastToolGroup >= 0) {
-                    transcript.scrollChildIntoView(`entry-${lastToolGroup}`);
+                    rt.transcript.scrollChildIntoView(`entry-${lastToolGroup}`);
                 }
             }
             return;
@@ -6368,21 +6207,21 @@ export async function startTui(
         const boundId = bound?.extensionId ?? bound?.id;
         const extensionBinding = boundId === undefined
             ? undefined
-            : clientExtensionRegistry?.keybindings().find((binding) =>
+            : rt.clientExtensionRegistry?.keybindings().find((binding) =>
                 binding.id === boundId
             );
         if (extensionBinding !== undefined && !anyOverlayOpen()) {
             key.preventDefault();
             key.stopPropagation();
             const target = focusedAgentClient();
-            void extensionAgentTarget.run(target, () =>
-                clientExtensionRegistry!.invokeKeybinding(
+            void rt.extensionAgentTarget.run(target, () =>
+                rt.clientExtensionRegistry!.invokeKeybinding(
                     extensionBinding.id,
-                    client.workspace ?? process.cwd(),
+                    rt.client.workspace ?? process.cwd(),
                 )
             ).catch((error) => {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     error instanceof Error ? error.message : String(error),
                 );
                 renderState();
@@ -6404,7 +6243,7 @@ export async function startTui(
         key.stopPropagation();
 
         if (action === "quit") {
-            renderer.destroy();
+            rt.renderer.destroy();
             return;
         }
         if (action === "abort") {
@@ -6457,7 +6296,7 @@ export async function startTui(
                 clearTimeout(hoverTimer);
                 hoverTimer = setTimeout(() => {
                     hoverTimer = undefined;
-                    if (shuttingDown) return;
+                    if (rt.shuttingDown) return;
                     moveCursor(index);
                     renderState();
                 }, POINTER_HOVER_DELAY_MS);
@@ -6478,8 +6317,8 @@ export async function startTui(
      * attachment that does not ask stays blank about the model and, worse,
      * silent about full access until some later update happens to arrive.
      */
-    const settingsSnapshotRetries = new WeakMap<TuiAgentClient, number>();
-    const MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
+    rt.settingsSnapshotRetries = new WeakMap<TuiAgentClient, number>();
+    rt.MAX_SETTINGS_SNAPSHOT_RETRIES = 5;
 
     function requestAgentSettings(target: TuiAgentClient): void {
         if (target.failed === true) {
@@ -6520,11 +6359,11 @@ export async function startTui(
         ) {
             return;
         }
-        const used = settingsSnapshotRetries.get(target) ?? 0;
-        if (used >= MAX_SETTINGS_SNAPSHOT_RETRIES) {
+        const used = rt.settingsSnapshotRetries.get(target) ?? 0;
+        if (used >= rt.MAX_SETTINGS_SNAPSHOT_RETRIES) {
             return;
         }
-        settingsSnapshotRetries.set(target, used + 1);
+        rt.settingsSnapshotRetries.set(target, used + 1);
         requestAgentSettings(target);
     }
 
@@ -6536,35 +6375,35 @@ export async function startTui(
     }
 
     function requestSessionSettings(): void {
-        requestAgentSettings(client);
+        requestAgentSettings(rt.client);
     }
 
     void receiveAgentUpdates();
-    if (client.failed !== true && client.viewOnly !== true) {
+    if (rt.client.failed !== true && rt.client.viewOnly !== true) {
         void loadExtensionCommands();
         requestSkillCommands();
         requestSessionSettings();
-    } else if (isHomeClient(client)) {
+    } else if (isHomeClient(rt.client)) {
         // The model pane is reachable from home, and what it shows is the
         // host's, so it is asked for at once rather than on first open.
         requestSessionSettings();
     }
     void restorePersistedAgentPane();
-    if (workspaceSidebarDocked) {
+    if (rt.workspaceSidebarDocked) {
         openWorkspaceSidebar({ focus: false, persist: false });
     }
 
     async function restorePersistedAgentPane(): Promise<void> {
-        const mainAgentId = client.agentId;
-        if (dependencies.attachAgent === undefined) return;
+        const mainAgentId = rt.client.agentId;
+        if (rt.dependencies.attachAgent === undefined) return;
         try {
-            await hostedPanePersistence.restore(mainAgentId, {
+            await rt.hostedPanePersistence.restore(mainAgentId, {
                 attach: async (agentId) =>
                     requireIdentifiedClient(
-                        await dependencies.attachAgent!(agentId),
+                        await rt.dependencies.attachAgent!(agentId),
                     ),
                 isCurrent: () =>
-                    !shuttingDown && client.agentId === mainAgentId,
+                    !rt.shuttingDown && rt.client.agentId === mainAgentId,
                 adopt: (saved, next) =>
                     openExtensionAgent(
                         saved.owner,
@@ -6578,9 +6417,9 @@ export async function startTui(
                     ),
             });
         } catch (error) {
-            if (shuttingDown || client.agentId !== mainAgentId) return;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown || rt.client.agentId !== mainAgentId) return;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not restore paired pane: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -6596,86 +6435,86 @@ export async function startTui(
      */
     function diagnosticsSnapshot(): TuiDiagnosticsSnapshot {
         return {
-            state,
-            activity,
+            state: rt.state,
+            activity: rt.activity,
             elapsed: elapsedWorkingTime(),
-            scope: diagnosticsScope,
-            sessionId: client.agentId,
-            sessionIdentity: diagnosticsSessionIdentity,
-            sessionPath: diagnosticsSessionPath,
-            workspace: client.workspace ?? process.cwd(),
-            runningBackgroundAgents,
+            scope: rt.diagnosticsScope,
+            sessionId: rt.client.agentId,
+            sessionIdentity: rt.diagnosticsSessionIdentity,
+            sessionPath: rt.diagnosticsSessionPath,
+            workspace: rt.client.workspace ?? process.cwd(),
+            runningBackgroundAgents: rt.runningBackgroundAgents,
             processes: [
                 { role: "client" as const, pid: process.pid },
-                ...(dependencies.build?.hostPid === undefined
+                ...(rt.dependencies.build?.hostPid === undefined
                     ? []
-                    : [{ role: "host" as const, pid: dependencies.build.hostPid }]),
-                ...(diagnosticsWorkerPid === undefined
+                    : [{ role: "host" as const, pid: rt.dependencies.build.hostPid }]),
+                ...(rt.diagnosticsWorkerPid === undefined
                     ? []
-                    : [{ role: "worker" as const, pid: diagnosticsWorkerPid }]),
-                ...(diagnosticsSupervisorPid === undefined
+                    : [{ role: "worker" as const, pid: rt.diagnosticsWorkerPid }]),
+                ...(rt.diagnosticsSupervisorPid === undefined
                     ? []
-                    : [{ role: "supervisor" as const, pid: diagnosticsSupervisorPid }]),
+                    : [{ role: "supervisor" as const, pid: rt.diagnosticsSupervisorPid }]),
             ].map((entry) => ({
                 ...entry,
-                ...(diagnosticsProcessMemory.get(entry.pid) === undefined
+                ...(rt.diagnosticsProcessMemory.get(entry.pid) === undefined
                     ? {}
-                    : { rssBytes: diagnosticsProcessMemory.get(entry.pid) }),
+                    : { rssBytes: rt.diagnosticsProcessMemory.get(entry.pid) }),
             })),
             stash: summarizeStash(),
             stashRoot: defaultStashRoot(),
             modelFailures: summariseModelFailures(readModelFailures()),
             modelFailureLedgerPath: defaultModelFailureLedgerPath(),
-            build: dependencies.build,
-            extensions: configuredClientExtensions,
-            clientExtensionReload,
+            build: rt.dependencies.build,
+            extensions: rt.configuredClientExtensions,
+            clientExtensionReload: rt.clientExtensionReload,
             startup: readLatestHostStartupTiming(),
-            health: providerHealth,
-            healthLineWidth: diagnosticsDialogView.contentWidth(),
+            health: rt.providerHealth,
+            healthLineWidth: rt.diagnosticsDialogView.contentWidth(),
         };
     }
 
     function renderDiagnostics(
         snapshot = diagnosticsSnapshot(),
     ): string {
-        const width = diagnosticsDialogView.contentWidth();
-        diagnosticsReportWidth = width;
+        const width = rt.diagnosticsDialogView.contentWidth();
+        rt.diagnosticsReportWidth = width;
         return renderTuiDiagnostics(snapshot, width);
     }
 
     function abortProviderHealthCheck(): void {
-        providerHealthAbort?.abort();
-        providerHealthAbort = undefined;
+        rt.providerHealthAbort?.abort();
+        rt.providerHealthAbort = undefined;
     }
 
     function paintDiagnosticsDialog(): void {
-        if (diagnosticsDialog === undefined) return;
-        diagnosticsDialog = {
-            ...diagnosticsDialog,
+        if (rt.diagnosticsDialog === undefined) return;
+        rt.diagnosticsDialog = {
+            ...rt.diagnosticsDialog,
             text: renderDiagnostics(),
-            scope: diagnosticsScope,
+            scope: rt.diagnosticsScope,
         };
     }
 
     async function startProviderHealthCheck(): Promise<void> {
-        if (diagnosticsDialog === undefined) return;
-        if (providerHealth.kind === "checking") return;
-        const generation = ++providerHealthGeneration;
+        if (rt.diagnosticsDialog === undefined) return;
+        if (rt.providerHealth.kind === "checking") return;
+        const generation = ++rt.providerHealthGeneration;
         abortProviderHealthCheck();
         const abort = new AbortController();
-        providerHealthAbort = abort;
+        rt.providerHealthAbort = abort;
         const config = loadOptionalVeraConfig();
-        const rungs = healthRungsOf(state.modelSettings, config);
+        const rungs = healthRungsOf(rt.state.modelSettings, config);
         const configured = hasConfiguredProvider(
-            authStorage,
+            rt.authStorage,
             config,
-            dependencies.healthEnv ?? process.env,
+            rt.dependencies.healthEnv ?? process.env,
         );
-        const expired = expiredOAuthProvider(authStorage);
-        const probe = dependencies.probeHealthRung
+        const expired = expiredOAuthProvider(rt.authStorage);
+        const probe = rt.dependencies.probeHealthRung
             ?? ((rung: HealthRung, signal: AbortSignal) =>
                 admitHealthRung(rung, {
-                    authStorage,
+                    authStorage: rt.authStorage,
                     signal,
                     ...(config === undefined ? {} : { config }),
                 }));
@@ -6687,13 +6526,13 @@ export async function startTui(
             signal: abort.signal,
             onProgress: (status) => {
                 if (
-                    shuttingDown
-                    || diagnosticsDialog === undefined
-                    || providerHealthGeneration !== generation
+                    rt.shuttingDown
+                    || rt.diagnosticsDialog === undefined
+                    || rt.providerHealthGeneration !== generation
                 ) {
                     return;
                 }
-                providerHealth = status;
+                rt.providerHealth = status;
                 paintDiagnosticsDialog();
                 renderState();
             },
@@ -6723,15 +6562,15 @@ export async function startTui(
     async function writeFailureReportFile(): Promise<void> {
         const records = readModelFailures();
         if (records.length === 0) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 "No model failures have been recorded.",
                 "soft",
             );
             renderState();
             return;
         }
-        const settings = state.modelSettings;
+        const settings = rt.state.modelSettings;
         const failing = settings !== undefined
             && records.some((record) =>
                 record.model === settings.model
@@ -6778,16 +6617,16 @@ export async function startTui(
                 }),
                 at,
             );
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 note === undefined
                     ? `Failure report written to ${path}`
                     : `Failure report written to ${path}. ${note}`,
                 "soft",
             );
         } catch (error) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not write the failure report: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -6802,45 +6641,45 @@ export async function startTui(
     ): void {
         // Reached from awaited continuations that can resolve after the
         // renderer is destroyed, when the composer's EditBuffer is gone.
-        if (shuttingDown) return;
+        if (rt.shuttingDown) return;
         // A new turn is a new question; the mark pointed at the old one.
         clearSearchLanding();
-        flightRecorder?.record({
+        rt.flightRecorder?.record({
             type: "submit_requested",
             characters: Array.from(
-                interceptedText ?? composer.expandedText(),
+                interceptedText ?? rt.composer.expandedText(),
             ).length,
             surface: activeFlightSurface(),
-            blocked: promptSubmitting
-                || sessionSwitchPending
-                || pendingSessionRename
-                || pendingSidebarSessionRename
-                || extensionCommandPending
-                || sidebarPromptSubmitting
-                || messageInterceptPending,
+            blocked: rt.promptSubmitting
+                || rt.sessionSwitchPending
+                || rt.pendingSessionRename
+                || rt.pendingSidebarSessionRename
+                || rt.extensionCommandPending
+                || rt.sidebarPromptSubmitting
+                || rt.messageInterceptPending,
         });
         if (
-            promptSubmitting
-            || sessionSwitchPending
-            || pendingSessionRename
-            || pendingSidebarSessionRename
-            || extensionCommandPending
-            || sidebarPromptSubmitting
-            || messageInterceptPending
+            rt.promptSubmitting
+            || rt.sessionSwitchPending
+            || rt.pendingSessionRename
+            || rt.pendingSidebarSessionRename
+            || rt.extensionCommandPending
+            || rt.sidebarPromptSubmitting
+            || rt.messageInterceptPending
         ) {
             return;
         }
         // Manual file edits are uncommon, but the indicator should agree with
         // the host at the point where another user turn is about to load it.
-        standingNudgeRules = readStandingNudgeRules();
-        const typed = interceptedText ?? composer.expandedText().trim();
+        rt.standingNudgeRules = readStandingNudgeRules();
+        const typed = interceptedText ?? rt.composer.expandedText().trim();
         // A slash command is addressed to the client, so a quote waiting to be
         // sent stays waiting rather than being folded into an argument.
         const quoted = interceptedText === undefined && !typed.startsWith("/")
-            ? pendingQuote
+            ? rt.pendingQuote
             : undefined;
         const prompt = withQuote(typed, quoted);
-        if (prompt.length === 0 && pendingImages.length === 0) {
+        if (prompt.length === 0 && rt.pendingImages.length === 0) {
             if (
                 interceptedText === undefined
                 && focusedAgentState().queuedPrompts.length > 0
@@ -6851,9 +6690,9 @@ export async function startTui(
         }
         // Typing is the signal the tip has been read or ignored. The next one
         // is picked in the gap after this turn, not now.
-        composerTip = undefined;
+        rt.composerTip = undefined;
         if (quoted !== undefined) {
-            pendingQuote = undefined;
+            rt.pendingQuote = undefined;
         }
         // Slash commands belong to the client's own registry, so they never
         // reach an interceptor. Everything else is offered once.
@@ -6861,14 +6700,14 @@ export async function startTui(
             interceptedText === undefined
             && prompt.length > 0
             && !prompt.startsWith("/")
-            && clientExtensionRegistry?.hasMessageInterceptors() === true
+            && rt.clientExtensionRegistry?.hasMessageInterceptors() === true
         ) {
             offerMessageToExtensions(prompt);
             return;
         }
         if (
             !prompt.startsWith("/")
-            && hostedSidebar.pane !== undefined
+            && rt.hostedSidebar.pane !== undefined
             && routeVisibleAgentPrompt(prompt)
         ) {
             return;
@@ -6876,22 +6715,22 @@ export async function startTui(
 
         const commandAction = prompt.length === 0
             ? undefined
-            : commandRegistry.dispatch(prompt);
-        if (isJsonlViewClient(client) && jsonlCommandMode) {
+            : rt.commandRegistry.dispatch(prompt);
+        if (isJsonlViewClient(rt.client) && rt.jsonlCommandMode) {
             if (!workerFreeAction(commandAction, true)) {
                 refuseJsonlCommand();
                 return;
             }
-            jsonlCommandMode = false;
+            rt.jsonlCommandMode = false;
         }
         if (
             commandAction === undefined
-            && (extensionCommandsLoading || skillCommandsLoading)
+            && (rt.extensionCommandsLoading || rt.skillCommandsLoading)
             && prompt.startsWith("/")
         ) {
-            state = appendTuiNotice(
-                state,
-                skillCommandsLoading
+            rt.state = appendTuiNotice(
+                rt.state,
+                rt.skillCommandsLoading
                     ? "Commands are still loading"
                     : "Extension commands are still loading",
             );
@@ -6900,11 +6739,11 @@ export async function startTui(
         }
         if (
             commandAction !== undefined
-            && sidebar.isFocused()
-            && hostedSidebar.pane !== undefined
+            && rt.sidebar.isFocused()
+            && rt.hostedSidebar.pane !== undefined
             && tuiCommandScope(commandAction) === "main_session"
         ) {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             showStatusNotice(
                 "Switch to Vera with Ctrl+G to manage its conversation",
             );
@@ -6912,20 +6751,20 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "command_error") {
-            state = appendTuiNotice(state, commandAction.message);
+            rt.state = appendTuiNotice(rt.state, commandAction.message);
             renderState();
             return;
         }
         if (commandAction?.type === "show_extensions") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            documentDialog = undefined;
+            rt.documentDialog = undefined;
             abortProviderHealthCheck();
-            diagnosticsDialog = undefined;
-            doctorDialog = undefined;
+            rt.diagnosticsDialog = undefined;
+            rt.doctorDialog = undefined;
             try {
-                extensionsDialog = {
+                rt.extensionsDialog = {
                     text: renderExtensionList(listExtensions({
                         projectRoot: process.cwd(),
                         ...(commandAction.scope === undefined
@@ -6935,7 +6774,7 @@ export async function startTui(
                     copyReady: true,
                 };
             } catch (error) {
-                extensionsDialog = {
+                rt.extensionsDialog = {
                     text: `Extensions\n\nCould not read extension state: ${
                         error instanceof Error ? error.message : String(error)
                     }\n`,
@@ -6947,13 +6786,13 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "manage_extensions") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             const command = commandAction.command;
             if (command.operation === "reload") {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Client extensions reload now; restart the resident host for host-side capabilities.",
                 );
                 renderState();
@@ -6989,15 +6828,15 @@ export async function startTui(
                 if (command.operation !== "install" || !command.dryRun) {
                     text += "\nClient extensions reload now; restart the resident host for host-side capabilities.\n";
                 }
-                extensionsDialog = { text, copyReady: true };
+                rt.extensionsDialog = { text, copyReady: true };
                 renderState();
                 focusActiveSurface();
                 if (command.operation !== "install" || !command.dryRun) {
                     submitPrompt("/reload-extensions");
                 }
             } catch (error) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `Extension operation failed: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
@@ -7007,168 +6846,168 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "reload_client_extensions") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            if (clientExtensionReloadPending) {
-                state = appendTuiNotice(
-                    state,
+            if (rt.clientExtensionReloadPending) {
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Client extensions are already reloading",
                 );
                 renderState();
                 return;
             }
-            clientExtensionReloadPending = true;
-            clientExtensionReload = clientExtensionReloadStarted();
-            if (diagnosticsDialog !== undefined) {
-                diagnosticsDialog = {
-                    ...diagnosticsDialog,
+            rt.clientExtensionReloadPending = true;
+            rt.clientExtensionReload = clientExtensionReloadStarted();
+            if (rt.diagnosticsDialog !== undefined) {
+                rt.diagnosticsDialog = {
+                    ...rt.diagnosticsDialog,
                     text: renderDiagnostics({
                         ...diagnosticsSnapshot(),
-                        sessionPath: diagnosticsSessionPath,
+                        sessionPath: rt.diagnosticsSessionPath,
                     }),
                 };
             }
             void reloadTuiClientExtensions({
                 configuration: {
-                    disabledBuiltinExtensions,
-                    clientExtensions: configuredClientExtensions,
+                    disabledBuiltinExtensions: rt.disabledBuiltinExtensions,
+                    clientExtensions: rt.configuredClientExtensions,
                 },
                 refreshConfiguration:
-                    dependencies.loadClientExtensionConfiguration,
+                    rt.dependencies.loadClientExtensionConfiguration,
                 applyConfiguration(configuration) {
-                    disabledBuiltinExtensions =
+                    rt.disabledBuiltinExtensions =
                         configuration.disabledBuiltinExtensions;
-                    configuredClientExtensions = configuration.clientExtensions;
+                    rt.configuredClientExtensions = configuration.clientExtensions;
                 },
-                host: clientExtensionHost,
+                host: rt.clientExtensionHost,
                 start(signal, extensions, failures) {
-                    return startConfiguredClientExtensionHost(
+                    return rt.startConfiguredClientExtensionHost(
                         signal,
                         extensions,
                         failures,
                     );
                 },
             }).then((loadedExtensionIds) => {
-                if (shuttingDown) return;
-                clientExtensionReload =
+                if (rt.shuttingDown) return;
+                rt.clientExtensionReload =
                     clientExtensionReloadSucceeded(loadedExtensionIds);
-                if (diagnosticsDialog !== undefined) {
-                    diagnosticsDialog = {
-                        ...diagnosticsDialog,
+                if (rt.diagnosticsDialog !== undefined) {
+                    rt.diagnosticsDialog = {
+                        ...rt.diagnosticsDialog,
                         text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
-                            sessionPath: diagnosticsSessionPath,
+                            sessionPath: rt.diagnosticsSessionPath,
                         }),
                     };
                 }
-                state = appendTuiNotice(state, "Client extensions reloaded");
+                rt.state = appendTuiNotice(rt.state, "Client extensions reloaded");
                 renderState();
                 focusActiveSurface();
             }).catch((error) => {
-                if (shuttingDown) return;
+                if (rt.shuttingDown) return;
                 const outcome = clientExtensionReloadFailed(
                     error,
-                    clientExtensionHost.current()?.loadedExtensionIds() ?? [],
+                    rt.clientExtensionHost.current()?.loadedExtensionIds() ?? [],
                 );
-                clientExtensionReload = outcome.snapshot;
-                if (diagnosticsDialog !== undefined) {
-                    diagnosticsDialog = {
-                        ...diagnosticsDialog,
+                rt.clientExtensionReload = outcome.snapshot;
+                if (rt.diagnosticsDialog !== undefined) {
+                    rt.diagnosticsDialog = {
+                        ...rt.diagnosticsDialog,
                         text: renderDiagnostics({
                             ...diagnosticsSnapshot(),
-                            sessionPath: diagnosticsSessionPath,
+                            sessionPath: rt.diagnosticsSessionPath,
                         }),
                     };
                 }
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     outcome.notice,
                 );
                 renderState();
                 focusActiveSurface();
             }).finally(() => {
-                clientExtensionReloadPending = false;
+                rt.clientExtensionReloadPending = false;
             });
             return;
         }
         if (commandAction?.type === "show_diagnostics") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            diagnosticsScope = "session";
-            diagnosticsSessionPath = undefined;
-            diagnosticsSessionIdentity = undefined;
-            diagnosticsWorkerPid = undefined;
-            diagnosticsSupervisorPid = undefined;
-            diagnosticsProcessMemory = new Map();
-            const generation = ++diagnosticsGeneration;
-            const agentId = client.agentId;
+            rt.diagnosticsScope = "session";
+            rt.diagnosticsSessionPath = undefined;
+            rt.diagnosticsSessionIdentity = undefined;
+            rt.diagnosticsWorkerPid = undefined;
+            rt.diagnosticsSupervisorPid = undefined;
+            rt.diagnosticsProcessMemory = new Map();
+            const generation = ++rt.diagnosticsGeneration;
+            const agentId = rt.client.agentId;
             const resolvingSessionPath = agentId !== undefined
-                && dependencies.listAgents !== undefined;
-            diagnosticsSessionPathResolved = !resolvingSessionPath;
-            documentDialog = undefined;
-            doctorDialog = undefined;
-            extensionsDialog = undefined;
+                && rt.dependencies.listAgents !== undefined;
+            rt.diagnosticsSessionPathResolved = !resolvingSessionPath;
+            rt.documentDialog = undefined;
+            rt.doctorDialog = undefined;
+            rt.extensionsDialog = undefined;
             abortProviderHealthCheck();
-            providerHealthGeneration += 1;
-            providerHealth = idleProviderHealth();
-            diagnosticsDialog = {
+            rt.providerHealthGeneration += 1;
+            rt.providerHealth = idleProviderHealth();
+            rt.diagnosticsDialog = {
                 text: renderDiagnostics({
                     ...diagnosticsSnapshot(),
                 }),
-                scope: diagnosticsScope,
-                copyReady: diagnosticsSessionPathResolved,
+                scope: rt.diagnosticsScope,
+                copyReady: rt.diagnosticsSessionPathResolved,
             };
             renderState();
             focusActiveSurface();
-            if (agentId !== undefined && dependencies.listAgents !== undefined) {
-                void dependencies.listAgents().then(async (agents) => {
+            if (agentId !== undefined && rt.dependencies.listAgents !== undefined) {
+                void rt.dependencies.listAgents().then(async (agents) => {
                     const listed = agents.find((agent) => agent.id === agentId);
                     const sessionPath = listed?.session_path;
                     if (
-                        diagnosticsDialog === undefined
-                        || diagnosticsGeneration !== generation
-                        || client.agentId !== agentId
+                        rt.diagnosticsDialog === undefined
+                        || rt.diagnosticsGeneration !== generation
+                        || rt.client.agentId !== agentId
                     ) return;
-                    diagnosticsSessionPathResolved = true;
-                    diagnosticsSessionIdentity = listed?.name;
-                    diagnosticsSessionPath = sessionPath;
-                    diagnosticsWorkerPid = listed?.worker_pid;
-                    diagnosticsSupervisorPid = listed?.supervisor_pid;
-                    diagnosticsDialog = {
+                    rt.diagnosticsSessionPathResolved = true;
+                    rt.diagnosticsSessionIdentity = listed?.name;
+                    rt.diagnosticsSessionPath = sessionPath;
+                    rt.diagnosticsWorkerPid = listed?.worker_pid;
+                    rt.diagnosticsSupervisorPid = listed?.supervisor_pid;
+                    rt.diagnosticsDialog = {
                         text: renderDiagnostics(),
-                        scope: diagnosticsScope,
+                        scope: rt.diagnosticsScope,
                         copyReady: true,
                     };
                     renderState();
                     const processPids = [
                         process.pid,
-                        dependencies.build?.hostPid,
-                        diagnosticsWorkerPid,
-                        diagnosticsSupervisorPid,
+                        rt.dependencies.build?.hostPid,
+                        rt.diagnosticsWorkerPid,
+                        rt.diagnosticsSupervisorPid,
                     ].filter((pid): pid is number => pid !== undefined);
-                    diagnosticsProcessMemory = await readProcessMemory(processPids);
+                    rt.diagnosticsProcessMemory = await readProcessMemory(processPids);
                     if (
-                        diagnosticsDialog === undefined
-                        || diagnosticsGeneration !== generation
-                        || client.agentId !== agentId
+                        rt.diagnosticsDialog === undefined
+                        || rt.diagnosticsGeneration !== generation
+                        || rt.client.agentId !== agentId
                     ) return;
-                    diagnosticsDialog = {
+                    rt.diagnosticsDialog = {
                         text: renderDiagnostics(),
-                        scope: diagnosticsScope,
+                        scope: rt.diagnosticsScope,
                         copyReady: true,
                     };
                     renderState();
                 }).catch(() => {
                     if (
-                        diagnosticsDialog === undefined
-                        || diagnosticsGeneration !== generation
-                        || client.agentId !== agentId
+                        rt.diagnosticsDialog === undefined
+                        || rt.diagnosticsGeneration !== generation
+                        || rt.client.agentId !== agentId
                     ) return;
-                    diagnosticsSessionPathResolved = true;
-                    diagnosticsDialog = {
-                        ...diagnosticsDialog,
+                    rt.diagnosticsSessionPathResolved = true;
+                    rt.diagnosticsDialog = {
+                        ...rt.diagnosticsDialog,
                         copyReady: true,
                     };
                     renderState();
@@ -7177,15 +7016,15 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "open_usage") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             void (async () => {
-                const result = await dependencies.openUsagePage?.();
-                if (shuttingDown) return;
+                const result = await rt.dependencies.openUsagePage?.();
+                if (rt.shuttingDown) return;
                 if (result === undefined || "unavailable" in result) {
-                    state = appendTuiNotice(
-                        state,
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         result?.unavailable
                             ?? "This host does not serve an annex. Restart the host to bring it back.",
                     );
@@ -7194,7 +7033,7 @@ export async function startTui(
                 }
                 const usageUrl = new URL("usage", result.url).href;
                 openTuiLink(usageUrl);
-                state = appendTuiNotice(state, `Opened ${usageUrl}`);
+                rt.state = appendTuiNotice(rt.state, `Opened ${usageUrl}`);
                 renderState();
             })();
             renderState();
@@ -7202,27 +7041,27 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "show_doctor") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            documentDialog = undefined;
+            rt.documentDialog = undefined;
             abortProviderHealthCheck();
-            diagnosticsDialog = undefined;
-            extensionsDialog = undefined;
-            doctorDialog = {
+            rt.diagnosticsDialog = undefined;
+            rt.extensionsDialog = undefined;
+            rt.doctorDialog = {
                 text: "Vera doctor\n\nChecking process health…\n",
                 copyReady: false,
             };
             renderState();
             focusActiveSurface();
-            const inspectProcesses = dependencies.doctor
+            const inspectProcesses = rt.dependencies.doctor
                 ?? diagnoseVeraProcesses;
-            const inspectionGeneration = ++doctorInspectionGeneration;
+            const inspectionGeneration = ++rt.doctorInspectionGeneration;
             void inspectProcesses().then((report) => {
                 if (
-                    shuttingDown
-                    || doctorDialog === undefined
-                    || doctorInspectionGeneration !== inspectionGeneration
+                    rt.shuttingDown
+                    || rt.doctorDialog === undefined
+                    || rt.doctorInspectionGeneration !== inspectionGeneration
                 ) return;
                 const strayCount = report.processes.filter(
                     (candidate) => candidate.stray,
@@ -7235,23 +7074,23 @@ export async function startTui(
                         strayCount === 1 ? "it" : "them"
                     }.\n`
                     : renderVeraDoctor(report);
-                doctorDialog = { text: processText, copyReady: false };
+                rt.doctorDialog = { text: processText, copyReady: false };
                 renderState();
                 focusActiveSurface();
                 // Offline only. The dialog has no way to ask for a network
                 // probe, so it never makes one: `vera doctor
                 // --check-providers` owns that.
                 void diagnoseProviders(loadOptionalVeraConfig(), {
-                    authStorage,
+                    authStorage: rt.authStorage,
                 }).then(
                     (providers) => {
                         if (
-                            shuttingDown
-                            || doctorDialog === undefined
-                            || doctorInspectionGeneration
+                            rt.shuttingDown
+                            || rt.doctorDialog === undefined
+                            || rt.doctorInspectionGeneration
                                 !== inspectionGeneration
                         ) return;
-                        doctorDialog = {
+                        rt.doctorDialog = {
                             text: `${processText}\n${renderProviderDoctor(providers)}`,
                         };
                         renderState();
@@ -7259,24 +7098,24 @@ export async function startTui(
                     },
                 ).catch(() => {
                     if (
-                        shuttingDown
-                        || doctorDialog === undefined
-                        || doctorInspectionGeneration !== inspectionGeneration
+                        rt.shuttingDown
+                        || rt.doctorDialog === undefined
+                        || rt.doctorInspectionGeneration !== inspectionGeneration
                     ) return;
-                    doctorDialog = { text: processText };
+                    rt.doctorDialog = { text: processText };
                     renderState();
                     focusActiveSurface();
                 });
             }).catch((error) => {
                 if (
-                    shuttingDown
-                    || doctorDialog === undefined
-                    || doctorInspectionGeneration !== inspectionGeneration
+                    rt.shuttingDown
+                    || rt.doctorDialog === undefined
+                    || rt.doctorInspectionGeneration !== inspectionGeneration
                 ) return;
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                doctorDialog = {
+                rt.doctorDialog = {
                     text: [
                         "Vera doctor",
                         "",
@@ -7292,8 +7131,8 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "write_failure_report") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             void writeFailureReportFile();
             return;
@@ -7302,22 +7141,22 @@ export async function startTui(
             commandAction?.type === "open_settings_destination"
             && tuiCommandScope(commandAction) === "application"
         ) {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             openSettingsDestination(commandAction.destination);
             return;
         }
         if (commandAction?.type === "pool_current_model") {
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             const targetSettings = focusedAgentState().modelSettings;
             const provider = targetSettings?.provider;
             const model = targetSettings?.model;
             if (provider === undefined || model === undefined) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     "No model is running yet, so there is nothing to pin",
                 );
                 renderState();
@@ -7333,54 +7172,54 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "run_extension") {
-            const directExtension = directClientExtensions.find(
+            const directExtension = rt.directClientExtensions.find(
                 (extension) =>
                     commandAction.origin === "direct"
                     && extension.id === commandAction.source,
             );
-            if (state.working && commandAction.origin === "host") {
-                state = appendTuiNotice(
-                    state,
+            if (rt.state.working && commandAction.origin === "host") {
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Extension commands are available when the agent is idle",
                 );
                 renderState();
                 return;
             }
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             if (
                 (commandAction.origin === "direct"
                     && directExtension === undefined)
                 || (commandAction.origin === "client"
-                    && clientExtensionRegistry === undefined)
+                    && rt.clientExtensionRegistry === undefined)
                 || (commandAction.origin === "host"
-                    && client.runExtensionCommand === undefined)
+                    && rt.client.runExtensionCommand === undefined)
             ) {
-                composer.setComposerText(prompt);
-                state = appendTuiError(
-                    state,
+                rt.composer.setComposerText(prompt);
+                rt.state = appendTuiError(
+                    rt.state,
                     `${commandAction.source}: command unavailable`,
                 );
                 renderState();
                 return;
             }
-            extensionCommandPending = true;
-            extensionCommandActivity = `running /${commandAction.command}`;
+            rt.extensionCommandPending = true;
+            rt.extensionCommandActivity = `running /${commandAction.command}`;
             renderStatus();
-            const extensionSubmittedImages = [...pendingImages];
+            const extensionSubmittedImages = [...rt.pendingImages];
             const extensionTarget = focusedAgentClient();
             const invocation = commandAction.origin === "host"
-                ? client.runExtensionCommand!(
+                ? rt.client.runExtensionCommand!(
                     commandAction.command,
                     commandAction.argumentsText,
                 )
                 : commandAction.origin === "client"
-                ? extensionAgentTarget.run(extensionTarget, () =>
-                    clientExtensionRegistry!.invokeCommand(
+                ? rt.extensionAgentTarget.run(extensionTarget, () =>
+                    rt.clientExtensionRegistry!.invokeCommand(
                         commandAction.command,
                         commandAction.argumentsText,
-                        client.workspace ?? process.cwd(),
+                        rt.client.workspace ?? process.cwd(),
                         undefined,
                         extensionSubmittedImages.length,
                         extensionSubmittedImages.flatMap((image) =>
@@ -7402,23 +7241,23 @@ export async function startTui(
                     const submitted = new Set(
                         extensionSubmittedImages.map((image) => image.requestId),
                     );
-                    pendingImages = pendingImages.filter(
+                    rt.pendingImages = rt.pendingImages.filter(
                         (image) => !submitted.has(image.requestId),
                     );
                 }
-                if (shuttingDown || result === undefined) {
+                if (rt.shuttingDown || result === undefined) {
                     return;
                 }
                 if (result.body.kind === "client_action") {
                     if (result.body.action === "show_help") {
-                        help = startTuiHelp(
+                        rt.help = startTuiHelp(
                             coreHelpCommands(),
-                            hostExtensionCommands,
+                            rt.hostExtensionCommands,
                         );
                     }
                 } else if (result.body.kind !== "handled") {
-                    state = appendTuiNotice(
-                        state,
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         extensionCommandResultText({
                             version: 1,
                             source: result.source,
@@ -7427,24 +7266,24 @@ export async function startTui(
                     );
                 }
             }).catch((error) => {
-                if (shuttingDown) {
+                if (rt.shuttingDown) {
                     return;
                 }
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `${commandAction.source}/${commandAction.command}: ${message}`,
                 );
-                if (composer.plainText.length === 0) {
-                    composer.setComposerText(prompt);
+                if (rt.composer.plainText.length === 0) {
+                    rt.composer.setComposerText(prompt);
                     renderCommandSuggestions();
                 }
             }).finally(() => {
-                if (!shuttingDown) {
-                    extensionCommandPending = false;
-                    extensionCommandActivity = undefined;
+                if (!rt.shuttingDown) {
+                    rt.extensionCommandPending = false;
+                    rt.extensionCommandActivity = undefined;
                     renderState();
                     focusActiveSurface();
                 }
@@ -7452,7 +7291,7 @@ export async function startTui(
             return;
         }
         if (
-            connectionFailed
+            rt.connectionFailed
             && commandAction?.type !== "open_resume_picker"
             && commandAction?.type !== "open_theme_picker"
             && commandAction?.type !== "create_session"
@@ -7461,8 +7300,8 @@ export async function startTui(
         ) {
             // Refusing without saying so reads as a frozen composer: the text
             // stays put and nothing else changes on screen.
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 "Disconnected from the host. Run /reconnect to restore this"
                     + " session, or ctrl+c to quit.",
             );
@@ -7471,28 +7310,28 @@ export async function startTui(
         }
         if (commandAction?.type === "invoke_skill") {
             const requestId = randomUUID();
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
-            pendingSkillInvocations.set(requestId, prompt);
-            promptSubmitting = true;
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
+            rt.pendingSkillInvocations.set(requestId, prompt);
+            rt.promptSubmitting = true;
             renderCommandSuggestions();
             renderStatus();
-            void client.send({
+            void rt.client.send({
                 type: "invoke_skill",
                 requestId,
                 name: commandAction.name,
                 argumentsText: commandAction.argumentsText,
             }).catch((error) => {
-                if (!pendingSkillInvocations.delete(requestId) || shuttingDown) {
+                if (!rt.pendingSkillInvocations.delete(requestId) || rt.shuttingDown) {
                     return;
                 }
-                promptSubmitting = pendingSkillInvocations.size > 0;
-                if (composer.plainText.length === 0) {
-                    composer.setComposerText(prompt);
+                rt.promptSubmitting = rt.pendingSkillInvocations.size > 0;
+                if (rt.composer.plainText.length === 0) {
+                    rt.composer.setComposerText(prompt);
                     renderCommandSuggestions();
                 }
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     error instanceof Error ? error.message : String(error),
                 );
                 renderState();
@@ -7500,14 +7339,14 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "update_model") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             // A typed model runs as typed. The pool is a shortlist, not a
             // gate, so nothing is added here; `provider/model` names a
             // provider, a bare name keeps the running one.
             const typed = commandAction.model.trim();
             // A pool name is that entry's identity, so it names the provider
             // too; anything else is read as the user typed it.
-            const named = state.modelSettings?.pooled?.find(
+            const named = rt.state.modelSettings?.pooled?.find(
                 (entry) => entry.poolName === typed,
             );
             if (named !== undefined) {
@@ -7523,7 +7362,7 @@ export async function startTui(
             const provider = separator > 0 ? typed.slice(0, separator) : undefined;
             const model = separator > 0 ? typed.slice(separator + 1) : typed;
             if (model.length === 0) {
-                state = appendTuiError(state, `"${typed}" is not a model name`);
+                rt.state = appendTuiError(rt.state, `"${typed}" is not a model name`);
                 renderState();
                 return;
             }
@@ -7539,7 +7378,7 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "update_reasoning") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             requestModelSettingsChange(
                 { reasoningEffort: commandAction.reasoningEffort },
                 `reasoning → ${commandAction.reasoningEffort}`,
@@ -7549,10 +7388,10 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "update_permissions") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             if (commandAction.mode === "full_access") {
-                confirmingFullAccess = true;
-                confirmingFullAccessAgent = focusedAgentClient();
+                rt.confirmingFullAccess = true;
+                rt.confirmingFullAccessAgent = focusedAgentClient();
                 focusActiveSurface();
             } else {
                 requestPermissionsChange(
@@ -7565,61 +7404,61 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "open_preferences_list") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openPreferencesList();
             return;
         }
         if (commandAction?.type === "open_standing_nudges") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openStandingNudges();
             return;
         }
         if (commandAction?.type === "open_settings_destination") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openSettingsDestination(commandAction.destination);
             return;
         }
         if (commandAction?.type === "wear_agent") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             wearAgent(commandAction.name);
             return;
         }
         if (commandAction?.type === "open_theme_picker") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openThemePicker();
             return;
         }
         if (commandAction?.type === "open_configure") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             openConfigurePicker();
             return;
         }
         if (commandAction?.type === "open_command_palette") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openCommandPalette();
             return;
         }
         if (commandAction?.type === "open_help") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             openHelp(commandAction.tab);
             return;
         }
         if (commandAction?.type === "prefill_composer") {
-            composer.setComposerText(commandAction.text);
+            rt.composer.setComposerText(commandAction.text);
             renderCommandSuggestions();
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
         if (commandAction?.type === "open_work_tab") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             openWorkTab();
             return;
         }
         if (commandAction?.type === "open_search") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             // `/search` is named for past work, so it opens across sessions
             // whatever conversation it was typed into.
@@ -7627,22 +7466,22 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "open_resume_picker") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             openResumePicker();
             return;
         }
         if (commandAction?.type === "open_subagents_picker") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            if (dependencies.listAgents === undefined) {
-                state = appendTuiError(state, "Session listing is unavailable");
+            if (rt.dependencies.listAgents === undefined) {
+                rt.state = appendTuiError(rt.state, "Session listing is unavailable");
                 renderState();
                 return;
             }
-            const version = ++resumeListVersion;
+            const version = ++rt.resumeListVersion;
             const targetAgentId = focusedAgentClient().agentId;
-            settingsPicker = startTuiSessionPicker(
+            rt.settingsPicker = startTuiSessionPicker(
                 [],
                 targetAgentId,
                 true,
@@ -7653,11 +7492,11 @@ export async function startTui(
             );
             focusActiveSurface();
             renderState();
-            void dependencies.listAgents().then((agents) => {
+            void rt.dependencies.listAgents().then((agents) => {
                 if (
-                    shuttingDown
-                    || version !== resumeListVersion
-                    || settingsPicker?.kind !== "session"
+                    rt.shuttingDown
+                    || version !== rt.resumeListVersion
+                    || rt.settingsPicker?.kind !== "session"
                 ) {
                     return;
                 }
@@ -7668,16 +7507,16 @@ export async function startTui(
                     (agent) => agent.parent_id === currentId,
                 );
                 if (children.length === 0) {
-                    settingsPicker = undefined;
-                    state = appendTuiNotice(
-                        state,
+                    rt.settingsPicker = undefined;
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         "This conversation has no subagents",
                     );
                     focusActiveSurface();
                     renderState();
                     return;
                 }
-                settingsPicker = startTuiSessionPicker(
+                rt.settingsPicker = startTuiSessionPicker(
                     children,
                     currentId,
                     false,
@@ -7690,18 +7529,18 @@ export async function startTui(
                 renderState();
             }).catch((error) => {
                 if (
-                    !shuttingDown
-                    && version === resumeListVersion
-                    && settingsPicker?.kind === "session"
+                    !rt.shuttingDown
+                    && version === rt.resumeListVersion
+                    && rt.settingsPicker?.kind === "session"
                 ) {
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiError(
-                        state,
+                    rt.state = appendTuiError(
+                        rt.state,
                         `Could not list sessions: ${message}`,
                     );
-                    settingsPicker = undefined;
+                    rt.settingsPicker = undefined;
                     focusActiveSurface();
                     renderState();
                 }
@@ -7709,22 +7548,22 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "go_back") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             runBack();
             return;
         }
         if (commandAction?.type === "go_to_parent") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             renderCommandSuggestions();
-            if (dependencies.listAgents === undefined) {
-                state = appendTuiError(state, "Session listing is unavailable");
+            if (rt.dependencies.listAgents === undefined) {
+                rt.state = appendTuiError(rt.state, "Session listing is unavailable");
                 renderState();
                 return;
             }
             const targetAgentId = focusedAgentClient().agentId;
-            void dependencies.listAgents().then((agents) => {
-                if (shuttingDown) {
+            void rt.dependencies.listAgents().then((agents) => {
+                if (rt.shuttingDown) {
                     return;
                 }
                 const current = agents.find(
@@ -7734,8 +7573,8 @@ export async function startTui(
                     ? undefined
                     : agents.find((agent) => agent.id === current.parent_id);
                 if (parent === undefined) {
-                    state = appendTuiNotice(
-                        state,
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         "This conversation has no parent",
                     );
                     renderState();
@@ -7749,12 +7588,12 @@ export async function startTui(
                     "keep_running",
                 );
             }).catch((error) => {
-                if (shuttingDown) return;
+                if (rt.shuttingDown) return;
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `Could not find the parent conversation: ${message}`,
                 );
                 renderState();
@@ -7762,18 +7601,18 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "reconnect") {
-            composer.clearComposer();
-            if (sessionSwitchPending) {
+            rt.composer.clearComposer();
+            if (rt.sessionSwitchPending) {
                 renderState();
                 return;
             }
-            const currentAgentId = client.agentId;
+            const currentAgentId = rt.client.agentId;
             if (
-                dependencies.reconnectSession === undefined
+                rt.dependencies.reconnectSession === undefined
                 || currentAgentId === undefined
             ) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     "Reconnecting this session is unavailable",
                 );
                 renderState();
@@ -7787,49 +7626,49 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "close_session") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             requestCloseSession();
             return;
         }
         if (commandAction?.type === "clone_session") {
-            composer.clearComposer();
-            if (dependencies.cloneSession === undefined) {
-                state = appendTuiError(
-                    state,
+            rt.composer.clearComposer();
+            if (rt.dependencies.cloneSession === undefined) {
+                rt.state = appendTuiError(
+                    rt.state,
                     "Cloning this session is unavailable",
                 );
                 renderState();
                 return;
             }
-            const sourceAgentId = client.agentId;
+            const sourceAgentId = rt.client.agentId;
             if (sourceAgentId === undefined) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     "Current session ID is unavailable",
                 );
                 renderState();
                 return;
             }
-            sessionSwitchPending = true;
-            sessionSwitchActivity = "cloning session…";
+            rt.sessionSwitchPending = true;
+            rt.sessionSwitchActivity = "cloning session…";
             renderStatus();
             void withSessionSwitchDeadline(
-                dependencies.cloneSession(sourceAgentId),
+                rt.dependencies.cloneSession(sourceAgentId),
                 discardSwitchTarget,
             ).then((next) => {
-                if (shuttingDown) {
+                if (rt.shuttingDown) {
                     discardSwitchTarget(next);
                     return;
                 }
                 switchToClient(next);
             }).catch((error) => {
-                if (shuttingDown) return;
-                sessionSwitchPending = false;
+                if (rt.shuttingDown) return;
+                rt.sessionSwitchPending = false;
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `Could not clone this session: ${message}`,
                 );
                 renderState();
@@ -7837,13 +7676,13 @@ export async function startTui(
             return;
         }
         if (commandAction?.type === "compact_session") {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             // No reply is awaited: the compaction updates the engine already
             // emits say what happened, and they are the same ones an automatic
             // compaction produces.
-            void client.send({ type: "compact", requestId: randomUUID() })
+            void rt.client.send({ type: "compact", requestId: randomUUID() })
                 .catch((error) => {
-                    composer.setComposerText(prompt);
+                    rt.composer.setComposerText(prompt);
                     reportConnectionError(error);
                 });
             showStatusNotice("summarizing earlier messages…");
@@ -7851,21 +7690,21 @@ export async function startTui(
         }
         if (commandAction?.type === "update_session_name") {
             const requestId = randomUUID();
-            composer.clearComposer();
+            rt.composer.clearComposer();
             const target = focusedAgentClient();
-            if (target !== client) {
-                pendingSidebarSessionRename = { requestId, commandText: prompt };
+            if (target !== rt.client) {
+                rt.pendingSidebarSessionRename = { requestId, commandText: prompt };
                 void target.send({
                     type: "update_session_name",
                     requestId,
                     name: commandAction.name,
                 }).catch((error) => {
-                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                    if (rt.pendingSidebarSessionRename?.requestId !== requestId) {
                         return;
                     }
-                    pendingSidebarSessionRename = undefined;
-                    if (composer.expandedText().length === 0) {
-                        composer.setComposerText(prompt);
+                    rt.pendingSidebarSessionRename = undefined;
+                    if (rt.composer.expandedText().length === 0) {
+                        rt.composer.setComposerText(prompt);
                     }
                     reportConnectionError(error);
                 });
@@ -7876,16 +7715,16 @@ export async function startTui(
                 );
                 return;
             }
-            pendingSessionRename = { requestId, commandText: prompt };
+            rt.pendingSessionRename = { requestId, commandText: prompt };
             void target.send({
                 type: "update_session_name",
                 requestId,
                 name: commandAction.name,
             }).catch((error) => {
-                if (pendingSessionRename?.requestId !== requestId) return;
-                pendingSessionRename = undefined;
-                if (composer.expandedText().length === 0) {
-                    composer.setComposerText(prompt);
+                if (rt.pendingSessionRename?.requestId !== requestId) return;
+                rt.pendingSessionRename = undefined;
+                if (rt.composer.expandedText().length === 0) {
+                    rt.composer.setComposerText(prompt);
                 }
                 reportConnectionError(error);
             });
@@ -7898,37 +7737,37 @@ export async function startTui(
         }
         if (commandAction?.type === "open_rewind") {
             if (
-                state.working
-                || state.queuedPrompts.length > 0
-                || pendingUiRequest !== undefined
-                || timelinePicker !== undefined
+                rt.state.working
+                || rt.state.queuedPrompts.length > 0
+                || rt.pendingUiRequest !== undefined
+                || rt.timelinePicker !== undefined
             ) {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Rewind is available when the agent is idle.",
                 );
                 renderState();
                 return;
             }
-            composer.clearComposer();
+            rt.composer.clearComposer();
             applyTimelineTransition(startTuiTimelinePicker(randomUUID()));
             return;
         }
         if (commandAction?.type === "open_fork") {
             if (
-                state.working
-                || state.queuedPrompts.length > 0
-                || pendingUiRequest !== undefined
-                || timelinePicker !== undefined
+                rt.state.working
+                || rt.state.queuedPrompts.length > 0
+                || rt.pendingUiRequest !== undefined
+                || rt.timelinePicker !== undefined
             ) {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Fork is available when the agent is idle.",
                 );
                 renderState();
                 return;
             }
-            composer.clearComposer();
+            rt.composer.clearComposer();
             applyTimelineTransition(startTuiTimelinePicker(
                 randomUUID(),
                 "fork",
@@ -7936,18 +7775,18 @@ export async function startTui(
             return;
         }
 
-        if (pendingImages.some((image) => image.id === undefined)) {
-            submitAfterImageAttachment = true;
-            state = appendTuiNotice(state, "Wait for the image attachment to finish.");
+        if (rt.pendingImages.some((image) => image.id === undefined)) {
+            rt.submitAfterImageAttachment = true;
+            rt.state = appendTuiNotice(rt.state, "Wait for the image attachment to finish.");
             renderState();
             return;
         }
         // The chips carry the order the user sees, which reordering the text
         // can change; `pendingImages` only carries the order they arrived in.
-        const chipOrder = composer.imageChipRequestIds();
+        const chipOrder = rt.composer.imageChipRequestIds();
         const attachments = chipOrder
             .flatMap((requestId) => {
-                const image = pendingImages.find(
+                const image = rt.pendingImages.find(
                     (candidate) => candidate.requestId === requestId,
                 );
                 return image?.id === undefined ? [] : [{
@@ -7958,71 +7797,71 @@ export async function startTui(
         const attachmentIds = attachments.map((attachment) => attachment.id);
         if (attachmentIds.length > 0) {
             const submittedRequestIds = new Set(
-                pendingImages.map((image) => image.requestId),
+                rt.pendingImages.map((image) => image.requestId),
             );
             // A prompt sent mid-turn is queued by the host, so the transcript
             // shows it queued rather than opening a turn of its own.
-            const queueing = state.working || state.queuedPrompts.length > 0;
-            promptSubmitting = true;
+            const queueing = rt.state.working || rt.state.queuedPrompts.length > 0;
+            rt.promptSubmitting = true;
             renderStatus();
-            flightRecorder?.record({ type: "submit_dispatched" });
-            void client.send({
+            rt.flightRecorder?.record({ type: "submit_dispatched" });
+            void rt.client.send({
                 type: "prompt",
                 content: prompt,
                 attachmentIds,
             }).then(() => {
-                flightRecorder?.record({ type: "submit_accepted" });
-                promptSubmitting = false;
-                if (shuttingDown) return;
-                if (composer.expandedText().trim() === prompt) {
-                    composer.rememberSubmittedText(prompt);
-                    composer.clearComposer();
+                rt.flightRecorder?.record({ type: "submit_accepted" });
+                rt.promptSubmitting = false;
+                if (rt.shuttingDown) return;
+                if (rt.composer.expandedText().trim() === prompt) {
+                    rt.composer.rememberSubmittedText(prompt);
+                    rt.composer.clearComposer();
                 }
-                pendingImages = pendingImages.filter(
+                rt.pendingImages = rt.pendingImages.filter(
                     (image) => !submittedRequestIds.has(image.requestId),
                 );
-                if (queueing && !hostOwnsPromptQueue(client)) {
-                    state = queueTuiPrompt(state, prompt);
+                if (queueing && !hostOwnsPromptQueue(rt.client)) {
+                    rt.state = queueTuiPrompt(rt.state, prompt);
                 } else if (!queueing) {
                     if (
-                        !userEntryShows(state.entries.at(-1), prompt, attachments)
+                        !userEntryShows(rt.state.entries.at(-1), prompt, attachments)
                     ) {
-                        state = beginTuiTurn(state, prompt, attachments);
-                    } else if (!state.working) {
-                        state = { ...state, working: true };
+                        rt.state = beginTuiTurn(rt.state, prompt, attachments);
+                    } else if (!rt.state.working) {
+                        rt.state = { ...rt.state, working: true };
                     }
                     adoptFallbackSessionTitle(prompt);
-                    workingSince ??= Date.now();
-                    phaseSince = workingSince;
-                    activity = "thinking";
+                    rt.workingSince ??= Date.now();
+                    rt.phaseSince = rt.workingSince;
+                    rt.activity = "thinking";
                 }
                 renderState();
             }).catch((error) => {
-                flightRecorder?.record({
+                rt.flightRecorder?.record({
                     type: "submit_failed",
                     error: error instanceof Error ? error.message : String(error),
                 });
-                promptSubmitting = false;
+                rt.promptSubmitting = false;
                 reportConnectionError(error);
             });
             return;
         }
-        composer.rememberSubmittedText(prompt);
-        composer.clearComposer();
-        const queueing = state.working || state.queuedPrompts.length > 0;
-        state = queueing
-            ? hostOwnsPromptQueue(client)
-                ? state
-                : queueTuiPrompt(state, prompt)
-            : beginTuiTurn(state, prompt, attachments, injectedPrefix);
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        const queueing = rt.state.working || rt.state.queuedPrompts.length > 0;
+        rt.state = queueing
+            ? hostOwnsPromptQueue(rt.client)
+                ? rt.state
+                : queueTuiPrompt(rt.state, prompt)
+            : beginTuiTurn(rt.state, prompt, attachments, injectedPrefix);
         adoptFallbackSessionTitle(prompt, injectedPrefix);
-        if (!queueing && workingSince === undefined) {
-            workingSince = Date.now();
-            phaseSince = workingSince;
-            activity = "thinking";
+        if (!queueing && rt.workingSince === undefined) {
+            rt.workingSince = Date.now();
+            rt.phaseSince = rt.workingSince;
+            rt.activity = "thinking";
         }
         renderState();
-        pendingImages = [];
+        rt.pendingImages = [];
         sendCommand({
             type: "prompt",
             content: prompt,
@@ -8031,16 +7870,16 @@ export async function startTui(
     }
 
     function leaveJsonlCommandMode(): void {
-        jsonlCommandMode = false;
-        composer.clearComposer();
+        rt.jsonlCommandMode = false;
+        rt.composer.clearComposer();
         renderCommandSuggestions();
         renderState();
         focusActiveSurface();
     }
 
     function refuseJsonlCommand(): void {
-        state = appendTuiNotice(
-            state,
+        rt.state = appendTuiNotice(
+            rt.state,
             "This conversation is idle. Only /resume, /fresh, /help, and /theme work until it wakes; press enter to carry on.",
         );
         leaveJsonlCommandMode();
@@ -8050,19 +7889,19 @@ export async function startTui(
     function availableCommandSuggestions(
         input: string,
     ): readonly TuiCommandCatalogEntry[] {
-        const suggestions = commandRegistry.suggestions(input);
-        return isJsonlViewClient(client) && jsonlCommandMode
+        const suggestions = rt.commandRegistry.suggestions(input);
+        return isJsonlViewClient(rt.client) && rt.jsonlCommandMode
             ? suggestions.filter((entry) =>
                 workerFreeAction(
-                    commandRegistry.dispatch(`/${entry.name}`),
+                    rt.commandRegistry.dispatch(`/${entry.name}`),
                     true,
                 ))
             : suggestions;
     }
 
     function availableCommandCompletion(input: string): string | undefined {
-        if (!(isJsonlViewClient(client) && jsonlCommandMode)) {
-            return commandRegistry.completion(input);
+        if (!(isJsonlViewClient(rt.client) && rt.jsonlCommandMode)) {
+            return rt.commandRegistry.completion(input);
         }
         const suggestions = availableCommandSuggestions(input);
         return suggestions.length === 1
@@ -8071,30 +7910,30 @@ export async function startTui(
     }
 
     function routeVisibleAgentPrompt(prompt: string): boolean {
-        const side = hostedSidebar.pane;
-        if (side === undefined || client.agentId === undefined) return false;
+        const side = rt.hostedSidebar.pane;
+        if (side === undefined || rt.client.agentId === undefined) return false;
         const route = routeTuiAgentMessage(
             prompt,
-            sidebar.isFocused() ? "sidebar" : "main",
+            rt.sidebar.isFocused() ? "sidebar" : "main",
             [
-                { agentId: client.agentId, pane: "main" },
+                { agentId: rt.client.agentId, pane: "main" },
                 {
                     agentId: side.agentId,
                     pane: "sidebar",
-                    mention: hostedSidebar.mention ?? side.agentId,
+                    mention: rt.hostedSidebar.mention ?? side.agentId,
                 },
             ],
             hostedAgentAddressing(),
         );
         if (route.kind === "unknown") {
-            state = appendTuiNotice(state, `No open agent named @${route.mention}`);
+            rt.state = appendTuiNotice(rt.state, `No open agent named @${route.mention}`);
             renderState();
             return true;
         }
         if (route.kind === "focus") {
             setSidebarFocused(route.pane === "sidebar");
-            composer.rememberSubmittedText(prompt);
-            composer.clearComposer();
+            rt.composer.rememberSubmittedText(prompt);
+            rt.composer.clearComposer();
             renderCommandSuggestions();
             renderState();
             return true;
@@ -8104,23 +7943,23 @@ export async function startTui(
         );
         const sendsToMain = route.targets.some((target) => target.pane === "main");
         if (sendsToSidebar) {
-            const submittedImages = [...pendingImages];
-            const imagePaths = pendingImages.flatMap((image) =>
+            const submittedImages = [...rt.pendingImages];
+            const imagePaths = rt.pendingImages.flatMap((image) =>
                 image.path === undefined ? [] : [image.path]
             );
-            if (imagePaths.length !== pendingImages.length) {
-                state = appendTuiNotice(
-                    state,
+            if (imagePaths.length !== rt.pendingImages.length) {
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Every sidebar image needs a readable source path",
                 );
                 renderState();
                 return true;
             }
             const controller = new AbortController();
-            sidebarPromptSubmitting = true;
+            rt.sidebarPromptSubmitting = true;
             void attachImagesToSidebar(side, imagePaths, controller.signal)
                 .then(async (attachments) => {
-                    if (shuttingDown) return;
+                    if (rt.shuttingDown) return;
                     await side.client.send({
                         type: "prompt",
                         content: route.text,
@@ -8162,21 +8001,21 @@ export async function startTui(
                         side.state.activity = "thinking";
                     }
                     if (sendsToMain) {
-                        sidebarPromptSubmitting = false;
+                        rt.sidebarPromptSubmitting = false;
                         submitPrompt(route.text);
                         return;
                     }
                     // The send above can resolve after the renderer is
                     // destroyed; the composer's EditBuffer is gone with it.
-                    if (shuttingDown) return;
-                    if (composer.expandedText().trim() === prompt) {
-                        composer.rememberSubmittedText(prompt);
-                        composer.clearComposer();
+                    if (rt.shuttingDown) return;
+                    if (rt.composer.expandedText().trim() === prompt) {
+                        rt.composer.rememberSubmittedText(prompt);
+                        rt.composer.clearComposer();
                     }
                     const sent = new Set(
                         submittedImages.map((image) => image.requestId),
                     );
-                    pendingImages = pendingImages.filter(
+                    rt.pendingImages = rt.pendingImages.filter(
                         (image) => !sent.has(image.requestId),
                     );
                 })
@@ -8187,13 +8026,13 @@ export async function startTui(
                     };
                     side.state.workingSince = undefined;
                     side.state.phaseSince = undefined;
-                    state = appendTuiNotice(
-                        state,
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         error instanceof Error ? error.message : String(error),
                     );
                     renderState();
                 }).finally(() => {
-                    sidebarPromptSubmitting = false;
+                    rt.sidebarPromptSubmitting = false;
                     renderState();
                 });
             return true;
@@ -8203,9 +8042,9 @@ export async function startTui(
             submitPrompt(route.text);
             return true;
         }
-        composer.rememberSubmittedText(prompt);
-        composer.clearComposer();
-        pendingImages = [];
+        rt.composer.rememberSubmittedText(prompt);
+        rt.composer.clearComposer();
+        rt.pendingImages = [];
         renderCommandSuggestions();
         renderState();
         return true;
@@ -8227,19 +8066,19 @@ export async function startTui(
      * lose the text or leave it sitting in the box.
      */
     function offerMessageToExtensions(prompt: string): void {
-        messageInterceptPending = true;
+        rt.messageInterceptPending = true;
         renderStatus();
-        void clientExtensionRegistry!.interceptMessage({
+        void rt.clientExtensionRegistry!.interceptMessage({
             text: prompt,
-            workspace: client.workspace ?? process.cwd(),
-            imageCount: pendingImages.length,
+            workspace: rt.client.workspace ?? process.cwd(),
+            imageCount: rt.pendingImages.length,
         }).then((decision) => {
-            messageInterceptPending = false;
-            if (shuttingDown) return;
+            rt.messageInterceptPending = false;
+            if (rt.shuttingDown) return;
             if (decision.kind === "handled") {
-                if (composer.expandedText().trim() === prompt) {
-                    composer.rememberSubmittedText(prompt);
-                    composer.clearComposer();
+                if (rt.composer.expandedText().trim() === prompt) {
+                    rt.composer.rememberSubmittedText(prompt);
+                    rt.composer.clearComposer();
                 }
                 renderState();
                 return;
@@ -8249,10 +8088,10 @@ export async function startTui(
                 decision.kind === "replace" ? decision.injectedPrefix : undefined,
             );
         }).catch((error) => {
-            messageInterceptPending = false;
-            if (shuttingDown) return;
-            state = appendTuiNotice(
-                state,
+            rt.messageInterceptPending = false;
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiNotice(
+                rt.state,
                 error instanceof Error ? error.message : String(error),
             );
             renderState();
@@ -8266,23 +8105,23 @@ export async function startTui(
      */
     function attachPastedImage(path: string): void {
         const requestId = randomUUID();
-        pendingImages.push({ requestId, path });
-        composer.attachImageChip(requestId);
+        rt.pendingImages.push({ requestId, path });
+        rt.composer.attachImageChip(requestId);
         renderState();
         void materializeDroppedImage(path).then(({ path: taken, release }) => {
-            if (!pendingImages.some((image) => image.requestId === requestId)) {
+            if (!rt.pendingImages.some((image) => image.requestId === requestId)) {
                 void release();
                 return;
             }
-            droppedImageReleases.set(requestId, release);
+            rt.droppedImageReleases.set(requestId, release);
             sendCommand({ type: "attach_image", requestId, path: taken });
         });
     }
 
     function releaseDroppedImage(requestId: string): void {
-        const release = droppedImageReleases.get(requestId);
+        const release = rt.droppedImageReleases.get(requestId);
         if (release === undefined) return;
-        droppedImageReleases.delete(requestId);
+        rt.droppedImageReleases.delete(requestId);
         void release();
     }
 
@@ -8290,20 +8129,20 @@ export async function startTui(
         // The session this pump belongs to. A switch bumps the counter, and the
         // await below can still resolve afterwards with an update from the
         // session the user just left.
-        const generation = clientGeneration;
-        const source = client;
+        const generation = rt.clientGeneration;
+        const source = rt.client;
         try {
-            while (!shuttingDown && generation === clientGeneration) {
+            while (!rt.shuttingDown && generation === rt.clientGeneration) {
                 const update = await source.receive();
-                if (shuttingDown || generation !== clientGeneration) {
+                if (rt.shuttingDown || generation !== rt.clientGeneration) {
                     return;
                 }
                 if (
-                    sessionSwitchPending
-                    && sessionSwitchOperation === "clear"
-                    && sessionSwitchClearingMain
+                    rt.sessionSwitchPending
+                    && rt.sessionSwitchOperation === "clear"
+                    && rt.sessionSwitchClearingMain
                 ) {
-                    sessionSwitchBufferedUpdates.push(update);
+                    rt.sessionSwitchBufferedUpdates.push(update);
                     continue;
                 }
                 if (
@@ -8311,47 +8150,47 @@ export async function startTui(
                     || update.type === "image_attachment_rejected"
                 ) {
                     releaseDroppedImage(update.requestId);
-                    const imageIndex = pendingImages.findIndex(
+                    const imageIndex = rt.pendingImages.findIndex(
                         (image) => image.requestId === update.requestId,
                     );
                     if (imageIndex === -1) continue;
                     if (update.type === "image_attached") {
-                        pendingImages[imageIndex] = {
-                            ...pendingImages[imageIndex],
+                        rt.pendingImages[imageIndex] = {
+                            ...rt.pendingImages[imageIndex],
                             requestId: update.requestId,
                             id: update.attachment.id,
                             name: update.attachment.name,
                         };
                         showStatusNotice(
-                            `attached ${update.attachment.name} · ${pendingImages.length} pending`,
+                            `attached ${update.attachment.name} · ${rt.pendingImages.length} pending`,
                         );
                         if (
-                            submitAfterImageAttachment
-                            && pendingImages.every((image) => image.id !== undefined)
+                            rt.submitAfterImageAttachment
+                            && rt.pendingImages.every((image) => image.id !== undefined)
                         ) {
-                            submitAfterImageAttachment = false;
+                            rt.submitAfterImageAttachment = false;
                             queueMicrotask(submitPrompt);
                         }
                     } else {
-                        submitAfterImageAttachment = false;
-                        const [rejected] = pendingImages.splice(imageIndex, 1);
+                        rt.submitAfterImageAttachment = false;
+                        const [rejected] = rt.pendingImages.splice(imageIndex, 1);
                         if (rejected !== undefined) {
-                            composer.removeImageChip(rejected.requestId);
+                            rt.composer.removeImageChip(rejected.requestId);
                         }
-                        state = appendTuiError(
-                            state,
+                        rt.state = appendTuiError(
+                            rt.state,
                             `Could not attach image: ${update.error}`,
                         );
                         renderState();
                     }
-                    composer.focus();
+                    rt.composer.focus();
                     continue;
                 }
                 if (
                     update.type === "oneshot_result"
                     || update.type === "oneshot_rejected"
                 ) {
-                    const pending = pendingOneshots.get(update.requestId);
+                    const pending = rt.pendingOneshots.get(update.requestId);
                     if (pending === undefined) continue;
                     if (update.type === "oneshot_result") {
                         pending.resolve({
@@ -8370,34 +8209,34 @@ export async function startTui(
                     update.type === "session_name"
                     || update.type === "session_name_rejected"
                 ) {
-                    if (update.requestId !== pendingSessionRename?.requestId) {
+                    if (update.requestId !== rt.pendingSessionRename?.requestId) {
                         continue;
                     }
-                    const pending = pendingSessionRename;
-                    pendingSessionRename = undefined;
+                    const pending = rt.pendingSessionRename;
+                    rt.pendingSessionRename = undefined;
                     if (update.type === "session_name") {
-                        state = appendTuiNotice(
-                            state,
+                        rt.state = appendTuiNotice(
+                            rt.state,
                             update.name === null
                                 ? "session name cleared"
                                 : `session renamed: ${update.name}`,
                         );
                         if (update.name === null) {
-                            sessionTitle = undefined;
+                            rt.sessionTitle = undefined;
                             refreshTerminalTitle();
                         } else {
-                            sessionTitle = update.name;
+                            rt.sessionTitle = update.name;
                             applyTerminalTitle();
                         }
                     } else {
                         if (
                             pending.commandText !== undefined
-                            && composer.expandedText().length === 0
+                            && rt.composer.expandedText().length === 0
                         ) {
-                            composer.setComposerText(pending.commandText);
+                            rt.composer.setComposerText(pending.commandText);
                         }
-                        state = appendTuiError(
-                            state,
+                        rt.state = appendTuiError(
+                            rt.state,
                             update.reason === "invalid"
                                 ? "Session name must be 1 to 200 UTF-8 bytes"
                                 : "Could not rename this session",
@@ -8405,19 +8244,19 @@ export async function startTui(
                     }
                     if (
                         update.type === "session_name"
-                        && settingsPicker?.kind === "session"
+                        && rt.settingsPicker?.kind === "session"
                     ) {
                         void refreshSessionPicker();
                     }
                     if (
                         update.type === "session_name"
-                        && workspaceSidebar !== undefined
+                        && rt.workspaceSidebar !== undefined
                     ) {
                         refreshWorkspaceSidebarRoster();
                     }
                     renderState();
                     if (!anyOverlayOpen()) {
-                        composer.focus();
+                        rt.composer.focus();
                     }
                     focusActiveSurface();
                     continue;
@@ -8427,58 +8266,58 @@ export async function startTui(
                     || update.type === "ui_request_closed"
                 ) {
                     if (update.type === "ui_request") {
-                        if (pendingUiRequest === undefined) {
-                            followTranscriptAfterUiRequest = transcript.scrollTop
-                                >= transcript.scrollHeight
-                                    - transcript.viewport.height;
+                        if (rt.pendingUiRequest === undefined) {
+                            rt.followTranscriptAfterUiRequest = rt.transcript.scrollTop
+                                >= rt.transcript.scrollHeight
+                                    - rt.transcript.viewport.height;
                         }
                         // Requests must reveal the pane that owns them. A
                         // hidden question otherwise disables composer UI while
                         // looking like neither agent needs an answer.
                         if (!(
                             isConfigurationRequiredUiRequestUpdate(update)
-                            && activeConfigurationRequest !== undefined
-                            && activeConfigurationRequest.requestId
+                            && rt.activeConfigurationRequest !== undefined
+                            && rt.activeConfigurationRequest.requestId
                                 !== update.requestId
                         )) {
                             setSidebarFocused(false);
                         }
                         finishThoughtPhase();
-                        phaseSince = undefined;
-                        activity = update.request.type === "tool_approval"
+                        rt.phaseSince = undefined;
+                        rt.activity = update.request.type === "tool_approval"
                             ? "waiting for approval"
                             : update.request.type === "configuration_required"
                             ? "waiting for configuration"
                             : "waiting for answer";
                     } else {
-                        phaseSince = undefined;
-                        activity = "resuming";
+                        rt.phaseSince = undefined;
+                        rt.activity = "resuming";
                     }
-                    const previousRequest = pendingUiRequest;
-                    pendingUiRequest = applyTuiUiRequestUpdate(
-                        pendingUiRequest,
-                        queuedUiRequests,
+                    const previousRequest = rt.pendingUiRequest;
+                    rt.pendingUiRequest = applyTuiUiRequestUpdate(
+                        rt.pendingUiRequest,
+                        rt.queuedUiRequests,
                         update,
                     );
                     if (
                         previousRequest === undefined
-                        && pendingUiRequest !== undefined
+                        && rt.pendingUiRequest !== undefined
                     ) {
                         closeTransientOverlaysForUiRequest();
                     }
-                    if (pendingUiRequest !== previousRequest) {
+                    if (rt.pendingUiRequest !== previousRequest) {
                         syncConfigurationRequiredRequest(
-                            pendingUiRequest,
-                            client,
+                            rt.pendingUiRequest,
+                            rt.client,
                         );
                         renderState();
                         if (
                             update.type === "ui_request_closed"
-                            && pendingUiRequest === undefined
-                            && followTranscriptAfterUiRequest
+                            && rt.pendingUiRequest === undefined
+                            && rt.followTranscriptAfterUiRequest
                         ) {
-                            transcript.scrollTo(transcript.scrollHeight);
-                            followTranscriptAfterUiRequest = false;
+                            rt.transcript.scrollTo(rt.transcript.scrollHeight);
+                            rt.followTranscriptAfterUiRequest = false;
                             renderJumpToBottom();
                         }
                         focusActiveSurface();
@@ -8486,10 +8325,10 @@ export async function startTui(
                     continue;
                 }
                 if (isTimelineReplyUpdate(update)) {
-                    if (timelinePicker !== undefined) {
+                    if (rt.timelinePicker !== undefined) {
                         applyTimelineTransition(
                             applyTuiTimelineReply(
-                                timelinePicker,
+                                rt.timelinePicker,
                                 update,
                                 randomUUID,
                             ),
@@ -8501,52 +8340,52 @@ export async function startTui(
                     update.type === "model_settings"
                     || update.type === "model_settings_rejected"
                 ) {
-                    const poolChange = pendingPoolChanges.get(update.requestId);
-                    pendingPoolChanges.delete(update.requestId);
+                    const poolChange = rt.pendingPoolChanges.get(update.requestId);
+                    rt.pendingPoolChanges.delete(update.requestId);
                     if (
                         poolChange !== undefined
                         && update.type === "model_settings"
                     ) {
-                        poolChangeUndo = poolChange;
+                        rt.poolChangeUndo = poolChange;
                     }
-                    const pendingUndo = pendingPoolUndos.get(update.requestId);
-                    pendingPoolUndos.delete(update.requestId);
+                    const pendingUndo = rt.pendingPoolUndos.get(update.requestId);
+                    rt.pendingPoolUndos.delete(update.requestId);
                     if (
                         pendingUndo?.completesOnSettings === true
                         && update.type === "model_settings"
                     ) {
-                        poolChangeUndo = undefined;
+                        rt.poolChangeUndo = undefined;
                         showStatusNotice("shortlist change undone");
                     } else if (
                         pendingUndo !== undefined
                         && update.type === "model_settings_rejected"
                     ) {
-                        poolChangeUndo = pendingUndo.undo;
-                        if (settingsPicker?.kind === "model") {
-                            settingsPicker = {
-                                ...settingsPicker,
+                        rt.poolChangeUndo = pendingUndo.undo;
+                        if (rt.settingsPicker?.kind === "model") {
+                            rt.settingsPicker = {
+                                ...rt.settingsPicker,
                                 canUndoPoolChange: true,
                             };
                         }
-                        state = appendTuiError(
-                            state,
+                        rt.state = appendTuiError(
+                            rt.state,
                             rejectionNotice("undo that shortlist change", update.reason),
                         );
                     }
-                    settleExtensionModelSettings(update, client);
-                    const change = requestedModelChanges.get(
+                    settleExtensionModelSettings(update, rt.client);
+                    const change = rt.requestedModelChanges.get(
                         update.requestId,
                     );
-                    if (change?.target === client) {
-                        requestedModelChanges.delete(update.requestId);
+                    if (change?.target === rt.client) {
+                        rt.requestedModelChanges.delete(update.requestId);
                     }
                     if (
-                        change?.target === client
+                        change?.target === rt.client
                         && update.type === "model_settings"
                         && update.updatedDefaults === true
                     ) {
-                        state = appendTuiNotice(
-                            state,
+                        rt.state = appendTuiNotice(
+                            rt.state,
                             defaultModelChangeNotice(
                                 change.patch,
                                 update.settings,
@@ -8554,11 +8393,11 @@ export async function startTui(
                             "soft",
                         );
                     } else if (
-                        change?.target === client
+                        change?.target === rt.client
                         && update.type === "model_settings_rejected"
                     ) {
-                        state = appendTuiError(
-                            state,
+                        rt.state = appendTuiError(
+                            rt.state,
                             rejectionNotice(change.subject, update.reason),
                         );
                     }
@@ -8586,9 +8425,9 @@ export async function startTui(
                     receiveSkillInvocation(update);
                     continue;
                 }
-                state = applyAgentUpdate(state, update);
+                rt.state = applyAgentUpdate(rt.state, update);
                 if (isSettingsRetryTrigger(update)) {
-                    retryMissingAgentSettings(source, state);
+                    retryMissingAgentSettings(source, rt.state);
                 }
                 if (
                     update.type === "compaction"
@@ -8600,28 +8439,28 @@ export async function startTui(
                     // being stopped is still running.
                     && update.stoppedWithTurn !== true
                 ) {
-                    abortRequested = false;
+                    rt.abortRequested = false;
                 }
                 if (
                     update.type === "turn_finished"
                     && update.outcome === "error"
                 ) {
-                    state = noticeRepeatedModelFailure(state);
+                    rt.state = noticeRepeatedModelFailure(rt.state);
                 }
                 if (update.type === "agent_catalog") {
-                    agentCatalog = {
+                    rt.agentCatalog = {
                         worn: update.worn,
                         agents: update.agents,
                         notices: update.notices,
                     };
-                    pendingAgentCatalogs.get(update.requestId)?.(agentCatalog);
-                    pendingAgentCatalogs.delete(update.requestId);
+                    rt.pendingAgentCatalogs.get(update.requestId)?.(rt.agentCatalog);
+                    rt.pendingAgentCatalogs.delete(update.requestId);
                 }
-                if (update.type === "agent_worn" && agentCatalog !== undefined) {
-                    agentCatalog = { ...agentCatalog, worn: update.name };
+                if (update.type === "agent_worn" && rt.agentCatalog !== undefined) {
+                    rt.agentCatalog = { ...rt.agentCatalog, worn: update.name };
                 }
                 if (
-                    source === client
+                    source === rt.client
                     && (update.type === "agent_worn"
                         || update.type === "turn_finished")
                 ) {
@@ -8635,15 +8474,15 @@ export async function startTui(
                     continue;
                 }
                 if (update.type === "pool_admission_result") {
-                    const pendingUndo = pendingPoolUndos.get(update.requestId);
+                    const pendingUndo = rt.pendingPoolUndos.get(update.requestId);
                     if (
                         pendingUndo !== undefined
                         && update.verdict === "added"
                         && pendingUndo.undo.poolName !== undefined
                     ) {
-                        pendingPoolUndos.delete(update.requestId);
+                        rt.pendingPoolUndos.delete(update.requestId);
                         const nameRequestId = randomUUID();
-                        pendingPoolUndos.set(nameRequestId, {
+                        rt.pendingPoolUndos.set(nameRequestId, {
                             undo: pendingUndo.undo,
                             completesOnSettings: true,
                         });
@@ -8658,11 +8497,11 @@ export async function startTui(
                         pendingUndo !== undefined
                         && update.verdict !== "added"
                     ) {
-                        pendingPoolUndos.delete(update.requestId);
-                        poolChangeUndo = pendingUndo.undo;
-                        if (settingsPicker?.kind === "model") {
-                            settingsPicker = {
-                                ...settingsPicker,
+                        rt.pendingPoolUndos.delete(update.requestId);
+                        rt.poolChangeUndo = pendingUndo.undo;
+                        if (rt.settingsPicker?.kind === "model") {
+                            rt.settingsPicker = {
+                                ...rt.settingsPicker,
                                 canUndoPoolChange: true,
                             };
                         }
@@ -8670,11 +8509,11 @@ export async function startTui(
                 }
                 if (
                     update.type === "pool_admission_result"
-                    && pendingPoolName?.requestId === update.requestId
+                    && rt.pendingPoolName?.requestId === update.requestId
                 ) {
-                    const pending = pendingPoolName;
-                    pendingPoolName = undefined;
-                    if (update.verdict === "added" && namePrompt === undefined) {
+                    const pending = rt.pendingPoolName;
+                    rt.pendingPoolName = undefined;
+                    if (update.verdict === "added" && rt.namePrompt === undefined) {
                         openNamePrompt(
                             {
                                 kind: "pool",
@@ -8682,31 +8521,31 @@ export async function startTui(
                                 model: pending.model,
                             },
                             pending.label,
-                            settingsPicker?.kind === "model"
-                                ? settingsPicker
+                            rt.settingsPicker?.kind === "model"
+                                ? rt.settingsPicker
                                 : undefined,
                         );
                     }
                 }
                 if (
                     update.type === "model_settings"
-                    && state.modelSettings !== undefined
-                    && !sidebar.isFocused()
+                    && rt.state.modelSettings !== undefined
+                    && !rt.sidebar.isFocused()
                 ) {
-                    notifyExtensionSettings(state.modelSettings);
+                    notifyExtensionSettings(rt.state.modelSettings);
                 }
                 if (
                     update.type === "model_settings"
-                    && settingsPicker?.kind === "model"
+                    && rt.settingsPicker?.kind === "model"
                 ) {
                     // The same route the permissions list takes below: the
                     // open pane is rebuilt from the snapshot the host sent,
                     // never from a local guess about what the edit did.
                     const pickerSettings = modelSettingsForOpenPicker(
-                        state.modelSettings,
+                        rt.state.modelSettings,
                     );
-                    settingsPicker = syncTuiModelPicker(
-                        settingsPicker,
+                    rt.settingsPicker = syncTuiModelPicker(
+                        rt.settingsPicker,
                         {
                             ...(pickerSettings ?? {}),
                             actionOptions: modelPickerActionOptions(
@@ -8714,9 +8553,9 @@ export async function startTui(
                             ),
                         },
                     );
-                    if (poolChangeUndo !== undefined) {
-                        settingsPicker = {
-                            ...settingsPicker,
+                    if (rt.poolChangeUndo !== undefined) {
+                        rt.settingsPicker = {
+                            ...rt.settingsPicker,
                             canUndoPoolChange: true,
                         };
                     }
@@ -8733,10 +8572,10 @@ export async function startTui(
                 } else if (
                     (update.type === "model_settings"
                         || update.type === "model_settings_rejected")
-                    && catalogRefreshes.has(update.requestId)
+                    && rt.catalogRefreshes.has(update.requestId)
                 ) {
-                    const provider = catalogRefreshes.get(update.requestId)!;
-                    catalogRefreshes.delete(update.requestId);
+                    const provider = rt.catalogRefreshes.get(update.requestId)!;
+                    rt.catalogRefreshes.delete(update.requestId);
                     if (update.type === "model_settings_rejected") {
                         // The remembered list is still in place: a provider
                         // that could not be asked is not a provider whose
@@ -8745,7 +8584,7 @@ export async function startTui(
                             `could not ask ${provider}, its saved list stands`,
                         );
                     } else {
-                        const count = (state.modelSettings?.availableModels ?? [])
+                        const count = (rt.state.modelSettings?.availableModels ?? [])
                             .filter((entry) => entry.provider === provider)
                             .length;
                         showStatusNotice(`${provider}: ${count} models`);
@@ -8753,44 +8592,44 @@ export async function startTui(
                 }
                 if (
                     update.type === "model_settings"
-                    && settingsPicker?.kind === "reviewer_settings"
+                    && rt.settingsPicker?.kind === "reviewer_settings"
                 ) {
                     // Same rule: the rows read the host's snapshot, not a
                     // local guess about what the choice did.
-                    settingsPicker = withTuiPickerParent(
-                        startTuiReviewerMenu(state.modelSettings?.reviewerDefault),
-                        settingsPicker.parent,
+                    rt.settingsPicker = withTuiPickerParent(
+                        startTuiReviewerMenu(rt.state.modelSettings?.reviewerDefault),
+                        rt.settingsPicker.parent,
                     );
                 }
-                if (update.type === "permissions" && preferencesList !== undefined) {
+                if (update.type === "permissions" && rt.preferencesList !== undefined) {
                     // How a removal becomes visible: the engine answers with a
                     // full refreshed inspection rather than an acknowledgement,
                     // so the list is never rebuilt from a local guess about
                     // what the removal did.
-                    preferencesList = syncTuiPreferencesList(
-                        preferencesList,
-                        state.permissionInspection,
+                    rt.preferencesList = syncTuiPreferencesList(
+                        rt.preferencesList,
+                        rt.state.permissionInspection,
                     );
                 }
                 if (update.type === "permissions") {
-                    requestedPermissionChanges.delete(update.requestId);
+                    rt.requestedPermissionChanges.delete(update.requestId);
                 }
                 if (update.type === "permissions_rejected") {
                     // A mode change and a preferences-list removal share this
                     // update, so the request decides which one is being
                     // reported rather than whichever pane happens to be open.
-                    const subject = requestedPermissionChanges.get(
+                    const subject = rt.requestedPermissionChanges.get(
                         update.requestId,
                     );
-                    requestedPermissionChanges.delete(update.requestId);
+                    rt.requestedPermissionChanges.delete(update.requestId);
                     if (subject !== undefined) {
-                        state = appendTuiError(
-                            state,
+                        rt.state = appendTuiError(
+                            rt.state,
                             rejectionNotice(subject, update.reason),
                         );
-                    } else if (preferencesList !== undefined) {
-                        state = appendTuiError(
-                            state,
+                    } else if (rt.preferencesList !== undefined) {
+                        rt.state = appendTuiError(
+                            rt.state,
                             update.reason === "unavailable"
                                 ? "Removing permissions is unavailable on this host"
                                 : "That permission could not be removed",
@@ -8801,7 +8640,7 @@ export async function startTui(
                     const userTexts = update.entries
                         .filter((entry) => entry.kind === "user")
                         .map((entry) => entry.text);
-                    composer.loadSubmittedTexts(userTexts);
+                    rt.composer.loadSubmittedTexts(userTexts);
                     if (userTexts[0] !== undefined) {
                         adoptFallbackSessionTitle(userTexts[0]);
                     }
@@ -8809,39 +8648,39 @@ export async function startTui(
                     // nodes for any frame that paints before the rebuilding
                     // render pass runs, and a rebuilt markdown row paints
                     // empty until its first layout.
-                    pendingTranscriptReseed = true;
-                    transcriptSeeded = true;
-                    for (const notice of deferredKeymapNotices.splice(0)) {
-                        state = appendTuiNotice(state, notice);
+                    rt.pendingTranscriptReseed = true;
+                    rt.transcriptSeeded = true;
+                    for (const notice of rt.deferredKeymapNotices.splice(0)) {
+                        rt.state = appendTuiNotice(rt.state, notice);
                     }
                     // An attach delivers empty rebuilds before the real one;
                     // placing the end copy on one of those stacks it against
                     // the arrival copy at the top instead of after the
                     // transcript.
                     if (
-                        pendingBackNotice !== undefined
+                        rt.pendingBackNotice !== undefined
                         && update.entries.length > 0
                     ) {
-                        state = appendTuiNotice(state, pendingBackNotice);
-                        pendingBackNotice = undefined;
+                        rt.state = appendTuiNotice(rt.state, rt.pendingBackNotice);
+                        rt.pendingBackNotice = undefined;
                     }
-                    if (pendingSessionSwitchNotice !== undefined) {
-                        state = appendTuiNotice(
-                            state,
-                            pendingSessionSwitchNotice,
+                    if (rt.pendingSessionSwitchNotice !== undefined) {
+                        rt.state = appendTuiNotice(
+                            rt.state,
+                            rt.pendingSessionSwitchNotice,
                         );
-                        pendingSessionSwitchNotice = undefined;
+                        rt.pendingSessionSwitchNotice = undefined;
                     }
                 }
                 if (update.type === "status" && update.state === "idle") {
                     finishStreamingAssistant();
-                    hostReconnectAttempted = false;
-                    abortRequested = false;
+                    rt.hostReconnectAttempted = false;
+                    rt.abortRequested = false;
                 }
                 if (update.type === "user_prompt") {
                     // user_prompt is turn_started. A follow-up that opened is
                     // a new abort target, not the stop still in flight.
-                    abortRequested = false;
+                    rt.abortRequested = false;
                 }
                 if (
                     update.type === "turn_finished"
@@ -8849,36 +8688,36 @@ export async function startTui(
                 ) {
                     if (
                         update.type === "turn_finished"
-                        && !hostOwnsPromptQueue(client)
+                        && !hostOwnsPromptQueue(rt.client)
                     ) {
-                        state = beginNextQueuedTuiTurn(state);
+                        rt.state = beginNextQueuedTuiTurn(rt.state);
                     }
-                    abortRequested = false;
+                    rt.abortRequested = false;
                     finishStreamingAssistant();
                     if (update.type === "agent_failed") {
-                        agentFailedThisAttachment = true;
-                        pendingUiRequest = undefined;
-                        timelinePicker = undefined;
-                        settingsPicker = undefined;
+                        rt.agentFailedThisAttachment = true;
+                        rt.pendingUiRequest = undefined;
+                        rt.timelinePicker = undefined;
+                        rt.settingsPicker = undefined;
                     }
-                    if (state.working) {
-                        workingSince = Date.now();
-                        phaseSince = workingSince;
-                        activity = "thinking";
+                    if (rt.state.working) {
+                        rt.workingSince = Date.now();
+                        rt.phaseSince = rt.workingSince;
+                        rt.activity = "thinking";
                     } else {
-                        workingSince = undefined;
-                        phaseSince = undefined;
-                        activity = "ready";
+                        rt.workingSince = undefined;
+                        rt.phaseSince = undefined;
+                        rt.activity = "ready";
                     }
                 }
                 // State is applied per update above; the repaint is what
                 // coalesces, so a burst of deltas paints once a frame.
-                renderCoalescer.request(update.type);
+                rt.renderCoalescer.request(update.type);
 
                 if (update.type === "agent_failed") {
                     failPendingSkillInvocations();
                     rejectPendingExtensionSettingsFor(
-                        client,
+                        rt.client,
                         new Error(update.detail),
                     );
                     focusActiveSurface();
@@ -8889,9 +8728,9 @@ export async function startTui(
                 }
 
                 if (
-                    !state.working
-                    && pendingUiRequest === undefined
-                    && timelinePicker === undefined
+                    !rt.state.working
+                    && rt.pendingUiRequest === undefined
+                    && rt.timelinePicker === undefined
                 ) {
                     focusActiveSurface();
                 }
@@ -8899,9 +8738,9 @@ export async function startTui(
         } catch (error) {
             // A pump left behind by a switch fails on its closed connection.
             // That is the switch working, not the new session losing its host.
-            if (generation === clientGeneration) {
+            if (generation === rt.clientGeneration) {
                 failPendingSkillInvocations();
-                rejectPendingExtensionSettingsFor(client, error);
+                rejectPendingExtensionSettingsFor(rt.client, error);
                 reportConnectionError(error);
             }
         }
@@ -8909,15 +8748,15 @@ export async function startTui(
 
     function sendCommand(command: ClientCommand): void {
         if (command.type === "prompt") {
-            flightRecorder?.record({ type: "submit_dispatched" });
+            rt.flightRecorder?.record({ type: "submit_dispatched" });
         }
-        void client.send(command).then(() => {
+        void rt.client.send(command).then(() => {
             if (command.type === "prompt") {
-                flightRecorder?.record({ type: "submit_accepted" });
+                rt.flightRecorder?.record({ type: "submit_accepted" });
             }
         }).catch((error) => {
             if (command.type === "prompt") {
-                flightRecorder?.record({
+                rt.flightRecorder?.record({
                     type: "submit_failed",
                     error: error instanceof Error ? error.message : String(error),
                 });
@@ -8934,11 +8773,11 @@ export async function startTui(
             return Promise.reject(signal.reason);
         }
         const requestId = randomUUID();
-        const target = extensionAgentTarget.getStore() ?? focusedAgentClient();
+        const target = rt.extensionAgentTarget.getStore() ?? focusedAgentClient();
         return new Promise((resolve, reject) => {
             const onAbort = (): void => {
-                pendingExtensionSettings.delete(requestId);
-                requestedModelChanges.delete(requestId);
+                rt.pendingExtensionSettings.delete(requestId);
+                rt.requestedModelChanges.delete(requestId);
                 reject(signal.reason);
             };
             signal.addEventListener("abort", onAbort, { once: true });
@@ -8946,9 +8785,9 @@ export async function startTui(
             // it asked for while it is in flight, and a refusal names the same
             // thing rather than leaving the user to guess what was tried.
             const subject = modelPatchSubject(patch);
-            requestedModelChanges.set(requestId, { subject, patch, target });
+            rt.requestedModelChanges.set(requestId, { subject, patch, target });
             showStatusNotice(`model → ${describeModelPatch(patch)}`);
-            pendingExtensionSettings.set(requestId, {
+            rt.pendingExtensionSettings.set(requestId, {
                 target,
                 resolve,
                 reject,
@@ -8960,8 +8799,8 @@ export async function startTui(
                 requestId,
                 patch,
             }).catch((error) => {
-                pendingExtensionSettings.delete(requestId);
-                requestedModelChanges.delete(requestId);
+                rt.pendingExtensionSettings.delete(requestId);
+                rt.requestedModelChanges.delete(requestId);
                 signal.removeEventListener("abort", onAbort);
                 reject(error);
             });
@@ -8975,9 +8814,9 @@ export async function startTui(
         >,
         target: TuiAgentClient,
     ): void {
-        const pending = pendingExtensionSettings.get(update.requestId);
+        const pending = rt.pendingExtensionSettings.get(update.requestId);
         if (pending === undefined || pending.target !== target) return;
-        pendingExtensionSettings.delete(update.requestId);
+        rt.pendingExtensionSettings.delete(update.requestId);
         pending.removeAbortListener();
         pending.resolve(update.type === "model_settings"
             ? { status: "accepted", settings: update.settings }
@@ -8988,19 +8827,19 @@ export async function startTui(
         target: TuiAgentClient,
         reason: unknown,
     ): void {
-        for (const [requestId, pending] of pendingExtensionSettings) {
+        for (const [requestId, pending] of rt.pendingExtensionSettings) {
             if (pending.target !== target) continue;
-            pendingExtensionSettings.delete(requestId);
-            requestedModelChanges.delete(requestId);
+            rt.pendingExtensionSettings.delete(requestId);
+            rt.requestedModelChanges.delete(requestId);
             pending.removeAbortListener();
             pending.reject(reason);
         }
     }
 
     function notifyExtensionSettings(
-        settings: NonNullable<typeof state.modelSettings>,
+        settings: NonNullable<typeof rt.state.modelSettings>,
     ): void {
-        for (const listener of extensionSettingsListeners) {
+        for (const listener of rt.extensionSettingsListeners) {
             try {
                 listener(structuredClone(settings));
             } catch {
@@ -9010,7 +8849,7 @@ export async function startTui(
     }
 
     function requireSidebarOwner(extensionId: string): void {
-        hostedSidebar.requireOwner(extensionId);
+        rt.hostedSidebar.requireOwner(extensionId);
     }
 
     /**
@@ -9022,7 +8861,7 @@ export async function startTui(
         request: VeraClientOneshotRequest,
     ): VeraClientOneshotRequest {
         const wanted = request.model.toLowerCase();
-        for (const entry of state.modelSettings?.pooled ?? []) {
+        for (const entry of rt.state.modelSettings?.pooled ?? []) {
             if (entry.poolName?.toLowerCase() !== wanted) continue;
             return {
                 ...request,
@@ -9047,14 +8886,14 @@ export async function startTui(
         return new Promise<VeraClientOneshotResult>((resolve, reject) => {
             const settle = (): void => {
                 signal.removeEventListener("abort", onAbort);
-                pendingOneshots.delete(requestId);
+                rt.pendingOneshots.delete(requestId);
             };
             const onAbort = (): void => {
                 settle();
                 reject(signal.reason as Error);
             };
             signal.addEventListener("abort", onAbort, { once: true });
-            pendingOneshots.set(requestId, {
+            rt.pendingOneshots.set(requestId, {
                 resolve: (result) => {
                     settle();
                     resolve(result);
@@ -9095,7 +8934,7 @@ export async function startTui(
         if (signal.aborted) {
             return Promise.reject(signal.reason);
         }
-        if (pendingExtensionPicker !== undefined || anyOverlayOpen()) {
+        if (rt.pendingExtensionPicker !== undefined || anyOverlayOpen()) {
             return Promise.reject(
                 new Error("Another client surface is already open"),
             );
@@ -9115,29 +8954,29 @@ export async function startTui(
                 };
             }),
         );
-        settingsPicker = startTuiExtensionPicker(
+        rt.settingsPicker = startTuiExtensionPicker(
             request.title,
             request.rows,
             request.selectedId,
             actions,
             request.subtitle,
         );
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
         return new Promise((resolve, reject) => {
             const onAbort = (): void => {
-                if (pendingExtensionPicker?.resolve !== resolve) {
+                if (rt.pendingExtensionPicker?.resolve !== resolve) {
                     return;
                 }
-                pendingExtensionPicker = undefined;
-                settingsPicker = undefined;
+                rt.pendingExtensionPicker = undefined;
+                rt.settingsPicker = undefined;
                 focusActiveSurface();
                 renderState();
                 reject(signal.reason);
             };
             signal.addEventListener("abort", onAbort, { once: true });
-            pendingExtensionPicker = {
+            rt.pendingExtensionPicker = {
                 resolve,
                 reject,
                 removeAbortListener: () =>
@@ -9147,24 +8986,24 @@ export async function startTui(
     }
 
     async function loadExtensionCommands(): Promise<void> {
-        if (client.listExtensionCommands === undefined) {
+        if (rt.client.listExtensionCommands === undefined) {
             return;
         }
-        const generation = ++extensionCommandsGeneration;
+        const generation = ++rt.extensionCommandsGeneration;
         try {
-            const commands = await client.listExtensionCommands();
-            if (generation !== extensionCommandsGeneration) {
+            const commands = await rt.client.listExtensionCommands();
+            if (generation !== rt.extensionCommandsGeneration) {
                 return;
             }
             // Extensions own their names ahead of skills. A skill catalog can
             // arrive first on startup, so clear it before rebuilding the
             // extension generation and request it again afterwards.
-            skillCatalogRequestId = undefined;
-            disposeSkillCommands();
-            disposeSkillCommands = () => {};
-            disposeHostExtensionCommands();
+            rt.skillCatalogRequestId = undefined;
+            rt.disposeSkillCommands();
+            rt.disposeSkillCommands = () => {};
+            rt.disposeHostExtensionCommands();
             const disposers: (() => void)[] = [];
-            hostExtensionCommands = commands;
+            rt.hostExtensionCommands = commands;
             const commandsBySource = Map.groupBy(
                 commands,
                 (command) => command.source,
@@ -9172,55 +9011,55 @@ export async function startTui(
             for (const [source, sourceCommands] of commandsBySource) {
                 try {
                     disposers.push(registerExtensionTuiCommands(
-                        commandRegistry,
+                        rt.commandRegistry,
                         sourceCommands,
                     ));
                 } catch (error) {
                     const message = error instanceof Error
                         ? error.message
                         : String(error);
-                    state = appendTuiNotice(
-                        state,
+                    rt.state = appendTuiNotice(
+                        rt.state,
                         `${source}: ${message}`,
                     );
                 }
             }
-            disposeHostExtensionCommands = () => {
+            rt.disposeHostExtensionCommands = () => {
                 for (const dispose of disposers) {
                     dispose();
                 }
             };
-            if (commandPalette !== undefined) {
-                commandPalette = updateTuiCommandPaletteCommands(
-                    commandPalette,
+            if (rt.commandPalette !== undefined) {
+                rt.commandPalette = updateTuiCommandPaletteCommands(
+                    rt.commandPalette,
                     registeredPaletteEntries(),
                 );
             }
-            if (help !== undefined) {
-                help = updateTuiHelpCommands(
-                    help,
+            if (rt.help !== undefined) {
+                rt.help = updateTuiHelpCommands(
+                    rt.help,
                     coreHelpCommands(),
-                    hostExtensionCommands,
+                    rt.hostExtensionCommands,
                 );
             }
             renderCommandSuggestions();
             renderState();
             requestSkillCommands();
         } catch (error) {
-            if (shuttingDown || generation !== extensionCommandsGeneration) {
+            if (rt.shuttingDown || generation !== rt.extensionCommandsGeneration) {
                 return;
             }
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not load extension commands: ${message}`,
             );
             renderState();
         } finally {
-            if (generation === extensionCommandsGeneration) {
-                extensionCommandsLoading = false;
+            if (generation === rt.extensionCommandsGeneration) {
+                rt.extensionCommandsLoading = false;
             }
         }
     }
@@ -9234,22 +9073,22 @@ export async function startTui(
     }
 
     function requestSkillCommands(): void {
-        if (!supportsSkillCommands(client)) {
-            skillCatalogRequestId = undefined;
-            skillCommandsLoading = false;
-            disposeSkillCommands();
-            disposeSkillCommands = () => {};
+        if (!supportsSkillCommands(rt.client)) {
+            rt.skillCatalogRequestId = undefined;
+            rt.skillCommandsLoading = false;
+            rt.disposeSkillCommands();
+            rt.disposeSkillCommands = () => {};
             return;
         }
         const requestId = randomUUID();
-        skillCatalogRequestId = requestId;
-        skillCommandsLoading = true;
-        void client.send({ type: "list_skills", requestId }).catch((error) => {
-            if (shuttingDown || skillCatalogRequestId !== requestId) return;
-            skillCatalogRequestId = undefined;
-            skillCommandsLoading = false;
-            state = appendTuiError(
-                state,
+        rt.skillCatalogRequestId = requestId;
+        rt.skillCommandsLoading = true;
+        void rt.client.send({ type: "list_skills", requestId }).catch((error) => {
+            if (rt.shuttingDown || rt.skillCatalogRequestId !== requestId) return;
+            rt.skillCatalogRequestId = undefined;
+            rt.skillCommandsLoading = false;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not load skill commands: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -9259,31 +9098,31 @@ export async function startTui(
     }
 
     function receiveSkillCatalog(update: SkillCatalogUpdate): void {
-        if (update.requestId !== skillCatalogRequestId) return;
-        skillCatalogRequestId = undefined;
-        skillCommandsLoading = false;
-        disposeSkillCommands();
+        if (update.requestId !== rt.skillCatalogRequestId) return;
+        rt.skillCatalogRequestId = undefined;
+        rt.skillCommandsLoading = false;
+        rt.disposeSkillCommands();
         const registration = registerSkillTuiCommands(
-            commandRegistry,
+            rt.commandRegistry,
             update.skills,
         );
-        disposeSkillCommands = registration.dispose;
+        rt.disposeSkillCommands = registration.dispose;
         for (const notice of [...update.warnings, ...registration.warnings]) {
-            if (announcedSkillCommandNotices.has(notice)) continue;
-            announcedSkillCommandNotices.add(notice);
-            state = appendTuiNotice(state, notice);
+            if (rt.announcedSkillCommandNotices.has(notice)) continue;
+            rt.announcedSkillCommandNotices.add(notice);
+            rt.state = appendTuiNotice(rt.state, notice);
         }
-        if (commandPalette !== undefined) {
-            commandPalette = updateTuiCommandPaletteCommands(
-                commandPalette,
+        if (rt.commandPalette !== undefined) {
+            rt.commandPalette = updateTuiCommandPaletteCommands(
+                rt.commandPalette,
                 registeredPaletteEntries(),
             );
         }
-        if (help !== undefined) {
-            help = updateTuiHelpCommands(
-                help,
+        if (rt.help !== undefined) {
+            rt.help = updateTuiHelpCommands(
+                rt.help,
                 coreHelpCommands(),
-                hostExtensionCommands,
+                rt.hostExtensionCommands,
             );
         }
         renderCommandSuggestions();
@@ -9300,37 +9139,37 @@ export async function startTui(
             }
         >,
     ): void {
-        const prompt = pendingSkillInvocations.get(update.requestId);
+        const prompt = rt.pendingSkillInvocations.get(update.requestId);
         if (prompt === undefined) return;
-        pendingSkillInvocations.delete(update.requestId);
-        promptSubmitting = pendingSkillInvocations.size > 0;
+        rt.pendingSkillInvocations.delete(update.requestId);
+        rt.promptSubmitting = rt.pendingSkillInvocations.size > 0;
         if (update.type === "skill_invocation_rejected") {
-            if (composer.plainText.length === 0) {
-                composer.setComposerText(prompt);
+            if (rt.composer.plainText.length === 0) {
+                rt.composer.setComposerText(prompt);
                 renderCommandSuggestions();
             }
-            state = appendTuiError(state, update.reason);
+            rt.state = appendTuiError(rt.state, update.reason);
             renderState();
             return;
         }
-        state = update.queued
-            ? queueTuiPrompt(state, update.prompt)
-            : beginTuiTurn(state, update.prompt);
+        rt.state = update.queued
+            ? queueTuiPrompt(rt.state, update.prompt)
+            : beginTuiTurn(rt.state, update.prompt);
         adoptFallbackSessionTitle(update.prompt);
-        if (!update.queued && workingSince === undefined) {
-            workingSince = Date.now();
-            phaseSince = workingSince;
-            activity = "thinking";
+        if (!update.queued && rt.workingSince === undefined) {
+            rt.workingSince = Date.now();
+            rt.phaseSince = rt.workingSince;
+            rt.activity = "thinking";
         }
         renderState();
     }
 
     function failPendingSkillInvocations(): void {
-        const prompt = pendingSkillInvocations.values().next().value;
-        pendingSkillInvocations.clear();
-        promptSubmitting = false;
-        if (prompt !== undefined && composer.plainText.length === 0) {
-            composer.setComposerText(prompt);
+        const prompt = rt.pendingSkillInvocations.values().next().value;
+        rt.pendingSkillInvocations.clear();
+        rt.promptSubmitting = false;
+        if (prompt !== undefined && rt.composer.plainText.length === 0) {
+            rt.composer.setComposerText(prompt);
             renderCommandSuggestions();
         }
     }
@@ -9343,157 +9182,156 @@ export async function startTui(
      * to", which is what the unfocused-state keys ask.
      */
     function activeOverlayFocus(): (() => void) | undefined {
-        if (dialStrip !== undefined) {
-            return () => dialCard.focus();
+        if (rt.dialStrip !== undefined) {
+            return () => rt.dialCard.focus();
         }
         const uiRequest = focusedUiRequest();
         if (
             uiRequest !== undefined
             && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
-            return () => approvalView.focus();
+            return () => rt.approvalView.focus();
         }
         if (
             uiRequest !== undefined
             && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
-            return () => questionView.focus();
+            return () => rt.questionView.focus();
         }
-        if (experimentalTuiHost.hasModal()) {
-            return () => experimentalTuiHost.focus();
+        if (rt.experimentalTuiHost.hasModal()) {
+            return () => rt.experimentalTuiHost.focus();
         }
-        if (timelinePicker !== undefined) {
-            return () => timelinePickerView.focus();
+        if (rt.timelinePicker !== undefined) {
+            return () => rt.timelinePickerView.focus();
         }
         // A rename prompt is a modal child of the sidebar or settings pane it
         // was opened from. Its editor must win while the parent remains open
         // underneath it, then the parent's existing focus state can resume
         // when the prompt closes.
-        if (namePrompt !== undefined) {
-            return () => namePromptView.focus();
+        if (rt.namePrompt !== undefined) {
+            return () => rt.namePromptView.focus();
         }
-        if (commandPalette !== undefined) {
-            return () => commandPaletteView.focus();
+        if (rt.commandPalette !== undefined) {
+            return () => rt.commandPaletteView.focus();
         }
-        if (workTab !== undefined) {
-            return () => workTabView.box.focus();
+        if (rt.workTab !== undefined) {
+            return () => rt.workTabView.box.focus();
         }
-        if (workspaceSidebar !== undefined && workspaceSidebarFocused) {
-            return () => workspaceSidebarView.box.focus();
+        if (rt.workspaceSidebar !== undefined && rt.workspaceSidebarFocused) {
+            return () => rt.workspaceSidebarView.box.focus();
         }
-        if (searchOverlay !== undefined) {
-            return () => searchOverlayView.focus();
+        if (rt.searchOverlay !== undefined) {
+            return () => rt.searchOverlayView.focus();
         }
-        if (help !== undefined) {
-            return () => helpView.focus();
+        if (rt.help !== undefined) {
+            return () => rt.helpView.focus();
         }
-        if (doctorDialog !== undefined) {
-            return () => doctorDialogView.focus();
+        if (rt.doctorDialog !== undefined) {
+            return () => rt.doctorDialogView.focus();
         }
-        if (extensionsDialog !== undefined) {
-            return () => extensionsDialogView.focus();
+        if (rt.extensionsDialog !== undefined) {
+            return () => rt.extensionsDialogView.focus();
         }
-        if (documentDialog !== undefined) {
-            return () => documentDialogView.focus();
+        if (rt.documentDialog !== undefined) {
+            return () => rt.documentDialogView.focus();
         }
-        if (diagnosticsDialog !== undefined) {
-            return () => diagnosticsDialogView.focus();
+        if (rt.diagnosticsDialog !== undefined) {
+            return () => rt.diagnosticsDialogView.focus();
         }
-        if (confirmingFullAccess) {
-            return () => permissionsConfirmView.box.focus();
+        if (rt.confirmingFullAccess) {
+            return () => rt.permissionsConfirmView.box.focus();
         }
-        if (admissionDialog !== undefined) {
-            return () => admissionDialogView.box.focus();
+        if (rt.admissionDialog !== undefined) {
+            return () => rt.admissionDialogView.box.focus();
         }
-        if (sessionCloseConfirm) {
-            return () => sessionCloseConfirmView.box.focus();
+        if (rt.sessionCloseConfirm) {
+            return () => rt.sessionCloseConfirmView.box.focus();
         }
-        if (sessionTrashCandidate !== undefined) {
-            return () => sessionTrashConfirmView.box.focus();
+        if (rt.sessionTrashCandidate !== undefined) {
+            return () => rt.sessionTrashConfirmView.box.focus();
         }
-        if (providerForgetCandidate !== undefined) {
-            return () => providerForgetConfirmView.box.focus();
+        if (rt.providerForgetCandidate !== undefined) {
+            return () => rt.providerForgetConfirmView.box.focus();
         }
-        if (requestOptionsEditor !== undefined) {
-            return () => requestOptionsEditorView.focus();
+        if (rt.requestOptionsEditor !== undefined) {
+            return () => rt.requestOptionsEditorView.focus();
         }
-        if (providerForm !== undefined) {
-            return () => providerFormView.box.focus();
+        if (rt.providerForm !== undefined) {
+            return () => rt.providerFormView.box.focus();
         }
-        if (secretPrompt !== undefined) {
-            return () => secretPromptView.box.focus();
+        if (rt.secretPrompt !== undefined) {
+            return () => rt.secretPromptView.box.focus();
         }
-        if (settingsPicker !== undefined) {
-            return () => settingsPickerView.focus();
+        if (rt.settingsPicker !== undefined) {
+            return () => rt.settingsPickerView.focus();
         }
-        if (preferencesList !== undefined) {
-            return () => preferencesListView.box.focus();
+        if (rt.preferencesList !== undefined) {
+            return () => rt.preferencesListView.box.focus();
         }
-        if (standingNudges !== undefined) {
-            return () => standingNudgesView.focus();
+        if (rt.standingNudges !== undefined) {
+            return () => rt.standingNudgesView.focus();
         }
         return undefined;
     }
 
-    let recordedFocusSurface: string | undefined;
 
     function focusActiveSurface(): void {
         const overlay = activeOverlayFocus();
         const surface = overlay !== undefined
             ? "overlay"
-            : sidebar.isFocused()
+            : rt.sidebar.isFocused()
             ? "sidebar_composer"
-            : isHomeClient(client)
+            : isHomeClient(rt.client)
             ? "home"
-            : isJsonlViewClient(client) && !jsonlCommandMode
+            : isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
             ? "resume_overlay"
-            : isJsonlViewClient(client)
+            : isJsonlViewClient(rt.client)
             ? "jsonl_command"
             : "main_composer";
         if (
             overlay === undefined
-            && (!isWorkerFreeClient(client) || jsonlCommandMode)
-            && composer.focused
-            && recordedFocusSurface === surface
+            && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode)
+            && rt.composer.focused
+            && rt.recordedFocusSurface === surface
         ) {
             return;
         }
-        composer.blur();
-        recordedFocusSurface = surface;
+        rt.composer.blur();
+        rt.recordedFocusSurface = surface;
         if (overlay !== undefined) {
             overlay();
-            flightRecorder?.record({ type: "focus_changed", surface });
+            rt.flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
-        if (isHomeClient(client)) {
-            homeView.box.focus();
-            flightRecorder?.record({ type: "focus_changed", surface });
+        if (isHomeClient(rt.client)) {
+            rt.homeView.box.focus();
+            rt.flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
-        if (isJsonlViewClient(client) && !jsonlCommandMode) {
-            resumeOverlay.box.focus();
-            flightRecorder?.record({ type: "focus_changed", surface });
+        if (isJsonlViewClient(rt.client) && !rt.jsonlCommandMode) {
+            rt.resumeOverlay.box.focus();
+            rt.flightRecorder?.record({ type: "focus_changed", surface });
             return;
         }
-        composer.focus();
-        flightRecorder?.record({ type: "focus_changed", surface });
+        rt.composer.focus();
+        rt.flightRecorder?.record({ type: "focus_changed", surface });
     }
 
     function activeFlightSurface(): string {
         if (activeOverlayFocus() !== undefined) return "overlay";
-        if (isHomeClient(client)) return "home";
-        if (isJsonlViewClient(client)) {
-            return jsonlCommandMode ? "jsonl_command" : "resume_overlay";
+        if (isHomeClient(rt.client)) return "home";
+        if (isJsonlViewClient(rt.client)) {
+            return rt.jsonlCommandMode ? "jsonl_command" : "resume_overlay";
         }
-        return sidebar.isFocused() ? "sidebar_composer" : "main_composer";
+        return rt.sidebar.isFocused() ? "sidebar_composer" : "main_composer";
     }
 
     function applyTimelineTransition(
         transition: TuiTimelinePickerTransition,
     ): void {
-        timelinePicker = transition.state;
+        rt.timelinePicker = transition.state;
         if (transition.composerText !== undefined) {
-            composer.setComposerText(transition.composerText);
+            rt.composer.setComposerText(transition.composerText);
         }
         if (transition.command !== undefined) {
             sendCommand(transition.command);
@@ -9502,16 +9340,16 @@ export async function startTui(
             beginFork(transition.forkBoundaryId);
             return;
         }
-        if (timelinePicker === undefined) {
-            timelinePickerView.box.visible = false;
-            if (pendingUiRequest === undefined) {
-                composer.focus();
+        if (rt.timelinePicker === undefined) {
+            rt.timelinePickerView.box.visible = false;
+            if (rt.pendingUiRequest === undefined) {
+                rt.composer.focus();
             }
         } else {
-            composer.blur();
-            timelinePickerView.update(timelinePicker);
-            if (pendingUiRequest === undefined) {
-                timelinePickerView.focus();
+            rt.composer.blur();
+            rt.timelinePickerView.update(rt.timelinePicker);
+            if (rt.pendingUiRequest === undefined) {
+                rt.timelinePickerView.focus();
             }
         }
         renderState();
@@ -9535,7 +9373,7 @@ export async function startTui(
             timeout = setTimeout(() => {
                 timedOut = true;
                 reject(new Error("timed out"));
-            }, dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
+            }, rt.dependencies.sessionSwitchTimeoutMs ?? SESSION_SWITCH_TIMEOUT_MS);
             // The deadline only matters to a TUI that is still on screen.
             // Left referenced, quitting mid-switch would hold the process open
             // until it fired.
@@ -9555,19 +9393,19 @@ export async function startTui(
         outcome: "completed" | "failed",
         error?: unknown,
     ): void {
-        if (sessionSwitchStartedAt === undefined) return;
-        flightRecorder?.record({
+        if (rt.sessionSwitchStartedAt === undefined) return;
+        rt.flightRecorder?.record({
             type: `session_switch_${outcome}`,
-            operation: sessionSwitchOperation ?? "unknown",
-            durationMs: Math.round(performance.now() - sessionSwitchStartedAt),
+            operation: rt.sessionSwitchOperation ?? "unknown",
+            durationMs: Math.round(performance.now() - rt.sessionSwitchStartedAt),
             ...(error === undefined
                 ? {}
                 : { error: error instanceof Error ? error.message : String(error) }),
         });
-        sessionSwitchStartedAt = undefined;
-        sessionSwitchOperation = undefined;
-        sessionSwitchBufferedUpdates = [];
-        sessionSwitchClearingMain = false;
+        rt.sessionSwitchStartedAt = undefined;
+        rt.sessionSwitchOperation = undefined;
+        rt.sessionSwitchBufferedUpdates = [];
+        rt.sessionSwitchClearingMain = false;
     }
 
     /** Drop a session the client asked for but can no longer use. */
@@ -9631,12 +9469,12 @@ export async function startTui(
                     if (candidate === source) sourceResult = result;
                     continue;
                 }
-                if (dependencies.closeSession === undefined) {
+                if (rt.dependencies.closeSession === undefined) {
                     throw new Error(
                         "stopping the current conversation is unavailable",
                     );
                 }
-                const closed = await dependencies.closeSession(candidateId);
+                const closed = await rt.dependencies.closeSession(candidateId);
                 if (closed.status !== "closed") {
                     throw new Error(closeSessionFailure(closed.reason));
                 }
@@ -9669,9 +9507,9 @@ export async function startTui(
             await source.release("stop_if_last").catch(() => undefined);
         } else if (
             sourceId !== undefined
-            && dependencies.closeSession !== undefined
+            && rt.dependencies.closeSession !== undefined
         ) {
-            await dependencies.closeSession(sourceId).catch(() => undefined);
+            await rt.dependencies.closeSession(sourceId).catch(() => undefined);
         }
         await source.detach().catch(() => source.close());
     }
@@ -9681,38 +9519,38 @@ export async function startTui(
         next: TuiAgentClient,
     ): Promise<void> {
         const targetId = next.agentId;
-        if (targetId === undefined || dependencies.closeSession === undefined) {
+        if (targetId === undefined || rt.dependencies.closeSession === undefined) {
             discardSwitchTarget(next);
             return;
         }
-        await dependencies.closeSession(targetId).catch(() => undefined);
+        await rt.dependencies.closeSession(targetId).catch(() => undefined);
         await next.detach().catch(() => next.close());
     }
 
     function beginFork(boundaryId: string): void {
-        timelinePicker = undefined;
-        timelinePickerView.box.visible = false;
-        if (dependencies.forkSession === undefined) {
-            state = appendTuiError(state, "Forking this session is unavailable");
-            composer.focus();
+        rt.timelinePicker = undefined;
+        rt.timelinePickerView.box.visible = false;
+        if (rt.dependencies.forkSession === undefined) {
+            rt.state = appendTuiError(rt.state, "Forking this session is unavailable");
+            rt.composer.focus();
             renderState();
             return;
         }
-        const sourceAgentId = client.agentId;
+        const sourceAgentId = rt.client.agentId;
         if (sourceAgentId === undefined) {
-            state = appendTuiError(state, "Current session ID is unavailable");
-            composer.focus();
+            rt.state = appendTuiError(rt.state, "Current session ID is unavailable");
+            rt.composer.focus();
             renderState();
             return;
         }
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "forking session…";
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "forking session…";
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.forkSession(sourceAgentId, boundaryId),
+            rt.dependencies.forkSession(sourceAgentId, boundaryId),
             (result) => discardSwitchTarget(result.client),
         ).then((result) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 void result.client.detach().catch(() => result.client.close());
                 return;
             }
@@ -9730,14 +9568,14 @@ export async function startTui(
                 ),
             });
         }).catch((error) => {
-            if (shuttingDown) return;
-            sessionSwitchPending = false;
+            if (rt.shuttingDown) return;
+            rt.sessionSwitchPending = false;
             const message = error instanceof Error ? error.message : String(error);
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not fork this session: ${message}`,
             );
-            composer.focus();
+            rt.composer.focus();
             renderState();
         });
     }
@@ -9754,67 +9592,67 @@ export async function startTui(
             readonly replaceExisting?: boolean;
         },
     ): void {
-        const currentAgentId = client.agentId;
+        const currentAgentId = rt.client.agentId;
         if (
-            sessionSwitchPending
-            || dependencies.reconnectSession === undefined
+            rt.sessionSwitchPending
+            || rt.dependencies.reconnectSession === undefined
             || currentAgentId === undefined
         ) {
             return;
         }
         if (options.clearComposer) {
-            composer.clearComposer();
+            rt.composer.clearComposer();
         }
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "restarting host…";
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "restarting host…";
         const stayAttached = options.replaceExisting === true
-            && !connectionFailed;
+            && !rt.connectionFailed;
         if (!stayAttached) {
             settleLostHost("Host connection closed");
         }
         const draft = options.clearComposer ? undefined : currentDraft();
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.reconnectSession(currentAgentId, {
+            rt.dependencies.reconnectSession(currentAgentId, {
                 ...(options.replaceExisting === true
                     ? { replaceExisting: true }
                     : {}),
             }),
             discardSwitchTarget,
         ).then((next) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 discardSwitchTarget(next);
                 return;
             }
             switchToClient(next, draft);
         }).catch((error) => {
-            if (shuttingDown) return;
-            sessionSwitchPending = false;
+            if (rt.shuttingDown) return;
+            rt.sessionSwitchPending = false;
             if (error instanceof HostReplacementBusyError) {
-                state = appendTuiError(state, reconnectBusyMessage());
-                composer.focus();
+                rt.state = appendTuiError(rt.state, reconnectBusyMessage());
+                rt.composer.focus();
                 renderState();
                 return;
             }
             const message = error instanceof Error ? error.message : String(error);
-            if (connectionFailed) {
-                state = appendTuiError(
-                    state,
+            if (rt.connectionFailed) {
+                rt.state = appendTuiError(
+                    rt.state,
                     `Could not reconnect: ${message}`,
                 );
                 renderState();
                 return;
             }
             if (options.replaceExisting === true) {
-                connectionFailed = true;
-                connectionFailure = message;
-                activity = "disconnected";
+                rt.connectionFailed = true;
+                rt.connectionFailure = message;
+                rt.activity = "disconnected";
                 settleLostHost(message);
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `Could not reconnect: ${message}`,
                 );
-                composer.focus();
+                rt.composer.focus();
                 renderState();
                 return;
             }
@@ -9823,98 +9661,98 @@ export async function startTui(
     }
 
     function settleLostHost(reason: string): void {
-        for (const pending of pendingOneshots.values()) {
+        for (const pending of rt.pendingOneshots.values()) {
             pending.reject(new Error(reason));
         }
-        pendingOneshots.clear();
-        for (const image of pendingImages) {
-            composer.removeImageChip(image.requestId);
+        rt.pendingOneshots.clear();
+        for (const image of rt.pendingImages) {
+            rt.composer.removeImageChip(image.requestId);
         }
-        pendingImages = [];
-        submitAfterImageAttachment = false;
-        const interruptedRename = pendingSessionRename;
-        pendingSessionRename = undefined;
-        const interruptedSidebarRename = pendingSidebarSessionRename;
-        pendingSidebarSessionRename = undefined;
+        rt.pendingImages = [];
+        rt.submitAfterImageAttachment = false;
+        const interruptedRename = rt.pendingSessionRename;
+        rt.pendingSessionRename = undefined;
+        const interruptedSidebarRename = rt.pendingSidebarSessionRename;
+        rt.pendingSidebarSessionRename = undefined;
         if (
             interruptedRename?.commandText !== undefined
-            && composer.expandedText().length === 0
+            && rt.composer.expandedText().length === 0
         ) {
-            composer.setComposerText(interruptedRename.commandText);
+            rt.composer.setComposerText(interruptedRename.commandText);
         }
         if (
             interruptedSidebarRename?.commandText !== undefined
-            && composer.expandedText().length === 0
+            && rt.composer.expandedText().length === 0
         ) {
-            composer.setComposerText(interruptedSidebarRename.commandText);
+            rt.composer.setComposerText(interruptedSidebarRename.commandText);
         }
-        pendingUiRequest = undefined;
-        queuedUiRequests.length = 0;
-        activeConfigurationRequest = undefined;
-        queuedConfigurationRequests.length = 0;
-        timelinePicker = undefined;
-        settingsPicker = undefined;
-        standingNudges = undefined;
-        namePrompt = undefined;
-        providerForm = undefined;
-        requestOptionsEditor = undefined;
-        commandPalette = undefined;
-        help = undefined;
-        confirmingFullAccess = false;
-        admissionDialog = undefined;
-        admissionReturnPicker = undefined;
-        sessionTrashCandidate = undefined;
-        sessionTrashPending = false;
-        sessionCloseConfirm = false;
-        abortRequested = false;
-        workingSince = undefined;
-        phaseSince = undefined;
-        state = failTuiConnection(state);
+        rt.pendingUiRequest = undefined;
+        rt.queuedUiRequests.length = 0;
+        rt.activeConfigurationRequest = undefined;
+        rt.queuedConfigurationRequests.length = 0;
+        rt.timelinePicker = undefined;
+        rt.settingsPicker = undefined;
+        rt.standingNudges = undefined;
+        rt.namePrompt = undefined;
+        rt.providerForm = undefined;
+        rt.requestOptionsEditor = undefined;
+        rt.commandPalette = undefined;
+        rt.help = undefined;
+        rt.confirmingFullAccess = false;
+        rt.admissionDialog = undefined;
+        rt.admissionReturnPicker = undefined;
+        rt.sessionTrashCandidate = undefined;
+        rt.sessionTrashPending = false;
+        rt.sessionCloseConfirm = false;
+        rt.abortRequested = false;
+        rt.workingSince = undefined;
+        rt.phaseSince = undefined;
+        rt.state = failTuiConnection(rt.state);
     }
 
     function reportConnectionError(error: unknown): void {
-        if (shuttingDown || connectionFailed || sessionSwitchPending) {
+        if (rt.shuttingDown || rt.connectionFailed || rt.sessionSwitchPending) {
             return;
         }
         const message = error instanceof Error ? error.message : String(error);
         // Home answers reads and refuses everything else. A write it cannot
         // carry says something about this screen, not about a host that went
         // away, so it is reported and the connection is left alone.
-        if (isHomeClient(client)) {
-            state = appendTuiError(state, message);
+        if (isHomeClient(rt.client)) {
+            rt.state = appendTuiError(rt.state, message);
             renderState();
             return;
         }
         // A jsonl view and a session that already died are not a dropped host.
         // Restarting the host here is what froze the TUI in a reconnect loop.
         if (
-            client.viewOnly === true
-            || client.failed === true
-            || agentFailedThisAttachment
+            rt.client.viewOnly === true
+            || rt.client.failed === true
+            || rt.agentFailedThisAttachment
         ) {
-            connectionFailed = true;
-            connectionFailure = message;
-            activity = "disconnected";
+            rt.connectionFailed = true;
+            rt.connectionFailure = message;
+            rt.activity = "disconnected";
             settleLostHost(message);
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
         if (
-            !hostReconnectAttempted
-            && dependencies.reconnectSession !== undefined
-            && client.agentId !== undefined
+            !rt.hostReconnectAttempted
+            && rt.dependencies.reconnectSession !== undefined
+            && rt.client.agentId !== undefined
         ) {
-            hostReconnectAttempted = true;
+            rt.hostReconnectAttempted = true;
             beginHostReconnect({ clearComposer: false });
             return;
         }
-        connectionFailed = true;
-        activity = "disconnected";
-        connectionFailure = message;
+        rt.connectionFailed = true;
+        rt.activity = "disconnected";
+        rt.connectionFailure = message;
         settleLostHost(message);
         renderState();
-        composer.focus();
+        rt.composer.focus();
     }
 
     /**
@@ -9924,9 +9762,9 @@ export async function startTui(
      * telling you to pool one.
      */
     function tipContext(inModelPicker: boolean): TuiTipContext {
-        const pooled = state.modelSettings?.pooled ?? [];
+        const pooled = rt.state.modelSettings?.pooled ?? [];
         return {
-            launches: tipState.launches,
+            launches: rt.tipState.launches,
             pooledCount: pooled.length,
             namedPoolCount: pooled.filter((entry) =>
                 entry.poolName !== undefined
@@ -9941,7 +9779,7 @@ export async function startTui(
      * later-loading extension's tips join the pool without a restart.
      */
     function tipPool(): readonly TuiTip[] {
-        const registered = clientExtensionRegistry?.tips() ?? [];
+        const registered = rt.clientExtensionRegistry?.tips() ?? [];
         if (registered.length === 0) return TUI_TIPS;
         return [
             ...TUI_TIPS,
@@ -9960,22 +9798,22 @@ export async function startTui(
      * when nothing is eligible, or when the pool is exhausted for this launch.
      */
     function takeTip(inModelPicker: boolean): string | undefined {
-        if (!tipsEnabled) return undefined;
+        if (!rt.tipsEnabled) return undefined;
         const tip = selectTuiTip(
             tipContext(inModelPicker),
-            tipState.history,
+            rt.tipState.history,
             tipPool(),
         );
         if (tip === undefined) return undefined;
-        tipState = {
-            launches: tipState.launches,
+        rt.tipState = {
+            launches: rt.tipState.launches,
             history: recordTuiTipShown(
                 tip.id,
-                tipState.history,
-                tipState.launches,
+                rt.tipState.history,
+                rt.tipState.launches,
             ),
         };
-        saveTuiTipState(tipState);
+        saveTuiTipState(rt.tipState);
         return tip.text(tipContext(inModelPicker));
     }
 
@@ -9994,17 +9832,17 @@ export async function startTui(
 
     function invalidateMeasuredEntryRows(): void {
         const width = mainTranscriptWidth();
-        if (width === measuredEntryRowsWidth) return;
-        measuredEntryRowsWidth = width;
-        measuredEntryRows.length = 0;
+        if (width === rt.measuredEntryRowsWidth) return;
+        rt.measuredEntryRowsWidth = width;
+        rt.measuredEntryRows.length = 0;
     }
 
     function measureTranscriptEntryNode(index: number): void {
-        const node = entryNodes[index];
+        const node = rt.entryNodes[index];
         if (node === undefined) return;
         const margin = node.marginTop;
         const rows = node.height + (typeof margin === "number" ? margin : 0);
-        if (rows > 0) measuredEntryRows[index] = rows;
+        if (rows > 0) rt.measuredEntryRows[index] = rows;
     }
 
     /**
@@ -10018,8 +9856,8 @@ export async function startTui(
     function measureMaterializedTranscriptEntries(): void {
         invalidateMeasuredEntryRows();
         for (
-            let index = materializedEntryStart;
-            index < materializedEntryEnd;
+            let index = rt.materializedEntryStart;
+            index < rt.materializedEntryEnd;
             index += 1
         ) {
             measureTranscriptEntryNode(index);
@@ -10031,7 +9869,7 @@ export async function startTui(
         index: number,
     ): number {
         if (!tuiTranscriptEntryIsVisible(entries[index])) return 0;
-        return measuredEntryRows[index] ?? estimateTranscriptEntryRows(
+        return rt.measuredEntryRows[index] ?? estimateTranscriptEntryRows(
             entries,
             index,
         );
@@ -10049,10 +9887,10 @@ export async function startTui(
         const width = Math.max(
             8,
             mainTranscriptWidth()
-                - tuiGutterWidth(entry, appearance.activityIndent)
+                - tuiGutterWidth(entry, rt.appearance.activityIndent)
                 - 1,
         );
-        const margin = tuiEntryMarginTop(entries, index, entrySpacing);
+        const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
         if (entry.kind === "thinking") {
             // Reasoning still arriving is one clipped row however much has
             // arrived, so its height never depends on its text.
@@ -10086,7 +9924,7 @@ export async function startTui(
         if (existing instanceof MarkdownRenderable) {
             // The trailing block stays unstable while this flag is on. A
             // finished turn has no live row, so a reused node has to settle.
-            if (existing.streaming && !state.working) {
+            if (existing.streaming && !rt.state.working) {
                 existing.streaming = false;
             }
             if (existing.content !== tuiMarkdownEntryContent(entry)) {
@@ -10126,37 +9964,37 @@ export async function startTui(
         if (entry === undefined) {
             throw new Error(`Transcript entry ${index} is unavailable`);
         }
-        const streaming = tuiTranscriptEntryStreams(entries, index, state.working);
+        const streaming = tuiTranscriptEntryStreams(entries, index, rt.state.working);
         const node = createTuiEntryNode(
             `entry-${index}`,
             entry,
-            tuiEntryMarginTop(entries, index, entrySpacing),
+            tuiEntryMarginTop(entries, index, rt.entrySpacing),
             assistantFollowsTools(entries, index),
             streaming,
         );
         updateTranscriptEntryNode(node, entry);
-        entryNodes[index] = node;
-        entryNodeKinds[index] = entry.kind;
-        entryNodeSources.set(node, entry);
+        rt.entryNodes[index] = node;
+        rt.entryNodeKinds[index] = entry.kind;
+        rt.entryNodeSources.set(node, entry);
         return node;
     }
 
     function destroyTranscriptEntryNode(index: number): void {
-        entryNodes[index]?.destroyRecursively();
-        delete entryNodes[index];
-        delete entryNodeKinds[index];
+        rt.entryNodes[index]?.destroyRecursively();
+        delete rt.entryNodes[index];
+        delete rt.entryNodeKinds[index];
     }
 
     /** Children run [top spacer, materialized entries…, bottom spacer]. */
     function transcriptWindowChildIndex(index: number): number {
-        return 1 + index - materializedEntryStart;
+        return 1 + index - rt.materializedEntryStart;
     }
 
     function addTranscriptEntryNode(
         node: TextRenderable | MarkdownRenderable | BoxRenderable,
         index: number,
     ): void {
-        transcriptEntryWindow.add(node, transcriptWindowChildIndex(index));
+        rt.transcriptEntryWindow.add(node, transcriptWindowChildIndex(index));
     }
 
     function updateTranscriptSpacers(
@@ -10165,27 +10003,27 @@ export async function startTui(
         // A box holds a row even at height 0, which at the ends of the window
         // is a blank band above the first entry or below the last. Hiding an
         // empty spacer is what keeps those ends flush.
-        const above = estimatedTranscriptRows(entries, 0, materializedEntryStart);
+        const above = estimatedTranscriptRows(entries, 0, rt.materializedEntryStart);
         const below = estimatedTranscriptRows(
             entries,
-            materializedEntryEnd,
+            rt.materializedEntryEnd,
             entries.length,
         );
-        transcriptWindowTopSpacer.height = above;
-        transcriptWindowTopSpacer.visible = above > 0;
-        transcriptWindowBottomSpacer.height = below;
-        transcriptWindowBottomSpacer.visible = below > 0;
+        rt.transcriptWindowTopSpacer.height = above;
+        rt.transcriptWindowTopSpacer.visible = above > 0;
+        rt.transcriptWindowBottomSpacer.height = below;
+        rt.transcriptWindowBottomSpacer.visible = below > 0;
     }
 
     /** The first materialized entry with any row inside the viewport. */
     function topmostVisibleTranscriptEntry(): number | undefined {
-        const top = transcript.viewport.screenY;
+        const top = rt.transcript.viewport.screenY;
         for (
-            let index = materializedEntryStart;
-            index < materializedEntryEnd;
+            let index = rt.materializedEntryStart;
+            index < rt.materializedEntryEnd;
             index += 1
         ) {
-            const node = entryNodes[index];
+            const node = rt.entryNodes[index];
             if (node === undefined || !node.visible) continue;
             if (node.screenY + node.height > top) return index;
         }
@@ -10199,33 +10037,33 @@ export async function startTui(
      * carries no estimate of its own.
      */
     function applyTranscriptScrollAnchor(): void {
-        const anchor = pendingTranscriptScrollAnchor;
+        const anchor = rt.pendingTranscriptScrollAnchor;
         if (anchor === undefined) return;
-        pendingTranscriptScrollAnchor = undefined;
-        const node = entryNodes[anchor.index];
+        rt.pendingTranscriptScrollAnchor = undefined;
+        const node = rt.entryNodes[anchor.index];
         if (node === undefined) return;
-        const offset = node.screenY - transcript.viewport.screenY;
+        const offset = node.screenY - rt.transcript.viewport.screenY;
         if (offset === anchor.offset) return;
-        transcript.scrollTo(transcript.scrollTop + offset - anchor.offset);
+        rt.transcript.scrollTo(rt.transcript.scrollTop + offset - anchor.offset);
     }
 
     function captureTranscriptScrollAnchor(): void {
-        pendingTranscriptScrollAnchor = undefined;
+        rt.pendingTranscriptScrollAnchor = undefined;
         const index = topmostVisibleTranscriptEntry();
         if (index === undefined) return;
-        const node = entryNodes[index];
+        const node = rt.entryNodes[index];
         if (node === undefined) return;
-        pendingTranscriptScrollAnchor = {
+        rt.pendingTranscriptScrollAnchor = {
             index,
-            offset: node.screenY - transcript.viewport.screenY,
+            offset: node.screenY - rt.transcript.viewport.screenY,
         };
     }
 
     function transcriptFollowsBottom(): boolean {
         return tuiTranscriptAtBottom(
-            transcript.scrollTop,
-            transcript.scrollHeight,
-            transcript.viewport.height,
+            rt.transcript.scrollTop,
+            rt.transcript.scrollHeight,
+            rt.transcript.viewport.height,
         );
     }
 
@@ -10237,40 +10075,40 @@ export async function startTui(
      * update pass walks, so nothing else would ever destroy it.
      */
     function trimTranscriptWindow(length: number): void {
-        for (let index = length; index < entryNodes.length; index += 1) {
+        for (let index = length; index < rt.entryNodes.length; index += 1) {
             destroyTranscriptEntryNode(index);
         }
-        entryNodes.length = Math.min(entryNodes.length, length);
-        entryNodeKinds.length = entryNodes.length;
-        measuredEntryRows.length = Math.min(measuredEntryRows.length, length);
-        materializedEntryEnd = Math.min(materializedEntryEnd, length);
-        materializedEntryStart = Math.min(
-            materializedEntryStart,
-            materializedEntryEnd,
+        rt.entryNodes.length = Math.min(rt.entryNodes.length, length);
+        rt.entryNodeKinds.length = rt.entryNodes.length;
+        rt.measuredEntryRows.length = Math.min(rt.measuredEntryRows.length, length);
+        rt.materializedEntryEnd = Math.min(rt.materializedEntryEnd, length);
+        rt.materializedEntryStart = Math.min(
+            rt.materializedEntryStart,
+            rt.materializedEntryEnd,
         );
     }
 
     function renderTranscriptEntries(
         entries: readonly TuiTranscriptEntry[],
     ): void {
-        if (pendingTranscriptReseed) {
-            pendingTranscriptReseed = false;
+        if (rt.pendingTranscriptReseed) {
+            rt.pendingTranscriptReseed = false;
             reseedTranscriptNodes(entries);
         }
         trimTranscriptWindow(entries.length);
 
         if (entries.length === 0) {
-            transcriptWindowTopSpacer.height = 0;
-            transcriptWindowTopSpacer.visible = false;
-            transcriptWindowBottomSpacer.height = 0;
-            transcriptWindowBottomSpacer.visible = false;
+            rt.transcriptWindowTopSpacer.height = 0;
+            rt.transcriptWindowTopSpacer.visible = false;
+            rt.transcriptWindowBottomSpacer.height = 0;
+            rt.transcriptWindowBottomSpacer.visible = false;
             return;
         }
 
-        if (materializedEntryEnd === 0 && entryNodes.length === 0) {
+        if (rt.materializedEntryEnd === 0 && rt.entryNodes.length === 0) {
             const initial = tuiTranscriptTailRange(entries.length);
-            materializedEntryStart = initial.start;
-            materializedEntryEnd = initial.start;
+            rt.materializedEntryStart = initial.start;
+            rt.materializedEntryEnd = initial.start;
         }
 
         // Entries appended while the reader is scrolled away stay behind the
@@ -10278,62 +10116,62 @@ export async function startTui(
         // not rebuild its whole tail on every arriving row.
         let materializeTo = transcriptFollowsBottom()
             ? entries.length
-            : Math.min(materializedEntryEnd, entries.length);
+            : Math.min(rt.materializedEntryEnd, entries.length);
 
         const changedKindAt = entries.findIndex((entry, index) =>
-            entryNodes[index] !== undefined
-            && entryNodeKinds[index] !== entry.kind
+            rt.entryNodes[index] !== undefined
+            && rt.entryNodeKinds[index] !== entry.kind
         );
         if (changedKindAt !== -1) {
-            materializeTo = Math.max(materializeTo, materializedEntryEnd);
-            pendingTranscriptScrollRestore = {
-                scrollTop: transcript.scrollTop,
+            materializeTo = Math.max(materializeTo, rt.materializedEntryEnd);
+            rt.pendingTranscriptScrollRestore = {
+                scrollTop: rt.transcript.scrollTop,
                 atBottom: tuiTranscriptAtBottom(
-                    transcript.scrollTop,
-                    transcript.scrollHeight,
-                    transcript.viewport.height,
+                    rt.transcript.scrollTop,
+                    rt.transcript.scrollHeight,
+                    rt.transcript.viewport.height,
                 ),
             };
             for (
                 let index = changedKindAt;
-                index < materializedEntryEnd;
+                index < rt.materializedEntryEnd;
                 index += 1
             ) {
                 destroyTranscriptEntryNode(index);
             }
-            materializedEntryEnd = changedKindAt;
+            rt.materializedEntryEnd = changedKindAt;
         }
 
         for (
-            let index = materializedEntryStart;
-            index < materializedEntryEnd;
+            let index = rt.materializedEntryStart;
+            index < rt.materializedEntryEnd;
             index += 1
         ) {
-            const node = entryNodes[index];
+            const node = rt.entryNodes[index];
             const entry = entries[index];
             if (node !== undefined && entry !== undefined) {
                 updateTranscriptEntryNode(node, entry);
-                entryNodeSources.set(node, entry);
+                rt.entryNodeSources.set(node, entry);
             }
         }
 
-        for (let index = materializedEntryEnd; index < materializeTo; index += 1) {
+        for (let index = rt.materializedEntryEnd; index < materializeTo; index += 1) {
             addTranscriptEntryNode(
                 createTranscriptEntryNode(entries, index),
                 index,
             );
         }
-        materializedEntryEnd = Math.max(materializedEntryEnd, materializeTo);
+        rt.materializedEntryEnd = Math.max(rt.materializedEntryEnd, materializeTo);
         updateTranscriptSpacers(entries);
     }
 
     function materializeEarlierTranscriptEntries(
         entries: readonly TuiTranscriptEntry[],
     ): boolean {
-        const range = tuiTranscriptPrependRange(materializedEntryStart);
+        const range = tuiTranscriptPrependRange(rt.materializedEntryStart);
         if (range.start === range.end) return false;
         captureTranscriptScrollAnchor();
-        materializedEntryStart = range.start;
+        rt.materializedEntryStart = range.start;
         for (let index = range.start; index < range.end; index += 1) {
             addTranscriptEntryNode(
                 createTranscriptEntryNode(entries, index),
@@ -10349,16 +10187,16 @@ export async function startTui(
     ): boolean {
         const end = Math.min(
             entries.length,
-            materializedEntryEnd + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+            rt.materializedEntryEnd + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
         );
-        if (end <= materializedEntryEnd) return false;
-        for (let index = materializedEntryEnd; index < end; index += 1) {
+        if (end <= rt.materializedEntryEnd) return false;
+        for (let index = rt.materializedEntryEnd; index < end; index += 1) {
             addTranscriptEntryNode(
                 createTranscriptEntryNode(entries, index),
                 index,
             );
         }
-        materializedEntryEnd = end;
+        rt.materializedEntryEnd = end;
         // Nothing above the viewport changed, so the reader's position holds
         // on its own; only the spacer standing in for the rest shrinks.
         updateTranscriptSpacers(entries);
@@ -10366,7 +10204,7 @@ export async function startTui(
     }
 
     function nodeTranscriptRows(index: number): number | undefined {
-        const node = entryNodes[index];
+        const node = rt.entryNodes[index];
         if (node === undefined) return undefined;
         const margin = node.marginTop;
         return node.height + (typeof margin === "number" ? margin : 0);
@@ -10385,32 +10223,32 @@ export async function startTui(
     ): boolean {
         const materializedAbove = Math.max(
             0,
-            transcript.scrollTop - transcriptWindowTopSpacer.height,
+            rt.transcript.scrollTop - rt.transcriptWindowTopSpacer.height,
         );
         const materializedBelow = Math.max(
             0,
-            transcript.scrollHeight
-                - transcriptWindowBottomSpacer.height
-                - transcript.scrollTop
-                - transcript.viewport.height,
+            rt.transcript.scrollHeight
+                - rt.transcriptWindowBottomSpacer.height
+                - rt.transcript.scrollTop
+                - rt.transcript.viewport.height,
         );
-        const headroom = materializedEntryEnd
-            - materializedEntryStart
+        const headroom = rt.materializedEntryEnd
+            - rt.materializedEntryStart
             - TUI_TRANSCRIPT_INITIAL_WINDOW;
         if (headroom <= 0) return false;
 
         const aboveBudget = tuiTranscriptEvictableRows({
-            scrollTop: transcript.scrollTop,
-            viewportHeight: transcript.viewport.height,
-            spacerHeight: transcriptWindowTopSpacer.height,
+            scrollTop: rt.transcript.scrollTop,
+            viewportHeight: rt.transcript.viewport.height,
+            spacerHeight: rt.transcriptWindowTopSpacer.height,
         });
         if (aboveBudget > 0 && materializedAbove > 0) {
             const limit = Math.min(
-                materializedEntryStart + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
-                materializedEntryStart + headroom,
+                rt.materializedEntryStart + TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+                rt.materializedEntryStart + headroom,
             );
             let released = 0;
-            let index = materializedEntryStart;
+            let index = rt.materializedEntryStart;
             while (index < limit) {
                 const rows = nodeTranscriptRows(index);
                 if (rows === undefined || released + rows > aboveBudget) break;
@@ -10418,11 +10256,11 @@ export async function startTui(
                 released += rows;
                 index += 1;
             }
-            if (index > materializedEntryStart) {
-                for (let drop = materializedEntryStart; drop < index; drop += 1) {
+            if (index > rt.materializedEntryStart) {
+                for (let drop = rt.materializedEntryStart; drop < index; drop += 1) {
                     destroyTranscriptEntryNode(drop);
                 }
-                materializedEntryStart = index;
+                rt.materializedEntryStart = index;
                 updateTranscriptSpacers(entries);
                 return true;
             }
@@ -10430,17 +10268,17 @@ export async function startTui(
 
         const belowBudget = tuiTranscriptEvictableRows({
             scrollTop: materializedBelow,
-            viewportHeight: transcript.viewport.height,
+            viewportHeight: rt.transcript.viewport.height,
             spacerHeight: 0,
         });
         if (belowBudget <= 0) return false;
         const floor = Math.max(
-            materializedEntryStart,
-            materializedEntryEnd - TUI_TRANSCRIPT_MATERIALIZE_BATCH,
-            materializedEntryEnd - headroom,
+            rt.materializedEntryStart,
+            rt.materializedEntryEnd - TUI_TRANSCRIPT_MATERIALIZE_BATCH,
+            rt.materializedEntryEnd - headroom,
         );
         let released = 0;
-        let index = materializedEntryEnd;
+        let index = rt.materializedEntryEnd;
         while (index > floor) {
             const rows = nodeTranscriptRows(index - 1);
             if (rows === undefined || released + rows > belowBudget) break;
@@ -10448,18 +10286,18 @@ export async function startTui(
             released += rows;
             index -= 1;
         }
-        if (index === materializedEntryEnd) return false;
-        for (let drop = index; drop < materializedEntryEnd; drop += 1) {
+        if (index === rt.materializedEntryEnd) return false;
+        for (let drop = index; drop < rt.materializedEntryEnd; drop += 1) {
             destroyTranscriptEntryNode(drop);
         }
-        materializedEntryEnd = index;
+        rt.materializedEntryEnd = index;
         updateTranscriptSpacers(entries);
         return true;
     }
 
     function maybeEvictTranscriptEntries(): boolean {
-        if (state.entries.length === 0) return false;
-        return evictTranscriptEntries(state.entries);
+        if (rt.state.entries.length === 0) return false;
+        return evictTranscriptEntries(rt.state.entries);
     }
 
     /**
@@ -10474,21 +10312,21 @@ export async function startTui(
         start: number,
         end: number,
     ): void {
-        for (let index = materializedEntryStart; index < materializedEntryEnd; index += 1) {
+        for (let index = rt.materializedEntryStart; index < rt.materializedEntryEnd; index += 1) {
             measureTranscriptEntryNode(index);
             destroyTranscriptEntryNode(index);
         }
-        materializedEntryStart = start;
-        materializedEntryEnd = start;
+        rt.materializedEntryStart = start;
+        rt.materializedEntryEnd = start;
         for (let index = start; index < end; index += 1) {
             addTranscriptEntryNode(
                 createTranscriptEntryNode(entries, index),
                 index,
             );
         }
-        materializedEntryEnd = end;
+        rt.materializedEntryEnd = end;
         updateTranscriptSpacers(entries);
-        pendingTranscriptScrollAnchor = undefined;
+        rt.pendingTranscriptScrollAnchor = undefined;
     }
 
     function snapTranscriptWindowToTail(
@@ -10496,10 +10334,10 @@ export async function startTui(
     ): void {
         const tail = tuiTranscriptTailRange(entries.length);
         setTranscriptWindow(entries, tail.start, tail.end);
-        transcript.scrollTo(transcript.scrollHeight);
+        rt.transcript.scrollTo(rt.transcript.scrollHeight);
         // The rebuilt rows have no measured height until the next layout, so
         // the bottom is claimed again once they do.
-        pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+        rt.pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
     }
 
     function setTranscriptWindowAround(
@@ -10521,470 +10359,470 @@ export async function startTui(
     }
 
     function settleTranscriptScrollState(): void {
-        const restore = pendingTranscriptScrollRestore;
+        const restore = rt.pendingTranscriptScrollRestore;
         if (restore !== undefined) {
-            pendingTranscriptScrollRestore = undefined;
-            pendingTranscriptScrollAnchor = undefined;
-            transcript.scrollTo(
-                restore.atBottom ? transcript.scrollHeight : restore.scrollTop,
+            rt.pendingTranscriptScrollRestore = undefined;
+            rt.pendingTranscriptScrollAnchor = undefined;
+            rt.transcript.scrollTo(
+                restore.atBottom ? rt.transcript.scrollHeight : restore.scrollTop,
             );
         }
         applyTranscriptScrollAnchor();
     }
 
     function maybeMaterializeEarlierTranscriptEntries(): boolean {
-        if (state.entries.length === 0) return false;
+        if (rt.state.entries.length === 0) return false;
         if (!tuiTranscriptNeedsEarlierEntries({
-            materializedStart: materializedEntryStart,
-            scrollTop: transcript.scrollTop,
-            viewportHeight: transcript.viewport.height,
-            spacerTop: transcriptWindowTopSpacer.screenY
-                - transcript.viewport.screenY
-                + transcript.scrollTop,
-            spacerHeight: transcriptWindowTopSpacer.height,
+            materializedStart: rt.materializedEntryStart,
+            scrollTop: rt.transcript.scrollTop,
+            viewportHeight: rt.transcript.viewport.height,
+            spacerTop: rt.transcriptWindowTopSpacer.screenY
+                - rt.transcript.viewport.screenY
+                + rt.transcript.scrollTop,
+            spacerHeight: rt.transcriptWindowTopSpacer.height,
         })) {
             return false;
         }
-        return materializeEarlierTranscriptEntries(state.entries);
+        return materializeEarlierTranscriptEntries(rt.state.entries);
     }
 
     function maybeMaterializeLaterTranscriptEntries(): boolean {
-        if (materializedEntryEnd >= state.entries.length) return false;
-        const buffer = Math.max(1, transcript.viewport.height)
+        if (rt.materializedEntryEnd >= rt.state.entries.length) return false;
+        const buffer = Math.max(1, rt.transcript.viewport.height)
             * TUI_TRANSCRIPT_MATERIALIZE_BUFFER;
-        const materializedEdge = transcript.scrollHeight
-            - transcriptWindowBottomSpacer.height;
+        const materializedEdge = rt.transcript.scrollHeight
+            - rt.transcriptWindowBottomSpacer.height;
         if (
-            transcript.scrollTop + transcript.viewport.height + buffer
+            rt.transcript.scrollTop + rt.transcript.viewport.height + buffer
                 < materializedEdge
         ) {
             return false;
         }
-        return materializeLaterTranscriptEntries(state.entries);
+        return materializeLaterTranscriptEntries(rt.state.entries);
     }
 
     function maybeSnapTranscriptWindowToTail(): boolean {
-        if (state.entries.length === 0) return false;
-        if (materializedEntryEnd >= state.entries.length) return false;
+        if (rt.state.entries.length === 0) return false;
+        if (rt.materializedEntryEnd >= rt.state.entries.length) return false;
         if (!transcriptFollowsBottom()) return false;
-        snapTranscriptWindowToTail(state.entries);
+        snapTranscriptWindowToTail(rt.state.entries);
         return true;
     }
 
     function renderState(): void {
-        if (shuttingDown) {
+        if (rt.shuttingDown) {
             return;
         }
         const uiRequest = focusedUiRequest();
         const configurationRequired = uiRequest !== undefined
             && isConfigurationRequiredUiRequestUpdate(uiRequest);
-        experimentalTuiHost.render();
+        rt.experimentalTuiHost.render();
 
         // Home says what to do in the middle of the screen; the transcript's
         // own invitation would be a second one, over an empty conversation
         // that does not exist yet.
-        placeholder.visible = state.entries.length === 0
-            && !isHomeClient(client);
+        rt.placeholder.visible = rt.state.entries.length === 0
+            && !isHomeClient(rt.client);
         // The transcript tip appears in the gap after a turn, which is the one
         // moment the user is reading rather than typing, and it is gone by the
         // time the next turn starts. Armed by the turn ending rather than by
         // the idle state itself, so the line does not come straight back in
         // the frames between a submit and the turn actually starting.
-        if (tipsEnabled && workingLastRender && !state.working) {
-            composerTip = takeTip(false);
+        if (rt.tipsEnabled && rt.workingLastRender && !rt.state.working) {
+            rt.composerTip = takeTip(false);
         }
-        workingLastRender = state.working;
-        composerTipText.content = composerTip === undefined
+        rt.workingLastRender = rt.state.working;
+        rt.composerTipText.content = rt.composerTip === undefined
             ? new StyledText([])
             // Text nodes lay their content out from column zero, so the
             // optical indent beside the composer is written in rather than
             // set as padding.
             : new StyledText([
                 fg(TUI_ACCENT)(
-                    `${" ".repeat(appearance.composerTipIndent)}Tip `,
+                    `${" ".repeat(rt.appearance.composerTipIndent)}Tip `,
                 ),
-                fg(TUI_MUTED)(composerTip),
+                fg(TUI_MUTED)(rt.composerTip),
             ]);
-        composerTipText.visible = composerTip !== undefined
+        rt.composerTipText.visible = rt.composerTip !== undefined
             && !anyOverlayOpen();
         renderHeldAddress();
-        composer.placeholder = extensionAddressee === undefined
-            ? sidebar.isFocused() && hostedSidebar.mention !== undefined
-                ? `Message ${hostedSidebar.mention}\u2026`
+        rt.composer.placeholder = rt.extensionAddressee === undefined
+            ? rt.sidebar.isFocused() && rt.hostedSidebar.mention !== undefined
+                ? `Message ${rt.hostedSidebar.mention}\u2026`
                 : COMPOSER_PLACEHOLDER
-            : `Message ${extensionAddressee}\u2026`;
+            : `Message ${rt.extensionAddressee}\u2026`;
         renderPendingQuote();
         const focusedState = focusedAgentState();
         const queuedPrompt = renderTuiQueuedPrompt(focusedState);
-        queuedPromptText.content = queuedPrompt.length === 0
+        rt.queuedPromptText.content = queuedPrompt.length === 0
             ? ""
-            : `${" ".repeat(appearance.composerMarginHorizontal)}${queuedPrompt}`;
-        queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
-        approvalView.box.visible = uiRequest?.request.type
+            : `${" ".repeat(rt.appearance.composerMarginHorizontal)}${queuedPrompt}`;
+        rt.queuedPromptText.visible = focusedState.queuedPrompts.length > 0;
+        rt.approvalView.box.visible = uiRequest?.request.type
             === "tool_approval";
-        questionView.box.visible = uiRequest?.request.type
+        rt.questionView.box.visible = uiRequest?.request.type
             === "user_question";
         // A model, directory, and approval mode do not explain either pending
         // request. Both cards replace the composer and status band until the
         // user answers, so no status text can paint across their final row.
-        statusText.visible = !(approvalView.box.visible
-            || questionView.box.visible);
-        statusBand.visible = !(approvalView.box.visible
-            || questionView.box.visible);
-        timelinePickerView.box.visible = uiRequest === undefined
-            && timelinePicker !== undefined;
-        requestOptionsEditorView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && requestOptionsEditor !== undefined;
+        rt.statusText.visible = !(rt.approvalView.box.visible
+            || rt.questionView.box.visible);
+        rt.statusBand.visible = !(rt.approvalView.box.visible
+            || rt.questionView.box.visible);
+        rt.timelinePickerView.box.visible = uiRequest === undefined
+            && rt.timelinePicker !== undefined;
+        rt.requestOptionsEditorView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.requestOptionsEditor !== undefined;
         // Over the connect pane it was opened from, so the pane is still there
         // to go back to when the key is saved or the prompt is abandoned.
-        providerFormView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && requestOptionsEditor === undefined
-            && providerForm !== undefined;
-        namePromptView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && requestOptionsEditor === undefined
-            && providerForm === undefined
-            && namePrompt !== undefined;
-        secretPromptView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && namePrompt === undefined
-            && requestOptionsEditor === undefined
-            && providerForm === undefined
-            && secretPrompt !== undefined;
-        settingsPickerView.box.visible = (uiRequest === undefined
+        rt.providerFormView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.requestOptionsEditor === undefined
+            && rt.providerForm !== undefined;
+        rt.namePromptView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.requestOptionsEditor === undefined
+            && rt.providerForm === undefined
+            && rt.namePrompt !== undefined;
+        rt.secretPromptView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.namePrompt === undefined
+            && rt.requestOptionsEditor === undefined
+            && rt.providerForm === undefined
+            && rt.secretPrompt !== undefined;
+        rt.settingsPickerView.box.visible = (uiRequest === undefined
                 || configurationRequired)
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && secretPrompt === undefined
-            && namePrompt === undefined
-            && requestOptionsEditor === undefined
-            && providerForm === undefined
-            && settingsPicker !== undefined;
-        preferencesListView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && preferencesList !== undefined;
-        standingNudgesView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && preferencesList === undefined
-            && standingNudges !== undefined;
-        commandPaletteView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && secretPrompt === undefined
-            && preferencesList === undefined
-            && standingNudges === undefined
-            && commandPalette !== undefined;
-        workTabView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && settingsPicker === undefined
-            && standingNudges === undefined
-            && commandPalette === undefined
-            && workTab !== undefined;
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.secretPrompt === undefined
+            && rt.namePrompt === undefined
+            && rt.requestOptionsEditor === undefined
+            && rt.providerForm === undefined
+            && rt.settingsPicker !== undefined;
+        rt.preferencesListView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.preferencesList !== undefined;
+        rt.standingNudgesView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.preferencesList === undefined
+            && rt.standingNudges !== undefined;
+        rt.commandPaletteView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.secretPrompt === undefined
+            && rt.preferencesList === undefined
+            && rt.standingNudges === undefined
+            && rt.commandPalette !== undefined;
+        rt.workTabView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.settingsPicker === undefined
+            && rt.standingNudges === undefined
+            && rt.commandPalette === undefined
+            && rt.workTab !== undefined;
         applyWorkspaceRail();
-        const sessionRequestVisible = approvalView.box.visible
-            || questionView.box.visible;
+        const sessionRequestVisible = rt.approvalView.box.visible
+            || rt.questionView.box.visible;
         /*
          * A session-owned request replaces that session's composer, not the
          * navigator beside it. Narrow terminals still have a sidebar card
          * rather than a rail, so the request keeps the screen there.
          */
         const workspaceSidebarAllowed = uiRequest === undefined
-            || (sessionRequestVisible && workspaceRail !== undefined);
-        workspaceSidebarView.surface.visible = workspaceSidebarAllowed
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && settingsPicker === undefined
-            && standingNudges === undefined
-            && commandPalette === undefined
-            && workTab === undefined
-            && workspaceSidebar !== undefined
-            && (workspaceRail !== undefined || workspaceSidebarFocused);
-        searchOverlayView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && settingsPicker === undefined
-            && standingNudges === undefined
-            && commandPalette === undefined
-            && workTab === undefined
-            && searchOverlay !== undefined;
-        helpView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && workTab === undefined
-            && searchOverlay === undefined
-            && help !== undefined;
-        doctorDialogView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined
-            && diagnosticsDialog === undefined
-            && extensionsDialog === undefined
-            && documentDialog === undefined
-            && doctorDialog !== undefined;
-        diagnosticsDialogView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined
-            && doctorDialog === undefined
-            && extensionsDialog === undefined
-            && documentDialog === undefined
-            && diagnosticsDialog !== undefined;
-        extensionsDialogView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined
-            && doctorDialog === undefined
-            && diagnosticsDialog === undefined
-            && documentDialog === undefined
-            && extensionsDialog !== undefined;
-        documentDialogView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && !confirmingFullAccess
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined
-            && doctorDialog === undefined
-            && diagnosticsDialog === undefined
-            && extensionsDialog === undefined
-            && documentDialog !== undefined;
-        permissionsConfirmView.box.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && confirmingFullAccess;
-        admissionDialogView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate === undefined
-            && !confirmingFullAccess
-            && admissionDialog !== undefined;
-        sessionTrashConfirmView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && sessionTrashCandidate !== undefined
-            && !sessionCloseConfirm;
-        sessionCloseConfirmView.surface.visible = timelinePicker === undefined
-            && sessionCloseConfirm;
-        providerForgetConfirmView.surface.visible = uiRequest === undefined
-            && timelinePicker === undefined
-            && sessionTrashCandidate === undefined && !sessionCloseConfirm
-            && providerForgetCandidate !== undefined;
-        const overlayVisible = dialStrip !== undefined
-            || jumpMenuBox.visible
-            || approvalView.box.visible
-            || questionView.box.visible
-            || timelinePickerView.box.visible
-            || settingsPickerView.box.visible
-            || preferencesListView.surface.visible
-            || standingNudgesView.surface.visible
-            || commandPaletteView.surface.visible
-            || workTabView.surface.visible
+            || (sessionRequestVisible && rt.workspaceRail !== undefined);
+        rt.workspaceSidebarView.surface.visible = workspaceSidebarAllowed
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.settingsPicker === undefined
+            && rt.standingNudges === undefined
+            && rt.commandPalette === undefined
+            && rt.workTab === undefined
+            && rt.workspaceSidebar !== undefined
+            && (rt.workspaceRail !== undefined || rt.workspaceSidebarFocused);
+        rt.searchOverlayView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.settingsPicker === undefined
+            && rt.standingNudges === undefined
+            && rt.commandPalette === undefined
+            && rt.workTab === undefined
+            && rt.searchOverlay !== undefined;
+        rt.helpView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.workTab === undefined
+            && rt.searchOverlay === undefined
+            && rt.help !== undefined;
+        rt.doctorDialogView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.help === undefined
+            && rt.diagnosticsDialog === undefined
+            && rt.extensionsDialog === undefined
+            && rt.documentDialog === undefined
+            && rt.doctorDialog !== undefined;
+        rt.diagnosticsDialogView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.help === undefined
+            && rt.doctorDialog === undefined
+            && rt.extensionsDialog === undefined
+            && rt.documentDialog === undefined
+            && rt.diagnosticsDialog !== undefined;
+        rt.extensionsDialogView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.help === undefined
+            && rt.doctorDialog === undefined
+            && rt.diagnosticsDialog === undefined
+            && rt.documentDialog === undefined
+            && rt.extensionsDialog !== undefined;
+        rt.documentDialogView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && !rt.confirmingFullAccess
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.help === undefined
+            && rt.doctorDialog === undefined
+            && rt.diagnosticsDialog === undefined
+            && rt.extensionsDialog === undefined
+            && rt.documentDialog !== undefined;
+        rt.permissionsConfirmView.box.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && rt.confirmingFullAccess;
+        rt.admissionDialogView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate === undefined
+            && !rt.confirmingFullAccess
+            && rt.admissionDialog !== undefined;
+        rt.sessionTrashConfirmView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && rt.sessionTrashCandidate !== undefined
+            && !rt.sessionCloseConfirm;
+        rt.sessionCloseConfirmView.surface.visible = rt.timelinePicker === undefined
+            && rt.sessionCloseConfirm;
+        rt.providerForgetConfirmView.surface.visible = uiRequest === undefined
+            && rt.timelinePicker === undefined
+            && rt.sessionTrashCandidate === undefined && !rt.sessionCloseConfirm
+            && rt.providerForgetCandidate !== undefined;
+        const overlayVisible = rt.dialStrip !== undefined
+            || rt.jumpMenuBox.visible
+            || rt.approvalView.box.visible
+            || rt.questionView.box.visible
+            || rt.timelinePickerView.box.visible
+            || rt.settingsPickerView.box.visible
+            || rt.preferencesListView.surface.visible
+            || rt.standingNudgesView.surface.visible
+            || rt.commandPaletteView.surface.visible
+            || rt.workTabView.surface.visible
             // A rail stands beside the transcript rather than over it, so the
             // scrim that dims the screen behind a card would be dimming the
             // half of it the reader is still reading.
-            || (workspaceSidebarView.surface.visible && workspaceRail === undefined)
-            || searchOverlayView.surface.visible
-            || helpView.box.visible
-            || doctorDialogView.box.visible
-            || diagnosticsDialogView.box.visible
-            || extensionsDialogView.box.visible
-            || documentDialogView.box.visible
-            || permissionsConfirmView.box.visible
-            || admissionDialogView.surface.visible
-            || sessionTrashConfirmView.surface.visible
-            || sessionCloseConfirmView.surface.visible
-            || providerForgetConfirmView.surface.visible
-            || namePromptView.surface.visible
-            || providerFormView.surface.visible
-            || requestOptionsEditorView.surface.visible
-            || secretPromptView.box.visible
-            || experimentalTuiHost.hasModal();
+            || (rt.workspaceSidebarView.surface.visible && rt.workspaceRail === undefined)
+            || rt.searchOverlayView.surface.visible
+            || rt.helpView.box.visible
+            || rt.doctorDialogView.box.visible
+            || rt.diagnosticsDialogView.box.visible
+            || rt.extensionsDialogView.box.visible
+            || rt.documentDialogView.box.visible
+            || rt.permissionsConfirmView.box.visible
+            || rt.admissionDialogView.surface.visible
+            || rt.sessionTrashConfirmView.surface.visible
+            || rt.sessionCloseConfirmView.surface.visible
+            || rt.providerForgetConfirmView.surface.visible
+            || rt.namePromptView.surface.visible
+            || rt.providerFormView.surface.visible
+            || rt.requestOptionsEditorView.surface.visible
+            || rt.secretPromptView.box.visible
+            || rt.experimentalTuiHost.hasModal();
         // The scrim carries the whole fade: its translucent fill composites
         // the glyphs behind it as well as the cell backgrounds, so the chrome
         // needs no attenuation of its own. Fading it a second time left the
         // composer and status band darker than the transcript beside them.
-        overlayScrim.visible = overlayVisible;
+        rt.overlayScrim.visible = overlayVisible;
         const requestUsesRail = sessionRequestVisible
-            && workspaceSidebarView.surface.visible;
+            && rt.workspaceSidebarView.surface.visible;
         const requestRailColumns = requestUsesRail
-            ? workspaceSidebarView.railColumns() ?? 0
+            ? rt.workspaceSidebarView.railColumns() ?? 0
             : 0;
-        overlayScrim.left = requestRailColumns;
-        overlayScrim.width = Math.max(1, renderer.width - requestRailColumns);
+        rt.overlayScrim.left = requestRailColumns;
+        rt.overlayScrim.width = Math.max(1, rt.renderer.width - requestRailColumns);
         // Ordinary modals leave the conversation and composer in place as
         // dimmed context. The scrim sits above them and below the active card.
         // Approval and question cards are different: they replace the composer
         // until the pending engine request is answered.
-        composerBox.visible = uiRequest === undefined
-            && (!isWorkerFreeClient(client) || jsonlCommandMode);
-        resumeOverlay.surface.visible = uiRequest === undefined
-            && isJsonlViewClient(client)
-            && !jsonlCommandMode;
-        homeView.surface.visible = isHomeClient(client);
+        rt.composerBox.visible = uiRequest === undefined
+            && (!isWorkerFreeClient(rt.client) || rt.jsonlCommandMode);
+        rt.resumeOverlay.surface.visible = uiRequest === undefined
+            && isJsonlViewClient(rt.client)
+            && !rt.jsonlCommandMode;
+        rt.homeView.surface.visible = isHomeClient(rt.client);
         renderCommandSuggestions();
         if (
             uiRequest !== undefined
             && isToolApprovalUiRequestUpdate(uiRequest)
         ) {
-            approvalView.update(uiRequest);
+            rt.approvalView.update(uiRequest);
         }
         if (
             uiRequest !== undefined
             && isUserQuestionUiRequestUpdate(uiRequest)
         ) {
-            questionView.update(uiRequest);
+            rt.questionView.update(uiRequest);
         }
         // Approval and question boxes are absolute children, so app padding
         // does not move them with the transcript. Seat session-owned cards in
         // the transcript column explicitly when the docked rail stays up.
-        approvalView.box.left = requestRailColumns;
-        questionView.box.left = requestRailColumns;
-        if (timelinePicker !== undefined) {
-            timelinePickerView.update(timelinePicker);
+        rt.approvalView.box.left = requestRailColumns;
+        rt.questionView.box.left = requestRailColumns;
+        if (rt.timelinePicker !== undefined) {
+            rt.timelinePickerView.update(rt.timelinePicker);
         }
-        if (settingsPicker === undefined) {
-            pickerTipKind = undefined;
-            settingsPickerView.tip = undefined;
-            settingsPickerView.verification = undefined;
+        if (rt.settingsPicker === undefined) {
+            rt.pickerTipKind = undefined;
+            rt.settingsPickerView.tip = undefined;
+            rt.settingsPickerView.verification = undefined;
             // The run reports itself in the transcript. Closing the pane is
             // the end of the console, so reopening it does not bring back a
             // check that finished a while ago.
-            verificationConsole = undefined;
-        } else if (tipsEnabled && pickerTipKind !== settingsPicker.kind) {
+            rt.verificationConsole = undefined;
+        } else if (rt.tipsEnabled && rt.pickerTipKind !== rt.settingsPicker.kind) {
             // One tip per pane, chosen when the pane opens. Rechoosing on
             // every keystroke would make the line flicker under the search
             // query, and the pane is one place, not one place per row.
-            pickerTipKind = settingsPicker.kind;
-            settingsPickerView.tip = takeTip(settingsPicker.kind === "model");
+            rt.pickerTipKind = rt.settingsPicker.kind;
+            rt.settingsPickerView.tip = takeTip(rt.settingsPicker.kind === "model");
         }
-        if (settingsPicker !== undefined) {
-            settingsPickerView.verification = settingsPicker.kind === "model"
+        if (rt.settingsPicker !== undefined) {
+            rt.settingsPickerView.verification = rt.settingsPicker.kind === "model"
                 ? liveVerificationConsole()
                 : undefined;
-            settingsPickerView.update(settingsPicker);
+            rt.settingsPickerView.update(rt.settingsPicker);
         }
-        if (secretPrompt !== undefined) {
-            secretPromptView.update(secretPrompt);
+        if (rt.secretPrompt !== undefined) {
+            rt.secretPromptView.update(rt.secretPrompt);
         }
-        if (namePrompt !== undefined) {
-            namePromptView.update(namePrompt);
+        if (rt.namePrompt !== undefined) {
+            rt.namePromptView.update(rt.namePrompt);
         }
-        if (providerForm !== undefined) {
-            providerFormView.update(providerForm);
+        if (rt.providerForm !== undefined) {
+            rt.providerFormView.update(rt.providerForm);
         }
-        if (requestOptionsEditor !== undefined) {
-            requestOptionsEditorView.update(requestOptionsEditor);
+        if (rt.requestOptionsEditor !== undefined) {
+            rt.requestOptionsEditorView.update(rt.requestOptionsEditor);
         }
-        if (preferencesList !== undefined) {
-            preferencesListView.update(preferencesList);
+        if (rt.preferencesList !== undefined) {
+            rt.preferencesListView.update(rt.preferencesList);
         }
-        if (standingNudges !== undefined) {
-            standingNudgesView.update(standingNudges);
+        if (rt.standingNudges !== undefined) {
+            rt.standingNudgesView.update(rt.standingNudges);
         }
-        if (commandPalette !== undefined) {
-            commandPaletteView.update(commandPalette);
+        if (rt.commandPalette !== undefined) {
+            rt.commandPaletteView.update(rt.commandPalette);
         }
-        if (workTab !== undefined) {
-            workTabView.update(
-                workTabViewState(workTab, workTabView.contentWidth()),
+        if (rt.workTab !== undefined) {
+            rt.workTabView.update(
+                workTabViewState(rt.workTab, rt.workTabView.contentWidth()),
             );
         }
         drawWorkspaceSidebar();
-        if (searchOverlay !== undefined) {
-            searchOverlayView.update(searchOverlayViewState(
-                searchOverlay,
-                searchOverlayView.contentWidth(),
+        if (rt.searchOverlay !== undefined) {
+            rt.searchOverlayView.update(searchOverlayViewState(
+                rt.searchOverlay,
+                rt.searchOverlayView.contentWidth(),
             ));
         }
-        if (help !== undefined) {
-            helpView.update(help);
+        if (rt.help !== undefined) {
+            rt.helpView.update(rt.help);
         }
-        if (doctorDialog !== undefined) {
-            doctorDialogView.update(doctorDialog);
+        if (rt.doctorDialog !== undefined) {
+            rt.doctorDialogView.update(rt.doctorDialog);
         }
-        if (diagnosticsDialog !== undefined) {
-            if (diagnosticsDialogView.contentWidth() !== diagnosticsReportWidth) {
-                diagnosticsDialog = {
-                    ...diagnosticsDialog,
+        if (rt.diagnosticsDialog !== undefined) {
+            if (rt.diagnosticsDialogView.contentWidth() !== rt.diagnosticsReportWidth) {
+                rt.diagnosticsDialog = {
+                    ...rt.diagnosticsDialog,
                     text: renderDiagnostics(),
                 };
             }
-            diagnosticsDialogView.update(diagnosticsDialog);
+            rt.diagnosticsDialogView.update(rt.diagnosticsDialog);
         }
-        if (extensionsDialog !== undefined) {
-            extensionsDialogView.update(extensionsDialog);
+        if (rt.extensionsDialog !== undefined) {
+            rt.extensionsDialogView.update(rt.extensionsDialog);
         }
-        if (documentDialog !== undefined) {
-            const text = documentDialog.renderMarkdown?.(
-                documentDialogView.contentWidth(),
-            ) ?? documentDialog.text;
-            if (text !== documentDialog.text) {
-                documentDialog = { ...documentDialog, text };
+        if (rt.documentDialog !== undefined) {
+            const text = rt.documentDialog.renderMarkdown?.(
+                rt.documentDialogView.contentWidth(),
+            ) ?? rt.documentDialog.text;
+            if (text !== rt.documentDialog.text) {
+                rt.documentDialog = { ...rt.documentDialog, text };
             }
-            documentDialogView.update(documentDialog);
+            rt.documentDialogView.update(rt.documentDialog);
         }
-        if (sessionTrashCandidate !== undefined) {
-            sessionTrashConfirmView.update(sessionTrashCandidate.label);
+        if (rt.sessionTrashCandidate !== undefined) {
+            rt.sessionTrashConfirmView.update(rt.sessionTrashCandidate.label);
         }
-        if (sessionCloseConfirm) {
-            sessionCloseConfirmView.update(sessionTitle ?? "untitled");
+        if (rt.sessionCloseConfirm) {
+            rt.sessionCloseConfirmView.update(rt.sessionTitle ?? "untitled");
         }
-        if (providerForgetCandidate !== undefined) {
-            providerForgetConfirmView.update(providerForgetCandidate.label);
+        if (rt.providerForgetCandidate !== undefined) {
+            rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label);
         }
-        if (admissionDialog !== undefined) {
-            admissionDialogView.update(admissionDialog, dialogAdmission());
+        if (rt.admissionDialog !== undefined) {
+            rt.admissionDialogView.update(rt.admissionDialog, dialogAdmission());
         }
 
-        renderTranscriptEntries(state.entries);
+        renderTranscriptEntries(rt.state.entries);
 
         showSearchTarget();
         renderStatus();
@@ -11002,11 +10840,11 @@ export async function startTui(
      * arrived is not worth chasing through the next conversation.
      */
     function showSearchTarget(): void {
-        const target = pendingSearchTarget;
-        if (target === undefined || client.agentId !== target.sessionId) {
+        const target = rt.pendingSearchTarget;
+        if (target === undefined || rt.client.agentId !== target.sessionId) {
             return;
         }
-        const index = state.entries.findIndex((entry) =>
+        const index = rt.state.entries.findIndex((entry) =>
             entry.kind !== "diff"
             && transcriptMessageId(entry.entryId) === target.entryId
         );
@@ -11015,15 +10853,15 @@ export async function startTui(
         // gone, and chasing it through later paints of the same session would
         // scroll the reader away from wherever they had moved to.
         if (index === -1) {
-            if (state.entries.length > 0) pendingSearchTarget = undefined;
+            if (rt.state.entries.length > 0) rt.pendingSearchTarget = undefined;
             return;
         }
-        const node = entryNodes[index];
+        const node = rt.entryNodes[index];
         if (node === undefined) {
             // Built in one step rather than a batch a frame: the target stays
             // outside the window until the scroll reaches it, and the window
             // would release each batch again before the next one arrived.
-            setTranscriptWindowAround(state.entries, index);
+            setTranscriptWindowAround(rt.state.entries, index);
             // The rows have no measured height until the next layout, so the
             // scroll waits a frame for one.
             return;
@@ -11031,22 +10869,22 @@ export async function startTui(
         // A row built this frame has no position yet, and the frame that gives
         // it one also claims the bottom for a session that just opened. So the
         // scroll waits for the measurement, which is the frame after both.
-        if (measuredEntryRows[index] === undefined) return;
-        pendingSearchTarget = undefined;
-        searchLanding = {
+        if (rt.measuredEntryRows[index] === undefined) return;
+        rt.pendingSearchTarget = undefined;
+        rt.searchLanding = {
             sessionId: target.sessionId,
             entryId: target.entryId,
         };
         // The node exists already and is about to be scrolled to, so the
         // glyph goes on in place; later rebuilds of this row read the id.
-        const landed = state.entries[index];
+        const landed = rt.state.entries[index];
         if (landed !== undefined) markSearchLanding(landed, node);
         // The row goes to the top of the pane rather than merely on screen: a
         // message taller than the pane would otherwise be shown by its end,
         // which is not where the match is, and one already on screen would not
         // move at all even though the reader came here to look at it.
-        transcript.scrollTo(
-            transcript.scrollTop + node.screenY - transcript.viewport.screenY,
+        rt.transcript.scrollTo(
+            rt.transcript.scrollTop + node.screenY - rt.transcript.viewport.screenY,
         );
     }
 
@@ -11060,22 +10898,22 @@ export async function startTui(
      * composer never gets to blink at all.
      */
     function drawWorkspaceSidebar(): void {
-        if (workspaceSidebar === undefined) {
-            workspaceSidebarDrawn = undefined;
+        if (rt.workspaceSidebar === undefined) {
+            rt.workspaceSidebarDrawn = undefined;
             return;
         }
         const next = workspaceSidebarViewState(
-            workspaceSidebar,
-            renderer.width,
+            rt.workspaceSidebar,
+            rt.renderer.width,
             new Date(),
-            workspaceRail,
-            workspaceSidebarFocused,
+            rt.workspaceRail,
+            rt.workspaceSidebarFocused,
             activityFrame(),
         );
         const drawn = JSON.stringify(next);
-        if (drawn === workspaceSidebarDrawn) return;
-        workspaceSidebarDrawn = drawn;
-        workspaceSidebarView.update(next);
+        if (drawn === rt.workspaceSidebarDrawn) return;
+        rt.workspaceSidebarDrawn = drawn;
+        rt.workspaceSidebarView.update(next);
     }
 
     /**
@@ -11093,20 +10931,20 @@ export async function startTui(
      * rebuild the transcript to move one word.
      */
     function refreshTimedSurfaces(): void {
-        if (resumeOverlay.surface.visible) {
-            resumeOverlay.blink(Date.now());
+        if (rt.resumeOverlay.surface.visible) {
+            rt.resumeOverlay.blink(Date.now());
         }
-        if (workTab !== undefined) {
-            workTabView.update(
-                workTabViewState(workTab, workTabView.contentWidth()),
+        if (rt.workTab !== undefined) {
+            rt.workTabView.update(
+                workTabViewState(rt.workTab, rt.workTabView.contentWidth()),
             );
         }
         applyWorkspaceRail();
         drawWorkspaceSidebar();
-        if (searchOverlay !== undefined) {
-            searchOverlayView.update(searchOverlayViewState(
-                searchOverlay,
-                searchOverlayView.contentWidth(),
+        if (rt.searchOverlay !== undefined) {
+            rt.searchOverlayView.update(searchOverlayViewState(
+                rt.searchOverlay,
+                rt.searchOverlayView.contentWidth(),
             ));
         }
     }
@@ -11117,31 +10955,31 @@ export async function startTui(
      * when, so they ask the same question here.
      */
     function anyOverlayOpen(): boolean {
-        return dialStrip !== undefined
-            || experimentalTuiHost.hasModal()
+        return rt.dialStrip !== undefined
+            || rt.experimentalTuiHost.hasModal()
             || focusedUiRequest() !== undefined
-            || timelinePicker !== undefined
-            || secretPrompt !== undefined
-            || namePrompt !== undefined
-            || providerForm !== undefined
-            || requestOptionsEditor !== undefined
-            || settingsPicker !== undefined
-            || preferencesList !== undefined
-            || standingNudges !== undefined
-            || commandPalette !== undefined
-            || workTab !== undefined
-            || searchOverlay !== undefined
-            || help !== undefined
-            || doctorDialog !== undefined
-            || diagnosticsDialog !== undefined
-            || extensionsDialog !== undefined
-            || documentDialog !== undefined
-            || confirmingFullAccess
-            || admissionDialog !== undefined
-            || sessionTrashCandidate !== undefined
-            || sessionCloseConfirm
-            || providerForgetCandidate !== undefined
-            || jumpMenu !== undefined;
+            || rt.timelinePicker !== undefined
+            || rt.secretPrompt !== undefined
+            || rt.namePrompt !== undefined
+            || rt.providerForm !== undefined
+            || rt.requestOptionsEditor !== undefined
+            || rt.settingsPicker !== undefined
+            || rt.preferencesList !== undefined
+            || rt.standingNudges !== undefined
+            || rt.commandPalette !== undefined
+            || rt.workTab !== undefined
+            || rt.searchOverlay !== undefined
+            || rt.help !== undefined
+            || rt.doctorDialog !== undefined
+            || rt.diagnosticsDialog !== undefined
+            || rt.extensionsDialog !== undefined
+            || rt.documentDialog !== undefined
+            || rt.confirmingFullAccess
+            || rt.admissionDialog !== undefined
+            || rt.sessionTrashCandidate !== undefined
+            || rt.sessionCloseConfirm
+            || rt.providerForgetCandidate !== undefined
+            || rt.jumpMenu !== undefined;
     }
 
     /**
@@ -11160,25 +10998,25 @@ export async function startTui(
             rows: number | undefined;
         }[] = [];
         for (let index = from; index < to; index += 1) {
-            const node = entryNodes[index];
-            const kind = entryNodeKinds[index];
+            const node = rt.entryNodes[index];
+            const kind = rt.entryNodeKinds[index];
             if (node === undefined || kind === undefined) continue;
             moved.push({
                 node,
                 kind,
-                rows: measuredEntryRows[index],
+                rows: rt.measuredEntryRows[index],
             });
-            delete entryNodes[index];
-            delete entryNodeKinds[index];
-            delete measuredEntryRows[index];
+            delete rt.entryNodes[index];
+            delete rt.entryNodeKinds[index];
+            delete rt.measuredEntryRows[index];
         }
         moved.forEach((slot, offset) => {
             const target = from + delta + offset;
             slot.node.id = `entry-${target}`;
-            entryNodes[target] = slot.node;
-            entryNodeKinds[target] = slot.kind;
-            if (slot.rows === undefined) delete measuredEntryRows[target];
-            else measuredEntryRows[target] = slot.rows;
+            rt.entryNodes[target] = slot.node;
+            rt.entryNodeKinds[target] = slot.kind;
+            if (slot.rows === undefined) delete rt.measuredEntryRows[target];
+            else rt.measuredEntryRows[target] = slot.rows;
         });
     }
 
@@ -11195,72 +11033,72 @@ export async function startTui(
     ): void {
         const previous: (TuiTranscriptEntry | undefined)[] = [];
         for (
-            let index = materializedEntryStart;
-            index < materializedEntryEnd;
+            let index = rt.materializedEntryStart;
+            index < rt.materializedEntryEnd;
             index += 1
         ) {
-            const node = entryNodes[index];
+            const node = rt.entryNodes[index];
             previous[index] = node === undefined
                 ? undefined
-                : entryNodeSources.get(node);
+                : rt.entryNodeSources.get(node);
         }
         const kept = tuiTranscriptReusableTail({
             previous,
             next: entries,
-            previousStart: materializedEntryStart,
-            previousEnd: materializedEntryEnd,
+            previousStart: rt.materializedEntryStart,
+            previousEnd: rt.materializedEntryEnd,
         });
         if (kept === 0) {
             clearTranscriptNodes();
             return;
         }
-        const oldEnd = materializedEntryEnd;
+        const oldEnd = rt.materializedEntryEnd;
         const newEnd = entries.length;
         const dropTo = oldEnd - kept;
-        for (let index = materializedEntryStart; index < dropTo; index += 1) {
+        for (let index = rt.materializedEntryStart; index < dropTo; index += 1) {
             destroyTranscriptEntryNode(index);
         }
         shiftTranscriptEntrySlots(dropTo, oldEnd, newEnd - oldEnd);
-        materializedEntryStart = newEnd - kept;
-        materializedEntryEnd = newEnd;
-        pendingTranscriptScrollAnchor = undefined;
-        pendingTranscriptScrollRestore = {
-            scrollTop: transcript.scrollTop,
+        rt.materializedEntryStart = newEnd - kept;
+        rt.materializedEntryEnd = newEnd;
+        rt.pendingTranscriptScrollAnchor = undefined;
+        rt.pendingTranscriptScrollRestore = {
+            scrollTop: rt.transcript.scrollTop,
             atBottom: tuiTranscriptAtBottom(
-                transcript.scrollTop,
-                transcript.scrollHeight,
-                transcript.viewport.height,
+                rt.transcript.scrollTop,
+                rt.transcript.scrollHeight,
+                rt.transcript.viewport.height,
             ),
         };
     }
 
     function clearTranscriptNodes(): void {
-        if (state.entries.length > 0) {
-            pendingTranscriptScrollRestore = {
-                scrollTop: transcript.scrollTop,
+        if (rt.state.entries.length > 0) {
+            rt.pendingTranscriptScrollRestore = {
+                scrollTop: rt.transcript.scrollTop,
                 atBottom: tuiTranscriptAtBottom(
-                    transcript.scrollTop,
-                    transcript.scrollHeight,
-                    transcript.viewport.height,
+                    rt.transcript.scrollTop,
+                    rt.transcript.scrollHeight,
+                    rt.transcript.viewport.height,
                 ),
             };
         } else {
-            pendingTranscriptScrollRestore = undefined;
+            rt.pendingTranscriptScrollRestore = undefined;
         }
-        experimentalTuiHost.clearTranscriptRenderables();
-        for (const node of entryNodes) {
+        rt.experimentalTuiHost.clearTranscriptRenderables();
+        for (const node of rt.entryNodes) {
             node?.destroyRecursively();
         }
-        entryNodes.length = 0;
-        entryNodeKinds.length = 0;
-        measuredEntryRows.length = 0;
-        materializedEntryStart = 0;
-        materializedEntryEnd = 0;
-        pendingTranscriptScrollAnchor = undefined;
-        transcriptWindowTopSpacer.height = 0;
-        transcriptWindowTopSpacer.visible = false;
-        transcriptWindowBottomSpacer.height = 0;
-        transcriptWindowBottomSpacer.visible = false;
+        rt.entryNodes.length = 0;
+        rt.entryNodeKinds.length = 0;
+        rt.measuredEntryRows.length = 0;
+        rt.materializedEntryStart = 0;
+        rt.materializedEntryEnd = 0;
+        rt.pendingTranscriptScrollAnchor = undefined;
+        rt.transcriptWindowTopSpacer.height = 0;
+        rt.transcriptWindowTopSpacer.visible = false;
+        rt.transcriptWindowBottomSpacer.height = 0;
+        rt.transcriptWindowBottomSpacer.visible = false;
     }
 
     // The surface openers below are shared by three callers: a slash command, a
@@ -11268,8 +11106,8 @@ export async function startTui(
     // routes cannot drift into opening the same picker with different arguments.
 
     function openReviewerMenu(parent?: TuiSettingsPickerState): void {
-        settingsPicker = withTuiPickerParent(
-            startTuiReviewerMenu(state.modelSettings?.reviewerDefault),
+        rt.settingsPicker = withTuiPickerParent(
+            startTuiReviewerMenu(rt.state.modelSettings?.reviewerDefault),
             parent,
         );
         renderState();
@@ -11280,13 +11118,13 @@ export async function startTui(
         slot: TuiReviewerSlot,
         parent?: TuiSettingsPickerState,
     ): void {
-        const reviewer = state.modelSettings?.reviewerDefault;
-        settingsPicker = withTuiPickerParent(
+        const reviewer = rt.state.modelSettings?.reviewerDefault;
+        rt.settingsPicker = withTuiPickerParent(
             startTuiReviewerPicker(
                 slot,
-                state.modelSettings?.pooled,
+                rt.state.modelSettings?.pooled,
                 slot === "primary" ? reviewer?.primary : reviewer?.fallback,
-                state.modelSettings?.availableModels,
+                rt.state.modelSettings?.availableModels,
             ),
             parent,
         );
@@ -11308,7 +11146,7 @@ export async function startTui(
                 ? {}
                 : { provider: selection.provider }),
         };
-        const current = state.modelSettings?.reviewerDefault;
+        const current = rt.state.modelSettings?.reviewerDefault;
         if (selection.slot === "primary") {
             if (chosen === undefined) return null;
             return {
@@ -11335,7 +11173,7 @@ export async function startTui(
     }
 
     function openModelPicker(parent?: TuiSettingsPickerState): void {
-        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
+        if (parent === undefined) rt.settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         const currentProvider = targetState.modelSettings?.provider;
         const currentModel = targetState.modelSettings?.model;
@@ -11346,7 +11184,7 @@ export async function startTui(
                 entry.provider === currentProvider
                 && entry.model === currentModel
             );
-        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
+        rt.settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "model",
             targetState.modelSettings?.model,
             targetState.modelSettings?.reasoningEffort,
@@ -11357,8 +11195,8 @@ export async function startTui(
             undefined,
             pooled,
         ), parent);
-        settingsPicker = {
-            ...settingsPicker,
+        rt.settingsPicker = {
+            ...rt.settingsPicker,
             ...modelRequestOptionsFacts(),
             assignmentOptions: tuiModelAssignmentOptions(
                 currentModelAssignmentRows(),
@@ -11380,9 +11218,9 @@ export async function startTui(
             modelCatalogUnavailable: targetState.modelSettings === undefined
                 && isHomeClient(focusedAgentClient()),
         };
-        if (settingsPicker.tab === "pool" && currentShortlisted === false) {
-            settingsPicker = {
-                ...switchedModelTab(settingsPicker, "pool"),
+        if (rt.settingsPicker.tab === "pool" && currentShortlisted === false) {
+            rt.settingsPicker = {
+                ...switchedModelTab(rt.settingsPicker, "pool"),
                 selectedIndex: 0,
             };
         }
@@ -11479,7 +11317,7 @@ export async function startTui(
 
     /** How many models the current snapshot holds for one provider. */
     function catalogSizeOf(provider: string): number {
-        return (state.modelSettings?.availableModels ?? [])
+        return (rt.state.modelSettings?.availableModels ?? [])
             .filter((entry) => entry.provider === provider)
             .length;
     }
@@ -11515,7 +11353,7 @@ export async function startTui(
                     : { provider: targetState.modelSettings.provider }),
                 model: targetState.modelSettings.model,
             };
-        settingsPicker = withTuiPickerParent(
+        rt.settingsPicker = withTuiPickerParent(
             startTuiModelAssignmentPicker(
                 assignment,
                 row?.label ?? assignment,
@@ -11617,11 +11455,11 @@ export async function startTui(
             const message = `Could not write the assignment: ${
                 error instanceof Error ? error.message : String(error)
             }`;
-            state = appendTuiError(state, message);
+            rt.state = appendTuiError(rt.state, message);
             return message;
         }
-        state = appendTuiNotice(
-            state,
+        rt.state = appendTuiNotice(
+            rt.state,
             unbinding
                 ? `${selection.assignment} unset. This session uses the fallback.`
                 : subagents
@@ -11680,48 +11518,48 @@ export async function startTui(
     }
 
     function openConfigurePicker(): void {
-        settingsPickerAgent = focusedAgentClient();
-        settingsPicker = startTuiConfigurePicker(configureFiles());
-        composer.blur();
+        rt.settingsPickerAgent = focusedAgentClient();
+        rt.settingsPicker = startTuiConfigurePicker(configureFiles());
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
 
     async function openConfigureEditor(file: TuiConfigureFile): Promise<void> {
         if (!file.createIfMissing && !existsSync(file.path)) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `${file.label} is no longer available: ${file.displayPath}`,
             );
             renderState();
             focusActiveSurface();
             return;
         }
-        renderer.suspend();
+        rt.renderer.suspend();
         try {
-            if (dependencies.openConfigurationFile !== undefined) {
-                await dependencies.openConfigurationFile(file.path);
+            if (rt.dependencies.openConfigurationFile !== undefined) {
+                await rt.dependencies.openConfigurationFile(file.path);
             } else if (
                 file.path === veraConfigPath()
-                && dependencies.openConfigure !== undefined
+                && rt.dependencies.openConfigure !== undefined
             ) {
-                await dependencies.openConfigure();
+                await rt.dependencies.openConfigure();
             } else {
                 await openFileInEditor(file.path);
             }
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${file.label} editor closed: ${file.displayPath}`,
             );
         } catch (error) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not open ${file.label.toLowerCase()}: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
             );
         } finally {
-            renderer.resume();
+            rt.renderer.resume();
             renderState();
             focusActiveSurface();
         }
@@ -11765,7 +11603,7 @@ export async function startTui(
     }
 
     function openReasoningPicker(parent?: TuiSettingsPickerState): void {
-        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
+        if (parent === undefined) rt.settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         // An empty (or unresolved) level list means this model has no
         // reasoning control at all. A card with no rows is indistinguishable
@@ -11774,8 +11612,8 @@ export async function startTui(
         // accept.
         const levels = currentModelLevels();
         if (levels.length === 0) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${
                     targetState.modelSettings === undefined
                         ? "this model"
@@ -11790,7 +11628,7 @@ export async function startTui(
             targetState.modelSettings?.model,
             targetState,
         );
-        settingsPicker = withTuiPickerParent(startTuiReasoningPicker(
+        rt.settingsPicker = withTuiPickerParent(startTuiReasoningPicker(
             levels,
             current?.defaultLevel,
             targetState.modelSettings?.reasoningEffort,
@@ -11800,23 +11638,23 @@ export async function startTui(
     }
 
     function openPermissionsPicker(parent?: TuiSettingsPickerState): void {
-        if (parent === undefined) settingsPickerAgent = focusedAgentClient();
+        if (parent === undefined) rt.settingsPickerAgent = focusedAgentClient();
         const targetState = focusedAgentState();
         if (targetState.permissionInspection !== undefined) {
             const notice = renderPermissionInspection(
                 targetState.permissionInspection,
             );
-            if (sidebar.isFocused() && hostedSidebar.pane !== undefined) {
-                hostedSidebar.pane.state.state = appendTuiNotice(
-                    hostedSidebar.pane.state.state,
+            if (rt.sidebar.isFocused() && rt.hostedSidebar.pane !== undefined) {
+                rt.hostedSidebar.pane.state.state = appendTuiNotice(
+                    rt.hostedSidebar.pane.state.state,
                     notice,
                 );
-                renderSidebarAgent(hostedSidebar.pane);
+                renderSidebarAgent(rt.hostedSidebar.pane);
             } else {
-                state = appendTuiNotice(state, notice);
+                rt.state = appendTuiNotice(rt.state, notice);
             }
         }
-        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
+        rt.settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "permissions",
             targetState.modelSettings?.model,
             targetState.modelSettings?.reasoningEffort,
@@ -11831,13 +11669,13 @@ export async function startTui(
     }
 
     function openThemePicker(parent?: TuiSettingsPickerState): void {
-        settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
+        rt.settingsPicker = withTuiPickerParent(startTuiSettingsPicker(
             "theme",
-            state.modelSettings?.model,
-            state.modelSettings?.reasoningEffort,
-            state.approvalMode,
-            state.modelSettings?.availableModels,
-            themeName,
+            rt.state.modelSettings?.model,
+            rt.state.modelSettings?.reasoningEffort,
+            rt.state.approvalMode,
+            rt.state.modelSettings?.availableModels,
+            rt.themeName,
         ), parent);
         renderState();
         focusActiveSurface();
@@ -11848,12 +11686,12 @@ export async function startTui(
         // this fetch. Without the fetch the list could be stale, since a
         // client is only sent an inspection at startup and when something
         // changes it.
-        preferencesList = startTuiPreferencesList(state.permissionInspection);
+        rt.preferencesList = startTuiPreferencesList(rt.state.permissionInspection);
         // Its own overlay rather than a picker pane, so the pane it came from
         // is held here instead of on the state, and closing puts it back.
-        preferencesListParent = parent;
+        rt.preferencesListParent = parent;
         sendCommand({ type: "get_permissions", requestId: randomUUID() });
-        composer.blur();
+        rt.composer.blur();
         focusActiveSurface();
         renderState();
     }
@@ -11861,11 +11699,11 @@ export async function startTui(
     function openStandingNudges(): void {
         adoptStandingNudgesState(
             openTuiStandingNudges(
-                standingNudgesProfileDirectory,
+                rt.standingNudgesProfileDirectory,
                 focusedAgentClient().workspace ?? "",
             ),
         );
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -11878,30 +11716,30 @@ export async function startTui(
      * on every credential check, so a key saved here is in effect on the next
      * turn with nothing to notify.
      */
-    const authStorage: AuthStorage = dependencies.authStorage
+    rt.authStorage = rt.dependencies.authStorage
         ?? createAuthStorage({
             onQuarantine(quarantinePath) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `The old credential file could not be read and was moved to ${quarantinePath}`,
                 );
                 renderState();
             },
         });
-    if (dependencies.authStorage === undefined) {
+    if (rt.dependencies.authStorage === undefined) {
         // Said once, at the point where the pane would otherwise just look
         // empty for no stated reason. The store is left alone until something
         // is actually written to it.
         const unreadable = unreadableAuthStoragePath();
         if (unreadable !== undefined) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `${unreadable} could not be read, so no provider shows as connected. Connecting one rewrites it.`,
             );
         }
     }
     /** Providers with a browser sign-in already running, so Enter cannot start a second. */
-    const connectingProviders = new Set<string>();
+    rt.connectingProviders = new Set<string>();
 
     /**
      * Whether Vera already holds a credential, with an unreadable store read as
@@ -11910,7 +11748,7 @@ export async function startTui(
      */
     function providerConnected(provider: Parameters<typeof isProviderConnected>[0]): boolean {
         try {
-            return isProviderConnected(provider, { authStorage });
+            return isProviderConnected(provider, { authStorage: rt.authStorage });
         } catch {
             return false;
         }
@@ -11931,20 +11769,20 @@ export async function startTui(
         }
         let apiKey: string | undefined;
         try {
-            const stored = authStorage.getCredential(provider);
+            const stored = rt.authStorage.getCredential(provider);
             apiKey = stored?.type === "api_key" ? stored.key : undefined;
         } catch {
             apiKey = undefined;
         }
-        providerForm = startTuiProviderForm(parent, {
+        rt.providerForm = startTuiProviderForm(parent, {
             id: provider,
             baseUrl: declaration.base_url,
             protocol: declaration.protocol,
             credential: declaration.credential,
             ...(apiKey === undefined ? {} : { apiKey }),
         });
-        settingsPicker = undefined;
-        composer.blur();
+        rt.settingsPicker = undefined;
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -11960,12 +11798,12 @@ export async function startTui(
         const providers = configuredProviders(config);
         const declared = new Set(Object.keys(config?.providers ?? {}));
         const moved = new Set(Object.keys(config?.provider_endpoints ?? {}));
-        const targetState = state;
+        const targetState = rt.state;
         const refreshable = new Set(refreshableProvidersOf(
             targetState.modelSettings?.availableModels,
             targetState.modelSettings?.refreshableProviders,
         ));
-        settingsPicker = withTuiPickerParent(
+        rt.settingsPicker = withTuiPickerParent(
             startTuiProviderPicker(
                 providers.map((provider) => ({
                     id: provider.id,
@@ -11993,7 +11831,7 @@ export async function startTui(
             ),
             parent,
         );
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -12020,9 +11858,9 @@ export async function startTui(
             provider.credential === "api_key"
             || provider.credential === "api_key_optional"
         ) {
-            secretPrompt = startTuiSecretPrompt(provider, pane);
-            settingsPicker = undefined;
-            composer.blur();
+            rt.secretPrompt = startTuiSecretPrompt(provider, pane);
+            rt.settingsPicker = undefined;
+            rt.composer.blur();
             renderState();
             focusActiveSurface();
             return;
@@ -12031,11 +11869,11 @@ export async function startTui(
         // goes away first. A notice written behind an open card is a notice the
         // user has to dismiss a modal to discover, and the sign-in URL is the
         // one line they cannot afford to miss.
-        settingsPicker = undefined;
+        rt.settingsPicker = undefined;
         closeSettingsPickerSurface();
         if (provider.credential === "none") {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `${provider.label} needs no credentials${
                     provider.envVar === undefined
                         ? ""
@@ -12050,32 +11888,32 @@ export async function startTui(
         // Enter can still land twice, from two trips into the pane, and the
         // callback listener binds a fixed port: a second run would fail on the
         // first one's own server.
-        if (connectingProviders.has(provider.id)) {
+        if (rt.connectingProviders.has(provider.id)) {
             return;
         }
-        connectingProviders.add(provider.id);
-        state = appendTuiNotice(
-            state,
+        rt.connectingProviders.add(provider.id);
+        rt.state = appendTuiNotice(
+            rt.state,
             `opening a browser to sign in to ${provider.label}…`,
             // Vera saying what it is doing. The line worth the eye is the URL
             // that follows, which is the one the user has to act on.
             "soft",
         );
         renderState();
-        void (dependencies.loginProvider ?? defaultLoginProvider)(
+        void (rt.dependencies.loginProvider ?? defaultLoginProvider)(
             provider.id,
             (url) => {
-                state = appendTuiNotice(state, `sign in at ${url}`);
+                rt.state = appendTuiNotice(rt.state, `sign in at ${url}`);
                 renderState();
             },
         ).then(() => {
-            connectingProviders.delete(provider.id);
-            state = appendTuiNotice(state, `connected to ${provider.label}`, "soft");
+            rt.connectingProviders.delete(provider.id);
+            rt.state = appendTuiNotice(rt.state, `connected to ${provider.label}`, "soft");
             renderState();
         }, (error: unknown) => {
-            connectingProviders.delete(provider.id);
-            state = appendTuiError(
-                state,
+            rt.connectingProviders.delete(provider.id);
+            rt.state = appendTuiError(
+                rt.state,
                 `could not connect to ${provider.label}: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -12106,7 +11944,7 @@ export async function startTui(
         }
         let stored;
         try {
-            stored = authStorage.getCredential(provider.id);
+            stored = rt.authStorage.getCredential(provider.id);
         } catch {
             stored = undefined;
         }
@@ -12127,13 +11965,13 @@ export async function startTui(
             });
             return;
         }
-        providerForgetCandidate = {
+        rt.providerForgetCandidate = {
             providerId: provider.id,
             label: provider.label,
             pane,
         };
-        composer.blur();
-        providerForgetConfirmView.update(provider.label);
+        rt.composer.blur();
+        rt.providerForgetConfirmView.update(provider.label);
         renderState();
         focusActiveSurface();
     }
@@ -12149,14 +11987,14 @@ export async function startTui(
         readonly label: string;
         readonly pane: TuiSettingsPickerState | undefined;
     }): void {
-        providerForgetCandidate = undefined;
-        settingsPicker = undefined;
+        rt.providerForgetCandidate = undefined;
+        rt.settingsPicker = undefined;
         closeSettingsPickerSurface();
         try {
-            authStorage.deleteCredential(candidate.providerId);
+            rt.authStorage.deleteCredential(candidate.providerId);
         } catch (error) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `could not forget the ${candidate.label} credential: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -12164,8 +12002,8 @@ export async function startTui(
             renderState();
             return;
         }
-        state = appendTuiNotice(
-            state,
+        rt.state = appendTuiNotice(
+            rt.state,
             `forgot the stored ${candidate.label} credential`,
         );
         requestAgentSettings(focusedAgentClient());
@@ -12181,7 +12019,7 @@ export async function startTui(
         if (providerId !== "openai-codex") {
             throw new Error(`No sign-in flow for provider ${providerId}`);
         }
-        await loginOpenAICodex({ authStorage, onAuthorizationUrl });
+        await loginOpenAICodex({ authStorage: rt.authStorage, onAuthorizationUrl });
     }
 
     /**
@@ -12209,12 +12047,12 @@ export async function startTui(
         }
         let apiKey: string | undefined;
         try {
-            const stored = authStorage.getCredential(providerId);
+            const stored = rt.authStorage.getCredential(providerId);
             apiKey = stored?.type === "api_key" ? stored.key : undefined;
         } catch {
             apiKey = undefined;
         }
-        providerForm = startTuiProviderForm(parent, {
+        rt.providerForm = startTuiProviderForm(parent, {
             id: providerId,
             baseUrl: provider.baseUrl ?? "",
             protocol: "openai-chat",
@@ -12222,8 +12060,8 @@ export async function startTui(
             shipped: true,
             ...(apiKey === undefined ? {} : { apiKey }),
         });
-        settingsPicker = undefined;
-        composer.blur();
+        rt.settingsPicker = undefined;
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -12235,22 +12073,22 @@ export async function startTui(
         try {
             const config = loadOptionalVeraConfig();
             const reference = `${candidate.provider}/${candidate.model}`;
-            requestOptionsEditor = startTuiRequestOptionsEditor(
+            rt.requestOptionsEditor = startTuiRequestOptionsEditor(
                 candidate,
                 DEFAULT_PROFILE_NAME,
                 config?.model_request_options?.[reference]?.body,
                 parent,
             );
-            settingsPicker = undefined;
-            composer.blur();
+            rt.settingsPicker = undefined;
+            rt.composer.blur();
             renderState();
             focusActiveSurface();
         } catch (error) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 error instanceof Error ? error.message : String(error),
             );
-            settingsPicker = parent;
+            rt.settingsPicker = parent;
             renderState();
         }
     }
@@ -12258,16 +12096,16 @@ export async function startTui(
     function applyRequestOptionsEditorTransition(
         transition: TuiRequestOptionsEditorTransition,
     ): void {
-        const previous = requestOptionsEditor;
-        requestOptionsEditor = transition.state;
-        if (requestOptionsEditor !== undefined) {
+        const previous = rt.requestOptionsEditor;
+        rt.requestOptionsEditor = transition.state;
+        if (rt.requestOptionsEditor !== undefined) {
             renderState();
             focusActiveSurface();
             return;
         }
         if (previous === undefined) return;
         if (transition.save === undefined) {
-            settingsPicker = previous.parent;
+            rt.settingsPicker = previous.parent;
             renderState();
             focusActiveSurface();
             return;
@@ -12282,7 +12120,7 @@ export async function startTui(
                 },
             });
         } catch (error) {
-            requestOptionsEditor = {
+            rt.requestOptionsEditor = {
                 ...previous,
                 error: error instanceof Error ? error.message : String(error),
             };
@@ -12290,12 +12128,12 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        settingsPicker = {
+        rt.settingsPicker = {
             ...save.parent,
             ...modelRequestOptionsFacts(),
         };
-        state = appendTuiNotice(
-            state,
+        rt.state = appendTuiNotice(
+            rt.state,
             `saved request options for ${reference}`,
             "soft",
         );
@@ -12307,14 +12145,14 @@ export async function startTui(
         form: TuiProviderFormState,
         transition: TuiProviderFormTransition,
     ): void {
-        providerForm = transition.state;
-        if (providerForm !== undefined) {
+        rt.providerForm = transition.state;
+        if (rt.providerForm !== undefined) {
             renderState();
             return;
         }
         const submitted = transition.submitted;
         if (submitted === undefined) {
-            settingsPicker = form.parent;
+            rt.settingsPicker = form.parent;
             renderState();
             focusActiveSurface();
             return;
@@ -12338,7 +12176,7 @@ export async function startTui(
                     },
             );
         } catch (error) {
-            providerForm = {
+            rt.providerForm = {
                 ...form,
                 field: "base_url",
                 error: error instanceof Error ? error.message : String(error),
@@ -12358,10 +12196,10 @@ export async function startTui(
                         declaration: null,
                     },
                 });
-                authStorage.deleteCredential(submitted.replaces);
+                rt.authStorage.deleteCredential(submitted.replaces);
             } catch (error) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `renamed to ${submitted.id}, but ${submitted.replaces} `
                         + `could not be removed: ${
                             error instanceof Error ? error.message : String(error)
@@ -12369,8 +12207,8 @@ export async function startTui(
                 );
             }
         }
-        state = appendTuiNotice(
-            state,
+        rt.state = appendTuiNotice(
+            rt.state,
             submitted.replaces !== undefined
                 ? `renamed ${submitted.replaces} to ${submitted.id}`
                 : submitted.restore === true
@@ -12385,17 +12223,17 @@ export async function startTui(
         // separate file from the declaration that just landed in config.json.
         if (submitted.apiKey !== undefined) {
             try {
-                authStorage.setCredential(submitted.id, {
+                rt.authStorage.setCredential(submitted.id, {
                     type: "api_key",
                     key: submitted.apiKey,
                 });
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `stored ${submitted.id} API key`,
                 );
             } catch (error) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `could not store the ${submitted.id} API key: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
@@ -12413,22 +12251,22 @@ export async function startTui(
         prompt: TuiSecretPromptState,
         transition: { readonly state?: TuiSecretPromptState; readonly submitted?: string },
     ): void {
-        secretPrompt = transition.state;
-        if (secretPrompt !== undefined) {
+        rt.secretPrompt = transition.state;
+        if (rt.secretPrompt !== undefined) {
             renderState();
             return;
         }
         if (transition.submitted !== undefined) {
             try {
-                authStorage.setCredential(prompt.providerId, {
+                rt.authStorage.setCredential(prompt.providerId, {
                     type: "api_key",
                     key: transition.submitted,
                 });
-                state = appendTuiNotice(state, `stored ${prompt.label} API key`);
+                rt.state = appendTuiNotice(rt.state, `stored ${prompt.label} API key`);
                 requestAgentSettings(focusedAgentClient());
             } catch (error) {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `could not store the ${prompt.label} API key: ${
                         error instanceof Error ? error.message : String(error)
                     }`,
@@ -12441,8 +12279,8 @@ export async function startTui(
             openProviderPicker(prompt.parent.parent);
             return;
         }
-        settingsPicker = prompt.parent;
-        if (settingsPicker?.kind === "model") {
+        rt.settingsPicker = prompt.parent;
+        if (rt.settingsPicker?.kind === "model") {
             requestAgentSettings(focusedAgentClient());
         }
         renderState();
@@ -12461,8 +12299,8 @@ export async function startTui(
         prompt: TuiNamePromptState,
         transition: TuiNamePromptTransition,
     ): void {
-        namePrompt = transition.state;
-        if (namePrompt !== undefined) {
+        rt.namePrompt = transition.state;
+        if (rt.namePrompt !== undefined) {
             renderState();
             return;
         }
@@ -12470,8 +12308,8 @@ export async function startTui(
         // snapshot that follows the write rebuilds it, and the captured parent
         // is the list as it read before the name existed.
         const parent = prompt.parent;
-        settingsPicker = prompt.target.kind === "pool"
-            ? settingsPicker ?? parent
+        rt.settingsPicker = prompt.target.kind === "pool"
+            ? rt.settingsPicker ?? parent
             : parent;
         if (transition.submitted !== undefined && prompt.target.kind === "pool") {
             sendCommand({
@@ -12485,29 +12323,29 @@ export async function startTui(
             transition.submitted !== undefined
             && prompt.target.kind === "session"
         ) {
-            if (prompt.target.sessionId === client.agentId) {
+            if (prompt.target.sessionId === rt.client.agentId) {
                 const requestId = randomUUID();
-                pendingSessionRename = { requestId };
+                rt.pendingSessionRename = { requestId };
                 sendCommand({
                     type: "update_session_name",
                     requestId,
                     name: transition.submitted,
                 });
             } else if (
-                prompt.target.sessionId === hostedSidebar.pane?.agentId
+                prompt.target.sessionId === rt.hostedSidebar.pane?.agentId
             ) {
                 const requestId = randomUUID();
-                const target = hostedSidebar.pane;
-                pendingSidebarSessionRename = { requestId };
+                const target = rt.hostedSidebar.pane;
+                rt.pendingSidebarSessionRename = { requestId };
                 void target.client.send({
                     type: "update_session_name",
                     requestId,
                     name: transition.submitted,
                 }).catch((error) => {
-                    if (pendingSidebarSessionRename?.requestId !== requestId) {
+                    if (rt.pendingSidebarSessionRename?.requestId !== requestId) {
                         return;
                     }
-                    pendingSidebarSessionRename = undefined;
+                    rt.pendingSidebarSessionRename = undefined;
                     reportConnectionError(error);
                 });
             } else {
@@ -12525,18 +12363,18 @@ export async function startTui(
         sessionId: string,
         name: string | null,
     ): Promise<void> {
-        if (dependencies.renameSession === undefined) {
-            state = appendTuiError(
-                state,
+        if (rt.dependencies.renameSession === undefined) {
+            rt.state = appendTuiError(
+                rt.state,
                 "Renaming another conversation is unavailable",
             );
             renderState();
             return;
         }
-        const generation = clientGeneration;
+        const generation = rt.clientGeneration;
         let timeout: ReturnType<typeof setTimeout> | undefined;
         const result = await Promise.race([
-            dependencies.renameSession(sessionId, name)
+            rt.dependencies.renameSession(sessionId, name)
                 .catch((): RenameSessionResult => ({
                     status: "rejected",
                     reason: "failed",
@@ -12544,23 +12382,23 @@ export async function startTui(
             new Promise<RenameSessionResult>((resolve) => {
                 timeout = setTimeout(() => {
                     resolve({ status: "rejected", reason: "failed" });
-                }, dependencies.sessionSwitchTimeoutMs
+                }, rt.dependencies.sessionSwitchTimeoutMs
                     ?? SESSION_SWITCH_TIMEOUT_MS);
             }),
         ]);
         clearTimeout(timeout);
         // The session on screen may have been swapped underneath while the
         // host was answering, and this result belongs to the one that left.
-        if (shuttingDown || generation !== clientGeneration) return;
-        state = result.status === "renamed"
+        if (rt.shuttingDown || generation !== rt.clientGeneration) return;
+        rt.state = result.status === "renamed"
             ? appendTuiNotice(
-                state,
+                rt.state,
                 result.name === null
                     ? "session name cleared"
                     : `session renamed: ${result.name}`,
             )
             : appendTuiError(
-                state,
+                rt.state,
                 result.reason === "busy"
                     ? "That conversation is open in another client"
                     : result.reason === "not_found"
@@ -12569,10 +12407,10 @@ export async function startTui(
                     ? "Session name must be 1 to 200 UTF-8 bytes"
                     : "Could not rename that conversation",
             );
-        if (result.status === "renamed" && settingsPicker?.kind === "session") {
+        if (result.status === "renamed" && rt.settingsPicker?.kind === "session") {
             await refreshSessionPicker();
         }
-        if (result.status === "renamed" && workspaceSidebar !== undefined) {
+        if (result.status === "renamed" && rt.workspaceSidebar !== undefined) {
             refreshWorkspaceSidebarRoster();
         }
         renderState();
@@ -12586,24 +12424,24 @@ export async function startTui(
      * for.
      */
     async function refreshSessionPicker(): Promise<void> {
-        if (dependencies.listAgents === undefined) return;
-        const generation = clientGeneration;
+        if (rt.dependencies.listAgents === undefined) return;
+        const generation = rt.clientGeneration;
         try {
-            const agents = await dependencies.listAgents();
+            const agents = await rt.dependencies.listAgents();
             if (
-                shuttingDown || generation !== clientGeneration
-                || settingsPicker?.kind !== "session"
+                rt.shuttingDown || generation !== rt.clientGeneration
+                || rt.settingsPicker?.kind !== "session"
             ) {
                 return;
             }
-            settingsPicker = startTuiSessionPicker(
+            rt.settingsPicker = startTuiSessionPicker(
                 agents,
-                client.agentId,
+                rt.client.agentId,
                 false,
                 new Date(),
                 false,
-                hostedPanePersistence.groups,
-                settingsPicker.enterDisposition ?? "stop",
+                rt.hostedPanePersistence.groups,
+                rt.settingsPicker.enterDisposition ?? "stop",
             );
             renderState();
         } catch {
@@ -12613,12 +12451,12 @@ export async function startTui(
     }
 
     function openSettingsMenu(): void {
-        settingsPickerAgent = focusedAgentClient();
-        settingsPicker = startTuiSettingsMenu(
+        rt.settingsPickerAgent = focusedAgentClient();
+        rt.settingsPicker = startTuiSettingsMenu(
             "settings",
             focusedAgentState()?.modelSettings?.developer,
         );
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -12639,8 +12477,8 @@ export async function startTui(
                 focusedAgentState().permissionInspection?.availableModes,
         });
         if (resolution.status === "unsupported") {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 "That settings destination is unavailable in this client.",
             );
             renderState();
@@ -12664,8 +12502,8 @@ export async function startTui(
                     (provider) => provider.id === route.provider,
                 )
             ) {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `No provider named ${route.provider}; that settings destination is unavailable.`,
                 );
                 renderState();
@@ -12678,15 +12516,15 @@ export async function startTui(
             });
         } else if (route.type === "model_shortlist") {
             openModelPicker();
-            settingsPicker = switchedModelTab(
-                settingsPicker as TuiSettingsPickerState,
+            rt.settingsPicker = switchedModelTab(
+                rt.settingsPicker as TuiSettingsPickerState,
                 "pool",
             );
             renderState();
         } else if (route.type === "model_assignments") {
             openModelPicker();
-            settingsPicker = switchedModelTab(
-                settingsPicker as TuiSettingsPickerState,
+            rt.settingsPicker = switchedModelTab(
+                rt.settingsPicker as TuiSettingsPickerState,
                 "defaults",
             );
             renderState();
@@ -12701,12 +12539,12 @@ export async function startTui(
         target: TuiAgentClient,
     ): void {
         if (!isConfigurationRequiredUiRequestUpdate(request)) return;
-        if (activeConfigurationRequest?.requestId === request.requestId) return;
-        if (activeConfigurationRequest !== undefined) {
-            if (!queuedConfigurationRequests.some((queued) =>
+        if (rt.activeConfigurationRequest?.requestId === request.requestId) return;
+        if (rt.activeConfigurationRequest !== undefined) {
+            if (!rt.queuedConfigurationRequests.some((queued) =>
                 queued.request.requestId === request.requestId
                 && queued.target === target)) {
-                queuedConfigurationRequests.push({ request, target });
+                rt.queuedConfigurationRequests.push({ request, target });
             }
             return;
         }
@@ -12718,15 +12556,15 @@ export async function startTui(
         target: TuiAgentClient,
     ): void {
         if (!isConfigurationRequiredUiRequestUpdate(request)) return;
-        activeConfigurationRequest = { requestId: request.requestId, target };
-        if (hostedSidebar.pane?.client === target) {
+        rt.activeConfigurationRequest = { requestId: request.requestId, target };
+        if (rt.hostedSidebar.pane?.client === target) {
             setSidebarFocused(true);
-        } else if (client === target) {
+        } else if (rt.client === target) {
             setSidebarFocused(false);
         }
-        settingsPickerAgent = target;
-        state = appendTuiNotice(
-            state,
+        rt.settingsPickerAgent = target;
+        rt.state = appendTuiNotice(
+            rt.state,
             `${request.request.reason} (${request.request.pendingAction.count} waiting)`,
             "soft",
         );
@@ -12738,10 +12576,10 @@ export async function startTui(
         ) {
             openModelPicker();
             parent = switchedModelTab(
-                settingsPicker as TuiSettingsPickerState,
+                rt.settingsPicker as TuiSettingsPickerState,
                 "defaults",
             );
-            settingsPicker = undefined;
+            rt.settingsPicker = undefined;
         }
         const opened = openSettingsDestination(
             request.request.destination,
@@ -12755,10 +12593,10 @@ export async function startTui(
     function respondToConfigurationRequired(
         outcome: "configured" | "cancelled" | "unavailable",
     ): void {
-        const pending = activeConfigurationRequest;
+        const pending = rt.activeConfigurationRequest;
         if (pending === undefined) return;
-        activeConfigurationRequest = undefined;
-        settingsPicker = undefined;
+        rt.activeConfigurationRequest = undefined;
+        rt.settingsPicker = undefined;
         closeSettingsPickerSurface();
         void pending.target.send({
             type: "ui_response",
@@ -12771,8 +12609,8 @@ export async function startTui(
     }
 
     function openNextConfigurationRequiredRequest(): void {
-        if (activeConfigurationRequest !== undefined) return;
-        const next = queuedConfigurationRequests.shift();
+        if (rt.activeConfigurationRequest !== undefined) return;
+        const next = rt.queuedConfigurationRequests.shift();
         if (next === undefined) return;
         activateConfigurationRequiredRequest(next.request, next.target);
     }
@@ -12799,19 +12637,19 @@ export async function startTui(
             return;
         }
         if (
-            activeConfigurationRequest !== undefined
-            && activeConfigurationRequest.target === target
+            rt.activeConfigurationRequest !== undefined
+            && rt.activeConfigurationRequest.target === target
         ) {
-            activeConfigurationRequest = undefined;
-            settingsPicker = undefined;
+            rt.activeConfigurationRequest = undefined;
+            rt.settingsPicker = undefined;
             closeSettingsPickerSurface();
             openNextConfigurationRequiredRequest();
             return;
         }
-        for (let index = queuedConfigurationRequests.length - 1;
+        for (let index = rt.queuedConfigurationRequests.length - 1;
             index >= 0; index -= 1) {
-            if (queuedConfigurationRequests[index]?.target === target) {
-                queuedConfigurationRequests.splice(index, 1);
+            if (rt.queuedConfigurationRequests[index]?.target === target) {
+                rt.queuedConfigurationRequests.splice(index, 1);
             }
         }
     }
@@ -12830,8 +12668,8 @@ export async function startTui(
         }
         if (target === "theme") return openThemePicker(parent);
         if (target === "context_limit") {
-            settingsPicker = withTuiPickerParent(
-                startTuiContextLimitPicker(state.modelSettings?.contextLimit),
+            rt.settingsPicker = withTuiPickerParent(
+                startTuiContextLimitPicker(rt.state.modelSettings?.contextLimit),
                 parent,
             );
             renderState();
@@ -12839,8 +12677,8 @@ export async function startTui(
             return;
         }
         if (target === "developer") {
-            settingsPicker = withTuiPickerParent(
-                startTuiDeveloperMenu(state.modelSettings?.developer),
+            rt.settingsPicker = withTuiPickerParent(
+                startTuiDeveloperMenu(rt.state.modelSettings?.developer),
                 parent,
             );
             renderState();
@@ -12850,10 +12688,10 @@ export async function startTui(
         if (target.startsWith("developer_")) {
             const pane = startTuiDeveloperValuePicker(
                 target,
-                state.modelSettings?.developer,
+                rt.state.modelSettings?.developer,
             );
             if (pane !== undefined) {
-                settingsPicker = withTuiPickerParent(pane, parent);
+                rt.settingsPicker = withTuiPickerParent(pane, parent);
                 renderState();
                 focusActiveSurface();
                 return;
@@ -12871,7 +12709,7 @@ export async function startTui(
         if (target === "reviewer_fallback") {
             return openReviewerPicker("fallback", parent);
         }
-        settingsPicker = withTuiPickerParent(
+        rt.settingsPicker = withTuiPickerParent(
             startTuiSettingsMenu("permission_settings"),
             parent,
         );
@@ -12890,11 +12728,11 @@ export async function startTui(
             entry.action.type === "prefill_composer"
             || entry.slashName === undefined
         ) {
-            composer.clearComposer();
+            rt.composer.clearComposer();
             runStandalonePaletteAction(entry.action);
             return;
         }
-        composer.setComposerText(`/${entry.slashName}`);
+        rt.composer.setComposerText(`/${entry.slashName}`);
         renderState();
         submitPrompt();
     }
@@ -12902,10 +12740,10 @@ export async function startTui(
     function runStandalonePaletteAction(action: TuiCommandAction): void {
         if (action.type === "resume_viewed_session") return resumeJsonlView();
         if (action.type === "prefill_composer") {
-            composer.setComposerText(action.text);
+            rt.composer.setComposerText(action.text);
             renderCommandSuggestions();
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
         if (action.type === "open_settings_destination") {
@@ -12930,27 +12768,27 @@ export async function startTui(
      * `/back` is a view switch. It does not stop the conversation on screen.
      */
     function runBack(): void {
-        if (backOriginId === undefined) {
-            state = appendTuiNotice(
-                state,
+        if (rt.backOriginId === undefined) {
+            rt.state = appendTuiNotice(
+                rt.state,
                 "Nothing to go back to. /work lists what needs you.",
             );
             renderState();
             return;
         }
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiError(state, "Switching sessions is unavailable");
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiError(rt.state, "Switching sessions is unavailable");
             renderState();
             return;
         }
-        const target = backOriginId;
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown) return;
+        const target = rt.backOriginId;
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown) return;
             const origin = agents.find((agent) => agent.id === target);
             if (origin === undefined) {
-                backOriginId = undefined;
-                state = appendTuiNotice(
-                    state,
+                rt.backOriginId = undefined;
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "The conversation you came from is gone."
                         + " /resume lists what is still here.",
                 );
@@ -12965,9 +12803,9 @@ export async function startTui(
                 "keep_running",
             );
         }).catch((error) => {
-            if (shuttingDown) return;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not go back: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -12977,23 +12815,23 @@ export async function startTui(
     }
 
     function jumpMenuContentWidth(): number {
-        return Math.max(10, jumpMenuBox.width - 4);
+        return Math.max(10, rt.jumpMenuBox.width - 4);
     }
 
     function closeJumpMenu(): void {
-        jumpMenu = undefined;
-        jumpMenuBox.visible = false;
-        composer.focus();
-        renderer.requestRender();
+        rt.jumpMenu = undefined;
+        rt.jumpMenuBox.visible = false;
+        rt.composer.focus();
+        rt.renderer.requestRender();
     }
 
     function renderJumpMenu(): void {
-        if (jumpMenu === undefined) {
-            jumpMenuBox.visible = false;
-            renderer.requestRender();
+        if (rt.jumpMenu === undefined) {
+            rt.jumpMenuBox.visible = false;
+            rt.renderer.requestRender();
             return;
         }
-        const widest = jumpMenu.rows.reduce(
+        const widest = rt.jumpMenu.rows.reduce(
             (columns, row) =>
                 Math.max(
                     columns,
@@ -13001,11 +12839,11 @@ export async function startTui(
                 ),
             24,
         );
-        const boxWidth = Math.min(widest, Math.max(24, renderer.width - 8));
-        jumpMenuBox.width = boxWidth;
-        const lines = jumpMenuLines(jumpMenu, Math.max(10, boxWidth - 4));
-        jumpMenuBox.height = lines.length + 2;
-        jumpMenuText.content = new StyledText(lines.flatMap((line, index) => [
+        const boxWidth = Math.min(widest, Math.max(24, rt.renderer.width - 8));
+        rt.jumpMenuBox.width = boxWidth;
+        const lines = jumpMenuLines(rt.jumpMenu, Math.max(10, boxWidth - 4));
+        rt.jumpMenuBox.height = lines.length + 2;
+        rt.jumpMenuText.content = new StyledText(lines.flatMap((line, index) => [
             line.role === "header"
                 ? fg(TUI_MUTED)(line.text)
                 : fg(line.selected === true ? TUI_ACCENT : TUI_TEXT)(
@@ -13014,13 +12852,13 @@ export async function startTui(
             ...(index === lines.length - 1 ? [] : [fg(TUI_TEXT)("\n")]),
         ]));
         positionCommandSuggestions();
-        jumpMenuBox.visible = true;
-        renderer.requestRender();
+        rt.jumpMenuBox.visible = true;
+        rt.renderer.requestRender();
     }
 
     function runJumpTo(row: JumpRow): void {
-        jumpMenu = undefined;
-        jumpMenuBox.visible = false;
+        rt.jumpMenu = undefined;
+        rt.jumpMenuBox.visible = false;
         beginSessionResume(
             row.sessionPath,
             row.sessionId,
@@ -13031,20 +12869,20 @@ export async function startTui(
     }
 
     function openJumpMenuOverlay(): void {
-        if (jumpMenu !== undefined || anyOverlayOpen()) return;
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiNotice(
-                state,
+        if (rt.jumpMenu !== undefined || anyOverlayOpen()) return;
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiNotice(
+                rt.state,
                 "Jumping between conversations is unavailable on this host",
             );
             renderState();
             return;
         }
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown || anyOverlayOpen()) return;
-            const currentId = client.agentId;
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown || anyOverlayOpen()) return;
+            const currentId = rt.client.agentId;
             const originAgent = agents.find((agent) =>
-                agent.id === backOriginId
+                agent.id === rt.backOriginId
             );
             const back: JumpOrigin | undefined = originAgent === undefined
                 ? undefined
@@ -13054,18 +12892,18 @@ export async function startTui(
                     title: originAgent.title ?? originAgent.name
                         ?? "previous conversation",
                 };
-            const needsYou = (workIndex?.rows ?? []).filter((row) =>
+            const needsYou = (rt.workIndex?.rows ?? []).filter((row) =>
                 row.section === "needs_you"
             );
-            jumpMenu = openJumpMenuState(buildJumpRows({
+            rt.jumpMenu = openJumpMenuState(buildJumpRows({
                 currentId,
                 back,
                 needsYou,
                 agents,
             }));
-            if (jumpMenu === undefined) {
-                state = appendTuiNotice(
-                    state,
+            if (rt.jumpMenu === undefined) {
+                rt.state = appendTuiNotice(
+                    rt.state,
                     "Nowhere to jump: nothing needs you and this conversation"
                         + " has no parent or children",
                 );
@@ -13074,9 +12912,9 @@ export async function startTui(
             }
             renderJumpMenu();
         }).catch((error) => {
-            if (shuttingDown) return;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not build the jump menu: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -13086,17 +12924,17 @@ export async function startTui(
     }
 
     function openWorkTab(): void {
-        if (workIndex === undefined) {
-            state = appendTuiError(
-                state,
+        if (rt.workIndex === undefined) {
+            rt.state = appendTuiError(
+                rt.state,
                 "This host does not report work; reconnect to see the inbox",
             );
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
-        workTab = startWorkTab(workIndex);
-        composer.blur();
+        rt.workTab = startWorkTab(rt.workIndex);
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -13109,9 +12947,9 @@ export async function startTui(
      */
     /** Hands the keyboard to a rail that is already on screen. */
     function focusWorkspaceSidebar(): void {
-        if (workspaceSidebar === undefined || workspaceSidebarFocused) return;
-        workspaceSidebarFocused = true;
-        composer.blur();
+        if (rt.workspaceSidebar === undefined || rt.workspaceSidebarFocused) return;
+        rt.workspaceSidebarFocused = true;
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -13119,44 +12957,44 @@ export async function startTui(
     function openWorkspaceSidebar(
         options: { readonly focus?: boolean; readonly persist?: boolean } = {},
     ): void {
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiError(
-                state,
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiError(
+                rt.state,
                 "This host does not list sessions; reconnect to switch",
             );
             renderState();
-            composer.focus();
+            rt.composer.focus();
             return;
         }
-        const generation = clientGeneration;
+        const generation = rt.clientGeneration;
         const focus = options.focus !== false;
         if (options.persist !== false) {
-            workspaceSidebarDocked = true;
+            rt.workspaceSidebarDocked = true;
             try {
                 saveTuiWorkspaceSidebarDocked(true);
             } catch {
                 // A preference write cannot stop the rail opening now.
             }
         }
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown || generation !== clientGeneration) return;
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown || generation !== rt.clientGeneration) return;
             const sessions = workspaceSidebarSessions(agents);
             const opened = startWorkspaceSidebar(
                 sessions,
-                workspacePinnedIds,
-                client.agentId,
+                rt.workspacePinnedIds,
+                rt.client.agentId,
             );
-            workspaceSidebar = workIndex === undefined
+            rt.workspaceSidebar = rt.workIndex === undefined
                 ? opened
-                : applyWorkspaceWorkIndex(opened, workIndex);
-            workspaceSidebarFocused = focus;
-            if (focus) composer.blur();
+                : applyWorkspaceWorkIndex(opened, rt.workIndex);
+            rt.workspaceSidebarFocused = focus;
+            if (focus) rt.composer.blur();
             renderState();
             focusActiveSurface();
         }).catch((error) => {
-            if (shuttingDown) return;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not list sessions: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -13179,7 +13017,7 @@ export async function startTui(
                 listed,
                 direction,
                 new Date(),
-                renderer.width,
+                rt.renderer.width,
             );
             if (target === undefined) return;
             const action = openWorkspaceSelection(listed, target.id);
@@ -13187,36 +13025,36 @@ export async function startTui(
                 runWorkspaceSidebarAction(action, false);
             }
         };
-        if (workspaceSidebar !== undefined) {
-            openFrom(workspaceSidebar);
+        if (rt.workspaceSidebar !== undefined) {
+            openFrom(rt.workspaceSidebar);
             return;
         }
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiError(
-                state,
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiError(
+                rt.state,
                 "This host does not list sessions; reconnect to switch",
             );
             renderState();
             return;
         }
-        const generation = clientGeneration;
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown || generation !== clientGeneration) return;
+        const generation = rt.clientGeneration;
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown || generation !== rt.clientGeneration) return;
             const sessions = workspaceSidebarSessions(agents);
             const opened = startWorkspaceSidebar(
                 sessions,
-                workspacePinnedIds,
-                client.agentId,
+                rt.workspacePinnedIds,
+                rt.client.agentId,
             );
             openFrom(
-                workIndex === undefined
+                rt.workIndex === undefined
                     ? opened
-                    : applyWorkspaceWorkIndex(opened, workIndex),
+                    : applyWorkspaceWorkIndex(opened, rt.workIndex),
             );
         }).catch((error) => {
-            if (shuttingDown) return;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown) return;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not list sessions: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -13233,19 +13071,19 @@ export async function startTui(
      * listing rather than at nothing.
      */
     function refreshWorkspaceSidebarRoster(): void {
-        if (dependencies.listAgents === undefined) return;
-        const generation = clientGeneration;
-        void dependencies.listAgents().then((agents) => {
-            if (shuttingDown || generation !== clientGeneration) return;
-            const open = workspaceSidebar;
+        if (rt.dependencies.listAgents === undefined) return;
+        const generation = rt.clientGeneration;
+        void rt.dependencies.listAgents().then((agents) => {
+            if (rt.shuttingDown || generation !== rt.clientGeneration) return;
+            const open = rt.workspaceSidebar;
             if (open === undefined) return;
             const listed = refreshWorkspaceSidebarSessions(
                 open,
                 workspaceSidebarSessions(agents),
             );
-            workspaceSidebar = workIndex === undefined
+            rt.workspaceSidebar = rt.workIndex === undefined
                 ? listed
-                : applyWorkspaceWorkIndex(listed, workIndex);
+                : applyWorkspaceWorkIndex(listed, rt.workIndex);
             renderState();
         }).catch(() => {
             // Nothing to say: the rows already listed are still the best
@@ -13264,88 +13102,88 @@ export async function startTui(
      * reason.
      */
     function applyWorkspaceRail(): void {
-        const columns = workspaceSidebar === undefined
+        const columns = rt.workspaceSidebar === undefined
             ? undefined
-            : workspaceRailColumns(renderer.width, workspaceRailPreferred);
-        if (columns !== workspaceRail) {
-            workspaceRail = columns;
+            : workspaceRailColumns(rt.renderer.width, rt.workspaceRailPreferred);
+        if (columns !== rt.workspaceRail) {
+            rt.workspaceRail = columns;
             if (transcriptFollowsBottom()) {
-                pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
+                rt.pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
             } else {
                 captureTranscriptScrollAnchor();
             }
-            workspaceSidebarView.setRail(columns);
+            rt.workspaceSidebarView.setRail(columns);
         }
-        const occupied = workspaceSidebarView.railColumns() ?? 0;
+        const occupied = rt.workspaceSidebarView.railColumns() ?? 0;
         // Everything below is a function of the width the rail occupies and
         // the width of the terminal, and re-applying it repaints. Timed
         // refreshes call this on every tick, so the layout is only laid out
         // again when one of the two has moved.
         if (
-            occupied === workspaceRailLaidOut
-            && renderer.width === workspaceRailLaidOutColumns
+            occupied === rt.workspaceRailLaidOut
+            && rt.renderer.width === rt.workspaceRailLaidOutColumns
         ) return;
-        workspaceRailLaidOut = occupied;
-        workspaceRailLaidOutColumns = renderer.width;
+        rt.workspaceRailLaidOut = occupied;
+        rt.workspaceRailLaidOutColumns = rt.renderer.width;
         // The navigator owns a full-height column like an editor sidebar.
         // Reserving that width on the app moves the transcript, composer,
         // status rows and dialogs together; nothing from the chat can run
         // underneath the dock.
-        app.paddingLeft = occupied;
-        workspaceSidebarView.surface.left = 0;
+        rt.app.paddingLeft = occupied;
+        rt.workspaceSidebarView.surface.left = 0;
         // Global dialogs still hide the rail. Session-owned approval and
         // question cards stay in the chat column; renderState narrows their
         // scrim to that column after it knows which kind of overlay is open.
-        overlayScrim.left = 0;
-        overlayScrim.width = renderer.width;
-        statusBand.left = occupied;
-        statusBand.width = Math.max(0, renderer.width - occupied);
+        rt.overlayScrim.left = 0;
+        rt.overlayScrim.width = rt.renderer.width;
+        rt.statusBand.left = occupied;
+        rt.statusBand.width = Math.max(0, rt.renderer.width - occupied);
         // The card centres itself inside its surface, so the surface has to be
         // the space the rail leaves rather than the whole terminal.
-        homeView.surface.left = occupied;
-        homeView.surface.width = Math.max(1, renderer.width - occupied);
+        rt.homeView.surface.left = occupied;
+        rt.homeView.surface.width = Math.max(1, rt.renderer.width - occupied);
         // The idle block breaks its prose to the chat's width, and its
         // height is part of what the composer slot occupies, so a change in
         // one has to reach the rows measured off the other.
         if (
-            resumeOverlay.setColumns(Math.max(1, renderer.width - occupied))
+            rt.resumeOverlay.setColumns(Math.max(1, rt.renderer.width - occupied))
         ) {
-            setComposerMargin(composerMarginRows);
+            setComposerMargin(rt.composerMarginRows);
         }
-        commandSuggestionsBox.left = occupied;
-        jumpMenuBox.left = occupied
-            + tuiComposerOverlayInset(appearance).paddingLeft;
-        sidebar.body.paddingLeft = 0;
-        sidebar.refit();
+        rt.commandSuggestionsBox.left = occupied;
+        rt.jumpMenuBox.left = occupied
+            + tuiComposerOverlayInset(rt.appearance).paddingLeft;
+        rt.sidebar.body.paddingLeft = 0;
+        rt.sidebar.refit();
     }
 
     function resizeWorkspaceRailAt(pointerColumn: number): void {
-        if (workspaceRail === undefined) return;
-        const occupied = workspaceSidebarView.railColumns();
+        if (rt.workspaceRail === undefined) return;
+        const occupied = rt.workspaceSidebarView.railColumns();
         if (occupied === undefined) return;
-        const inset = occupied - workspaceRail;
+        const inset = occupied - rt.workspaceRail;
         const next = clampWorkspaceRailColumns(
             pointerColumn + 1 - inset,
-            renderer.width,
+            rt.renderer.width,
         );
-        if (next === undefined || next === workspaceRail) return;
-        workspaceRailPreferred = next;
+        if (next === undefined || next === rt.workspaceRail) return;
+        rt.workspaceRailPreferred = next;
         renderState();
     }
 
     function closeWorkspaceSidebar(): void {
-        workspaceSidebar = undefined;
-        workspaceSidebarFocused = false;
-        workspaceSidebarDocked = false;
-        workspaceRailDragging = false;
-        workspaceSidebarView.box.borderColor = theme.element;
+        rt.workspaceSidebar = undefined;
+        rt.workspaceSidebarFocused = false;
+        rt.workspaceSidebarDocked = false;
+        rt.workspaceRailDragging = false;
+        rt.workspaceSidebarView.box.borderColor = rt.theme.element;
         try {
             saveTuiWorkspaceSidebarDocked(false);
         } catch {
             // The current layout still closes when persistence cannot update.
         }
-        workspaceSidebarView.surface.visible = false;
-        composer.focus();
+        rt.workspaceSidebarView.surface.visible = false;
+        rt.composer.focus();
         renderState();
         focusActiveSurface();
     }
@@ -13355,8 +13193,8 @@ export async function startTui(
         armsBack = true,
     ): void {
         if (action.kind === "close") {
-            workspaceSidebarFocused = false;
-            composer.focus();
+            rt.workspaceSidebarFocused = false;
+            rt.composer.focus();
             renderState();
             focusActiveSurface();
             return;
@@ -13366,7 +13204,7 @@ export async function startTui(
             return;
         }
         if (action.kind === "pin") {
-            workspacePinnedIds = action.pinnedIds;
+            rt.workspacePinnedIds = action.pinnedIds;
             try {
                 saveTuiPinnedSessionIds(action.pinnedIds);
             } catch {
@@ -13377,14 +13215,14 @@ export async function startTui(
             return;
         }
         if (action.kind === "new_session") {
-            workspaceSidebarFocused = false;
-            composer.focus();
+            rt.workspaceSidebarFocused = false;
+            rt.composer.focus();
             renderState();
             beginCreateSession("keep_running");
             return;
         }
         if (action.kind === "resume_picker") {
-            workspaceSidebarFocused = false;
+            rt.workspaceSidebarFocused = false;
             openResumePicker();
             return;
         }
@@ -13397,8 +13235,8 @@ export async function startTui(
             );
             return;
         }
-        workspaceSidebarFocused = false;
-        composer.focus();
+        rt.workspaceSidebarFocused = false;
+        rt.composer.focus();
         renderState();
         // The rail is working-set chrome. Opening another row must not stop
         // live work on the session you left; `/resume` Enter still does.
@@ -13414,17 +13252,17 @@ export async function startTui(
     }
 
     function openResumePicker(): void {
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiError(state, "Session listing is unavailable");
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiError(rt.state, "Session listing is unavailable");
             renderState();
             return;
         }
-        const version = ++resumeListVersion;
+        const version = ++rt.resumeListVersion;
         const targetAgentId = focusedAgentClient().agentId;
         // Neither home nor a session file has a worker to stop, so Enter is
         // not a switch away from anything: it opens the row and that is all.
-        const nothingToLeave = isWorkerFreeClient(client);
-        settingsPicker = startTuiSessionPicker(
+        const nothingToLeave = isWorkerFreeClient(rt.client);
+        rt.settingsPicker = startTuiSessionPicker(
             [],
             targetAgentId,
             true,
@@ -13436,21 +13274,21 @@ export async function startTui(
         );
         focusActiveSurface();
         renderState();
-        void dependencies.listAgents().then((agents) => {
+        void rt.dependencies.listAgents().then((agents) => {
             if (
-                shuttingDown
-                || version !== resumeListVersion
-                || settingsPicker?.kind !== "session"
+                rt.shuttingDown
+                || version !== rt.resumeListVersion
+                || rt.settingsPicker?.kind !== "session"
             ) {
                 return;
             }
-            settingsPicker = startTuiSessionPicker(
+            rt.settingsPicker = startTuiSessionPicker(
                 agents,
                 targetAgentId,
                 false,
                 new Date(),
                 false,
-                hostedPanePersistence.groups,
+                rt.hostedPanePersistence.groups,
                 "stop",
                 nothingToLeave,
             );
@@ -13458,18 +13296,18 @@ export async function startTui(
             renderState();
         }).catch((error) => {
             if (
-                !shuttingDown
-                && version === resumeListVersion
-                && settingsPicker?.kind === "session"
+                !rt.shuttingDown
+                && version === rt.resumeListVersion
+                && rt.settingsPicker?.kind === "session"
             ) {
                 const message = error instanceof Error
                     ? error.message
                     : String(error);
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     `Could not list sessions: ${message}`,
                 );
-                settingsPicker = undefined;
+                rt.settingsPicker = undefined;
                 focusActiveSurface();
                 renderState();
             }
@@ -13477,14 +13315,14 @@ export async function startTui(
     }
 
     function closeWorkSurfaces(): void {
-        workTab = undefined;
-        searchOverlay = undefined;
+        rt.workTab = undefined;
+        rt.searchOverlay = undefined;
         // The scan already running finishes and finds no overlay to fill; the
         // one waiting behind it never starts.
-        queuedSearch = undefined;
-        workTabView.surface.visible = false;
-        searchOverlayView.surface.visible = false;
-        composer.focus();
+        rt.queuedSearch = undefined;
+        rt.workTabView.surface.visible = false;
+        rt.searchOverlayView.surface.visible = false;
+        rt.composer.focus();
         renderState();
         focusActiveSurface();
     }
@@ -13544,7 +13382,7 @@ export async function startTui(
             closeWorkSurfaces();
             // Set before the switch, so the first paint of the session that
             // arrives is the one that scrolls.
-            pendingSearchTarget = action.entry_id === null
+            rt.pendingSearchTarget = action.entry_id === null
                 ? undefined
                 : { sessionId: action.session_id, entryId: action.entry_id };
             beginSessionResume(action.session_path, action.session_id);
@@ -13552,11 +13390,11 @@ export async function startTui(
         }
         renderState();
         focusActiveSurface();
-        if (dependencies.searchSessions === undefined) {
-            searchOverlay = searchOverlay === undefined
+        if (rt.dependencies.searchSessions === undefined) {
+            rt.searchOverlay = rt.searchOverlay === undefined
                 ? undefined
                 : applySearchFailure(
-                    searchOverlay,
+                    rt.searchOverlay,
                     action.query,
                     "Searching past work is unavailable on this host",
                 );
@@ -13575,33 +13413,33 @@ export async function startTui(
      * still looking at. Only the last query typed is worth answering.
      */
     function beginSearch(query: SessionSearchQuery): void {
-        if (searchInFlight) {
-            queuedSearch = query;
+        if (rt.searchInFlight) {
+            rt.queuedSearch = query;
             return;
         }
-        searchInFlight = true;
+        rt.searchInFlight = true;
         const finish = (): void => {
-            searchInFlight = false;
-            const next = queuedSearch;
-            queuedSearch = undefined;
-            if (next !== undefined && !shuttingDown
-                && searchOverlay !== undefined) {
+            rt.searchInFlight = false;
+            const next = rt.queuedSearch;
+            rt.queuedSearch = undefined;
+            if (next !== undefined && !rt.shuttingDown
+                && rt.searchOverlay !== undefined) {
                 beginSearch(next);
             }
         };
-        void dependencies.searchSessions!(query).then((results) => {
-            if (!shuttingDown && searchOverlay !== undefined) {
-                searchOverlay = applySearchResults(
-                    searchOverlay,
+        void rt.dependencies.searchSessions!(query).then((results) => {
+            if (!rt.shuttingDown && rt.searchOverlay !== undefined) {
+                rt.searchOverlay = applySearchResults(
+                    rt.searchOverlay,
                     query,
                     results,
                 );
                 renderState();
             }
         }, (error) => {
-            if (!shuttingDown && searchOverlay !== undefined) {
-                searchOverlay = applySearchFailure(
-                    searchOverlay,
+            if (!rt.shuttingDown && rt.searchOverlay !== undefined) {
+                rt.searchOverlay = applySearchFailure(
+                    rt.searchOverlay,
                     query,
                     error instanceof Error ? error.message : String(error),
                 );
@@ -13623,8 +13461,8 @@ export async function startTui(
         parent: TuiSettingsPickerState | undefined,
         value?: string,
     ): void {
-        namePrompt = startTuiNamePrompt(target, label, parent, value);
-        composer.blur();
+        rt.namePrompt = startTuiNamePrompt(target, label, parent, value);
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -13635,28 +13473,28 @@ export async function startTui(
         // is still looking at what the last search found.
         clearSearchLanding();
         const target = focusedAgentClient();
-        searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {
+        rt.searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {
             ...(target.agentId === undefined
                 ? {}
                 : { sessionId: target.agentId }),
             ...(scope === undefined ? {} : { scope }),
         });
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
 
     function openCommandPalette(): void {
-        commandPalette = startTuiCommandPalette(registeredPaletteEntries());
-        composer.blur();
+        rt.commandPalette = startTuiCommandPalette(registeredPaletteEntries());
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
 
     function openHelp(tab: "general" | "keys" = "general"): void {
-        const nextHelp = startTuiHelp(coreHelpCommands(), hostExtensionCommands);
-        help = tab === "general" ? nextHelp : { ...nextHelp, tab };
-        composer.blur();
+        const nextHelp = startTuiHelp(coreHelpCommands(), rt.hostExtensionCommands);
+        rt.help = tab === "general" ? nextHelp : { ...nextHelp, tab };
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
@@ -13666,28 +13504,28 @@ export async function startTui(
             | TuiSettingsPickerTransition
             | TuiExtensionPickerTransition,
     ): void {
-        const extensionPickerWasOpen = settingsPicker?.kind === "extension";
+        const extensionPickerWasOpen = rt.settingsPicker?.kind === "extension";
         // Captured before the reassignment below so a model selection that
         // needs to chain into a level pane can hand the model pane back to
         // Escape: `handleTuiSettingsPickerKey` returns no `state` on Enter,
         // so this is the only place that still has it.
-        const previousPicker = settingsPicker;
-        const returningToModelPicker = settingsPicker?.kind !== "model"
+        const previousPicker = rt.settingsPicker;
+        const returningToModelPicker = rt.settingsPicker?.kind !== "model"
             && transition.state?.kind === "model";
-        settingsPicker = transition.state;
+        rt.settingsPicker = transition.state;
         if (
             extensionPickerWasOpen
             && transition.selection?.kind === "extension"
         ) {
-            const pending = pendingExtensionPicker;
-            pendingExtensionPicker = undefined;
+            const pending = rt.pendingExtensionPicker;
+            rt.pendingExtensionPicker = undefined;
             pending?.removeAbortListener();
             pending?.resolve({
                 outcome: "selected",
                 rowId: transition.selection.rowId,
                 actionId: transition.selection.actionId,
             });
-            settingsPickerView.box.visible = false;
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
@@ -13696,17 +13534,17 @@ export async function startTui(
             && transition.state === undefined
             && transition.selection === undefined
         ) {
-            const pending = pendingExtensionPicker;
-            pendingExtensionPicker = undefined;
+            const pending = rt.pendingExtensionPicker;
+            rt.pendingExtensionPicker = undefined;
             pending?.removeAbortListener();
             pending?.resolve({ outcome: "cancelled" });
-            settingsPickerView.box.visible = false;
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
         }
         if (
-            activeConfigurationRequest !== undefined
+            rt.activeConfigurationRequest !== undefined
             && previousPicker?.kind === "model_assignment"
             && previousPicker.modelAssignment === "subagents"
             && transition.selection === undefined
@@ -13728,7 +13566,7 @@ export async function startTui(
             "trashCandidate" in transition
             && transition.trashCandidate !== undefined
         ) {
-            sessionTrashCandidate = transition.trashCandidate;
+            rt.sessionTrashCandidate = transition.trashCandidate;
         }
         if (
             "renameCandidate" in transition
@@ -13765,8 +13603,8 @@ export async function startTui(
             // the one the key arrived on: ⇥ onto Providers wraps the list back
             // to its first tab, and Escape has to land on that.
             openProviderPicker(
-                settingsPicker?.kind === "model"
-                    ? settingsPicker
+                rt.settingsPicker?.kind === "model"
+                    ? rt.settingsPicker
                     : previousPicker?.kind === "extension"
                     ? undefined
                     : previousPicker,
@@ -13809,11 +13647,11 @@ export async function startTui(
             "declareProvider" in transition
             && transition.declareProvider === true
         ) {
-            providerForm = startTuiProviderForm(
+            rt.providerForm = startTuiProviderForm(
                 previousPicker?.kind === "provider" ? previousPicker : undefined,
             );
-            settingsPicker = undefined;
-            composer.blur();
+            rt.settingsPicker = undefined;
+            rt.composer.blur();
             renderState();
             focusActiveSurface();
             return;
@@ -13876,16 +13714,16 @@ export async function startTui(
             // here: the settings snapshot that comes back rebuilds it, so what
             // the user sees is what the host stored rather than a guess.
             const toggle = transition.poolToggle;
-            poolChangeUndo = undefined;
-            if (settingsPicker?.kind === "model") {
-                settingsPicker = {
-                    ...settingsPicker,
+            rt.poolChangeUndo = undefined;
+            if (rt.settingsPicker?.kind === "model") {
+                rt.settingsPicker = {
+                    ...rt.settingsPicker,
                     canUndoPoolChange: false,
                 };
             }
             if (toggle.action === "add") {
                 const pickerSettings = modelSettingsForOpenPicker(
-                    state.modelSettings,
+                    rt.state.modelSettings,
                 );
                 if (
                     isModelShortlisted(
@@ -13894,9 +13732,9 @@ export async function startTui(
                         toggle.model,
                     )
                 ) {
-                    if (settingsPicker?.kind === "model") {
-                        settingsPicker = syncTuiModelPicker(
-                            settingsPicker,
+                    if (rt.settingsPicker?.kind === "model") {
+                        rt.settingsPicker = syncTuiModelPicker(
+                            rt.settingsPicker,
                             {
                                 ...(pickerSettings ?? {}),
                                 actionOptions: modelPickerActionOptions(
@@ -13917,25 +13755,25 @@ export async function startTui(
                     toggle.provider,
                     toggle.model,
                 );
-                pendingPoolName = {
+                rt.pendingPoolName = {
                     requestId,
                     provider: toggle.provider,
                     model: toggle.model,
                     label: `${toggle.provider}/${toggle.model}`,
                 };
-                pendingPoolChanges.set(requestId, {
+                rt.pendingPoolChanges.set(requestId, {
                     action: "remove",
                     provider: toggle.provider,
                     model: toggle.model,
                 });
                 return;
             }
-            const removed = state.modelSettings?.pooled?.find((entry) =>
+            const removed = rt.state.modelSettings?.pooled?.find((entry) =>
                 entry.provider === toggle.provider
                 && entry.model === toggle.model
             );
             const requestId = randomUUID();
-            pendingPoolChanges.set(requestId, {
+            rt.pendingPoolChanges.set(requestId, {
                 action: "add",
                 provider: toggle.provider,
                 model: toggle.model,
@@ -13953,18 +13791,18 @@ export async function startTui(
         if (
             "undoPoolChange" in transition
             && transition.undoPoolChange === true
-            && poolChangeUndo !== undefined
+            && rt.poolChangeUndo !== undefined
         ) {
-            const undo = poolChangeUndo;
-            if (settingsPicker?.kind === "model") {
-                settingsPicker = {
-                    ...settingsPicker,
+            const undo = rt.poolChangeUndo;
+            if (rt.settingsPicker?.kind === "model") {
+                rt.settingsPicker = {
+                    ...rt.settingsPicker,
                     canUndoPoolChange: false,
                 };
             }
             if (undo.action === "remove") {
                 const requestId = randomUUID();
-                pendingPoolUndos.set(requestId, {
+                rt.pendingPoolUndos.set(requestId, {
                     undo,
                     completesOnSettings: true,
                 });
@@ -13979,7 +13817,7 @@ export async function startTui(
                     undo.provider,
                     undo.model,
                 );
-                pendingPoolUndos.set(requestId, {
+                rt.pendingPoolUndos.set(requestId, {
                     undo,
                     completesOnSettings: undo.poolName === undefined,
                 });
@@ -14011,19 +13849,19 @@ export async function startTui(
                 ) {
                     // A model with levels opens the level pane instead of
                     // closing: Enter there folds both choices into one patch.
-                    settingsPicker = startTuiReasoningPicker(
+                    rt.settingsPicker = startTuiReasoningPicker(
                         chosenLevels.levels,
                         chosenLevels.defaultLevel,
-                        state.modelSettings?.reasoningEffort,
+                        rt.state.modelSettings?.reasoningEffort,
                         {
                             provider: selection.provider,
                             model: selection.model,
                             modelPaneState: previousPicker,
                         },
                     );
-                    composer.blur();
-                    settingsPickerView.update(settingsPicker);
-                    settingsPickerView.focus();
+                    rt.composer.blur();
+                    rt.settingsPickerView.update(rt.settingsPicker);
+                    rt.settingsPickerView.focus();
                     renderState();
                     return;
                 }
@@ -14040,7 +13878,7 @@ export async function startTui(
                     },
                     `model → ${chosen}`,
                     `the model to ${chosen}`,
-                    settingsPickerAgent,
+                    rt.settingsPickerAgent,
                 );
             } else if (selection.kind === "provider") {
                 connectProvider(
@@ -14055,22 +13893,22 @@ export async function startTui(
                     { reasoningEffort: selection.reasoningEffort },
                     `reasoning → ${selection.reasoningEffort}`,
                     `reasoning to ${selection.reasoningEffort}`,
-                    settingsPickerAgent,
+                    rt.settingsPickerAgent,
                 );
             } else if (selection.kind === "permissions") {
                 if (selection.mode === "full_access") {
-                    confirmingFullAccess = true;
-                    confirmingFullAccessAgent = settingsPickerAgent;
+                    rt.confirmingFullAccess = true;
+                    rt.confirmingFullAccessAgent = rt.settingsPickerAgent;
                 } else {
                     requestPermissionsChange(
                         selection.mode,
-                        settingsPickerAgent,
+                        rt.settingsPickerAgent,
                     );
                 }
             } else if (selection.kind === "theme") {
-                themeName = selection.theme;
-                saveTuiThemePreference(themeName);
-                void applySelectedTheme(themeName, true);
+                rt.themeName = selection.theme;
+                saveTuiThemePreference(rt.themeName);
+                void applySelectedTheme(rt.themeName, true);
             } else if (selection.kind === "context_limit") {
                 const label = selection.limit === null
                     ? "Auto"
@@ -14079,19 +13917,19 @@ export async function startTui(
                     { contextLimit: selection.limit },
                     `context limit → ${label}`,
                     `context limit to ${label}`,
-                    settingsPickerAgent,
+                    rt.settingsPickerAgent,
                 );
             } else if (selection.kind === "developer") {
                 requestModelSettingsChange(
                     { developer: selection.patch },
                     developerChangeLabel(selection.patch),
                     developerChangeLabel(selection.patch),
-                    settingsPickerAgent,
+                    rt.settingsPickerAgent,
                 );
             } else if (selection.kind === "menu") {
                 // A menu row opens the next surface over this one, which stays
                 // remembered as its parent so leaving comes back here.
-                settingsPicker = undefined;
+                rt.settingsPicker = undefined;
                 openSettingsMenuTarget(
                     selection.target,
                     previousPicker?.kind === "extension"
@@ -14110,7 +13948,7 @@ export async function startTui(
                         `the ${selection.slot === "primary"
                             ? "classifier"
                             : "failsafe classifier"}`,
-                        settingsPickerAgent,
+                        rt.settingsPickerAgent,
                     );
                 }
             } else if (selection.kind === "pool_verify_scope") {
@@ -14157,7 +13995,7 @@ export async function startTui(
                     && assignedLevels.levels.length > 0
                     && previousPicker?.kind === "model_assignment"
                 ) {
-                    settingsPicker = startTuiReasoningPicker(
+                    rt.settingsPicker = startTuiReasoningPicker(
                         assignedLevels.levels,
                         assignedLevels.defaultLevel,
                         undefined,
@@ -14168,9 +14006,9 @@ export async function startTui(
                             assignment: selection.assignment,
                         },
                     );
-                    composer.blur();
-                    settingsPickerView.update(settingsPicker);
-                    settingsPickerView.focus();
+                    rt.composer.blur();
+                    rt.settingsPickerView.update(rt.settingsPicker);
+                    rt.settingsPickerView.focus();
                     renderState();
                     return;
                 }
@@ -14179,7 +14017,7 @@ export async function startTui(
                     // The request is still waiting and the setting did not
                     // change, so keep the picker retryable and make the
                     // terminal failure visible outside its card.
-                    settingsPicker = previousPicker?.kind === "model_assignment"
+                    rt.settingsPicker = previousPicker?.kind === "model_assignment"
                         ? { ...previousPicker, subtitle: bindingError }
                         : previousPicker;
                     showStatusNotice(bindingError);
@@ -14228,25 +14066,25 @@ export async function startTui(
             // Where the stack goes next is `tuiPickerAfterSelection`'s rule.
             // A confirmation overrides it: it is its own modal level, and the
             // menu would sit open behind it.
-            settingsPicker = confirmingFullAccess
+            rt.settingsPicker = rt.confirmingFullAccess
                     || previousPicker?.kind === "extension"
                 ? undefined
                 : tuiPickerAfterSelection(selection, previousPicker);
         }
-        if (sessionTrashCandidate !== undefined) {
-            composer.blur();
-            sessionTrashConfirmView.update(sessionTrashCandidate.label);
-            sessionTrashConfirmView.box.focus();
-        } else if (providerForgetCandidate !== undefined) {
-            composer.blur();
-            providerForgetConfirmView.update(providerForgetCandidate.label);
-            providerForgetConfirmView.box.focus();
-        } else if (settingsPicker === undefined) {
+        if (rt.sessionTrashCandidate !== undefined) {
+            rt.composer.blur();
+            rt.sessionTrashConfirmView.update(rt.sessionTrashCandidate.label);
+            rt.sessionTrashConfirmView.box.focus();
+        } else if (rt.providerForgetCandidate !== undefined) {
+            rt.composer.blur();
+            rt.providerForgetConfirmView.update(rt.providerForgetCandidate.label);
+            rt.providerForgetConfirmView.box.focus();
+        } else if (rt.settingsPicker === undefined) {
             closeSettingsPickerSurface();
         } else {
-            composer.blur();
-            settingsPickerView.update(settingsPicker);
-            settingsPickerView.focus();
+            rt.composer.blur();
+            rt.settingsPickerView.update(rt.settingsPicker);
+            rt.settingsPickerView.focus();
         }
         if (returningToModelPicker) {
             requestAgentSettings(focusedAgentClient());
@@ -14263,10 +14101,10 @@ export async function startTui(
      * card over the transcript it just started writing to.
      */
     function closeSettingsPickerSurface(): void {
-        settingsPickerView.box.visible = false;
-        settingsPickerAgent = undefined;
-        if (pendingUiRequest === undefined) {
-            composer.focus();
+        rt.settingsPickerView.box.visible = false;
+        rt.settingsPickerAgent = undefined;
+        if (rt.pendingUiRequest === undefined) {
+            rt.composer.focus();
         }
     }
 
@@ -14289,28 +14127,28 @@ export async function startTui(
         options: { readonly preserveSidebar?: boolean } = {},
     ): void {
         recordSessionSwitchOutcome("completed");
-        const previous = client;
-        clientGeneration += 1;
-        agentFailedThisAttachment = false;
+        const previous = rt.client;
+        rt.clientGeneration += 1;
+        rt.agentFailedThisAttachment = false;
         // The old session owned these calls; nothing will answer them now.
-        for (const pending of [...pendingOneshots.values()]) {
+        for (const pending of [...rt.pendingOneshots.values()]) {
             pending.reject(new Error("The conversation changed"));
         }
         rejectPendingExtensionSettingsFor(
             previous,
             new Error("The conversation changed"),
         );
-        client = next;
-        if (workspaceSidebar !== undefined && next.agentId !== undefined) {
-            workspaceSidebar = {
-                ...workspaceSidebar,
+        rt.client = next;
+        if (rt.workspaceSidebar !== undefined && next.agentId !== undefined) {
+            rt.workspaceSidebar = {
+                ...rt.workspaceSidebar,
                 currentId: next.agentId,
                 selectedId: next.agentId,
             };
             refreshWorkspaceSidebarRoster();
         }
         if (next.agentId !== undefined) {
-            flightRecorder?.sessionEntered(next.agentId);
+            rt.flightRecorder?.sessionEntered(next.agentId);
         }
         setTuiWorkspaceRoot(next.workspace ?? process.cwd());
         void previous.detach().catch(() => previous.close());
@@ -14319,7 +14157,7 @@ export async function startTui(
         // left, so the client takes them down and each extension is told to
         // let go of whatever else it was holding.
         if (options.preserveSidebar !== true) {
-            const previousSidebarAgent = hostedSidebar.release();
+            const previousSidebarAgent = rt.hostedSidebar.release();
             if (previousSidebarAgent !== undefined) {
                 rejectPendingExtensionSettingsFor(
                     previousSidebarAgent.client,
@@ -14330,90 +14168,90 @@ export async function startTui(
                 previousSidebarAgent.close()
             );
             clearSidebarEntryNodes();
-            sidebar.clear();
-            sidebar.setHeader(undefined);
-            sidebar.close();
+            rt.sidebar.clear();
+            rt.sidebar.setHeader(undefined);
+            rt.sidebar.close();
             forgetPersistedAgentPane(previous.agentId);
-            extensionMentions = [];
-            extensionAddressee = undefined;
+            rt.extensionMentions = [];
+            rt.extensionAddressee = undefined;
         }
         rememberOpenPaneGroup();
-        experimentalTuiHost.conversationChanged();
-        clientExtensionRegistry?.conversationChanged();
+        rt.experimentalTuiHost.conversationChanged();
+        rt.clientExtensionRegistry?.conversationChanged();
 
-        state = createTuiState();
+        rt.state = createTuiState();
         // A hop the notice never landed in is over; it must not surface in
         // whichever conversation rebuilds next.
-        pendingBackNotice = undefined;
-        pendingSessionSwitchNotice = undefined;
+        rt.pendingBackNotice = undefined;
+        rt.pendingSessionSwitchNotice = undefined;
         if (next.agentId !== undefined) {
             try {
-                dependencies.onSessionEntered?.(next.agentId);
+                rt.dependencies.onSessionEntered?.(next.agentId);
             } catch (error) {
-                state = appendTuiNotice(state, recentSessionSaveFailure(error));
+                rt.state = appendTuiNotice(rt.state, recentSessionSaveFailure(error));
             }
         }
-        connectionFailed = false;
-        connectionFailure = undefined;
-        jsonlCommandMode = false;
-        abortRequested = false;
-        workingSince = undefined;
-        phaseSince = undefined;
-        pendingUiRequest = undefined;
-        queuedUiRequests.length = 0;
-        activeConfigurationRequest = undefined;
-        queuedConfigurationRequests.length = 0;
-        pendingImages = [];
-        submitAfterImageAttachment = false;
-        promptSubmitting = false;
-        pendingSessionRename = undefined;
-        sessionSwitchPending = false;
-        sessionTrashCandidate = undefined;
-        sessionTrashPending = false;
-        sessionCloseConfirm = false;
-        providerForgetCandidate = undefined;
-        timelinePicker = undefined;
-        settingsPicker = undefined;
-        secretPrompt = undefined;
-        namePrompt = undefined;
-        providerForm = undefined;
-        requestOptionsEditor = undefined;
-        preferencesList = undefined;
-        preferencesListParent = undefined;
-        standingNudges = undefined;
-        confirmingFullAccess = false;
-        admissionDialog = undefined;
-        admissionReturnPicker = undefined;
-        extensionCommandsGeneration += 1;
-        disposeHostExtensionCommands();
-        disposeHostExtensionCommands = () => {};
-        hostExtensionCommands = [];
-        skillCatalogRequestId = undefined;
-        disposeSkillCommands();
-        disposeSkillCommands = () => {};
-        pendingSkillInvocations.clear();
-        extensionCommandsLoading = next.listExtensionCommands !== undefined
+        rt.connectionFailed = false;
+        rt.connectionFailure = undefined;
+        rt.jsonlCommandMode = false;
+        rt.abortRequested = false;
+        rt.workingSince = undefined;
+        rt.phaseSince = undefined;
+        rt.pendingUiRequest = undefined;
+        rt.queuedUiRequests.length = 0;
+        rt.activeConfigurationRequest = undefined;
+        rt.queuedConfigurationRequests.length = 0;
+        rt.pendingImages = [];
+        rt.submitAfterImageAttachment = false;
+        rt.promptSubmitting = false;
+        rt.pendingSessionRename = undefined;
+        rt.sessionSwitchPending = false;
+        rt.sessionTrashCandidate = undefined;
+        rt.sessionTrashPending = false;
+        rt.sessionCloseConfirm = false;
+        rt.providerForgetCandidate = undefined;
+        rt.timelinePicker = undefined;
+        rt.settingsPicker = undefined;
+        rt.secretPrompt = undefined;
+        rt.namePrompt = undefined;
+        rt.providerForm = undefined;
+        rt.requestOptionsEditor = undefined;
+        rt.preferencesList = undefined;
+        rt.preferencesListParent = undefined;
+        rt.standingNudges = undefined;
+        rt.confirmingFullAccess = false;
+        rt.admissionDialog = undefined;
+        rt.admissionReturnPicker = undefined;
+        rt.extensionCommandsGeneration += 1;
+        rt.disposeHostExtensionCommands();
+        rt.disposeHostExtensionCommands = () => {};
+        rt.hostExtensionCommands = [];
+        rt.skillCatalogRequestId = undefined;
+        rt.disposeSkillCommands();
+        rt.disposeSkillCommands = () => {};
+        rt.pendingSkillInvocations.clear();
+        rt.extensionCommandsLoading = next.listExtensionCommands !== undefined
             && next.failed !== true
             && next.viewOnly !== true;
-        skillCommandsLoading = supportsSkillCommands(next);
+        rt.skillCommandsLoading = supportsSkillCommands(next);
         watchBackgroundAgents(next);
         watchWorkIndex(next);
-        sessionTitle = undefined;
-        mainHeaderVisible = true;
-        sidebarHeaderVisible = true;
+        rt.sessionTitle = undefined;
+        rt.mainHeaderVisible = true;
+        rt.sidebarHeaderVisible = true;
         applyTerminalTitle();
         refreshTerminalTitle();
         clearTranscriptNodes();
 
-        composer.clearComposer();
+        rt.composer.clearComposer();
         if (draft !== undefined) {
-            composer.setComposerText(draft.text);
-            pendingImages = draft.attachmentIds.map((id) => ({
+            rt.composer.setComposerText(draft.text);
+            rt.pendingImages = draft.attachmentIds.map((id) => ({
                 requestId: randomUUID(),
                 id,
             }));
         }
-        settingsPickerView.box.visible = false;
+        rt.settingsPickerView.box.visible = false;
         focusActiveSurface();
         renderCommandSuggestions();
         renderState();
@@ -14434,9 +14272,9 @@ export async function startTui(
         sessionPath: string,
         sessionId?: string,
     ): Promise<boolean> {
-        if (dependencies.listAgents === undefined) return false;
+        if (rt.dependencies.listAgents === undefined) return false;
         try {
-            const agents = await dependencies.listAgents();
+            const agents = await rt.dependencies.listAgents();
             const row = agents.find((agent) =>
                 (sessionId !== undefined && agent.id === sessionId)
                 || agent.session_path === sessionPath
@@ -14465,7 +14303,7 @@ export async function startTui(
                 && await destinationIsLive(sessionPath, sessionId)
             );
         if (attach) {
-            return dependencies.resumeSession!(sessionPath);
+            return rt.dependencies.resumeSession!(sessionPath);
         }
         return await createJsonlViewClient(sessionPath);
     }
@@ -14474,15 +14312,15 @@ export async function startTui(
      * `/close` and ctrl+w. Idle parks immediately; in-flight work asks first.
      */
     function requestCloseSession(): void {
-        if (isWorkerFreeClient(client) || sessionSwitchPending) {
+        if (isWorkerFreeClient(rt.client) || rt.sessionSwitchPending) {
             return;
         }
         if (
-            state.working
-            || state.compactingSince !== undefined
-            || pendingUiRequest !== undefined
+            rt.state.working
+            || rt.state.compactingSince !== undefined
+            || rt.pendingUiRequest !== undefined
         ) {
-            sessionCloseConfirm = true;
+            rt.sessionCloseConfirm = true;
             renderState();
             focusActiveSurface();
             return;
@@ -14497,35 +14335,35 @@ export async function startTui(
      * this TUI back onto a live attach.
      */
     function beginParkToJsonl(): void {
-        sessionCloseConfirm = false;
-        if (isWorkerFreeClient(client) || sessionSwitchPending) {
+        rt.sessionCloseConfirm = false;
+        if (isWorkerFreeClient(rt.client) || rt.sessionSwitchPending) {
             return;
         }
-        const sourceClient = client;
-        const sourceCompanions = hostedSidebar.pane === undefined
+        const sourceClient = rt.client;
+        const sourceCompanions = rt.hostedSidebar.pane === undefined
             ? []
-            : [hostedSidebar.pane.client];
-        const agentId = client.agentId;
+            : [rt.hostedSidebar.pane.client];
+        const agentId = rt.client.agentId;
         if (agentId === undefined) {
-            state = appendTuiError(state, "Current session ID is unavailable");
+            rt.state = appendTuiError(rt.state, "Current session ID is unavailable");
             renderState();
             return;
         }
-        if (dependencies.listAgents === undefined) {
-            state = appendTuiError(
-                state,
+        if (rt.dependencies.listAgents === undefined) {
+            rt.state = appendTuiError(
+                rt.state,
                 "Stopping this conversation is unavailable",
             );
             renderState();
             return;
         }
         const draft = currentDraft();
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "closing conversation…";
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "closing conversation…";
         renderState();
         void withSessionSwitchDeadline(
             (async () => {
-                const agents = await dependencies.listAgents!();
+                const agents = await rt.dependencies.listAgents!();
                 const listed = agents.find((agent) => agent.id === agentId);
                 const sessionPath = listed?.session_path;
                 if (sessionPath === undefined) {
@@ -14543,7 +14381,7 @@ export async function startTui(
             })(),
             (value) => discardSwitchTarget(value.next),
         ).then(({ next, leaveResult }) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 discardSwitchTarget(next);
                 return;
             }
@@ -14552,19 +14390,19 @@ export async function startTui(
                 leaveResult.sourceOutcome === "detached"
                 && leaveResult.remainingInteractiveClients > 0
             ) {
-                pendingSessionSwitchNotice =
+                rt.pendingSessionSwitchNotice =
                     "This conversation is still running in another client";
             }
         }).catch((error) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 return;
             }
-            sessionSwitchPending = false;
+            rt.sessionSwitchPending = false;
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not close this conversation: ${message}`,
             );
             focusActiveSurface();
@@ -14598,11 +14436,11 @@ export async function startTui(
             beginCreateSession("stop");
             return;
         }
-        homeTypedText = action.text;
+        rt.homeTypedText = action.text;
         // Read when the new client lands, not now: whatever else was typed
         // in between has been appended to it by then.
         beginCreateSession("stop", () => ({
-            text: homeTypedText ?? "",
+            text: rt.homeTypedText ?? "",
             attachmentIds: [],
         }));
     }
@@ -14616,70 +14454,70 @@ export async function startTui(
      * the card was last up.
      */
     function returnToHome(): void {
-        if (isHomeClient(client) || sessionSwitchPending) return;
-        homeTypedText = undefined;
-        homeSubmitPending = false;
+        if (isHomeClient(rt.client) || rt.sessionSwitchPending) return;
+        rt.homeTypedText = undefined;
+        rt.homeSubmitPending = false;
         switchToClient(createHomeClient(
-            client.workspace ?? process.cwd(),
-            homeClientOptions,
+            rt.client.workspace ?? process.cwd(),
+            rt.homeClientOptions,
         ));
         void refreshHomeSessions();
     }
 
     /** Whether home still has a session list worth offering a row for. */
     async function refreshHomeSessions(): Promise<void> {
-        if (dependencies.listAgents === undefined) return;
+        if (rt.dependencies.listAgents === undefined) return;
         let agents: readonly RegisteredAgentSummary[];
         try {
-            agents = await dependencies.listAgents();
+            agents = await rt.dependencies.listAgents();
         } catch {
             // A listing this client could not read says nothing either way,
             // so the card keeps the answer it already had.
             return;
         }
-        if (!isHomeClient(client)) return;
-        homeState = createHomeState(
+        if (!isHomeClient(rt.client)) return;
+        rt.homeState = createHomeState(
             agents.some((agent) => sessionPickerLists(agent)),
         );
-        homeView.update(homeState);
-        renderer.requestRender();
+        rt.homeView.update(rt.homeState);
+        rt.renderer.requestRender();
     }
 
     function resumeJsonlView(): void {
-        if (!isJsonlViewClient(client)) {
+        if (!isJsonlViewClient(rt.client)) {
             return;
         }
-        if (dependencies.resumeSession === undefined) {
-            state = appendTuiError(state, "Switching sessions is unavailable");
+        if (rt.dependencies.resumeSession === undefined) {
+            rt.state = appendTuiError(rt.state, "Switching sessions is unavailable");
             renderState();
             return;
         }
-        if (sessionSwitchPending) {
+        if (rt.sessionSwitchPending) {
             return;
         }
-        const sessionPath = client.sessionPath;
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "opening conversation…";
+        const sessionPath = rt.client.sessionPath;
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "opening conversation…";
         renderState();
         void withSessionSwitchDeadline(
-            dependencies.resumeSession(sessionPath),
+            rt.dependencies.resumeSession(sessionPath),
             discardSwitchTarget,
         ).then((live) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 discardSwitchTarget(live);
                 return;
             }
             switchToClient(live, currentDraft());
         }).catch((error) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 return;
             }
-            sessionSwitchPending = false;
+            rt.sessionSwitchPending = false;
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not resume: ${message}`,
             );
             renderState();
@@ -14697,79 +14535,79 @@ export async function startTui(
         sourceDisposition: TuiSessionLeaveDisposition = "stop",
         draft?: () => TuiDraft | undefined,
     ): void {
-        composer.clearComposer();
-        const clearingSidebar = sidebar.isFocused()
-            && hostedSidebar.pane !== undefined;
+        rt.composer.clearComposer();
+        const clearingSidebar = rt.sidebar.isFocused()
+            && rt.hostedSidebar.pane !== undefined;
         const sourceClient = focusedAgentClient();
         const sourceCompanions = clearingSidebar
-            || hostedSidebar.pane === undefined
+            || rt.hostedSidebar.pane === undefined
             ? []
-            : [hostedSidebar.pane.client];
+            : [rt.hostedSidebar.pane.client];
         // A blank peer has nothing useful to reset. Treating a second
         // clear as close makes it possible to get rid of an empty pane
         // without requiring a separate close command.
         const clearingBlankSidebar = clearingSidebar
-            && !sidebarEntryNodes.some((node) => node.visible);
+            && !rt.sidebarEntryNodes.some((node) => node.visible);
         if (clearingBlankSidebar) {
             closeSidebarPane();
             return;
         }
         if (
             clearingSidebar
-                ? dependencies.createAgent === undefined
-                : dependencies.createSession === undefined
+                ? rt.dependencies.createAgent === undefined
+                : rt.dependencies.createSession === undefined
         ) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 "Starting a new session is unavailable",
             );
             renderState();
             return;
         }
-        if (sessionSwitchPending) {
+        if (rt.sessionSwitchPending) {
             return;
         }
         const workspace = focusedAgentClient().workspace;
         if (workspace === undefined) {
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 "Current session workspace is unavailable",
             );
             renderState();
             return;
         }
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "starting new session…";
-        sessionSwitchStartedAt = performance.now();
-        sessionSwitchOperation = "clear";
-        sessionSwitchBufferedUpdates = [];
-        sessionSwitchClearingMain = !clearingSidebar;
-        flightRecorder?.record({
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "starting new session…";
+        rt.sessionSwitchStartedAt = performance.now();
+        rt.sessionSwitchOperation = "clear";
+        rt.sessionSwitchBufferedUpdates = [];
+        rt.sessionSwitchClearingMain = !clearingSidebar;
+        rt.flightRecorder?.record({
             type: "session_switch_started",
             operation: "clear",
             target: clearingSidebar ? "sidebar" : "main",
         });
-        const previousState = clearingSidebar ? undefined : state;
+        const previousState = clearingSidebar ? undefined : rt.state;
         if (!clearingSidebar) {
-            state = createTuiState();
+            rt.state = createTuiState();
             clearTranscriptNodes();
             renderState();
         } else {
             renderStatus();
         }
         const nextSession = clearingSidebar
-            ? dependencies.createAgent!(
+            ? rt.dependencies.createAgent!(
                 workspace,
-                hostedSidebar.initialApprovalMode
+                rt.hostedSidebar.initialApprovalMode
                     ?? focusedAgentState().approvalMode,
-                hostedSidebar.attachmentLifetime,
+                rt.hostedSidebar.attachmentLifetime,
             )
-            : dependencies.createSession!(workspace);
+            : rt.dependencies.createSession!(workspace);
         void withSessionSwitchDeadline(
             nextSession,
             (next) => void discardCreatedSwitchTarget(next),
         ).then(async (next) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 void discardCreatedSwitchTarget(next);
                 return;
             }
@@ -14786,21 +14624,21 @@ export async function startTui(
             }
             if (clearingSidebar) {
                 await openExtensionAgent(
-                    hostedSidebar.owner ?? "vera.tui.agent-attachments",
+                    rt.hostedSidebar.owner ?? "vera.tui.agent-attachments",
                     requireIdentifiedClient(next),
                     "sidebar",
                     true,
-                    hostedSidebar.mention,
-                    hostedSidebar.attachmentLifetime,
-                    hostedSidebar.initialApprovalMode,
+                    rt.hostedSidebar.mention,
+                    rt.hostedSidebar.attachmentLifetime,
+                    rt.hostedSidebar.initialApprovalMode,
                 );
                 recordSessionSwitchOutcome("completed");
-                sessionSwitchPending = false;
+                rt.sessionSwitchPending = false;
                 return;
             }
             switchToClient(next, draft?.());
-            if (homeSubmitPending) {
-                homeSubmitPending = false;
+            if (rt.homeSubmitPending) {
+                rt.homeSubmitPending = false;
                 submitPrompt();
             }
             if (
@@ -14810,29 +14648,29 @@ export async function startTui(
             ) {
                 const notice =
                     "The previous conversation is still running in another client";
-                pendingSessionSwitchNotice = notice;
+                rt.pendingSessionSwitchNotice = notice;
             }
         }).catch((error) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 return;
             }
-            sessionSwitchPending = false;
-            homeSubmitPending = false;
-            homeTypedText = undefined;
+            rt.sessionSwitchPending = false;
+            rt.homeSubmitPending = false;
+            rt.homeTypedText = undefined;
             if (previousState !== undefined) {
-                state = previousState;
-                for (const update of sessionSwitchBufferedUpdates) {
-                    state = applyAgentUpdate(state, update);
+                rt.state = previousState;
+                for (const update of rt.sessionSwitchBufferedUpdates) {
+                    rt.state = applyAgentUpdate(rt.state, update);
                 }
                 clearTranscriptNodes();
             }
-            sessionSwitchBufferedUpdates = [];
+            rt.sessionSwitchBufferedUpdates = [];
             recordSessionSwitchOutcome("failed", error);
             const message = error instanceof Error
                 ? error.message
                 : String(error);
-            state = appendTuiError(
-                state,
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not start a new session: ${message}`,
             );
             renderState();
@@ -14853,22 +14691,22 @@ export async function startTui(
         sourceDisposition: TuiSessionLeaveDisposition = "stop",
         destinationOpen?: "jsonl" | "attach",
     ): void {
-        const openingInSidebar = sidebar.isFocused()
-            && hostedSidebar.pane !== undefined;
+        const openingInSidebar = rt.sidebar.isFocused()
+            && rt.hostedSidebar.pane !== undefined;
         const sourceClient = openingInSidebar
-            ? hostedSidebar.pane!.client
-            : client;
+            ? rt.hostedSidebar.pane!.client
+            : rt.client;
         const sourceCompanions = openingInSidebar
-            || hostedSidebar.pane === undefined
+            || rt.hostedSidebar.pane === undefined
             ? []
-            : [hostedSidebar.pane.client];
-        settingsPicker = undefined;
-        if (sessionId !== undefined && sessionId === client.agentId) {
+            : [rt.hostedSidebar.pane.client];
+        rt.settingsPicker = undefined;
+        if (sessionId !== undefined && sessionId === rt.client.agentId) {
             // The row for the session already on screen. Tearing down that
             // session's own transcript to put it back is a worse answer to
             // "this one" than simply leaving.
             setSidebarFocused(false);
-            settingsPickerView.box.visible = false;
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
@@ -14876,29 +14714,29 @@ export async function startTui(
         if (
             openingInSidebar
             && sessionId !== undefined
-            && sessionId === hostedSidebar.pane?.agentId
+            && sessionId === rt.hostedSidebar.pane?.agentId
         ) {
-            settingsPickerView.box.visible = false;
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
         }
-        if (dependencies.resumeSession === undefined) {
-            state = appendTuiError(state, "Switching sessions is unavailable");
-            settingsPickerView.box.visible = false;
+        if (rt.dependencies.resumeSession === undefined) {
+            rt.state = appendTuiError(rt.state, "Switching sessions is unavailable");
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
         }
-        if (sessionSwitchPending) {
+        if (rt.sessionSwitchPending) {
             return;
         }
-        if (!openingInSidebar && promptSubmitting) {
-            state = appendTuiNotice(
-                state,
+        if (!openingInSidebar && rt.promptSubmitting) {
+            rt.state = appendTuiNotice(
+                rt.state,
                 "Wait for the skill command to be accepted or rejected before switching conversations.",
             );
-            settingsPickerView.box.visible = false;
+            rt.settingsPickerView.box.visible = false;
             focusActiveSurface();
             renderState();
             return;
@@ -14906,29 +14744,29 @@ export async function startTui(
         // Only the first hop is remembered: /back always returns to where
         // the switching started, not to the previous stop. Going back clears
         // the edge instead of arming it, or back would turn into a toggle.
-        const previousId = client.agentId;
+        const previousId = rt.client.agentId;
         let armedNow = false;
         if (
             !viaBack
             && armsBack
             && !openingInSidebar
-            && backOriginId === undefined
+            && rt.backOriginId === undefined
             && previousId !== undefined
         ) {
-            backOriginId = previousId;
-            backOriginTitle = sessionTitle;
+            rt.backOriginId = previousId;
+            rt.backOriginTitle = rt.sessionTitle;
             armedNow = true;
         }
         const draft = currentDraft();
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "switching conversation…";
-        settingsPickerView.box.visible = false;
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "switching conversation…";
+        rt.settingsPickerView.box.visible = false;
         renderState();
         void withSessionSwitchDeadline(
             openSwitchDestination(sessionPath, sessionId, destinationOpen),
             discardSwitchTarget,
         ).then(async (next) => {
-            if (shuttingDown) {
+            if (rt.shuttingDown) {
                 discardSwitchTarget(next);
                 return;
             }
@@ -14956,7 +14794,7 @@ export async function startTui(
                 if (leaveResult.sourceOutcome === "stopped") {
                     discardSwitchTarget(next);
                     destination = await withSessionSwitchDeadline(
-                        dependencies.resumeSession!(sessionPath),
+                        rt.dependencies.resumeSession!(sessionPath),
                         discardSwitchTarget,
                     );
                 }
@@ -14969,7 +14807,7 @@ export async function startTui(
                     true,
                     sessionId,
                 );
-                sessionSwitchPending = false;
+                rt.sessionSwitchPending = false;
                 return;
             }
             switchToClient(destination, draft);
@@ -14980,14 +14818,14 @@ export async function startTui(
             ) {
                 const notice =
                     "The previous conversation is still running in another client";
-                pendingSessionSwitchNotice = notice;
+                rt.pendingSessionSwitchNotice = notice;
             }
-            const destId = client.agentId;
+            const destId = rt.client.agentId;
             let destParentId: string | undefined;
             let destParentTitle: string | undefined;
-            if (dependencies.listAgents !== undefined && destId !== undefined) {
+            if (rt.dependencies.listAgents !== undefined && destId !== undefined) {
                 try {
-                    const agents = await dependencies.listAgents();
+                    const agents = await rt.dependencies.listAgents();
                     const dest = agents.find((agent) => agent.id === destId);
                     destParentId = dest?.parent_id;
                     if (destParentId !== undefined) {
@@ -15001,25 +14839,25 @@ export async function startTui(
                 }
             }
             if (viaBack) {
-                backOriginId = undefined;
+                rt.backOriginId = undefined;
             }
             let noticeKind: "parent" | "back" | "none" = "none";
             if (destParentId !== undefined) {
                 noticeKind = "parent";
                 const notice =
                     "Type /parent to return to the parent conversation";
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     destParentTitle === undefined
                         ? notice
                         : `Type /parent to return to "${destParentTitle}"`,
                     "soft",
                 );
-                pendingBackNotice = notice;
+                rt.pendingBackNotice = notice;
                 renderState();
             } else if (
-                backOriginId !== undefined
-                && destId !== backOriginId
+                rt.backOriginId !== undefined
+                && destId !== rt.backOriginId
             ) {
                 noticeKind = "back";
                 // The way back, said where the person landed: the switch is
@@ -15027,37 +14865,37 @@ export async function startTui(
                 // else on screen names the return trip.
                 const notice =
                     "Type /back to return to the conversation you came from";
-                let originTitle = backOriginTitle;
+                let originTitle = rt.backOriginTitle;
                 if (
                     originTitle === undefined
-                    && dependencies.listAgents !== undefined
+                    && rt.dependencies.listAgents !== undefined
                 ) {
-                    originTitle = await dependencies.listAgents().then(
+                    originTitle = await rt.dependencies.listAgents().then(
                         (agents) =>
                             agents.find((agent) =>
-                                agent.id === backOriginId
+                                agent.id === rt.backOriginId
                             )?.title,
                     ).catch(() => undefined);
                 }
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     originTitle === undefined
                         ? notice
                         : `Type /back to return to "${originTitle}"`,
                     "soft",
                 );
-                pendingBackNotice = notice;
+                rt.pendingBackNotice = notice;
                 renderState();
-            } else if (destId === backOriginId) {
-                backOriginId = undefined;
+            } else if (destId === rt.backOriginId) {
+                rt.backOriginId = undefined;
             }
         }).catch((error) => {
-            if (shuttingDown) return;
+            if (rt.shuttingDown) return;
             // A switch that never happened is not a hop worth remembering.
-            if (armedNow) backOriginId = undefined;
-            sessionSwitchPending = false;
-            state = appendTuiError(
-                state,
+            if (armedNow) rt.backOriginId = undefined;
+            rt.sessionSwitchPending = false;
+            rt.state = appendTuiError(
+                rt.state,
                 `Could not switch conversation: ${
                     error instanceof Error ? error.message : String(error)
                 }`,
@@ -15069,8 +14907,8 @@ export async function startTui(
 
     /** What is in the composer right now, absent when it is empty. */
     function currentDraft(): TuiDraft | undefined {
-        const text = composer.plainText;
-        const attachmentIds = pendingImages
+        const text = rt.composer.plainText;
+        const attachmentIds = rt.pendingImages
             .map((image) => image.id)
             .filter((id): id is string => id !== undefined);
         return text.length === 0 && attachmentIds.length === 0
@@ -15082,18 +14920,18 @@ export async function startTui(
         readonly sessionId: string;
         readonly label: string;
     }): void {
-        if (dependencies.trashSession === undefined) {
-            sessionTrashCandidate = undefined;
-            state = appendTuiError(
-                state,
+        if (rt.dependencies.trashSession === undefined) {
+            rt.sessionTrashCandidate = undefined;
+            rt.state = appendTuiError(
+                rt.state,
                 "Moving conversations to Trash is unavailable",
             );
             renderState();
             return;
         }
-        sessionTrashPending = true;
-        sessionSwitchPending = true;
-        sessionSwitchActivity = "moving conversation to Trash…";
+        rt.sessionTrashPending = true;
+        rt.sessionSwitchPending = true;
+        rt.sessionSwitchActivity = "moving conversation to Trash…";
         renderState();
         void performSessionTrash(candidate);
     }
@@ -15105,43 +14943,43 @@ export async function startTui(
         let timeout: ReturnType<typeof setTimeout> | undefined;
         try {
             const result = await Promise.race([
-                dependencies.trashSession!(candidate.sessionId),
+                rt.dependencies.trashSession!(candidate.sessionId),
                 new Promise<TrashSessionResult>((resolve) => {
                     timeout = setTimeout(() => {
                         resolve({ status: "rejected", reason: "failed" });
-                    }, dependencies.sessionSwitchTimeoutMs
+                    }, rt.dependencies.sessionSwitchTimeoutMs
                         ?? SESSION_SWITCH_TIMEOUT_MS);
                 }),
             ]);
             clearTimeout(timeout);
-            if (shuttingDown) return;
+            if (rt.shuttingDown) return;
             if (result.status === "trashed") {
-                state = appendTuiNotice(
-                    state,
+                rt.state = appendTuiNotice(
+                    rt.state,
                     `moved to Trash: ${candidate.label}`,
                 );
-                if (dependencies.listAgents !== undefined) {
+                if (rt.dependencies.listAgents !== undefined) {
                     try {
-                        settingsPicker = startTuiSessionPicker(
-                            await dependencies.listAgents(),
-                            client.agentId,
+                        rt.settingsPicker = startTuiSessionPicker(
+                            await rt.dependencies.listAgents(),
+                            rt.client.agentId,
                             false,
                             new Date(),
                             false,
-                            hostedPanePersistence.groups,
+                            rt.hostedPanePersistence.groups,
                         );
                     } catch {
-                        settingsPicker = removeSessionPickerOption(
-                            settingsPicker?.kind === "extension"
+                        rt.settingsPicker = removeSessionPickerOption(
+                            rt.settingsPicker?.kind === "extension"
                                 ? undefined
-                                : settingsPicker,
+                                : rt.settingsPicker,
                             candidate.sessionId,
                         );
                     }
                 }
             } else {
-                state = appendTuiError(
-                    state,
+                rt.state = appendTuiError(
+                    rt.state,
                     result.reason === "busy"
                         ? "That conversation is active in another client"
                         : result.reason === "not_found"
@@ -15151,18 +14989,18 @@ export async function startTui(
             }
         } catch {
             clearTimeout(timeout);
-            if (shuttingDown) return;
-            sessionTrashPending = false;
-            sessionSwitchPending = false;
-            sessionTrashCandidate = undefined;
-            state = appendTuiError(
-                state,
+            if (rt.shuttingDown) return;
+            rt.sessionTrashPending = false;
+            rt.sessionSwitchPending = false;
+            rt.sessionTrashCandidate = undefined;
+            rt.state = appendTuiError(
+                rt.state,
                 "Could not move that conversation to Trash",
             );
             }
-            sessionTrashPending = false;
-            sessionSwitchPending = false;
-            sessionTrashCandidate = undefined;
+            rt.sessionTrashPending = false;
+            rt.sessionSwitchPending = false;
+            rt.sessionTrashCandidate = undefined;
         focusActiveSurface();
         renderState();
     }
@@ -15180,7 +15018,7 @@ export async function startTui(
         target: TuiAgentClient = focusedAgentClient(),
     ): void {
         const requestId = randomUUID();
-        requestedModelChanges.set(requestId, { subject, patch, target });
+        rt.requestedModelChanges.set(requestId, { subject, patch, target });
         void target.send({
             type: "update_model_settings",
             requestId,
@@ -15199,7 +15037,7 @@ export async function startTui(
      * What each live `pool_add` asked for, so an unavailable verdict can be
      * sent again without the user re-picking the model.
      */
-    const poolAdmissionAttempts = new Map<string, {
+    rt.poolAdmissionAttempts = new Map<string, {
         readonly provider: string;
         readonly model: string;
         readonly verify: boolean;
@@ -15217,45 +15055,45 @@ export async function startTui(
         requestId: string,
         verdict: string,
     ): boolean {
-        const attempt = poolAdmissionAttempts.get(requestId);
-        poolAdmissionAttempts.delete(requestId);
+        const attempt = rt.poolAdmissionAttempts.get(requestId);
+        rt.poolAdmissionAttempts.delete(requestId);
         if (
             attempt === undefined || attempt.retry || verdict !== "unavailable"
         ) {
             return false;
         }
-        state = dropTuiAdmission(state, requestId);
+        rt.state = dropTuiAdmission(rt.state, requestId);
         const retryId = requestPoolAdmission(
             attempt.provider,
             attempt.model,
             attempt.verify,
             true,
         );
-        if (poolVerifySweep?.requestId === requestId) {
+        if (rt.poolVerifySweep?.requestId === requestId) {
             // A retry is the same step of the sweep under a new id. Without
             // this the sweep waits on a verdict that will never carry the id
             // it is watching for, and stops on the first unreachable model.
-            poolVerifySweep = { ...poolVerifySweep, requestId: retryId };
+            rt.poolVerifySweep = { ...rt.poolVerifySweep, requestId: retryId };
         }
-        const poolChange = pendingPoolChanges.get(requestId);
-        pendingPoolChanges.delete(requestId);
+        const poolChange = rt.pendingPoolChanges.get(requestId);
+        rt.pendingPoolChanges.delete(requestId);
         if (poolChange !== undefined) {
-            pendingPoolChanges.set(retryId, poolChange);
+            rt.pendingPoolChanges.set(retryId, poolChange);
         }
-        const pendingUndo = pendingPoolUndos.get(requestId);
-        pendingPoolUndos.delete(requestId);
+        const pendingUndo = rt.pendingPoolUndos.get(requestId);
+        rt.pendingPoolUndos.delete(requestId);
         if (pendingUndo !== undefined) {
-            pendingPoolUndos.set(retryId, pendingUndo);
+            rt.pendingPoolUndos.set(retryId, pendingUndo);
         }
-        if (admissionDialog?.requestId === requestId) {
-            admissionDialog = startTuiAdmissionDialog(
+        if (rt.admissionDialog?.requestId === requestId) {
+            rt.admissionDialog = startTuiAdmissionDialog(
                 attempt.provider,
                 attempt.model,
                 retryId,
             );
         }
-        if (pendingPoolName?.requestId === requestId) {
-            pendingPoolName = { ...pendingPoolName, requestId: retryId };
+        if (rt.pendingPoolName?.requestId === requestId) {
+            rt.pendingPoolName = { ...rt.pendingPoolName, requestId: retryId };
         }
         return true;
     }
@@ -15276,7 +15114,7 @@ export async function startTui(
      */
     function requestCatalogRefresh(provider: string): void {
         const requestId = randomUUID();
-        catalogRefreshes.set(requestId, provider);
+        rt.catalogRefreshes.set(requestId, provider);
         showStatusNotice(`asking ${provider} for its model list…`);
         sendCommand({ type: "catalog_refresh", requestId, provider });
         renderState();
@@ -15289,8 +15127,8 @@ export async function startTui(
         retry = false,
     ): string {
         const requestId = randomUUID();
-        poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
-        state = beginTuiAdmission(state, requestId, `${provider}/${model}`);
+        rt.poolAdmissionAttempts.set(requestId, { provider, model, verify, retry });
+        rt.state = beginTuiAdmission(rt.state, requestId, `${provider}/${model}`);
         showVerificationConsole(requestId, `${provider}/${model}`);
         sendCommand({
             type: "pool_add",
@@ -15305,9 +15143,9 @@ export async function startTui(
 
     /** The live admission record for the dialog's own request, if any. */
     function dialogAdmission() {
-        return state.admission !== undefined
-                && state.admission.requestId === admissionDialog?.requestId
-            ? state.admission
+        return rt.state.admission !== undefined
+                && rt.state.admission.requestId === rt.admissionDialog?.requestId
+            ? rt.state.admission
             : undefined;
     }
 
@@ -15331,7 +15169,7 @@ export async function startTui(
     }
 
     function openCatalogRefreshScopePicker(): void {
-        const targetState = state;
+        const targetState = rt.state;
         const providers = refreshableProvidersOf(
             targetState.modelSettings?.availableModels,
             targetState.modelSettings?.refreshableProviders,
@@ -15340,14 +15178,14 @@ export async function startTui(
             showStatusNotice("no provider here keeps a model list to refresh");
             return;
         }
-        settingsPicker = withTuiPickerParent(
+        rt.settingsPicker = withTuiPickerParent(
             startTuiCatalogRefreshScopePicker(
                 providers.map((name) => ({
                     name,
                     models: catalogSizeOf(name),
                 })),
             ),
-            settingsPicker?.kind === "model" ? settingsPicker : undefined,
+            rt.settingsPicker?.kind === "model" ? rt.settingsPicker : undefined,
         );
         renderState();
         focusActiveSurface();
@@ -15358,12 +15196,12 @@ export async function startTui(
         const queue = providers.length > 0
             ? providers
             : refreshableProvidersOf(
-                state.modelSettings?.availableModels,
-                state.modelSettings?.refreshableProviders,
+                rt.state.modelSettings?.availableModels,
+                rt.state.modelSettings?.refreshableProviders,
             );
-        settingsPicker = undefined;
-        composer.blur();
-        if (catalogRefreshSweep !== undefined) {
+        rt.settingsPicker = undefined;
+        rt.composer.blur();
+        if (rt.catalogRefreshSweep !== undefined) {
             // Two sweeps at once cannot both be reported: the second would
             // claim the first one's answers as its own.
             showStatusNotice("a refresh is already running");
@@ -15377,18 +15215,18 @@ export async function startTui(
             focusActiveSurface();
             return;
         }
-        catalogRefreshSweep = { queue, index: 0, results: [] };
+        rt.catalogRefreshSweep = { queue, index: 0, results: [] };
         renderState();
         focusActiveSurface();
         advanceCatalogRefreshSweep();
     }
 
     function advanceCatalogRefreshSweep(): void {
-        const sweep = catalogRefreshSweep;
+        const sweep = rt.catalogRefreshSweep;
         if (sweep === undefined) return;
         const next = sweep.queue[sweep.index];
         if (next === undefined) {
-            catalogRefreshSweep = undefined;
+            rt.catalogRefreshSweep = undefined;
             showStatusNotice(catalogRefreshSummary(sweep.results));
             renderState();
             return;
@@ -15408,7 +15246,7 @@ export async function startTui(
         requestId: string,
         refreshed: boolean,
     ): boolean {
-        const sweep = catalogRefreshSweep;
+        const sweep = rt.catalogRefreshSweep;
         if (sweep === undefined || sweep.requestId !== requestId) return false;
         const result = sweep.results.at(-1);
         if (result !== undefined && refreshed) {
@@ -15452,12 +15290,12 @@ export async function startTui(
             showStatusNotice("nothing kept to probe yet");
             return;
         }
-        settingsPicker = withTuiPickerParent(
+        rt.settingsPicker = withTuiPickerParent(
             startTuiPoolVerifyScopePicker(
                 kept.filter((entry) => !entry.verified).length,
                 kept.length,
             ),
-            settingsPicker?.kind === "model" ? settingsPicker : undefined,
+            rt.settingsPicker?.kind === "model" ? rt.settingsPicker : undefined,
         );
         renderState();
         focusActiveSurface();
@@ -15473,26 +15311,26 @@ export async function startTui(
         const queue = keptModels()
             .filter((entry) => !onlyUnverified || !entry.verified)
             .map((entry) => ({ provider: entry.provider, model: entry.model }));
-        settingsPicker = undefined;
-        composer.blur();
+        rt.settingsPicker = undefined;
+        rt.composer.blur();
         if (queue.length === 0) {
             showStatusNotice("everything you keep has been probed");
             renderState();
             focusActiveSurface();
             return;
         }
-        poolVerifySweep = { queue, total: queue.length, index: 0, answered: 0 };
+        rt.poolVerifySweep = { queue, total: queue.length, index: 0, answered: 0 };
         renderState();
         focusActiveSurface();
         advancePoolVerifySweep();
     }
 
     function advancePoolVerifySweep(): void {
-        const sweep = poolVerifySweep;
+        const sweep = rt.poolVerifySweep;
         if (sweep === undefined) return;
         const next = sweep.queue[sweep.index];
         if (next === undefined) {
-            poolVerifySweep = undefined;
+            rt.poolVerifySweep = undefined;
             showStatusNotice(
                 `probed ${sweep.total}, ${sweep.answered} answered`,
             );
@@ -15507,7 +15345,7 @@ export async function startTui(
 
     /** True when the verdict belonged to the sweep, which then steps on. */
     function poolVerifySweepResult(requestId: string, verdict: string): boolean {
-        const sweep = poolVerifySweep;
+        const sweep = rt.poolVerifySweep;
         if (sweep === undefined || sweep.requestId !== requestId) return false;
         if (verdict === "added") sweep.answered += 1;
         sweep.index += 1;
@@ -15519,15 +15357,15 @@ export async function startTui(
         // Keep the model pane in place: its full-width console is the live
         // verification surface, including for a model being checked again.
         requestPoolAdmission(provider, model, true);
-        composer.blur();
+        rt.composer.blur();
         renderState();
         focusActiveSurface();
     }
 
     function closeAdmissionDialog(reopenPoolPicker: boolean): void {
-        const returnPicker = admissionReturnPicker;
-        admissionDialog = undefined;
-        admissionReturnPicker = undefined;
+        const returnPicker = rt.admissionReturnPicker;
+        rt.admissionDialog = undefined;
+        rt.admissionReturnPicker = undefined;
         if (reopenPoolPicker && returnPicker !== undefined) {
             // Rebuilt rather than restored: the pool changed under the saved
             // pane, and a fresh open lands on the Pool tab, where the newly
@@ -15535,7 +15373,7 @@ export async function startTui(
             openModelPicker(returnPicker.parent);
             return;
         }
-        settingsPicker = returnPicker;
+        rt.settingsPicker = returnPicker;
         focusActiveSurface();
         renderState();
     }
@@ -15547,7 +15385,7 @@ export async function startTui(
         scope: "session" | "global" = "global",
     ): void {
         const requestId = randomUUID();
-        requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
+        rt.requestedPermissionChanges.set(requestId, `permissions to ${mode}`);
         const sessionScoped = scope === "session"
             && target.supportsHostCapability?.(
                     HOST_CAPABILITY_SESSION_SCOPED_STATE,
@@ -15564,69 +15402,69 @@ export async function startTui(
         );
     }
 
-    const themeBindings: readonly TuiThemeBinding[] = [
+    rt.themeBindings = [
         (activeTheme) => {
             applyTuiTheme(activeTheme);
             refreshDialogChrome();
-            experimentalTuiHost.setTheme(activeTheme);
+            rt.experimentalTuiHost.setTheme(activeTheme);
             clearTranscriptNodes();
-            const retiredMarkdownStyle = markdownStyle;
-            markdownStyle = createMarkdownStyle(activeTheme);
+            const retiredMarkdownStyle = rt.markdownStyle;
+            rt.markdownStyle = createMarkdownStyle(activeTheme);
             repaintSidebarForTheme();
             retiredMarkdownStyle.destroy();
         },
-        tuiThemeProperties(placeholder, { fg: "muted" }),
-        tuiThemeProperties(backgroundStatusText, { fg: "muted" }),
-        tuiThemeProperties(activityHintText, { fg: "muted" }),
-        tuiThemeProperties(hostedModeText, { fg: "muted" }),
-        tuiThemeProperties(app, { backgroundColor: "background" }),
-        tuiThemeProperties(quoteText, { fg: "muted" }),
-        tuiThemeProperties(heldAddressText, { fg: "muted" }),
-        tuiThemeProperties(queuedPromptText, { fg: "muted" }),
-        tuiThemeProperties(jumpToBottomText, {
+        tuiThemeProperties(rt.placeholder, { fg: "muted" }),
+        tuiThemeProperties(rt.backgroundStatusText, { fg: "muted" }),
+        tuiThemeProperties(rt.activityHintText, { fg: "muted" }),
+        tuiThemeProperties(rt.hostedModeText, { fg: "muted" }),
+        tuiThemeProperties(rt.app, { backgroundColor: "background" }),
+        tuiThemeProperties(rt.quoteText, { fg: "muted" }),
+        tuiThemeProperties(rt.heldAddressText, { fg: "muted" }),
+        tuiThemeProperties(rt.queuedPromptText, { fg: "muted" }),
+        tuiThemeProperties(rt.jumpToBottomText, {
             fg: "background",
             bg: "accent",
         }),
-        tuiThemeProperties(jumpToBottom, { backgroundColor: "accent" }),
-        tuiThemeProperties(sidebarJumpText, {
+        tuiThemeProperties(rt.jumpToBottom, { backgroundColor: "accent" }),
+        tuiThemeProperties(rt.sidebarJumpText, {
             fg: "background",
             bg: "accent",
         }),
-        tuiThemeProperties(sidebarJump, { backgroundColor: "accent" }),
-        tuiThemeProperties(modeToastText, {
+        tuiThemeProperties(rt.sidebarJump, { backgroundColor: "accent" }),
+        tuiThemeProperties(rt.modeToastText, {
             fg: "text",
             bg: "panel",
         }),
-        tuiThemeProperties(modeToast, { backgroundColor: "panel" }),
-        tuiThemeProperties(commandSuggestionsText, { fg: "text" }),
-        tuiThemeProperties(commandSuggestionsBox, {
+        tuiThemeProperties(rt.modeToast, { backgroundColor: "panel" }),
+        tuiThemeProperties(rt.commandSuggestionsText, { fg: "text" }),
+        tuiThemeProperties(rt.commandSuggestionsBox, {
             backgroundColor: "background",
         }),
-        tuiThemeProperties(jumpMenuText, { fg: "text" }),
-        tuiThemeProperties(jumpMenuBox, {
+        tuiThemeProperties(rt.jumpMenuText, { fg: "text" }),
+        tuiThemeProperties(rt.jumpMenuBox, {
             backgroundColor: "panel",
             borderColor: "element",
             focusedBorderColor: "element",
         }),
         () => {
-            if (jumpMenu !== undefined) {
+            if (rt.jumpMenu !== undefined) {
                 renderJumpMenu();
             }
         },
-        tuiThemeProperties(composerBox, {
+        tuiThemeProperties(rt.composerBox, {
             backgroundColor: "input",
             borderColor: (activeTheme) =>
-                appearance.composerBoundaryColor ?? activeTheme.element,
+                rt.appearance.composerBoundaryColor ?? activeTheme.element,
         }),
-        (activeTheme) => homeView.applyAppearance({
+        (activeTheme) => rt.homeView.applyAppearance({
             textColor: activeTheme.text,
             mutedColor: activeTheme.muted,
             accentColor: activeTheme.accent,
         }),
-        (activeTheme) => resumeOverlay.applyAppearance({
-            marginHorizontal: appearance.composerMarginHorizontal,
-            paddingHorizontal: appearance.composerPaddingHorizontal,
-            boundaryColor: appearance.composerBoundaryColor
+        (activeTheme) => rt.resumeOverlay.applyAppearance({
+            marginHorizontal: rt.appearance.composerMarginHorizontal,
+            paddingHorizontal: rt.appearance.composerPaddingHorizontal,
+            boundaryColor: rt.appearance.composerBoundaryColor
                 ?? activeTheme.element,
             backgroundColor: activeTheme.input,
             noticeColor: activeTheme.panel,
@@ -15634,98 +15472,98 @@ export async function startTui(
             mutedColor: activeTheme.muted,
             accentColor: activeTheme.accent,
         }),
-        tuiThemeProperties(composerStatusText, { fg: "muted" }),
-        tuiThemeProperties(slashArgumentHint, {
+        tuiThemeProperties(rt.composerStatusText, { fg: "muted" }),
+        tuiThemeProperties(rt.slashArgumentHint, {
             fg: "muted",
             bg: "input",
         }),
-        tuiThemeProperties(composerRule, {
+        tuiThemeProperties(rt.composerRule, {
             borderColor: (activeTheme) =>
-                appearance.composerBoundaryColor ?? activeTheme.element,
+                rt.appearance.composerBoundaryColor ?? activeTheme.element,
         }),
-        tuiThemeProperties(workspaceSidebarView.box, {
+        tuiThemeProperties(rt.workspaceSidebarView.box, {
             backgroundColor: tuiRecessColor,
             borderColor: (activeTheme) =>
-                workspaceRailDragging
+                rt.workspaceRailDragging
                     ? activeTheme.accent
                     : activeTheme.element,
             focusedBorderColor: "element",
         }),
-        tuiThemeProperties(workTabView.box, { backgroundColor: "panel" }),
-        tuiThemeProperties(searchOverlayView.box, { backgroundColor: "panel" }),
-        tuiThemeProperties(composer, {
+        tuiThemeProperties(rt.workTabView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(rt.searchOverlayView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(rt.composer, {
             backgroundColor: "input",
             focusedBackgroundColor: "input",
             textColor: "text",
             focusedTextColor: "text",
             cursorColor: "accent",
         }),
-        tuiThemeProperties(approvalView.box, { backgroundColor: "panel" }),
-        () => approvalView.repaint(),
-        (activeTheme) => permissionsConfirmView.setTheme(activeTheme),
-        () => questionView.repaint(),
-        tuiThemeProperties(timelinePickerView.box, {
+        tuiThemeProperties(rt.approvalView.box, { backgroundColor: "panel" }),
+        () => rt.approvalView.repaint(),
+        (activeTheme) => rt.permissionsConfirmView.setTheme(activeTheme),
+        () => rt.questionView.repaint(),
+        tuiThemeProperties(rt.timelinePickerView.box, {
             backgroundColor: "panel",
         }),
         () => {
-            if (timelinePicker !== undefined) {
-                timelinePickerView.update(timelinePicker);
+            if (rt.timelinePicker !== undefined) {
+                rt.timelinePickerView.update(rt.timelinePicker);
             }
         },
-        tuiThemeProperties(settingsPickerView.box, {
+        tuiThemeProperties(rt.settingsPickerView.box, {
             backgroundColor: "panel",
         }),
-        ...secretPromptView.themeBindings,
-        ...namePromptView.themeBindings,
-        ...providerFormView.themeBindings,
-        ...requestOptionsEditorView.themeBindings,
-        ...preferencesListView.themeBindings,
-        ...standingNudgesView.themeBindings,
-        tuiThemeProperties(commandPaletteView.box, {
+        ...rt.secretPromptView.themeBindings,
+        ...rt.namePromptView.themeBindings,
+        ...rt.providerFormView.themeBindings,
+        ...rt.requestOptionsEditorView.themeBindings,
+        ...rt.preferencesListView.themeBindings,
+        ...rt.standingNudgesView.themeBindings,
+        tuiThemeProperties(rt.commandPaletteView.box, {
             backgroundColor: "panel",
         }),
-        tuiThemeProperties(helpView.box, { backgroundColor: "panel" }),
-        tuiThemeProperties(doctorDialogView.box, {
+        tuiThemeProperties(rt.helpView.box, { backgroundColor: "panel" }),
+        tuiThemeProperties(rt.doctorDialogView.box, {
             backgroundColor: "panel",
         }),
-        () => doctorDialogView.repaint(),
-        tuiThemeProperties(diagnosticsDialogView.box, {
+        () => rt.doctorDialogView.repaint(),
+        tuiThemeProperties(rt.diagnosticsDialogView.box, {
             backgroundColor: "panel",
         }),
-        () => diagnosticsDialogView.repaint(),
-        tuiThemeProperties(extensionsDialogView.box, {
+        () => rt.diagnosticsDialogView.repaint(),
+        tuiThemeProperties(rt.extensionsDialogView.box, {
             backgroundColor: "panel",
         }),
-        () => extensionsDialogView.repaint(),
-        tuiThemeProperties(documentDialogView.box, {
+        () => rt.extensionsDialogView.repaint(),
+        tuiThemeProperties(rt.documentDialogView.box, {
             backgroundColor: "panel",
         }),
-        () => documentDialogView.repaint(),
-        ...admissionDialogView.themeBindings,
-        ...sessionTrashConfirmView.themeBindings,
-        ...sessionCloseConfirmView.themeBindings,
-        ...providerForgetConfirmView.themeBindings,
+        () => rt.documentDialogView.repaint(),
+        ...rt.admissionDialogView.themeBindings,
+        ...rt.sessionTrashConfirmView.themeBindings,
+        ...rt.sessionCloseConfirmView.themeBindings,
+        ...rt.providerForgetConfirmView.themeBindings,
     ];
 
     async function applySelectedTheme(
-        selectedTheme: typeof themeName,
+        selectedTheme: typeof rt.themeName,
         announce: boolean,
     ): Promise<void> {
-        if (announce && pendingThemePreview !== undefined) {
-            clearTimeout(pendingThemePreview);
-            pendingThemePreview = undefined;
+        if (announce && rt.pendingThemePreview !== undefined) {
+            clearTimeout(rt.pendingThemePreview);
+            rt.pendingThemePreview = undefined;
         }
-        const version = ++themeApplicationVersion;
-        const resolvedTheme = await resolveTuiTheme(renderer, selectedTheme);
-        if (version !== themeApplicationVersion || shuttingDown) {
+        const version = ++rt.themeApplicationVersion;
+        const resolvedTheme = await resolveTuiTheme(rt.renderer, selectedTheme);
+        if (version !== rt.themeApplicationVersion || rt.shuttingDown) {
             return;
         }
-        theme = resolvedTheme;
-        applyTuiThemeBindings(theme, themeBindings);
+        rt.theme = resolvedTheme;
+        applyTuiThemeBindings(rt.theme, rt.themeBindings);
 
         if (announce) {
-            state = appendTuiNotice(
-                state,
+            rt.state = appendTuiNotice(
+                rt.state,
                 `theme changed: ${selectedTheme}`,
                 "soft",
                 "theme",
@@ -15739,12 +15577,12 @@ export async function startTui(
      * every key repeat makes the picker itself lag behind the cursor. Coalesce
      * a run of arrows and paint the row the cursor actually settles on.
      */
-    function scheduleThemePreview(selectedTheme: typeof themeName): void {
-        if (pendingThemePreview !== undefined) {
-            clearTimeout(pendingThemePreview);
+    function scheduleThemePreview(selectedTheme: typeof rt.themeName): void {
+        if (rt.pendingThemePreview !== undefined) {
+            clearTimeout(rt.pendingThemePreview);
         }
-        pendingThemePreview = setTimeout(() => {
-            pendingThemePreview = undefined;
+        rt.pendingThemePreview = setTimeout(() => {
+            rt.pendingThemePreview = undefined;
             void applySelectedTheme(selectedTheme, false);
         }, 50);
     }
@@ -15758,7 +15596,7 @@ export async function startTui(
      */
     function pooledModelNames(): readonly string[] {
         const names: string[] = ["self"];
-        for (const entry of state.modelSettings?.pooled ?? []) {
+        for (const entry of rt.state.modelSettings?.pooled ?? []) {
             if (entry.poolName !== undefined) {
                 names.push(entry.poolName);
             }
@@ -15776,7 +15614,7 @@ export async function startTui(
         prefix: string;
         values: readonly string[];
     } | undefined {
-        const argument = commandRegistry.argumentPrefix(composer.plainText);
+        const argument = rt.commandRegistry.argumentPrefix(rt.composer.plainText);
         if (argument !== undefined) {
             return {
                 prefix: argument.prefix,
@@ -15788,7 +15626,7 @@ export async function startTui(
         }
         const mentions = visibleMentions();
         if (mentions.length === 0) return undefined;
-        const mention = /(?:^|\s)(@\S*)$/.exec(composer.plainText);
+        const mention = /(?:^|\s)(@\S*)$/.exec(rt.composer.plainText);
         if (mention === null) return undefined;
         return {
             prefix: mention[1] ?? "",
@@ -15798,15 +15636,15 @@ export async function startTui(
 
     function renderCommandSuggestions(): void {
         const hint = tuiCommandArgumentHint(
-            commandRegistry.registeredCommands(),
-            composer.plainText,
+            rt.commandRegistry.registeredCommands(),
+            rt.composer.plainText,
         );
-        slashArgumentHint.content = hint ?? "";
-        slashArgumentHint.visible = hint !== undefined;
-        slashArgumentHint.left = hint === undefined
+        rt.slashArgumentHint.content = hint ?? "";
+        rt.slashArgumentHint.visible = hint !== undefined;
+        rt.slashArgumentHint.left = hint === undefined
             ? 0
-            : Bun.stringWidth(composer.plainText);
-        const extensionBottomRows = experimentalTuiHost.bottomInsetRows();
+            : Bun.stringWidth(rt.composer.plainText);
+        const extensionBottomRows = rt.experimentalTuiHost.bottomInsetRows();
         // Measured off the composer's own margin, which the status card below
         // it grows and shrinks: a fixed offset here lands inside the composer
         // as soon as that card is taller than the single line it replaced.
@@ -15814,52 +15652,52 @@ export async function startTui(
         // overlay clears whichever of them are currently visible instead of
         // painting over quote/address context.
         positionCommandSuggestions();
-        if (composer.plainText.length === 0) {
-            commandSuggestionIndex = 0;
+        if (rt.composer.plainText.length === 0) {
+            rt.commandSuggestionIndex = 0;
         }
         const completing = activeCompletion();
         if (completing !== undefined) {
-            argumentSuggestions = tuiArgumentSuggestions(
+            rt.argumentSuggestions = tuiArgumentSuggestions(
                 completing.values,
                 completing.prefix,
             );
-            commandSuggestionIndex = Math.min(
-                commandSuggestionIndex,
-                Math.max(0, argumentSuggestions.length - 1),
+            rt.commandSuggestionIndex = Math.min(
+                rt.commandSuggestionIndex,
+                Math.max(0, rt.argumentSuggestions.length - 1),
             );
             const window = tuiSuggestionWindow(
-                argumentSuggestions.length,
-                commandSuggestionIndex,
+                rt.argumentSuggestions.length,
+                rt.commandSuggestionIndex,
                 Math.max(
                     3,
-                    renderer.height - SUGGESTIONS_RESERVED_ROWS
+                    rt.renderer.height - SUGGESTIONS_RESERVED_ROWS
                         - extensionBottomRows,
                 ),
             );
-            commandSuggestionsText.content = renderTuiArgumentSuggestions(
-                argumentSuggestions.slice(
+            rt.commandSuggestionsText.content = renderTuiArgumentSuggestions(
+                rt.argumentSuggestions.slice(
                     window.start,
                     window.start + window.rows,
                 ),
-                commandSuggestionIndex - window.start,
+                rt.commandSuggestionIndex - window.start,
             );
-            commandSuggestionsBox.height = Math.max(1, window.rows) + 1;
-            commandSuggestionsBox.visible = argumentSuggestions.length > 0
+            rt.commandSuggestionsBox.height = Math.max(1, window.rows) + 1;
+            rt.commandSuggestionsBox.visible = rt.argumentSuggestions.length > 0
                 && overlaysClearOfSuggestions();
             return;
         }
-        argumentSuggestions = [];
-        const suggestions = availableCommandSuggestions(composer.plainText);
-        if (composer.plainText !== "/") {
+        rt.argumentSuggestions = [];
+        const suggestions = availableCommandSuggestions(rt.composer.plainText);
+        if (rt.composer.plainText !== "/") {
             // A list that just opened has a first row, not a chosen one.
-            commandSuggestionMoved = false;
+            rt.commandSuggestionMoved = false;
         }
-        commandSuggestionIndex = Math.min(
-            commandSuggestionIndex,
+        rt.commandSuggestionIndex = Math.min(
+            rt.commandSuggestionIndex,
             Math.max(0, suggestions.length - 1),
         );
-        const selected = composer.plainText === "/"
-            ? commandSuggestionIndex
+        const selected = rt.composer.plainText === "/"
+            ? rt.commandSuggestionIndex
             : -1;
         // The transcript, the composer and the status rows all want the same
         // screen. What is left over is what the list may take, and it never
@@ -15867,15 +15705,15 @@ export async function startTui(
         // The unfiltered list is grouped by where each command came from; a
         // half-typed name is one flat run, where the group column would be
         // dead width and the gaps would separate nothing.
-        const grouped = composer.plainText === "/";
+        const grouped = rt.composer.plainText === "/";
         // Less the box's own margin and padding, or the last word of a
         // just-too-long row wraps anyway. The renderer reports the whole
         // terminal even when the workspace rail has reserved its left side,
         // so the rail has to come out of the same budget.
         const suggestionWidth = tuiCommandSuggestionWidth(
-            renderer.width,
-            composerHorizontalInset,
-            workspaceSidebarView.railColumns() ?? 0,
+            rt.renderer.width,
+            rt.composerHorizontalInset,
+            rt.workspaceSidebarView.railColumns() ?? 0,
         );
         // Below a rail-narrowed strip the group column and a description
         // cannot both fit beside the command names, so the list drops to a
@@ -15887,7 +15725,7 @@ export async function startTui(
             selected,
             Math.max(
                 3,
-                renderer.height - SUGGESTIONS_RESERVED_ROWS
+                rt.renderer.height - SUGGESTIONS_RESERVED_ROWS
                     - extensionBottomRows
                     - tuiSuggestionGaps(suggestions, grouped, compact),
             ),
@@ -15896,7 +15734,7 @@ export async function startTui(
             window.start,
             window.start + window.rows,
         );
-        commandSuggestionsText.content = renderTuiCommandSuggestions(
+        rt.commandSuggestionsText.content = renderTuiCommandSuggestions(
             visible,
             selected < 0 ? -1 : selected - window.start,
             suggestionWidth,
@@ -15904,7 +15742,7 @@ export async function startTui(
             grouped,
             compact,
         );
-        commandSuggestionsBox.height = suggestions.length > 0
+        rt.commandSuggestionsBox.height = suggestions.length > 0
             ? window.rows + tuiSuggestionGaps(visible, grouped, compact)
                 + (window.hidden > 0 ? 1 : 0) + 1
             : 1;
@@ -15915,16 +15753,16 @@ export async function startTui(
             // One line, under the composer, from an extension the user chose
             // to install. Core never reads composer text; this does, and it
             // only exists because installing the extension said it could.
-            commandSuggestionsText.content = new StyledText([
+            rt.commandSuggestionsText.content = new StyledText([
                 fg(TUI_MUTED)(
                     `${suggester.hint} · enter switch to ${suggester.agent} · esc dismiss`,
                 ),
             ]);
-            commandSuggestionsBox.height = 2;
-            commandSuggestionsBox.visible = overlaysClearOfSuggestions();
+            rt.commandSuggestionsBox.height = 2;
+            rt.commandSuggestionsBox.visible = overlaysClearOfSuggestions();
             return;
         }
-        commandSuggestionsBox.visible = suggestions.length > 0
+        rt.commandSuggestionsBox.visible = suggestions.length > 0
             && overlaysClearOfSuggestions();
     }
 
@@ -15944,19 +15782,19 @@ export async function startTui(
         | undefined
     {
         return findActiveComposeSuggester(
-            clientExtensionRegistry?.composeSuggesters() ?? [],
-            composer.plainText,
+            rt.clientExtensionRegistry?.composeSuggesters() ?? [],
+            rt.composer.plainText,
             focusedAgentState().agent?.name ?? "default",
-            dismissedComposeSuggesters,
+            rt.dismissedComposeSuggesters,
         );
     }
 
     function overlaysClearOfSuggestions(): boolean {
         return focusedUiRequest() === undefined
-            && timelinePicker === undefined
-            && settingsPicker === undefined
-            && commandPalette === undefined
-            && help === undefined;
+            && rt.timelinePicker === undefined
+            && rt.settingsPicker === undefined
+            && rt.commandPalette === undefined
+            && rt.help === undefined;
     }
 
     function finishStreamingAssistant(): void {
@@ -15975,12 +15813,12 @@ export async function startTui(
             }
             for (const child of node.getChildren()) settle(child);
         };
-        for (const node of entryNodes) {
+        for (const node of rt.entryNodes) {
             if (node !== undefined) settle(node);
         }
     }
 
-    return finished.promise;
+    return rt.finished.promise;
 
     async function copyTranscriptSelection(selection: Selection): Promise<void> {
         const text = selection.getSelectedText();
@@ -15989,8 +15827,8 @@ export async function startTui(
         }
 
         try {
-            await copyText(text);
-            if (shuttingDown) {
+            await rt.copyText(text);
+            if (rt.shuttingDown) {
                 return;
             }
             const count = countTuiCharacters(text);
@@ -16006,36 +15844,36 @@ export async function startTui(
      * say so somewhere still on screen.
      */
     function announceCopy(message: string): void {
-        if (experimentalTuiHost.showNotice(message)) return;
+        if (rt.experimentalTuiHost.showNotice(message)) return;
         showStatusNotice(message);
     }
 
     function showStatusNotice(message: string): void {
-        statusNotice = message;
-        statusNoticeVersion += 1;
-        const version = statusNoticeVersion;
+        rt.statusNotice = message;
+        rt.statusNoticeVersion += 1;
+        const version = rt.statusNoticeVersion;
         renderStatus();
 
         setTimeout(() => {
-            if (statusNoticeVersion !== version) {
+            if (rt.statusNoticeVersion !== version) {
                 return;
             }
-            statusNotice = undefined;
+            rt.statusNotice = undefined;
             renderStatus();
         }, COPY_NOTICE_DURATION_MS);
     }
 
     function showModeToast(message: string): void {
-        modeToastVersion += 1;
-        const version = modeToastVersion;
-        modeToastText.content = message;
-        modeToast.width = message.length + 4;
+        rt.modeToastVersion += 1;
+        const version = rt.modeToastVersion;
+        rt.modeToastText.content = message;
+        rt.modeToast.width = message.length + 4;
         // Above the overlay when one is open, so the toast is not painted
         // behind the card that prompted it.
-        modeToast.visible = true;
+        rt.modeToast.visible = true;
         setTimeout(() => {
-            if (modeToastVersion !== version) return;
-            modeToast.visible = false;
+            if (rt.modeToastVersion !== version) return;
+            rt.modeToast.visible = false;
         }, MODE_TOAST_DURATION_MS);
     }
 
@@ -16043,7 +15881,7 @@ export async function startTui(
         requestId: string,
         subject: string,
     ): void {
-        verificationConsole = { requestId, subject };
+        rt.verificationConsole = { requestId, subject };
     }
 
     /**
@@ -16053,14 +15891,14 @@ export async function startTui(
      * ask the console rather than assume a size it no longer has.
      */
     function verificationConsoleRows(): number {
-        if (settingsPicker?.kind !== "model") return 0;
+        if (rt.settingsPicker?.kind !== "model") return 0;
         const shown = liveVerificationConsole();
         return shown === undefined ? 0 : verificationConsoleLines(shown);
     }
 
     function hideVerificationConsole(requestId: string): void {
-        if (verificationConsole?.requestId !== requestId) return;
-        verificationConsole = undefined;
+        if (rt.verificationConsole?.requestId !== requestId) return;
+        rt.verificationConsole = undefined;
     }
 
     /**
@@ -16068,22 +15906,22 @@ export async function startTui(
      * rather than sitting on a spinner that will never turn again.
      */
     function dropSettledVerificationConsole(): void {
-        if (verificationConsole === undefined) return;
-        const admission = state.admission;
+        if (rt.verificationConsole === undefined) return;
+        const admission = rt.state.admission;
         if (
-            admission?.requestId === verificationConsole.requestId
+            admission?.requestId === rt.verificationConsole.requestId
             && admission.settled === true
         ) {
-            verificationConsole = undefined;
+            rt.verificationConsole = undefined;
         }
     }
 
     /** The checks reported so far for the run the console is showing. */
     function liveVerificationConsole() {
-        const shown = verificationConsole;
+        const shown = rt.verificationConsole;
         if (shown === undefined) return undefined;
-        const admission = state.admission?.requestId === shown.requestId
-            ? state.admission
+        const admission = rt.state.admission?.requestId === shown.requestId
+            ? rt.state.admission
             : undefined;
         if (admission?.settled === true) return undefined;
         return {
@@ -16107,9 +15945,9 @@ export async function startTui(
      */
     function renderJumpToBottom(resumeFollow = true): void {
         const following = tuiTranscriptAtBottom(
-            transcript.scrollTop,
-            transcript.scrollHeight,
-            transcript.viewport.height,
+            rt.transcript.scrollTop,
+            rt.transcript.scrollHeight,
+            rt.transcript.viewport.height,
         );
         // OpenTUI's wheel handler marks every wheel event as manual after it
         // updates scrollTop, including the event that reaches the bottom. If
@@ -16120,37 +15958,37 @@ export async function startTui(
         // A keyboard scroll moves by an exact number of rows and passes false,
         // because snapping back would undo the row it just moved.
         if (following && resumeFollow) {
-            transcript.scrollTo(transcript.scrollHeight);
+            rt.transcript.scrollTo(rt.transcript.scrollHeight);
         }
         const visible = !following && !anyOverlayOpen();
-        jumpToBottom.visible = visible;
+        rt.jumpToBottom.visible = visible;
         if (!visible) {
             return;
         }
-        jumpToBottom.top = commandSuggestionsBox.visible
+        rt.jumpToBottom.top = rt.commandSuggestionsBox.visible
             ? Math.min(
-                transcript.y + transcript.height - 1,
-                commandSuggestionsBox.y - 1,
+                rt.transcript.y + rt.transcript.height - 1,
+                rt.commandSuggestionsBox.y - 1,
             )
-            : transcript.y + transcript.height - 1;
-        jumpToBottom.left = Math.max(
+            : rt.transcript.y + rt.transcript.height - 1;
+        rt.jumpToBottom.left = Math.max(
             0,
-            transcript.x + transcript.width - JUMP_TO_BOTTOM_LABEL.length - 2,
+            rt.transcript.x + rt.transcript.width - rt.JUMP_TO_BOTTOM_LABEL.length - 2,
         );
     }
 
     function renderSidebarJump(): void {
-        const visible = sidebar.isShown() && !sidebar.isFollowing()
+        const visible = rt.sidebar.isShown() && !rt.sidebar.isFollowing()
             && !anyOverlayOpen();
-        sidebarJump.visible = visible;
+        rt.sidebarJump.visible = visible;
         if (!visible) {
             return;
         }
-        const region = sidebar.bounds();
-        sidebarJump.top = region.y + region.height - 1;
-        sidebarJump.left = Math.max(
+        const region = rt.sidebar.bounds();
+        rt.sidebarJump.top = region.y + region.height - 1;
+        rt.sidebarJump.left = Math.max(
             0,
-            region.x + region.width - SIDEBAR_JUMP_LABEL.length - 1,
+            region.x + region.width - rt.SIDEBAR_JUMP_LABEL.length - 1,
         );
     }
 
@@ -16159,17 +15997,17 @@ export async function startTui(
      * the mark blinks and nothing else is changing while it does.
      */
     function renderPendingQuote(): void {
-        const quote = pendingQuote;
-        quoteText.visible = quote !== undefined && !anyOverlayOpen();
-        setComposerMargin(quoteText.visible ? 3 : 2);
+        const quote = rt.pendingQuote;
+        rt.quoteText.visible = quote !== undefined && !anyOverlayOpen();
+        setComposerMargin(rt.quoteText.visible ? 3 : 2);
         if (quote === undefined) {
-            quoteText.content = "";
+            rt.quoteText.content = "";
             return;
         }
         const { facts, keys } = renderTuiQuote(quote);
         // Indented by hand: the line is one row in a column that does not pad
         // its children, and it has to start where the composer's text starts.
-        quoteText.content = new StyledText([
+        rt.quoteText.content = new StyledText([
             fg(TUI_ACCENT)(`${tuiQuoteMarker(Date.now())} `),
             fg(TUI_MUTED)(`${facts} · `),
             fg(TUI_ACCENT)(keys),
@@ -16178,17 +16016,17 @@ export async function startTui(
 
     /** The pinned line naming who the composer is holding for. */
     function renderHeldAddress(): void {
-        const { facts, keys } = renderTuiHeldAddress(extensionAddressee);
-        heldAddressText.visible = facts.length > 0 && !anyOverlayOpen();
+        const { facts, keys } = renderTuiHeldAddress(rt.extensionAddressee);
+        rt.heldAddressText.visible = facts.length > 0 && !anyOverlayOpen();
         if (facts.length === 0) {
-            heldAddressText.content = "";
+            rt.heldAddressText.content = "";
             return;
         }
         // Indented by hand: the row sits in a column that does not pad its
         // children, and it has to start where the composer's text starts.
-        heldAddressText.content = new StyledText([
+        rt.heldAddressText.content = new StyledText([
             fg(TUI_MUTED)(
-                `${" ".repeat(appearance.composerMarginHorizontal)}${facts} · `,
+                `${" ".repeat(rt.appearance.composerMarginHorizontal)}${facts} · `,
             ),
             fg(TUI_ACCENT)(keys),
         ]);
@@ -16207,8 +16045,8 @@ export async function startTui(
             : settings?.provider === undefined
             ? model
             : `${settings.provider}/${model}`;
-        const contentWidth = Math.max(1, width - composerHorizontalInset);
-        const indent = " ".repeat(composerContentIndent);
+        const contentWidth = Math.max(1, width - rt.composerHorizontalInset);
+        const indent = " ".repeat(rt.composerContentIndent);
         if (left.length + right.length + 3 <= contentWidth) {
             return `${indent}${left}${" ".repeat(contentWidth - left.length - right.length)}${right}`;
         }
@@ -16219,59 +16057,59 @@ export async function startTui(
     }
 
     function renderStatus(): void {
-        if (shuttingDown) {
+        if (rt.shuttingDown) {
             return;
         }
         const statusState = focusedAgentState();
         const uiRequest = focusedUiRequest();
-        const focusedSide = sidebar.isFocused() ? hostedSidebar.pane : undefined;
+        const focusedSide = rt.sidebar.isFocused() ? rt.hostedSidebar.pane : undefined;
         const focusedAbort = focusedAbortRequested();
-        const focusedActivity = focusedSide?.state.activity ?? activity;
+        const focusedActivity = focusedSide?.state.activity ?? rt.activity;
         const focusedElapsed = focusedSide?.state.elapsedWorkingTime()
             ?? elapsedWorkingTime();
-        const layout = sidebar.layout();
-        const sideState = hostedSidebar.pane?.state.state;
+        const layout = rt.sidebar.layout();
+        const sideState = rt.hostedSidebar.pane?.state.state;
         const paneHeadersVisible = !anyOverlayOpen();
-        const sideWidth = sidebar.width();
+        const sideWidth = rt.sidebar.width();
         // The renderer still reports the whole terminal once the workspace
         // rail has reserved its left side (see `tuiCommandSuggestionWidth`'s
         // note above), so the HUD and status rows below the composer have to
         // come out of the same budget or their content overruns the box the
         // rail already narrowed them to.
-        const railInset = workspaceSidebarView.railColumns() ?? 0;
-        const mainWidth = Math.max(1, renderer.width - sideWidth - 1);
+        const railInset = rt.workspaceSidebarView.railColumns() ?? 0;
+        const mainWidth = Math.max(1, rt.renderer.width - sideWidth - 1);
         // Beside a second pane the row names each one, because the point of the
         // row is telling the two columns apart. Alone it carries the session
         // title, which is the only thing left worth putting there.
-        sidebar.setMainHeader(!paneHeadersVisible || !mainHeaderVisible
+        rt.sidebar.setMainHeader(!paneHeadersVisible || !rt.mainHeaderVisible
             ? undefined
-            : hostedSidebar.pane !== undefined
+            : rt.hostedSidebar.pane !== undefined
             ? paneHeaderText(
                 "Vera",
-                state.approvalMode,
-                state.modelSettings,
-                layout === "split" ? mainWidth : renderer.width,
+                rt.state.approvalMode,
+                rt.state.modelSettings,
+                layout === "split" ? mainWidth : rt.renderer.width,
             )
-            : sessionTitle !== undefined
-            ? `  Session: ${sessionTitle}`
+            : rt.sessionTitle !== undefined
+            ? `  Session: ${rt.sessionTitle}`
             : undefined);
-        sidebar.setHeader(
+        rt.sidebar.setHeader(
             paneHeadersVisible
-                && sidebarHeaderVisible
-                && hostedSidebar.pane !== undefined
+                && rt.sidebarHeaderVisible
+                && rt.hostedSidebar.pane !== undefined
                 && sideState !== undefined
             ? paneHeaderText(
-                sidebarSessionTitle
-                    ?? hostedSidebar.mention
-                    ?? hostedSidebar.pane!.agentId,
+                rt.sidebarSessionTitle
+                    ?? rt.hostedSidebar.mention
+                    ?? rt.hostedSidebar.pane!.agentId,
                 sideState.approvalMode,
                 sideState.modelSettings,
-                layout === "split" ? sideWidth : renderer.width,
+                layout === "split" ? sideWidth : rt.renderer.width,
             )
             : undefined);
         const workingHint = focusedSide === undefined
             ? WORKING_HINT
-            : `esc stop ${hostedSidebar.mention ?? focusedSide.agentId}`
+            : `esc stop ${rt.hostedSidebar.mention ?? focusedSide.agentId}`
                 + ` · ${tuiKeyHint("interrupt")}`;
         renderPendingQuote();
         renderHeldAddress();
@@ -16280,15 +16118,15 @@ export async function startTui(
 
         let lifecycleHint = renderTuiIdleHint(
             READY_HINT,
-            runningBackgroundAgents,
+            rt.runningBackgroundAgents,
         );
-        if (sessionSwitchPending) {
-            lifecycleHint = sessionSwitchActivity;
-        } else if (connectionFailed) {
+        if (rt.sessionSwitchPending) {
+            lifecycleHint = rt.sessionSwitchActivity;
+        } else if (rt.connectionFailed) {
             lifecycleHint = `disconnected${
-                connectionFailure === undefined
+                rt.connectionFailure === undefined
                     ? ""
-                    : `: ${shortConnectionFailure(connectionFailure)}`
+                    : `: ${shortConnectionFailure(rt.connectionFailure)}`
             } · /reconnect · ctrl+c quit`;
         } else if (focusedAbort) {
             lifecycleHint = `${STOPPING_HINT} · ${focusedElapsed}`;
@@ -16317,77 +16155,77 @@ export async function startTui(
                     + ` · ${focusedElapsed}`
                 : `${modelActivity === undefined ? focusedActivity : "thinking"}`
                     + ` · ${focusedElapsed}`;
-        } else if (pendingImages.some((image) => image.id === undefined)) {
+        } else if (rt.pendingImages.some((image) => image.id === undefined)) {
             lifecycleHint = "attaching image…";
-        } else if (promptSubmitting) {
-            lifecycleHint = pendingSkillInvocations.size > 0
+        } else if (rt.promptSubmitting) {
+            lifecycleHint = rt.pendingSkillInvocations.size > 0
                 ? "invoking skill…"
                 : "sending prompt with image…";
-        } else if (extensionCommandPending) {
+        } else if (rt.extensionCommandPending) {
             lifecycleHint =
-                `${extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
-        } else if (pendingImages.length > 0) {
-            lifecycleHint = `${pendingImages.length} image${pendingImages.length === 1 ? "" : "s"} attached · enter send`;
+                `${rt.extensionCommandActivity ?? "running extension command"} · ctrl+c quit`;
+        } else if (rt.pendingImages.length > 0) {
+            lifecycleHint = `${rt.pendingImages.length} image${rt.pendingImages.length === 1 ? "" : "s"} attached · enter send`;
         }
 
         if (
-            isWorkerFreeClient(client)
-            && !sessionSwitchPending
-            && !connectionFailed
+            isWorkerFreeClient(rt.client)
+            && !rt.sessionSwitchPending
+            && !rt.connectionFailed
         ) {
             lifecycleHint = "";
         }
 
-        statusText.fg = statusState.approvalMode === "full_access"
-            ? theme.critical
-            : statusNotice !== undefined
+        rt.statusText.fg = statusState.approvalMode === "full_access"
+            ? rt.theme.critical
+            : rt.statusNotice !== undefined
             ? TUI_NOTICE
             : statusState.working
                     || statusState.compactingSince !== undefined
                     || uiRequest !== undefined
-                    || extensionCommandPending
+                    || rt.extensionCommandPending
                 ? TUI_ACCENT
                 : TUI_MUTED;
-        const hostedControls = hostedSidebar.pane === undefined
+        const hostedControls = rt.hostedSidebar.pane === undefined
             ? []
             : [
-                `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} mode`,
-                sidebar.layout() === "split"
+                `${rt.hostedSidebar.modeLabel ?? rt.hostedSidebar.mention ?? "agent"} mode`,
+                rt.sidebar.layout() === "split"
                     ? "split"
-                    : sidebar.layout() === "sidebar"
-                    ? `${hostedSidebar.modeLabel ?? hostedSidebar.mention ?? "agent"} only`
+                    : rt.sidebar.layout() === "sidebar"
+                    ? `${rt.hostedSidebar.modeLabel ?? rt.hostedSidebar.mention ?? "agent"} only`
                     : "vera only",
                 "ctrl+\\ layout",
-                ...(sidebar.layout() === "split"
-                    ? [sidebar.isFocused()
+                ...(rt.sidebar.layout() === "split"
+                    ? [rt.sidebar.isFocused()
                         ? "ctrl+g vera"
-                        : `ctrl+g ${hostedSidebar.mention ?? hostedSidebar.pane.agentId}`]
+                        : `ctrl+g ${rt.hostedSidebar.mention ?? rt.hostedSidebar.pane.agentId}`]
                     : []),
             ];
         const placeIdle = !focusedAbort
             && !statusState.working
             && statusState.compactingSince === undefined
             && uiRequest === undefined
-            && !sessionSwitchPending
-            && !connectionFailed
-            && !promptSubmitting
-            && !extensionCommandPending
-            && pendingImages.length === 0
-            && !isWorkerFreeClient(client);
+            && !rt.sessionSwitchPending
+            && !rt.connectionFailed
+            && !rt.promptSubmitting
+            && !rt.extensionCommandPending
+            && rt.pendingImages.length === 0
+            && !isWorkerFreeClient(rt.client);
         const hostedModeStatus = tuiPlaceRowModeLine(
             READY_HINT,
             placeIdle,
             hostedControls,
         );
-        hostedModeText.content = hostedModeStatus;
-        hostedModeText.visible = hostedModeStatus.length > 0;
+        rt.hostedModeText.content = hostedModeStatus;
+        rt.hostedModeText.visible = hostedModeStatus.length > 0;
         const statusLine = [
             tuiDevInstancePrefix(),
-            statusNotice ?? lifecycleHint,
+            rt.statusNotice ?? lifecycleHint,
         ].filter((part) => part.length > 0).join(" ");
-        statusText.visible = !(approvalView.box.visible
-            || questionView.box.visible);
-        const quietActivity = statusNotice === undefined
+        rt.statusText.visible = !(rt.approvalView.box.visible
+            || rt.questionView.box.visible);
+        const quietActivity = rt.statusNotice === undefined
             && !statusState.working
             && uiRequest === undefined
             && lifecycleHint === READY_HINT;
@@ -16398,12 +16236,12 @@ export async function startTui(
             : "";
         const dialWidth = Math.max(
             1,
-            renderer.width - composerHorizontalInset - railInset,
+            rt.renderer.width - rt.composerHorizontalInset - railInset,
         );
-        const stripLines = dialStrip === undefined
+        const stripLines = rt.dialStrip === undefined
             ? undefined
             : renderDialStrip(
-                dialStrip,
+                rt.dialStrip,
                 [
                     "↑/↓ lane",
                     `${tuiKeyChord("dials.pair.prev")}/${
@@ -16415,41 +16253,41 @@ export async function startTui(
                 dialWidth,
                 // A hidden-model ellipsis already spends the next row. Let an
                 // actual model use that row when the full composition fits.
-                Math.max(3, Math.min(DIAL_HUD_CAP, renderer.height - 22)),
+                Math.max(3, Math.min(DIAL_HUD_CAP, rt.renderer.height - 22)),
             );
-        dialCard.visible = stripLines !== undefined;
-        dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
+        rt.dialCard.visible = stripLines !== undefined;
+        rt.dialCard.backgroundColor = TUI_HUD?.background ?? TUI_PANEL;
         const hudRows = stripLines?.slice(0, -1) ?? [];
-        dialCardTitle.height = Math.max(1, hudRows.length);
-        dialCard.height = hudRows.length + 3;
+        rt.dialCardTitle.height = Math.max(1, hudRows.length);
+        rt.dialCard.height = hudRows.length + 3;
         const hudBg = TUI_HUD?.background ?? TUI_PANEL;
         const hudText = TUI_HUD?.text ?? TUI_TEXT;
         const hudMuted = TUI_HUD?.muted ?? TUI_MUTED;
         const hudAccent = TUI_HUD?.accent ?? TUI_ACCENT;
         const hudNotice = TUI_HUD?.notice ?? TUI_NOTICE;
         const hudSuccess = TUI_HUD?.success ?? VERA_TUI_THEME.success;
-        dialCardTitle.content = new StyledText(
-            paintDialHud(hudRows, dialStrip?.lane, {
+        rt.dialCardTitle.content = new StyledText(
+            paintDialHud(hudRows, rt.dialStrip?.lane, {
                 text: hudText,
                 muted: hudMuted,
                 accent: hudAccent,
                 notice: hudNotice,
                 background: hudBg,
                 success: TUI_HUD?.success ?? TUI_SUCCESS,
-                secondary: theme.secondary,
+                secondary: rt.theme.secondary,
                 accessAsk: VERA_TUI_THEME.accent,
                 accessAuto: VERA_TUI_THEME.hud?.auto
                     ?? VERA_TUI_THEME.success,
             }, {
-                effortPending: dialStrip === undefined
+                effortPending: rt.dialStrip === undefined
                     ? false
-                    : dialEffortPending(dialStrip),
-                autoAnimation: autoModeAnimationStartedAt === undefined
+                    : dialEffortPending(rt.dialStrip),
+                autoAnimation: rt.autoModeAnimationStartedAt === undefined
                     ? undefined
                     : {
                         progress: Math.min(
                             1,
-                            (Date.now() - autoModeAnimationStartedAt)
+                            (Date.now() - rt.autoModeAnimationStartedAt)
                             / AUTO_MODE_ANIMATION_DURATION_MS,
                         ),
                         width: dialWidth,
@@ -16467,36 +16305,36 @@ export async function startTui(
         );
         const dialHintParts = (stripLines?.at(-1) ?? "")
             .split(DIAL_EXIT_SEPARATOR);
-        dialCardHint.content = stripLines === undefined
+        rt.dialCardHint.content = stripLines === undefined
             ? ""
             : new StyledText([
                 fg(hudMuted)(dialHintParts[0] ?? ""),
                 fg(hudNotice)(dialHintParts[1] ?? ""),
             ]);
-        activityHintText.content = activityHint;
-        activityHintText.visible = statusText.visible
+        rt.activityHintText.content = activityHint;
+        rt.activityHintText.visible = rt.statusText.visible
             && activityHint.length > 0;
         // Pull on repaint: the renderer is handed the snapshot and answers
         // synchronously, or it does not answer at all. Nothing here waits on
         // an extension, and a renderer that fails leaves the built-in line.
-        const extensionSegments = clientExtensionRegistry?.renderStatusLine(
+        const extensionSegments = rt.clientExtensionRegistry?.renderStatusLine(
             tuiStatusSnapshot(
                 statusState.modelSettings,
                 statusState.approvalMode,
                 statusState.context,
                 process.cwd(),
-                runningBackgroundAgents,
-                state.working
+                rt.runningBackgroundAgents,
+                rt.state.working
                     ? "working"
                     : uiRequest === undefined
                         ? "idle"
                         : "waiting",
             ),
         );
-        const statusDetailsRows: TuiStatusChunk[][] = isWorkerFreeClient(client)
+        const statusDetailsRows: TuiStatusChunk[][] = isWorkerFreeClient(rt.client)
             ? renderTuiFileViewStatusRows(
-                client.workspace ?? process.cwd(),
-                workspaceBranch.current(),
+                rt.client.workspace ?? process.cwd(),
+                rt.workspaceBranch.current(),
             )
             : extensionSegments === undefined
             ? renderTuiStatusDetailsRows(
@@ -16506,8 +16344,8 @@ export async function startTui(
                     process.cwd(),
                     0,
                     statusState.effortSubstitution,
-                    hostedSidebar.pane === undefined,
-                    workspaceBranch.current(),
+                    rt.hostedSidebar.pane === undefined,
+                    rt.workspaceBranch.current(),
                     {
                         // `*` reads off the recorded origin, so dialling back
                         // to the default clears it on every path.
@@ -16524,13 +16362,13 @@ export async function startTui(
                             ? {}
                             : { fallbackTo: statusState.modelFallback.to }),
                     },
-                    workIndex?.needs_you ?? 0,
-                    Math.max(1, renderer.width - composerHorizontalInset - railInset),
+                    rt.workIndex?.needs_you ?? 0,
+                    Math.max(1, rt.renderer.width - rt.composerHorizontalInset - railInset),
                 )
             : [[{
                     tone: "muted",
                     text: renderTuiStatusSegments(
-                        hostedSidebar.pane === undefined
+                        rt.hostedSidebar.pane === undefined
                             ? extensionSegments
                             : extensionSegments.filter((segment) =>
                                 segment.kind !== "permissions"
@@ -16540,25 +16378,25 @@ export async function startTui(
         // Hosted-pane controls live at the bottom right beside the workspace
         // row. The activity row above can then change without hiding them.
         const detailsRows = statusDetailsRows;
-        const runningNames = runningBackgroundAgentNames.map((name) =>
+        const runningNames = rt.runningBackgroundAgentNames.map((name) =>
             truncateFooterLine(
                 `* ${name}`,
-                Math.min(72, renderer.width - composerHorizontalInset - railInset),
+                Math.min(72, rt.renderer.width - rt.composerHorizontalInset - railInset),
             )
         );
         // The card's own inner width, past the band's indent, its border and
         // its padding: notices and rules stop at the same right edge.
         const cardWidth = Math.max(
             1,
-            renderer.width - composerHorizontalInset - railInset,
+            rt.renderer.width - rt.composerHorizontalInset - railInset,
         );
-        const nudgeIndicator = isHomeClient(client) || isWorkerFreeClient(client)
+        const nudgeIndicator = isHomeClient(rt.client) || isWorkerFreeClient(rt.client)
             ? undefined
-            : standingNudgeIndicatorRow(standingNudgeRules, {
+            : standingNudgeIndicatorRow(rt.standingNudgeRules, {
                 agent: statusState.agent?.name ?? "default",
                 workspace: focusedAgentClient().workspace ?? "",
             }, cardWidth);
-        const agentSection = currentAgentHasParent
+        const agentSection = rt.currentAgentHasParent
             ? ["/parent to return"]
             : runningNames.length === 0
                 ? []
@@ -16571,14 +16409,14 @@ export async function startTui(
         const agentHeader = agentSection[0] ?? "";
         const animatedAgentHeader = runningNames.length === 0
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
-            : activityAnimation === "off"
+            : rt.activityAnimation === "off"
             ? new StyledText([fg(TUI_MUTED)(agentHeader)])
             : renderTuiSpokes(
                 activityFrame(),
                 agentHeader,
                 {
                     active: TUI_ACCENT,
-                    trail: theme.activityTrail,
+                    trail: rt.theme.activityTrail,
                     inactive: TUI_ELEMENT,
                     text: TUI_MUTED,
                 },
@@ -16591,12 +16429,12 @@ export async function startTui(
         // under the frame.
         const insideRow = detailsRows[0] ?? [];
         const outsideRows = detailsRows.slice(1);
-        composerStatusText.content = new StyledText(
+        rt.composerStatusText.content = new StyledText(
             insideRow.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
         );
-        needsYouChipWidth = needsYouChipColumns(
+        rt.needsYouChipWidth = needsYouChipColumns(
             insideRow,
-            workIndex?.needs_you ?? 0,
+            rt.workIndex?.needs_you ?? 0,
         );
         const detailChunks = outsideRows.flatMap((row, index) => [
             ...row.map((chunk) => fg(statusToneColor(chunk.tone))(chunk.text)),
@@ -16604,11 +16442,11 @@ export async function startTui(
                 ? []
                 : [fg(TUI_MUTED)("\n"), rule("─")]),
         ]);
-        backgroundStatusText.content = new StyledText(detailChunks);
+        rt.backgroundStatusText.content = new StyledText(detailChunks);
         // Text nodes lay their content out from column zero, so the notice
         // carries the indent the band gets as padding.
-        const noticeIndent = " ".repeat(composerContentIndent);
-        agentNoticeText.content = nudgeIndicator === undefined &&
+        const noticeIndent = " ".repeat(rt.composerContentIndent);
+        rt.agentNoticeText.content = nudgeIndicator === undefined &&
                 agentSection.length === 0
             ? new StyledText([])
             : new StyledText([
@@ -16639,13 +16477,13 @@ export async function startTui(
                         ),
                     ]),
             ]);
-        agentNoticeRows = agentSection.length +
+        rt.agentNoticeRows = agentSection.length +
             (nudgeIndicator === undefined ? 0 : 1);
-        agentNoticeText.height = Math.max(1, agentNoticeRows);
-        agentNoticeText.visible = agentNoticeRows > 0;
+        rt.agentNoticeText.height = Math.max(1, rt.agentNoticeRows);
+        rt.agentNoticeText.visible = rt.agentNoticeRows > 0;
         // A rule separates each pair of status rows under the frame.
         const cardRows = Math.max(1, outsideRows.length * 2 - 1);
-        backgroundStatusText.height = cardRows;
+        rt.backgroundStatusText.height = cardRows;
         // The band's own rows, which the composer sits straight on top of with
         // no gutter of its own: the card, its border lines, and whichever
         // status lines are showing above it. Nothing here varies, so the
@@ -16662,34 +16500,34 @@ export async function startTui(
             fg(TUI_MUTED)(` · ${MODEL_PICKER_HINT}`),
         ];
         if (
-            workspaceSidebar === undefined
-            && quietHintColumns() <= renderer.width - composerHorizontalInset
+            rt.workspaceSidebar === undefined
+            && quietHintColumns() <= rt.renderer.width - rt.composerHorizontalInset
         ) {
             quietHint.push(fg(TUI_MUTED)(` · ${SIDEBAR_HINT}`));
         }
-        statusText.content = quietActivity
+        rt.statusText.content = quietActivity
             ? new StyledText(quietHint)
             : statusState.working
-                && statusNotice === undefined
+                && rt.statusNotice === undefined
                 && uiRequest === undefined
                 && !focusedAbort
             ? renderTuiActivityAnimation(
-                activityAnimation,
+                rt.activityAnimation,
                 activityFrame(),
                 statusLine,
                 {
                     active: TUI_ACCENT,
                     // ActiveGrid has its own theme role instead of borrowing
                     // the success color.
-                    trail: activityAnimation === "shimmer"
+                    trail: rt.activityAnimation === "shimmer"
                         ? TUI_ELEMENT
-                        : theme.activityTrail,
+                        : rt.theme.activityTrail,
                     inactive: TUI_MUTED,
-                    text: state.approvalMode === "full_access"
-                        ? theme.critical
+                    text: rt.state.approvalMode === "full_access"
+                        ? rt.theme.critical
                         : TUI_ACCENT,
                 },
-                activityAnimationWidth,
+                rt.activityAnimationWidth,
             )
             : statusLine;
     }
@@ -16702,11 +16540,11 @@ export async function startTui(
      * paint after a switch is already right.
      */
     function watchBackgroundAgents(next: TuiAgentClient): void {
-        stopWatchingBackgroundAgents?.();
-        stopWatchingBackgroundAgents = undefined;
+        rt.stopWatchingBackgroundAgents?.();
+        rt.stopWatchingBackgroundAgents = undefined;
         applyBackgroundAgents(next.backgroundAgents);
-        stopWatchingBackgroundAgents = next.onBackgroundAgents?.((agents) => {
-            if (client !== next || shuttingDown) {
+        rt.stopWatchingBackgroundAgents = next.onBackgroundAgents?.((agents) => {
+            if (rt.client !== next || rt.shuttingDown) {
                 return;
             }
             applyBackgroundAgents(agents);
@@ -16722,11 +16560,11 @@ export async function startTui(
      * whether or not this client happens to be looking at the inbox.
      */
     function watchWorkIndex(next: TuiAgentClient): void {
-        stopWatchingWorkIndex?.();
-        stopWatchingWorkIndex = undefined;
+        rt.stopWatchingWorkIndex?.();
+        rt.stopWatchingWorkIndex = undefined;
         applyWorkIndexSnapshot(next.workIndex, false);
-        stopWatchingWorkIndex = next.onWorkIndex?.((index) => {
-            if (client !== next || shuttingDown) return;
+        rt.stopWatchingWorkIndex = next.onWorkIndex?.((index) => {
+            if (rt.client !== next || rt.shuttingDown) return;
             applyWorkIndexSnapshot(index, true);
         });
     }
@@ -16741,13 +16579,13 @@ export async function startTui(
         announce: boolean,
     ): void {
         if (index === undefined) return;
-        const previous = workIndex;
-        workIndex = index;
-        if (workTab !== undefined) {
-            workTab = applyWorkIndex(workTab, index);
+        const previous = rt.workIndex;
+        rt.workIndex = index;
+        if (rt.workTab !== undefined) {
+            rt.workTab = applyWorkIndex(rt.workTab, index);
         }
-        if (workspaceSidebar !== undefined) {
-            workspaceSidebar = applyWorkspaceWorkIndex(workspaceSidebar, index);
+        if (rt.workspaceSidebar !== undefined) {
+            rt.workspaceSidebar = applyWorkspaceWorkIndex(rt.workspaceSidebar, index);
             // The same push carries the sessions that have gone and the ones
             // that have arrived, so the listing is read again here rather than
             // only when the pane is opened.
@@ -16756,7 +16594,7 @@ export async function startTui(
         if (announce) {
             const notice = attentionNotice(
                 newAttentionRows(previous, index),
-                terminalFocused,
+                rt.terminalFocused,
             );
             if (notice !== undefined) {
                 writeTerminal(attentionNoticeSequence(notice));
@@ -16782,55 +16620,55 @@ export async function startTui(
     function applyBackgroundAgents(
         agents: BackgroundAgentsSnapshot | undefined,
     ): void {
-        runningBackgroundAgents = agents?.running ?? 0;
+        rt.runningBackgroundAgents = agents?.running ?? 0;
         // A reconnect/resubscribe can land the same child twice in one
         // snapshot; each name gets its own spinner row, so a duplicate here
         // shows up as a stacked/overlapping animation on screen.
-        runningBackgroundAgentNames = [...new Set(agents?.children ?? [])];
-        currentAgentHasParent = agents?.has_parent ?? false;
+        rt.runningBackgroundAgentNames = [...new Set(agents?.children ?? [])];
+        rt.currentAgentHasParent = agents?.has_parent ?? false;
     }
 
     function observeActivity(update: AgentUpdate): void {
         emitExperimentalAgentEvent(update);
         if (update.type === "status" && update.state === "working") {
-            workingSince ??= Date.now();
-            phaseSince ??= workingSince;
-            activity = "thinking";
+            rt.workingSince ??= Date.now();
+            rt.phaseSince ??= rt.workingSince;
+            rt.activity = "thinking";
         } else if (update.type === "status" && update.state === "waiting") {
-            workingSince ??= Date.now();
-            phaseSince = undefined;
-            activity = "waiting";
+            rt.workingSince ??= Date.now();
+            rt.phaseSince = undefined;
+            rt.activity = "waiting";
         } else if (update.type === "status" && update.state === "idle") {
-            workingSince = undefined;
-            phaseSince = undefined;
-            activity = "ready";
+            rt.workingSince = undefined;
+            rt.phaseSince = undefined;
+            rt.activity = "ready";
         } else if (update.type === "model_activity") {
-            workingSince ??= Date.now();
+            rt.workingSince ??= Date.now();
             if (update.replacesPartialAttempt === true) {
-                phaseSince = undefined;
+                rt.phaseSince = undefined;
             }
-            activity = `retrying ${update.model}`;
+            rt.activity = `retrying ${update.model}`;
         } else if (update.type === "user_prompt") {
-            workingSince ??= Date.now();
-            phaseSince = Date.now();
-            activity = "thinking";
+            rt.workingSince ??= Date.now();
+            rt.phaseSince = Date.now();
+            rt.activity = "thinking";
         } else if (update.type === "assistant_thinking") {
             // Reasoning can resume after visible text, so each burst re-arms the
             // phase and earns its own summary line.
-            workingSince ??= Date.now();
-            phaseSince ??= Date.now();
-            activity = "thinking";
+            rt.workingSince ??= Date.now();
+            rt.phaseSince ??= Date.now();
+            rt.activity = "thinking";
         } else if (update.type === "assistant_delta") {
             finishThoughtPhase();
-            workingSince ??= Date.now();
-            activity = "responding";
+            rt.workingSince ??= Date.now();
+            rt.activity = "responding";
         } else if (update.type === "tool_started") {
             finishThoughtPhase();
-            workingSince ??= Date.now();
-            activity = `running ${update.tool}`;
+            rt.workingSince ??= Date.now();
+            rt.activity = `running ${update.tool}`;
         } else if (update.type === "tool_finished") {
-            activity = "thinking";
-            phaseSince = Date.now();
+            rt.activity = "thinking";
+            rt.phaseSince = Date.now();
         } else if (
             update.type === "turn_finished"
             || update.type === "agent_failed"
@@ -16840,22 +16678,22 @@ export async function startTui(
     }
 
     function finishThoughtPhase(): void {
-        if (activity !== "thinking" || phaseSince === undefined) {
-            state = dropTuiThinking(state);
+        if (rt.activity !== "thinking" || rt.phaseSince === undefined) {
+            rt.state = dropTuiThinking(rt.state);
             return;
         }
-        const seconds = Math.max(0, Date.now() - phaseSince) / 1_000;
-        state = appendTuiThought(state, seconds);
-        phaseSince = undefined;
+        const seconds = Math.max(0, Date.now() - rt.phaseSince) / 1_000;
+        rt.state = appendTuiThought(rt.state, seconds);
+        rt.phaseSince = undefined;
     }
 
     function elapsedWorkingTime(): string {
-        if (workingSince === undefined) {
+        if (rt.workingSince === undefined) {
             return "0s";
         }
         const elapsedSeconds = Math.max(
             0,
-            Math.floor((Date.now() - workingSince) / 1_000),
+            Math.floor((Date.now() - rt.workingSince) / 1_000),
         );
         const minutes = Math.floor(elapsedSeconds / 60);
         const seconds = elapsedSeconds % 60;
@@ -16865,10 +16703,10 @@ export async function startTui(
     }
 
     function activityFrame(): number {
-        const interval = activityAnimationInterval
-            ?? (activityAnimation === "shimmer"
+        const interval = rt.activityAnimationInterval
+            ?? (rt.activityAnimation === "shimmer"
                 ? SHIMMER_FRAME_INTERVAL_MS
-                : activityAnimation === "symmetric_wave"
+                : rt.activityAnimation === "symmetric_wave"
                 ? SYMMETRIC_WAVE_FRAME_INTERVAL_MS
                 : DEFAULT_ACTIVITY_FRAME_INTERVAL_MS);
         return Math.floor(Date.now() / interval);
@@ -16877,26 +16715,26 @@ export async function startTui(
     function emitExperimentalAgentEvent(update: AgentUpdate): void {
         switch (update.type) {
             case "user_prompt":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     text: update.content,
                 });
                 return;
             case "assistant_delta":
             case "assistant_thinking":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     text: update.text,
                 });
                 return;
             case "tool_started":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     tool: update.tool,
                 });
                 return;
             case "tool_finished":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     tool: update.tool,
                     ...(update.output === undefined
@@ -16908,13 +16746,13 @@ export async function startTui(
                 });
                 return;
             case "tool_presentation":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     tool: update.tool,
                 });
                 return;
             case "turn_finished":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     ...(update.error === undefined
                         ? {}
@@ -16922,7 +16760,7 @@ export async function startTui(
                 });
                 return;
             case "status":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     state: update.state === "working"
                         ? "working"
@@ -16930,7 +16768,7 @@ export async function startTui(
                 });
                 return;
             case "agent_failed":
-                experimentalTuiHost.agentEvent({
+                rt.experimentalTuiHost.agentEvent({
                     type: update.type,
                     text: update.detail.slice(0, 4_000),
                 });

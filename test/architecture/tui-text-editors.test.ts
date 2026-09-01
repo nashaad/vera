@@ -13,7 +13,7 @@ const ORDINARY_EDITOR_SURFACES = new Map<string, string>([
     ["clients/tui/timeline-picker.ts", "createDialogSearchNode("],
     ["clients/tui/settings-picker.ts", "createDialogSearchNode("],
     ["clients/tui/search-overlay.ts", "input: {"],
-    ["clients/tui/main.ts", 'createTuiLinesView(renderer, "search-overlay"'],
+    ["clients/tui/main.ts", 'createTuiLinesView(rt.renderer, "search-overlay"'],
 ]);
 
 const LEGACY_EDITOR_SYMBOLS = [
@@ -44,6 +44,13 @@ test("ordinary TUI fields stay on the composer's native editor path", async () =
         expect(source).toContain(nativePath);
         for (const legacy of LEGACY_EDITOR_SYMBOLS) {
             expect(source).not.toContain(legacy);
+        }
+    }
+
+    for await (const path of new Bun.Glob("clients/tui/main/**/*.ts").scan()) {
+        const source = await Bun.file(path).text();
+        for (const legacy of LEGACY_EDITOR_SYMBOLS) {
+            expect(source, path).not.toContain(legacy);
         }
     }
 });
