@@ -1,4 +1,4 @@
-"""Durable at-least-once workflow API.
+"""Halcyon, Vera's durable at-least-once workflow framework.
 
 If the process dies after the side effect and before the journal line is on
 disk, resume runs the step again. Users own idempotency, or they split work

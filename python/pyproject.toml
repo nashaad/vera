@@ -1,7 +1,7 @@
 [project]
 name = "vera"
 version = "0.0.0"
-description = "Vera Python SDK (workflow journal prototype)"
+description = "Vera Python SDK with the Halcyon durable workflow framework"
 requires-python = ">=3.11"
 
 [build-system]
