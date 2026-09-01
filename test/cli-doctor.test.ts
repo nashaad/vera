@@ -18,7 +18,7 @@ import {
     type VeraProcessSample,
 } from "../clients/process-doctor.ts";
 import { processIsAlive } from "../src/host/process-identity.ts";
-import { veraHomeDirectory, veraRuntimeDirectory } from "../src/profile-paths.ts";
+import { veraRuntimeDirectory } from "../src/profile-paths.ts";
 
 test("process parsing finds Vera hosts and clients without claiming other Bun work", () => {
     const samples = parseVeraProcessList(`
@@ -81,7 +81,6 @@ test("doctor flags extra hosts and only calls CPU sustained across both samples"
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => samples.shift() ?? [],
         wait: async () => {},
@@ -105,7 +104,6 @@ test("doctor summarizes a large quiet host count", () => {
     const processes = Array.from({ length: 12 }, (_, index) => ({
         ...processSample(300 + index, "host", 0),
         currentHost: false,
-        knownProfileHost: false,
         sustainedHighCpu: false,
         stray: false,
     }));
@@ -125,7 +123,6 @@ test("doctor reports one quiet current host as healthy", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -136,7 +133,7 @@ test("doctor reports one quiet current host as healthy", async () => {
     expect(renderVeraDoctor(report)).toContain("Result: healthy");
 });
 
-test("doctor omits an unlabeled extra host from this island", async () => {
+test("doctor omits an unlabeled extra host from this home", async () => {
     const sample = [
         processSample(200, "host", 0),
         processSample(201, "host", 0),
@@ -144,7 +141,6 @@ test("doctor omits an unlabeled extra host from this island", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200, 201]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -153,7 +149,7 @@ test("doctor omits an unlabeled extra host from this island", async () => {
 
     expect(report.healthy).toBe(true);
     expect(report.processes).toMatchObject([
-        { pid: 200, currentHost: true, knownProfileHost: false },
+        { pid: 200, currentHost: true },
     ]);
 });
 
@@ -166,17 +162,13 @@ test("doctor retries inconsistent ownership after host replacement", async () =>
     const ownership = [
         {
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         },
         {
             currentHostPid: 201,
-            knownProfileHostPids: new Set([201]),
         },
     ];
     const report = await diagnoseVeraProcesses({
-        readHostOwnership: async () => ownership.shift() ?? {
-            knownProfileHostPids: new Set(),
-        },
+        readHostOwnership: async () => ownership.shift() ?? {},
         sampleProcesses: async () => samples.shift() ?? [],
         wait: async () => {},
         doctorPid: 999,
@@ -185,46 +177,6 @@ test("doctor retries inconsistent ownership after host replacement", async () =>
     expect(report.healthy).toBe(true);
     expect(report.currentHostPid).toBe(201);
     expect(report.currentHostMissing).toBe(false);
-});
-
-test("doctor retries when another profile replaces its host", async () => {
-    const samples = [
-        [
-            processSample(200, "host", 0),
-            processSample(201, "host", 0),
-        ],
-        [
-            processSample(200, "host", 0),
-            processSample(202, "host", 0),
-        ],
-        [
-            processSample(200, "host", 0),
-            processSample(202, "host", 0),
-        ],
-    ];
-    const ownership = [
-        {
-            currentHostPid: 200,
-            knownProfileHostPids: new Set([200, 201]),
-        },
-        {
-            currentHostPid: 200,
-            knownProfileHostPids: new Set([200, 202]),
-        },
-    ];
-    const report = await diagnoseVeraProcesses({
-        readHostOwnership: async () => ownership.shift() ?? {
-            knownProfileHostPids: new Set(),
-        },
-        sampleProcesses: async () => samples.shift() ?? [],
-        wait: async () => {},
-        doctorPid: 999,
-    });
-
-    expect(report.healthy).toBe(true);
-    expect(report.processes).toMatchObject([
-        { pid: 200, currentHost: true },
-    ]);
 });
 
 test("doctor does not join CPU samples when a PID changes identity", async () => {
@@ -238,7 +190,6 @@ test("doctor does not join CPU samples when a PID changes identity", async () =>
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => samples.shift() ?? [],
         wait: async () => {},
@@ -256,7 +207,6 @@ test("doctor reports a busy known client without failing health", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -280,7 +230,6 @@ test("doctor flags an orphaned worker and test fixture as stray, not one with a 
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -317,7 +266,6 @@ test("doctor flags workers of a leftover host, not only pid-1 orphans", async ()
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -336,7 +284,7 @@ test("doctor flags workers of a leftover host, not only pid-1 orphans", async ()
     ]));
 });
 
-test("an unlabeled host is not a stray of another runtime island", async () => {
+test("an unlabeled host is not a stray of another home", async () => {
     const sample = [
         {
             ...processSample(200, "host", 0),
@@ -348,12 +296,11 @@ test("an unlabeled host is not a stray of another runtime island", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
         doctorPid: 999,
-        runtimeIsland: "/tmp/vera-keep",
+        runtimeDir: "/tmp/vera-keep",
     });
 
     expect(report.processes.map((process) => process.pid)).toEqual([200]);
@@ -382,7 +329,6 @@ test("doctor leaves a foreign isolated runtime alone", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -413,12 +359,11 @@ test("doctor flags leftovers inside the invoked isolated runtime", async () => {
     ];
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
-            knownProfileHostPids: new Set(),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
         doctorPid: 999,
-        runtimeIsland: "/tmp/vera-otps",
+        runtimeDir: "/tmp/vera-otps",
     });
 
     const strayByPid = new Map(
@@ -428,52 +373,12 @@ test("doctor flags leftovers inside the invoked isolated runtime", async () => {
     expect(strayByPid.get(501)).toBe(true);
 });
 
-test("doctor leaves a launcher-owned worktree runtime to its own island", async () => {
-    const sample = [
-        processSample(200, "host", 0),
-        {
-            ...processSample(500, "client", 0),
-            ppid: 499,
-            isolated: true,
-            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
-            worktreeRuntime: true,
-        },
-        {
-            ...processSample(501, "host", 0),
-            pid: 501,
-            ppid: 1,
-            pgid: 501,
-            isolated: true,
-            runtimeDir: "/tmp/vera-worktrees-501/aspol-a1b2c3d4e5",
-            worktreeRuntime: true,
-        },
-    ];
-    const report = await diagnoseVeraProcesses({
-        readHostOwnership: async () => ({
-            currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
-        }),
-        sampleProcesses: async () => sample,
-        wait: async () => {},
-        doctorPid: 999,
-    });
-
-    expect(report.healthy).toBe(true);
-    expect(new Map(
-        report.processes.map((process) => [process.pid, process.stray]),
-    )).toEqual(new Map([[200, false]]));
-    expect(renderVeraDoctor(report)).toContain(
-        "Resident host: PID 200",
-    );
-});
-
 test("process environment identifies a private home", () => {
     expect(veraRuntimeFromPsLine(
         "bun clients/host/main.ts VERA_HOME=/tmp/aspol",
     )).toEqual({
         isolated: true,
         runtimeDir: "/tmp/aspol/runtime",
-        worktreeRuntime: false,
     });
 });
 
@@ -482,38 +387,9 @@ test("a profile env does not name a second host runtime", () => {
         "bun clients/host/main.ts VERA_PROFILE=dev",
     )).toEqual({
         isolated: false,
-        worktreeRuntime: false,
     });
 });
 
-
-test("a worktree checkout path is not leftover of this island", async () => {
-    const sample = [
-        processSample(200, "host", 0),
-        {
-            ...processSample(201, "host", 0),
-            command: "bun /Users/nash/Projects/vera/.worktrees/flash/clients/host/main.ts",
-            isolated: true,
-            runtimeDir: "/tmp/vera-worktrees-501/flash-deadbeef",
-            worktreeRuntime: true,
-        },
-    ];
-    const report = await diagnoseVeraProcesses({
-        readHostOwnership: async () => ({
-            currentHostPid: 200,
-            knownProfileHostPids: new Set([200, 201]),
-        }),
-        sampleProcesses: async () => sample,
-        wait: async () => {},
-        doctorPid: 999,
-    });
-
-    const strayByPid = new Map(
-        report.processes.map((process) => [process.pid, process.stray]),
-    );
-    expect(strayByPid.get(200)).toBe(false);
-    expect(strayByPid.has(201)).toBe(false);
-});
 
 test("doctor does not stop a foreign runtime's host", async () => {
     const sample = [
@@ -533,12 +409,11 @@ test("doctor does not stop a foreign runtime's host", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
         doctorPid: 999,
-        runtimeIsland: "/tmp/vera-keep",
+        runtimeDir: "/tmp/vera-keep",
     });
 
     const strayByPid = new Map(
@@ -576,7 +451,6 @@ test("doctor lists the owned bun tree after healthy, titled and untitled", async
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         listWorkerSessions: async () => [
@@ -634,7 +508,6 @@ test("doctor counts eleven bun for four worker pairs plus watchdog", async () =>
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 20,
-            knownProfileHostPids: new Set([20]),
         }),
         sampleProcesses: async () => sample,
         listWorkerSessions: async () =>
@@ -671,7 +544,6 @@ test("doctor keeps strays out of Running now", async () => {
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         listWorkerSessions: async () => [
@@ -711,7 +583,6 @@ test("doctor lists an untitled worker when the host did not name it", async () =
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 200,
-            knownProfileHostPids: new Set([200]),
         }),
         sampleProcesses: async () => sample,
         wait: async () => {},
@@ -731,7 +602,6 @@ test("colorizeVeraDoctor leaves copyable text alone without color", () => {
         processes: [{
             ...processSample(200, "host", 0),
             currentHost: true,
-            knownProfileHost: false,
             sustainedHighCpu: false,
             stray: false,
         }],
@@ -776,7 +646,6 @@ test("stopStrayVeraProcesses kills a stray's process group", async () => {
             ...processSample(child.pid, "test_fixture", 0),
             pgid: child.pid,
             currentHost: false,
-            knownProfileHost: false,
             sustainedHighCpu: false,
             stray: true,
         };
@@ -812,7 +681,6 @@ test("a lock pid missing from the process listing is unknown, not dead", async (
     const report = await diagnoseVeraProcesses({
         readHostOwnership: async () => ({
             currentHostPid: 404,
-            knownProfileHostPids: new Set([404]),
         }),
         sampleProcesses: async () => [],
         wait: async () => {},

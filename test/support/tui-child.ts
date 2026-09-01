@@ -104,7 +104,6 @@ function doctorReport(pid: number): VeraDoctorReport {
             command: "bun clients/host/main.ts",
             kind: "host",
             currentHost: false,
-            knownProfileHost: false,
             sustainedHighCpu: true,
             stray: true,
         }],

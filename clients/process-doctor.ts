@@ -42,13 +42,10 @@ export interface VeraProcessSample {
      */
     readonly isolated?: boolean;
     readonly runtimeDir?: string;
-    /** Deliberate linked-worktree runtime, not disposable test isolation. */
-    readonly worktreeRuntime?: boolean;
 }
 
 export interface DiagnosedVeraProcess extends VeraProcessSample {
     readonly currentHost: boolean;
-    readonly knownProfileHost: boolean;
     readonly sustainedHighCpu: boolean;
     /**
      * Orphaned and safe to stop without asking what it was for: a worker,
@@ -77,11 +74,10 @@ export interface VeraDoctorOptions {
     readonly highCpuPercent?: number;
     readonly doctorPid?: number;
     /**
-     * Runtime island this doctor is allowed to inspect and stop. Defaults to
-     * the invoking process's runtime. Processes in any other directory are
-     * foreign: listed by their own doctor, never stopped by this one.
+     * Runtime directory this doctor may inspect and stop. Defaults to this
+     * home's runtime. Processes that named a different home are foreign.
      */
-    readonly runtimeIsland?: string;
+    readonly runtimeDir?: string;
     /**
      * Running sessions from the current host listing, used to title workers.
      * Tests inject this. Live doctor reads the host when sampling real
@@ -101,15 +97,14 @@ export interface VeraWorkerSession {
 
 export interface VeraHostOwnership {
     readonly currentHostPid?: number;
-    readonly knownProfileHostPids: ReadonlySet<number>;
 }
 
 export async function diagnoseVeraProcesses(
     options: VeraDoctorOptions = {},
 ): Promise<VeraDoctorReport> {
-    const island = options.runtimeIsland ?? veraRuntimeDirectory();
+    const runtimeDir = options.runtimeDir ?? veraRuntimeDirectory();
     const readHostOwnership = options.readHostOwnership
-        ?? (() => hostOwnership(island));
+        ?? (() => hostOwnership(runtimeDir));
     const sampleProcesses = options.sampleProcesses ?? sampleVeraProcesses;
     const wait = options.wait ?? waitFor;
     const interval = options.sampleIntervalMs ?? DEFAULT_SAMPLE_INTERVAL_MS;
@@ -128,7 +123,7 @@ export async function diagnoseVeraProcesses(
         secondSample = await sampleProcesses();
         ownership = await readHostOwnership();
     }
-    const { currentHostPid, knownProfileHostPids } = ownership;
+    const { currentHostPid } = ownership;
     const firstByPid = new Map(
         firstSample
             .filter((sample) => sample.pid !== doctorPid)
@@ -139,13 +134,9 @@ export async function diagnoseVeraProcesses(
         .map((sample) => {
             const currentHost = sample.kind === "host"
                 && sample.pid === currentHostPid;
-            const knownProfileHost = sample.kind === "host"
-                && sample.pid !== currentHostPid
-                && knownProfileHostPids.has(sample.pid);
             return {
                 ...sample,
                 currentHost,
-                knownProfileHost,
                 sustainedHighCpu:
                     sample.cpuPercent >= highCpuPercent
                     && sameProcessStayedAbove(
@@ -158,7 +149,7 @@ export async function diagnoseVeraProcesses(
     const host = annotated.find((sample) => sample.pid === currentHostPid);
     const tuiPid = host !== undefined && host.ppid > 1 ? host.ppid : undefined;
     const scoped = annotated.filter((sample) =>
-        belongsToRuntimeIsland(sample, island, currentHostPid, tuiPid)
+        belongsToHome(sample, runtimeDir, currentHostPid, tuiPid)
     );
     const strayHostPids = new Set(
         scoped
@@ -186,8 +177,6 @@ export async function diagnoseVeraProcesses(
     const unrecognizedHosts = processes.filter((sample) =>
         sample.kind === "host"
         && !sample.currentHost
-        && !sample.knownProfileHost
-        && sample.worktreeRuntime !== true
     );
     return {
         healthy: !currentHostMissing
@@ -207,10 +196,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     );
     const strays = report.processes.filter((process) => process.stray);
     const extraHosts = hosts.filter((process) => !process.currentHost);
-    const unrecognizedHosts = extraHosts.filter((process) =>
-        !process.knownProfileHost
-        && process.worktreeRuntime !== true
-    );
+    const unrecognizedHosts = extraHosts;
     const highCpu = report.processes.filter((process) =>
         process.sustainedHighCpu
     );
@@ -272,7 +258,6 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
     const recognizedHighCpu = highCpu.filter((process) =>
         process.kind !== "host"
         || process.currentHost
-        || process.knownProfileHost
     );
     if (recognizedHighCpu.length > 0) {
         lines.push("", "High CPU activity");
@@ -314,7 +299,7 @@ export function stopStrayVeraProcesses(
 export async function sweepStrayVeraProcesses(
     options: Pick<
         VeraDoctorOptions,
-        "runtimeIsland" | "sampleIntervalMs" | "doctorPid"
+        "runtimeDir" | "sampleIntervalMs" | "doctorPid"
     > = {},
 ): Promise<number> {
     const report = await diagnoseVeraProcesses({
@@ -376,32 +361,28 @@ export function parseVeraProcessList(source: string): VeraProcessSample[] {
 
 interface HostStrayInput {
     readonly kind: VeraProcessKind;
-    readonly command: string;
     readonly currentHost: boolean;
-    readonly knownProfileHost: boolean;
     readonly isolated?: boolean;
-    readonly runtimeDir?: string;
-    readonly worktreeRuntime?: boolean;
 }
 
 /**
  * A process belongs here when its env names this runtime, or when it is the
  * lockfile host (or in that host's bun tree) and has no runtime env at all.
- * Missing env must not mean "this island": that would let a worktree doctor
- * SIGKILL a daily host that never set VERA_HOME.
+ * Missing env must not mean "this home": that would let a private-home
+ * doctor SIGKILL a daily host that never set VERA_HOME.
  */
-function belongsToRuntimeIsland(
+function belongsToHome(
     sample: {
         readonly pid: number;
         readonly ppid: number;
         readonly runtimeDir?: string;
     },
-    island: string,
+    runtimeDir: string,
     currentHostPid: number | undefined,
     tuiPid: number | undefined,
 ): boolean {
     if (sample.runtimeDir !== undefined) {
-        return sample.runtimeDir === island;
+        return sample.runtimeDir === runtimeDir;
     }
     if (currentHostPid === undefined) return false;
     if (sample.pid === currentHostPid || sample.ppid === currentHostPid) {
@@ -414,11 +395,7 @@ function belongsToRuntimeIsland(
 }
 
 function strayHost(sample: HostStrayInput): boolean {
-    if (sample.currentHost) return false;
-    if (sample.worktreeRuntime === true) return false;
-    if (sample.isolated === true) return true;
-    if (!sample.knownProfileHost) return true;
-    return false;
+    return !sample.currentHost;
 }
 
 function strayProcess(
@@ -486,7 +463,6 @@ async function enrichRuntimeIdentity(
     const runtimeByPid = new Map<number, {
         readonly isolated: boolean;
         readonly runtimeDir?: string;
-        readonly worktreeRuntime: boolean;
     }>();
     for (const line of output.split("\n")) {
         const match = line.match(/^\s*(\d+)\s+(.*)$/);
@@ -500,7 +476,6 @@ async function enrichRuntimeIdentity(
         return {
             ...sample,
             isolated: runtime.isolated,
-            ...(runtime.worktreeRuntime ? { worktreeRuntime: true } : {}),
             ...(runtime.runtimeDir === undefined
                 ? {}
                 : { runtimeDir: runtime.runtimeDir }),
@@ -515,7 +490,6 @@ async function enrichRuntimeIdentity(
 export function veraRuntimeFromPsLine(commandAndEnv: string): {
     readonly isolated: boolean;
     readonly runtimeDir?: string;
-    readonly worktreeRuntime: boolean;
 } {
     const home = firstEnvValue(commandAndEnv, VERA_HOME_ENV);
     const isolated = home !== undefined;
@@ -524,7 +498,6 @@ export function veraRuntimeFromPsLine(commandAndEnv: string): {
         : undefined;
     return {
         isolated,
-        worktreeRuntime: false,
         ...(runtimeDir === undefined ? {} : { runtimeDir }),
     };
 }
@@ -535,16 +508,11 @@ function firstEnvValue(source: string, name: string): string | undefined {
     return value === undefined || value.length === 0 ? undefined : value;
 }
 
-async function hostOwnership(island: string): Promise<VeraHostOwnership> {
+async function hostOwnership(runtimeDir: string): Promise<VeraHostOwnership> {
     const currentHostPid = await livePidFromHostLockFile(
-        join(island, "host.json"),
+        join(runtimeDir, "host.json"),
     );
-    return {
-        ...(currentHostPid === undefined ? {} : { currentHostPid }),
-        knownProfileHostPids: currentHostPid === undefined
-            ? new Set()
-            : new Set([currentHostPid]),
-    };
+    return currentHostPid === undefined ? {} : { currentHostPid };
 }
 
 /**
@@ -597,17 +565,6 @@ function classifyVeraProcess(command: string): VeraProcessKind | undefined {
     return undefined;
 }
 
-function processLocation(process: VeraProcessSample): string {
-    if (process.kind !== "host") return process.command;
-    const match = process.command.match(
-        /(?:^|\s)((?:\S*\/)?clients\/host\/main\.ts)(?:\s|$)/,
-    );
-    const entrypoint = match?.[1];
-    if (entrypoint === undefined) return process.command;
-    if (entrypoint === "clients/host/main.ts") return process.command;
-    return entrypoint.slice(0, -"/clients/host/main.ts".length);
-}
-
 function compareProcesses(
     left: DiagnosedVeraProcess,
     right: DiagnosedVeraProcess,
@@ -637,12 +594,8 @@ function ownershipMatchesProcessTable(
             .filter((process) => process.kind === "host")
             .map((process) => process.pid),
     );
-    return [...ownership.knownProfileHostPids].every((pid) =>
-        hostPids.has(pid)
-    ) && (
-        ownership.currentHostPid === undefined
-        || hostPids.has(ownership.currentHostPid)
-    );
+    return ownership.currentHostPid === undefined
+        || hostPids.has(ownership.currentHostPid);
 }
 
 function renderProcessRows(
@@ -652,16 +605,14 @@ function renderProcessRows(
     for (const process of processes) {
         const labels = [
             process.kind === "host" && !process.currentHost
-                ? process.knownProfileHost
-                    ? "other host"
-                    : "unrecognized host"
+                ? "unrecognized host"
                 : kindLabel(process.kind),
             ...(process.sustainedHighCpu ? ["sustained high CPU"] : []),
             ...(process.stray ? ["stray, safe to stop"] : []),
         ];
         lines.push(
             `  PID ${process.pid}  ${process.cpuPercent.toFixed(1)}% CPU  age ${process.elapsed}  ${labels.join(", ")}`,
-            `    ${processLocation(process)}`,
+            `    ${process.command}`,
         );
     }
 }
@@ -759,7 +710,7 @@ function roleAnsi(role: string): string {
 function renderRunningNow(
     processes: readonly DiagnosedVeraProcess[],
 ): string[] {
-    const owned = ownedProfileProcesses(processes);
+    const owned = ownedHomeProcesses(processes);
     if (owned.length === 0) return [];
     return [
         "",
@@ -769,7 +720,7 @@ function renderRunningNow(
     ];
 }
 
-function ownedProfileProcesses(
+function ownedHomeProcesses(
     processes: readonly DiagnosedVeraProcess[],
 ): DiagnosedVeraProcess[] {
     const host = processes.find((process) => process.currentHost);

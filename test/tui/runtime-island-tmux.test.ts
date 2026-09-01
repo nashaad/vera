@@ -81,12 +81,12 @@ test.skipIf(!tmuxAvailable)(
             expect(treePane).not.toContain("disconnected");
 
             const dailyDoctor = await diagnoseVeraProcesses({
-                runtimeIsland: dailyRuntime,
+                runtimeDir: dailyRuntime,
                 sampleIntervalMs: 0,
                 doctorPid: process.pid,
             });
             const treeDoctor = await diagnoseVeraProcesses({
-                runtimeIsland: treeRuntime,
+                runtimeDir: treeRuntime,
                 sampleIntervalMs: 0,
                 doctorPid: process.pid,
             });
