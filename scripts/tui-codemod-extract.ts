@@ -153,6 +153,23 @@ for (const stmt of sf.statements) {
 const missing = names.filter((n) => !fnDecls.has(n));
 if (missing.length) fail(`${file}: missing ${missing.join(", ")}`);
 
+const needExport = new Set();
+function moduleLocalName(symbol) {
+    for (const d of symbol.declarations ?? []) {
+        if (d.getSourceFile() !== sf) continue;
+        if (ts.isFunctionDeclaration(d) && d.name && d.parent === sf) {
+            return d.name.text;
+        }
+        if (ts.isVariableDeclaration(d) && ts.isIdentifier(d.name)) {
+            const stmt = d.parent.parent;
+            if (ts.isVariableStatement(stmt) && stmt.parent === sf) {
+                return d.name.text;
+            }
+        }
+    }
+    return null;
+}
+
 const moduleFnSymbols = new Map();
 for (const [name, decl] of allModuleFns) {
     const symbol = checker.getSymbolAtLocation(decl.name);
@@ -207,6 +224,17 @@ for (const name of names) {
                 ts.forEachChild(node, collect);
                 return;
             }
+            const local = moduleLocalName(symbol);
+            if (local && !nameSet.has(local) && local !== "startTui") {
+                addNamed(
+                    isInTypePosition(node, fn) ? typeBySpec : valueBySpec,
+                    "../main.ts",
+                    local,
+                );
+                needExport.add(local);
+                ts.forEachChild(node, collect);
+                return;
+            }
             const info = importInfo(symbol, checker);
             if (info) {
                 const spec = rewriteSpecFromMain(info.spec);
@@ -252,8 +280,28 @@ const exported = names.join(", ");
 replacements.push({
     start: insertAt,
     end: insertAt,
-    text: `export { ${exported} } from "./main/${file}";\n`,
+    text: `import { ${exported} } from "./main/${file}";\nexport { ${exported} };\n`,
 });
+
+for (const stmt of sf.statements) {
+    let name = null;
+    if (ts.isFunctionDeclaration(stmt) && stmt.name && needExport.has(stmt.name.text)) {
+        name = stmt.name.text;
+    } else if (ts.isVariableStatement(stmt)) {
+        const d = stmt.declarationList.declarations[0];
+        if (d && ts.isIdentifier(d.name) && needExport.has(d.name.text)) {
+            name = d.name.text;
+        }
+    }
+    if (!name) continue;
+    const mods = ts.getModifiers(stmt) ?? [];
+    if (mods.some((m) => m.kind === ts.SyntaxKind.ExportKeyword)) continue;
+    replacements.push({
+        start: stmt.getStart(sf),
+        end: stmt.getStart(sf),
+        text: "export ",
+    });
+}
 
 fs.writeFileSync(MAIN, applyReplacements(source, replacements));
 console.log(`extracted ${names.length} functions to ${dest}`);
