@@ -1,7 +1,5 @@
 #!/usr/bin/env bun
 
-import { fileURLToPath } from "node:url";
-
 import { renderCliFailure } from "../cli/main.ts";
 import { loadOrCreateVeraConfig, VeraConfigError } from "../../src/config.ts";
 import { startResidentHost } from "../../src/host/runtime.ts";
@@ -10,17 +8,10 @@ import { installHostCrashGuard } from "./crash-guard.ts";
 import { runResidentHostProcess } from "./process-lifecycle.ts";
 import { clearBootFailures, HOST_STARTUP_RACE_EXIT_CODE } from "./launch.ts";
 import {
-    capturePinnedBuild,
-    recordCleanBoot,
-} from "../../src/host/pinned-build.ts";
-import {
     anotherHostIsServing,
     isSupervisedHost,
     startWaitingOutRivals,
 } from "./supervised-start.ts";
-
-const entrypoint = fileURLToPath(import.meta.url);
-const pinnedBuildCandidate = capturePinnedBuild(entrypoint);
 
 let config;
 try {
@@ -58,9 +49,6 @@ try {
 
 clearBootFailures();
 installLiveProcess("host");
-// The host is serving by now, which is what makes this commit worth pinning:
-// the pin means "this build boots", never "this build is newest".
-recordCleanBoot(pinnedBuildCandidate);
 const removeCrashGuard = installHostCrashGuard();
 await runResidentHostProcess(host, {
     stopAbsorbingFaults: removeCrashGuard,

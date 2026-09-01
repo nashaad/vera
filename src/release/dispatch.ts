@@ -2,7 +2,6 @@ import { spawn } from "node:child_process";
 import { accessSync, constants } from "node:fs";
 import { join } from "node:path";
 
-import { PINNED_BUILD_ENV } from "../host/pinned-build.ts";
 import {
     createHostLockfile,
     HostBuildMismatchError,
@@ -68,9 +67,6 @@ async function resolve(
     retried: boolean,
 ): Promise<number | undefined> {
     const env = options.env ?? process.env;
-    if (env[PINNED_BUILD_ENV] !== undefined) {
-        return undefined;
-    }
     const prefix = options.prefix ?? defaultInstallPrefix();
     const clientBuildId = options.clientBuildId ?? thisProcessBuildId();
     const inspect = options.inspectHost ?? inspectLiveHostBuild;

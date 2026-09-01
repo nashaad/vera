@@ -9,7 +9,6 @@ import {
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { PINNED_BUILD_ENV } from "../../src/host/pinned-build.ts";
 import { HostBuildMismatchError } from "../../src/host/lockfile.ts";
 import {
     dispatchToHostRelease,
@@ -26,28 +25,6 @@ function writeClient(prefix: string, buildId: string, body = "#!/bin/sh\nexit 0\
     chmodSync(path, 0o755);
     return path;
 }
-
-test("a pinned rescue does not hop to the live host", async () => {
-    const prefix = mkdtempSync(join(tmpdir(), "vera-dispatch-pin-"));
-    try {
-        writeClient(prefix, "vera-b");
-        let execs = 0;
-        const exit = await dispatchToHostRelease({
-            prefix,
-            clientBuildId: "vera-c",
-            env: { [PINNED_BUILD_ENV]: "1" },
-            inspectHost: async () => "vera-b",
-            exec: async () => {
-                execs += 1;
-                return 0;
-            },
-        });
-        expect(exit).toBeUndefined();
-        expect(execs).toBe(0);
-    } finally {
-        rmSync(prefix, { recursive: true, force: true });
-    }
-});
 
 test("a matching host leaves this process in place", async () => {
     let execs = 0;
