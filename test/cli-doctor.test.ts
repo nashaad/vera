@@ -817,6 +817,27 @@ test("livePidFromHostLockFile trusts a live matching record without a handshake"
     }
 });
 
+test("a lock pid missing from the process listing is unknown, not dead", async () => {
+    const report = await diagnoseVeraProcesses({
+        readHostOwnership: async () => ({
+            currentHostPid: 404,
+            knownProfileHostPids: new Set([404]),
+        }),
+        sampleProcesses: async () => [],
+        wait: async () => {},
+        doctorPid: 999,
+    });
+    expect(report.currentHostPid).toBe(404);
+    expect(report.currentHostMissing).toBe(true);
+    expect(report.healthy).toBe(false);
+    const output = renderVeraDoctor(report);
+    expect(output).toContain("Resident host: PID 404");
+    expect(output).toContain("Resident host PID 404 is unknown.");
+    expect(output).not.toContain("not running");
+    expect(output).not.toContain("was not found");
+    expect(output).not.toContain("terminated");
+});
+
 test("livePidFromHostLockFile ignores a record whose pid is gone", async () => {
     const directory = mkdtempSync(join(tmpdir(), "vera-lock-"));
     const path = join(directory, "host.json");

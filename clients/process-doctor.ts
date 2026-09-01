@@ -187,6 +187,8 @@ export async function diagnoseVeraProcesses(
         && !processes.some((sample) =>
             sample.kind === "host" && sample.pid === currentHostPid
         );
+    // The lock names a pid the listing did not include. That is unknown,
+    // not proof the process is dead.
     const unrecognizedHosts = processes.filter((sample) =>
         sample.kind === "host"
         && !sample.currentHost
@@ -243,7 +245,7 @@ export function renderVeraDoctor(report: VeraDoctorReport): string {
         lines.push("", "Issues");
         if (report.currentHostMissing) {
             lines.push(
-                `  Resident host PID ${report.currentHostPid} was not found in the process table.`,
+                `  Resident host PID ${report.currentHostPid} is unknown.`,
             );
         }
         renderProcessRows(lines, shownIssues);
