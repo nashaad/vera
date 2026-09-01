@@ -1,23 +1,4 @@
-import {
-    bg,
-    BoxRenderable,
-    CliRenderEvents,
-    decodePasteBytes,
-    fg,
-    MarkdownRenderable,
-    ScrollBoxRenderable,
-    stripAnsiSequences,
-    SyntaxStyle,
-    StyledText,
-    TextRenderable,
-    createCliRenderer,
-    KeyEvent,
-    RGBA,
-    type CliRenderer,
-    type Renderable,
-    type Selection,
-    type MouseEvent,
-} from "@opentui/core";
+import { bg, BoxRenderable, CliRenderEvents, decodePasteBytes, fg, MarkdownRenderable, ScrollBoxRenderable, stripAnsiSequences, StyledText, TextRenderable, createCliRenderer, KeyEvent, RGBA, type CliRenderer, type Renderable, type Selection, type MouseEvent } from "@opentui/core";
 import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
@@ -28,15 +9,7 @@ import { readStampedRelease } from "../../src/release/stamp.ts";
 import { installLiveProcess } from "../../src/live-process.ts";
 import { openFileInEditor, veraConfigPath } from "../editor.ts";
 import { tuiComposerOverlayInset } from "./appearance.ts";
-import {
-    buildJumpRows,
-    handleJumpMenuKey,
-    jumpMenuLines,
-    openJumpMenu as openJumpMenuState,
-    type JumpMenuState,
-    type JumpOrigin,
-    type JumpRow,
-} from "./jump.ts";
+import { buildJumpRows, handleJumpMenuKey, jumpMenuLines, openJumpMenu as openJumpMenuState, type JumpOrigin, type JumpRow } from "./jump.ts";
 import { registerTuiParsers } from "./parsers.ts";
 import {
     createTuiFlightRecorder,
@@ -103,9 +76,6 @@ import type {
 import { bundledClientExtensions } from "../../src/extensions/bundled-client.ts";
 import { invokeDirectClientExtensionCommand } from "../../src/extensions/client.ts";
 import {
-    type ClientExtensionRegistry,
-} from "../../src/extensions/client-registry.ts";
-import {
     composeSuggesterDismissalKey,
     findActiveComposeSuggester,
 } from "./compose-suggester.ts";
@@ -122,20 +92,13 @@ import type {
     VeraExtensionDisposer,
 } from "../../src/sdk/extensions.ts";
 import type { VeraClientContextSnapshot } from "../../src/sdk/context.ts";
-import type { ExtensionCommandDescriptor } from "../../src/extensions/commands.ts";
 import {
     listExtensions,
     installExtension,
     removeExtension,
     setExtensionEnabled,
 } from "../../src/extensions/manager.ts";
-import {
-    extensionTarget,
-    renderExtensionInstallPreview,
-    renderExtensionList,
-    renderExtensionMutation,
-    type ExtensionManagerCommand,
-} from "../../src/extensions/manager-command.ts";
+import { extensionTarget, renderExtensionInstallPreview, renderExtensionList, renderExtensionMutation } from "../../src/extensions/manager-command.ts";
 import type {
     TuiTimelinePickerState,
     TuiTimelinePickerTransition,
@@ -146,7 +109,6 @@ import {
     closeAgentThroughHost,
     type CloseAgentResult,
 } from "../../src/host/agent-close-client.ts";
-import type { AttachedAgentClient } from "../../src/host/attached-client.ts";
 import type { BackgroundAgentsSnapshot } from "../../src/host/background-agents.ts";
 import { listSessionsForExtension } from "./session-listing-projection.ts";
 import type { VeraClientSessionListRequest } from "../../src/sdk/extensions.ts";
@@ -239,29 +201,10 @@ import {
     type TuiHostedAgentAddressing,
     visibleTuiAgentMentions,
 } from "./agent-message-routing.ts";
-import {
-    renderTuiDiagnostics,
-    type TuiClientExtensionReloadSnapshot,
-    type TuiDiagnosticsScope,
-    type TuiDiagnosticsSnapshot,
-} from "./diagnostics.ts";
-import {
-    admitHealthRung,
-    expiredOAuthProvider,
-    hasConfiguredProvider,
-    healthRungsOf,
-    idleProviderHealth,
-    runProviderHealthCheck,
-    type HealthRung,
-    type ProviderHealthStatus,
-} from "./provider-health.ts";
+import { renderTuiDiagnostics, type TuiDiagnosticsSnapshot } from "./diagnostics.ts";
+import { admitHealthRung, expiredOAuthProvider, hasConfiguredProvider, healthRungsOf, idleProviderHealth, runProviderHealthCheck, type HealthRung } from "./provider-health.ts";
 import { readProcessMemory } from "./process-memory.ts";
-import {
-    createTuiDiagnosticsDialogView,
-    handleTuiDiagnosticsDialogKey,
-    type TuiDiagnosticsDialogState,
-} from "./diagnostics-dialog.ts";
-import type { VeraExperimentalTuiDocument } from "../../src/sdk/experimental-tui.ts";
+import { createTuiDiagnosticsDialogView, handleTuiDiagnosticsDialogKey } from "./diagnostics-dialog.ts";
 import {
     diagnoseVeraProcesses,
     renderVeraDoctor,
@@ -288,22 +231,8 @@ import {
     renderProviderDoctor,
 } from "../provider-doctor.ts";
 import { copyTuiText, countTuiCharacters } from "./clipboard.ts";
-import {
-    createTuiCommandPaletteView,
-    handleTuiCommandPaletteKey,
-    handleTuiCommandPaletteScroll,
-    startTuiCommandPalette,
-    updateTuiCommandPaletteCommands,
-    type TuiCommandPaletteState,
-} from "./command-palette.ts";
-import {
-    createTuiHelpView,
-    handleTuiHelpKey,
-    handleTuiHelpScroll,
-    startTuiHelp,
-    updateTuiHelpCommands,
-    type TuiHelpState,
-} from "./help.ts";
+import { createTuiCommandPaletteView, handleTuiCommandPaletteKey, handleTuiCommandPaletteScroll, startTuiCommandPalette, updateTuiCommandPaletteCommands } from "./command-palette.ts";
+import { createTuiHelpView, handleTuiHelpKey, handleTuiHelpScroll, startTuiHelp, updateTuiHelpCommands } from "./help.ts";
 import {
     createConfiguredBuiltinTuiCommandRegistry,
     extensionCommandResultText,
@@ -324,14 +253,7 @@ import {
     type TuiCommandCatalogEntry,
     type TuiPaletteEntry,
 } from "./commands.ts";
-import {
-    COMPOSER_PLACEHOLDER,
-    createTuiComposer,
-    createTuiComposerPanel,
-    TUI_COMPOSER_MAX_TEXT_ROWS,
-    TUI_COMPOSER_MIN_TEXT_ROWS,
-    tuiComposerPanelRows,
-} from "./composer.ts";
+import { COMPOSER_PLACEHOLDER, createTuiComposer, createTuiComposerPanel, TUI_COMPOSER_MIN_TEXT_ROWS } from "./composer.ts";
 import {
     fitTuiAppearance,
     resolveTuiAppearance,
@@ -360,12 +282,7 @@ import {
     handleTuiProviderForgetConfirmKey,
     tuiProviderForgetDecision,
 } from "./provider-forget-confirm.ts";
-import {
-    createTuiAdmissionDialogView,
-    handleTuiAdmissionDialogKey,
-    startTuiAdmissionDialog,
-    type TuiAdmissionDialogState,
-} from "./admission-dialog.ts";
+import { createTuiAdmissionDialogView, handleTuiAdmissionDialogKey, startTuiAdmissionDialog } from "./admission-dialog.ts";
 import { renderTuiHeldAddress } from "./addressing.ts";
 import { searchSessionsThroughHost } from "../../src/host/session-search-client.ts";
 import { parseRawInputEvent, tuiInterruptAction } from "./interrupt.ts";
@@ -408,31 +325,12 @@ import {
     readAnnexUrlThroughHost,
     type AnnexUrlResult,
 } from "../../src/annex/host-client.ts";
-import {
-    createHomeState,
-    createTuiHomeView,
-    handleHomeKey,
-    homeTypedCharacter,
-    type HomeAction,
-    type HomeState,
-} from "./home-screen.ts";
+import { createHomeState, createTuiHomeView, handleHomeKey, homeTypedCharacter, type HomeAction } from "./home-screen.ts";
 import {
     createTuiResumeOverlayView,
     jsonlViewKeyAction,
 } from "./resume-overlay.ts";
-import {
-    applySearchFailure,
-    applySearchResults,
-    handleSearchOverlayKey,
-    openSelected,
-    searchOverlayViewState,
-    searchSelectionOf,
-    searchSelections,
-    startSearchOverlay,
-    updateSearchOverlayText,
-    type SearchOverlayState,
-    type SearchScope,
-} from "./search-overlay.ts";
+import { applySearchFailure, applySearchResults, handleSearchOverlayKey, openSelected, searchOverlayViewState, searchSelectionOf, searchSelections, startSearchOverlay, updateSearchOverlayText, type SearchScope } from "./search-overlay.ts";
 import {
     attentionNotice,
     attentionNoticeSequence,
@@ -447,12 +345,7 @@ import type {
     SessionSearchResults,
 } from "../../src/store/session-search.ts";
 import { isTranscriptSelection, selectionSpeaker } from "./selection.ts";
-import {
-    renderTuiQuote,
-    tuiQuoteMarker,
-    withQuote,
-    type TuiQuote,
-} from "./quote.ts";
+import { renderTuiQuote, tuiQuoteMarker, withQuote } from "./quote.ts";
 import {
     needsYouChipColumns,
     renderTuiCompactionHint,
@@ -466,61 +359,8 @@ import {
     type TuiStatusChunk,
 } from "./status.ts";
 import { watchWorkspaceBranch } from "./workspace-branch.ts";
-import {
-    createTuiSettingsPickerView,
-    handleTuiSettingsPickerScroll,
-    handleTuiSettingsPickerKey,
-    tuiPickerViewportRows,
-    startTuiReviewerMenu,
-    startTuiReviewerPicker,
-    startTuiConfigurePicker,
-    startTuiSettingsMenu,
-    startTuiContextLimitPicker,
-    startTuiDeveloperMenu,
-    startTuiDeveloperValuePicker,
-    startTuiSettingsPicker,
-    verificationConsoleLines,
-    switchedModelTab,
-    syncTuiModelPicker,
-    mergeTuiModelPickerSettings,
-    moveTuiSettingsPickerPointer,
-    startTuiReasoningPicker,
-    startTuiSessionPicker,
-    sessionPickerLists,
-    startTuiExtensionPicker,
-    startTuiProviderPicker,
-    tuiProviderGroup,
-    tuiPickerAfterSelection,
-    withTuiPickerParent,
-    type TuiSettingsMenuTarget,
-    type TuiAnySettingsPickerState,
-    type TuiReviewerSlot,
-    startTuiModelAssignmentPicker,
-    MODEL_ASSIGNMENT_SELF_VALUE,
-    REVIEWER_CLEAR_VALUE,
-    startTuiPoolVerifyScopePicker,
-    tuiModelActionOptions,
-    startTuiCatalogRefreshScopePicker,
-    tuiModelAssignmentOptions,
-    type TuiSettingsPickerState,
-    type TuiSettingsPickerOption,
-    type TuiConfigureFile,
-    type TuiSettingsPickerTransition,
-    type TuiExtensionPickerAction,
-    type TuiExtensionPickerTransition,
-    createTuiProviderFormView,
-    handleTuiProviderFormKey,
-    handleTuiProviderFormPaste,
-    startTuiProviderForm,
-    type TuiProviderFormState,
-    type TuiProviderFormTransition,
-} from "./settings-picker.ts";
-import {
-    createTuiRequestOptionsEditorView,
-    startTuiRequestOptionsEditor,
-    type TuiRequestOptionsEditorState,
-    type TuiRequestOptionsEditorTransition,
-} from "./request-options-editor.ts";
+import { createTuiSettingsPickerView, handleTuiSettingsPickerScroll, handleTuiSettingsPickerKey, tuiPickerViewportRows, startTuiReviewerMenu, startTuiReviewerPicker, startTuiConfigurePicker, startTuiSettingsMenu, startTuiContextLimitPicker, startTuiDeveloperMenu, startTuiDeveloperValuePicker, startTuiSettingsPicker, verificationConsoleLines, switchedModelTab, syncTuiModelPicker, mergeTuiModelPickerSettings, moveTuiSettingsPickerPointer, startTuiReasoningPicker, startTuiSessionPicker, sessionPickerLists, startTuiExtensionPicker, startTuiProviderPicker, tuiProviderGroup, tuiPickerAfterSelection, withTuiPickerParent, type TuiSettingsMenuTarget, type TuiReviewerSlot, startTuiModelAssignmentPicker, MODEL_ASSIGNMENT_SELF_VALUE, REVIEWER_CLEAR_VALUE, startTuiPoolVerifyScopePicker, tuiModelActionOptions, startTuiCatalogRefreshScopePicker, tuiModelAssignmentOptions, type TuiSettingsPickerState, type TuiSettingsPickerOption, type TuiConfigureFile, type TuiSettingsPickerTransition, type TuiExtensionPickerAction, type TuiExtensionPickerTransition, createTuiProviderFormView, handleTuiProviderFormKey, handleTuiProviderFormPaste, startTuiProviderForm, type TuiProviderFormState, type TuiProviderFormTransition } from "./settings-picker.ts";
+import { createTuiRequestOptionsEditorView, startTuiRequestOptionsEditor, type TuiRequestOptionsEditorTransition } from "./request-options-editor.ts";
 import {
     createTuiSecretPromptView,
     handleTuiSecretPromptKey,
@@ -535,35 +375,11 @@ import {
     type TuiNamePromptState,
     type TuiNamePromptTransition,
 } from "./name-prompt.ts";
-import {
-    activeTuiKeymap,
-    installTuiKeymap,
-    isTuiComposerClearKey,
-    isTuiKeyScope,
-    tuiComposerWordDeleteDirection,
-    tuiBindingId,
-    tuiChord,
-    tuiKeyChord,
-    tuiKeyHint,
-} from "./keymap.ts";
-import { resolveTuiKeymap } from "./keybindings.ts";
-import type { AgentCatalogUpdate } from "../../src/engine/protocol.ts";
+import { activeTuiKeymap, isTuiComposerClearKey, tuiComposerWordDeleteDirection, tuiBindingId, tuiChord, tuiKeyChord, tuiKeyHint } from "./keymap.ts";
 import { resolveTuiSettingsDestination } from "./settings-destination.ts";
 
 /** The agent list a /agent surface renders, as the host last reported it. */
-import {
-    composeDialStrip,
-    DIAL_HUD_CAP,
-    DIAL_HUD_RECENT_CAP,
-    dialEffortPending,
-    handleDialStripKey,
-    openDialStrip,
-    renderDialStrip,
-    DIAL_EXIT_SEPARATOR,
-    type DialPair,
-    type DialPoolEntry,
-    type DialStripState,
-} from "./dials.ts";
+import { composeDialStrip, DIAL_HUD_CAP, DIAL_HUD_RECENT_CAP, dialEffortPending, handleDialStripKey, openDialStrip, renderDialStrip, DIAL_EXIT_SEPARATOR, type DialPair, type DialPoolEntry } from "./dials.ts";
 import {
     AUTO_MODE_ANIMATION_DURATION_MS,
     paintDialHud,
@@ -575,42 +391,18 @@ import {
     type TuiTip,
     type TuiTipContext,
 } from "./tips.ts";
-import {
-    beginTuiTipLaunch,
-    saveTuiTipState,
-    type TuiTipState,
-} from "./tips-store.ts";
+import { beginTuiTipLaunch, saveTuiTipState } from "./tips-store.ts";
 import { createRenderCoalescer } from "./render-coalescer.ts";
 import {
     createAuthStorage,
     unreadableAuthStoragePath,
     type AuthStorage,
 } from "../../src/providers/auth-storage.ts";
-import {
-    configuredProviders,
-    findConfiguredProvider,
-    findProvider,
-    isProviderConnected,
-} from "../../src/providers/registry.ts";
+import { configuredProviders, findConfiguredProvider, isProviderConnected } from "../../src/providers/registry.ts";
 import { loginOpenAICodex } from "../../src/providers/openai-codex-oauth.ts";
 import { renderPermissionInspection } from "./permission-inspection.ts";
-import {
-    createTuiPreferencesListView,
-    handleTuiPreferencesListKey,
-    handleTuiPreferencesListScroll,
-    startTuiPreferencesList,
-    syncTuiPreferencesList,
-    type TuiPreferencesListState,
-} from "./preferences-list.ts";
-import {
-    createTuiStandingNudgesView,
-    handleTuiStandingNudgesKey,
-    handleTuiStandingNudgesPaste,
-    handleTuiStandingNudgesScroll,
-    openTuiStandingNudges,
-    standingNudgeIndicatorRow,
-    type TuiStandingNudgesState,
-} from "./standing-nudges.ts";
+import { createTuiPreferencesListView, handleTuiPreferencesListKey, handleTuiPreferencesListScroll, startTuiPreferencesList, syncTuiPreferencesList } from "./preferences-list.ts";
+import { createTuiStandingNudgesView, handleTuiStandingNudgesKey, handleTuiStandingNudgesPaste, handleTuiStandingNudgesScroll, openTuiStandingNudges, standingNudgeIndicatorRow } from "./standing-nudges.ts";
 import { HostReplacementBusyError } from "../../src/host/discovery.ts";
 import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
 import {
@@ -639,42 +431,7 @@ import {
     handleTuiTimelineKey,
     startTuiTimelinePicker,
 } from "./timeline-picker.ts";
-import {
-    TUI_ACCENT,
-    TUI_BACKGROUND,
-    TUI_ELEMENT,
-    TUI_HUD,
-    TUI_MUTED,
-    TUI_NOTICE,
-    TUI_PANEL,
-    TUI_SUCCESS,
-    TUI_TEXT,
-    applyTuiTheme,
-    appendTuiExtensionBlock,
-    appendTuiError,
-    appendTuiNotice,
-    appendTuiThought,
-    dropTuiThinking,
-    toggleTuiThinking,
-    toggleTuiToolDetails,
-    applyAgentUpdate,
-    userEntryShows,
-    beginNextQueuedTuiTurn,
-    beginTuiAdmission,
-    dropTuiAdmission,
-    beginTuiTurn,
-    createTuiState,
-    failTuiConnection,
-    queueTuiPrompt,
-    renderTuiEntry,
-    renderTuiQueuedPrompt,
-    setTuiWorkspaceRoot,
-    tuiDisplayPath,
-    tuiEntryMarginTop,
-    transcriptMessageId,
-    type TuiState,
-    type TuiTranscriptEntry,
-} from "./state.ts";
+import { TUI_ACCENT, TUI_ELEMENT, TUI_HUD, TUI_MUTED, TUI_NOTICE, TUI_PANEL, TUI_SUCCESS, TUI_TEXT, applyTuiTheme, appendTuiExtensionBlock, appendTuiError, appendTuiNotice, appendTuiThought, dropTuiThinking, toggleTuiThinking, toggleTuiToolDetails, applyAgentUpdate, userEntryShows, beginNextQueuedTuiTurn, beginTuiAdmission, dropTuiAdmission, beginTuiTurn, createTuiState, failTuiConnection, queueTuiPrompt, renderTuiEntry, renderTuiQueuedPrompt, setTuiWorkspaceRoot, tuiDisplayPath, tuiEntryMarginTop, transcriptMessageId, type TuiState, type TuiTranscriptEntry } from "./state.ts";
 import {
     resolveTuiTheme,
     tuiHandleActiveColor,
@@ -682,11 +439,7 @@ import {
     tuiRecessColor,
     VERA_TUI_THEME,
 } from "./theme.ts";
-import {
-    applyTuiThemeBindings,
-    tuiThemeProperties,
-    type TuiThemeBinding,
-} from "./theme-bindings.ts";
+import { applyTuiThemeBindings, tuiThemeProperties } from "./theme-bindings.ts";
 import {
     loadTuiActivityAnimationPreference,
     loadTuiActivityAnimationIntervalPreference,
@@ -708,12 +461,7 @@ import {
 } from "./theme-preference.ts";
 import { createTuiDiff, repaintTuiDiff } from "./diff.ts";
 import { materializeDroppedImage } from "./dropped-image.ts";
-import {
-    createTuiUserEntry,
-    markTuiUserEntry,
-    repaintTuiUserEntry,
-    unmarkTuiUserEntry,
-} from "./user-entry.ts";
+import { createTuiUserEntry, repaintTuiUserEntry } from "./user-entry.ts";
 import {
     createTuiToolHeader,
     createTuiToolRow,
@@ -729,22 +477,17 @@ import {
     tuiMarkdownEntryContent,
 } from "./markdown-entry.ts";
 import { openTuiLink } from "./markdown-links.ts";
-import {
-    createTuiGutterEntry,
-    markTuiGutterEntry,
-    repaintTuiGutterEntry,
-    unmarkTuiGutterEntry,
-    tuiGutterContent,
-    tuiGutterWidth,
-} from "./gutter.ts";
+import { createTuiGutterEntry, repaintTuiGutterEntry, tuiGutterContent, tuiGutterWidth } from "./gutter.ts";
 import { type PoolChangeUndo, type TuiAgentCatalog, type TuiAgentCatalogRow, type TuiRuntime } from "./main/runtime.ts";
+import { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, appendPendingSidebarContextNotice, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer } from "./main/chrome.ts";
+export { applyTerminalTitle, fallbackSessionTitle, adoptFallbackSessionTitle, refreshTerminalTitle, toggleMainHeader, toggleSidebarHeader, readStandingNudgeRules, adoptStandingNudgesState, isSearchLanding, markSearchLanding, clearSearchLanding, appendPendingSidebarContextNotice, refreshKeymap, coreHelpCommands, registeredPaletteEntries, workerFreeAction, createMarkdownStyle, clearSidebarEntryNodes, closeSidebarPane, composerSlotHeight, setSurfaceBottomInsets, setComposerMargin, positionCommandSuggestions, resizeComposer };
 
 registerTuiParsers();
 
 // The palette has no other advertisement: it is a chord, not a slash command in
 // the composer's list, so the idle status line is where you find out it exists.
 /** The palette's first row while a closed session file is on screen. */
-const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
+export const RESUME_VIEWED_PALETTE_ENTRY: TuiPaletteEntry = {
     name: "resume-this",
     label: "Resume this conversation",
     description: "start its worker and keep reading here",
@@ -4622,323 +4365,29 @@ function defaultModelChangeNotice(
     return `Changed ${modelPatchSubject(effectivePatch)}; new conversations will use it by default`;
 }
 
-export function applyTerminalTitle(rt: TuiRuntime): void {
-    rt.renderer.setTerminalTitle(
-        rt.sessionTitle === undefined || rt.sessionTitle.length === 0
-            ? "Vera"
-            : `${rt.sessionTitle} · Vera`,
-    );
-}
 
-export function fallbackSessionTitle(rt: TuiRuntime, text: string): string | undefined {
-    const title = text.replaceAll(/\s+/g, " ").trim().slice(0, 80);
-    return title.length === 0 ? undefined : title;
-}
 
-export function adoptFallbackSessionTitle(rt: TuiRuntime, 
-    text: string,
-    injectedPrefix?: number,
-): void {
-    if (rt.sessionTitle !== undefined) {
-        return;
-    }
-    // What an extension prepended was sent but never shown, so it does not
-    // name the session either.
-    const visible = injectedPrefix !== undefined
-            && injectedPrefix > 0
-            && injectedPrefix < text.length
-        ? text.slice(injectedPrefix)
-        : text;
-    const title = fallbackSessionTitle(rt, visible);
-    if (title === undefined) {
-        return;
-    }
-    rt.sessionTitle = title;
-    applyTerminalTitle(rt);
-}
 
-export function refreshTerminalTitle(rt: TuiRuntime): void {
-    const agentId = rt.client.agentId;
-    if (agentId === undefined || rt.dependencies.listAgents === undefined) {
-        return;
-    }
-    void rt.dependencies.listAgents().then((agents) => {
-        if (rt.shuttingDown || agentId !== rt.client.agentId) {
-            return;
-        }
-        rt.sessionTitle = agents.find((agent) => agent.id === agentId)?.title;
-        applyTerminalTitle(rt);
-        if (rt.clientSurfaceReady) renderState(rt);
-    }).catch(() => {
-        // The title keeps its last value when the host cannot be reached.
-    });
-}
 
-export function toggleMainHeader(rt: TuiRuntime): void {
-    rt.mainHeaderVisible = !rt.mainHeaderVisible;
-    renderState(rt);
-}
 
-export function toggleSidebarHeader(rt: TuiRuntime): void {
-    if (rt.hostedSidebar.pane === undefined) return;
-    rt.sidebarHeaderVisible = !rt.sidebarHeaderVisible;
-    renderState(rt);
-}
 
-export function readStandingNudgeRules(rt: TuiRuntime): readonly StandingNudge[] {
-    try {
-        return loadStandingNudges(rt.standingNudgesProfileDirectory);
-    } catch {
-        // The dialog and hosted turn own the actionable file error. The
-        // ambient indicator must not turn a corrupt profile into a second
-        // competing error surface.
-        return [];
-    }
-}
 
-export function adoptStandingNudgesState(rt: TuiRuntime, 
-    next: TuiStandingNudgesState | undefined,
-): void {
-    rt.standingNudges = next;
-    if (next === undefined) return;
-    rt.standingNudgeRules = next.screen === "error"
-        ? next.back?.nudges ?? []
-        : next.nudges;
-}
 
-export function isSearchLanding(rt: TuiRuntime, entry: TuiTranscriptEntry): boolean {
-    return rt.searchLanding !== undefined
-        && rt.client.agentId === rt.searchLanding.sessionId
-        && entry.kind !== "diff"
-        && transcriptMessageId(entry.entryId) === rt.searchLanding.entryId;
-}
 
-export function markSearchLanding(rt: TuiRuntime, 
-    entry: TuiTranscriptEntry,
-    node: Renderable,
-): boolean {
-    return entry.kind === "user"
-        ? markTuiUserEntry(node as BoxRenderable)
-        : markTuiGutterEntry(node);
-}
 
-export function clearSearchLanding(rt: TuiRuntime): void {
-    if (rt.searchLanding === undefined) return;
-    const index = rt.state.entries.findIndex(((entry: TuiTranscriptEntry) => isSearchLanding(rt, entry)));
-    rt.searchLanding = undefined;
-    const entry = rt.state.entries[index];
-    const node = rt.entryNodes[index];
-    if (entry === undefined || node === undefined) return;
-    if (entry.kind === "user") {
-        unmarkTuiUserEntry(node as BoxRenderable);
-    } else {
-        unmarkTuiGutterEntry(node, entry);
-    }
-}
 
-export function appendPendingSidebarContextNotice(rt: TuiRuntime, 
-    side: TuiAgentPane<IdentifiedTuiAgentClient>,
-): void {
-    const notice = rt.pendingSidebarContextNotice;
-    if (notice?.agentId !== side.agentId) return;
-    side.state.state = appendTuiNotice(
-        side.state.state,
-        notice.text,
-        "soft",
-    );
-    rt.pendingSidebarContextNotice = undefined;
-}
 
-export function refreshKeymap(rt: TuiRuntime): void {
-    const resolution = resolveTuiKeymap({
-        extensions: (rt.clientExtensionRegistry?.keybindings() ?? []).map(
-            (descriptor) => ({
-                id: descriptor.id,
-                keys: descriptor.keys,
-                description: descriptor.description,
-                ...(isTuiKeyScope(descriptor.scope)
-                    ? { scope: descriptor.scope }
-                    : {}),
-                ...(descriptor.remappable === undefined
-                    ? {}
-                    : { remappable: descriptor.remappable }),
-                ...(descriptor.hint === undefined
-                    ? {}
-                    : { hint: descriptor.hint }),
-            }),
-        ),
-        overlay: rt.keybindingOverlay,
-    });
-    installTuiKeymap(resolution.bindings);
-    // Said once per distinct set. A reload that changes nothing about the
-    // keys must not repeat the banner it already showed.
-    for (const notice of resolution.notices) {
-        if (rt.announcedKeymapNotices.has(notice)) continue;
-        rt.announcedKeymapNotices.add(notice);
-        // The first history rebuilds the transcript from the session, so a
-        // notice settled before it would be painted and then dropped.
-        if (rt.transcriptSeeded) {
-            rt.state = appendTuiNotice(rt.state, notice);
-        } else {
-            rt.deferredKeymapNotices.push(notice);
-        }
-    }
-}
 
-export function coreHelpCommands(rt: TuiRuntime): readonly TuiCommandCatalogEntry[] {
-    const hostCommandNames = new Set(
-        rt.hostExtensionCommands.map((command) => command.name),
-    );
-    return rt.commandRegistry.registeredCommands().filter(
-        (command) => !hostCommandNames.has(command.name),
-    );
-}
 
-export function registeredPaletteEntries(rt: TuiRuntime): readonly TuiPaletteEntry[] {
-    // Every command that belongs in the palette declares its own row, so
-    // there is nothing left to synthesize from the slash catalog.
-    const entries = rt.commandRegistry.registeredPaletteActions();
-    if (!isWorkerFreeClient(rt.client)) return entries;
-    // A closed file lists only what needs no worker; the rest is absent,
-    // not greyed. Home has no file to resume, so it has no such row.
-    const viewingFile = isJsonlViewClient(rt.client);
-    return [
-        ...(viewingFile ? [RESUME_VIEWED_PALETTE_ENTRY] : []),
-        ...entries.filter((entry) =>
-            workerFreeAction(rt, entry.action, viewingFile)
-        ),
-    ];
-}
 
-export function workerFreeAction(rt: TuiRuntime, 
-    action: TuiCommandAction | undefined,
-    viewingFile: boolean,
-): boolean {
-    // Both commands that start a conversation describe what happens to
-    // the one being left, and home is not in one. Its first row is the
-    // way to start a conversation there.
-    if (action?.type === "create_session") return viewingFile;
-    return action?.type === "resume_viewed_session"
-        || action?.type === "open_resume_picker"
-        || action?.type === "open_help"
-        || action?.type === "open_theme_picker"
-        || action?.type === "open_usage";
-}
 
-export function createMarkdownStyle(rt: TuiRuntime, activeTheme: typeof rt.theme): SyntaxStyle {
-    return SyntaxStyle.fromStyles({
-    default: { fg: activeTheme.text },
-    "markup.heading": { fg: activeTheme.accent, bold: true },
-    // Assistant prose uses a quieter base foreground, but emphasis is a
-    // deliberate signal and must not inherit that muted color.
-    "markup.strong": { fg: activeTheme.text, bold: true },
-    "markup.italic": { fg: activeTheme.text, italic: true },
-    "markup.raw": { fg: activeTheme.code },
-    "markup.raw.block": { fg: activeTheme.code },
-    "markup.list": { fg: activeTheme.accent },
-    "markup.quote": { fg: activeTheme.muted, italic: true },
-    "markup.link": { fg: activeTheme.accent, underline: true },
-    "markup.link.label": { fg: activeTheme.accent },
-    "markup.link.url": { fg: activeTheme.muted, underline: true },
-    comment: { fg: activeTheme.muted, italic: true },
-    string: { fg: activeTheme.success },
-    number: { fg: activeTheme.notice },
-    boolean: { fg: activeTheme.notice },
-    keyword: { fg: activeTheme.accent },
-    type: { fg: activeTheme.notice },
-    "type.builtin": { fg: activeTheme.notice },
-    function: { fg: activeTheme.accent },
-    "function.call": { fg: activeTheme.accent },
-    constant: { fg: activeTheme.notice },
-    operator: { fg: activeTheme.muted },
-    conceal: { fg: activeTheme.muted },
-    });
-}
 
-export function clearSidebarEntryNodes(rt: TuiRuntime): void {
-    while (rt.sidebarEntryNodes.length > 0) {
-        rt.sidebarEntryNodes.pop()?.destroyRecursively();
-        rt.sidebarEntryNodeKinds.pop();
-    }
-}
 
-export function closeSidebarPane(rt: TuiRuntime, extensionId?: string): void {
-    const attached = rt.hostedSidebar.release(extensionId);
-    if (attached !== undefined) {
-        rejectPendingExtensionSettingsFor(rt, 
-            attached.client,
-            new Error("The sidebar agent closed"),
-        );
-    }
-    rt.pendingSidebarSessionRename = undefined;
-    forgetPersistedAgentPane(rt);
-    rt.sidebarSessionTitle = undefined;
-    void attached?.detach().catch(() => attached.close());
-    clearSidebarEntryNodes(rt);
-    rt.sidebar.clear();
-    rt.sidebar.setHeader(undefined);
-    rt.sidebarHeaderVisible = true;
-    rt.sidebar.close();
-    setSidebarFocused(rt, false);
-    rt.composer.focus();
-    renderState(rt);
-}
 
-export function composerSlotHeight(rt: TuiRuntime): number {
-    // Home holds nothing at the foot of the screen at all.
-    if (isHomeClient(rt.client)) return 0;
-    return isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
-        ? rt.resumeOverlay.surface.height
-        : rt.composerBox.height;
-}
 
-export function setSurfaceBottomInsets(rt: TuiRuntime, rows: number): void {
-    rt.workspaceSidebarView.setBottomInset(rows);
-    rt.searchOverlayView.setBottomInset(rows);
-}
 
-export function setComposerMargin(rt: TuiRuntime, rows: number): void {
-    rt.composerMarginRows = rows;
-    rt.composerBox.marginBottom = rows;
-    rt.resumeOverlay.surface.marginBottom = rows;
-    setSurfaceBottomInsets(rt, composerSlotHeight(rt) + rows);
-    positionCommandSuggestions(rt);
-}
 
-export function positionCommandSuggestions(rt: TuiRuntime): void {
-    // One more than the rows under the strip: `bottom` is where the box's
-    // bottom edge sits, so without it the strip's last row lands on the
-    // composer's top border instead of the row above it.
-    rt.commandSuggestionsBox.bottom = composerSlotHeight(rt)
-        + rt.composerMarginRows
-        + rt.experimentalTuiHost.bottomInsetRows()
-        + (rt.composerTipText.visible ? 1 : 0)
-        + (rt.quoteText.visible ? 1 : 0)
-        + (rt.heldAddressText.visible ? 1 : 0)
-        + rt.agentNoticeRows
-        + 1;
-    rt.jumpMenuBox.bottom = rt.commandSuggestionsBox.bottom;
-}
 
-export function resizeComposer(rt: TuiRuntime, requestedRows: number): void {
-    rt.requestedComposerTextRows = requestedRows;
-    const terminalCap = Math.max(
-        TUI_COMPOSER_MIN_TEXT_ROWS,
-        Math.floor(rt.renderer.height / 4),
-    );
-    const nextRows = Math.min(
-        requestedRows,
-        TUI_COMPOSER_MAX_TEXT_ROWS,
-        terminalCap,
-    );
-    if (nextRows === rt.composerTextRows) return;
-    rt.composerTextRows = nextRows;
-    rt.composer.height = nextRows;
-    rt.composerBox.height = tuiComposerPanelRows(nextRows);
-    setSurfaceBottomInsets(rt, composerSlotHeight(rt) + rt.composerMarginRows);
-    positionCommandSuggestions(rt);
-    rt.renderer.requestRender();
-}
 
 export async function openExtensionAgent(rt: TuiRuntime, 
     extensionId: string,
