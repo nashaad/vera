@@ -12,7 +12,6 @@ import {
 } from "./state.ts";
 import { applyTuiUiRequestUpdate } from "./ui-request-queue.ts";
 
-/** Session-owned presentation state for one attached agent pane. */
 export class TuiAgentPaneState {
     state: TuiState = createTuiState();
     pendingUiRequest: UiRequestUpdate | undefined;
@@ -35,8 +34,6 @@ export class TuiAgentPaneState {
             update.type === "compaction"
             && update.phase === "finished"
             && update.outcome !== "busy"
-            // The turn took this compaction down with it and is still
-            // unwinding, so the stop the user asked for has not landed yet.
             && update.stoppedWithTurn !== true
         ) {
             this.abortRequested = false;
@@ -45,8 +42,7 @@ export class TuiAgentPaneState {
             update.type === "turn_finished"
             || update.type === "agent_failed"
             || (update.type === "status" && update.state === "idle")
-            // On the wire, user_prompt is turn_started. That follow-up is a
-            // new abort target; the latch must not still name the stopped turn.
+            // On the wire, user_prompt is turn_started. That follow-up is a new abort target; the latch must not still name the stopped turn.
             || update.type === "user_prompt"
         ) {
             this.abortRequested = false;

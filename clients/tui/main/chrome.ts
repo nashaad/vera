@@ -35,8 +35,6 @@ export function adoptFallbackSessionTitle(rt: TuiRuntime,
     if (rt.sessionTitle !== undefined) {
         return;
     }
-    // What an extension prepended was sent but never shown, so it does not
-    // name the session either.
     const visible = injectedPrefix !== undefined
             && injectedPrefix > 0
             && injectedPrefix < text.length
@@ -63,7 +61,6 @@ export function refreshTerminalTitle(rt: TuiRuntime): void {
         applyTerminalTitle(rt);
         if (rt.clientSurfaceReady) renderState(rt);
     }).catch(() => {
-        // The title keeps its last value when the host cannot be reached.
     });
 }
 
@@ -82,9 +79,7 @@ export function readStandingNudgeRules(rt: TuiRuntime): readonly StandingNudge[]
     try {
         return loadStandingNudges(rt.standingNudgesProfileDirectory);
     } catch {
-        // The dialog and hosted turn own the actionable file error. The
-        // ambient indicator must not turn a corrupt profile into a second
-        // competing error surface.
+        // The dialog and hosted turn own the actionable file error. The ambient indicator must not turn a corrupt profile into a second competing error surface.
         return [];
     }
 }
@@ -163,13 +158,10 @@ export function refreshKeymap(rt: TuiRuntime): void {
         overlay: rt.keybindingOverlay,
     });
     installTuiKeymap(resolution.bindings);
-    // Said once per distinct set. A reload that changes nothing about the
-    // keys must not repeat the banner it already showed.
+    // Said once per distinct set. A reload that changes nothing about the keys must not repeat the banner it already showed.
     for (const notice of resolution.notices) {
         if (rt.announcedKeymapNotices.has(notice)) continue;
         rt.announcedKeymapNotices.add(notice);
-        // The first history rebuilds the transcript from the session, so a
-        // notice settled before it would be painted and then dropped.
         if (rt.transcriptSeeded) {
             rt.state = appendTuiNotice(rt.state, notice);
         } else {
@@ -188,12 +180,8 @@ export function coreHelpCommands(rt: TuiRuntime): readonly TuiCommandCatalogEntr
 }
 
 export function registeredPaletteEntries(rt: TuiRuntime): readonly TuiPaletteEntry[] {
-    // Every command that belongs in the palette declares its own row, so
-    // there is nothing left to synthesize from the slash catalog.
     const entries = rt.commandRegistry.registeredPaletteActions();
     if (!isWorkerFreeClient(rt.client)) return entries;
-    // A closed file lists only what needs no worker; the rest is absent,
-    // not greyed. Home has no file to resume, so it has no such row.
     const viewingFile = isJsonlViewClient(rt.client);
     return [
         ...(viewingFile ? [RESUME_VIEWED_PALETTE_ENTRY] : []),
@@ -207,9 +195,6 @@ export function workerFreeAction(rt: TuiRuntime,
     action: TuiCommandAction | undefined,
     viewingFile: boolean,
 ): boolean {
-    // Both commands that start a conversation describe what happens to
-    // the one being left, and home is not in one. Its first row is the
-    // way to start a conversation there.
     if (action?.type === "create_session") return viewingFile;
     return action?.type === "resume_viewed_session"
         || action?.type === "open_resume_picker"
@@ -222,8 +207,7 @@ export function createMarkdownStyle(rt: TuiRuntime, activeTheme: typeof rt.theme
     return SyntaxStyle.fromStyles({
     default: { fg: activeTheme.text },
     "markup.heading": { fg: activeTheme.accent, bold: true },
-    // Assistant prose uses a quieter base foreground, but emphasis is a
-    // deliberate signal and must not inherit that muted color.
+    // Assistant prose uses a quieter base foreground, but emphasis is a deliberate signal and must not inherit that muted color.
     "markup.strong": { fg: activeTheme.text, bold: true },
     "markup.italic": { fg: activeTheme.text, italic: true },
     "markup.raw": { fg: activeTheme.code },
@@ -278,7 +262,6 @@ export function closeSidebarPane(rt: TuiRuntime, extensionId?: string): void {
 }
 
 export function composerSlotHeight(rt: TuiRuntime): number {
-    // Home holds nothing at the foot of the screen at all.
     if (isHomeClient(rt.client)) return 0;
     return isJsonlViewClient(rt.client) && !rt.jsonlCommandMode
         ? rt.resumeOverlay.surface.height
@@ -299,9 +282,6 @@ export function setComposerMargin(rt: TuiRuntime, rows: number): void {
 }
 
 export function positionCommandSuggestions(rt: TuiRuntime): void {
-    // One more than the rows under the strip: `bottom` is where the box's
-    // bottom edge sits, so without it the strip's last row lands on the
-    // composer's top border instead of the row above it.
     rt.commandSuggestionsBox.bottom = composerSlotHeight(rt)
         + rt.composerMarginRows
         + rt.experimentalTuiHost.bottomInsetRows()

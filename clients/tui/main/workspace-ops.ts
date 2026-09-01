@@ -118,7 +118,6 @@ export function openWorkspaceSidebar(rt: TuiRuntime,
         try {
             saveTuiWorkspaceSidebarDocked(true);
         } catch {
-            // A preference write cannot stop the rail opening now.
         }
     }
     void rt.dependencies.listAgents().then((agents) => {
@@ -216,8 +215,6 @@ export function refreshWorkspaceSidebarRoster(rt: TuiRuntime): void {
             : applyWorkspaceWorkIndex(listed, rt.workIndex);
         renderState(rt);
     }).catch(() => {
-        // Nothing to say: the rows already listed are still the best
-        // answer, and the next push asks again.
     });
 }
 
@@ -235,36 +232,20 @@ export function applyWorkspaceRail(rt: TuiRuntime): void {
         rt.workspaceSidebarView.setRail(columns);
     }
     const occupied = rt.workspaceSidebarView.railColumns() ?? 0;
-    // Everything below is a function of the width the rail occupies and
-    // the width of the terminal, and re-applying it repaints. Timed
-    // refreshes call this on every tick, so the layout is only laid out
-    // again when one of the two has moved.
     if (
         occupied === rt.workspaceRailLaidOut
         && rt.renderer.width === rt.workspaceRailLaidOutColumns
     ) return;
     rt.workspaceRailLaidOut = occupied;
     rt.workspaceRailLaidOutColumns = rt.renderer.width;
-    // The navigator owns a full-height column like an editor sidebar.
-    // Reserving that width on the app moves the transcript, composer,
-    // status rows and dialogs together; nothing from the chat can run
-    // underneath the dock.
     rt.app.paddingLeft = occupied;
     rt.workspaceSidebarView.surface.left = 0;
-    // Global dialogs still hide the rail. Session-owned approval and
-    // question cards stay in the chat column; renderState narrows their
-    // scrim to that column after it knows which kind of overlay is open.
     rt.overlayScrim.left = 0;
     rt.overlayScrim.width = rt.renderer.width;
     rt.statusBand.left = occupied;
     rt.statusBand.width = Math.max(0, rt.renderer.width - occupied);
-    // The card centres itself inside its surface, so the surface has to be
-    // the space the rail leaves rather than the whole terminal.
     rt.homeView.surface.left = occupied;
     rt.homeView.surface.width = Math.max(1, rt.renderer.width - occupied);
-    // The idle block breaks its prose to the chat's width, and its
-    // height is part of what the composer slot occupies, so a change in
-    // one has to reach the rows measured off the other.
     if (
         rt.resumeOverlay.setColumns(Math.max(1, rt.renderer.width - occupied))
     ) {
@@ -300,7 +281,6 @@ export function closeWorkspaceSidebar(rt: TuiRuntime): void {
     try {
         saveTuiWorkspaceSidebarDocked(false);
     } catch {
-        // The current layout still closes when persistence cannot update.
     }
     rt.workspaceSidebarView.surface.visible = false;
     rt.composer.focus();
@@ -328,7 +308,6 @@ export function runWorkspaceSidebarAction(rt: TuiRuntime,
         try {
             saveTuiPinnedSessionIds(action.pinnedIds);
         } catch {
-            // A preference write cannot stop the list from reordering.
         }
         renderState(rt);
         focusActiveSurface(rt);
@@ -358,9 +337,7 @@ export function runWorkspaceSidebarAction(rt: TuiRuntime,
     rt.workspaceSidebarFocused = false;
     rt.composer.focus();
     renderState(rt);
-    // The rail is working-set chrome. Opening another row must not stop
-    // live work on the session you left; `/resume` Enter still does.
-    // Idle rows paint the file. A row that already has a worker attaches.
+    // The rail is working-set chrome. Opening another row must not stop live work on the session you left; `/resume` Enter still does.
     beginSessionResume(rt, 
         action.session_path,
         action.session_id,
@@ -379,8 +356,6 @@ export function openResumePicker(rt: TuiRuntime): void {
     }
     const version = ++rt.resumeListVersion;
     const targetAgentId = focusedAgentClient(rt).agentId;
-    // Neither home nor a session file has a worker to stop, so Enter is
-    // not a switch away from anything: it opens the row and that is all.
     const nothingToLeave = isWorkerFreeClient(rt.client);
     rt.settingsPicker = startTuiSessionPicker(
         [],
@@ -437,8 +412,6 @@ export function openResumePicker(rt: TuiRuntime): void {
 export function closeWorkSurfaces(rt: TuiRuntime): void {
     rt.workTab = undefined;
     rt.searchOverlay = undefined;
-    // The scan already running finishes and finds no overlay to fill; the
-    // one waiting behind it never starts.
     rt.queuedSearch = undefined;
     rt.workTabView.surface.visible = false;
     rt.searchOverlayView.surface.visible = false;
@@ -492,8 +465,6 @@ export function runSearchOverlayAction(rt: TuiRuntime,
     }
     if (action.kind === "open") {
         closeWorkSurfaces(rt);
-        // Set before the switch, so the first paint of the session that
-        // arrives is the one that scrolls.
         rt.pendingSearchTarget = action.entry_id === null
             ? undefined
             : { sessionId: action.session_id, entryId: action.entry_id };
@@ -565,9 +536,6 @@ export function openNamePrompt(rt: TuiRuntime,
 }
 
 export function openSearchOverlay(rt: TuiRuntime, scope?: SearchScope): void {
-    // The previous landing answered the previous question. Clearing it on
-    // open, not on close, keeps the mark visible for as long as the reader
-    // is still looking at what the last search found.
     clearSearchLanding(rt);
     const target = focusedAgentClient(rt);
     rt.searchOverlay = startSearchOverlay(target.workspace ?? process.cwd(), {

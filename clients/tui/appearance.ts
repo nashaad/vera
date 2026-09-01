@@ -71,7 +71,6 @@ export function resolveTuiAppearance(
     };
 }
 
-/** Preserve configured geometry until it would crush the composer content. */
 export function fitTuiAppearance(
     appearance: TuiAppearance,
     terminalWidth: number,
@@ -125,14 +124,12 @@ export function fitTuiAppearance(
     };
 }
 
-/** Column where text inside the framed composer begins. */
 export function tuiComposerContentIndent(appearance: TuiAppearance): number {
     return appearance.composerMarginHorizontal
         + 1
         + appearance.composerPaddingHorizontal;
 }
 
-/** Geometry shared by overlays that sit in the composer's horizontal band. */
 export function tuiComposerOverlayInset(appearance: TuiAppearance): {
     readonly left: 0;
     readonly right: 0;

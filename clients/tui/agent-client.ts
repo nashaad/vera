@@ -7,14 +7,8 @@ import type {
 export interface TuiAgentClient {
     readonly agentId?: string;
     readonly workspace?: string;
-    /** True when the session is available for terminal replay only. */
     readonly failed?: boolean;
-    /**
-     * True when this client is painting a session file and has not started a
-     * worker. The first command that needs a loop is what activates it.
-     */
     readonly viewOnly?: boolean;
-    /** True on the home screen, which has no session behind it at all. */
     readonly home?: boolean;
     readonly backgroundAgents?: AttachedAgentClient["backgroundAgents"];
     readonly capabilities?: AttachedAgentClient["capabilities"];

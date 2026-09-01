@@ -8,27 +8,12 @@ import type {
     SessionSearchResults,
 } from "../../src/store/session-search.ts";
 
-/**
- * The search overlay's presentation model, with no OpenTUI in it.
- *
- * Same division as the Work tab: what is on screen, what the keys do, and what
- * enter opens are all decidable as data, so the renderable mounts a decision
- * it did not make.
- */
+/** The search overlay's presentation model, with no OpenTUI in it. Same division as the Work tab: what is on screen, what the keys do, and what enter opens are all decidable as dat… */
 
 export const SEARCH_NARROW_WIDTH = 64;
 
-/**
- * Hits a half-page chord travels.
- *
- * A constant rather than the drawn height: the card measures itself at paint
- * time and the key arrives before that, so a height threaded into the state
- * would be the previous frame's. Results are grouped, so a page of hits is
- * already more rows than it looks.
- */
 export const SEARCH_PAGE = 5;
 
-/** Cycled on tab, in this order, starting at everything. */
 export const SEARCH_FILTERS: readonly (SessionSearchFilter | undefined)[] = [
     undefined,
     "messages",
@@ -36,14 +21,6 @@ export const SEARCH_FILTERS: readonly (SessionSearchFilter | undefined)[] = [
     "files",
 ];
 
-/**
- * How wide the search reaches, narrowest first.
- *
- * `ctrl+w` steps through these in order and wraps. A pane opened over a
- * conversation starts at the narrowest, which is the conversation itself; one
- * opened where there is no conversation starts at the workspace and never
- * offers `conversation`, because there is nothing for it to mean.
- */
 export type SearchScope = "conversation" | "workspace" | "everywhere";
 
 const SEARCH_SCOPES: readonly SearchScope[] = [
@@ -57,25 +34,11 @@ export interface SearchOverlayState {
     readonly queryCursor: number;
     readonly filter?: SessionSearchFilter;
     readonly scope: SearchScope;
-    /** The session's own workspace, which is what `workspace` scope means. */
     readonly workspace: string;
-    /**
-     * The conversation on screen, which is what `conversation` scope means.
-     * Absent when the pane was opened with no conversation behind it.
-     */
     readonly sessionId?: string;
     readonly results?: SessionSearchResults;
-    /** Set when the host refused or could not answer. */
     readonly notice?: string;
     readonly searching: boolean;
-    /**
-     * The hit under the cursor, named by its session and its place in that
-     * session's hits.
-     *
-     * A hit and not a session, because the host sends up to three per session
-     * and each one is somewhere different in the transcript. Selecting only
-     * the session would make the other two visible and unreachable.
-     */
     readonly selected?: SearchSelection;
 }
 
@@ -85,9 +48,7 @@ export interface SearchSelection {
 }
 
 export interface SearchOverlayStart {
-    /** The conversation to search first, when the pane has one behind it. */
     readonly sessionId?: string;
-    /** Where to start. Narrowed to what the pane can actually reach. */
     readonly scope?: SearchScope;
 }
 
@@ -109,14 +70,12 @@ export function startSearchOverlay(
     };
 }
 
-/** The scopes this pane can offer, narrowest first. */
 function availableScopes(sessionId?: string): readonly SearchScope[] {
     return sessionId === undefined
         ? SEARCH_SCOPES.filter((scope) => scope !== "conversation")
         : SEARCH_SCOPES;
 }
 
-/** The query to send for a state, or nothing when there is nothing to ask. */
 export function searchOverlayQuery(
     state: SearchOverlayState,
 ): SessionSearchQuery | undefined {
@@ -139,7 +98,6 @@ export type SearchOverlayAction =
         readonly kind: "open";
         readonly session_id: string;
         readonly session_path: string;
-        /** Null when the matching entry carries no id to position on. */
         readonly entry_id: string | null;
     };
 
@@ -154,19 +112,9 @@ export interface SearchOverlayKey {
     readonly ctrl?: boolean;
     readonly meta?: boolean;
     readonly shift?: boolean;
-    /**
-     * The characters the terminal actually sent.
-     *
-     * The name of a shifted letter key is its lower case, so the capital is
-     * only recoverable from what arrived.
-     */
     readonly sequence?: string;
 }
 
-/**
- * Every key the overlay owns. Modifier chords it does not claim are passed
- * through so global bindings, ctrl+c above all, still reach the client.
- */
 export function handleSearchOverlayKey(
     state: SearchOverlayState,
     key: SearchOverlayKey,
@@ -188,8 +136,6 @@ export function handleSearchOverlayKey(
             handled: true,
         };
     }
-    // Shift is not a chord here: it is how a capital is typed. Only ctrl and
-    // meta pass through to the client's own bindings.
     if (key.ctrl || key.meta) return { state, handled: false };
     if (key.name === "escape") {
         return { action: { kind: "close" }, handled: true };
@@ -221,11 +167,6 @@ export function updateSearchOverlayText(
     return requery(typed(state, { value: query, cursor }));
 }
 
-/**
- * The previous query's results stay on screen, marked stale, until the next
- * response lands: dropping them the instant a key is pressed blanked the
- * whole list on every keystroke.
- */
 function typed(
     state: SearchOverlayState,
     editor: { readonly value: string; readonly cursor: number },
@@ -270,11 +211,6 @@ function nextFilter(
     return SEARCH_FILTERS[(at + 1) % SEARCH_FILTERS.length];
 }
 
-/**
- * Results arriving for a query the person has already changed are dropped.
- * The query is carried on the state, so a slow scan cannot repopulate the
- * overlay under whatever is being typed now.
- */
 export function applySearchResults(
     state: SearchOverlayState,
     query: SessionSearchQuery,
@@ -315,7 +251,6 @@ function sameQuery(
         && left.session_id === right.session_id;
 }
 
-/** Every hit in the order it is drawn, which is the order the arrows walk. */
 export function searchSelections(
     state: SearchOverlayState,
 ): readonly SearchSelection[] {
@@ -347,13 +282,6 @@ function sameSelection(
         && left.hitIndex === right.hitIndex;
 }
 
-/**
- * Enter opens the selected session at its first hit.
- *
- * The first hit and not the session's tail: opening at the end would drop the
- * person back where they already were, which is the whole reason searching was
- * worth doing.
- */
 export function openSelected(
     state: SearchOverlayState,
 ): SearchOverlayAction | undefined {
@@ -374,21 +302,12 @@ export interface SearchOverlayLine {
     readonly kind: "result" | "hit" | "blank" | "notice";
     readonly text: string;
     readonly session_id?: string;
-    /** Present on the lines a mouse may select, which is the hits. */
     readonly row_id?: string;
     readonly selected?: boolean;
-    /** Left over from the previous query, while its replacement is in flight. */
     readonly stale?: boolean;
-    /**
-     * Where the query sits inside the line, so the row can draw it heavier.
-     *
-     * Absent when the snippet was cut before the match: a run pointing past
-     * the end of the line would mark whatever text ended up there instead.
-     */
     readonly emphasis?: { readonly start: number; readonly length: number };
 }
 
-/** A hit's identity as one string, because a pointer can only carry one. */
 export function searchRowId(selection: SearchSelection): string {
     return `${selection.sessionId}\u0000${selection.hitIndex}`;
 }
@@ -411,7 +330,6 @@ const HIT_PREFIXES: Readonly<Record<SessionSearchHit["kind"], string>> = {
     file_edit: "edited:",
 };
 
-/** The next scope out, wrapping back to the narrowest one on offer. */
 function widerScope(state: SearchOverlayState): SearchScope {
     const scopes = availableScopes(state.sessionId);
     const at = scopes.indexOf(state.scope);
@@ -465,8 +383,6 @@ export function searchOverlayLines(
     for (const result of results) {
         lines.push({ kind: "blank", text: "" });
         const age = relativeTime(result.updated_at, now, "");
-        // The session names the group; the highlight bar sits on hits,
-        // because a hit is what enter opens.
         const title = `  ${result.title}`;
         const gap = Math.max(1, layout.width - title.length - age.length);
         lines.push({
@@ -517,13 +433,6 @@ export function searchOverlayText(
     ].join("\n");
 }
 
-/**
- * Where the query lands in a drawn line, if it is still on it.
- *
- * The host matches case-insensitively and the snippet keeps the transcript's
- * own case, so the run is found the same way rather than assumed to be where
- * the query's characters were typed.
- */
 function matchRun(
     text: string,
     needle: string,
@@ -542,7 +451,6 @@ function clip(value: string, columns: number): string {
         : `${value.slice(0, Math.max(1, columns - 1))}…`;
 }
 
-/** The search overlay as the shared card draws it. */
 export function searchOverlayViewState(
     state: SearchOverlayState,
     width: number,

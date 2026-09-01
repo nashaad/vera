@@ -14,7 +14,6 @@ import {
 } from "./quickslots.ts";
 import { veraProfileDirectory } from "../../src/profile-paths.ts";
 
-/** Legacy on-disk data retained so older preference files round-trip safely. */
 export interface FavoritePair {
     readonly name?: string;
     readonly provider?: string;
@@ -22,10 +21,6 @@ export interface FavoritePair {
     readonly effort?: string;
 }
 
-// Every client preference shares one file and one writer. A second module doing
-// its own read-modify-write here would drop whatever the other had just saved,
-// so new preferences are added to this interface rather than to a file of their
-// own.
 interface TuiClientPreferences {
     readonly theme: TuiThemeName;
     readonly animation: TuiActivityAnimation;
@@ -33,27 +28,14 @@ interface TuiClientPreferences {
     readonly animation_interval_ms?: number;
     readonly animation_width?: number;
     readonly sidebar_width?: number;
-    /** Whether the workspace navigator stays docked beside the conversation. */
     readonly workspace_sidebar_docked?: boolean;
-    /** Width of the persistent workspace navigator, in terminal columns. */
     readonly workspace_sidebar_width?: number;
     readonly shared_session_groups?: readonly (readonly [string, string])[];
-    // Session ids the reader pinned to the top of the workspace side bar. A
-    // pin is one person's opinion about their own list, so it stays here and
-    // never reaches the host.
     readonly pinned_session_ids?: readonly string[];
     readonly persisted_agent_panes?: readonly DiskPersistedAgentPane[];
-    // Spelled as it was when quickslots were called presets. Respelling the key
-    // would leave every already-saved slot unreadable.
     readonly model_presets?: DiskQuickslots;
-    // Binding id to chords. Ids only: a block that could name actions would be
-    // a macro language, and a macro language is where blind cycling comes back.
     readonly keybindings?: Readonly<Record<string, readonly string[]>>;
-    // Retained for backward-compatible reads/writes; the TUI no longer uses
-    // favorites as a live model-selection concept.
     readonly favorite_pairs?: readonly DiskFavoritePair[];
-    // Version-numbered so a later format change can run its own pass without
-    // re-running this one.
     readonly favorite_pairs_migrated?: number;
     readonly extensions?: Readonly<
         Record<string, Readonly<Record<string, JsonValue>>>
@@ -323,12 +305,6 @@ function favoritePairForDisk(favorite: FavoritePair): DiskFavoritePair {
     };
 }
 
-/**
- * The current quickslot format, whichever of the two it is on disk.
- *
- * The extension block wins when present, which is the precedence the reader
- * that wrote them already used.
- */
 export function loadTuiQuickslotsForMigration(
     path = tuiThemePreferencePath(),
 ): readonly unknown[] {
@@ -341,15 +317,6 @@ export function loadTuiQuickslotsForMigration(
     return (preferences.model_presets ?? []) as readonly unknown[];
 }
 
-/**
- * Turn saved quickslots into favourite pairs, once.
- *
- * The old blocks are left where they are. They cost nothing to keep and they
- * are the only way back if this reads a slot wrongly; a later release removes
- * them. `resolve` is the pool lookup, which is what turns a name-form slot
- * into the richer `(name, provider, model_id)` form while the name still
- * means something.
- */
 export function migrateTuiQuickslotsToFavoritePairs(
     resolve: (name: string) =>
         { readonly provider: string; readonly model: string } | undefined,
@@ -361,8 +328,6 @@ export function migrateTuiQuickslotsToFavoritePairs(
     }
     const slots = loadTuiQuickslotsForMigration(path);
     if (slots.length === 0) {
-        // Nothing to carry over, so nothing is written: a profile that never
-        // held quickslots keeps a tui.json with only the keys its owner set.
         return { migrated: 0, skipped: 0 };
     }
     const favorites: DiskFavoritePair[] = [];
@@ -370,8 +335,6 @@ export function migrateTuiQuickslotsToFavoritePairs(
     for (const slot of slots) {
         const favorite = favoriteFromQuickslot(slot, resolve);
         if (favorite === undefined) {
-            // Malformed is the only skip class. An id-form slot is valid data
-            // and is carried over as an id-form favourite.
             if (slot !== null && slot !== undefined) skipped += 1;
             continue;
         }
@@ -401,9 +364,6 @@ function favoriteFromQuickslot(
     const name = Reflect.get(value, "name");
     if (typeof name === "string" && name.length > 0) {
         const resolved = resolve(name);
-        // A name that still resolves is enriched now, while it means
-        // something. One that does not stays name-only and renders dimmed
-        // until the pool has it again.
         return resolved === undefined ? { name, effort } : {
             name,
             provider: resolved.provider,
@@ -435,13 +395,6 @@ export function saveTuiQuickslots(
     }, path);
 }
 
-/**
- * The user's key overrides, unvalidated.
- *
- * Validation belongs to the merge in `keybindings.ts`, which is the only place
- * that knows which ids exist and which chords are already claimed. Reading the
- * block here only asserts its shape: an object of string lists.
- */
 export function loadTuiKeybindingOverlay(
     path = tuiThemePreferencePath(),
 ): Readonly<Record<string, readonly string[]>> {
@@ -458,8 +411,6 @@ export function loadTuiExtensionPreference(
     if (value !== undefined) {
         return value;
     }
-    // The bundled extension keeps quickslots saved by the former built-in
-    // implementation visible on its first run.
     return extensionId === "vera.model-presets"
             && key === "slots"
             && preferences.model_presets !== undefined
@@ -531,9 +482,6 @@ function loadTuiClientPreferences(path: string): TuiClientPreferences {
                 2,
                 15,
             );
-            // Absent quickslots stay absent rather than becoming four nulls, so
-            // saving an unrelated preference does not grow the file with a
-            // block the user never asked for.
             const sidebarWidth = boundedInteger(
                 Reflect.get(value, "sidebar_width"),
                 20,
@@ -684,7 +632,6 @@ function parseSharedSessionGroups(
     });
 }
 
-/** A favourite is legal iff it names a pool entry or an exact model id. */
 function parseFavoritePairs(value: unknown): readonly DiskFavoritePair[] {
     if (!Array.isArray(value)) return [];
     return value.flatMap((candidate) => {
@@ -714,11 +661,6 @@ function parseFavoritePairs(value: unknown): readonly DiskFavoritePair[] {
     });
 }
 
-/**
- * The keybindings block as written, minus anything that is not a list of
- * strings. A malformed value is dropped here and named by the merge, which is
- * what turns a typo into a banner line rather than a crash.
- */
 function parseKeybindingOverlay(
     value: unknown,
 ): Readonly<Record<string, readonly string[]>> | undefined {
@@ -733,8 +675,6 @@ function parseKeybindingOverlay(
         ) {
             overlay[id] = chords as readonly string[];
         } else {
-            // Kept, so the merge can say which id was wrong rather than
-            // silently behaving as though it had never been written.
             overlay[id] = [String(chords)];
         }
     }

@@ -116,8 +116,6 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
 ): number {
     const entry = entries[index];
     if (entry === undefined) return 0;
-    // A folded tool row is not laid out, so it occupies no rows the spacer
-    // has to stand in for.
     if (!tuiTranscriptEntryIsVisible(entry)) return 0;
     const width = Math.max(
         8,
@@ -127,8 +125,6 @@ export function estimateTranscriptEntryRows(rt: TuiRuntime,
     );
     const margin = tuiEntryMarginTop(entries, index, rt.entrySpacing);
     if (entry.kind === "thinking") {
-        // Reasoning still arriving is one clipped row however much has
-        // arrived, so its height never depends on its text.
         return margin + 1;
     }
     return margin + Math.max(
@@ -157,8 +153,6 @@ export function updateTranscriptEntryNode(rt: TuiRuntime,
     wrapper.visible = entry.kind !== "tool" || entry.hidden !== true;
     const existing = tuiGutterContent(wrapper);
     if (existing instanceof MarkdownRenderable) {
-        // The trailing block stays unstable while this flag is on. A
-        // finished turn has no live row, so a reused node has to settle.
         if (existing.streaming && !rt.state.working) {
             existing.streaming = false;
         }
@@ -234,9 +228,6 @@ export function addTranscriptEntryNode(rt: TuiRuntime,
 export function updateTranscriptSpacers(rt: TuiRuntime, 
     entries: readonly TuiTranscriptEntry[],
 ): void {
-    // A box holds a row even at height 0, which at the ends of the window
-    // is a blank band above the first entry or below the last. Hiding an
-    // empty spacer is what keeps those ends flush.
     const above = estimatedTranscriptRows(rt, entries, 0, rt.materializedEntryStart);
     const below = estimatedTranscriptRows(rt, 
         entries,
@@ -331,9 +322,6 @@ export function renderTranscriptEntries(rt: TuiRuntime,
         rt.materializedEntryEnd = initial.start;
     }
 
-    // Entries appended while the reader is scrolled away stay behind the
-    // bottom spacer until they scroll into reach, so a long session does
-    // not rebuild its whole tail on every arriving row.
     let materializeTo = transcriptFollowsBottom(rt)
         ? entries.length
         : Math.min(rt.materializedEntryEnd, entries.length);
@@ -417,8 +405,6 @@ export function materializeLaterTranscriptEntries(rt: TuiRuntime,
         );
     }
     rt.materializedEntryEnd = end;
-    // Nothing above the viewport changed, so the reader's position holds
-    // on its own; only the spacer standing in for the rest shrinks.
     updateTranscriptSpacers(rt, entries);
     return true;
 }
@@ -540,8 +526,6 @@ export function snapTranscriptWindowToTail(rt: TuiRuntime,
     const tail = tuiTranscriptTailRange(entries.length);
     setTranscriptWindow(rt, entries, tail.start, tail.end);
     rt.transcript.scrollTo(rt.transcript.scrollHeight);
-    // The rebuilt rows have no measured height until the next layout, so
-    // the bottom is claimed again once they do.
     rt.pendingTranscriptScrollRestore = { scrollTop: 0, atBottom: true };
 }
 

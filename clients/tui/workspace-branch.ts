@@ -1,14 +1,6 @@
 import { existsSync, watch } from "node:fs";
 import { join } from "node:path";
 
-/**
- * The checked-out branch, when the workspace is a git checkout at all. A Vera
- * session runs anywhere, so a directory with no repository is normal and the
- * answer is simply absent.
- *
- * Read on a HEAD change rather than on repaint: the status line repaints many
- * times a second, and the branch only moves when git moves it.
- */
 export function watchWorkspaceBranch(
     workspace: string,
     onChange: () => void,
@@ -38,7 +30,6 @@ export function watchWorkspaceBranch(
 function readBranch(workspace: string): string | undefined {
     const named = git(workspace, ["rev-parse", "--abbrev-ref", "HEAD"]);
     if (named === undefined) return undefined;
-    // A detached HEAD names no branch, so the commit is what there is to say.
     return named === "HEAD"
         ? git(workspace, ["rev-parse", "--short", "HEAD"])
         : named;

@@ -49,7 +49,6 @@ export interface TuiClientExtensionAgentsOptions {
         readonly turns: number;
     }>;
     contextSynchronized?(agentId: string, turns: number): void;
-    /** Assumes ownership of client immediately, including on rejection. */
     adoptAgent(
         extensionId: string,
         client: IdentifiedTuiAgentClient,

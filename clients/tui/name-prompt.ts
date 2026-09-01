@@ -37,19 +37,11 @@ export interface TuiPoolNameTarget {
 
 export type TuiNamePromptTarget = TuiSessionNameTarget | TuiPoolNameTarget;
 
-/**
- * The name line for one row, either a session or a pool entry.
- *
- * Its own overlay rather than the picker's search box: what is typed here
- * names the row, and the picker's box filters the list.
- */
 export interface TuiNamePromptState {
     readonly editorSession: number;
     readonly target: TuiNamePromptTarget;
-    /** The row as it reads now, which may still be a fallback label. */
     readonly label: string;
     readonly value: string;
-    /** The pane this was opened over, restored when it closes. */
     readonly parent?: TuiSettingsPickerState;
 }
 
@@ -66,10 +58,6 @@ export interface TuiNamePromptKey {
 export interface TuiNamePromptTransition {
     readonly state?: TuiNamePromptState;
     readonly handled: boolean;
-    /**
-     * The requested name on a submit, null to clear it. Absent means the
-     * overlay closed without asking for anything.
-     */
     readonly submitted?: string | null;
 }
 
@@ -113,9 +101,6 @@ export function handleTuiNamePromptKey(
         && !key.ctrl && !key.meta && !key.shift && !key.super && !key.hyper
     ) {
         const value = state.value.trim();
-        // Submitting an empty field clears the name and restores the
-        // first-prompt fallback, which is what bare `/rename` does. Escape is
-        // the way out for someone who meant neither.
         return { handled: true, submitted: value.length === 0 ? null : value };
     }
     return { state, handled: false };
@@ -196,8 +181,6 @@ export function createTuiNamePromptView(
             entry.handleKeyPress(tuiTextareaKey(key));
             return {
                 state: { ...current, value: entry.plainText },
-                // This prompt is modal. Unknown keys stop here instead of
-                // reaching the picker hidden underneath it.
                 handled: true,
             };
         },

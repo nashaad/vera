@@ -84,11 +84,6 @@ export function updateTuiCommandPaletteCommands(
     return filteredState(grouped(commands), state.query, state.queryCursor);
 }
 
-/**
- * Registration order is an implementation detail; the palette shows a stable
- * heading order instead. Within a group, entries keep the order they registered
- * in, which is the order their commands are defined.
- */
 function grouped(
     commands: readonly TuiPaletteEntry[],
 ): readonly TuiPaletteEntry[] {
@@ -144,13 +139,9 @@ export function createTuiCommandPaletteView(
     const search = createDialogSearchNode(renderer, "command-palette-search");
     const box = new BoxRenderable(renderer, {
         id: "command-palette",
-        // No borderColor here. OpenTUI's BoxRenderable constructor reads any
-        // border styling option as "this box wants a border" and overrides an
-        // explicit `border: false`, so passing a color is what draws the box.
+        // No borderColor here. OpenTUI's BoxRenderable constructor reads any border styling option as "this box wants a border" and overrides an explicit `border: false`, so passing a col…
         border: false,
         backgroundColor: TUI_PANEL,
-        // Wider than the other dialogs: the group column is bought out of the
-        // card's own width rather than out of the descriptions.
         width: "90%",
         height: 8,
         paddingLeft: DIALOG_CARD_PADDING,
@@ -278,10 +269,6 @@ function filteredState(
     return { allCommands, commands, selectedIndex: 0, query, queryCursor };
 }
 
-/**
- * The right-hand column answers "how else do I reach this": a keybinding when
- * the action has one, otherwise the slash command that runs it.
- */
 function rowMeta(command: TuiPaletteEntry): string | undefined {
     if (command.keyHint !== undefined) {
         return command.keyHint;
@@ -289,10 +276,6 @@ function rowMeta(command: TuiPaletteEntry): string | undefined {
     return command.slashName === undefined ? undefined : `/${command.slashName}`;
 }
 
-/**
- * The cursor and the row count, so "is there more than I can see" is answered
- * without spending a row on a scrollbar.
- */
 function counter(state: TuiCommandPaletteState): string {
     return state.commands.length === 0
         ? "0"
@@ -302,18 +285,10 @@ function counter(state: TuiCommandPaletteState): string {
 interface PaletteDisplayRow {
     readonly command: TuiPaletteEntry;
     readonly index: number;
-    // The group name, on the first visible row of its group and nowhere else,
-    // padded so every label starts on the same column. Undefined while
-    // searching, where the list is one flat run and the column is dead width.
     readonly gutter?: string;
     readonly spaced: boolean;
 }
 
-/**
- * Groups are a column rather than a heading: the name is printed once at the
- * left of the group's first row and the gap below it does the separating.
- * Rows are the scarce axis in an overlay this tall and columns are not.
- */
 function displayRows(
     commands: readonly TuiPaletteEntry[],
     offset: number,
@@ -339,11 +314,6 @@ function displayRows(
     });
 }
 
-/**
- * The window is taken over the commands rather than over the rendered rows, so
- * a group whose heading has scrolled off still names itself on the first row
- * left visible.
- */
 function windowedRows(
     renderer: RenderContext,
     state: TuiCommandPaletteState,
@@ -357,10 +327,6 @@ function windowedRows(
     return displayRows(window, Math.max(0, offset), state.query.length === 0);
 }
 
-/**
- * The palette sits a quarter of the way down, near the composer it was typed
- * into, so its budget starts lower than a pane anchored at the top.
- */
 function paletteMaxRows(renderer: RenderContext): number {
     return listWindowRows(
         dialogBoxHeight(renderer, renderer.height / 4),
@@ -368,10 +334,6 @@ function paletteMaxRows(renderer: RenderContext): number {
     );
 }
 
-/**
- * The wheel over the palette. The list windows itself around the cursor, so
- * scrolling moves the cursor and lets the window follow.
- */
 export function handleTuiCommandPaletteScroll(
     state: TuiCommandPaletteState,
     scroll: {

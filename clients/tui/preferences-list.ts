@@ -1,21 +1,3 @@
-/**
- * The two removable permission tiers, made visible and removable.
- *
- * Session grants and durable preferences share one overlay because they share
- * one act: reviewing what you have already agreed to and taking some of it back.
- * They stay visibly separate sections because they do not share a lifetime, and
- * a user deciding whether to revoke something needs to know whether it expires
- * on its own. Permission modes are not here: a mode is a declarative substrate
- * you switch, not a list of accumulated allowances you prune.
- *
- * Deliberately a separate overlay from the settings picker rather than a sixth
- * picker kind. The picker swallows every single-character key into its search
- * query (`handleTuiSettingsPickerKey`), which is why session trash is bound to
- * `delete` and not to `d`. A short list of allowances wants plain keys and has
- * nothing to search, while a fifty-entry model list needs the filter, so the two
- * do not fit one component. The picker's flat homogeneous `state.options` is the
- * second reason: these rows are two kinds under one cursor.
- */
 
 import {
     dialogBoxHeight,
@@ -47,21 +29,10 @@ import {
     type TuiThemeBinding,
 } from "./theme-bindings.ts";
 
-/** Rows shown at once before the list windows around the cursor. */
-/**
- * Everything in the card that is not a permission row: the heading, the footer
- * and its margin, and the padding above and below.
- */
 const PREFERENCES_CHROME = 6;
 
-// Where the card's top edge sits, matching `box.top` below.
 const PREFERENCES_TOP_OFFSET = 2;
 
-/**
- * Which store a row came from, which the client needs because the two tiers take
- * different removal commands: a grant lives in the session log, a preference in
- * a file in the home directory.
- */
 export type TuiPermissionEntryKind = "grant" | "preference";
 
 export interface TuiPermissionEntry {
@@ -76,9 +47,7 @@ export interface TuiPreferencesListState {
 }
 
 export interface TuiPreferencesListTransition {
-    /** Absent means the overlay closed. */
     readonly state?: TuiPreferencesListState;
-    /** Set when the user asked to remove the highlighted entry. */
     readonly remove?: TuiPermissionEntry;
     readonly handled: boolean;
 }
@@ -106,12 +75,6 @@ export function startTuiPreferencesList(
     return { entries: entriesFrom(inspection), selectedIndex: 0 };
 }
 
-/**
- * Folds a refreshed inspection into an open overlay, which is how a removal
- * becomes visible: the engine replies with a full inspection rather than an
- * acknowledgement, so the list is never reconstructed client-side. The cursor is
- * clamped because the list it pointed into just got shorter.
- */
 export function syncTuiPreferencesList(
     state: TuiPreferencesListState,
     inspection: PermissionInspection | undefined,
@@ -159,9 +122,6 @@ export function handleTuiPreferencesListKey(
     }
     if (tuiBindingId("preferences_list", key) === "revoke_permission") {
         const selected = state.entries[state.selectedIndex];
-        // No confirmation step, unlike session trash. Removing either kind can
-        // only make Vera ask more often: it restores a prompt the user had
-        // silenced, so the destructive direction here is the safe one.
         return selected === undefined
             ? { state, handled: true }
             : { state, remove: selected, handled: true };
@@ -169,7 +129,6 @@ export function handleTuiPreferencesListKey(
     return { state, handled: false };
 }
 
-/** Plain-text form, used for the notice fallback and by tests. */
 export function renderTuiPreferencesList(
     state: TuiPreferencesListState,
 ): string {
@@ -254,8 +213,6 @@ export function createTuiPreferencesListView(
             for (const { index, entry } of visibleRows(renderer, state)) {
                 if (entry.kind !== group) {
                     group = entry.kind;
-                    // A header, not a row: `visibleRows` windows over entries
-                    // only, so the cursor can never land here.
                     const header = new TextRenderable(renderer, {
                         content: groupLabel(group),
                         fg: TUI_MUTED,
@@ -279,17 +236,11 @@ export function createTuiPreferencesListView(
     return view;
 }
 
-/** An entry paired with its real index, which the highlight compares against. */
 interface NumberedEntry {
     readonly index: number;
     readonly entry: TuiPermissionEntry;
 }
 
-/**
- * Grants first, because they are the shorter-lived half and the ones a user is
- * most likely to have just created. Order is stable so the cursor does not move
- * under a removal of the other kind.
- */
 function entriesFrom(
     inspection: PermissionInspection | undefined,
 ): readonly TuiPermissionEntry[] {
@@ -316,11 +267,6 @@ function groupLabel(kind: TuiPermissionEntryKind): string {
         : "Durable preferences (kept across sessions)";
 }
 
-/**
- * Windows the list around the cursor so a long list cannot push the footer off a
- * short terminal. Indices are carried alongside because after slicing, array
- * position no longer matches position in `state.entries`.
- */
 function visibleRows(
     renderer: RenderContext,
     state: TuiPreferencesListState,
@@ -330,8 +276,6 @@ function visibleRows(
         entries,
         state.selectedIndex,
         listWindowRows(
-            // The card is capped at 90% of the terminal, so a tall one is
-            // bounded by the cap and a short one by the composer below it.
             Math.min(
                 dialogBoxHeight(renderer, PREFERENCES_TOP_OFFSET),
                 renderer.height * 0.9,
@@ -341,10 +285,6 @@ function visibleRows(
     );
 }
 
-/**
- * The wheel over the granted-permissions list. The cursor moves and the window
- * follows, which is what every other windowed list here does.
- */
 export function handleTuiPreferencesListScroll(
     state: TuiPreferencesListState,
     scroll: {
@@ -362,11 +302,6 @@ export function handleTuiPreferencesListScroll(
         : { state: { ...state, selectedIndex }, handled: true };
 }
 
-/**
- * Shows the predicate rather than the ID. The ID is opaque, so it identifies
- * nothing to a reader, while the predicate is the thing the user actually agreed
- * to. Removal targets the highlighted row, so no ID ever needs typing.
- */
 function formatPredicate(predicate: PermissionPredicate): string {
     return Object.entries(predicate)
         .map(([field, value]) => `${field}=${String(value)}`)

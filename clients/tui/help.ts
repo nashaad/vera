@@ -84,7 +84,6 @@ const HELP_TABS: readonly TuiHelpTab[] = [
     "extensions",
 ];
 
-/** The scopes worth naming to a user, in the order the tab lists them. */
 const HELP_KEY_SCOPES: readonly { scope: TuiKeyScope; title: string }[] = [
     { scope: "global", title: "Anywhere" },
     { scope: "conversation", title: "Transcript" },
@@ -109,13 +108,6 @@ const CHORD_SYMBOLS: Readonly<Record<string, string>> = {
     right: "→",
 };
 
-/**
- * A chord as the help card writes it.
- *
- * Arrow names become arrows because that is what the key is labelled, and
- * nothing else is rewritten: a chord a user cannot find in the table by
- * searching for what they read is worse than an unpretty one.
- */
 function chordLabel(chord: string): string {
     return chord
         .split("+")
@@ -123,14 +115,7 @@ function chordLabel(chord: string): string {
         .join("+");
 }
 
-/**
- * Whether a terminal can be relied on to deliver the chord at all.
- *
- * Shift on a ctrl+letter chord is only reported under the kitty keyboard
- * protocol; elsewhere the unshifted Ctrl-D/U aliases remain available. Saying
- * so beside the row is the difference between a key that looks broken and one
- * the user knows to swap for its alias.
- */
+/** Whether a terminal can be relied on to deliver the chord at all. Shift on a ctrl+letter chord is only reported under the kitty keyboard protocol; elsewhere the unshifted Ctrl-D/… */
 function needsKittyKeyboard(chord: string): boolean {
     const parts = chord.split("+");
     return parts.includes("ctrl") && parts.includes("shift")
@@ -239,8 +224,6 @@ export function createTuiHelpView(renderer: RenderContext): TuiHelpView {
         top: 1,
         left: "4%",
         width: "92%",
-        // Bounded from the bottom rather than by a percentage of the pane, so
-        // the status band below it stays readable at every terminal height.
         bottom: 3,
         zIndex: DIALOG_CARD_Z_INDEX,
         paddingLeft: 2,
@@ -411,10 +394,6 @@ function filteredRows(state: TuiHelpState): readonly TuiHelpRow[] {
     );
 }
 
-/**
- * Everything in the card that is not a command row: the tab strip, the search
- * line, the footer, and the padding above.
- */
 const HELP_CHROME = 8;
 
 function windowedCommands(
@@ -426,16 +405,10 @@ function windowedCommands(
     return listWindowSlice(
         commands,
         state.selectedIndex,
-        // The card is a fixed share of the terminal rather than growing to fit,
-        // so its budget comes off that share and not off the whole screen.
         listWindowRows((renderer.height - APP_PADDING_TOP) * 0.9, HELP_CHROME),
     );
 }
 
-/**
- * The wheel over the help list. The cursor moves and the window follows, the
- * same as every other windowed list here.
- */
 export function handleTuiHelpScroll(
     state: TuiHelpState,
     scroll: {
@@ -479,9 +452,6 @@ function generalHelp(): StyledText {
     return new StyledText([
         fg(TUI_ACCENT)("Vera keeps agent sessions resident so clients can attach, leave, and return.\n\n"),
         fg(TUI_TEXT)("Keys\n"),
-        // The Keys tab is generated from the keymap, so naming chords here as
-        // well is the drift the table exists to stop. What stays is the input
-        // the table deliberately omits: enter, escape, and typing.
         fg(TUI_MUTED)(
             "The Keys tab lists every chord, grouped by where it applies.\n\n",
         ),

@@ -31,7 +31,6 @@ import {
     type TuiDiagnosticCode,
 } from "./diagnostic-severity.ts";
 
-/** Marks the rows where the turn ran on something other than what was asked. */
 const SUBSTITUTION_MARKER = "\u21c4";
 const INTERRUPTED_TURN_TEXT = "Interrupted";
 import { VERA_TUI_THEME } from "./theme.ts";
@@ -54,64 +53,28 @@ export type TuiTranscriptEntryKind =
 export interface TuiTextTranscriptEntry {
     readonly kind: Exclude<TuiTranscriptEntryKind, "diff">;
     readonly text: string;
-    /**
-     * The store entry this row came from, on the rows that came from one.
-     * The same reference resume and rewind take, which is what lets a client
-     * open a conversation at a particular message rather than at its end.
-     */
     readonly entryId?: string;
-    /** What the user attached, named for the chips under a user entry. */
     readonly attachments?: readonly string[];
-    /** Which group a tool row belongs to, and what its header reads. */
     readonly header?: string;
-    /** The engine tool name, retained while its live row waits to finish. */
     readonly tool?: string;
-    /** Whether this tool call is still executing. */
     readonly active?: boolean;
-    /** Whether this row closes a tool call with its result. */
     readonly result?: boolean;
-    /** Whether replay has paired this call with its durable result row. */
     readonly hasResult?: boolean;
-    /** How many leading characters an extension injected; drawn muted. */
     readonly dimmedPrefix?: number;
-    /** The gutter drawn left of a tool row, in its own column. */
     readonly prefix?: string;
-    /** How many times in a row the same call or diagnostic occurred. */
     readonly repeat?: number;
-    /**
-     * What this notice is a receipt for. A second receipt under the same key
-     * overwrites the first: cycling four themes is one decision, and only the
-     * one that stuck is worth a line.
-     */
     readonly supersedes?: string;
-    /** Client-only row preserved across canonical history rebuilds. */
     readonly liveOnly?: boolean;
-    /** The reasoning a `thought` summary folds away. */
     readonly reasoning?: string;
-    /** How long a `thought` summary reports, in seconds. */
     readonly seconds?: number;
-    /** Whether a `thought` summary is showing its reasoning. */
     readonly expanded?: boolean;
-    /** Whether this completed tool row is hidden behind its group header. */
     readonly hidden?: boolean;
-    /** How many logical output lines a folded tool header summarizes. */
     readonly detailLines?: number;
-    /** The one summary line a folded tool group keeps. */
     readonly detailPreview?: string;
-    /** Whether a short folded preview shares the header row. */
-    /** The call a folded group shows on its own header row. */
     readonly command?: string;
-    /** Whether this header carries the detail-toggle hint. */
     readonly hint?: boolean;
-    /**
-     * The `pool_add` request this checklist entry reports on. Progress updates
-     * rewrite the entry in place rather than appending, so the checklist reads
-     * as one live surface instead of one line per state change.
-     */
     readonly admission?: string;
-    /** A client/runtime event whose code fixes its severity and presentation. */
     readonly diagnostic?: TuiDiagnostic;
-    /** Semantic emphasis for harness-authored transcript prose. */
     readonly tone?: "primary" | "soft" | "error";
 }
 
@@ -126,18 +89,9 @@ export type TuiTranscriptEntry =
     | TuiTextTranscriptEntry
     | TuiDiffTranscriptEntry;
 
-/**
- * The reasoning level a turn actually ran at, when that is not the level the
- * user asked for.
- *
- * The requested level stays the user's own setting: a provider refusing it once
- * is not a reason to rewrite their dial. This is the evidence beside it, which
- * is what lets the status line say both at once.
- */
 export interface TuiEffortSubstitution {
     readonly model: string;
     readonly requested: string;
-    /** Absent when the turn ran with no reasoning level at all. */
     readonly effective?: string;
 }
 
@@ -152,64 +106,24 @@ export interface TuiState {
     readonly context?: ContextMeasurement;
     readonly modelActivity?: ModelActivityUpdate;
     readonly sessionUsage?: SessionModelUsage;
-    /**
-     * Reasoning streamed so far this phase, held off the transcript until the
-     * phase ends. Keeping it out of `entries` is what stops a history rebuild
-     * from having to preserve a row that has no backing message.
-     */
     readonly pendingThinking?: string;
-    /**
-     * The substitution the status line reports beside the requested level. It
-     * lasts as long as the evidence does: a new model, a new requested level,
-     * or a turn that ran at the requested level clears it.
-     */
     readonly effortSubstitution?: TuiEffortSubstitution;
-    /**
-     * Whether the running turn has already substituted. A turn that finishes
-     * without one is what says the requested level works again.
-     */
     readonly turnSubstituted?: boolean;
-    /**
-     * The model this turn actually ran on, when the parent turn fell back.
-     *
-     * Transient by construction: the committed pair is unchanged and retried
-     * next turn, so this is cleared when the parent turn ends rather than
-     * carried. A subagent's own fallback never lands here.
-     */
     readonly modelFallback?: { readonly from: string; readonly to: string };
-    /** Whether new `thought` summaries open showing their reasoning. */
     readonly thinkingExpanded?: boolean;
-    /** Whether completed tool groups are forced open or closed. */
     readonly toolDetailsExpanded?: boolean;
-    /** The admission run in flight, or awaiting its refreshed pool snapshot. */
     readonly admission?: TuiAdmissionState;
-    /**
-     * Every pair this session has held, oldest first, as the host reported it.
-     *
-     * The dial strip derives its recents from this. Derived rather than
-     * remembered: a list of its own could disagree with the session file, and
-     * the session file is the thing that actually decides what the turn runs.
-     */
     readonly modelSettingsHistory?: readonly {
         readonly settings: ModelTurnSettings;
         readonly origin: "agent-default" | "user";
         readonly timestamp: string;
     }[];
-    /** Where the pair in force came from, when the host has said. */
     readonly modelSettingsOrigin?: "agent-default" | "user";
-    /** Where the posture in force came from, when the host has said. */
     readonly approvalModeOrigin?: "agent-default" | "user";
-    /**
-     * When the running compaction started. Compaction is otherwise silent
-     * until its outcome, so this is what lets the status line show it working
-     * instead of looking like a hang.
-     */
     readonly compactingSince?: number;
-    /** The strategy and first model in the bound summarizer route. */
     readonly compactionStrategy?: string;
     readonly compactionProvider?: string;
     readonly compactionModel?: string;
-    /** The agent this session is wearing, as the host last reported it. */
     readonly agent?: {
         readonly name: string;
         readonly tools?: readonly string[];
@@ -226,12 +140,6 @@ export interface TuiAdmissionStep {
     readonly detail?: string;
 }
 
-/**
- * One `pool_add` as the transcript shows it: the subject line, the steps seen
- * so far, and the verdict once it lands. Kept on `TuiState` rather than only in
- * the entry text so a later `model_settings` snapshot can finish the "added"
- * line with the verified level count, which only that snapshot knows.
- */
 export interface TuiAdmissionState {
     readonly requestId: string;
     readonly subject: string;
@@ -241,13 +149,7 @@ export interface TuiAdmissionState {
     readonly model?: string;
     readonly reason?: string;
     readonly statusCode?: number;
-    /** How many levels the refreshed pool snapshot reported as verified. */
     readonly verifiedLevels?: number;
-    /**
-     * Nothing more will arrive for this run. Kept rather than cleared so a
-     * surface still showing the verdict has data to render; a new run
-     * replaces it.
-     */
     readonly settled?: boolean;
 }
 
@@ -293,7 +195,6 @@ export function attachmentLabel(attachment: AttachmentRef): string {
     return attachment.name ?? "attached image";
 }
 
-/** True when an entry already shows this prompt and these attachments. */
 export function userEntryShows(
     entry: TuiTranscriptEntry | undefined,
     text: string,
@@ -388,9 +289,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     if (update.type === "tool_started") {
         return {
             ...state,
-            // Folded as it starts, not only once it finishes: a group that
-            // folded only on completion spent its whole run at full height
-            // and dropped to one row at the end, moving everything above it.
             entries: applyToolDetailPreference(
                 withToolEntry(state.entries, update.tool, update.args, true),
                 state.toolDetailsExpanded,
@@ -422,8 +320,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         );
     }
     if (update.type === "tool_breaker_tripped") {
-        // The wording is this client's; the wire carries only the tool, the
-        // count, and which of the two things happened.
         return appendEntry(state, {
             kind: "notice",
             text: update.action === "withheld"
@@ -518,9 +414,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         };
     }
     if (update.type === "task_notification") {
-        // A peer message shows who wrote, and nothing else. The body and the
-        // instructions that come with it are for the agent reading its inbox,
-        // and dumping them here reads as noise the user cannot act on.
         return appendEntry(state, {
             kind: "notification",
             text: update.kind === "peer"
@@ -549,13 +442,8 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             toTuiTranscriptEntries(update.entries),
             state.toolDetailsExpanded,
         );
-        // The live reasoning row is rebuilt rather than preserved, so a rebuild
-        // that lands mid-phase puts it back at the end where it belongs.
         return withLiveThinking({
             ...state,
-            // A rebuild can restore a summary the canonical rows no longer
-            // have a place for, which lands it behind the answer it belongs
-            // in front of. Settling here is what the end of a turn does.
             entries: settleTrailingThoughts(foldAdjacentThoughts(
                 hoistStrandedThoughts(
                     preserveLiveReviewEntries(state.entries, canonicalEntries),
@@ -580,8 +468,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                     ),
                     queueDraining: update.promptQueue.draining,
                 }),
-            // Only a replayed checkpoint carries a status, and it carries one
-            // only when the turn it is joining is still running.
             ...(update.status === undefined
                 ? {}
                 : { working: update.status !== "idle" }),
@@ -591,10 +477,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return { ...state, context: update.measurement };
     }
     if (update.type === "user_prompt") {
-        // A prompt means the session is working. The engine only sends a
-        // status update for delivery turns, so a client that did not send this
-        // prompt itself has nothing else to learn it from: a second attachment
-        // or a replay would otherwise read as ready while the turn runs.
         const nextState = {
             ...state,
             working: true,
@@ -613,8 +495,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     }
     if (update.type === "model_settings") {
         return finishAdmissionFromSnapshot({
-            // A model or a requested level the evidence does not cover leaves
-            // the status line with nothing to report.
             ...(appliesToSettings(state.effortSubstitution, update.settings)
                 ? state
                 : { ...state, effortSubstitution: undefined }),
@@ -641,8 +521,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
                     : { forbiddenAccess: update.forbiddenAccess }),
             },
         };
-        // Switching is loud by design: the transcript says it happened, at the
-        // moment it applied rather than when it was asked for.
         return appendTuiNotice(
             next,
             update.notice ?? `Switched to ${update.name}.`,
@@ -650,7 +528,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         );
     }
     if (update.type === "agent_catalog") {
-        // The catalog answers a request the surface is already waiting on.
         return state;
     }
     if (update.type === "agent_rejected") {
@@ -661,7 +538,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         || update.type === "skill_invocation_accepted"
         || update.type === "skill_invocation_rejected"
     ) {
-        // The command registry and the pending invocation own these replies.
         return state;
     }
     if (update.type === "session_model_settings_history") {
@@ -674,9 +550,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return applyAdmissionResult(state, update);
     }
     if (update.type === "model_settings_rejected") {
-        // The refusal is written where the request is known, which is the only
-        // place that can name what was asked for. A line here could say no more
-        // than that something was refused.
         return state;
     }
     if (update.type === "permissions") {
@@ -700,8 +573,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     ) {
         return state;
     }
-    // A oneshot belongs to the extension that asked for it, not to the
-    // transcript: nothing here changes because another model answered.
     if (
         update.type === "oneshot_result"
         || update.type === "oneshot_rejected"
@@ -723,19 +594,12 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
         return state;
     }
     if (update.type === "prompt_rejected") {
-        // The optimistic user entry stays: it is what the person typed, and
-        // the notice under it says it did not run. Clearing `working` is the
-        // part that matters, since the refused prompt started no turn, and a
-        // turn that is genuinely running re-asserts it on its next status.
         return appendTuiNotice({ ...state, working: false }, update.reason);
     }
     if (update.type === "compaction") {
         return applyCompaction(state, update);
     }
     if (update.type === "model_substitution") {
-        // A spawn's substitution is the spawn's business: it reaches the
-        // transcript and stops there, because the status line describes the
-        // pair this session is dialed to, which a child never changes.
         if (update.source === "subagent") {
             return appendEntry(state, substitutionEntry(update));
         }
@@ -758,9 +622,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
             effortSubstitution: substitution,
             turnSubstituted: true,
         };
-        // The same substitution, turn after turn, is one fact rather than news
-        // each time. The status line carries it for as long as it holds; the
-        // transcript says it once, and again when it changes.
         return sameSubstitution(state.effortSubstitution, substitution)
             ? next
             : appendEntry(next, substitutionEntry(update));
@@ -768,10 +629,6 @@ export function applyAgentUpdate(state: TuiState, update: AgentUpdate): TuiState
     return assertNever(update);
 }
 
-/**
- * Removes only the model round that failed before acceptance. A completed
- * tool row separates it from every earlier round in the same turn.
- */
 function discardPartialModelAttempt(state: TuiState): TuiState {
     const withoutLiveThinking = dropTuiThinking(state);
     const entries = [...withoutLiveThinking.entries];
@@ -784,13 +641,6 @@ function discardPartialModelAttempt(state: TuiState): TuiState {
     return { ...withoutLiveThinking, entries };
 }
 
-/**
- * A completed answer is the last row of its turn, even after a checkpoint.
- *
- * The stretch that lands behind it is also one stretch, not one row per phase:
- * a rebuild restores each phase as it was recorded, and the append path's
- * merge never sees them.
- */
 function settleTrailingThoughts(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -809,12 +659,6 @@ function settleTrailingThoughts(
     return next;
 }
 
-/**
- * A summary stranded at the tail of a shortened rebuild lands behind the
- * notice that ended its turn, but the thinking happened before the end: the
- * stretch moves back above the trailing notices, where folding can rejoin it
- * to the stretch it was split from.
- */
 function hoistStrandedThoughts(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -835,12 +679,6 @@ function hoistStrandedThoughts(
     return next;
 }
 
-/**
- * A rebuild can land summaries side by side: restoring drops the rows that
- * separated them, and a summary whose anchor count outruns a shortened
- * history is placed at the tail next to the ones after it. Adjacent summaries
- * are one stretch to the reader, so each run collapses to one row.
- */
 function foldAdjacentThoughts(
     entries: readonly TuiTranscriptEntry[],
 ): readonly TuiTranscriptEntry[] {
@@ -856,7 +694,6 @@ function foldAdjacentThoughts(
     return next;
 }
 
-/** One stretch of thinking is one row, however many phases reported it. */
 function foldThoughts(
     thoughts: readonly TuiTextTranscriptEntry[],
 ): readonly TuiTextTranscriptEntry[] {
@@ -867,12 +704,6 @@ function foldThoughts(
     return [thoughts.slice(1).reduce(mergeThoughts, first)];
 }
 
-/**
- * The transcript above the horizon still reads in full, but the model can no
- * longer see it, and only this line says so. A failure is shown for the same
- * reason: the session keeps working, so nothing else would reveal that the
- * context did not get any smaller.
- */
 function applyCompaction(
     state: TuiState,
     update: CompactionUpdate,
@@ -890,15 +721,12 @@ function applyCompaction(
             : appendTuiNotice(started, update.warning);
     }
     if (update.outcome === "busy") {
-        // A refused manual request. It had no started phase of its own, so it
-        // must not clear the mark of a compaction that is still running.
+        // A refused manual request. It had no started phase of its own, so it must not clear the mark of a compaction that is still running.
         return appendTuiNotice(
             state,
             "Compaction runs between turns. Try again once this one finishes.",
         );
     }
-    // Every other finish clears the start mark, whatever the outcome: the
-    // status line must never keep filling after the work has stopped.
     state = {
         ...state,
         compactingSince: undefined,
@@ -914,8 +742,6 @@ function applyCompaction(
         );
     }
     if (update.outcome === "not_needed") {
-        // Reached only when the model's context window is unknown, since a
-        // manual request otherwise skips the trigger check.
         return appendTuiNotice(
             state,
             "Could not summarize: the model's context window is not known, "
@@ -933,8 +759,6 @@ function applyCompaction(
         );
     }
     if (update.outcome === "cancelled") {
-        // Silence here reads as a compaction that is still running, or one
-        // that quietly failed. It stopped because it was asked to.
         return appendTuiNotice(
             state,
             "Compaction stopped. The earlier messages were left as they were.",
@@ -951,12 +775,6 @@ function applyCompaction(
     return state;
 }
 
-/**
- * Opens the checklist the moment `pool_add` is sent, so the transcript answers
- * the keypress immediately rather than waiting on the first probe. Only the
- * sender knows which model the request names: the progress updates carry the
- * requestId alone.
- */
 export function beginTuiAdmission(
     state: TuiState,
     requestId: string,
@@ -972,8 +790,6 @@ function applyAdmissionProgress(
 ): TuiState {
     const current = state.admission?.requestId === update.requestId
         ? state.admission
-        // A stream this client did not start (say, after a reattach) still
-        // renders: the checklist is exactly what the engine sends.
         : { requestId: update.requestId, subject: "model", steps: [] };
     const seen = current.steps.some((step) => step.step === update.step);
     const next: TuiAdmissionState = {
@@ -1024,19 +840,12 @@ function applyAdmissionResult(
             ? {}
             : { statusCode: update.statusCode }),
     };
-    // "added" stays live until the refreshed pool snapshot supplies the
-    // verified level count. The other verdicts are complete as they stand.
     const settled: TuiAdmissionState = update.verdict === "added"
         ? next
         : { ...next, settled: true };
     return withAdmissionEntry({ ...state, admission: settled }, settled);
 }
 
-/**
- * The `model_settings` snapshot that follows an "added" verdict carries the
- * one fact the verdict line still owes the user: how many reasoning levels
- * admission verified.
- */
 function finishAdmissionFromSnapshot(
     state: TuiState,
     settings: ModelTurnSettings,
@@ -1057,7 +866,6 @@ function finishAdmissionFromSnapshot(
     return withAdmissionEntry({ ...state, admission: finished }, finished);
 }
 
-/** Symbols one column wide, so the step labels line up as a checklist. */
 function admissionStepMark(status: TuiAdmissionStep["status"]): string {
     if (status === "running") return "…";
     if (status === "passed") return "✓";
@@ -1065,7 +873,6 @@ function admissionStepMark(status: TuiAdmissionStep["status"]): string {
     return "−";
 }
 
-/** One line per step, in the order the engine ran them. */
 export function tuiAdmissionStepLines(
     admission: TuiAdmissionState,
 ): readonly string[] {
@@ -1076,10 +883,6 @@ export function tuiAdmissionStepLines(
     });
 }
 
-/**
- * The shortlist as prose, one line per entry: what it is, at what effort, whether a
- * probe has confirmed it, and where it runs.
- */
 export function tuiPoolListing(
     pooled: readonly PooledModel[] | undefined,
 ): string {
@@ -1090,8 +893,6 @@ export function tuiPoolListing(
         const effort = entry.defaultLevel ?? "provider default";
         const state = entry.verified ? "verified" : "unverified";
         const availability = entry.available ? "" : ", unavailable right now";
-        // Name first where there is one, with the model id right behind it:
-        // the name is what the user types, the id is what runs.
         const named = entry.poolName === undefined
             ? entry.model
             : `${entry.poolName} (${entry.model})`;
@@ -1100,11 +901,6 @@ export function tuiPoolListing(
     return [`Shortlist (${pooled.length}):`, ...lines].join("\n");
 }
 
-/**
- * The verdict as one factual line, or undefined while the run is live. What
- * to do next (retry, dismiss) belongs to the surface showing it: the dialog
- * says it in its footer, the transcript appends its own sentence.
- */
 export function tuiAdmissionVerdictLine(
     admission: TuiAdmissionState,
 ): string | undefined {
@@ -1162,11 +958,6 @@ function admissionChecklistParts(
     };
 }
 
-/**
- * Take back the checklist for a request, entry and all. Used when a run is
- * about to be replaced by another one reporting on the same subject, so the
- * transcript carries one checklist rather than an abandoned one above it.
- */
 export function dropTuiAdmission(
     state: TuiState,
     requestId: string,
@@ -1182,12 +973,7 @@ export function dropTuiAdmission(
     };
 }
 
-/**
- * The one checklist entry for this request, rewritten in place as its steps
- * change state. Matched by requestId rather than by position: a retry opens a
- * fresh entry, and anything else that lands in the transcript mid-run must not
- * absorb the update.
- */
+/** The one checklist entry for this request, rewritten in place as its steps change state. */
 function withAdmissionEntry(
     state: TuiState,
     admission: TuiAdmissionState,
@@ -1221,7 +1007,6 @@ function sameSubstitution(
         && left.effective === right.effective;
 }
 
-/** Whether the recorded substitution still describes what a turn would do. */
 function appliesToSettings(
     substitution: TuiEffortSubstitution | undefined,
     settings: ModelTurnSettings | undefined,
@@ -1231,14 +1016,7 @@ function appliesToSettings(
         && (settings.reasoningEffort ?? "default") === substitution.requested;
 }
 
-/**
- * What a finished turn does to the substitution beside the requested level. A
- * turn that ran without substituting is the evidence that the level works
- * again, and it is said once, in the same place the substitution was.
- */
 function clearedSubstitution(state: TuiState): TuiState {
-    // The fallback lasted exactly one turn, which is what the committed pair
-    // being retried next turn means. Clearing it here is the terminal event.
     state = state.modelFallback === undefined
         ? state
         : { ...state, modelFallback: undefined };
@@ -1263,7 +1041,6 @@ function clearedSubstitution(state: TuiState): TuiState {
         : cleared;
 }
 
-/** The row a substitution gets, live and on replay alike. */
 function substitutionEntry(
     substitution: ModelSubstitution,
 ): TuiTranscriptEntry {
@@ -1329,15 +1106,10 @@ export function appendTuiDiagnostic(
     });
 }
 
-/** Transitional entry point while generic client failures receive codes. */
 export function appendTuiError(state: TuiState, message: string): TuiState {
     return appendTuiDiagnostic(state, "unknown", message);
 }
 
-/**
- * A labeled block an extension wrote. It renders like a message but is not one:
- * the transcript is a view here, and nothing about the session changed.
- */
 export function appendTuiExtensionBlock(
     state: TuiState,
     label: string,
@@ -1349,11 +1121,6 @@ export function appendTuiExtensionBlock(
     );
 }
 
-/**
- * Settles the transcript for a host that went away. Being disconnected is a
- * state the status line holds until it is fixed, so nothing is written into
- * the transcript: a row would scroll away from the thing that is still true.
- */
 export function failTuiConnection(state: TuiState): TuiState {
     return {
         ...state,
@@ -1374,9 +1141,6 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     const reasoning = (state.pendingThinking ?? "").trim();
     const expanded = state.thinkingExpanded === true && reasoning.length > 0;
     const settled = dropTuiThinking(state);
-    // A phase that reported no reasoning has nothing behind its row: the
-    // elapsed time was already on the status line while it ran, and the row
-    // that survives it cannot be opened.
     if (reasoning.length === 0) {
         return settled;
     }
@@ -1389,15 +1153,10 @@ export function appendTuiThought(state: TuiState, seconds: number): TuiState {
     });
 }
 
-/** Every summary has reasoning behind it, so every summary is named for it. */
 function thoughtSummary(seconds: number): string {
     return `Reasoning: ${seconds.toFixed(1)}s`;
 }
 
-/**
- * Drops reasoning that never reached a summary. A turn that ends without a
- * thought phase still has to clear it, or it leaks into the next one.
- */
 export function dropTuiThinking(state: TuiState): TuiState {
     if (state.pendingThinking === undefined) {
         return state;
@@ -1409,13 +1168,6 @@ export function dropTuiThinking(state: TuiState): TuiState {
     };
 }
 
-/**
- * Opens or closes every reasoning fold at once.
- *
- * Transcript rows are not focusable, so there is nothing to point at to expand
- * one on its own. The flag also sets how later summaries arrive, so the choice
- * holds for the rest of the session rather than only for what is on screen.
- */
 export function toggleTuiThinking(state: TuiState): TuiState {
     const expanded = state.thinkingExpanded !== true;
     return {
@@ -1448,9 +1200,6 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return new StyledText([fg(TUI_MUTED)(entry.text)]);
     }
     if (entry.kind === "user") {
-        // The band around a user message is chrome the renderer draws, so the
-        // text itself carries no marker. What an extension prepended is not
-        // drawn at all: it was sent, but it is not something the user said.
         const prefix = entry.dimmedPrefix ?? 0;
         return new StyledText([fg(TUI_TEXT)(
             prefix > 0 && prefix < entry.text.length
@@ -1476,8 +1225,6 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         return renderTuiToolRow(entry);
     }
     if (entry.kind === "substitution") {
-        // Its own marker rather than a plain notice: a substitution says the
-        // turn did not run on what was asked for, which outlives the run.
         return new StyledText([
             bold(fg(TUI_NOTICE)(`${SUBSTITUTION_MARKER} `)),
             fg(TUI_NOTICE)(entry.text),
@@ -1491,8 +1238,6 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
         ]);
     }
     if (entry.kind === "extension_label") {
-        // Styled rather than markdown: a label is a name, and a name with a
-        // bracket or an asterisk in it must survive being displayed.
         return new StyledText([bold(fg(TUI_ACCENT)(entry.text))]);
     }
     if (entry.kind === "review") {
@@ -1500,9 +1245,6 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     }
     if (entry.kind === "notice") {
         if (entry.diagnostic === undefined && entry.admission !== undefined) {
-            // The heading keeps a colour so a probe block can be found on the
-            // way back up; the steps under it are Vera narrating itself and
-            // sit back. One block, two weights, rather than a wall of one.
             const [heading, ...steps] = entry.text.split("\n");
             return new StyledText([
                 fg(TUI_NOTICE)(heading ?? ""),
@@ -1531,14 +1273,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
             ]);
     }
     if (entry.kind === "thought") {
-        // Latency is metadata about a turn, not the turn: it reads in the
-        // muted role so the accent stays free for what the eye should find.
         const summary = fg(TUI_MUTED)(entry.text);
         if (entry.reasoning === undefined) {
             return new StyledText([summary]);
         }
-        // The hint rides the rendered row, not the stored text, so a rebuilt
-        // row carries the summary alone.
         const hint = fg(TUI_MUTED)(
             entry.expanded === true
                 ? `  ${tuiKeyChord("toggle_thinking")} hide reasoning`
@@ -1565,41 +1303,10 @@ export function renderTuiEntry(entry: TuiTranscriptEntry): StyledText {
     return new StyledText([fg(TUI_MUTED)(entry.text)]);
 }
 
-/**
- * How many rows the reasoning still arriving is allowed to occupy.
- *
- * One, because this row is inside a transcript pinned to its bottom: every row
- * it takes is a row the settled summary gives back when the phase ends, and
- * that difference moves the whole scrollback. A window that grew to eight and
- * collapsed to one pumped the view by nine rows on every phase of every turn.
- * The reasoning is not lost — the settled summary expands to all of it.
- */
 export const LIVE_THINKING_ROWS = 1;
 
-/**
- * The mark that opens the live reasoning row.
- *
- * It rides the row itself rather than sitting above and below it: as rows of
- * their own the two marks cost two more rows that the settled summary would
- * hand back, which is the pumping this row exists to avoid. Inline it still
- * says the same thing, that what follows is the tail of something longer.
- */
 export const LIVE_THINKING_ELLIPSIS = "···";
 
-/**
- * The last few lines of reasoning, as the tail of a fixed-height window.
- *
- * The row is bounded from the first delta rather than folded once the phase
- * ends, so nothing is ever drawn at full height and taken back. What scrolls
- * out of the window is not lost: the summary this row collapses into holds the
- * whole phase, which is where reasoning is meant to be read.
- *
- * The window is measured in source lines and the row is drawn unwrapped, so a
- * paragraph counts once however wide it is. Blank lines are dropped rather than
- * kept: a model that separates every sentence would spend half the window on
- * nothing, and the gaps read as a rendering fault rather than as the model's
- * own paragraphing.
- */
 function liveThinkingTail(text: string): string {
     const lines = plainReasoningSummary(text)
         .split("\n")
@@ -1608,7 +1315,6 @@ function liveThinkingTail(text: string): string {
     return lines.slice(-LIVE_THINKING_ROWS).join("\n");
 }
 
-/** Provider summaries use Markdown headings; this row is a plain-text surface. */
 function plainReasoningSummary(reasoning: string): string {
     return reasoning
         .replace(/\n[ \t]*[-=]{3,}[ \t]*(?=\n|$)/g, "")
@@ -1621,7 +1327,6 @@ interface TuiReviewHighlightMatch {
     readonly text: string;
 }
 
-/** Routine approval is quiet; only its decision stands out. */
 function renderTuiReview(text: string): TextChunk[] {
     const chunks: TextChunk[] = [];
     const approvalPrefix = "Classifier ";
@@ -1726,16 +1431,10 @@ function renderTuiDiagnostic(
 function renderToolHeader(entry: TuiTextTranscriptEntry): TextChunk[] {
     const folded = /^([+-]) (.+)$/.exec(entry.text);
     if (folded === null) {
-        // A header with no fold marker still reserves the marker slot, so a
-        // running group and the finished group it becomes share one column.
         return [fg(TUI_MUTED)("  "), bold(fg(TUI_TEXT)(entry.text))];
     }
     const [, marker, action] = folded;
-    // The call reads on the header row, so a folded group is one sentence:
-    // what was done, and to what.
     return [
-        // A collapsed group keeps the fold-marker slot for alignment without
-        // adding another dot to an already indented activity row.
         fg(TUI_MUTED)(marker === "+" ? "  " : "▾ "),
         bold(fg(TUI_TEXT)(action ?? "")),
         ...(entry.command === undefined
@@ -1766,17 +1465,11 @@ function renderCompactToolPreview(preview: string): TextChunk[] {
     return chunks;
 }
 
-/** A row's text, carrying the count when the same call repeated. */
 export function tuiToolRowText(entry: TuiTextTranscriptEntry): string {
     const repeat = entry.repeat ?? 1;
     return repeat > 1 ? `${entry.text} ×${repeat}` : entry.text;
 }
 
-/**
- * Tool rows keep their target quiet while giving the operation a semantic
- * accent. Result rows stay entirely muted: their text is output, not another
- * action label.
- */
 function renderTuiToolRowChunks(
     entry: TuiTextTranscriptEntry,
 ): TextChunk[] {
@@ -1796,7 +1489,6 @@ function renderTuiToolRowChunks(
     ];
 }
 
-/** Renders a transcript row, including its inline gutter prefix. */
 export function renderTuiToolRow(
     entry: TuiTextTranscriptEntry,
 ): StyledText {
@@ -1806,7 +1498,6 @@ export function renderTuiToolRow(
     ]);
 }
 
-/** Renders the content column used by the dedicated tool-row component. */
 export function renderTuiToolRowContent(
     entry: TuiTextTranscriptEntry,
 ): StyledText {
@@ -1842,8 +1533,6 @@ export function tuiEntryMarginTop(
             return 0;
         }
     }
-    // Notices of one weight arriving back to back are one run of the same
-    // thought, so they sit flush rather than as a stack of spaced blocks.
     if (
         current?.kind === "notice" && previous?.kind === "notice"
         && current.diagnostic === undefined && previous.diagnostic === undefined
@@ -1852,10 +1541,6 @@ export function tuiEntryMarginTop(
     ) {
         return 0;
     }
-    // Rows inside a group sit flush under their header. A new header also
-    // continues directly from the activity row that preceded it, so changing
-    // tool verbs does not break one run into a stack of spaced blocks. A diff
-    // is a rendered block, so the next header falls through to message spacing.
     if (current?.kind === "tool") {
         return previous?.kind === "thought" && previous.expanded === true
             ? Math.max(1, spacing.message)
@@ -1894,9 +1579,6 @@ function formatToolCall(
     if (summary.length === 0) {
         return tool;
     }
-    // A command wraps rather than being cut at a column, since what ran is the
-    // part worth reading. The cap is far above any terminal width and bounds
-    // only how much of a pathological argument one row can scroll off screen.
     return summary.length > TOOL_SUMMARY_LIMIT
         ? `${tool} ${summary.slice(0, TOOL_SUMMARY_LIMIT - 1)}…`
         : `${tool} ${summary}`;
@@ -1938,11 +1620,6 @@ function toolHeader(tool: string, active: boolean): string {
         : TOOL_HEADERS[tool] ?? "Worked";
 }
 
-/**
- * Live and completed labels are two states of one activity group. Comparing
- * the rendered words directly would split a sweep whenever its first call
- * finished before the next call started.
- */
 const TOOL_HEADER_GROUPS: Readonly<Record<string, string>> = {
     Exploring: "Explored",
     Explored: "Explored",
@@ -1972,11 +1649,6 @@ function stringArg(
 
 let tuiWorkspaceRoots: readonly string[] = [process.cwd()];
 
-/**
- * The session's workspace, not this process's cwd: the TUI can attach to a
- * session rooted anywhere. Tool results carry realpathed paths, so the
- * resolved form of the root is stripped too when it differs.
- */
 export function setTuiWorkspaceRoot(workspace: string): void {
     const roots = [workspace];
     try {
@@ -1985,12 +1657,10 @@ export function setTuiWorkspaceRoot(workspace: string): void {
             roots.push(resolved);
         }
     } catch {
-        // A root that does not resolve locally still strips as given.
     }
     tuiWorkspaceRoots = roots;
 }
 
-/** The workspace-relative path, since the absolute prefix is the same on every row. */
 export function tuiDisplayPath(path: string): string {
     for (const root of tuiWorkspaceRoots) {
         const prefix = root.endsWith("/") ? root : `${root}/`;
@@ -2001,10 +1671,6 @@ export function tuiDisplayPath(path: string): string {
     return path;
 }
 
-/**
- * What a call did, in the tool's own terms. The generic name-plus-arguments
- * form stays as the fallback for a tool this client has never heard of.
- */
 function toolRowText(
     tool: string,
     args: Readonly<Record<string, unknown>>,
@@ -2027,8 +1693,6 @@ function toolRowText(
     if (tool === "bash") {
         const command = stringArg(args, "command");
         if (command !== undefined) {
-            // A command keeps its own lines. Flattening a script into one
-            // paragraph loses where each command ended.
             return bounded(command.replaceAll(/[ \t]+$/gm, "").trim());
         }
     }
@@ -2044,20 +1708,12 @@ function toolRowText(
     return formatToolCall(tool, args);
 }
 
-/**
- * The transcript a call leaves behind. A call either repeats the one above it,
- * joins the run above it, or opens a new group with a header, so a sequence of
- * calls reads as one unit rather than as n unrelated rows.
- */
 function withToolEntry(
     entries: readonly TuiTranscriptEntry[],
     tool: string,
     args: Readonly<Record<string, unknown>>,
     active: boolean,
 ): TuiTranscriptEntry[] {
-    // Review, thinking, and thought rows come and go: a history checkpoint
-    // drops them, and a run has to group the same way either way, or the
-    // checkpoint stops matching what is on screen.
     const previousIndex = entries.findLastIndex((entry) =>
         entry.kind !== "review" && entry.kind !== "thought"
         && entry.kind !== "thinking"
@@ -2094,8 +1750,6 @@ function withToolEntry(
             return joined;
         }
 
-        // A settled group is working again. Keep its header in the live tense
-        // until the last active call settles, without opening a second group.
         let headerIndex = entries.length - 1;
         while (
             headerIndex >= 0
@@ -2133,10 +1787,6 @@ function withToolEntry(
     ];
 }
 
-/**
- * Settles the oldest matching live call. Calls can finish out of order, so the
- * row itself carries the tool name instead of assuming the last row finished.
- */
 function finishToolEntry(
     entries: readonly TuiTranscriptEntry[],
     tool: string,
@@ -2231,7 +1881,6 @@ function toolResultText(output: string, tool?: string): string {
     return text.length === 0 ? "(no output)" : bounded(text);
 }
 
-/** One semantic formatter shared by live rows and history replay. */
 export function formatAskUserResult(output: string): string {
     if (output.length === 0) return "Question completed";
     try {
@@ -2251,24 +1900,17 @@ export function formatAskUserResult(output: string): string {
             return `Answered: ${bounded(value.label)}${notes}`;
         }
     } catch {
-        // A provider/tool error is still useful as its original text.
     }
     return bounded(output);
 }
 
 const COMPACT_TOOL_LINE_CHARS = 96;
 
-/**
- * Completed tool groups with a result share one compact shape. An explicit
- * detail choice applies to every completed group; active work always remains
- * visible so the user can see what is happening.
- */
 function applyToolDetailPreference(
     entries: readonly TuiTranscriptEntry[],
     preference?: boolean,
 ): TuiTranscriptEntry[] {
     const next = [...entries];
-    // The detail toggle is taught once per transcript, not on every group.
     let hintUsed = false;
     for (let headerIndex = 0; headerIndex < next.length; headerIndex += 1) {
         const header = next[headerIndex];
@@ -2298,11 +1940,6 @@ function applyToolDetailPreference(
         const detailLines = rows.reduce((total, entry) =>
             total + entry.text.split("\n").length, 0
         );
-        // A running group folds too, to the one row it will still be once it
-        // settles. Its calls would otherwise arrive as rows of their own and
-        // go behind the header together when the last one lands, and in a
-        // transcript pinned to its bottom that pumps the whole scrollback by
-        // the size of the batch, once per batch, for the length of the turn.
         const foldable = detailLines > 0
             && (active || hasResult || preference !== undefined);
         const expanded = preference === true;
@@ -2325,9 +1962,6 @@ function applyToolDetailPreference(
         next[headerIndex] = foldable
             ? {
                 ...plainHeader,
-                // A running group keeps its plain verb: the marker offers a
-                // choice about details that have settled, and a group still
-                // working has none to settle on yet.
                 text: active ? base : `${expanded ? "-" : "+"} ${base}`,
                 detailLines,
                 ...(!expanded && calls.length === 1 && calls[0] !== undefined
@@ -2359,25 +1993,15 @@ function applyToolDetailPreference(
     return next;
 }
 
-/** The call lines in a group, which is what a folded group is about. */
 function toolCallLines(
     rows: readonly TuiTextTranscriptEntry[],
 ): readonly string[] {
     return rows
         .filter((row) => row.prefix === "  │ ")
-        // A folded group has one line to say what ran. Keeping only the first
-        // physical line turns a heredoc or a `-e` script into its opener, so
-        // the whole call is flattened and then cut to the line budget.
         .map((row) => tuiToolRowText(row).replace(/\s+/g, " ").trim())
         .filter((line) => line.length > 0);
 }
 
-/**
- * The calls a running group has made, whether or not their results have
- * landed. The settled form reads results off the rows that carry them; a
- * group still working has calls with nothing under them yet, and those are
- * exactly what its one row is about.
- */
 function liveToolCallLines(
     rows: readonly TuiTextTranscriptEntry[],
 ): readonly string[] {
@@ -2387,24 +2011,11 @@ function liveToolCallLines(
         .filter((line) => line.length > 0);
 }
 
-/**
- * The one line a running group shows: what it is working on, newest last.
- *
- * Built exactly as the settled form builds its own, so the two lay out the
- * same way: a live line cut to a different width than the settled line that
- * replaces it would take a row the settled one gives back, which is the
- * pumping the fold is here to stop.
- */
 function liveToolSummary(calls: readonly string[]): string | undefined {
     if (calls.length === 0) return undefined;
     return `  └ ${compactToolLine(compactFoldedCalls([...calls]).join(", "))}`;
 }
 
-/**
- * The single line a folded group keeps. Several calls summarize to what they
- * touched; one call summarizes to the head of what it produced. Neither says
- * how much was left out: the toggle is what shows the rest.
- */
 function compactToolSummary(
     rows: readonly TuiTextTranscriptEntry[],
     calls: readonly string[],
@@ -2419,11 +2030,6 @@ function compactToolSummary(
     return line === undefined ? undefined : `  └ ${compactToolLine(line)}`;
 }
 
-/**
- * A folded multi-call row is only a clue; full paths remain in its details.
- * Keeping the shortest unique suffix avoids a second renderer truncation
- * without making equal filenames from different directories look identical.
- */
 interface CompactPathCall {
     readonly action: string;
     readonly path: string;
@@ -2493,13 +2099,6 @@ function toTuiTranscriptEntries(
     return converted;
 }
 
-/**
- * Keep the store's id on the row it became, when the entry had one.
- *
- * Carried so a client can find a row again by the same reference resume and
- * rewind take. Only messages have one: a tool row, a notice and a diff are
- * things the transcript draws, not entries the store holds.
- */
 function withStoreEntryId(
     converted: TuiTranscriptEntry,
     entry: TranscriptEntry,
@@ -2510,13 +2109,6 @@ function withStoreEntryId(
         : { ...converted, entryId: id };
 }
 
-/**
- * The store's own message id for a row, without the row's place in it.
- *
- * One stored message becomes several rows (its text, the tools it called), so
- * the transcript numbers them `<id>#<row>`. Search, resume and rewind all name
- * the message, so a lookup by one of their ids compares against this.
- */
 export function transcriptMessageId(
     entryId: string | undefined,
 ): string | undefined {
@@ -2589,10 +2181,6 @@ function withHistoricalToolResult(
     return next;
 }
 
-/**
- * The one place the wording lives, so the live turn and the same turn rebuilt
- * from history cannot drift apart.
- */
 function emptyTurnEntry(): TuiTranscriptEntry {
     return { kind: "notice", text: "No response" };
 }
@@ -2656,15 +2244,6 @@ function appendThinkingText(state: TuiState, text: string): TuiState {
     });
 }
 
-/**
- * Puts the reasoning collected so far on screen as one live row at the end of
- * the transcript.
- *
- * `pendingThinking` stays the record of what arrived, and the row is rebuilt
- * from it rather than appended to, so a history rebuild that drops the row
- * costs nothing: the next delta puts it back whole. That is also why the row
- * carries no state of its own.
- */
 function withLiveThinking(state: TuiState): TuiState {
     const settled = state.entries.filter((entry) => entry.kind !== "thinking");
     const pending = state.pendingThinking;
@@ -2677,7 +2256,6 @@ function withLiveThinking(state: TuiState): TuiState {
         });
 }
 
-/** Provider streams may deliver reasoning after the answer it precedes. */
 function insertBeforeTrailingAssistant(
     state: TuiState,
     entry: TuiTranscriptEntry,
@@ -2696,14 +2274,6 @@ function insertBeforeTrailingAssistant(
     return { ...state, entries };
 }
 
-/**
- * Where a new summary joins the one before it, if anything.
- *
- * Tool calls do not separate two stretches of thinking: the summary belongs to
- * the work it precedes, so a turn that thinks, calls, and thinks again reports
- * one stretch above the calls. A line of the answer does separate them, which
- * is what gives each thing the agent says its own summary.
- */
 function lastThought(
     entries: readonly TuiTranscriptEntry[],
     before: number,
@@ -2718,11 +2288,6 @@ function lastThought(
     return undefined;
 }
 
-/**
- * One phase of thinking is not one row. A turn that thinks, thinks again, and
- * thinks once more between two tool calls reports the whole stretch, because
- * the split between phases is the provider's and says nothing to the reader.
- */
 function mergeThoughts(
     first: TuiTextTranscriptEntry,
     second: TuiTextTranscriptEntry,
@@ -2766,11 +2331,6 @@ function preserveLiveReviewEntries(
     );
 }
 
-/**
- * A history rebuild carries the message the agent was sent, which is the
- * replaced text; how much of it an extension injected is only known here. The
- * live entry keeps that measure, so a rebuilt row takes it back by text.
- */
 function restoreDimmedPrefixes(
     rebuilt: readonly TuiTranscriptEntry[],
     live: readonly TuiTranscriptEntry[],
@@ -2792,17 +2352,10 @@ function restoreDimmedPrefixes(
 }
 
 interface AnchoredReasoning {
-    /** How many durable rows precede this row. */
     readonly after: number;
     readonly entry: TuiTranscriptEntry;
 }
 
-/**
- * Thought summaries and client-only notices have no backing history message.
- * Anchor both to the count of canonical rows before them: counting a local
- * notice as durable shifts every later thought and eventually dumps it at the
- * transcript tail when the rebuilt history never reaches that count.
- */
 function anchoredReasoningEntries(
     entries: readonly TuiTranscriptEntry[],
 ): readonly AnchoredReasoning[] {
@@ -2846,7 +2399,6 @@ function restoreReasoningEntries(
             takeAnchored();
         }
     }
-    // A summary can outrun the rebuilt rows when the turn ends mid-stream.
     for (; next < anchored.length; next += 1) {
         restored.push(anchored[next]!.entry);
     }
@@ -2903,10 +2455,6 @@ function sameAttachments(
         && left.every((name, index) => name === right[index]);
 }
 
-/**
- * A reconnect history can carry occupancy without the last request recipe.
- * Keep the named files the live snapshot already had.
- */
 function keepLastContextRecipe(
     incoming: ContextMeasurement,
     live: ContextMeasurement | undefined,

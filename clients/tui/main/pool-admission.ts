@@ -94,8 +94,6 @@ export function startCatalogRefreshSweep(rt: TuiRuntime, providers: readonly str
     rt.settingsPicker = undefined;
     rt.composer.blur();
     if (rt.catalogRefreshSweep !== undefined) {
-        // Two sweeps at once cannot both be reported: the second would
-        // claim the first one's answers as its own.
         showStatusNotice(rt, "a refresh is already running");
         renderState(rt);
         focusActiveSurface(rt);
@@ -233,8 +231,6 @@ export function poolVerifySweepResult(rt: TuiRuntime, requestId: string, verdict
 }
 
 export function verifyModelInPicker(rt: TuiRuntime, provider: string, model: string): void {
-    // Keep the model pane in place: its full-width console is the live
-    // verification surface, including for a model being checked again.
     requestPoolAdmission(rt, provider, model, true);
     rt.composer.blur();
     renderState(rt);
@@ -246,9 +242,6 @@ export function closeAdmissionDialog(rt: TuiRuntime, reopenPoolPicker: boolean):
     rt.admissionDialog = undefined;
     rt.admissionReturnPicker = undefined;
     if (reopenPoolPicker && returnPicker !== undefined) {
-        // Rebuilt rather than restored: the pool changed under the saved
-        // pane, and a fresh open lands on the Pool tab, where the newly
-        // admitted row is.
         openModelPicker(rt, returnPicker.parent);
         return;
     }

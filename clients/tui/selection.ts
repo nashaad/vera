@@ -28,11 +28,6 @@ export function isTranscriptSelection(
         return false;
     }
 
-    // The terminal selection can finish one row outside the transcript (for
-    // example, after dragging from the first line down to the composer). The
-    // selected renderables are the authoritative boundary: copy is safe when
-    // every selected node belongs to a transcript entry, regardless of the
-    // exact mouse-up coordinate or drag direction.
     return selection.selectedRenderables.every((node) =>
         belongsToEntry(node, entries)
     );
@@ -52,16 +47,11 @@ function belongsToEntry(
     return false;
 }
 
-/** A region a selection can land in, and who a quotation from it names. */
 export interface SelectionSource {
     readonly node: SelectionTreeNode;
     readonly speaker: string;
 }
 
-/**
- * Who the selected text belongs to, or nothing when it spans more than one of
- * them. A quotation drawn from two speakers cannot be attributed to either.
- */
 export function selectionSpeaker(
     selection: TranscriptSelection,
     sources: readonly SelectionSource[],

@@ -32,7 +32,6 @@ export function switchToClient(rt: TuiRuntime,
     const previous = rt.client;
     rt.clientGeneration += 1;
     rt.agentFailedThisAttachment = false;
-    // The old session owned these calls; nothing will answer them now.
     for (const pending of [...rt.pendingOneshots.values()]) {
         pending.reject(new Error("The conversation changed"));
     }
@@ -55,9 +54,6 @@ export function switchToClient(rt: TuiRuntime,
     setTuiWorkspaceRoot(next.workspace ?? process.cwd());
     void previous.detach().catch(() => previous.close());
 
-    // The sidebar and any mentions belonged to the conversation being
-    // left, so the client takes them down and each extension is told to
-    // let go of whatever else it was holding.
     if (options.preserveSidebar !== true) {
         const previousSidebarAgent = rt.hostedSidebar.release();
         if (previousSidebarAgent !== undefined) {
@@ -82,8 +78,7 @@ export function switchToClient(rt: TuiRuntime,
     rt.clientExtensionRegistry?.conversationChanged();
 
     rt.state = createTuiState();
-    // A hop the notice never landed in is over; it must not surface in
-    // whichever conversation rebuilds next.
+    // A hop the notice never landed in is over; it must not surface in whichever conversation rebuilds next.
     rt.pendingBackNotice = undefined;
     rt.pendingSessionSwitchNotice = undefined;
     if (next.agentId !== undefined) {
@@ -309,8 +304,6 @@ export function runHomeAction(rt: TuiRuntime, action: HomeAction): void {
         return;
     }
     rt.homeTypedText = action.text;
-    // Read when the new client lands, not now: whatever else was typed
-    // in between has been appended to it by then.
     beginCreateSession(rt, "stop", () => ({
         text: rt.homeTypedText ?? "",
         attachmentIds: [],
@@ -334,8 +327,6 @@ export async function refreshHomeSessions(rt: TuiRuntime): Promise<void> {
     try {
         agents = await rt.dependencies.listAgents();
     } catch {
-        // A listing this client could not read says nothing either way,
-        // so the card keeps the answer it already had.
         return;
     }
     if (!isHomeClient(rt.client)) return;
@@ -399,9 +390,6 @@ export function beginCreateSession(rt: TuiRuntime,
         || rt.hostedSidebar.pane === undefined
         ? []
         : [rt.hostedSidebar.pane.client];
-    // A blank peer has nothing useful to reset. Treating a second
-    // clear as close makes it possible to get rid of an empty pane
-    // without requiring a separate close command.
     const clearingBlankSidebar = clearingSidebar
         && !rt.sidebarEntryNodes.some((node) => node.visible);
     if (clearingBlankSidebar) {
@@ -552,9 +540,6 @@ export function beginSessionResume(rt: TuiRuntime,
         : [rt.hostedSidebar.pane.client];
     rt.settingsPicker = undefined;
     if (sessionId !== undefined && sessionId === rt.client.agentId) {
-        // The row for the session already on screen. Tearing down that
-        // session's own transcript to put it back is a worse answer to
-        // "this one" than simply leaving.
         setSidebarFocused(rt, false);
         rt.settingsPickerView.box.visible = false;
         focusActiveSurface(rt);
@@ -591,9 +576,6 @@ export function beginSessionResume(rt: TuiRuntime,
         renderState(rt);
         return;
     }
-    // Only the first hop is remembered: /back always returns to where
-    // the switching started, not to the previous stop. Going back clears
-    // the edge instead of arming it, or back would turn into a toggle.
     const previousId = rt.client.agentId;
     let armedNow = false;
     if (
@@ -636,11 +618,6 @@ export function beginSessionResume(rt: TuiRuntime,
             sourceDisposition === "stop"
             && !isJsonlViewClient(next)
         ) {
-            // The selected row can be a child of the source. Hard close
-            // correctly takes that whole tree down, including the target
-            // attachment we opened first to validate the destination.
-            // Resume once more after quiescence so a durable child becomes
-            // the new root instead of putting a dead attachment on screen.
             if (leaveResult.sourceOutcome === "stopped") {
                 discardSwitchTarget(rt, next);
                 destination = await withSessionSwitchDeadline(rt, 
@@ -684,8 +661,6 @@ export function beginSessionResume(rt: TuiRuntime,
                     )?.title;
                 }
             } catch {
-                // The switch already landed; a listing failure cannot
-                // take it back.
             }
         }
         if (viaBack) {
@@ -710,9 +685,6 @@ export function beginSessionResume(rt: TuiRuntime,
             && destId !== rt.backOriginId
         ) {
             noticeKind = "back";
-            // The way back, said where the person landed: the switch is
-            // easy to make by accident from the work tab, and nothing
-            // else on screen names the return trip.
             const notice =
                 "Type /back to return to the conversation you came from";
             let originTitle = rt.backOriginTitle;
@@ -741,7 +713,6 @@ export function beginSessionResume(rt: TuiRuntime,
         }
     }).catch((error) => {
         if (rt.shuttingDown) return;
-        // A switch that never happened is not a hop worth remembering.
         if (armedNow) rt.backOriginId = undefined;
         rt.sessionSwitchPending = false;
         rt.state = appendTuiError(
@@ -895,9 +866,6 @@ export function retryPoolAdmission(rt: TuiRuntime,
         true,
     );
     if (rt.poolVerifySweep?.requestId === requestId) {
-        // A retry is the same step of the sweep under a new id. Without
-        // this the sweep waits on a verdict that will never carry the id
-        // it is watching for, and stops on the first unreachable model.
         rt.poolVerifySweep = { ...rt.poolVerifySweep, requestId: retryId };
     }
     const poolChange = rt.pendingPoolChanges.get(requestId);

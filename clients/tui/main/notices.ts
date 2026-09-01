@@ -29,8 +29,6 @@ export function showModeToast(rt: TuiRuntime, message: string): void {
     const version = rt.modeToastVersion;
     rt.modeToastText.content = message;
     rt.modeToast.width = message.length + 4;
-    // Above the overlay when one is open, so the toast is not painted
-    // behind the card that prompted it.
     rt.modeToast.visible = true;
     setTimeout(() => {
         if (rt.modeToastVersion !== version) return;
@@ -89,14 +87,7 @@ export function renderJumpToBottom(rt: TuiRuntime, resumeFollow = true): void {
         rt.transcript.scrollHeight,
         rt.transcript.viewport.height,
     );
-    // OpenTUI's wheel handler marks every wheel event as manual after it
-    // updates scrollTop, including the event that reaches the bottom. If
-    // streaming grows the transcript before the next layout pass, that
-    // stale manual flag prevents sticky scroll from following the new
-    // content. Crossing from the visible pill back to the bottom is an
-    // explicit request to resume following, so reapply the bottom here.
-    // A keyboard scroll moves by an exact number of rows and passes false,
-    // because snapping back would undo the row it just moved.
+    // OpenTUI's wheel handler marks every wheel event as manual after it updates scrollTop, including the event that reaches the bottom.
     if (following && resumeFollow) {
         rt.transcript.scrollTo(rt.transcript.scrollHeight);
     }
@@ -141,8 +132,6 @@ export function renderPendingQuote(rt: TuiRuntime): void {
         return;
     }
     const { facts, keys } = renderTuiQuote(quote);
-    // Indented by hand: the line is one row in a column that does not pad
-    // its children, and it has to start where the composer's text starts.
     rt.quoteText.content = new StyledText([
         fg(TUI_ACCENT)(`${tuiQuoteMarker(Date.now())} `),
         fg(TUI_MUTED)(`${facts} · `),
@@ -157,8 +146,6 @@ export function renderHeldAddress(rt: TuiRuntime): void {
         rt.heldAddressText.content = "";
         return;
     }
-    // Indented by hand: the row sits in a column that does not pad its
-    // children, and it has to start where the composer's text starts.
     rt.heldAddressText.content = new StyledText([
         fg(TUI_MUTED)(
             `${" ".repeat(rt.appearance.composerMarginHorizontal)}${facts} · `,

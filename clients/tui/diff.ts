@@ -57,8 +57,7 @@ export function createTuiDiff(
         contextBg: TUI_BACKGROUND,
         addedBg: backgrounds.added,
         removedBg: backgrounds.removed,
-        // OpenTUI renders the number/sign gutter as a separate cell. Use the
-        // row ground there too so additions and removals read as one surface.
+        // OpenTUI renders the number/sign gutter as a separate cell. Use the row ground there too so additions and removals read as one surface.
         addedLineNumberBg: backgrounds.added,
         removedLineNumberBg: backgrounds.removed,
         addedSignColor: TUI_DIFF_ADDED,

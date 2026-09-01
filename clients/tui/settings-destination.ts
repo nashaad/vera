@@ -73,7 +73,6 @@ export interface TuiSettingsDestinationFacts {
     readonly permissionModes?: readonly string[];
 }
 
-/** Client-local rendering of a semantic settings destination. */
 export function resolveTuiSettingsDestination(
     value: unknown,
     facts: TuiSettingsDestinationFacts = {},

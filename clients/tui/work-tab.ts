@@ -6,15 +6,8 @@ import type {
     WorkSection,
 } from "../../src/host/work-index.ts";
 
-/**
- * The Work tab's presentation model, with no OpenTUI in it.
- *
- * Every fact the tab shows is a string here, so the layout, the selection, and
- * what enter does are all decidable without a terminal. The renderable side
- * mounts these lines; it decides nothing.
- */
+/** The Work tab's presentation model, with no OpenTUI in it. Every fact the tab shows is a string here, so the layout, the selection, and what enter does are all decidable without… */
 
-/** Below this the tab drops the reason column and runs one column of rows. */
 export const WORK_TAB_NARROW_WIDTH = 64;
 
 const SECTION_TITLES: Readonly<Record<WorkSection, string>> = {
@@ -47,24 +40,15 @@ export type WorkTabLineKind = "section" | "row" | "blank" | "empty";
 export interface WorkTabLine {
     readonly kind: WorkTabLineKind;
     readonly text: string;
-    /** Present on `row` lines only, so a click or a cursor can name the row. */
     readonly row_id?: string;
     readonly selected?: boolean;
 }
 
-/**
- * What pressing enter on a row means.
- *
- * `answer_request` routes to the approval or question surface the TUI already
- * has. The Work tab never renders a request itself: two renderers for one
- * request is two behaviours for one decision.
- */
 export type WorkTabAction =
     | { readonly kind: "answer_request"; readonly session_id: string }
     | { readonly kind: "open_session"; readonly session_id: string }
     | { readonly kind: "open_result"; readonly session_id: string };
 
-/** What the client holds while the tab is open. */
 export interface WorkTabState {
     readonly index: WorkIndexSnapshot;
     readonly selectedId?: string;
@@ -75,7 +59,6 @@ export function startWorkTab(index: WorkIndexSnapshot): WorkTabState {
     return { index, ...(selectedId === undefined ? {} : { selectedId }) };
 }
 
-/** A fresh index from the host, with the cursor kept where the eyes are. */
 export function applyWorkIndex(
     state: WorkTabState,
     index: WorkIndexSnapshot,
@@ -90,10 +73,6 @@ export interface WorkTabTransition {
     readonly handled: boolean;
 }
 
-/**
- * Arrows move, enter acts, escape goes back. Every chord is passed through so
- * the globals, ctrl+c above all, still reach the client from inside the tab.
- */
 export function handleWorkTabKey(
     state: WorkTabState,
     key: {
@@ -127,14 +106,6 @@ export function handleWorkTabKey(
     return { state, handled: false };
 }
 
-/**
- * The tab title, counts included, as one line of assertable text.
- *
- * Every section that has rows is counted, not only the two the host keeps
- * running totals for: the header is the only place the tab says how much work
- * there is in total, and a person scrolled into "Working" still wants to know
- * something is waiting to be reviewed.
- */
 export function tuiWorkTabHeader(index: WorkIndexSnapshot): string {
     const section = (name: WorkSection): number =>
         index.rows.filter((row) => row.section === name).length;
@@ -149,7 +120,6 @@ export function tuiWorkTabHeader(index: WorkIndexSnapshot): string {
     return parts.length === 0 ? "Work" : `Work · ${parts.join(" · ")}`;
 }
 
-/** The footer hint, shortened when the terminal has no room for words. */
 export function tuiWorkTabFooter(width: number): string {
     return width < WORK_TAB_NARROW_WIDTH
         ? "↑↓ enter esc"
@@ -171,9 +141,6 @@ export function tuiWorkTabLines(
     }
     const now = layout.now ?? new Date();
     const narrow = layout.width < WORK_TAB_NARROW_WIDTH;
-    // A directory named on every row when every row is in the same directory
-    // is a column of one repeated word. It earns its place only once rows
-    // disagree, which is exactly when a title alone stops telling them apart.
     const workspaces =
         new Set(index.rows.map((row) => row.workspace)).size > 1;
     const lines: WorkTabLine[] = [];
@@ -181,9 +148,6 @@ export function tuiWorkTabLines(
         const rows = index.rows.filter((row) => row.section === section);
         if (rows.length === 0) continue;
         if (lines.length > 0 && !narrow) lines.push({ kind: "blank", text: "" });
-        // The count belongs to the heading rather than to the rows: a section
-        // windowed off the bottom of the card still says how much is down
-        // there.
         lines.push({
             kind: "section",
             text: `${SECTION_TITLES[section]} · ${rows.length}`,
@@ -201,7 +165,6 @@ export function tuiWorkTabLines(
     return lines;
 }
 
-/** The lines as one block of text, for the headless renderer and for tests. */
 export function tuiWorkTabText(
     index: WorkIndexSnapshot,
     layout: WorkTabLayout,
@@ -209,22 +172,12 @@ export function tuiWorkTabText(
     return tuiWorkTabLines(index, layout).map((line) => line.text).join("\n");
 }
 
-/**
- * The row a fresh open selects: the first one, which is the most urgent one,
- * because the sections are ordered by urgency and each is newest first.
- */
 export function firstWorkRowId(
     index: WorkIndexSnapshot,
 ): string | undefined {
     return index.rows[0]?.id;
 }
 
-/**
- * The selection after the arrow keys move it.
- *
- * Clamped rather than wrapped: the top row is the one that needs you most, so
- * pressing up at the top should stay there rather than jump to finished work.
- */
 export function moveWorkTabSelection(
     index: WorkIndexSnapshot,
     selectedId: string | undefined,
@@ -240,13 +193,6 @@ export function moveWorkTabSelection(
     return index.rows[next]?.id;
 }
 
-/**
- * The selection to keep after the host sends a new index.
- *
- * Rows leave the inbox under the cursor all the time: answering an approval
- * removes the row that was selected. Holding the position rather than the id
- * keeps the cursor where the person's eyes are.
- */
 export function reselectWorkRow(
     previous: WorkIndexSnapshot,
     next: WorkIndexSnapshot,
@@ -301,9 +247,6 @@ function rowText(
     const reason = narrow
         ? ""
         : pad(REASON_LABELS[row.reason ?? ""] ?? "", REASON_COLUMN);
-    // The title is the session's identity, so it gets width before the
-    // summary does: a third of the row, up to a cap, never under the old
-    // fixed column.
     const titleColumn = narrow
         ? TITLE_COLUMN
         : Math.min(TITLE_COLUMN_MAX, Math.max(
@@ -312,8 +255,6 @@ function rowText(
         ));
     const title = pad(row.title, titleColumn);
     const used = title.length + reason.length + trailing.length + 2;
-    // A summary that only repeats the section heading says nothing the
-    // screen is not already saying.
     const summaryText =
         row.summary === SECTION_TITLES[row.section] ? "" : row.summary;
     const summary = clip(summaryText, Math.max(MIN_SUMMARY, width - used));
@@ -324,7 +265,6 @@ function rowText(
         : `${left}${" ".repeat(gap)}${trailing}`;
 }
 
-/** The last segment of the workspace path, which is what tells rows apart. */
 function workspaceName(workspace: string): string {
     const segments = workspace.split("/").filter((part) => part.length > 0);
     return segments.at(-1) ?? workspace;
@@ -342,7 +282,6 @@ function clip(value: string, columns: number): string {
         : `${value.slice(0, Math.max(1, columns - 1))}…`;
 }
 
-/** The Work tab as the shared card draws it. */
 export function workTabViewState(
     state: WorkTabState,
     width: number,

@@ -31,9 +31,6 @@ function hasVisibleChildren(renderable: Renderable): boolean {
 
 function visibleSlotRows(slot: BoxRenderable): number {
     if (!slot.visible) return 0;
-    // Layout supplies the exact slot height after the first frame. Before
-    // that, walk its visible column so multiline extension UI reserves its
-    // rows immediately instead of briefly overlapping native overlays.
     return Math.max(
         slot.height,
         slot.getChildren().reduce(

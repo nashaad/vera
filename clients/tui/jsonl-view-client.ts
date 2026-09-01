@@ -8,10 +8,6 @@ import {
 import { readSessionSnapshot } from "../../src/store/session-store.ts";
 import type { TuiAgentClient } from "./agent-client.ts";
 
-/**
- * A conversation opened from its session file, with no host agent and no
- * worker. The resume overlay is what turns it into a live session.
- */
 export interface JsonlViewClient extends TuiAgentClient {
     readonly viewOnly: true;
     readonly sessionPath: string;
@@ -23,12 +19,6 @@ export function isJsonlViewClient(
     return isWorkerFreeClient(client) && client.home !== true;
 }
 
-/**
- * A client with no worker of its own: a session file, or the home screen.
- *
- * Both paint without a composer and neither has a conversation to stop, so
- * the screen and the leave paths ask this rather than which of the two it is.
- */
 export function isWorkerFreeClient(client: TuiAgentClient): boolean {
     return client.viewOnly === true;
 }
@@ -78,10 +68,6 @@ export async function createJsonlViewClient(
     return client;
 }
 
-/**
- * Reads and listings do not start a worker. A prompt or any other command
- * that needs the loop is refused until the overlay resumes this file.
- */
 function commandNeedsRunningLoop(command: ClientCommand): boolean {
     switch (command.type) {
         case "get_model_settings":

@@ -31,7 +31,6 @@ export interface ClientExtensionReloadFailureOutcome {
     readonly notice: string;
 }
 
-/** Details from a client-extension generation that activated incompletely. */
 export class ClientExtensionReloadPartialFailure extends Error {
     readonly kind: "none" | "some";
     readonly loadedExtensionIds: readonly string[];
@@ -51,7 +50,6 @@ export class ClientExtensionReloadPartialFailure extends Error {
     }
 }
 
-/** Keep extension failures useful in a notice and bounded in the transcript. */
 export function boundedExtensionReloadFailure(message: string): string {
     const compact = message.replaceAll(/\s+/g, " ").trim();
     return compact.length <= 240
@@ -109,7 +107,6 @@ export function clientExtensionReloadFailed(
     };
 }
 
-/** Reload one client generation while keeping the TUI's displayed config truthful. */
 export async function reloadTuiClientExtensions(
     options: ReloadTuiClientExtensionsOptions,
 ): Promise<readonly string[]> {
@@ -125,8 +122,6 @@ export async function reloadTuiClientExtensions(
         };
     const failures: string[] = [];
 
-    // Apply before activation so diagnostics names the generation being tested
-    // even when activation fails after the old generation is disposed.
     options.applyConfiguration(nextConfiguration);
     await options.host.reload((signal) => options.start(
         signal,

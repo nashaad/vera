@@ -20,7 +20,6 @@ export function captureTuiExtensionComposeTarget(
     return { ...current, stale: false };
 }
 
-/** Once a target misses, later focus changes cannot make it current again. */
 export function isCurrentTuiExtensionComposeTarget(
     target: TuiExtensionComposeTarget,
     current: TuiExtensionComposeCurrentTarget,

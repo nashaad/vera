@@ -103,7 +103,6 @@ export function openTuiLink(url: string): void {
             stderr: "ignore",
         });
     } catch {
-        // The transcript remains usable when the host has no platform opener.
     }
 }
 
@@ -167,8 +166,7 @@ function tuiMarkdownTableLinkAtMouse(
     table: TextTableRenderable,
     event: TuiMousePosition,
 ): string | undefined {
-    // OpenTUI exposes table link chunks but keeps their cell geometry private;
-    // mirror that geometry here so clicks stay in the client-owned renderer.
+    // OpenTUI exposes table link chunks but keeps their cell geometry private; mirror that geometry here so clicks stay in the client-owned renderer.
     const internal = table as unknown as TuiMarkdownTableForHitTesting;
     const localX = event.x - internal.screenX;
     const localY = event.y - internal.screenY;

@@ -140,7 +140,6 @@ export type TuiStandingNudgesState =
   | TuiStandingNudgesErrorState;
 
 export interface TuiStandingNudgesTransition {
-  /** Absent means the overlay closed. */
   readonly state?: TuiStandingNudgesState;
   readonly handled: boolean;
 }
@@ -166,7 +165,6 @@ export interface TuiStandingNudgesView {
   update(state: TuiStandingNudgesState): void;
 }
 
-/** Load the active profile. A bad file stays visibly bad instead of becoming []. */
 export function openTuiStandingNudges(
   profileDirectory: string,
   workspace: string,
@@ -211,7 +209,6 @@ export function handleTuiStandingNudgesPaste(
   return editDraft(state, fieldValue(state, state.field) + pasted);
 }
 
-/** Plain-text rendering is the monochrome interaction contract and test seam. */
 export function renderTuiStandingNudges(state: TuiStandingNudgesState): string {
   const content = screenContent(state);
   return [content.title, "", content.body, "", content.footer].join("\n");
@@ -247,10 +244,6 @@ export function createTuiStandingNudgesView(
     cursorColor: TUI_ACCENT,
     placeholderColor: TUI_MUTED,
   });
-  // The editor sits on its own darker ground so the field a keystroke lands in
-  // is visible without reading the footer. The margin is what holds it off the
-  // title above it; a textarea paints from its first row, so padding would put
-  // the gap inside the field.
   const editorBox = new BoxRenderable(renderer, {
     width: "100%",
     height: "auto",
@@ -369,7 +362,6 @@ export function createTuiStandingNudgesView(
         editor.cursorOffset = editor.plainText.length;
       }
       editor.wrapMode = state.field === "id" ? "none" : "word";
-      // The field's own box spends a row on the gap under the title.
       const editorRows = Math.max(1, maxBodyRows - (dense ? 0 : 1));
       editor.height = state.field === "id"
         ? 1
@@ -393,7 +385,6 @@ export function createTuiStandingNudgesView(
           (rows, field) =>
             rows +
             formValueLines(state, field, formWidth, false).length +
-            // The save button is held off the fields above it by a blank row.
             (field === "save" ? 1 : 0),
           state.error === undefined
             ? 0
@@ -522,8 +513,6 @@ export function createTuiStandingNudgesView(
       }
       const tabStep = formTabStep(key);
       if (tabStep !== undefined) {
-        // Enter writes a newline in the text field, so tab is the only way out
-        // of it that is not a cancel.
         return {
           state: moveField(editDraft(state, editor.plainText), tabStep),
           handled: true,
@@ -704,10 +693,7 @@ function handleFormKey(
   return { state, handled: true };
 }
 
-/**
- * Keep the state reducer usable without a renderer. The OpenTUI view replaces
- * this append-only seam with its real cursor editor in the running client.
- */
+/** Keep the state reducer usable without a renderer. The OpenTUI view replaces this append-only seam with its real cursor editor in the running client. */
 function handleFallbackEditorKey(
   state: TuiStandingNudgesFormState,
   key: TuiStandingNudgesKey,
@@ -1266,8 +1252,6 @@ function visibleListIndices(
     state.selectedIndex,
     Math.max(
       LIST_MIN_ROWS,
-      // The list and the form window themselves against the same row budget,
-      // so a card that fits one cannot clip the other.
       standingNudgeBodyViewportRows(
         renderer,
         standingNudgesCompact(renderer),
@@ -1277,16 +1261,10 @@ function visibleListIndices(
   );
 }
 
-/** Below this height the card gives its blank rows back to content. */
 function standingNudgesCompact(renderer: RenderContext): boolean {
   return renderer.height <= 16;
 }
 
-/**
- * How tall the card may grow. The card is centred, so this is a height budget
- * and not a position: it leaves the screen's top row and the shared bottom
- * clearance uncovered when the card fills its budget.
- */
 function standingNudgesCardRows(renderer: RenderContext): number {
   return Math.max(
     1,
@@ -1334,11 +1312,8 @@ export function tuiStandingNudgeFormContent(
     if (index > 0) chunks.push(fg(TUI_TEXT)("\n"));
     const focused = field === state.field;
     if (field === "save") {
-      // A short card spends its blank rows on fields instead.
       if (!compact) chunks.push(fg(TUI_TEXT)("\n"));
       chunks.push(
-        // The fill opens a column early so its own padding lands in the marker
-        // gutter and the button's text lines up with the labels above it.
         fg(focused ? TUI_ACCENT : TUI_MUTED)(focused ? "›" : " "),
         focused
           ? fg(TUI_SELECTION_TEXT)(bg(TUI_ACCENT)(SAVE_BUTTON_FACE))
@@ -1536,8 +1511,6 @@ function compactFormValue(value: string, limit: number): string {
     : `${oneLine.slice(0, Math.max(1, limit - 1))}…`;
 }
 
-// The blank row above it and its lone label carry the button in a monochrome
-// render: no other form row stands on its own without a label column.
 const SAVE_BUTTON_FACE = " Save changes ";
 const UNSAVED_CHANGES_LABEL = "Unsaved changes";
 
@@ -1557,7 +1530,6 @@ const EMPTY_STANDING_NUDGE_DRAFT: TuiStandingNudgeDraft = {
   turnsApart: 0,
 };
 
-/** What Save would write back, so a draft can be compared against it. */
 function savedDraft(
   state: TuiStandingNudgesFormState,
 ): TuiStandingNudgeDraft {
@@ -1778,7 +1750,6 @@ function modified(key: TuiStandingNudgesKey): boolean {
     key.hyper === true || key.shift === true;
 }
 
-/** Terminals send shift+tab either as a shifted tab or as its own key. */
 function formTabStep(key: TuiStandingNudgesKey): -1 | 1 | undefined {
   if (key.name === "backtab") return -1;
   if (key.name !== "tab") return undefined;

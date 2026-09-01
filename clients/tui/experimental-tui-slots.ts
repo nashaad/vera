@@ -39,7 +39,6 @@ export function createTuiExperimentalSlotRegistry(
         paddingLeft: 2,
         paddingRight: 2,
         backgroundColor: options.theme.panel,
-        // Client-owned approvals and questions must remain above extension UI.
         zIndex: DIALOG_CARD_Z_INDEX - 1,
         visible: false,
     });

@@ -5,13 +5,6 @@ export interface TuiAgentAttachment {
 
 export type TuiAgentPane = "main" | "sidebar";
 
-/**
- * The two agent connections one TUI may keep open at once.
- *
- * This owns attachment membership and focus, not rendering or agent
- * lifecycle. Removing an attachment asks the host to detach this client; it
- * never closes or terminates the underlying agent.
- */
 export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
     private mainAttachment: Attachment;
     private sidebarAttachment: Attachment | undefined;
@@ -46,10 +39,6 @@ export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
             : "main";
     }
 
-    /**
-     * Opens one secondary attachment. Replacing it detaches the old client
-     * first, so the TUI never owns three agent connections between awaits.
-     */
     async openSidebar(attachment: Attachment): Promise<void> {
         if (attachment.agentId === this.mainAttachment.agentId) {
             this.focusedPane = "main";
@@ -64,7 +53,6 @@ export class TuiAgentAttachments<Attachment extends TuiAgentAttachment> {
         this.focusedPane = "sidebar";
     }
 
-    /** Replaces the main pane without disturbing the sidebar agent. */
     async openMain(attachment: Attachment): Promise<void> {
         if (attachment.agentId === this.sidebarAttachment?.agentId) {
             this.focusedPane = "sidebar";

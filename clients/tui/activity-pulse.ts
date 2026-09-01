@@ -20,7 +20,6 @@ export const BRAILLE_FRAMES = [
     "⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏",
 ] as const;
 
-/** One cell of the braille spinner, for a rail row that is working. */
 export function tuiBrailleSpinner(frame: number): string {
     return BRAILLE_FRAMES[positiveModulo(frame, BRAILLE_FRAMES.length)] ?? "⠋";
 }

@@ -1,8 +1,3 @@
-/**
- * Colouring for the dial HUD. `renderDialStrip` decides what the rows say;
- * this decides how loudly each part of them says it, and nothing here touches
- * the renderer, so the whole mapping can be asserted from a test.
- */
 import {
     DIAL_DEFAULT_SEPARATOR,
     DIAL_PICK_MARKER,
@@ -11,14 +6,12 @@ import {
 } from "./dials.ts";
 import { mixHex } from "./theme.ts";
 
-/** One run of text and the colour it is drawn in. */
 export interface DialSpan {
     readonly text: string;
     readonly color: string;
     readonly background?: string;
 }
 
-/** The colours the HUD draws with, resolved from the live theme. */
 export interface DialPaintTheme {
     readonly text: string;
     readonly muted: string;
@@ -31,7 +24,6 @@ export interface DialPaintTheme {
     readonly accessAuto: string;
 }
 
-/** Where each rung's row sits, and how tall the effort block is. */
 export interface DialRowMap {
     readonly effort: number;
     readonly effortScaleRows: number;
@@ -51,30 +43,16 @@ export interface DialPaintState {
 
 export const AUTO_MODE_ANIMATION_DURATION_MS = 1_450;
 
-/**
- * How far an unfocused rung's chosen value is pulled toward the background.
- * Far enough to stop competing with the focused rung, near enough to still
- * read what the session is set to.
- */
 const SETTLED_MIX = 0.45;
 
-/** Every rung's label, in a shape a row can be tested against. */
 const LANE_LABELS = ["MODEL", "EFFORT", "AGENT", "ACCESS"] as const;
 
-/**
- * Finds each rung by its label. Row positions are not counted from a fixed
- * offset because the model list is variable height and the effort scale adds
- * rows only when it is wide enough to draw. The focus marker is stripped
- * before the label is read, so a focused row still matches its own lane.
- */
 export function mapDialRows(hudRows: readonly string[]): DialRowMap {
     const rowIndex = (label: string): number =>
         hudRows.findIndex((line) =>
             line.replace(/^[› ]\s*/, "").startsWith(label)
         );
     const effort = hudRows.findIndex((line) => line.includes("EFFORT"));
-    // The scale puts its axis labels on the row above EFFORT and the option
-    // labels below it, so the lane sits in the middle of its own block.
     const effortScaleRows = effort >= 1
             && hudRows[effort - 1]?.includes("Faster") === true
         ? 2
@@ -86,7 +64,6 @@ export function mapDialRows(hudRows: readonly string[]): DialRowMap {
         effortScaleRows,
         access: rowIndex("ACCESS"),
         modelStart,
-        // The model rung runs from its label to whatever rung is drawn next.
         modelEnd: modelStart < 0
             ? -1
             : hudRows.findIndex((line, at) =>
@@ -99,12 +76,6 @@ export function mapDialRows(hudRows: readonly string[]): DialRowMap {
     };
 }
 
-/**
- * Colours one HUD row. Three weights, not two: the rung under the cursor is
- * brightest, a chosen value on a rung the cursor is elsewhere sits between,
- * and everything unchosen is muted. With only two weights every rung's current
- * value shouts as loudly as the one being changed.
- */
 export function paintDialRow(
     hudRows: readonly string[],
     index: number,
@@ -131,9 +102,6 @@ export function paintDialRow(
         : false;
     const settled = (hex: string): string =>
         activeRow ? hex : mixHex(theme.background, hex, SETTLED_MIX);
-    // The access modes keep their hue whether or not the lane is focused: the
-    // posture the session is running under is worth reading at a glance, not
-    // only while it is being changed.
     const accessHue = (part: string): string =>
         part.includes("readonly")
             ? theme.secondary
@@ -160,15 +128,8 @@ export function paintDialRow(
         && index >= rows.effort - 1
         && index <= rows.effort + 1;
     if (isEffortScale) {
-        // The gutter chip is delimited rather than matched by text: it is the
-        // one span on these rows that is not part of the axis, and it carries
-        // the pick mark when it is chosen.
         const parts = main.split(DIAL_DEFAULT_SEPARATOR);
         const axis = parts.length > 1 ? parts.pop() ?? "" : main;
-        // Odd spans are the gutter marks, even spans the plain text between
-        // them. The gutter carries the same colour as the labels under the
-        // track, except the resolved-default note, which is a footnote, and
-        // the marker, which is a selection.
         const gutter = parts.length > 1
             ? parts.map((part, at) =>
                 span(
@@ -200,23 +161,13 @@ export function paintDialRow(
         ];
     }
 
-    // Only the lane holding the focus is lit, name included, so the eye lands
-    // on one rung instead of reading four equally bright ones.
     const laneLabel = main.match(/^[› ] (?:MODEL|EFFORT|AGENT|ACCESS)\s*/)?.[0];
-    // The marked row is the one the dial is sitting on, and it reads as chosen
-    // whether or not the model lane holds the focus, the same way the picked
-    // agent and access cells do.
     const pickedRow = isModelRow && main.includes(DIAL_PICK_MARKER, 2);
-    // Once focus leaves the model lane, its pick settles back to plain text:
-    // still the chosen row, no longer the row being chosen.
     const cursorColor = activeRow ? theme.accent : settled(theme.text);
     const body: DialSpan[] = [];
     if (isModelRow) {
         const selected = pickedRow && lane === "model";
         if (selected) {
-            // The source mark remains outside the selection bar, like the
-            // shortlist dot in the model picker. The bar begins at the pick
-            // mark and runs through the padded model/provider cell.
             const pickAt = main.indexOf(DIAL_PICK_MARKER, 2);
             const prefixLength = pickAt < 0 ? 0 : pickAt;
             body.push(
@@ -248,7 +199,6 @@ export function paintDialRow(
     } else {
         const prefix = laneLabel ?? main.slice(0, 2);
         body.push(span(prefix, activeRow ? theme.text : theme.muted));
-        // A picked cell runs from its mark to the space before the next cell.
         for (
             const part of main.slice(prefix.length)
                 .split(new RegExp(`(${DIAL_PICK_MARKER}[^ ]+(?: [^ ›]+)*)`, "u"))
@@ -273,8 +223,6 @@ export function paintDialRow(
     }
     return [
         ...body,
-        // The provider is muted; anything after it belongs to the choice, not to
-        // the provider.
         ...providerParts.slice(1).map((part, at) =>
             span(
                 part,
@@ -289,7 +237,6 @@ export function paintDialRow(
     ];
 }
 
-/** A narrow green tracer that travels down the HUD's far-right edge. */
 export function autoModeEdgeIntensity(
     progress: number,
     row: number,
@@ -307,8 +254,6 @@ export function autoModeEdgeIntensity(
     const rows = Math.max(1, rowCount);
     const trailRows = Math.min(7, Math.max(4, Math.ceil(rows / 4)));
     const sweepProgress = easeInOutCubic(Math.min(1, bounded / 0.88));
-    // Fractional travel lets each cell brighten between positions instead of
-    // making the terminal-sized trail jump one whole row at a time.
     const head = sweepProgress * (rows + trailRows * 2) - trailRows;
     const distance = head - row;
     if (distance < 0 || distance >= trailRows) return 0;
@@ -334,7 +279,6 @@ function selectedModelColor(
     return picked && lane === "model" ? theme.background : theme.muted;
 }
 
-/** Every row of the HUD, coloured. */
 export function paintDialHud(
     hudRows: readonly string[],
     lane: DialLane | undefined,

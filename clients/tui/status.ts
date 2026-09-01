@@ -21,11 +21,6 @@ import type {
 } from "../../src/extensions/status-line.ts";
 import { findProvider } from "../../src/providers/registry.ts";
 
-/**
- * The facts the extension surface is handed on every repaint. Built here
- * rather than in the render pass so the snapshot stays plain data, with no
- * renderable, no session, and no client state hanging off it.
- */
 export function tuiStatusSnapshot(
     settings: ModelTurnSettings | undefined,
     approvalMode: ApprovalMode | undefined,
@@ -62,12 +57,6 @@ export function tuiStatusSnapshot(
     };
 }
 
-/**
- * Segments carry facts, not wording. Every phrase below is the TUI's own
- * choice, so an extension reordering or dropping segments never changes how
- * this client says a thing. An unknown kind cannot reach here: the registry
- * refuses to parse it.
- */
 export function renderTuiStatusSegments(
     segments: readonly StatusLineSegment[],
 ): string {
@@ -115,11 +104,6 @@ function renderTuiStatusSegment(segment: StatusLineSegment): string {
     }
 }
 
-/**
- * A tone names what a piece of status is, not the colour it ends up. The
- * palette lives with the theme, so a client repainting under a new theme has
- * only the mapping to redo.
- */
 export type TuiStatusTone =
     | "text"
     | "muted"
@@ -134,20 +118,10 @@ export interface TuiStatusChunk {
     readonly tone: TuiStatusTone;
 }
 
-/**
- * What the status line says about the dials beyond the pair itself.
- *
- * `*` means the pair in force is the user's own rather than the worn agent's
- * default, and `!` means the same about the posture. Both read off a recorded
- * origin rather than a comparison done here, so the marker cannot disagree
- * with what a later agent switch will do.
- */
 export interface TuiStatusDials {
-    /** The worn agent, once agents exist. Absent leaves the segment off. */
     readonly agent?: string;
     readonly pairOverridden?: boolean;
     readonly postureOverridden?: boolean;
-    /** The model this turn actually ran on, while a fallback is in force. */
     readonly fallbackTo?: string;
 }
 
@@ -183,11 +157,6 @@ export function renderTuiStatusDetailsLine(
         .join("\n");
 }
 
-/**
- * The details rows as facts with tones, one array per line. Two lines, split
- * by what a narrow terminal can least afford to clip: the model, the level and
- * the context share lead, and the place the session is sitting in follows.
- */
 export function renderTuiStatusDetailsRows(
     settings: ModelTurnSettings | undefined,
     approvalMode: ApprovalMode | undefined,
@@ -211,18 +180,9 @@ export function renderTuiStatusDetailsRows(
             ? settings.model
             : `${providerLabel}/${settings.model}`;
     const requested = settings?.reasoningEffort ?? "default";
-    // Requested → effective, and only while the evidence covers the model and
-    // the level in effect. The setting itself is untouched: the arrow is what
-    // says the two disagree, rather than the dial quietly moving.
     const substituted = substitution !== undefined
         && settings?.model === substitution.model
         && requested === substitution.requested;
-    // What is running now, with what was asked for behind it: this line
-    // reports the session as it stands, so the effective level leads and the
-    // request is the annotation on it.
-    // A settings change the host had to coerce says the same thing standing,
-    // for as long as the coerced level is the one in effect: the host stops
-    // sending the requested level once a change validates without coercion.
     const thinking = settings === undefined
         ? "loading"
         : substituted
@@ -233,11 +193,6 @@ export function renderTuiStatusDetailsRows(
     const permissions = approvalMode === undefined
         ? "permissions loading"
         : renderPermissions(approvalMode);
-    // The guaranteed way to find out that something is waiting. Terminal
-    // notifications are best effort and the Work tab has to be opened; this is
-    // always on screen, so it leads the row, and names the action that
-    // answers it. On a row too narrow for both, the count stays and the
-    // hint goes: the count is the alarm, the hint is the directions.
     const attention = (hint: boolean): TuiStatusChunk[] =>
         needsYou === 0 ? [] : [
             { text: `${needsYou} need you`, tone: "danger" as const },
@@ -256,9 +211,6 @@ export function renderTuiStatusDetailsRows(
             ),
             separator,
         ];
-    // The level is the word on its own: the dial it belongs to is named
-    // wherever it is changed, and repeating it here spends columns the context
-    // share needs.
     const afterAttention: TuiStatusChunk[] = [
         ...background,
         ...(dials.agent === undefined ? [] : [
@@ -304,10 +256,6 @@ export function renderTuiStatusDetailsRows(
     return [first, second];
 }
 
-/**
- * Status for a conversation that is only a file: the place it sat, and
- * nothing that pretends a host is about to answer.
- */
 export function renderTuiFileViewStatusRows(
     workspace: string,
     branch: string | undefined = undefined,
@@ -323,29 +271,18 @@ export function renderTuiFileViewStatusRows(
     ];
 }
 
-/**
- * How many columns of the first details row the attention chip covers, hint
- * included when it survived the width fit: the span a client should treat as
- * the click target for opening the Work tab.
- */
 export function needsYouChipColumns(
     row: readonly TuiStatusChunk[],
     needsYou: number,
 ): number {
     if (needsYou === 0 || row[0]?.tone !== "danger") return 0;
     let columns = row[0].text.length;
-    // The hint chunk shares the count's tone; anything else after the count
-    // means the hint was dropped for width.
     if (row[2]?.tone === "danger") {
         columns += (row[1]?.text.length ?? 0) + row[2].text.length;
     }
     return columns;
 }
 
-/**
- * Read at paint time rather than captured: the theme is swapped in place, and
- * a colour resolved once would keep the palette the session started under.
- */
 export function statusToneColor(tone: TuiStatusTone): string {
     switch (tone) {
         case "text":
@@ -370,11 +307,6 @@ function muted(text: string): TuiStatusChunk {
     return { text, tone: "muted" };
 }
 
-/**
- * The window on the status line is the selected model's, not the last
- * request's. Used tokens still come from the last measurement. An unknown
- * model window stays unknown even when the user set a safety ceiling.
- */
 export function visibleContextCapacity(
     settings: ModelTurnSettings | undefined,
     _previous?: ContextMeasurement,
@@ -382,11 +314,6 @@ export function visibleContextCapacity(
     return effectiveContextWindow(settings?.contextWindow, settings?.contextLimit);
 }
 
-/**
- * Absent until the engine has measured something. A session that has not sent
- * a request has no honest percentage to show: its prompt and tool definitions
- * already occupy the window, so "0%" would be a number nobody measured.
- */
 function contextChunks(
     context: ContextMeasurement | undefined,
     settings: ModelTurnSettings | undefined,
@@ -416,14 +343,6 @@ function permissionsTone(
     return mode === "full_access" ? "danger" : mode === "ask" ? "muted" : "good";
 }
 
-/**
- * The idle status line, which reports background work when there is any.
- *
- * An idle session with children still out looks identical to a finished one,
- * so the quiet is what needs explaining. The ready hint does not ride along:
- * a session with background agents is still idle, so the place row under this
- * one is already carrying it, and two rows saying ready read as two states.
- */
 export function renderTuiIdleHint(
     readyHint: string,
     runningBackgroundAgents: number,
@@ -436,11 +355,6 @@ export function renderTuiIdleHint(
     }`;
 }
 
-/**
- * The right-hand place-row line. `ready` only belongs here when the session
- * is idle. Painting it beside `thinking` or `stopping…` is the split chrome
- * that made a stuck stop look like the TUI was ready.
- */
 export function tuiPlaceRowModeLine(
     readyHint: string,
     idle: boolean,
@@ -451,17 +365,10 @@ export function tuiPlaceRowModeLine(
         .join(" · ");
 }
 
-/** Cells in the compaction bar. */
 const COMPACTION_BAR_CELLS = 12;
 
-/**
- * Milliseconds at which the bar reaches half. The summarizer call has no
- * measurable progress, so the fill is elapsed time on an asymptote: it keeps
- * moving however long the call takes, and only the finish completes it.
- */
 const COMPACTION_BAR_HALF_LIFE_MS = 20_000;
 
-/** The status line while compaction runs: a bar filling with elapsed time. */
 export function renderTuiCompactionHint(
     elapsedMs: number,
     details: {
@@ -501,11 +408,6 @@ function compactWorkspace(workspace: string): string {
             : workspace;
 }
 
-/**
- * The tilde is the estimate label. Vera counts characters until a provider
- * reports its own total, and a percentage that hides which of the two it is
- * reads as precise when it is not.
- */
 function contextUsage(
     tokens: number,
     capacity: number,

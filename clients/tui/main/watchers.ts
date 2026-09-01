@@ -47,9 +47,6 @@ export function applyWorkIndexSnapshot(rt: TuiRuntime,
     }
     if (rt.workspaceSidebar !== undefined) {
         rt.workspaceSidebar = applyWorkspaceWorkIndex(rt.workspaceSidebar, index);
-        // The same push carries the sessions that have gone and the ones
-        // that have arrived, so the listing is read again here rather than
-        // only when the pane is opened.
         refreshWorkspaceSidebarRoster(rt);
     }
     if (announce) {
@@ -68,7 +65,6 @@ export function writeTerminal(rt: TuiRuntime, sequence: string): void {
     try {
         process.stdout.write(sequence);
     } catch {
-        // A closed or non-tty stdout is not a reason to fail a turn.
     }
 }
 
@@ -76,9 +72,6 @@ export function applyBackgroundAgents(rt: TuiRuntime,
     agents: BackgroundAgentsSnapshot | undefined,
 ): void {
     rt.runningBackgroundAgents = agents?.running ?? 0;
-    // A reconnect/resubscribe can land the same child twice in one
-    // snapshot; each name gets its own spinner row, so a duplicate here
-    // shows up as a stacked/overlapping animation on screen.
     rt.runningBackgroundAgentNames = [...new Set(agents?.children ?? [])];
     rt.currentAgentHasParent = agents?.has_parent ?? false;
 }
@@ -108,8 +101,6 @@ export function observeActivity(rt: TuiRuntime, update: AgentUpdate): void {
         rt.phaseSince = Date.now();
         rt.activity = "thinking";
     } else if (update.type === "assistant_thinking") {
-        // Reasoning can resume after visible text, so each burst re-arms the
-        // phase and earns its own summary line.
         rt.workingSince ??= Date.now();
         rt.phaseSince ??= Date.now();
         rt.activity = "thinking";

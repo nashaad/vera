@@ -78,8 +78,6 @@ export function createTuiEntryNode(rt: TuiRuntime,
             id,
             entry,
             rt.markdownStyle,
-            // Assistant prose stays readable but yields to the session
-            // chrome and user-authored prompts in the visual hierarchy.
             entry.kind === "assistant" || entry.kind === "notification"
                 ? TUI_MUTED
                 : TUI_TEXT,
@@ -111,8 +109,6 @@ export function createTuiEntryNode(rt: TuiRuntime,
             selectable: true,
             marginTop: inner,
         });
-    // The user band is chrome that owns its full width, so it keeps the
-    // left edge rather than being pushed off the marker column.
     return entry.kind === "user"
         ? node
         : createTuiGutterEntry(
@@ -320,9 +316,6 @@ export function handleSidebarAgentUpdate(rt: TuiRuntime,
             change?.target === pane.client
             && update.updatedDefaults === true
         ) {
-            // A settings change the user just made reports itself and
-            // then gets out of the way: it is a receipt, not something
-            // the transcript needs read.
             pane.state.state = appendTuiNotice(
                 pane.state.state,
                 defaultModelChangeNotice(change.patch, update.settings),

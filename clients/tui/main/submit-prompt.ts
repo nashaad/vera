@@ -27,10 +27,7 @@ export function submitPrompt(rt: TuiRuntime,
     interceptedText?: string,
     injectedPrefix?: number,
 ): void {
-    // Reached from awaited continuations that can resolve after the
-    // renderer is destroyed, when the composer's EditBuffer is gone.
     if (rt.shuttingDown) return;
-    // A new turn is a new question; the mark pointed at the old one.
     clearSearchLanding(rt);
     rt.flightRecorder?.record({
         type: "submit_requested",
@@ -57,12 +54,8 @@ export function submitPrompt(rt: TuiRuntime,
     ) {
         return;
     }
-    // Manual file edits are uncommon, but the indicator should agree with
-    // the host at the point where another user turn is about to load it.
     rt.standingNudgeRules = readStandingNudgeRules(rt);
     const typed = interceptedText ?? rt.composer.expandedText().trim();
-    // A slash command is addressed to the client, so a quote waiting to be
-    // sent stays waiting rather than being folded into an argument.
     const quoted = interceptedText === undefined && !typed.startsWith("/")
         ? rt.pendingQuote
         : undefined;
@@ -76,14 +69,10 @@ export function submitPrompt(rt: TuiRuntime,
         }
         return;
     }
-    // Typing is the signal the tip has been read or ignored. The next one
-    // is picked in the gap after this turn, not now.
     rt.composerTip = undefined;
     if (quoted !== undefined) {
         rt.pendingQuote = undefined;
     }
-    // Slash commands belong to the client's own registry, so they never
-    // reach an interceptor. Everything else is offered once.
     if (
         interceptedText === undefined
         && prompt.length > 0
@@ -454,9 +443,6 @@ export function submitPrompt(rt: TuiRuntime,
             const strayCount = report.processes.filter(
                 (candidate) => candidate.stray,
             ).length;
-            // The dialog has no way to ask for a confirmation and act on
-            // it, so it points at the CLI, which does, rather than
-            // reporting strays with no next step.
             const processText = strayCount > 0
                 ? `${renderVeraDoctor(report)}\nRun \`vera doctor\` in a terminal to stop ${
                     strayCount === 1 ? "it" : "them"
@@ -465,9 +451,6 @@ export function submitPrompt(rt: TuiRuntime,
             rt.doctorDialog = { text: processText, copyReady: false };
             renderState(rt);
             focusActiveSurface(rt);
-            // Offline only. The dialog has no way to ask for a network
-            // probe, so it never makes one: `vera doctor
-            // --check-providers` owns that.
             void diagnoseProviders(loadOptionalVeraConfig(), {
                 authStorage: rt.authStorage,
             }).then(
@@ -554,8 +537,6 @@ export function submitPrompt(rt: TuiRuntime,
             showStatusNotice(rt, `${provider}/${model} is already shortlisted`);
             return;
         }
-        // The same request the picker's pool key sends, so the write, the
-        // refusal wording and the transcript notice are one path.
         requestPoolAdmission(rt, provider, model);
         return;
     }
@@ -686,8 +667,6 @@ export function submitPrompt(rt: TuiRuntime,
         && commandAction?.type !== "close_session"
         && commandAction?.type !== "reconnect"
     ) {
-        // Refusing without saying so reads as a frozen composer: the text
-        // stays put and nothing else changes on screen.
         rt.state = appendTuiError(
             rt.state,
             "Disconnected from the host. Run /reconnect to restore this"
@@ -728,12 +707,7 @@ export function submitPrompt(rt: TuiRuntime,
     }
     if (commandAction?.type === "update_model") {
         rt.composer.clearComposer();
-        // A typed model runs as typed. The pool is a shortlist, not a
-        // gate, so nothing is added here; `provider/model` names a
-        // provider, a bare name keeps the running one.
         const typed = commandAction.model.trim();
-        // A pool name is that entry's identity, so it names the provider
-        // too; anything else is read as the user typed it.
         const named = rt.state.modelSettings?.pooled?.find(
             (entry) => entry.poolName === typed,
         );
@@ -848,8 +822,6 @@ export function submitPrompt(rt: TuiRuntime,
     if (commandAction?.type === "open_search") {
         rt.composer.clearComposer();
         renderCommandSuggestions(rt);
-        // `/search` is named for past work, so it opens across sessions
-        // whatever conversation it was typed into.
         openSearchOverlay(rt, "workspace");
         return;
     }
@@ -889,8 +861,6 @@ export function submitPrompt(rt: TuiRuntime,
                 return;
             }
             const currentId = targetAgentId;
-            // Children only: the row for the session already on screen
-            // would cost a keypress to step past on the way to a child.
             const children = agents.filter(
                 (agent) => agent.parent_id === currentId,
             );
@@ -1065,9 +1035,6 @@ export function submitPrompt(rt: TuiRuntime,
     }
     if (commandAction?.type === "compact_session") {
         rt.composer.clearComposer();
-        // No reply is awaited: the compaction updates the engine already
-        // emits say what happened, and they are the same ones an automatic
-        // compaction produces.
         void rt.client.send({ type: "compact", requestId: randomUUID() })
             .catch((error) => {
                 rt.composer.setComposerText(prompt);
@@ -1169,8 +1136,6 @@ export function submitPrompt(rt: TuiRuntime,
         renderState(rt);
         return;
     }
-    // The chips carry the order the user sees, which reordering the text
-    // can change; `pendingImages` only carries the order they arrived in.
     const chipOrder = rt.composer.imageChipRequestIds();
     const attachments = chipOrder
         .flatMap((requestId) => {
@@ -1187,8 +1152,6 @@ export function submitPrompt(rt: TuiRuntime,
         const submittedRequestIds = new Set(
             rt.pendingImages.map((image) => image.requestId),
         );
-        // A prompt sent mid-turn is queued by the host, so the transcript
-        // shows it queued rather than opening a turn of its own.
         const queueing = rt.state.working || rt.state.queuedPrompts.length > 0;
         rt.promptSubmitting = true;
         renderStatus(rt);

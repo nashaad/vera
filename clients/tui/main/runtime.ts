@@ -60,7 +60,6 @@ import type { WorkspaceSidebarState } from "../workspace-sidebar.ts";
 import type { BoxRenderable, CliRenderer, MarkdownRenderable, Renderable, ScrollBoxRenderable, SyntaxStyle, TextRenderable } from "@opentui/core";
 import type { AsyncLocalStorage } from "node:async_hooks";
 
-/** The agent list a /agent surface renders, as the host last reported it. */
 export type TuiAgentCatalog = {
     readonly worn: string;
     readonly agents: AgentCatalogUpdate["agents"];

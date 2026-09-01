@@ -19,14 +19,6 @@ export interface TuiRawPaletteEvent {
 
 export type TuiRawInputEvent = TuiRawInterruptEvent | TuiRawPaletteEvent;
 
-/**
- * The global chords, read from the keymap ahead of any overlay's own bindings,
- * which is what keeps ctrl+c interruptible from inside a dialog.
- *
- * A separate entry point rather than a plain `tuiBindingId("global", key)` call
- * because these two fire before focus is consulted at all: an overlay never
- * gets to decide whether ctrl+c reached it.
- */
 export function parseRawInputEvent(
     key: TuiInterruptKey,
 ): TuiRawInputEvent | undefined {
@@ -55,10 +47,6 @@ export function tuiInterruptAction(
     if (!working && !compacting) {
         return ctrlC ? "quit" : "pass";
     }
-    // Escape while a stop is in flight is not a second abort.
-    // Ctrl+C is two-stage: the first aborts, the next quits. Once a stop is
-    // already requested, this Ctrl+C is the quit — otherwise a stuck stop
-    // swallows the only chord that can leave the process.
     if (abortRequested) {
         return ctrlC ? "quit" : "consume";
     }

@@ -28,12 +28,7 @@ type TuiThemeTargetProperty<Target extends object> = Extract<
     keyof Target
 >;
 
-/**
- * Declares which theme roles paint an existing renderable. Keeping this as
- * data makes a live theme change follow the same map as the first paint.
- * OpenTUI accepts strings through color setters whose public getter type is
- * RGBA, so the supported writable names are explicit instead of inferred.
- */
+/** Declares which theme roles paint an existing renderable. Keeping this as data makes a live theme change follow the same map as the first paint. */
 export function tuiThemeProperties<Target extends object>(
     target: Target,
     properties: Partial<Record<
