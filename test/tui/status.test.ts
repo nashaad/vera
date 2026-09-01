@@ -16,6 +16,7 @@ test("TUI status line shows host-reported model and reasoning", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
+        contextWindow: 258_000,
     }, "auto", {
         tokens: 64_500,
         capacity: 258_000,
@@ -57,6 +58,7 @@ test("TUI status marks a character-counted measurement as approximate", () => {
     expect(renderTuiStatusDetailsLine({
         model: "gpt-5.6-sol",
         reasoningEffort: "high",
+        contextWindow: 258_000,
     }, "auto", {
         tokens: 64_500,
         capacity: 258_000,
@@ -107,6 +109,63 @@ test("TUI status shows no context share for a model with no known window", () =>
         reasoningEffort: "low",
     }, "auto", { tokens: 40_000, estimated: true }, "/workspace")).toBe(
         "gemma4:26b · LOW · auto\n/workspace",
+    );
+});
+
+test("TUI status does not present the user ceiling as an unknown model's max", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+        contextLimit: 204_800,
+    }, "auto", {
+        tokens: 20_000,
+        capacity: 204_800,
+        estimated: true,
+    }, "/workspace")).toBe(
+        "unsloth/Qwen3.6-35B-A3B-MTP-GGUF · DEFAULT · auto\n/workspace",
+    );
+});
+
+test("TUI status caps a known window by the user ceiling", () => {
+    expect(renderTuiStatusDetailsLine({
+        model: "qwen-local",
+        contextWindow: 32_768,
+        contextLimit: 204_800,
+    }, "auto", {
+        tokens: 20_000,
+        capacity: 204_800,
+        estimated: true,
+    }, "/workspace")).toBe(
+        "qwen-local · DEFAULT · ctx ~20k/32.8k [█████░░░] 61% · auto\n/workspace",
+    );
+    expect(renderTuiStatusDetailsLine({
+        model: "qwen-local",
+        contextWindow: 32_768,
+        contextLimit: 8_192,
+    }, "auto", {
+        tokens: 4_000,
+        estimated: false,
+    }, "/workspace")).toBe(
+        "qwen-local · DEFAULT · ctx 4k/8.2k [████░░░░] 49% · auto\n/workspace",
+    );
+});
+
+test("TUI status drops the previous model's max when the next window is unknown", () => {
+    const lastMeasurement = {
+        tokens: 20_000,
+        capacity: 32_768,
+        estimated: true,
+    };
+    expect(renderTuiStatusDetailsLine({
+        model: "qwen-local",
+        contextWindow: 32_768,
+    }, "auto", lastMeasurement, "/workspace")).toBe(
+        "qwen-local · DEFAULT · ctx ~20k/32.8k [█████░░░] 61% · auto\n/workspace",
+    );
+    expect(renderTuiStatusDetailsLine({
+        model: "unsloth/Qwen3.6-35B-A3B-MTP-GGUF",
+        contextLimit: 204_800,
+    }, "auto", lastMeasurement, "/workspace")).toBe(
+        "unsloth/Qwen3.6-35B-A3B-MTP-GGUF · DEFAULT · auto\n/workspace",
     );
 });
 
@@ -202,7 +261,7 @@ test("TUI drops segments whose facts say nothing", () => {
 
 test("TUI status snapshot carries facts and no client state", () => {
     expect(tuiStatusSnapshot(
-        { model: "gpt-5.6-sol", reasoningEffort: "high" },
+        { model: "gpt-5.6-sol", reasoningEffort: "high", contextWindow: 258_000 },
         "auto",
         { tokens: 64_500, capacity: 258_000, estimated: false },
         "/workspace",

@@ -7,15 +7,19 @@ import type { ModelReasoningEffort } from "../../src/model/types.ts";
 import {
     availableReasoningEfforts,
     effectiveContextWindow,
+    budgetContextWindow,
     isModelTurnSettings,
     reasoningEffortForModel,
 } from "../../src/engine/model-settings.ts";
 
-test("a global context limit caps declared windows and bounds unknown ones", () => {
+test("a global context limit caps declared windows and leaves unknown ones unknown", () => {
     expect(effectiveContextWindow(1_048_576, 204_800)).toBe(204_800);
     expect(effectiveContextWindow(131_072, 204_800)).toBe(131_072);
     expect(effectiveContextWindow(1_048_576, undefined)).toBe(1_048_576);
-    expect(effectiveContextWindow(undefined, 204_800)).toBe(204_800);
+    expect(effectiveContextWindow(undefined, 204_800)).toBeUndefined();
+    expect(budgetContextWindow(undefined, 204_800)).toBe(204_800);
+    expect(budgetContextWindow(32_768, 204_800)).toBe(32_768);
+    expect(budgetContextWindow(32_768, 8_192)).toBe(8_192);
 });
 
 const EVERY_EFFORT: readonly ModelReasoningEffort[] = [

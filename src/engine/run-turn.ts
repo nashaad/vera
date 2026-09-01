@@ -116,7 +116,7 @@ import {
 import {
     availableModels,
     contextWindowForModel,
-    effectiveContextWindow,
+    budgetContextWindow,
 } from "./model-settings.ts";
 import { ToolHooks, type PreToolUseOutcome } from "./hooks.ts";
 import {
@@ -412,7 +412,7 @@ function compactionContextForSettings(
             model,
             settings.availableModels,
         );
-    const capacity = effectiveContextWindow(declared, settings.contextLimit);
+    const capacity = budgetContextWindow(declared, settings.contextLimit);
     return {
         model,
         ...(capacity === undefined ? {} : { capacity }),
@@ -614,7 +614,7 @@ export async function runHeadlessLoop(
                     && settings.model === replayModel
                 ? settings.contextWindow
                 : contextWindowForModel(provider, replayModel);
-            return effectiveContextWindow(declared, settings?.contextLimit);
+            return budgetContextWindow(declared, settings?.contextLimit);
         },
     );
     // Before the wire encoder: the ledger writes synchronously, so a client
@@ -1587,7 +1587,7 @@ export async function runTurn(
                 modelSettings.availableModels,
                 catalogModels,
             );
-            return effectiveContextWindow(declared, modelSettings.contextLimit);
+            return budgetContextWindow(declared, modelSettings.contextLimit);
         };
 
         while (true) {

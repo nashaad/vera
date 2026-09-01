@@ -428,13 +428,24 @@ export function contextWindowForModel(
     return undefined;
 }
 
-/** The capacity Vera budgets against after applying the user's global cap. */
+/** The known model capacity after the user's global cap. Unknown stays unknown. */
 export function effectiveContextWindow(
     declared: number | undefined,
     limit: number | undefined,
 ): number | undefined {
-    if (declared === undefined) return limit;
+    if (declared === undefined) return undefined;
     return limit === undefined ? declared : Math.min(declared, limit);
+}
+
+/**
+ * An upper bound for turn budgeting. The user ceiling may cap a request when
+ * the model window is unknown; that cap is not a capacity fact.
+ */
+export function budgetContextWindow(
+    declared: number | undefined,
+    limit: number | undefined,
+): number | undefined {
+    return effectiveContextWindow(declared, limit) ?? limit;
 }
 
 /**
