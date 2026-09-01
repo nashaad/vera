@@ -25,6 +25,10 @@ import {
 } from "../providers/routing.ts";
 import { createWorkerAdapterOptions } from "./worker/adapter.ts";
 import { defaultHostExtensionConfigs } from "../extensions/bundled-host.ts";
+import {
+    discoverProjectExtensionConfigs,
+    mergeExtensionScopes,
+} from "../extensions/discovery.ts";
 import { reserveSessionIdentity } from "./session-identity-reservation.ts";
 import {
     veraHomeDirectory,
@@ -148,6 +152,7 @@ import {
     startSidecarRuntimeIfNeeded,
     type SidecarRuntime,
 } from "./sidecar-runtime.ts";
+import { createWorkspaceSidecarSupervisor } from "./workspace-sidecars.ts";
 import { veraRuntimeDirectory } from "../profile-paths.ts";
 import type { WatchConnector } from "../watch/source.ts";
 import type { SpawnSessionFn } from "./inbox-spawn.ts";
@@ -199,7 +204,7 @@ export interface StartResidentHostOptions {
     readonly startedAt?: string;
     /** Stamped build ID this host serves. Defaults to this process's stamp. */
     readonly buildId?: string;
-    /** Project whose project-scoped extensions this host loaded. */
+    /** Optional diagnostic stamped on the lockfile. Not host identity. */
     readonly projectRoot?: string;
     readonly sessionDirectory?: string;
     /** Overrides `~/.vera/preferences.json`, so tests do not read the
@@ -458,7 +463,23 @@ export async function startResidentHost(
     // receive is the started server's. They stop first on shutdown, so a
     // child never outlives the socket it talks to.
     let sidecars: SidecarRuntime | null = null;
+    let publishedSocketPath = options.socketPath ?? "";
+    const workspaceSidecars = createWorkspaceSidecarSupervisor({
+        socketPath: () => publishedSocketPath,
+        logDirectory: options.sidecarLogDirectory
+            ?? join(veraRuntimeDirectory(), "logs", "sidecars"),
+        onStateChange: (status) => hostLog({
+            type: "sidecar_state",
+            sidecar: status.sidecarId,
+            state: status.state,
+            ...(status.pid === null ? {} : { pid: status.pid }),
+            ...(status.lastError === null
+                ? {}
+                : { message: status.lastError }),
+        }),
+    });
     const closeSidecars = async (): Promise<void> => {
+        await workspaceSidecars.close();
         await sidecars?.close();
         sidecars = null;
     };
@@ -843,10 +864,17 @@ export async function startResidentHost(
         },
         permissionPreferences,
         extensionTools: [...extensions.tools(), skillScriptTool],
-        workerExtensions: () => {
+        workerExtensions: (workspace) => {
             const config = currentConfig();
-            return config.extensions ?? [];
+            return mergeExtensionScopes(
+                config.extensions ?? [],
+                discoverProjectExtensionConfigs(workspace),
+            );
         },
+        acquireWorkspaceSidecars: (workspace) =>
+            workspaceSidecars.acquire(workspace),
+        releaseWorkspaceSidecars: (workspace) =>
+            workspaceSidecars.release(workspace),
         registeredAgents: extensions.agents(),
         sessionIdentity,
         reserveSessionIdentity: (sessionId, key) =>
@@ -1272,6 +1300,7 @@ export async function startResidentHost(
             hostLog(entry);
             if (startupLog !== hostLog) startupLog(entry);
         }
+        publishedSocketPath = server.socketPath;
         sidecars = startSidecarRuntimeIfNeeded({
             sidecars: extensions.contributions().sidecars(),
             socketPath: server.socketPath,
