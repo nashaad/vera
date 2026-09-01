@@ -31,6 +31,7 @@ import {
 } from "../src/profile-paths.ts";
 import { checkpointStoresThroughHost } from "../src/host/store-checkpoint-client.ts";
 import { releaseBuildId } from "../src/release/build-id.ts";
+import { defaultFactoryHomePath } from "./synthesize-factory-home.ts";
 
 const CLI_ENTRYPOINT = fileURLToPath(
     new URL("../clients/cli/main.ts", import.meta.url),
@@ -67,6 +68,10 @@ export function parseDevTuiArgs(args: readonly string[]): DevTuiRequest {
         else passthrough.push(arg);
     }
     return { action, fresh, yes, passthrough };
+}
+
+export function factoryHomePath(worktreeRoot: string): string {
+    return defaultFactoryHomePath(worktreeRoot);
 }
 
 export function candidateHomePath(
@@ -179,7 +184,8 @@ export async function runDevTui(
 ): Promise<number> {
     const request = parseDevTuiArgs(args);
     const worktreeRoot = resolveLinkedWorktreeRoot(cwd);
-    const sourceHome = dependencies.sourceHome ?? veraHomeDirectory();
+    const sourceHome = dependencies.sourceHome
+        ?? factoryHomePath(worktreeRoot);
     const temporaryRoot = dependencies.temporaryRoot ?? join(tmpdir(), "vera-dev");
     const instanceRoot = hashedInstanceRoot(
         realpathSync(worktreeRoot),
@@ -224,6 +230,12 @@ export async function runDevTui(
 
     const existed = existsSync(destinationHome);
     if (!existed) {
+        if (!existsSync(sourceHome)) {
+            throw new Error(
+                `Factory home is missing at ${sourceHome}. `
+                + "Synthesize it with bun run factory:home.",
+            );
+        }
         mkdirSync(instanceRoot, { recursive: true, mode: 0o700 });
         try {
             await cloneVeraHome({
@@ -339,7 +351,7 @@ function formatStatus(
         `Socket: ${join(destinationHome, "runtime", "host.sock")}`,
         `Host PID: ${live ? String(pid) : "not running"}`,
         `Snapshot: ${meta?.snapshotAt ?? "none"}`,
-        `Daily home: ${sourceHome}`,
+        `Source: ${sourceHome}`,
         "",
     ].join("\n");
 }

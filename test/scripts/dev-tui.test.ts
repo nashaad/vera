@@ -16,10 +16,15 @@ import {
     candidateLaunchEnv,
     disableOutboundConsumers,
     formatDevInstanceMarker,
+    factoryHomePath,
     parseDevTuiArgs,
     quarantineUnknownHomeEntries,
     runDevTui,
 } from "../../scripts/dev-tui.ts";
+import {
+    FACTORY_HELLO_SESSION_ID,
+    synthesizeFactoryHome,
+} from "../../scripts/synthesize-factory-home.ts";
 
 function linkedWorktree(name: string): string {
     const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-src-"));
@@ -433,6 +438,36 @@ test("disableOutboundConsumers turns inbox off on the clone only", () => {
             .toEqual({ experimental: { inbox: false } });
     } finally {
         rmSync(root, { recursive: true, force: true });
+    }
+});
+
+test("the default source is the factory home, not the daily home", async () => {
+    const root = mkdtempSync(join(tmpdir(), "vera-dev-tui-"));
+    const worktree = linkedWorktree("ovu-factory");
+    const daily = dailyHome(root);
+    writeFileSync(join(daily, "runtime", "session.jsonl"), "must-not-clone\n");
+    synthesizeFactoryHome(factoryHomePath(worktree));
+    try {
+        const code = await runDevTui([], worktree, {
+            temporaryRoot: join(root, "instances"),
+            spawnTui: async (_args, env) => {
+                const dest = env.VERA_HOME!;
+                expect(existsSync(join(
+                    dest,
+                    "runtime",
+                    "sessions",
+                    `${FACTORY_HELLO_SESSION_ID}.jsonl`,
+                ))).toBe(true);
+                expect(existsSync(join(dest, "runtime", "session.jsonl"))).toBe(false);
+                expect(readFileSync(join(daily, "runtime", "session.jsonl"), "utf8"))
+                    .toBe("must-not-clone\n");
+                return 0;
+            },
+        });
+        expect(code).toBe(0);
+    } finally {
+        rmSync(root, { recursive: true, force: true });
+        rmSync(worktree, { recursive: true, force: true });
     }
 });
 
