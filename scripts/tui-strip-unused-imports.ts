@@ -17,7 +17,7 @@ const out = `${result.stdout}\n${result.stderr}`;
 const unused = new Map();
 for (const line of out.split("\n")) {
     const match = line.match(
-        /^(clients\/tui\/(?:main\.ts|main\/[\w.-]+\.ts))\(\d+,\d+\): error TS6133: '([^']+)' is declared but its value is never read\./,
+        /^(clients\/tui\/(?:main\.ts|main\/[\w.-]+\.ts|settings-picker[\w.-]*\.ts))\(\d+,\d+\): error TS6133: '([^']+)' is declared but its value is never read\./,
     );
     if (!match) continue;
     const [, file, name] = match;

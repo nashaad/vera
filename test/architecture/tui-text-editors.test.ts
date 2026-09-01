@@ -11,7 +11,7 @@ const ORDINARY_EDITOR_SURFACES = new Map<string, string>([
     ["clients/tui/command-palette.ts", "createDialogSearchNode("],
     ["clients/tui/help.ts", "createDialogSearchNode("],
     ["clients/tui/timeline-picker.ts", "createDialogSearchNode("],
-    ["clients/tui/settings-picker.ts", "createDialogSearchNode("],
+    ["clients/tui/settings-picker-view.ts", "createDialogSearchNode("],
     ["clients/tui/search-overlay.ts", "input: {"],
     ["clients/tui/main.ts", 'createTuiLinesView(rt.renderer, "search-overlay"'],
 ]);
