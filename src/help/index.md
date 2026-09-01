@@ -11,7 +11,7 @@ needs the whole help corpus in a compact, stable form.
 Aliases: `profile`, `profiles`, `config`, `configuration`
 
 Vera keeps one home per OS user, at `~/.vera`. There is no profile flag and
-no `VERA_PROFILE` switch. Edit it with `vera configure`. Check the resident
+no profile environment switch. Edit it with `vera configure`. Check the resident
 host and local process state with `vera doctor`. Configuration changes apply
 to new sessions; restart a client when it says a setting was read at startup.
 
