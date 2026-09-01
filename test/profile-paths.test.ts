@@ -5,14 +5,11 @@ import { join } from "node:path";
 
 import {
     assertProfileLayout,
-    DEFAULT_PROFILE_NAME,
     legacyLayoutEntries,
     unrecognisedHomeEntries,
-    VERA_PROFILE_ENV,
     VERA_RUNTIME_DIR_ENV,
     VeraProfileError,
     veraProfileDirectory,
-    veraProfileName,
     veraRuntimeDirectory,
     veraMachineDirectory,
     veraHomeDirectory,
@@ -24,20 +21,10 @@ test("the home is one directory, not a profile child", () => {
     expect(veraHomeDirectory(home)).toBe(join(home, ".vera"));
     expect(veraProfileDirectory({}, home)).toBe(join(home, ".vera"));
     expect(veraRuntimeDirectory({}, home)).toBe(join(home, ".vera", "runtime"));
-    expect(veraProfileDirectory({ [VERA_PROFILE_ENV]: "dogfood" }, home))
-        .toBe(join(home, ".vera"));
 });
 
 test("credentials sit in the machine tier beside config", () => {
     expect(veraMachineDirectory(home)).toBe(join(home, ".vera", "machine"));
-});
-
-test("a profile name may not escape a profiles directory", () => {
-    for (const name of ["../other", "a/b", ".", "-x", "~"]) {
-        expect(() => veraProfileName({ [VERA_PROFILE_ENV]: name }))
-            .toThrow(VeraProfileError);
-    }
-    expect(veraProfileName({})).toBe(DEFAULT_PROFILE_NAME);
 });
 
 test("VERA_RUNTIME_DIR is the explicit instance root", () => {

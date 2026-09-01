@@ -50,9 +50,7 @@ test.skipIf(!tmuxAvailable)(
         let dailyPane = "";
         let treePane = "";
         try {
-            startCliTui(socket, "daily", home, {
-                VERA_PROFILE: "dev",
-            });
+            startCliTui(socket, "daily", home, {});
             dailyPane = await waitForVisiblePane(
                 socket,
                 "daily",
@@ -62,7 +60,6 @@ test.skipIf(!tmuxAvailable)(
             expect(processIsAlive(dailyHostPid)).toBe(true);
 
             startCliTui(socket, "tree", home, {
-                VERA_PROFILE: "dev",
                 VERA_RUNTIME_DIR: worktreeRuntime,
             });
             treePane = await waitForVisiblePane(
@@ -117,7 +114,6 @@ test.skipIf(!tmuxAvailable)(
                     ...process.env,
                     HOME: home,
                     VERA_HOME: join(home, ".vera"),
-                    VERA_PROFILE: "dev",
                     VERA_RUNTIME_DIR: worktreeRuntime,
                 },
                 stdout: "pipe",

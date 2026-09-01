@@ -1071,7 +1071,7 @@ test("configure picker lists concrete files by scope without search", async () =
     const frame = await pickerFrame(picker);
     expect(frame).toContain("Choose a configuration file to edit");
     expect(frame).toContain(
-        "To edit another profile, restart with: vera --profile <name>",
+        "These files are the daily Vera home.",
     );
     expect(frame).toContain("Profile");
     expect(frame).toContain("Project");

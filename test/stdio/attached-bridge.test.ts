@@ -580,8 +580,6 @@ test("vera stdio creates, attaches, and resumes through a temporary host", async
         const child = Bun.spawn([
             process.execPath,
             "clients/cli/main.ts",
-            "--profile",
-            "uat",
             "stdio",
             ...args,
         ], {

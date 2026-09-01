@@ -2,16 +2,9 @@
 
 // This is the installed command dispatcher; the interactive client lives in ../tui.
 
-import { spawn } from "node:child_process";
 import { join } from "node:path";
 import { stderr, stdout } from "node:process";
 import { createInterface } from "node:readline/promises";
-import { fileURLToPath } from "node:url";
-
-import {
-    PINNED_BUILD_ENV,
-    pinnedCliEntrypoint,
-} from "../../src/host/pinned-build.ts";
 
 import {
     isVeraProviderId,
@@ -76,10 +69,7 @@ import {
     unrecognisedHomeEntries,
     veraHomeDirectory,
     veraRuntimeDirectory,
-    DEFAULT_PROFILE_NAME,
-    VERA_PROFILE_ENV,
     VeraProfileError,
-    veraProfileName,
 } from "../../src/profile-paths.ts";
 import { relativeTime } from "../../src/relative-time.ts";import { supportedLevels } from "../../src/model/effort-ladder.ts";
 import { isCuratedPoolEntry, providerOf } from "../../src/model/pool-file.ts";
@@ -231,10 +221,6 @@ export interface CliDependencies {
     readonly superviseHost?: (
         action: "on" | "off" | "status",
     ) => SupervisionReport;
-    readonly runPinnedBuild?: (
-        args: readonly string[],
-        output: CliOutput,
-    ) => Promise<number | undefined>;
     readonly runStdio?: (target: StdioStartTarget) => Promise<void>;
     readonly runOnce?: (request: {
         readonly workspace: string;
@@ -1018,122 +1004,17 @@ function parseExportRequest(
     return undefined;
 }
 
-/**
- * Consumed before dispatch so every path lookup downstream sees one profile,
- * including the ones reached through module-level defaults.
- */
-/** The name `--profile` carries, without consuming the flag. */
-export function namedProfileFlag(args: readonly string[]): string | undefined {
-    const index = args.indexOf("--profile");
-    if (index === -1) return undefined;
-    const name = args[index + 1];
-    return name === undefined || name.startsWith("-") ? undefined : name;
-}
-
-export function applyProfileFlag(
-    args: readonly string[],
-    env: NodeJS.ProcessEnv = process.env,
-): readonly string[] {
-    const index = args.indexOf("--profile");
-    if (index === -1) return args;
-    const name = args[index + 1];
-    if (name === undefined || name.startsWith("-")) {
-        throw new VeraProfileError("--profile needs a name, as in --profile dogfood");
-    }
-    env[VERA_PROFILE_ENV] = name;
-    return [...args.slice(0, index), ...args.slice(index + 2)];
-}
-
-/**
- * `vera rescue` is `vera` under the fixed `rescue` profile: its own host,
- * socket, lockfile, sessions, and config, with credentials shared from the
- * machine tier. When the daily host is wedged, this reaches a working Vera
- * while that host stays where it is. Stop the wedged host with
- * `vera host stop --force`.
- * Consumed here for the same reason as `--profile`: every path lookup after
- * dispatch must see one profile.
- *
- * Runs after `applyProfileFlag`, so an explicit `--profile` has already been
- * consumed by the time this sees the arguments. Naming both is a contradiction
- * rather than a preference, so it is refused instead of silently resolved.
- */
-export function isRescueInvocation(args: readonly string[]): boolean {
-    const index = args.findIndex((arg) => arg !== "--yes" && arg !== "-y");
-    return index !== -1 && args[index] === "rescue";
-}
-
-export function applyRescueCommand(
-    args: readonly string[],
-    env: NodeJS.ProcessEnv = process.env,
-    profileFlagName?: string,
-): readonly string[] {
-    const index = args.findIndex((arg) => arg !== "--yes" && arg !== "-y");
-    if (index === -1 || args[index] !== "rescue") return args;
-    if (profileFlagName !== undefined) {
-        throw new VeraProfileError(
-            `vera rescue always runs under the rescue profile, so it cannot also take --profile ${profileFlagName}.\n`
-                + `Use one or the other:\n`
-                + `  vera rescue\n`
-                + `  vera --profile ${profileFlagName}`,
-        );
-    }
-    env[VERA_PROFILE_ENV] = "rescue";
-    return [...args.slice(0, index), ...args.slice(index + 1)];
-}
-
 export async function runCliMain(
     args: readonly string[],
     dependencies: CliDependencies = {},
 ): Promise<number> {
     try {
-        const requestedProfile = namedProfileFlag(args);
-        const withoutProfileFlag = applyProfileFlag(args);
-        const rescuing = isRescueInvocation(withoutProfileFlag);
-        const remaining = applyRescueCommand(
-            withoutProfileFlag,
-            process.env,
-            requestedProfile,
-        );
-        veraProfileName();
-        if (rescuing) {
-            const pinned = await (dependencies.runPinnedBuild
-                ?? runPinnedBuild)(remaining, dependencies.stderr ?? stderr);
-            if (pinned !== undefined) return pinned;
-        }
-        return await runCli(remaining, dependencies);
+        return await runCli(args, dependencies);
     } catch (error) {
         const output = dependencies.stderr ?? stderr;
         output.write(`${renderCliFailure(error)}\n`);
         return 1;
     }
-}
-
-/**
- * Runs the rescue under the last build whose host booted cleanly, when that
- * is not the build already running. A rescue that runs the same code as the
- * sick host cannot help when the host is sick because the code is broken.
- *
- * Returns undefined when there is no usable pinned build, which leaves rescue
- * running in place: a rescue that refuses to start would be worse than one
- * that runs possibly-broken code, since the broken case is the rarer one.
- */
-async function runPinnedBuild(
-    args: readonly string[],
-    output: CliOutput,
-): Promise<number | undefined> {
-    const entrypoint = pinnedCliEntrypoint(fileURLToPath(import.meta.url));
-    if (entrypoint === undefined) return undefined;
-    output.write(`Starting rescue from the pinned build at ${entrypoint}.\n`);
-    const child = spawn(process.execPath, [entrypoint, ...args], {
-        stdio: "inherit",
-        env: { ...process.env, [PINNED_BUILD_ENV]: "1" },
-    });
-    return await new Promise<number>((resolve, reject) => {
-        child.once("error", reject);
-        child.once("exit", (code, signal) => {
-            resolve(signal !== null ? 1 : code ?? 0);
-        });
-    });
 }
 
 export function renderCliFailure(error: unknown): string {
@@ -1142,8 +1023,7 @@ export function renderCliFailure(error: unknown): string {
     }
     if (error instanceof HostUnresponsiveError) {
         return `${error.message}\n`
-            + "Run 'vera host stop --force' to kill it.\n"
-            + "For a working Vera while it stays wedged, run 'vera rescue'.";
+            + "Run 'vera host stop --force' to kill it.";
     }
     if (error instanceof HostProtocolMismatchError) {
         return `Vera host upgrade required: ${error.message}\n`
@@ -1421,18 +1301,18 @@ function runHostSupervision(
         output.write(report.removed
             ? `Removed ${report.label}. Nothing restarts the resident host`
                 + " now; the next 'vera' starts one.\n"
-            : "Host supervision was not installed for this profile.\n");
+            : "Host supervision was not installed for this home.\n");
         return 0;
     }
     if (!report.installed && !report.loaded) {
         output.write(
-            "Host supervision is off for this profile."
+            "Host supervision is off for this home."
                 + " Turn it on with 'vera host supervise'.\n",
         );
         return 0;
     }
     output.write(
-        `Host supervision is on for this profile (${report.label}).\n`
+        `Host supervision is on for this home (${report.label}).\n`
             + `  plist: ${report.plistPath}\n`
             + `  launchd: ${
                 report.loaded

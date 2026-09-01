@@ -45,7 +45,6 @@ function options(home: string, extra: Record<string, unknown> = {}) {
     return {
         entrypoint: "/checkout/clients/host/main.ts",
         executable: "/usr/local/bin/bun",
-        profile: "default",
         home,
         platform: "darwin",
         env: { VERA_HOME: home, PATH: "/opt/homebrew/bin:/usr/bin" },
@@ -59,14 +58,14 @@ test("supervision is refused where launchd does not exist", () => {
     ).toThrow(SupervisionUnsupportedError);
 });
 
-test("the plist runs the host entrypoint under the installing profile", () => {
+test("the plist runs the host entrypoint for the daily home", () => {
     const home = temporaryHome();
     const launchctl = recordingLaunchctl();
     const install = installHostSupervision(
         options(home, { run: launchctl.run }),
     );
 
-    expect(install.label).toBe("dev.vera.host.default");
+    expect(install.label).toBe("dev.vera.host");
     expect(install.replaced).toBe(false);
     const plist = readFileSync(install.plistPath, "utf8");
     expect(plist).toContain("<string>/usr/local/bin/bun</string>");
@@ -78,10 +77,9 @@ test("the plist runs the host entrypoint under the installing profile", () => {
 
 test("a clean exit is not restarted, a crash is", () => {
     const plist = renderSupervisionPlist({
-        label: "dev.vera.host.default",
+        label: "dev.vera.host",
         executable: "/bun",
         entrypoint: "/host.ts",
-        profile: "default",
         logDirectory: "/logs",
         workingDirectory: "/home",
     });
@@ -107,11 +105,9 @@ test("installing over an existing agent unloads it first", () => {
     ]);
 });
 
-test("each profile supervises its own host", () => {
+test("supervision uses one host label", () => {
     const home = temporaryHome();
-    expect(supervisionPaths("rescue", home).label).toBe("dev.vera.host.rescue");
-    expect(supervisionPaths("default", home).plistPath)
-        .not.toBe(supervisionPaths("rescue", home).plistPath);
+    expect(supervisionPaths(home).label).toBe("dev.vera.host");
 });
 
 test("turning supervision off unloads the agent and removes the plist", () => {
@@ -127,7 +123,7 @@ test("turning supervision off unloads the agent and removes the plist", () => {
     expect(existsSync(install.plistPath)).toBe(false);
     expect(launchctl.calls.at(-1)).toEqual([
         "bootout",
-        `gui/${process.getuid?.() ?? 0}/dev.vera.host.default`,
+        `gui/${process.getuid?.() ?? 0}/dev.vera.host`,
     ]);
 });
 
@@ -143,7 +139,7 @@ test("turning off what was never on is not an error", () => {
 
 test("status reports the supervised host's pid", () => {
     const home = temporaryHome();
-    const plistPath = supervisionPaths("default", home).plistPath;
+    const plistPath = supervisionPaths(home).plistPath;
     mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
     writeFileSync(plistPath, "");
 
@@ -159,7 +155,7 @@ test("status reports the supervised host's pid", () => {
 test("an installed but unloaded agent reads as not loaded", () => {
     const home = temporaryHome();
     mkdirSync(join(home, "Library", "LaunchAgents"), { recursive: true });
-    writeFileSync(supervisionPaths("default", home).plistPath, "");
+    writeFileSync(supervisionPaths(home).plistPath, "");
 
     const status = hostSupervisionStatus(options(home, {
         run: () => {

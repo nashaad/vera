@@ -12,7 +12,7 @@
  *   runs the settings the host is running rather than re-reading a file that
  *   may have changed underneath it.
  * - The credential does not cross. The worker opens the machine tier's auth
- *   store itself, from the `VERA_HOME` and `VERA_PROFILE` it inherits, so no
+ *   store itself, from the `VERA_HOME` it inherits, so no
  *   API key is ever written to a pipe or an argument list.
  */
 

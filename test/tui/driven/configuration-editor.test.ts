@@ -45,7 +45,7 @@ test("configure chooses the profile config and reports when its editor closes", 
             "Choose a configuration file to edit",
         );
         expect(picker).toContain(
-            "To edit another profile, restart with: vera --profile <name>",
+            "These files are the daily Vera home.",
         );
         expect(picker).toContain("Profile config");
         expect(picker).not.toContain("TUI preferences");

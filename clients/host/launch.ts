@@ -117,7 +117,7 @@ export class HostBootLoopError extends Error {
         super(
             `The resident host exited during startup ${count} times in a row;`
                 + " not respawning it. Fix the host build, then retry."
-                + " 'vera rescue' gives a working Vera in the meantime.",
+                + " Run 'vera host stop --force' after you fix the build.",
         );
         this.name = "HostBootLoopError";
     }

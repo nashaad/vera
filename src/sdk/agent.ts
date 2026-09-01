@@ -46,7 +46,6 @@ import type {
     ModelSubstitution,
 } from "../model/types.ts";
 import {
-    VERA_PROFILE_ENV,
     veraProfileDirectory,
 } from "../profile-paths.ts";
 import { createAuthStorage, type AuthStorage } from "../providers/auth-storage.ts";
@@ -57,8 +56,6 @@ import {
 } from "../providers/routing.ts";
 
 export interface VeraCreateOptions {
-    /** Profile to read without changing the process-wide VERA_PROFILE value. */
-    readonly profile?: string;
     /** Default workspace for agents created by this Vera instance. */
     readonly workspace?: string;
     /** Permission ceiling shared by every binding from this runtime. */
@@ -193,7 +190,7 @@ export class Vera {
 
     static async create(options: VeraCreateOptions = {}): Promise<Vera> {
         const workspace = options.workspace ?? process.cwd();
-        const profileDirectory = selectedProfileDirectory(options.profile);
+        const profileDirectory = veraProfileDirectory();
         const config = options.config ?? loadVeraConfig({
             path: join(profileDirectory, "config.json"),
             projectRoot: workspace,
@@ -644,14 +641,6 @@ function permissionModeNames(config: VeraConfig): readonly string[] {
         ...BUILT_IN_PERMISSION_MODE_NAMES,
         ...Object.keys(config.permission_modes ?? {}),
     ];
-}
-
-function selectedProfileDirectory(profile: string | undefined): string {
-    if (profile === undefined) return veraProfileDirectory();
-    return veraProfileDirectory({
-        ...process.env,
-        [VERA_PROFILE_ENV]: profile,
-    });
 }
 
 function errorMessage(error: unknown): string {

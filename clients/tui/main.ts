@@ -622,7 +622,6 @@ import { HostUnresponsiveError } from "../../src/host/lockfile.ts";
 import {
     DEFAULT_PROFILE_NAME,
     veraProfileDirectory,
-    veraProfileName,
 } from "../../src/profile-paths.ts";
 import {
     loadStandingNudges,
@@ -768,7 +767,7 @@ function tuiDevInstancePrefix(): string {
         : `[DEV ${marker}]`;
 }
 
-export function reconnectBusyMessage(_profile = veraProfileName()): string {
+export function reconnectBusyMessage(): string {
     return "Could not restart the host: other work is still using it. "
         + "Run vera host stop --force then /reconnect.";
 }
@@ -12238,7 +12237,7 @@ export async function startTui(
             const reference = `${candidate.provider}/${candidate.model}`;
             requestOptionsEditor = startTuiRequestOptionsEditor(
                 candidate,
-                veraProfileName(),
+                DEFAULT_PROFILE_NAME,
                 config?.model_request_options?.[reference]?.body,
                 parent,
             );

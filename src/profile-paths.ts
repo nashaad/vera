@@ -3,13 +3,9 @@ import { homedir } from "node:os";
 import { join } from "node:path";
 
 export const VERA_HOME_ENV = "VERA_HOME";
-export const VERA_PROFILE_ENV = "VERA_PROFILE";
 export const VERA_RUNTIME_DIR_ENV = "VERA_RUNTIME_DIR";
 
 export const DEFAULT_PROFILE_NAME = "default";
-
-/** Rejects anything that would escape a profiles directory. Kept for CLI flags. */
-const PROFILE_NAME_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 /** Everything Vera owns on this machine. `VERA_HOME` relocates the tree. */
 export function veraHomeDirectory(home?: string): string {
@@ -27,20 +23,9 @@ export function veraMachineDirectory(home?: string): string {
     return join(veraHomeDirectory(home), "machine");
 }
 
-export function veraProfileName(env = process.env): string {
-    const name = env[VERA_PROFILE_ENV]?.trim();
-    if (name === undefined || name.length === 0) return DEFAULT_PROFILE_NAME;
-    if (!PROFILE_NAME_PATTERN.test(name)) {
-        throw new VeraProfileError(
-            `${VERA_PROFILE_ENV} must match ${PROFILE_NAME_PATTERN.source}, got "${name}"`,
-        );
-    }
-    return name;
-}
-
 /**
  * Config, extensions, skills, and memory. One home: this is the home
- * directory itself, not a profiles/<name> child.
+ * directory itself.
  */
 export function veraProfileDirectory(_env = process.env, home?: string): string {
     return veraHomeDirectory(home);

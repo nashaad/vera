@@ -6,23 +6,19 @@ is also the source for the compact output intended for agents and other tools.
 Use `vera help <topic>` for one subject. Use `vera help --llms` when a tool
 needs the whole help corpus in a compact, stable form.
 
-## profiles — Profiles and configuration
+## home — Home and configuration
 
-Aliases: `profile`, `config`, `configuration`
+Aliases: `profile`, `profiles`, `config`, `configuration`
 
-Select a profile when Vera starts. `VERA_PROFILE=name vera` and
-`vera --profile name` select the same profile. If neither is present, Vera
-uses the `default` profile.
-
-Edit the selected profile with `vera --profile name configure`. Check its
-configuration and local process state with `vera --profile name doctor`.
-Configuration changes apply to new sessions; restart a client when it says a
-setting was read at startup.
+Vera keeps one home per OS user, at `~/.vera`. There is no profile flag and
+no `VERA_PROFILE` switch. Edit it with `vera configure`. Check the resident
+host and local process state with `vera doctor`. Configuration changes apply
+to new sessions; restart a client when it says a setting was read at startup.
 
 ## models — Models and defaults
 
-Profile selection happens at launch. `/model` changes the model for the
-current session; it does not rewrite the profile or agent default.
+`/model` changes the model for the current session; it does not rewrite the
+home or agent default.
 
 An agent definition can provide a `default_pair`. In the TUI, `*` means the
 current session is using a user-owned override instead of the selected
@@ -34,10 +30,10 @@ one, and `vera models refresh` to refresh the model catalog from providers.
 
 ## agents — Agent definitions
 
-User agent definitions live under
-`~/.vera/profiles/<profile>/agents/<name>.md`. A project can override one under
-`.vera/agents/<name>.md`. Project definitions take precedence over user
-definitions, and extension-provided definitions are read-only.
+User agent definitions live under `~/.vera/agents/<name>.md`. A project can
+override one under `.vera/agents/<name>.md`. Project definitions take
+precedence over user definitions, and extension-provided definitions are
+read-only.
 
 The YAML frontmatter accepts an optional `default_pair`. Invalid frontmatter
 or an invalid pair is reported as a catalog notice and that definition is
@@ -51,7 +47,7 @@ override. The posture marker `!` has the same meaning for posture. No marker
 means the value came from the selected agent or another inherited default.
 
 These markers describe session state. They do not identify who last edited a
-profile file, and they do not imply that a profile is currently editable.
+home file.
 
 ## doctor — Checking Vera
 
@@ -59,8 +55,8 @@ profile file, and they do not imply that a profile is currently editable.
 leftover Vera tmux sockets, configuration, and providers without contacting
 provider endpoints. Add `--check-providers` to test provider reachability
 and credentials. Doctor reports problems. Leftovers in this runtime can be
-removed after a confirm; `--yes` skips the confirmation. Other profiles,
-worktree runtimes, SDK instances, and live tmux servers are left alone.
+removed after a confirm; `--yes` skips the confirmation. SDK instances and
+live tmux servers are left alone.
 Doctor only unlinks dead Vera socket files. To stop Vera-owned processes
 across this home's runtimes one by one, use `vera prune`.
 
@@ -87,10 +83,8 @@ exports Markdown by default; add `--format json` for structured output.
 ## recovery — When Vera is stuck or work is at risk
 
 If the resident host is not answering, run `vera host stop --force` and then
-start Vera again. If leftover Vera processes sit in other runtimes, run
-`vera prune` and answer each `[y/N]`. If the default profile's host is wedged
-but you need a working client, run `vera rescue`; it uses the isolated
-`rescue` profile.
+start Vera again. If leftover Vera processes sit around, run `vera prune`
+and answer each `[y/N]`.
 
 Before destructive recovery, preserve the session and workspace state. Vera
 does not currently provide a general file restore or checkpoint command.

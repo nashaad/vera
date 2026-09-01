@@ -917,7 +917,7 @@ export function startTuiConfigurePicker(
         title: "Configure",
         subtitle:
             "Choose a configuration file to edit\n"
-            + "To edit another profile, restart with: vera --profile <name>",
+            + "These files are the daily Vera home.",
         allOptions: options,
         options,
         selectedIndex: 0,

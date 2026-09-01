@@ -5,8 +5,6 @@ import { dirname, join } from "node:path";
 
 import {
     VERA_HOME_ENV,
-    VERA_PROFILE_ENV,
-    veraProfileName,
     veraRuntimeDirectory,
 } from "../profile-paths.ts";
 
@@ -36,10 +34,9 @@ export interface SupervisionPaths {
 }
 
 export function supervisionPaths(
-    profile = veraProfileName(),
     home = homedir(),
 ): SupervisionPaths {
-    const label = `dev.vera.host.${profile}`;
+    const label = "dev.vera.host";
     return {
         label,
         plistPath: join(home, "Library", "LaunchAgents", `${label}.plist`),
@@ -66,7 +63,6 @@ export interface SupervisionPlistInput {
     readonly label: string;
     readonly executable: string;
     readonly entrypoint: string;
-    readonly profile: string;
     readonly logDirectory: string;
     readonly workingDirectory: string;
     /** Carried so a supervised host reads the same home the installer did. */
@@ -76,7 +72,6 @@ export interface SupervisionPlistInput {
 
 export function renderSupervisionPlist(input: SupervisionPlistInput): string {
     const environment: Record<string, string> = {
-        [VERA_PROFILE_ENV]: input.profile,
         [SUPERVISED_HOST_ENV]: "1",
     };
     if (input.veraHome !== undefined) {
@@ -134,7 +129,6 @@ function domainTarget(): string {
 }
 
 export interface SupervisionOptions {
-    readonly profile?: string;
     readonly home?: string;
     readonly executable?: string;
     readonly entrypoint?: string;
@@ -158,8 +152,7 @@ export function installHostSupervision(
     const platform = options.platform ?? process.platform;
     assertSupported(platform);
     const env = options.env ?? process.env;
-    const profile = options.profile ?? veraProfileName(env);
-    const paths = supervisionPaths(profile, options.home);
+    const paths = supervisionPaths(options.home);
     const run = options.run ?? launchctl;
     const logDirectory = join(veraRuntimeDirectory(env), "logs");
     mkdirSync(logDirectory, { recursive: true, mode: 0o700 });
@@ -171,7 +164,6 @@ export function installHostSupervision(
             label: paths.label,
             executable: options.executable ?? process.execPath,
             entrypoint: options.entrypoint,
-            profile,
             logDirectory,
             workingDirectory: options.home ?? homedir(),
             veraHome: env[VERA_HOME_ENV]?.trim() || undefined,
@@ -200,8 +192,7 @@ export function removeHostSupervision(
 ): SupervisionRemoval {
     const platform = options.platform ?? process.platform;
     assertSupported(platform);
-    const env = options.env ?? process.env;
-    const paths = supervisionPaths(options.profile ?? veraProfileName(env), options.home);
+    const paths = supervisionPaths(options.home);
     const run = options.run ?? launchctl;
     try {
         run(["bootout", `${domainTarget()}/${paths.label}`]);
@@ -243,8 +234,7 @@ export function hostSupervisionStatus(
 ): SupervisionStatus {
     const platform = options.platform ?? process.platform;
     assertSupported(platform);
-    const env = options.env ?? process.env;
-    const paths = supervisionPaths(options.profile ?? veraProfileName(env), options.home);
+    const paths = supervisionPaths(options.home);
     const run = options.run ?? launchctl;
     const installed = existsSync(paths.plistPath);
     let printed: string;

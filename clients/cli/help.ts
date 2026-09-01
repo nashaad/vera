@@ -16,11 +16,11 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera export <session-path> [--format markdown|json]", description: "Export a conversation" },
     { usage: "vera inspect <session-path>", description: "Inspect the latest model request" },
     { usage: "vera configure", description: "Open Vera's config file in your editor" },
-    { usage: "vera extension list|install|enable|disable|remove", description: "Manage profile or project extensions" },
+    { usage: "vera extension list|install|enable|disable|remove", description: "Manage home or project extensions" },
     { usage: "vera abort <agent-id>", description: "Stop a live agent's active turn; the agent stays live and keeps its queued prompts" },
     { usage: "vera close <agent-id>", description: "End a live agent for good: discard its queued prompts and stop its work; the session is kept and can be resumed" },
-    { usage: "vera doctor", description: "Check this runtime's resident host, Vera process health, leftover tmux sockets, and providers; stops leftovers in this runtime after asking; does not stop other profiles, worktrees, SDK instances, or live tmux servers" },
-    { usage: "vera doctor --yes", description: "Stop leftovers in this runtime without asking first; does not stop other profiles, worktrees, SDK instances, or live tmux servers" },
+    { usage: "vera doctor", description: "Check the resident host, Vera process health, leftover tmux sockets, and providers; stops leftovers after asking; does not stop SDK instances or live tmux servers" },
+    { usage: "vera doctor --yes", description: "Stop leftovers without asking first; does not stop SDK instances or live tmux servers" },
     { usage: "vera doctor --check-providers", description: "Also contact each provider endpoint to test reachability and credentials" },
     { usage: "vera prune", description: "List this home's Vera processes and stop them one at a time" },
     { usage: "vera models refresh", description: "Fetch each provider's model list now, instead of waiting out the cache" },
@@ -34,8 +34,7 @@ export const CLI_COMMANDS: readonly CliCommandHelp[] = [
     { usage: "vera rollback [--prefix DIR]", description: "Restore the pinned known-good release; does not pack, use Git, or use the network. --prefix is a test prefix. The daily prefix is $HOME/.local" },
     { usage: "vera migrate-home [--rollback]", description: "Lift the default profile to the Vera home root; other profiles stay in a sibling backup. --rollback restores that backup" },
     { usage: "vera host stop [-y|--yes] [--force]", description: "Stop the resident host and attached clients; --force kills one that is not answering" },
-    { usage: "vera host supervise [off|status]", description: "Let launchd restart this profile's resident host when it dies, so schedules keep running with nobody at the keyboard" },
-    { usage: "vera rescue", description: "Start Vera under the isolated rescue profile, when the default profile's host is wedged" },
+    { usage: "vera host supervise [off|status]", description: "Let launchd restart the resident host when it dies, so schedules keep running with nobody at the keyboard" },
     { usage: "vera login", description: "Sign in to a Vera account (not available yet)" },
     { usage: "vera stdio", description: "Create an agent and bridge it as NDJSON" },
     { usage: "vera stdio --attach <agent-id>", description: "Bridge a live agent as NDJSON" },
@@ -59,7 +58,6 @@ export function renderCliHelp(corpus: HelpCorpus): string {
         + "  -h, --help     Show this help\n"
         + "  -y, --yes     Skip host stop or busy-host restart confirmation\n"
         + "  -v, --version  Show the product version and build ID\n"
-        + "  --profile NAME  Select a profile before starting Vera\n"
         + "\nFlags for -p:\n"
         + "  --bare                    Skip model extensions, project guidance, memory, and scratch prompt state\n"
         + "  --prompt-only             Send only Vera's identity prompt and user message; offer no tools\n"

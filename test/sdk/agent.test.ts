@@ -170,14 +170,12 @@ test("an SDK config snapshot applies exact-model request options", async () => {
     });
 });
 
-test("an SDK active-profile instance reads later request options", async () => {
-    const profile = `sdk-request-options-${process.pid}`;
-    const profileDirectory = veraProfileDirectory({
-        ...process.env,
-        VERA_PROFILE: profile,
-    });
-    const path = join(profileDirectory, "config.json");
-    mkdirSync(profileDirectory, { recursive: true });
+test("an SDK instance reads later request options from its home", async () => {
+    const home = mkdtempSync(join(tmpdir(), "vera-sdk-home-"));
+    const previousHome = process.env.VERA_HOME;
+    process.env.VERA_HOME = home;
+    const path = join(home, "config.json");
+    mkdirSync(home, { recursive: true });
     writeFileSync(path, JSON.stringify({
         schema_version: 1,
         provider: "openrouter",
@@ -196,7 +194,6 @@ test("an SDK active-profile instance reads later request options", async () => {
     ]);
     try {
         const vera = await Vera.create({
-            profile,
             createAdapter: () => capture(scripted, requests),
         });
         await vera.agent(basicDefinition()).run("first");
@@ -213,7 +210,9 @@ test("an SDK active-profile instance reads later request options", async () => {
             { provider: { only: ["second-longer"] } },
         ]);
     } finally {
-        rmSync(profileDirectory, { recursive: true, force: true });
+        if (previousHome === undefined) delete process.env.VERA_HOME;
+        else process.env.VERA_HOME = previousHome;
+        rmSync(home, { recursive: true, force: true });
     }
 });
 

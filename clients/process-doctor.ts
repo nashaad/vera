@@ -12,7 +12,6 @@ import {
 import {
     DEFAULT_PROFILE_NAME,
     VERA_HOME_ENV,
-    VERA_PROFILE_ENV,
     VERA_RUNTIME_DIR_ENV,
     veraHomeDirectory,
     veraRuntimeDirectory,

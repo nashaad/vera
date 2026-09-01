@@ -4,13 +4,9 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 
 import {
-    applyProfileFlag,
-    applyRescueCommand,
-    namedProfileFlag,
     runCli,
     runCliMain,
 } from "../clients/cli/main.ts";
-import { VeraProfileError } from "../src/profile-paths.ts";
 import type { RegisteredAgentSummary } from "../src/host/agent-registry.ts";
 import { VeraConfigError } from "../src/config.ts";
 import type { VeraDoctorReport } from "../clients/process-doctor.ts";
@@ -1337,13 +1333,6 @@ test("vera host stop --yes does not print Stopped if the pid is still there", as
     expect(output).not.toContain("Stopped");
 });
 
-test("vera rescue runs the TUI under the rescue profile", async () => {
-    const env: NodeJS.ProcessEnv = {};
-    expect(applyRescueCommand(["rescue"], env)).toEqual([]);
-    expect(env.VERA_PROFILE).toBe("rescue");
-    expect(applyRescueCommand(["host", "stop"], env)).toEqual(["host", "stop"]);
-});
-
 test("vera names the recovery commands for an unresponsive host", async () => {
     let errorOutput = "";
     const exitCode = await runCliMain([], {
@@ -1354,34 +1343,8 @@ test("vera names the recovery commands for an unresponsive host", async () => {
     expect(exitCode).toBe(1);
     expect(errorOutput).toBe(
         "Resident Vera host PID 51639 is running but not responding.\n"
-        + "Run 'vera host stop --force' to kill it.\n"
-        + "For a working Vera while it stays wedged, run 'vera rescue'.\n",
+        + "Run 'vera host stop --force' to kill it.\n",
     );
-});
-
-test("vera rescue reads past the global yes flag", () => {
-    const env: NodeJS.ProcessEnv = {};
-    expect(applyRescueCommand(["--yes", "rescue"], env)).toEqual(["--yes"]);
-    expect(env.VERA_PROFILE).toBe("rescue");
-});
-
-test("vera rescue refuses to also take an explicit profile", () => {
-    const env: NodeJS.ProcessEnv = {};
-    expect(() => applyRescueCommand(["rescue"], env, "dogfood")).toThrow(
-        VeraProfileError,
-    );
-    expect(env.VERA_PROFILE).toBeUndefined();
-});
-
-test("host stop names the one resident host", () => {
-    const env: NodeJS.ProcessEnv = {};
-    expect(namedProfileFlag(["host", "stop", "--force", "--profile", "default"]))
-        .toBe("default");
-    expect(namedProfileFlag(["host", "stop", "--force"])).toBeUndefined();
-    expect(applyProfileFlag(
-        ["host", "stop", "--force", "--profile", "default"],
-        env,
-    )).toEqual(["host", "stop", "--force"]);
 });
 
 test("vera reports a damaged config without a runtime stack trace", async () => {
@@ -1653,7 +1616,7 @@ test("vera host supervise status names the supervised host's pid", async () => {
     expect(output).toContain("running the host as PID 4321");
 });
 
-test("vera host supervise status on a profile without it names the fix", async () => {
+test("vera host supervise status without it names the fix", async () => {
     let output = "";
     const exitCode = await runCli(["host", "supervise", "status"], {
         superviseHost: () => ({
